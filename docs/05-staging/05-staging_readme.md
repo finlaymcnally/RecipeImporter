@@ -403,3 +403,16 @@ Current stage fallback contract:
 
 Performance/regression evidence retained in task:
 - SpeedSuite baseline/candidate compare for stage-import scenario passed (`data/golden/bench/speed/comparisons/2026-02-28_14.36.36/comparison.json`).
+
+## 2026-02-28 merged understandings (stage fallback observability and worker path)
+
+Merged source notes:
+- `docs/understandings/2026-02-28_14.42.43-stage-thread-fallback-worker-label-collision.md`
+- `docs/understandings/2026-02-28_15.00.58-stage-subprocess-workers-bypass-processpool-denial.md`
+
+Current staging-contract additions:
+- In thread fallback mode, worker labels must include non-main thread names to avoid telemetry key collisions that falsely show `active_workers=1`.
+- Stage fallback supports subprocess-backed workers as the preferred process-denied recovery path before plain thread fallback.
+- Subprocess fallback is a concurrency workaround when SemLock/process-pool startup is denied; it does not restore host process-pool capability.
+- `processing_timeseries.jsonl` worker-status interpretation should account for thread/subprocess label semantics when diagnosing apparent serial behavior.
+

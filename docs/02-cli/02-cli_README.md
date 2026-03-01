@@ -1360,3 +1360,15 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 
 Anti-loop note:
 - If Codex enable prompts appear but model/reasoning prompts do not, confirm the resolved chooser payload still has `llm_recipe_pipeline=codex-farm-3pass-v1` before editing benchmark-mode menus.
+
+## 2026-02-28 merged understandings (joblib SemLock startup warning guard)
+
+### 2026-02-28_14.46.38 joblib SemLock warning is startup noise in restricted runtimes
+- Source: `docs/understandings/2026-02-28_14.46.38-joblib-semlock-warning-is-startup-noise-not-new-regression.md`
+- Repeated `joblib ... will operate in serial mode` output can be import-time SemLock probe noise rather than a newly introduced runtime regression.
+- Startup guard behavior:
+  - probe SemLock early,
+  - set `JOBLIB_MULTIPROCESSING=0` before joblib import when host is restricted,
+  - preserve explicit `JOBLIB_MULTIPROCESSING` env overrides as authoritative.
+- Escape hatch: `COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD` disables the guard for debugging.
+

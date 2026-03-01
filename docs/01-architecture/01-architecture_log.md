@@ -210,3 +210,57 @@ Supersession rules preserved:
 
 Anti-loop note:
 - For future docs consolidation, do not delete source docs before two-surface merge (`README` current contract + `_log` chronology/failures) is complete.
+
+## 2026-02-28 migrated understanding ledger (cross-domain fallback surface + OG-plan closure evidence)
+
+### 2026-02-28_12.18.33 sandbox process-pool fallback surface map
+
+Source: `docs/understandings/2026-02-28_12.18.33-sandbox-processpool-fallback-surface-map.md`
+
+Problem captured:
+- "parallelism fixed" claims were ambiguous because fallback behavior differed by workflow layer.
+
+Durable findings:
+- QualitySuite and stage had subprocess fallback coverage.
+- Label Studio split-convert behavior had separate fallback path/state.
+- All-method config fanout used thread fallback when process workers were unavailable.
+
+Architecture anti-loop note:
+- Always diagnose fallback by layer (stage, all-method, quality, split-convert), not by one global host verdict.
+
+### 2026-02-28_14.28.50 OG-plan implementation coverage audit
+
+Source: `docs/understandings/2026-02-28_14.28.50-ogplan-implementation-coverage-audit.md`
+
+Problem captured:
+- Needed a code-and-tests audit for OG-plan items to separate real implementation gaps from docs/checklist drift.
+
+Durable outcomes:
+- Audit tied OG-plan claims to current runtime code, targeted pytest evidence, and speed-suite compare artifacts.
+- Cross-cut result: most gaps were closure-evidence/docs integrity issues, not missing runtime behavior.
+
+### 2026-02-28_14.37.20 OG-plan gap-closure evidence
+
+Source: `docs/understandings/2026-02-28_14.37.20-ogplan-gap-closure-evidence.md`
+
+Problem captured:
+- Remaining OG closure gaps were explicit-evidence gaps (tests/docs/speed comparison records).
+
+Durable outcomes:
+- Added missing targeted assertions and recorded speed compare PASS evidence.
+- Cleaned stale telemetry summary references to point to canonical merged docs.
+
+### 2026-02-28_15.40.31 process-worker-required failfast surfaces
+
+Source: `docs/understandings/2026-02-28_15.40.31-process-worker-required-failfast-surfaces.md`
+
+Problem captured:
+- `--require-process-workers` behaved like preference in some paths, allowing silent fallback.
+
+Durable decisions:
+- Promote strict mode to fail-fast contract across stage, all-method, quality-run, and speed-run entrypoints.
+- Persist executor-resolution telemetry so strict failures and fallback reasons are auditable.
+
+Anti-loop note:
+- If strict mode exits early, treat that as expected contract enforcement unless resolver telemetry shows false-negative probing.
+

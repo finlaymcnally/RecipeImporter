@@ -392,3 +392,23 @@ Current-contract additions from domain mapping merge:
 
 Anti-loop note:
 - If cross-section doc merges are repeated, use explicit routing + supersession tagging first; ad-hoc merges reintroduce stale behavior claims.
+
+## 2026-02-28 merged understandings (cross-domain fallback and plan-closure contracts)
+
+Merged source notes:
+- `docs/understandings/2026-02-28_12.18.33-sandbox-processpool-fallback-surface-map.md`
+- `docs/understandings/2026-02-28_14.28.50-ogplan-implementation-coverage-audit.md`
+- `docs/understandings/2026-02-28_14.37.20-ogplan-gap-closure-evidence.md`
+- `docs/understandings/2026-02-28_15.40.31-process-worker-required-failfast-surfaces.md`
+
+Current architecture additions:
+- Process-worker denial behavior is lane-specific and must be documented by layer, not as one global fallback claim:
+  - quality-run supports subprocess experiment fallback,
+  - stage supports subprocess-backed worker fallback,
+  - split-convert previously had serial fallback until dedicated wiring landed.
+- `--require-process-workers` is now a strict cross-surface contract:
+  - stage/all-method/quality/speed fail fast when process workers cannot be established,
+  - these commands should not silently degrade under strict mode.
+- Executor-resolution telemetry is part of architecture observability now (stage worker resolution artifacts and all-method/bench executor metadata).
+- OG-plan closure rule: keep implementation claims tied to runtime/test evidence and recorded speed compare artifacts, not checklist state alone.
+

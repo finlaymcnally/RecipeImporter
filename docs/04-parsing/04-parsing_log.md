@@ -615,3 +615,33 @@ Evidence preserved:
 
 Anti-loop note:
 - If candidate suppression appears over-aggressive, inspect `pattern_diagnostics.json` and penalty reasons before changing constants blindly.
+
+## 2026-02-28 migrated understanding ledger (pattern-detector closure status)
+
+### 2026-02-28_12.16.27 pattern detectors and heads-up integration points
+
+Source: `docs/understandings/2026-02-28_12.16.27-pattern-detectors-and-heads-up-integration-points.md`
+
+Problem captured:
+- Needed deterministic TOC/duplicate suppression insertion guidance plus future-proof hook points for codex heads-up data.
+
+Durable findings:
+- Candidate gating path already supports non-destructive penalties/rejections.
+- Best deterministic insertion point is after extraction and before candidate detection in EPUB/PDF importers.
+- Heads-up telemetry persistence path already exists in codex runner/process-run artifacts.
+
+### 2026-02-28_12.44.31 pattern-detector plan/docs lag discovery
+
+Source: `docs/understandings/2026-02-28_12.44.31-pattern-detector-plan-doc-lag-discovery.md`
+
+Problem captured:
+- ExecPlan/docs checklist implied pending implementation even though runtime/tests already contained shipped detector/hints behavior.
+
+Durable decisions:
+- Treat this feature set as implemented baseline.
+- Keep `pattern_hints` default-off behind explicit env gate.
+- Update plans/docs before proposing new detector rewrites to avoid duplicate implementation loops.
+
+Anti-loop note:
+- If a checklist says detector milestone missing, validate current code/tests first; do not re-implement blindly.
+

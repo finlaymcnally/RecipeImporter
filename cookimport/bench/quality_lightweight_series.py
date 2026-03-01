@@ -407,9 +407,13 @@ def run_quality_lightweight_series(
             )
         else:
             confidence_guard_root = round_1_root / "confidence_guard"
-            guard_folds = _execute_round(
-                round_root=confidence_guard_root,
+            guard_fold = _run_round_fold(
+                fold_root=confidence_guard_root
+                / f"fold_{len(round_1_seeds) + 1:02d}_seed_{confidence_guard_seed}",
                 round_name="round_1_main_effects_confidence_guard",
+                fold_index=len(round_1_seeds) + 1,
+                fold_total=len(round_1_seeds) + 1,
+                seed=confidence_guard_seed,
                 round_config=LightweightRoundConfig(
                     seed_count=1,
                     search_strategy=profile.rounds.round_1_main_effects.search_strategy,
@@ -419,7 +423,6 @@ def run_quality_lightweight_series(
                     race_keep_ratio=profile.rounds.round_1_main_effects.race_keep_ratio,
                     race_finalists=profile.rounds.round_1_main_effects.race_finalists,
                 ),
-                seeds=[confidence_guard_seed],
                 gold_root=gold_root,
                 input_root=input_root,
                 suite_max_targets=suite_max_targets,
@@ -429,7 +432,7 @@ def run_quality_lightweight_series(
                 require_process_workers=require_process_workers,
                 progress_callback=progress_callback,
             )
-            round_1_folds.extend(guard_folds)
+            round_1_folds.append(guard_fold)
             round_1_metrics = _aggregate_round_metrics(
                 fold_payloads=round_1_folds,
                 experiment_ids=round_1_ids,
@@ -1751,4 +1754,3 @@ def _format_delta(value: Any) -> str:
     if numeric is None:
         return "n/a"
     return f"{numeric:+.4f}"
-

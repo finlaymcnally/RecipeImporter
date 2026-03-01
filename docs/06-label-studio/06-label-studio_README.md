@@ -336,3 +336,12 @@ Current Label Studio split-convert fallback contract:
 - Split conversion fallback order now mirrors stage/all-method behavior: `process -> thread -> serial`.
 - Process-worker denial should produce thread-fallback warning text first; serial fallback should only appear if thread startup also fails.
 - Shared resolver plumbing is centralized in `cookimport/core/executor_fallback.py` to keep fallback behavior aligned across stage and Label Studio surfaces.
+
+## 2026-02-28 merged understandings (split-convert fallback closure and test robustness)
+
+### 2026-02-28_13.19.45 stage and Label Studio fallback plan closure
+- Source: `docs/understandings/2026-02-28_13.19.45-stage-and-labelstudio-fallback-plan-closure-and-test-wrap.md`
+- Shared fallback resolver rollout for stage + Label Studio split conversion is complete in runtime code (`cookimport/core/executor_fallback.py` + call sites).
+- Split-convert fallback behavior is validated by targeted tests; remaining confusion tended to be assertion fragility, not missing fallback runtime wiring.
+- Test-contract reminder: warning text can wrap under rich/terminal output; normalize whitespace before matching fallback phrases in assertions.
+

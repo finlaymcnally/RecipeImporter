@@ -2027,52 +2027,31 @@ def _run_single_experiment(
     require_process_workers: bool,
     progress_callback: ProgressCallback | None,
 ) -> QualityExperimentResult:
-    race_metadata: dict[str, Any] | None = None
+    search_strategy_metadata: dict[str, Any] | None = None
     if search_strategy == "race" and len(suite_targets) > 1:
-        probe_targets = _select_probe_targets(
-            suite_targets=suite_targets,
-            max_targets=min(len(suite_targets), race_probe_targets),
+        all_target_variants, all_variants_unfiltered, all_variants_effective = (
+            _build_target_variants_for_targets(
+                suite_targets=suite_targets,
+                run_settings=run_settings,
+                include_codex_farm=include_codex_effective,
+                include_markdown_extractors=include_markdown_extractors,
+                include_deterministic_sweeps=include_deterministic_sweeps,
+                allowed_run_settings_hashes=None,
+            )
         )
-        mid_targets = _select_mid_targets(
-            suite_targets=suite_targets,
-            probe_targets=probe_targets,
-            max_targets=min(len(suite_targets), race_mid_targets),
-        )
-        race_dir = experiment_root / "race"
-        race_dir.mkdir(parents=True, exist_ok=True)
-        race_rounds: list[dict[str, Any]] = []
-        survivor_hashes: set[str] | None = None
-
-        round_plan: list[tuple[str, list[Any]]] = [("probe", probe_targets)]
-        if len(mid_targets) > len(probe_targets):
-            round_plan.append(("mid", mid_targets))
-
-        for round_index, (round_name, round_targets) in enumerate(round_plan, start=1):
-            round_root = race_dir / f"round_{round_index:02d}_{round_name}"
-            round_root.mkdir(parents=True, exist_ok=True)
-            if progress_callback is not None:
-                _notify_progress(
-                    progress_callback,
-                    (
-                        f"Quality suite [{experiment_id}] race round {round_index}/{len(round_plan) + 1} "
-                        f"({round_name}) targets={len(round_targets)} survivors="
-                        f"{len(survivor_hashes) if survivor_hashes else 'all'}"
-                    ),
-                )
-            target_variants, variants_unfiltered, variants_effective = (
-                _build_target_variants_for_targets(
-                    suite_targets=round_targets,
-                    run_settings=run_settings,
-                    include_codex_farm=include_codex_effective,
-                    include_markdown_extractors=include_markdown_extractors,
-                    include_deterministic_sweeps=include_deterministic_sweeps,
-                    allowed_run_settings_hashes=survivor_hashes,
-                )
+        if all_variants_effective <= race_finalists:
+            _notify_progress(
+                progress_callback,
+                (
+                    f"Quality suite [{experiment_id}] race requested but variants="
+                    f"{all_variants_effective} <= finalists={race_finalists}; "
+                    "using exhaustive strategy."
+                ),
             )
             report_md_path = _run_all_method_for_round(
                 experiment_id=experiment_id,
-                target_variants=target_variants,
-                root_output_dir=round_root,
+                target_variants=all_target_variants,
+                root_output_dir=experiment_root,
                 all_method_runtime=all_method_runtime,
                 include_codex_farm_requested=include_codex_farm_requested,
                 include_codex_effective=include_codex_effective,
@@ -2081,93 +2060,165 @@ def _run_single_experiment(
                 require_process_workers=bool(require_process_workers),
                 progress_callback=progress_callback,
             )
-            report_json_path = report_md_path.with_suffix(".json")
-            report_payload = _load_json_dict(report_json_path)
-            ranked_rows = _rank_run_settings_hashes_from_multi_source_report(
-                experiment_root=round_root,
-                report_payload=report_payload,
-            )
-            if ranked_rows:
-                if round_name == "probe":
-                    keep_count = _compute_keep_count(
-                        total=len(ranked_rows),
-                        keep_ratio=race_keep_ratio,
-                        minimum=max(race_finalists, 1),
-                    )
-                else:
-                    keep_count = _compute_keep_count(
-                        total=len(ranked_rows),
-                        keep_ratio=_RACE_KEEP_RATIO_SECONDARY,
-                        minimum=max(race_finalists, 1),
-                    )
-                survivor_hashes = {
-                    str(row.get("run_settings_hash") or "")
-                    for row in ranked_rows[:keep_count]
-                    if str(row.get("run_settings_hash") or "").strip()
-                }
-            race_rounds.append(
-                {
-                    "round_index": round_index,
-                    "round_name": round_name,
-                    "target_ids": _target_ids(round_targets),
-                    "variants_unfiltered": variants_unfiltered,
-                    "variants_effective": variants_effective,
-                    "ranked_count": len(ranked_rows),
-                    "survivors_after_round": len(survivor_hashes)
-                    if survivor_hashes
-                    else 0,
-                    "report_json_path": _relative_to_run_root(report_json_path, run_root),
-                }
-            )
-            if survivor_hashes and len(survivor_hashes) <= race_finalists:
-                break
-
-        final_target_variants, final_unfiltered, final_effective = (
-            _build_target_variants_for_targets(
+            search_strategy_metadata = {
+                "requested_strategy": "race",
+                "effective_strategy": "exhaustive",
+                "reason": "race_no_prune_variant_count_le_finalists",
+                "race_finalists": race_finalists,
+                "target_count": len(suite_targets),
+                "variants_unfiltered": all_variants_unfiltered,
+                "variants_effective": all_variants_effective,
+                "strategy": "exhaustive",
+            }
+        else:
+            probe_targets = _select_probe_targets(
                 suite_targets=suite_targets,
-                run_settings=run_settings,
-                include_codex_farm=include_codex_effective,
-                include_markdown_extractors=include_markdown_extractors,
-                include_deterministic_sweeps=include_deterministic_sweeps,
-                allowed_run_settings_hashes=survivor_hashes,
+                max_targets=min(len(suite_targets), race_probe_targets),
             )
-        )
-        if progress_callback is not None:
-            _notify_progress(
-                progress_callback,
-                (
-                    f"Quality suite [{experiment_id}] race final round targets={len(suite_targets)} "
-                    f"variants={final_effective}"
-                ),
+            mid_targets = _select_mid_targets(
+                suite_targets=suite_targets,
+                probe_targets=probe_targets,
+                max_targets=min(len(suite_targets), race_mid_targets),
             )
-        report_md_path = _run_all_method_for_round(
-            experiment_id=experiment_id,
-            target_variants=final_target_variants,
-            root_output_dir=experiment_root,
-            all_method_runtime=all_method_runtime,
-            include_codex_farm_requested=include_codex_farm_requested,
-            include_codex_effective=include_codex_effective,
-            canonical_alignment_cache_root=canonical_alignment_cache_root,
-            prediction_reuse_cache_root=prediction_reuse_cache_root,
-            require_process_workers=bool(require_process_workers),
-            progress_callback=progress_callback,
-        )
-        race_metadata = {
-            "strategy": "race",
-            "probe_targets": race_probe_targets,
-            "mid_targets": race_mid_targets,
-            "keep_ratio": race_keep_ratio,
-            "finalists": race_finalists,
-            "rounds": race_rounds,
-            "final": {
-                "target_ids": _target_ids(suite_targets),
-                "variants_unfiltered": final_unfiltered,
-                "variants_effective": final_effective,
-                "survivor_hashes_used": sorted(survivor_hashes)
-                if survivor_hashes
-                else [],
-            },
-        }
+            race_dir = experiment_root / "race"
+            race_dir.mkdir(parents=True, exist_ok=True)
+            race_rounds: list[dict[str, Any]] = []
+            survivor_hashes: set[str] | None = None
+
+            round_plan: list[tuple[str, list[Any]]] = [("probe", probe_targets)]
+            if len(mid_targets) > len(probe_targets):
+                round_plan.append(("mid", mid_targets))
+
+            for round_index, (round_name, round_targets) in enumerate(round_plan, start=1):
+                round_root = race_dir / f"round_{round_index:02d}_{round_name}"
+                round_root.mkdir(parents=True, exist_ok=True)
+                if progress_callback is not None:
+                    _notify_progress(
+                        progress_callback,
+                        (
+                            f"Quality suite [{experiment_id}] race round {round_index}/{len(round_plan) + 1} "
+                            f"({round_name}) targets={len(round_targets)} survivors="
+                            f"{len(survivor_hashes) if survivor_hashes else 'all'}"
+                        ),
+                    )
+                target_variants, variants_unfiltered, variants_effective = (
+                    _build_target_variants_for_targets(
+                        suite_targets=round_targets,
+                        run_settings=run_settings,
+                        include_codex_farm=include_codex_effective,
+                        include_markdown_extractors=include_markdown_extractors,
+                        include_deterministic_sweeps=include_deterministic_sweeps,
+                        allowed_run_settings_hashes=survivor_hashes,
+                    )
+                )
+                report_md_path = _run_all_method_for_round(
+                    experiment_id=experiment_id,
+                    target_variants=target_variants,
+                    root_output_dir=round_root,
+                    all_method_runtime=all_method_runtime,
+                    include_codex_farm_requested=include_codex_farm_requested,
+                    include_codex_effective=include_codex_effective,
+                    canonical_alignment_cache_root=canonical_alignment_cache_root,
+                    prediction_reuse_cache_root=prediction_reuse_cache_root,
+                    require_process_workers=bool(require_process_workers),
+                    progress_callback=progress_callback,
+                )
+                report_json_path = report_md_path.with_suffix(".json")
+                report_payload = _load_json_dict(report_json_path)
+                ranked_rows = _rank_run_settings_hashes_from_multi_source_report(
+                    experiment_root=round_root,
+                    report_payload=report_payload,
+                )
+                if ranked_rows:
+                    if round_name == "probe":
+                        keep_count = _compute_keep_count(
+                            total=len(ranked_rows),
+                            keep_ratio=race_keep_ratio,
+                            minimum=max(race_finalists, 1),
+                        )
+                    else:
+                        keep_count = _compute_keep_count(
+                            total=len(ranked_rows),
+                            keep_ratio=_RACE_KEEP_RATIO_SECONDARY,
+                            minimum=max(race_finalists, 1),
+                        )
+                    survivor_hashes = {
+                        str(row.get("run_settings_hash") or "")
+                        for row in ranked_rows[:keep_count]
+                        if str(row.get("run_settings_hash") or "").strip()
+                    }
+                race_rounds.append(
+                    {
+                        "round_index": round_index,
+                        "round_name": round_name,
+                        "target_ids": _target_ids(round_targets),
+                        "variants_unfiltered": variants_unfiltered,
+                        "variants_effective": variants_effective,
+                        "ranked_count": len(ranked_rows),
+                        "survivors_after_round": len(survivor_hashes)
+                        if survivor_hashes
+                        else 0,
+                        "report_json_path": _relative_to_run_root(report_json_path, run_root),
+                    }
+                )
+                if survivor_hashes and len(survivor_hashes) <= race_finalists:
+                    break
+
+            final_target_variants, final_unfiltered, final_effective = (
+                _build_target_variants_for_targets(
+                    suite_targets=suite_targets,
+                    run_settings=run_settings,
+                    include_codex_farm=include_codex_effective,
+                    include_markdown_extractors=include_markdown_extractors,
+                    include_deterministic_sweeps=include_deterministic_sweeps,
+                    allowed_run_settings_hashes=survivor_hashes,
+                )
+            )
+            if progress_callback is not None:
+                _notify_progress(
+                    progress_callback,
+                    (
+                        f"Quality suite [{experiment_id}] race final round targets={len(suite_targets)} "
+                        f"variants={final_effective}"
+                    ),
+                )
+            report_md_path = _run_all_method_for_round(
+                experiment_id=experiment_id,
+                target_variants=final_target_variants,
+                root_output_dir=experiment_root,
+                all_method_runtime=all_method_runtime,
+                include_codex_farm_requested=include_codex_farm_requested,
+                include_codex_effective=include_codex_effective,
+                canonical_alignment_cache_root=canonical_alignment_cache_root,
+                prediction_reuse_cache_root=prediction_reuse_cache_root,
+                require_process_workers=bool(require_process_workers),
+                progress_callback=progress_callback,
+            )
+            search_strategy_metadata = {
+                "requested_strategy": "race",
+                "effective_strategy": "race",
+                "reason": None,
+                "strategy": "race",
+                "probe_targets": race_probe_targets,
+                "mid_targets": race_mid_targets,
+                "keep_ratio": race_keep_ratio,
+                "finalists": race_finalists,
+                "variant_counts": {
+                    "full_unfiltered": all_variants_unfiltered,
+                    "full_effective": all_variants_effective,
+                    "final_unfiltered": final_unfiltered,
+                    "final_effective": final_effective,
+                },
+                "rounds": race_rounds,
+                "final": {
+                    "target_ids": _target_ids(suite_targets),
+                    "variants_unfiltered": final_unfiltered,
+                    "variants_effective": final_effective,
+                    "survivor_hashes_used": sorted(survivor_hashes)
+                    if survivor_hashes
+                    else [],
+                },
+            }
     else:
         target_variants, _all_variants_unfiltered, _all_variants_effective = (
             _build_target_variants_for_targets(
@@ -2193,9 +2244,9 @@ def _run_single_experiment(
         )
     report_json_path = report_md_path.with_suffix(".json")
     report_payload = _load_json_dict(report_json_path)
-    if race_metadata is not None:
+    if search_strategy_metadata is not None:
         (experiment_root / "search_strategy.json").write_text(
-            json.dumps(race_metadata, indent=2, sort_keys=True),
+            json.dumps(search_strategy_metadata, indent=2, sort_keys=True),
             encoding="utf-8",
         )
     aggregate_payload = _summarize_experiment_report(

@@ -68,6 +68,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_quality_eta.py": ("bench",),
     "test_quality_lightweight_series.py": ("bench",),
     "test_quality_leaderboard.py": ("bench",),
+    "test_quality_top_tier_tournament.py": ("bench",),
     "test_quality_suite_runner.py": ("bench",),
     "test_recipe_sections.py": ("parsing",),
     "test_recipe_likeness_scoring.py": ("core",),

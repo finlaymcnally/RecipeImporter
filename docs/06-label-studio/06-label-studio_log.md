@@ -204,3 +204,21 @@ Durable decisions/outcomes:
 
 Anti-loop note:
 - If split conversion appears serial, verify whether thread fallback was attempted and failed before treating it as scheduler regression.
+
+## 2026-02-28 migrated understanding ledger (split-convert fallback closure)
+
+### 2026-02-28_13.19.45 stage and Label Studio fallback plan closure + wrapped warning discovery
+
+Source: `docs/understandings/2026-02-28_13.19.45-stage-and-labelstudio-fallback-plan-closure-and-test-wrap.md`
+
+Problem captured:
+- Needed confirmation that sandbox fallback plan was implemented in runtime (not only planned), plus stable regression assertions for warning output.
+
+Durable outcomes:
+- Runtime fallback wiring exists for both stage and Label Studio split conversion.
+- Targeted fallback tests pass after hardening assertion style.
+- Assertion contract changed from contiguous-phrase matching to whitespace-normalized matching to tolerate wrapped terminal output.
+
+Anti-loop note:
+- If fallback tests fail but warning words are visibly present, normalize whitespace first before assuming behavior regression.
+

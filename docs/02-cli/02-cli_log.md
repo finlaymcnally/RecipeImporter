@@ -739,3 +739,21 @@ Durable decisions:
 
 Anti-loop note:
 - Treat missing model/reasoning follow-up as chooser-state regression first; do not patch benchmark menus before validating `choose_run_settings(...)` output.
+
+## 2026-02-28 migrated understanding ledger (joblib startup warning guard)
+
+### 2026-02-28_14.46.38 joblib SemLock warning is startup noise, not new regression
+
+Source: `docs/understandings/2026-02-28_14.46.38-joblib-semlock-warning-is-startup-noise-not-new-regression.md`
+
+Problem captured:
+- Restricted hosts emitted repeated joblib serial-mode warnings during startup/import, creating false regression signals and noisy CLI output.
+
+Durable decisions:
+- Add early SemLock probe and set `JOBLIB_MULTIPROCESSING=0` when restriction is detected.
+- Keep explicit user-provided `JOBLIB_MULTIPROCESSING` value authoritative.
+- Provide guard disable env (`COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD`) for controlled troubleshooting.
+
+Anti-loop note:
+- Differentiate startup warning noise from actual executor-resolution regressions before changing benchmark/stage fallback logic.
+

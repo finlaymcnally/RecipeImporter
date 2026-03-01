@@ -203,6 +203,7 @@ Canonical cache:
   - `bench quality-run`: `data/golden/bench/quality/.cache/prediction_reuse`
   - tournament folds: shared by default at `data/golden/bench/quality/.cache/prediction_reuse`
 - Override prediction reuse root via `COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT`.
+- Prediction artifact materialization is hardlink-first (when filesystem permits), with automatic copy fallback.
 - Cache lock recovery handles dead-owner PID locks first, then age-based fallback for malformed lock metadata.
 
 ## 6. All-Method Runtime Notes
@@ -242,6 +243,10 @@ Operational interpretation:
   - `evaluation_runs_executed`
   - `evaluation_results_reused_in_run`
   - `evaluation_results_reused_cross_run`
+  - `prediction_signatures_unique`
+  - `prediction_runs_executed`
+  - `prediction_results_reused_in_run`
+  - `prediction_results_reused_cross_run`
 - All-method reports now include `executor_resolution` telemetry:
   - `process_workers_required`
   - `process_worker_probe_available`
@@ -256,6 +261,7 @@ Operational interpretation:
   - `eval_signature`
   - `evaluation_result_source` (`executed`, `reused_in_run`, `reused_cross_run`)
   - `evaluation_representative_config_dir`
+  - `prediction_result_source` (`executed`, `reused_in_run`, `reused_cross_run`)
 - Interactive all-method benchmark can auto-sweep deterministic Priority 2–6 knobs (default on in the wizard):
   - `section_detector_backend`
   - `multi_recipe_splitter`
@@ -293,17 +299,24 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 
 For repeated certainty checks before promoting a new top-tier set, use
 `scripts/quality_top_tier_tournament.py` with:
-- shortlist experiments file: `data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json`
-- full-candidate experiments file: `data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json`
-- fast non-sweeps thresholds file: `data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json`
-- output root: `data/golden/bench/quality/tournaments/<timestamp>/...` (`summary.json`, `report.md`, `folds.json`)
+- parser Phase A experiments file: `data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json`
+- parser Phase A thresholds file: `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json`
+- parser Phase B confidence thresholds file: `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json`
+- parser Phase B+ sweeps-decision thresholds file (optional): `data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json`
+- output root: `data/golden/bench/quality/tournaments/<timestamp>/...` (`tournament_resolved.json`, `tournament_checkpoint.json`, `summary.json`, `report.md`, `folds.json`)
 - resume option: `--resume-tournament-dir data/golden/bench/quality/tournaments/<existing_timestamp>` (reuses completed fold results and resumes partial fold quality-runs)
-- workflow: run shortlist first, then run full-candidate file for only shortlist finalists.
-- fast parsing answer mode: `--quick-parsing` (parser-focused candidates, sweeps off, exhaustive search, and 2-seed cap unless `--max-seeds` is provided).
+- workflow: run parser Phase A first, then Phase B using `--auto-candidates-from-summary` or `--auto-candidates-from-latest-in` (or explicit `--candidate-experiment-id` override) for promoted candidate ids.
+- fast parsing answer mode: `--quick-parsing` (parser-focused candidates, sweeps off, exhaustive search, and 3-seed cap unless explicit seeds or `--max-seeds` is provided).
+- phase thresholds now pin `quality_run.max_parallel_experiments_default=4`; CLI `--max-parallel-experiments` still overrides.
 - optional scope/speed overrides:
   - `--candidate-experiment-id <id>` (repeatable) to run only selected candidate ids
+  - `--auto-candidates-from-summary <summary.json or tournament_dir>` for Phase A -> Phase B handoff
+  - `--auto-candidates-from-latest-in <tournament_root_dir>` to auto-pick from newest tournament result
   - `--max-candidates <N>` to cap candidate count after filters
   - `--max-seeds <N>` to cap fold count
+  - `--seed <int>` (repeatable) for explicit seed selection
+  - `--seed-list "42,2718,4242"` for comma-separated explicit seed selection
+  - explicit `--seed`/`--seed-list` can be combined with `--max-seeds` (dedupe then cap)
   - `--force-no-deterministic-sweeps` to force sweeps off regardless of thresholds
   - `--quality-search-strategy race|exhaustive` to override thresholds search mode
 
@@ -911,3 +924,73 @@ Current benchmark/runtime contract from this batch:
 
 Known caveat retained from speed2-3 closeout:
 - Full-suite `speed-compare` at `warmups=0,repeats=1` is noisy enough to produce false regression FAILs on unchanged code. Re-run with warmups/repeats before treating a single FAIL as actionable regression evidence.
+
+## 2026-02-28 to 2026-03-01 merged understandings (QualitySuite/SpeedSuite reliability and fast-answer flows)
+
+Merged source notes (chronological):
+- `docs/understandings/2026-02-28_11.14.44-qualitysuite-seed-variation-and-tournament-cache-dedupe.md`
+- `docs/understandings/2026-02-28_11.18.07-quality-tournament-gate-impossibility-pruning.md`
+- `docs/understandings/2026-02-28_11.33.22-quality-run-auto-cap-ceiling-and-ramp.md`
+- `docs/understandings/2026-02-28_11.45.55-qualitysuite-low-cpu-due-shm-permission-and-thread-fallback.md`
+- `docs/understandings/2026-02-28_12.00.19-quality-run-subprocess-experiment-fallback-for-shm-restricted-hosts.md`
+- `docs/understandings/2026-02-28_13.24.03-qualitysuite-crash-and-sweep-signal-check.md`
+- `docs/understandings/2026-02-28_13.27.30-speed2-3-closure-dmp-selector-stdlib-script.md`
+- `docs/understandings/2026-02-28_14.36.24-qualitysuite-checkpoint-resume-surface-map.md`
+- `docs/understandings/2026-02-28_14.40.12-full-speedsuite-serial-mode-and-variance.md`
+- `docs/understandings/2026-02-28_14.46.40-deterministic-sweep-must-include-decision-snapshot.md`
+- `docs/understandings/2026-02-28_14.51.46-speedsuite-serial-task-loop-and-no-resume-contract.md`
+- `docs/understandings/2026-02-28_15.01.40-qualitysuite-hot-cpu-io-guard-profile.md`
+- `docs/understandings/2026-02-28_15.19.25-processpool-restored-session-probe.md`
+- `docs/understandings/2026-02-28_15.31.28-speedsuite-parallel-checkpoint-resume-contract.md`
+- `docs/understandings/2026-02-28_15.48.23-qualitysuite-tournament-sweeps-workload-and-prediction-reuse-scope.md`
+- `docs/understandings/2026-02-28_16.27.10-prediction-reuse-cross-root-same-config-dir-guard.md`
+- `docs/understandings/2026-02-28_20.20.04-fast-shortlist-fold-gate-impossibility-and-sweeps-decision-thresholds.md`
+- `docs/understandings/2026-02-28_20.35.43-qualitysuite-live-eta-queue-aware.md`
+- `docs/understandings/2026-02-28_20.50.43-qualitysuite-when-prior-tournament-results-are-reusable.md`
+- `docs/understandings/2026-02-28_21.01.58-qualitysuite-race-finalists-no-prune-overhead.md`
+- `docs/understandings/2026-02-28_21.14.34-qualitysuite-live-work-units-can-rise-during-normal-scheduling.md`
+- `docs/understandings/2026-02-28_21.29.32-quality-tournament-quick-overrides-for-fast-parsing-answer.md`
+- `docs/understandings/2026-02-28_21.51.19-quality-lightweight-series-entrypoint-and-profile-contract.md`
+- `docs/understandings/2026-02-28_22.11.43-oracle-parsing-accuracy-plan-scope-gap-map.md`
+- `docs/understandings/2026-03-01_00.20.00-quality-lightweight-series-fold-reuse-and-summary-contract.md`
+
+Current benchmark contract additions from this batch:
+
+- Multi-seed tournament evidence handling is stricter and cheaper:
+  - Suite selection now varies by seed after curated IDs, duplicate suite signatures are skipped, and gate denominators use unique folds only.
+  - Candidates can be pruned early when optimistic best-case remaining folds still cannot satisfy gates.
+  - Fast shortlist thresholds must be feasible for planned unique folds (for example `min_completed_folds=2` when only 2 unique folds are possible).
+
+- QualitySuite throughput and runtime shape are now explicitly environment-aware:
+  - Auto parallel cap/ramp is more aggressive (`auto_ceiling` default `16`, env override supported).
+  - In restricted runtimes, quality-run can switch experiment fanout to subprocess mode while keeping deterministic outputs.
+  - In unrestricted runtimes, SemLock/process-pool bottlenecks may disappear; tuning should then focus on run-shape knobs instead of fallback paths.
+
+- Crash-safety and resume boundaries are now first-class contracts:
+  - Quality run-level checkpoints/partials + per-experiment snapshots support `--resume-run-dir`.
+  - SpeedSuite now supports bounded task parallelism, per-sample snapshots, and resume compatibility checks.
+  - Historical note retained: old SpeedSuite contract was serial-only with no resume; this is no longer true.
+
+- Sweep and search strategy guidance is now explicit:
+  - Completed sweep evidence still does not justify any must-enable deterministic-sweep default.
+  - Race mode can be a pure overhead path when `race_finalists >= variant_count` (common on no-sweeps profiles).
+  - For parser-setting answers, quick overrides (`--quick-parsing`, candidate/seed clamps, forced exhaustive/no-sweeps) are the preferred fast path.
+
+- Cache/reuse boundaries are now documented clearly:
+  - Prediction reuse can span rounds/experiments/folds when shared cache roots are used.
+  - Cross-root reuse no longer rejects same-named config dirs if source artifact paths differ.
+  - Final tournament-result reuse is valid only for full input-tuple matches; cache hits do not imply full result memoization.
+
+- Operator-facing status semantics were hardened:
+  - Live ETA includes queued-wave estimation and completed-duration fallback.
+  - `work_units` is a weighted estimator and can increase during normal scheduling transitions.
+
+- Lightweight series contract:
+  - Should remain a first-class bench command using a versioned profile file.
+  - Should reuse fold-level quality-run outputs and derive winners/risk from fold summary means/deltas (no new scorer).
+
+Anti-loop reminders from this batch:
+- If tournament runtime explodes, measure variant cardinality and race survivor math before changing evaluator/scorer code.
+- If folds rerun unexpectedly, distinguish artifact-level cache reuse from final-result reuse eligibility.
+- If live ETA/work-units look odd, validate queue state and weighted estimator behavior before treating status output as broken.
+- If a no-sweeps race run is slower than exhaustive, inspect `race_finalists` against actual variant count first.

@@ -309,47 +309,83 @@ cookimport bench quality-lightweight-series \
 
 ### 4.6 Top-tier certainty tournament (multi-seed)
 
-Use the tournament script to run repeated quality folds and apply fixed PASS/FAIL gates before promoting settings:
+Use the tournament script to run repeated quality folds and apply fixed PASS/FAIL gates before promoting settings.
+
+Phase A (fast parser shortlist):
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json
-```
-
-Then run the full candidate set only for shortlist finalists:
-
-```bash
-python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json
-```
-
-Need a quick parsing-tools answer (without killing a long run)? Use fast parsing mode:
-
-```bash
-python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_20.20.04_qualitysuite-top-tier-gates-fast-sweeps-decision.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json \
   --quick-parsing
 ```
 
-`--quick-parsing` applies parser-focused candidates, disables deterministic sweeps, forces `quality-run --search-strategy exhaustive`, and caps seeds to 2 unless `--max-seeds` is set.
+Phase A "good enough" criteria:
+- keep at least one candidate with non-regression folds and positive strict/practical mean deltas;
+- if no candidate clears this bar after unique-fold dedupe, keep baseline and stop.
 
-Additional runtime controls:
-- `--candidate-experiment-id <id>` (repeatable): run only selected candidate ids.
-- `--max-candidates <N>`: cap candidate count after filtering.
-- `--max-seeds <N>`: cap fold count using first N seeds.
-- `--force-no-deterministic-sweeps`: force sweeps off regardless of thresholds.
-- `--quality-search-strategy race|exhaustive`: override thresholds search strategy.
-
-Optional fixed experiment cap (otherwise quality-run auto parallel mode is used):
+Phase B (confidence A/B for one promoted candidate, auto handoff from latest Phase A):
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json \
-  --max-parallel-experiments 4
+  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json \
+  --auto-candidates-from-latest-in data/golden/bench/quality/tournaments \
+  --max-seeds 4
+```
+
+Phase B promotion trigger:
+- candidate passes confidence gates (`min_completed_folds=2`, `min_uplift_fold_ratio>=0.5`, mean strict/practical deltas `>= +0.004`);
+- no source-success regression (`source_success_rate_drop_max_per_fold=0` and non-negative mean source delta).
+
+Optional Phase B+ sweeps decision run (separate from default parser promotion loop):
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json \
+  --auto-candidates-from-latest-in data/golden/bench/quality/tournaments \
+  --max-seeds 2
+```
+
+Need a quick parser-tools answer while preserving manual seed control?
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json \
+  --quick-parsing \
+  --seed 42 --seed 2718 --seed 4242
+```
+
+`--quick-parsing` applies parser-focused candidates, disables deterministic sweeps, forces `quality-run --search-strategy exhaustive`, and caps seeds to 3 when explicit seeds are not provided.
+
+Additional runtime controls:
+- `--candidate-experiment-id <id>` (repeatable): run only selected candidate ids.
+- `--auto-candidates-from-summary <summary.json or tournament_dir>`: select Phase B candidate ids from prior Phase A artifacts.
+- `--auto-candidates-from-latest-in <tournament_root_dir>`: same as above, but chooses the latest timestamped tournament under a root.
+- `--max-candidates <N>`: cap candidate count after filtering.
+- `--max-seeds <N>`: cap fold count using first N seeds.
+- `--seed <int>` (repeatable): explicit seed sequence, preserving provided order.
+- `--seed-list "42,2718,4242"`: comma-separated explicit seed sequence.
+- explicit `--seed`/`--seed-list` can now be combined with `--max-seeds` (dedupe first, then cap).
+- `--force-no-deterministic-sweeps`: force sweeps off regardless of thresholds.
+- `--quality-search-strategy race|exhaustive`: override thresholds search strategy.
+- `--max-parallel-experiments <N>` overrides thresholds `quality_run.max_parallel_experiments_default`; when both are omitted, quality-run auto mode is used.
+
+What to avoid:
+- Don't use sweep-heavy thresholds for parser setting selection; keep sweeps off for Phase A/B.
+- Don't rely on a single fold unless it is only a smoke check.
+- Don't interpret race mode as a speedup when finalists already exceed effective variant count; runner now auto-falls back to exhaustive in that case.
+
+Phase parsing thresholds now set `quality_run.max_parallel_experiments_default=4`.
+If needed, override with CLI:
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json \
+  --max-parallel-experiments 6
 ```
 
 Resume an interrupted tournament in the same directory (reuses completed folds and resumes partial fold quality-runs):
@@ -362,9 +398,10 @@ python scripts/quality_top_tier_tournament.py \
 ```
 
 Outputs are written under `data/golden/bench/quality/tournaments/<timestamp>/`:
-- `tournament_resolved.json`: resolved config/seeds/candidates used for the run
+- `tournament_resolved.json`: resolved config/seeds/candidates used for the run (includes candidate source and auto-selection provenance when used)
+- `tournament_checkpoint.json`: live fold-level progress (`experiment_count_completed/total`, pending count, active fold run dir)
 - `folds.json`: per-fold quality metrics and leaderboard winner snapshots
-- `summary.json`, `report.md`: aggregate PASS/FAIL verdicts and promoted top-tier candidates
+- `summary.json`, `report.md`: aggregate PASS/FAIL verdicts plus `phase_a_promotion_recommendation` metadata (selected ids, reason code, close-gap threshold, fold evidence)
 
 Notes:
 - Tournament runs now share canonical/eval cache across folds by default (`COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT` is set to `data/golden/bench/quality/.cache/canonical_alignment` unless overridden in thresholds `quality_run.canonical_alignment_cache_root`).

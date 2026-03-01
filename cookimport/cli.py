@@ -8055,6 +8055,27 @@ def _wait_for_all_method_prediction_reuse_cache_entry(
     )
 
 
+def _path_is_within_root(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=False))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _copytree_with_hardlink_fallback(
+    *,
+    source_dir: Path,
+    target_dir: Path,
+) -> None:
+    try:
+        shutil.copytree(source_dir, target_dir, copy_function=os.link)
+    except Exception:  # noqa: BLE001
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(source_dir, target_dir)
+
+
 def _copy_all_method_prediction_artifacts_for_reuse(
     *,
     source_config_dir: str,
@@ -8116,11 +8137,20 @@ def _copy_all_method_prediction_artifacts_for_reuse(
     _reset_tree(target_eval_output_dir)
     _reset_tree(target_scratch_dir)
     _reset_tree(target_processed_dir)
-    shutil.copytree(resolved_source_eval_output_dir, target_eval_output_dir)
+    _copytree_with_hardlink_fallback(
+        source_dir=resolved_source_eval_output_dir,
+        target_dir=target_eval_output_dir,
+    )
     if source_scratch_dir.exists() and source_scratch_dir.is_dir():
-        shutil.copytree(source_scratch_dir, target_scratch_dir)
+        _copytree_with_hardlink_fallback(
+            source_dir=source_scratch_dir,
+            target_dir=target_scratch_dir,
+        )
     if source_processed_dir.exists() and source_processed_dir.is_dir():
-        shutil.copytree(source_processed_dir, target_processed_dir)
+        _copytree_with_hardlink_fallback(
+            source_dir=source_processed_dir,
+            target_dir=target_processed_dir,
+        )
     return max(0.0, time.monotonic() - copy_started)
 
 
@@ -8235,6 +8265,12 @@ def _all_method_prediction_reuse_summary(
         if str(row.get("prediction_result_source") or "").strip().lower()
         == "reused_in_run"
     )
+    prediction_results_reused_cross_run = sum(
+        1
+        for row in successful_rows
+        if str(row.get("prediction_result_source") or "").strip().lower()
+        == "reused_cross_run"
+    )
 
     split_convert_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in successful_rows:
@@ -8266,6 +8302,7 @@ def _all_method_prediction_reuse_summary(
         "prediction_signatures_unique": prediction_signatures_unique,
         "prediction_runs_executed": prediction_runs_executed,
         "prediction_results_reused_in_run": prediction_results_reused_in_run,
+        "prediction_results_reused_cross_run": prediction_results_reused_cross_run,
         "split_convert_input_groups": split_convert_input_groups,
         "split_convert_reuse_candidates": split_convert_reuse_candidates,
         "split_convert_reuse_safe_candidates": split_convert_reuse_safe_candidates,
@@ -8417,6 +8454,7 @@ def _run_all_method_prediction_once(
         run_settings=variant.run_settings,
     )
     prediction_result_source = "executed"
+    prediction_reuse_scope = "executed"
     prediction_representative_config_dir = config_dir_name
     reused_prediction = False
 
@@ -8485,6 +8523,7 @@ def _run_all_method_prediction_once(
             elapsed_seconds=elapsed_seconds,
         )
         row["prediction_result_source"] = "failed"
+        row["prediction_reuse_scope"] = "failed"
         row["prediction_representative_config_dir"] = config_dir_name
         row["prediction_reuse_key"] = prediction_reuse_key
         row["prediction_split_convert_input_key"] = prediction_split_convert_input_key
@@ -8589,6 +8628,7 @@ def _run_all_method_prediction_once(
         cache_entry: dict[str, Any] | None,
     ) -> bool:
         nonlocal prediction_result_source
+        nonlocal prediction_reuse_scope
         nonlocal prediction_representative_config_dir
         nonlocal reused_prediction
         if not isinstance(cache_entry, dict):
@@ -8631,13 +8671,32 @@ def _run_all_method_prediction_once(
         )
         if copy_seconds is None:
             return False
-        prediction_result_source = "reused_in_run"
-        prediction_representative_config_dir = source_config_dir
+        reuse_scope = "in_run"
+        if source_eval_output_dir is not None and not _path_is_within_root(
+            source_eval_output_dir,
+            root_output_dir,
+        ):
+            reuse_scope = "cross_run"
+        prediction_result_source = (
+            "reused_cross_run" if reuse_scope == "cross_run" else "reused_in_run"
+        )
+        prediction_reuse_scope = reuse_scope
+        prediction_representative_config_dir = (
+            source_config_dir
+            or (str(source_eval_output_dir) if source_eval_output_dir is not None else "")
+            or config_dir_name
+        )
         reused_prediction = True
         _emit_scheduler_event(
-            "prediction_reused_in_run",
+            (
+                "prediction_reused_cross_run"
+                if prediction_result_source == "reused_cross_run"
+                else "prediction_reused_in_run"
+            ),
             source_config_dir=source_config_dir,
             reuse_copy_seconds=copy_seconds,
+            prediction_result_source=prediction_result_source,
+            prediction_reuse_scope=prediction_reuse_scope,
         )
         return True
 
@@ -8825,6 +8884,7 @@ def _run_all_method_prediction_once(
         "timing": config_timing,
         "dimensions": dict(variant.dimensions),
         "prediction_result_source": prediction_result_source,
+        "prediction_reuse_scope": prediction_reuse_scope,
         "prediction_representative_config_dir": prediction_representative_config_dir,
         "prediction_reuse_key": prediction_reuse_key,
         "prediction_split_convert_input_key": prediction_split_convert_input_key,
@@ -9036,10 +9096,11 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
             f"{_report_count(report_payload.get('evaluation_results_reused_cross_run'))}"
         ),
         (
-            "- Prediction signatures unique / runs executed / reused in-run: "
+            "- Prediction signatures unique / runs executed / reused in-run/cross-run: "
             f"{_report_count(report_payload.get('prediction_signatures_unique'))}/"
             f"{_report_count(report_payload.get('prediction_runs_executed'))}/"
-            f"{_report_count(report_payload.get('prediction_results_reused_in_run'))}"
+            f"{_report_count(report_payload.get('prediction_results_reused_in_run'))}/"
+            f"{_report_count(report_payload.get('prediction_results_reused_cross_run'))}"
         ),
         (
             "- Split/convert input groups / reuse candidates / safe / blocked: "
@@ -9296,10 +9357,11 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
             f"{_report_count(report_payload.get('evaluation_results_reused_cross_run'))}"
         ),
         (
-            "- Prediction signatures unique / runs executed / reused in-run: "
+            "- Prediction signatures unique / runs executed / reused in-run/cross-run: "
             f"{_report_count(report_payload.get('prediction_signatures_unique'))}/"
             f"{_report_count(report_payload.get('prediction_runs_executed'))}/"
-            f"{_report_count(report_payload.get('prediction_results_reused_in_run'))}"
+            f"{_report_count(report_payload.get('prediction_results_reused_in_run'))}/"
+            f"{_report_count(report_payload.get('prediction_results_reused_cross_run'))}"
         ),
         (
             "- Split/convert input groups / reuse candidates / safe / blocked: "
@@ -9670,6 +9732,9 @@ def _write_all_method_source_reports_from_global_rows(
             "prediction_results_reused_in_run": _report_count(
                 prediction_reuse_summary.get("prediction_results_reused_in_run")
             ),
+            "prediction_results_reused_cross_run": _report_count(
+                prediction_reuse_summary.get("prediction_results_reused_cross_run")
+            ),
             "split_convert_input_groups": _report_count(
                 prediction_reuse_summary.get("split_convert_input_groups")
             ),
@@ -9852,6 +9917,9 @@ def _write_all_method_source_reports_from_global_rows(
                 ),
                 "prediction_results_reused_in_run": _report_count(
                     prediction_reuse_summary.get("prediction_results_reused_in_run")
+                ),
+                "prediction_results_reused_cross_run": _report_count(
+                    prediction_reuse_summary.get("prediction_results_reused_cross_run")
                 ),
                 "split_convert_input_groups": _report_count(
                     prediction_reuse_summary.get("split_convert_input_groups")
@@ -11490,6 +11558,10 @@ def _run_all_method_benchmark_global_queue(
         _report_count(row.get("prediction_results_reused_in_run"))
         for row in source_rows
     )
+    total_prediction_results_reused_cross_run = sum(
+        _report_count(row.get("prediction_results_reused_cross_run"))
+        for row in source_rows
+    )
     total_split_convert_input_groups = sum(
         _report_count(row.get("split_convert_input_groups")) for row in source_rows
     )
@@ -11620,6 +11692,7 @@ def _run_all_method_benchmark_global_queue(
         "prediction_signatures_unique": total_prediction_signatures_unique,
         "prediction_runs_executed": total_prediction_runs_executed,
         "prediction_results_reused_in_run": total_prediction_results_reused_in_run,
+        "prediction_results_reused_cross_run": total_prediction_results_reused_cross_run,
         "split_convert_input_groups": total_split_convert_input_groups,
         "split_convert_reuse_candidates": total_split_convert_reuse_candidates,
         "split_convert_reuse_safe_candidates": total_split_convert_reuse_safe_candidates,
@@ -12541,6 +12614,7 @@ def _run_all_method_benchmark_multi_source_legacy(
         prediction_signatures_unique = 0
         prediction_runs_executed = 0
         prediction_results_reused_in_run = 0
+        prediction_results_reused_cross_run = 0
         split_convert_input_groups = 0
         split_convert_reuse_candidates = 0
         split_convert_reuse_safe_candidates = 0
@@ -12589,6 +12663,9 @@ def _run_all_method_benchmark_multi_source_legacy(
             )
             prediction_results_reused_in_run += _report_count(
                 row.get("prediction_results_reused_in_run")
+            )
+            prediction_results_reused_cross_run += _report_count(
+                row.get("prediction_results_reused_cross_run")
             )
             split_convert_input_groups += _report_count(
                 row.get("split_convert_input_groups")
@@ -12707,6 +12784,9 @@ def _run_all_method_benchmark_multi_source_legacy(
                     "prediction_results_reused_in_run": _report_count(
                         row.get("prediction_results_reused_in_run")
                     ),
+                    "prediction_results_reused_cross_run": _report_count(
+                        row.get("prediction_results_reused_cross_run")
+                    ),
                     "split_convert_input_groups": _report_count(
                         row.get("split_convert_input_groups")
                     ),
@@ -12775,6 +12855,7 @@ def _run_all_method_benchmark_multi_source_legacy(
             "prediction_signatures_unique": prediction_signatures_unique,
             "prediction_runs_executed": prediction_runs_executed,
             "prediction_results_reused_in_run": prediction_results_reused_in_run,
+            "prediction_results_reused_cross_run": prediction_results_reused_cross_run,
             "split_convert_input_groups": split_convert_input_groups,
             "split_convert_reuse_candidates": split_convert_reuse_candidates,
             "split_convert_reuse_safe_candidates": split_convert_reuse_safe_candidates,
@@ -12831,6 +12912,10 @@ def _run_all_method_benchmark_multi_source_legacy(
     )
     total_prediction_results_reused_in_run = sum(
         _report_count(row.get("prediction_results_reused_in_run"))
+        for row in source_rows
+    )
+    total_prediction_results_reused_cross_run = sum(
+        _report_count(row.get("prediction_results_reused_cross_run"))
         for row in source_rows
     )
     total_split_convert_input_groups = sum(
@@ -13111,6 +13196,7 @@ def _run_all_method_benchmark_multi_source_legacy(
         "prediction_signatures_unique": total_prediction_signatures_unique,
         "prediction_runs_executed": total_prediction_runs_executed,
         "prediction_results_reused_in_run": total_prediction_results_reused_in_run,
+        "prediction_results_reused_cross_run": total_prediction_results_reused_cross_run,
         "split_convert_input_groups": total_split_convert_input_groups,
         "split_convert_reuse_candidates": total_split_convert_reuse_candidates,
         "split_convert_reuse_safe_candidates": total_split_convert_reuse_safe_candidates,
@@ -14938,6 +15024,9 @@ def _run_all_method_benchmark(
         ),
         "prediction_results_reused_in_run": _report_count(
             prediction_reuse_summary.get("prediction_results_reused_in_run")
+        ),
+        "prediction_results_reused_cross_run": _report_count(
+            prediction_reuse_summary.get("prediction_results_reused_cross_run")
         ),
         "split_convert_input_groups": _report_count(
             prediction_reuse_summary.get("split_convert_input_groups")

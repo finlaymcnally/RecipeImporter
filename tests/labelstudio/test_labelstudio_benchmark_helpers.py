@@ -5273,14 +5273,21 @@ def test_all_method_prediction_reuse_summary_detects_safe_and_blocked_split_conv
             "prediction_reuse_key": "pred-b2",
             "prediction_split_convert_input_key": "split-b",
         },
+        {
+            "status": "ok",
+            "prediction_result_source": "reused_cross_run",
+            "prediction_reuse_key": "pred-c",
+            "prediction_split_convert_input_key": "split-c",
+        },
     ]
 
     summary = cli._all_method_prediction_reuse_summary(rows)
 
-    assert summary["prediction_signatures_unique"] == 3
+    assert summary["prediction_signatures_unique"] == 4
     assert summary["prediction_runs_executed"] == 3
     assert summary["prediction_results_reused_in_run"] == 1
-    assert summary["split_convert_input_groups"] == 2
+    assert summary["prediction_results_reused_cross_run"] == 1
+    assert summary["split_convert_input_groups"] == 3
     assert summary["split_convert_reuse_candidates"] == 2
     assert summary["split_convert_reuse_safe_candidates"] == 1
     assert summary["split_convert_reuse_blocked_by_prediction_variance"] == 1
@@ -5784,7 +5791,9 @@ def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts(
 
     assert benchmark_calls == 1
     assert first_row["prediction_result_source"] == "executed"
+    assert first_row["prediction_reuse_scope"] == "executed"
     assert second_row["prediction_result_source"] == "reused_in_run"
+    assert second_row["prediction_reuse_scope"] == "in_run"
     assert second_row["prediction_representative_config_dir"] == first_row["config_dir"]
     assert second_row["prediction_reuse_key"] == first_row["prediction_reuse_key"]
     assert (
@@ -5876,11 +5885,94 @@ def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts_acros
 
     assert benchmark_calls == 1
     assert first_row["prediction_result_source"] == "executed"
-    assert second_row["prediction_result_source"] == "reused_in_run"
+    assert second_row["prediction_result_source"] == "reused_cross_run"
+    assert second_row["prediction_reuse_scope"] == "cross_run"
     assert second_row["prediction_representative_config_dir"] == first_row["config_dir"]
     second_prediction_record = second_root_output_dir / str(
         second_row["prediction_record_jsonl"]
     )
+    assert second_prediction_record.exists()
+
+
+def test_run_all_method_prediction_once_reuse_falls_back_when_hardlink_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    variant = cli.AllMethodVariant(
+        slug="reuse-check",
+        run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        dimensions={"epub_extractor": "unstructured"},
+    )
+
+    benchmark_calls = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal benchmark_calls
+        benchmark_calls += 1
+        _write_fake_all_method_prediction_phase_artifacts(
+            kwargs=kwargs,
+            source_file=source_file,
+            extractor="unstructured",
+            prediction_seconds=1.5,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    def _failing_link(_src: str, _dst: str, *args, **kwargs) -> None:
+        raise OSError("simulated hardlink failure")
+
+    monkeypatch.setattr(cli.os, "link", _failing_link)
+
+    root_output_dir = tmp_path / "all-method"
+    scratch_root = root_output_dir / ".scratch"
+    processed_output_root = tmp_path / "processed-output"
+    scheduler_events_dir = tmp_path / "events"
+    split_phase_gate_dir = tmp_path / "split-gate"
+
+    first_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=1,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+    second_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=2,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+
+    assert benchmark_calls == 1
+    assert first_row["prediction_result_source"] == "executed"
+    assert second_row["prediction_result_source"] == "reused_in_run"
+    second_prediction_record = root_output_dir / str(second_row["prediction_record_jsonl"])
     assert second_prediction_record.exists()
 
 

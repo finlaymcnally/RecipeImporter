@@ -424,3 +424,29 @@ Evidence preserved:
 Anti-loop note:
 - This does not restore host process-pool capability itself; `/dev/shm`/SemLock policy is still restricted.
 - If subprocess fallback regresses, check `--stage-worker-self-test` availability and request/result payload creation under `<out>/.stage_worker_requests` before touching parser/importer logic.
+
+## 2026-02-28 migrated understanding ledger (stage fallback telemetry and subprocess path)
+
+### 2026-02-28_14.42.43 stage thread-fallback worker label collision
+
+Source: `docs/understandings/2026-02-28_14.42.43-stage-thread-fallback-worker-label-collision.md`
+
+Problem captured:
+- ThreadPool workers shared one process label key, collapsing worker-status maps and making telemetry appear serial.
+
+Durable decision:
+- Include thread names in non-main thread worker labels while keeping main-thread labels stable.
+
+### 2026-02-28_15.00.58 stage subprocess workers bypass process-pool denial
+
+Source: `docs/understandings/2026-02-28_15.00.58-stage-subprocess-workers-bypass-processpool-denial.md`
+
+Problem captured:
+- ProcessPool startup failures under SemLock restrictions reduced stage fanout effectiveness.
+
+Durable decision:
+- Use subprocess-backed stage workers (with explicit worker labels and telemetry) as recovery path when process pools are denied.
+
+Anti-loop note:
+- If stage looks serial in restricted environments, check fallback mode + worker labels before changing merge/write logic.
+

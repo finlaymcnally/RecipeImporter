@@ -297,3 +297,16 @@ Current dashboard interaction contract:
 - Toggle point is explicit and centralized in dashboard JS init via `HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED`.
 - Re-enable path is intentionally one-line: set that constant to `true`.
 - This is a global default (`Highcharts.setOptions(...)`) so newly-added dashboard charts inherit the same behavior unless explicitly overridden.
+
+## 2026-02-28 merged understandings (benchmark trend chart contract)
+
+### 2026-02-28_12.11.07 dashboard benchmark trend chart structure
+- Source: `docs/understandings/2026-02-28_12.11.07-dashboard-benchmark-trend-chart-structure.md`
+- Main stats dashboard now includes an interactive benchmark trend chart above Previous Runs with explicit fallback behavior:
+  - no-data fallback text when rows have no trend points,
+  - offline/CDN failure fallback text when Highcharts is unavailable,
+  - table rendering remains usable regardless of chart state.
+- Trend series contract currently includes: `precision`, `recall`, `f1`, `practical_f1`.
+- Timestamp parsing must continue to accept both `YYYY-MM-DD_HH.MM.SS` and ISO-style strings so historical rows sort correctly.
+- Y-axis score bounds are intentionally fixed to `0..1` for comparability across runs.
+

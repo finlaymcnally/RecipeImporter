@@ -746,3 +746,17 @@ Parsing-side contract reminders from this rollout:
 - `cookimport/parsing/pattern_flags.py` is the shared deterministic boundary for TOC-like detection, duplicate-title intro detection, overlap candidate resolution, and stable warning-line generation.
 - Current deterministic penalty constants were held stable during rollout (`toc=0.18`, `duplicate_title=0.09`, `overlap_duplicate=0.26`) after targeted regression checks.
 - `pattern_hints` exposure to pass1 is advisory metadata only and remains explicitly env-gated/default-off; parsing/import behavior must remain deterministic-first.
+
+## 2026-02-28 merged understandings (pattern detector and hint-surface status)
+
+Merged source notes:
+- `docs/understandings/2026-02-28_12.16.27-pattern-detectors-and-heads-up-integration-points.md`
+- `docs/understandings/2026-02-28_12.44.31-pattern-detector-plan-doc-lag-discovery.md`
+
+Current parsing-contract additions:
+- Deterministic pattern suppression belongs at importer candidate boundary (post extraction, pre candidate detection) and currently uses shared logic in `cookimport/parsing/pattern_flags.py`.
+- Candidate rejection path remains non-destructive: rejected pattern-heavy candidates are preserved as non-recipe blocks.
+- Existing EPUB extraction-health signals (duplicate-line rates and warning keys) are diagnostics, not standalone suppression behavior.
+- Codex heads-up integration is telemetry-ready, but pass1 `pattern_hints` remains default-off and metadata-only behind `COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS`.
+- Practical workflow rule: when plan/docs claim pattern-detector work is pending, verify runtime/tests first because this feature set is already largely shipped.
+

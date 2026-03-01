@@ -282,3 +282,23 @@ Evidence preserved:
 
 Anti-loop note:
 - If wheel zoom comes back unexpectedly, check global init default first before changing per-chart options.
+
+## 2026-02-28 migrated understanding ledger (benchmark trend chart)
+
+### 2026-02-28_12.11.07 dashboard benchmark trend chart structure
+
+Source: `docs/understandings/2026-02-28_12.11.07-dashboard-benchmark-trend-chart-structure.md`
+
+Problem captured:
+- Operators needed a quick run-to-run benchmark trend view, but chart/offline failure behavior had to avoid blank-page confusion.
+
+Durable decisions:
+- Add `#benchmark-trend-chart` and fallback container in main dashboard page.
+- Build time-series from benchmark rows for `precision`, `recall`, `f1`, `practical_f1`.
+- Keep explicit mixed-format timestamp parsing support for historical data.
+- Use fallback messaging for both no-data and Highcharts-load failure conditions.
+- Keep chart scoring axis fixed at `0..1` for consistent interpretation.
+
+Anti-loop note:
+- If chart looks blank but table rows render, inspect fallback state and timestamp parsing first before changing collector behavior.
+

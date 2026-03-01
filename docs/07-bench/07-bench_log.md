@@ -1759,3 +1759,273 @@ Evidence preserved:
 
 Anti-loop note:
 - If resume unexpectedly reruns completed experiments, validate experiment-id compatibility + checkpoint snapshot contents before changing scheduler behavior.
+
+## 2026-02-28 to 2026-03-01 migrated understanding ledger (quality/speed reliability batch)
+
+Chronological merge from `docs/understandings`; source files removed after merge.
+
+### 2026-02-28_11.14.44 qualitysuite seed variation and tournament cache/dedupe
+
+Source: `docs/understandings/2026-02-28_11.14.44-qualitysuite-seed-variation-and-tournament-cache-dedupe.md`
+
+Problem captured:
+- Multi-seed folds were often duplicates because curated-only selection path ignored seed-driven representative variation.
+
+Durable decisions:
+- Discovery keeps curated IDs first, then uses seeded representative fill for remaining target slots.
+- Tournament fold runs share alignment/eval cache root.
+- Fold suite signatures are deduped; duplicate folds are skipped and excluded from gate denominators.
+
+### 2026-02-28_11.18.07 quality tournament gate impossibility pruning
+
+Source: `docs/understandings/2026-02-28_11.18.07-quality-tournament-gate-impossibility-pruning.md`
+
+Problem captured:
+- Candidates continued running even when mathematically unable to pass certainty gates.
+
+Durable decisions:
+- After each fold, compute optimistic upper bounds using remaining unique folds.
+- Prune candidates that cannot pass gates under best-case assumptions.
+- Persist prune state in fold outputs and tournament summary/report.
+
+### 2026-02-28_11.33.22 quality-run auto cap ceiling and ramp
+
+Source: `docs/understandings/2026-02-28_11.33.22-quality-run-auto-cap-ceiling-and-ramp.md`
+
+Problem captured:
+- Auto mode stalled at low worker cap (`8`) despite available host headroom.
+
+Durable decisions:
+- Effective cap now uses `min(total_experiments, cpu_count, auto_ceiling)`.
+- Default `auto_ceiling=16`; env override `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`.
+- Admission ramps faster and resolved metadata is persisted in `experiments_resolved.json`.
+
+### 2026-02-28_11.45.55 qualitysuite low CPU due to /dev/shm restriction
+
+Source: `docs/understandings/2026-02-28_11.45.55-qualitysuite-low-cpu-due-shm-permission-and-thread-fallback.md`
+
+Findings preserved:
+- Host-level `/dev/shm` denial forced process-worker fallbacks and reduced effective CPU scaling.
+- Thread-backed fallback preserved correctness but capped throughput.
+
+Anti-loop note:
+- When this host constraint is active, tune knobs only after confirming process-worker availability state.
+
+### 2026-02-28_12.00.19 quality-run subprocess experiment fallback
+
+Source: `docs/understandings/2026-02-28_12.00.19-quality-run-subprocess-experiment-fallback-for-shm-restricted-hosts.md`
+
+Problem captured:
+- Thread fallback under process denial left cross-experiment fanout GIL-limited.
+
+Durable decisions:
+- Added experiment executor mode (`auto|thread|subprocess`) with env control.
+- Auto mode chooses subprocess fanout when process-pool probing fails.
+- Executor mode/reason metadata is persisted in `experiments_resolved.json`.
+
+### 2026-02-28_13.24.03 qualitysuite crash-state and sweep-signal check
+
+Source: `docs/understandings/2026-02-28_13.24.03-qualitysuite-crash-and-sweep-signal-check.md`
+
+Findings preserved:
+- Several newer runs/tournaments were partial (missing final summary/report), so they were not valid sweep-default evidence.
+- Completed sweep run evidence showed ties across base and sweep families.
+
+Durable decision:
+- Keep deterministic sweep families optional until completed multi-fold/multi-source runs show stable unique uplift.
+
+### 2026-02-28_13.27.30 speed2-3 closure: dmp selector + stdlib benchmark script
+
+Source: `docs/understandings/2026-02-28_13.27.30-speed2-3-closure-dmp-selector-stdlib-script.md`
+
+Problem captured:
+- Runtime selector is intentionally dmp-only; standalone script incorrectly routed stdlib through selector and crashed.
+
+Durable decisions:
+- Keep runtime contract dmp-only.
+- In script-only benchmarking, run stdlib directly (`difflib.SequenceMatcher`) and use selector for non-stdlib modes.
+- Preserve regression test coverage for both paths.
+
+### 2026-02-28_14.36.24 qualitysuite checkpoint/resume surface map
+
+Source: `docs/understandings/2026-02-28_14.36.24-qualitysuite-checkpoint-resume-surface-map.md`
+
+Problem captured:
+- Run-level summary/report were written only at end, so crash recovery could not safely resume from canonical state.
+
+Durable decisions:
+- Persist per-experiment snapshots as authoritative completed-work state.
+- Regenerate partial run-level artifacts incrementally.
+- Support explicit resume wiring (`--resume-run-dir`) and tournament forwarding.
+
+### 2026-02-28_14.40.12 full SpeedSuite serial-mode and variance snapshot
+
+Source: `docs/understandings/2026-02-28_14.40.12-full-speedsuite-serial-mode-and-variance.md`
+
+Findings preserved:
+- Serial-mode warnings aligned with lower host-wide CPU.
+- Back-to-back compares with `warmups=0,repeats=1` produced regression FAIL on unchanged settings hash.
+
+Anti-loop note:
+- Treat one-sample compares as noisy; increase warmups/repeats before attributing regressions.
+
+### 2026-02-28_14.46.40 deterministic sweep decision snapshot
+
+Source: `docs/understandings/2026-02-28_14.46.40-deterministic-sweep-must-include-decision-snapshot.md`
+
+Findings preserved:
+- Only one completed sweep-enabled run existed with final artifacts.
+- Top score tuple was tied across base and all requested sweep families.
+
+Durable decision:
+- No sweep family is default-worthy yet; keep sweep knobs exploration-only until stronger evidence exists.
+
+### 2026-02-28_14.51.46 SpeedSuite serial task loop and no-resume contract (historical)
+
+Source: `docs/understandings/2026-02-28_14.51.46-speedsuite-serial-task-loop-and-no-resume-contract.md`
+
+Historical snapshot preserved:
+- SpeedSuite previously executed scenario/target/phase tasks serially and had no resume contract.
+
+Superseded by later entry:
+- `2026-02-28_15.31.28` establishes parallel + resume contracts.
+
+### 2026-02-28_15.01.40 qualitysuite hot CPU + IO-guard profile
+
+Source: `docs/understandings/2026-02-28_15.01.40-qualitysuite-hot-cpu-io-guard-profile.md`
+
+Problem captured:
+- Raising global workers alone can collapse effective per-config workers under split/source caps and increase disk thrash.
+
+Durable decisions:
+- Keep base workers higher while constraining split/source fanout.
+- Use profile-guided run-settings files and pair with bounded experiment parallelism for stable high throughput.
+
+### 2026-02-28_15.19.25 processpool restored session probe
+
+Source: `docs/understandings/2026-02-28_15.19.25-processpool-restored-session-probe.md`
+
+Findings preserved:
+- Process pool and SemLock probing succeeded in this session; fallback paths were not active bottlenecks.
+
+Anti-loop note:
+- Re-check session capability before assuming restricted-host fallback behavior is still active.
+
+### 2026-02-28_15.31.28 SpeedSuite parallel + checkpoint/resume contract
+
+Source: `docs/understandings/2026-02-28_15.31.28-speedsuite-parallel-checkpoint-resume-contract.md`
+
+Durable decisions:
+- Added bounded task parallelism (`--max-parallel-tasks`, auto when omitted).
+- Added resume surface (`--resume-run-dir`) with strict compatibility checks.
+- Added incremental crash-safe artifacts (`checkpoint.json`, partial summary/report/samples).
+- Added per-sample phase snapshots (`speed_sample_result.json`) used by resume to skip completed tasks.
+
+### 2026-02-28_15.48.23 tournament sweeps workload and prediction-reuse scope
+
+Source: `docs/understandings/2026-02-28_15.48.23-qualitysuite-tournament-sweeps-workload-and-prediction-reuse-scope.md`
+
+Problem captured:
+- Sweep-enabled variant explosion dominated runtime and prediction reuse scope was too narrow.
+
+Durable findings/decisions:
+- Sweeps-on variant count can be ~11x sweeps-off before pruning.
+- Eval-signature cache helped evaluation, but prediction reuse remained root-scoped at that time.
+- Full-tree copy reuse was correct but I/O-heavy.
+
+### 2026-02-28_16.27.10 prediction reuse cross-root same-config-dir guard
+
+Source: `docs/understandings/2026-02-28_16.27.10-prediction-reuse-cross-root-same-config-dir-guard.md`
+
+Problem captured:
+- Reuse was skipped when config dir names matched, even across different roots with valid reusable artifacts.
+
+Durable decisions:
+- Allow same `config_dir` names when source artifact path indicates a different root.
+- Cache entries retain absolute source artifact paths.
+- Shared reuse cache roots now support reuse across rounds/experiments/folds.
+
+### 2026-02-28_20.20.04 fast shortlist fold-gate impossibility
+
+Source: `docs/understandings/2026-02-28_20.20.04-fast-shortlist-fold-gate-impossibility-and-sweeps-decision-thresholds.md`
+
+Problem captured:
+- Gate minima exceeded feasible unique folds after duplicate-fold skipping, making promotion impossible.
+
+Durable decisions:
+- Added sweeps-decision thresholds with feasible fold gates for shortlist-shaped runs.
+- Lowered `min_completed_folds` and adjusted uplift ratio threshold accordingly.
+
+### 2026-02-28_20.35.43 qualitysuite live ETA queue-aware
+
+Source: `docs/understandings/2026-02-28_20.35.43-qualitysuite-live-eta-queue-aware.md`
+
+Problem captured:
+- ETA only modeled active experiments, underestimating wall-time with large queued work.
+
+Durable decisions:
+- Add queued-wave ETA contribution.
+- Use completed-duration fallback when active samples are sparse.
+- Include queued count in live status output.
+
+### 2026-02-28_20.50.43 qualitysuite prior-result reuse boundary
+
+Source: `docs/understandings/2026-02-28_20.50.43-qualitysuite-when-prior-tournament-results-are-reusable.md`
+
+Durable decision:
+- Treat completed tournament results as reusable final evidence only when full input tuple matches (experiments, thresholds, fold plan/duplicate behavior, scoring semantics).
+
+Anti-loop note:
+- Prediction/alignment cache reuse does not imply fold/result memoization.
+
+### 2026-02-28_21.01.58 race finalists no-prune overhead
+
+Source: `docs/understandings/2026-02-28_21.01.58-qualitysuite-race-finalists-no-prune-overhead.md`
+
+Problem captured:
+- If `race_finalists` exceeds variant count, race does extra rounds without pruning and can be slower than exhaustive.
+
+Durable decision:
+- Tune `race_finalists` below variant count on low-cardinality no-sweeps profiles, or force exhaustive.
+
+### 2026-02-28_21.14.34 live work_units can rise during normal scheduling
+
+Source: `docs/understandings/2026-02-28_21.14.34-qualitysuite-live-work-units-can-rise-during-normal-scheduling.md`
+
+Findings preserved:
+- `work_units` is a weighted scheduler estimate, not a strict remaining-config counter.
+- Queue admissions, round transitions, and retries can increase displayed units during healthy execution.
+
+### 2026-02-28_21.29.32 tournament quick overrides for parser-answer fast path
+
+Source: `docs/understandings/2026-02-28_21.29.32-quality-tournament-quick-overrides-for-fast-parsing-answer.md`
+
+Durable decisions:
+- Added explicit run-shape overrides (`--candidate-experiment-id`, `--max-candidates`, `--max-seeds`, `--force-no-deterministic-sweeps`, `--quality-search-strategy`).
+- Added `--quick-parsing` preset for fast parser-setting answers (focused candidates, sweeps off, exhaustive, seed cap).
+
+### 2026-02-28_21.51.19 quality lightweight series entrypoint/profile contract
+
+Source: `docs/understandings/2026-02-28_21.51.19-quality-lightweight-series-entrypoint-and-profile-contract.md`
+
+Durable decision:
+- Lightweight series should be a first-class bench command using a versioned JSON profile under `data/golden/bench/quality/lightweight_profiles/`, not an ad-hoc standalone script flow.
+
+### 2026-02-28_22.11.43 Oracle parsing-accuracy scope gap map
+
+Source: `docs/understandings/2026-02-28_22.11.43-oracle-parsing-accuracy-plan-scope-gap-map.md`
+
+Findings preserved:
+- Quick-parsing lane already exists but seed-selection and observability gaps remained.
+- Race no-prune waste remained unresolved for low-cardinality profiles.
+- Prediction reuse coverage was broader than snapshot assumptions; remaining gap was copy I/O cost.
+
+### 2026-03-01_00.20.00 lightweight series fold reuse and summary contract
+
+Source: `docs/understandings/2026-03-01_00.20.00-quality-lightweight-series-fold-reuse-and-summary-contract.md`
+
+Durable decisions:
+- Keep lightweight series orchestration-only by reusing `quality-run` fold outputs.
+- Base winner and interaction decisions on fold summary metrics/deltas (`practical_f1_macro`, `strict_f1_macro`, `source_success_rate`).
+- Enforce two-layer resume compatibility (series-level hashes + fold-level reuse artifacts).
+
