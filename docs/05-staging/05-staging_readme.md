@@ -416,3 +416,23 @@ Current staging-contract additions:
 - Subprocess fallback is a concurrency workaround when SemLock/process-pool startup is denied; it does not restore host process-pool capability.
 - `processing_timeseries.jsonl` worker-status interpretation should account for thread/subprocess label semantics when diagnosing apparent serial behavior.
 
+## 2026-03-01 docs/tasks merge (stage fallback hardening)
+
+Merged task files from `docs/tasks` (source creation order):
+- `2026-02-28_14.42.42-speedsuite-thread-fallback-worker-label-telemetry.md`
+- `2026-02-28_15.00.57-stage-subprocess-worker-fallback-for-shm-restricted-hosts.md`
+
+Current stage contract additions retained from those tasks:
+- Thread fallback worker labels must disambiguate non-main threads (process-only labels collapse concurrency visibility and can fake serial telemetry).
+- Stage fallback order is `process -> subprocess-backed workers -> thread -> serial`.
+- Subprocess workers are launched via `python -m cookimport.cli_worker` request files and support `single`, `pdf_split`, and `epub_split` job kinds.
+- Runtime warning text should clearly report subprocess-backed fallback when process workers are denied.
+- This path is an environment workaround for SemLock-restricted hosts, not a restoration of process-pool capability.
+
+Validation evidence retained:
+- `. .venv/bin/activate && pytest tests/ingestion/test_performance_features.py -k "worker_label or process_pool_permission_error_falls_back_to_thread or stage_worker" -q`
+- `. .venv/bin/activate && cookimport stage /tmp/stage_subprocess_probe/in --out /tmp/stage_subprocess_probe/out --workers 2 --limit 1`
+
+Anti-loop notes:
+- If stage appears serial in restricted hosts, inspect worker labels and fallback mode messaging before changing merge/write code.
+- If subprocess fallback regresses, check `--stage-worker-self-test` and `.stage_worker_requests/*` request/result artifacts first.

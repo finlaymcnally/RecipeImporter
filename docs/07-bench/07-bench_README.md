@@ -320,6 +320,8 @@ For repeated certainty checks before promoting a new top-tier set, use
   - `--force-no-deterministic-sweeps` to force sweeps off regardless of thresholds
   - `--quality-search-strategy race|exhaustive` to override thresholds search mode
 
+For one consolidated "which command when" flow with decision criteria, use `docs/07-bench/qualitysuite-product-suite.md`.
+
 Experiments file notes:
 - Schema v1 uses explicit experiments: `{"schema_version": 1, "experiments": [{"id": "...", "run_settings_patch": {...}}]}`.
 - Schema v2 adds `levers` with `enabled: true/false`.
@@ -393,9 +395,42 @@ Benchmark package modules:
 
 ## 10. See Also
 
-- Runbook: `docs/07-bench/runbook.md`
+- QualitySuite product-suite run flow: `docs/07-bench/qualitysuite-product-suite.md`
 - Chronology and anti-loop notes: `docs/07-bench/07-bench_log.md`
-- Detailed one-off perf report: `docs/07-bench/2026-02-26_18.19.49-book-processing-vs-benchmark-performance-report.md`
+- Latest parsing/processing signal snapshot: `docs/understandings/2026-03-01_11.14.18-qualitysuite-processing-parsing-signals.md`
+- Detailed one-off perf profile (merged below): `2026-02-26 merged understanding: stage vs benchmark performance profile`
+
+## 2026-02-26 merged understanding: stage vs benchmark performance profile (Feb 25-26)
+
+Source merged from:
+- `docs/understandings/2026-02-26_18.19.49-book-processing-vs-benchmark-performance-report.md`
+
+Profile scope (captured from Feb 25-26 run roots):
+- stage runs and single benchmark runs (`labelstudio-benchmark`)
+- all-method benchmark runs and source-level scheduler telemetry
+- run-local reports/histories (not only top-level `data/.history/performance_history.csv`)
+
+High-signal runtime findings retained:
+- Stage-block benchmark runs were prediction/conversion-bound in this sample:
+  - `total_seconds` median `30.244s`
+  - `prediction_seconds` median `30.143s`
+  - `evaluation_seconds` median `0.086s`
+- Canonical-text benchmark runs were evaluator/alignment-bound:
+  - `total_seconds` median `188.198s`
+  - `prediction_seconds` median `10.970s`
+  - `evaluation_seconds` median `176.539s` (median eval share `94.48%`)
+  - alignment subphase dominated eval time (`evaluate_alignment_seconds / evaluation_seconds` median `0.9958`)
+- All-method source wall time was often dominated by long canonical eval tails while split-slot utilization remained low (for example heavy sources with low `heavy_slot_utilization_pct` and high `idle_gap_seconds`).
+
+Durable interpretation guidance:
+- Throughput work that speeds importer conversion, split conversion, and staged-write overhead benefits both `stage` and benchmark prediction phases.
+- For canonical-text all-method wall-time, scorer alignment runtime is the first-order bottleneck; scheduler tweaks alone are usually insufficient.
+- `stage` split merge and benchmark prediction split merge are separate implementations (`_merge_split_jobs` vs `_merge_parallel_results`) and can drift independently.
+
+Telemetry anti-loop checks from this profile:
+- Top-level `data/.history/performance_history.csv` did not contain complete production telemetry for this window; run-local artifacts were the reliable source.
+- Processed stage reports in this window often lacked populated timing blocks, so stage wall-time inference came from benchmark prediction timings.
+- If all-method appears "slow but underutilized," verify canonical eval-tail behavior before retuning split/admission knobs.
 
 ## 2026-02-27 Merged Understandings: All-Method Runtime and Anti-Loop Contracts
 
@@ -848,7 +883,7 @@ The items below were merged from `docs/understandings` in source timestamp order
   - `epub_unstructured_preprocess_mode=semantic_v1`
   - `epub_unstructured_skip_headers_footers=true`
 - Single-source runs (`2026-02-28_03.39.35`, `2026-02-28_09.57.37`) are useful probes but weaker certainty evidence for default promotion.
-- Certainty gate thresholds are fixed in `data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json`.
+- Historical note: certainty gate thresholds were fixed in `data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json` for this batch; active phase workflow now uses `2026-03-01_01.00.00` / `2026-03-01_10.15.00` thresholds.
 
 ### 2026-02-28_10.35.58 qualitysuite codex-farm confirmation contract
 - Source: `docs/understandings/2026-02-28_10.35.58-qualitysuite-codex-farm-confirmation-contract.md`
@@ -994,3 +1029,116 @@ Anti-loop reminders from this batch:
 - If folds rerun unexpectedly, distinguish artifact-level cache reuse from final-result reuse eligibility.
 - If live ETA/work-units look odd, validate queue state and weighted estimator behavior before treating status output as broken.
 - If a no-sweeps race run is slower than exhaustive, inspect `race_finalists` against actual variant count first.
+
+## 2026-03-01 merged understandings (two-phase closure + suite-shape consolidation)
+
+Merged source notes (chronological):
+- `docs/understandings/2026-03-01_01.30.00-qualitysuite-parsing-two-phase-runtime-closure.md`
+- `docs/understandings/2026-03-01_10.20.00-qualitysuite-auto-handoff-and-phase-recommendation.md`
+- `docs/understandings/2026-03-01_10.20.19-qualitysuite-plan-stack-redundancy-and-suite-shape.md`
+- `docs/understandings/2026-03-01_10.26.08-qualitysuite-defaults-cleanup-and-product-suite-guide.md`
+
+Current benchmark contract additions from this batch:
+- Tournament seed precedence is explicit and deterministic:
+  - explicit `--seed` / `--seed-list` are deduped in sequence order first,
+  - `--max-seeds` then caps the resolved list,
+  - fallback seed plans are recorded with source metadata in `tournament_resolved.json`.
+- Race-mode no-prune is now surfaced and auto-collapsed:
+  - when `variants_effective <= race_finalists`, tournament execution uses one exhaustive pass and records `reason=race_no_prune_variant_count_le_finalists`.
+- Fold-level progress can be inspected and promoted in-flight:
+  - fold `quality-run` checkpoints expose `experiment_count_total`, `experiment_count_completed`, and `pending_experiment_ids`,
+  - active fold progress is mirrored into `tournament_checkpoint.json`.
+- Prediction reuse provenance distinguishes local and cross-run reuse:
+  - `reused_in_run` when artifacts come from current run root,
+  - `reused_cross_run` when cache sources are outside the current run root.
+  - hardlink-first artifact materialization with safe copy fallback remains the write contract.
+- Phase A -> Phase B auto-handoff now includes a deterministic recommendation heuristic:
+  - explicit `--candidate-experiment-id` always wins,
+  - auto-candidate mode chooses one candidate when top candidate is winner/tied-top across all unique evaluated folds with at least two unique folds,
+  - auto-candidate mode chooses two candidates when top-two mean practical deltas are within `0.003`,
+  - recommendation metadata is written to tournament `summary.json` and `report.md` (`phase_a_promotion_recommendation`).
+- Official phase defaults and preset hygiene were consolidated:
+  - tournament defaults point to `2026-03-01_01.00.00` parser Phase A candidate/threshold files,
+  - exact duplicate preset `2026-02-28_14.58.21_qualitysuite-top-tier-tournament-hot-io-guard.json` was removed as byte-identical to `2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json`,
+  - active-vs-legacy preset status is tracked in `data/golden/bench/quality/README.md`.
+- Product-surface shape remains intentionally three-track:
+  1. `bench quality-lightweight-series` for directional main-effects answers,
+  2. `scripts/quality_top_tier_tournament.py` for Phase A/B/B+ promotion confidence,
+  3. `bench quality-run` + `bench quality-compare` for final validation/regression gates.
+
+Anti-loop reminders from this batch:
+- If tournament path selection feels contradictory, check explicit candidate override precedence before tuning heuristics.
+- If race mode unexpectedly runs long, inspect `variants_effective` versus `race_finalists` first.
+- If reuse labeling seems wrong, verify whether source artifacts are inside the current run root before changing reuse math.
+- If preset debates restart, use `data/golden/bench/quality/README.md` active/legacy map and keep retired duplicates removed.
+
+## 2026-03-01 docs/tasks merge (SpeedSuite + QualitySuite)
+
+Merged task files from `docs/tasks` (source creation order):
+- `2026-02-28_14.55.16-speedsuite-parallel-and-resume.md`
+- `2026-02-28_15.49.40-qualitysuite-fast-profile-and-shared-prediction-reuse.md`
+- `2026-02-28_20.35.43-qualitysuite-live-eta-queue-aware.md`
+- `2026-02-28_21.43.13-qualitysuite-lightweight-main-effects-series.md`
+- `2026-02-28_22.08.25-qualitysuite-parsing-accuracy-two-phase-and-runtime-waste-cuts.md`
+- `2026-03-01_09.48.35-qualitysuite-oracle-full-ideas-gap-closure.md`
+
+### 2026-02-28_14.55.16 SpeedSuite parallel + resume contract
+- `bench speed-run` supports bounded task fanout with `--max-parallel-tasks` (auto mode when omitted).
+- Crash-safe artifacts are first-class:
+  - `checkpoint.json`
+  - `summary.partial.json`
+  - `report.partial.md`
+  - `samples.partial.jsonl`
+  - per-sample `speed_sample_result.json`
+- Resume contract:
+  - `bench speed-run --resume-run-dir <run_dir>`
+  - strict compatibility check on suite/targets/scenarios/warmups/repeats/run-settings/Codex confirmation flags.
+- Durable implementation detail:
+  - task orchestration uses thread-level dispatch for bounded fanout and simpler checkpoint flushing.
+
+### 2026-02-28_15.49.40 fast tournament profile + shared prediction reuse
+- Top-tier fast profiles reduced workload by default (no sweeps, narrower race breadth, shortlist-first/finalist split artifacts).
+- Prediction reuse now supports shared cache roots across rounds/experiments/folds instead of single-run-root scope only.
+- Cross-root reuse preserves key semantics and stores absolute source artifact paths so reuse can remain deterministic.
+- Tournament script exports shared prediction reuse env to fold runs, parallel to alignment cache sharing.
+
+### 2026-02-28_20.35.43 queue-aware live ETA
+- Live ETA includes queued experiments, not only active ones.
+- ETA uses completed-duration fallback when active telemetry is sparse.
+- Status output includes queued counts to explain optimistic/pessimistic shifts.
+- Keep interpreting ETA as heuristic under heterogeneous experiment costs.
+
+### 2026-02-28_21.43.13 lightweight main-effects series
+- Added first-class `bench quality-lightweight-series` (profile-driven orchestration, not scorer rewrite).
+- Flow contract is three-round:
+  - Round 1 main-effects screening by category.
+  - Round 2 combined-winner composition check.
+  - Round 3 interaction smoke tests.
+- Artifacts:
+  - `lightweight_series_summary.json`
+  - `lightweight_series_report.md`
+  - per-round fold directories with reused quality-run outputs.
+- Resume safety uses two layers:
+  - series-level compatibility hash checks,
+  - fold-level quality-run artifact reuse.
+
+### 2026-02-28_22.08.25 two-phase parser workflow + runtime waste cuts
+- Two-phase parser workflow artifacts were productized (Phase A shortlist + Phase B confidence) with product-suite commands.
+- Race mode auto-falls back to exhaustive when pruning is impossible (`variants_effective <= race_finalists`), with reason metadata in artifacts.
+- Tournament supports explicit seed resolution (`--seed`, `--seed-list`) with deterministic metadata in `tournament_resolved.json`.
+- Live tournament subprogress is surfaced from fold checkpoints and mirrored to `tournament_checkpoint.json`.
+- Prediction reuse materialization is hardlink-first with copy fallback; reuse telemetry distinguishes in-run vs cross-run sources.
+
+### 2026-03-01_09.48.35 Oracle gap closure follow-through
+- Added Phase A -> Phase B auto-handoff flags:
+  - `--auto-candidates-from-summary`
+  - `--auto-candidates-from-latest-in`
+- Promotion heuristic now drives both auto-selection and summary/report recommendation block (`phase_a_promotion_recommendation`).
+- Added optional Phase B+ sweeps-decision threshold profile and operator guidance.
+- Threshold defaults can set `quality_run.max_parallel_experiments_default` (CLI override still wins).
+- Explicit seed inputs now support cap semantics (`dedupe explicit list` then `--max-seeds` cap) with provenance metadata.
+
+Anti-loop notes from this merge:
+- If phase handoff behavior looks wrong, inspect candidate-source precedence metadata before changing filters.
+- If race mode still looks slow, compare effective variant count against finalists before touching scoring logic.
+- If reuse speedups disappear, verify hardlink availability/fallback telemetry before changing cache keys.

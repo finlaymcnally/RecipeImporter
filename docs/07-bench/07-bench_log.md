@@ -2029,3 +2029,235 @@ Durable decisions:
 - Base winner and interaction decisions on fold summary metrics/deltas (`practical_f1_macro`, `strict_f1_macro`, `source_success_rate`).
 - Enforce two-layer resume compatibility (series-level hashes + fold-level reuse artifacts).
 
+## 2026-02-26 to 2026-03-01 migrated understanding ledger (perf profile + phase-shape consolidation)
+
+Chronological merge from `docs/understandings`; source files were removed after this merge.
+
+### 2026-02-26_18.19.49 book processing vs benchmark performance profile
+
+Source: `docs/understandings/2026-02-26_18.19.49-book-processing-vs-benchmark-performance-report.md`
+
+Problem captured:
+- Speedup conversations were mixing stage conversion cost, benchmark prediction cost, and canonical evaluator cost without one code-mapped baseline.
+
+Findings preserved:
+- Stage-block runs in the sampled window were conversion/prediction-bound (evaluation share near zero).
+- Canonical-text runs were overwhelmingly alignment-bound (evaluation share near total wall time).
+- Source-level all-method wall time often reflected canonical eval tails with low split-slot utilization.
+- Stage split-merge and benchmark split-merge use different implementations (`_merge_split_jobs` vs `_merge_parallel_results`), so bottlenecks/regressions can diverge by path.
+
+Durable decision:
+- Keep optimization prioritization explicit:
+  - stage/prediction throughput work first for shared ingestion wins,
+  - alignment/runtime work first for canonical all-method wall-time reductions.
+
+Anti-loop note:
+- For this period, run-local artifacts were the reliable telemetry source; top-level history CSV alone was incomplete.
+
+### 2026-03-01_01.30.00 parsing two-phase runtime closure
+
+Source: `docs/understandings/2026-03-01_01.30.00-qualitysuite-parsing-two-phase-runtime-closure.md`
+
+Problem captured:
+- Tournament seed selection, race no-prune behavior, and reuse provenance were still hard to reason about from live runs.
+
+Durable decisions:
+- Seed plan resolution now records explicit source/plan metadata in `tournament_resolved.json` and honors `--seed`, `--seed-list`, and threshold fallback deterministically.
+- Race mode auto-collapses to one exhaustive pass when pruning is impossible (`variants_effective <= race_finalists`) with explicit reason metadata.
+- Fold checkpoint progress fields are promoted into `tournament_checkpoint.json` during active folds for live observability.
+- Prediction reuse provenance is now classified as in-run vs cross-run based on source artifact root checks.
+- Reuse artifact materialization is hardlink-first with copy fallback when linking is unavailable.
+
+Anti-loop note:
+- If race or reuse behavior appears inconsistent, inspect resolved metadata (`tournament_resolved.json`, `tournament_checkpoint.json`, per-config reuse source fields) before changing scheduler code.
+
+### 2026-03-01_10.20.00 auto-handoff and phase recommendation heuristic
+
+Source: `docs/understandings/2026-03-01_10.20.00-qualitysuite-auto-handoff-and-phase-recommendation.md`
+
+Problem captured:
+- Promotion from Phase A to Phase B needed a deterministic default that still allowed explicit operator override.
+
+Durable decisions:
+- Candidate precedence is now explicit:
+  - explicit `--candidate-experiment-id` override first,
+  - auto-candidate selection from prior summary second,
+  - threshold/default candidate path last.
+- Auto recommendation heuristic now selects:
+  - one candidate when top candidate is winner or tied-top across all evaluated unique folds and at least two unique folds exist,
+  - two candidates when top-two mean practical deltas are within `0.003`,
+  - otherwise fallback to top-ranked candidate with warning metadata.
+- Recommendation output is written into tournament `summary.json` and `report.md` as `phase_a_promotion_recommendation`.
+- Explicit seeds plus cap behavior is now deterministic (dedupe explicit seed sequence, then cap with `--max-seeds`).
+
+Anti-loop note:
+- If auto mode picks one candidate where two were expected (or vice versa), inspect fold uniqueness and top-two delta first.
+
+### 2026-03-01_10.20.19 plan-stack redundancy and suite shape
+
+Source: `docs/understandings/2026-03-01_10.20.19-qualitysuite-plan-stack-redundancy-and-suite-shape.md`
+
+Problem captured:
+- Repeated plan churn risked treating foundational and additive QualitySuite work as duplicates.
+
+Findings preserved:
+- `2026-02-28_15.49.40` remained foundational infrastructure (faster profiles + wider prediction reuse scope).
+- `2026-02-28_21.43.13` remained additive product surface (`bench quality-lightweight-series`), not a replacement.
+- `2026-02-28_22.08.25` provided the two-phase parsing runtime baseline (no-prune fallback, seed handling, fold progress, reuse telemetry split).
+- `2026-03-01_09.48.35` mainly extended that baseline (auto handoff, recommendation heuristic, phase defaults/precedence cleanup).
+
+Durable decision:
+- Keep suite shape explicitly three-track (lightweight directional, tournament promotion confidence, full quality-run validation) instead of collapsing into one command path.
+
+Anti-loop note:
+- Supersession is mostly profile-level; avoid deleting feature-level surfaces just because a newer thresholds snapshot exists.
+
+### 2026-03-01_10.26.08 defaults cleanup and product-suite guide
+
+Source: `docs/understandings/2026-03-01_10.26.08-qualitysuite-defaults-cleanup-and-product-suite-guide.md`
+
+Problem captured:
+- Default presets and historical snapshots were drifting into ambiguous "current vs legacy" operator guidance.
+
+Durable decisions:
+- Tournament default files now point to parser Phase A official candidates/thresholds (`2026-03-01_01.00.00` set).
+- Removed byte-identical duplicate preset:
+  - `2026-02-28_14.58.21_qualitysuite-top-tier-tournament-hot-io-guard.json`
+  - duplicate of `2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json`
+- Active-vs-legacy preset status is documented in `data/golden/bench/quality/README.md`.
+- Unified operator decision guide is centralized in `docs/07-bench/qualitysuite-product-suite.md`.
+
+Anti-loop note:
+- Before introducing a new preset, verify whether an equivalent run-settings payload already exists to avoid duplicate snapshot drift.
+
+## 2026-03-01 docs/tasks merge ledger (SpeedSuite + QualitySuite)
+
+### 2026-02-28_14.55.16 SpeedSuite task-level parallelism and resume
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_14.55.16-speedsuite-parallel-and-resume.md`
+
+Problem captured:
+- SpeedSuite task loop was serial and interruption recovery required full reruns.
+
+Durable decisions:
+- Add bounded task-level fanout via `--max-parallel-tasks`.
+- Add run resume via `--resume-run-dir` with strict compatibility checks.
+- Persist crash-safe incremental artifacts and per-sample snapshots for skip-on-resume behavior.
+- Keep orchestration thread-based for bounded dispatch and deterministic checkpoint flushing.
+
+Evidence preserved:
+- `pytest tests/bench/test_speed_suite_runner.py`
+- `pytest tests/bench/test_bench.py -k "speed_run or speed_compare or speed_discover"`
+
+Anti-loop note:
+- If resume skips or reruns unexpectedly, inspect run-config compatibility payload first before changing task planners.
+
+### 2026-02-28_15.49.40 fast profile + shared prediction reuse scope
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_15.49.40-qualitysuite-fast-profile-and-shared-prediction-reuse.md`
+
+Problem captured:
+- Deterministic sweeps multiplied runtime; prediction reuse scope was too narrow (single run-root).
+
+Durable decisions:
+- Ship lower-workload tournament profile defaults (no-sweeps and narrower race breadth).
+- Keep prediction reuse keys stable but widen cache root scope and retain absolute source artifact paths.
+- Allow reuse across rounds/experiments/folds with shared cache roots.
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "prediction_once_reuses_cached_prediction_artifacts"` (`2 passed`)
+- `pytest tests/bench/test_quality_suite_runner.py -k "run_quality_suite or quality_prediction_reuse_cache_root_honors_env_override or quality_cache_root_honors_env_override"` (`13 passed`)
+
+Anti-loop note:
+- Reuse misses with matching config names can still be valid when source paths differ; inspect artifact-root provenance before changing reuse keys.
+
+### 2026-02-28_20.35.43 queue-aware QualitySuite ETA
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_20.35.43-qualitysuite-live-eta-queue-aware.md`
+
+Problem captured:
+- ETA modeled only active experiments and consistently underreported full wall-time when queues were deep.
+
+Durable decisions:
+- Include queued-wave contribution in remaining-time estimator.
+- Use completed-experiment duration fallback when active ETA samples are sparse.
+- Surface queued counts in live status output.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_eta.py -q`
+- `pytest tests/bench/test_quality_suite_runner.py -k "run_quality_suite" -q`
+
+Anti-loop note:
+- ETA remains a heuristic; queue-aware estimation is intentionally conservative compared to active-only lowballing.
+
+### 2026-02-28_21.43.13 lightweight main-effects series productization
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_21.43.13-qualitysuite-lightweight-main-effects-series.md`
+
+Problem captured:
+- Full tournaments were too slow for quick parser/config direction-finding.
+
+Durable decisions:
+- Implement `bench quality-lightweight-series` as a first-class bench command (not ad-hoc script-only workflow).
+- Keep orchestration deterministic and non-LLM; reuse existing quality-run scorer semantics.
+- Externalize category/round/scoring/risk contracts into a versioned lightweight profile JSON.
+- Use strict combined-merge conflict detection (`illegal_overlap`) to prevent silent override of contradictory patch keys.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_lightweight_series.py` (`6 passed`)
+- `pytest tests/bench/test_bench.py -k "bench_quality_lightweight_series_wires_runner or bench_quality_lightweight_series_rejects_missing_resume_series_dir or bench_quality_discover_writes_suite or bench_quality_run_wires_runner or bench_quality_run_rejects_missing_resume_run_dir or bench_quality_leaderboard_saves_qualitysuite_winner_profile"` (`6 passed`)
+- `pytest tests/bench/test_quality_suite_runner.py -k "run_quality_suite"` (`11 passed`)
+
+Anti-loop note:
+- Lightweight series is a directional fast-answer lane; do not treat it as a replacement for promotion and full validation lanes.
+
+### 2026-02-28_22.08.25 two-phase parser workflow and runtime waste cuts
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_22.08.25-qualitysuite-parsing-accuracy-two-phase-and-runtime-waste-cuts.md`
+
+Problem captured:
+- Parser-setting workflow lacked explicit two-phase operating surface and still spent runtime on no-prune race and opaque in-flight fold progress.
+
+Durable decisions:
+- Productize Phase A/Phase B parser workflows in versioned artifacts and runbook guidance.
+- Auto-downgrade race to exhaustive when no pruning is possible; persist requested/effective strategy metadata and reason.
+- Add explicit tournament seed surfaces (`--seed`, `--seed-list`) with deterministic resolution metadata.
+- Add polled fold subprogress and top-level `tournament_checkpoint.json` updates.
+- Add hardlink-first prediction artifact materialization with copy fallback and in-run vs cross-run reuse classification.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_top_tier_tournament.py` (`4 passed`)
+- `pytest tests/bench/test_quality_suite_runner.py -k "race or run_quality_suite"` (`13 passed`)
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "prediction_reuse_summary or reuses_cached_prediction_artifacts or hardlink_unavailable"` (`4 passed`)
+
+Anti-loop note:
+- If race and exhaustive results diverge unexpectedly, inspect no-prune fallback metadata before editing tournament round logic.
+
+### 2026-03-01_09.48.35 Oracle full-ideas gap closure
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-03-01_09.48.35-qualitysuite-oracle-full-ideas-gap-closure.md`
+
+Problem captured:
+- Remaining Oracle recommendations needed first-class workflow surfaces: auto handoff, B+ sweeps decision presets, recommendation heuristics, and precedence cleanup.
+
+Durable decisions:
+- Add auto handoff flags (`--auto-candidates-from-summary`, `--auto-candidates-from-latest-in`) while keeping explicit candidate IDs authoritative.
+- Encode one shared promotion heuristic for both auto-selection and report recommendation metadata.
+- Add thresholds-driven default max-parallel behavior with CLI override precedence.
+- Relax explicit-seed precedence: dedupe explicit seeds first, then apply optional `--max-seeds` cap.
+- Add optional B+ sweeps-decision profile and keep it explicitly separate from default promotion loop.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_top_tier_tournament.py` (`10 passed`)
+- `pytest tests/bench/test_quality_suite_runner.py -k "race"` (`2 passed`)
+- `pytest tests/bench/test_bench.py -k "quality_run or quality_lightweight_series"` (`6 passed`)
+- Dry-run evidence confirmed auto-handoff metadata and explicit-seed-plus-cap behavior.
+
+Anti-loop note:
+- Candidate-source precedence (`explicit > auto summary > threshold/default`) is intentional; verify resolved metadata before changing selection heuristics.

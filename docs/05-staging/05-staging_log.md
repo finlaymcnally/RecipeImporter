@@ -400,8 +400,8 @@ Anti-loop note:
 
 ### 2026-02-28_15.00.57 process-worker-denied fallback: stage `process -> subprocess-backed -> thread -> serial`
 
-Source task file:
-- `docs/tasks/2026-02-28_15.00.57-stage-subprocess-worker-fallback-for-shm-restricted-hosts.md`
+Source task file was merged into this log during docs consolidation and then removed from `docs/tasks`:
+- `2026-02-28_15.00.57-stage-subprocess-worker-fallback-for-shm-restricted-hosts.md`
 
 Problem captured:
 - On this host, process pools fail with `PermissionError: [Errno 13] Permission denied` due SemLock restrictions.
@@ -450,3 +450,48 @@ Durable decision:
 Anti-loop note:
 - If stage looks serial in restricted environments, check fallback mode + worker labels before changing merge/write logic.
 
+## 2026-03-01 docs/tasks merge ledger (stage fallback telemetry + subprocess path)
+
+### 2026-02-28_14.42.42 thread-fallback worker label telemetry
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_14.42.42-speedsuite-thread-fallback-worker-label-telemetry.md`
+
+Problem captured:
+- In thread fallback mode, process-only worker labels collapsed multiple workers into one key (`MainProcess (pid)`), making stage processing timeseries appear serial.
+
+Durable decisions:
+- Worker labels append thread name for non-main threads.
+- Main-thread/process-worker labels remain unchanged for compatibility.
+
+Evidence preserved:
+- `pytest tests/ingestion/test_performance_features.py -k "worker_label" -q`
+- Added tests:
+  - `test_worker_label_includes_thread_name_for_thread_fallback`
+  - `test_worker_label_keeps_process_only_for_main_thread`
+
+Anti-loop note:
+- If `active_workers` appears stuck at `1`, inspect worker-label cardinality before retuning executors.
+
+### 2026-02-28_15.00.57 subprocess-backed worker fallback for SemLock-restricted hosts
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_15.00.57-stage-subprocess-worker-fallback-for-shm-restricted-hosts.md`
+
+Problem captured:
+- Process pools failed with permission errors on restricted hosts; thread-only fallback still degraded throughput on CPU-heavy stage work.
+
+Durable decisions:
+- Fallback order promoted to `process -> subprocess-backed workers -> thread -> serial`.
+- Added stage worker subprocess entrypoint with:
+  - `--stage-worker-self-test`
+  - `--stage-worker-request`
+- Subprocess request/result artifacts are stored under `<out>/.stage_worker_requests`.
+- Subprocess workers support `single`, `pdf_split`, and `epub_split` jobs.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/ingestion/test_performance_features.py -k "process_pool_permission_error_falls_back_to_thread or stage_worker or worker_label" -q`
+- `. .venv/bin/activate && cookimport stage /tmp/stage_subprocess_probe/in --out /tmp/stage_subprocess_probe/out --workers 2 --limit 1`
+
+Anti-loop note:
+- This path is a concurrency workaround under host restrictions, not a fix for host SemLock policy.

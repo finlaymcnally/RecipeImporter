@@ -1372,3 +1372,20 @@ Anti-loop note:
   - preserve explicit `JOBLIB_MULTIPROCESSING` env overrides as authoritative.
 - Escape hatch: `COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD` disables the guard for debugging.
 
+## 2026-03-01 docs/tasks merge (CLI SemLock guard)
+
+### 2026-02-28_14.46.37 joblib SemLock warning guard task merged
+- Source task was merged into this section and then removed from `docs/tasks`:
+  - `2026-02-28_14.46.37-joblib-semlock-warning-guard.md`
+- Problem context retained:
+  - Repeated startup warning spam (`joblib ... will operate in serial mode`) on SemLock-restricted hosts obscured real regression signals and polluted CLI output.
+- Current contract retained:
+  - Startup probes SemLock before downstream imports.
+  - `JOBLIB_MULTIPROCESSING=0` is set only when host restriction is detected and the variable is otherwise unset.
+  - Explicit operator values for `JOBLIB_MULTIPROCESSING` always win.
+  - Guard can be disabled with `COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD`.
+- Validation evidence retained:
+  - `. .venv/bin/activate && pytest tests/core/test_joblib_runtime.py -q`
+  - `. .venv/bin/activate && python - <<'PY'` import smoke for `cookimport.cli`
+- Anti-loop note:
+  - Treat this warning as startup-environment noise first; only treat it as runtime regression evidence when executor-resolution telemetry also regresses.

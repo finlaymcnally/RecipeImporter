@@ -757,3 +757,25 @@ Durable decisions:
 Anti-loop note:
 - Differentiate startup warning noise from actual executor-resolution regressions before changing benchmark/stage fallback logic.
 
+## 2026-03-01 docs/tasks merge ledger (CLI)
+
+### 2026-02-28_14.46.37 joblib SemLock warning guard
+
+Source task was merged into this log and removed from `docs/tasks`:
+- `2026-02-28_14.46.37-joblib-semlock-warning-guard.md`
+
+Problem captured:
+- Import-time joblib SemLock probes emitted repeated serial-mode warnings on restricted hosts, creating noisy startup output across CLI workflows.
+
+Durable decisions:
+- Add guarded early SemLock probe before heavy module imports.
+- Force `JOBLIB_MULTIPROCESSING=0` only when restriction is detected and no explicit value is set.
+- Keep `JOBLIB_MULTIPROCESSING` operator overrides authoritative.
+- Provide opt-out env for debugging (`COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD`).
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/core/test_joblib_runtime.py -q`
+- `. .venv/bin/activate && python - <<'PY'` smoke import for `cookimport.cli`
+
+Anti-loop note:
+- Startup warning suppression is not a throughput fix; confirm executor fallback telemetry before changing stage/bench concurrency paths.

@@ -21,11 +21,11 @@ from typing import Any
 
 DEFAULT_EXPERIMENTS_FILE = (
     "data/golden/bench/quality/experiments/"
-    "2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json"
+    "2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json"
 )
 DEFAULT_THRESHOLDS_FILE = (
     "data/golden/bench/quality/thresholds/"
-    "2026-02-28_10.31.55_qualitysuite-top-tier-gates.json"
+    "2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json"
 )
 _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
 _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV = (

@@ -22,4 +22,5 @@ Current scoring contract:
   - `quality_runner.py` (`bench quality-run` supports adaptive parallel experiment execution with persistent canonical/eval + prediction-reuse caches under `data/golden/bench/quality/.cache`; race mode auto-falls back to exhaustive when finalists cannot prune the current variant set)
   - `quality_compare.py` (`bench quality-compare` baseline-vs-candidate quality gating)
   - `quality_lightweight_series.py` (`bench quality-lightweight-series` main-effects-first orchestration: category screening, combined winner check, and interaction smoke variants with resume-compatible fold artifacts)
-  - `scripts/quality_top_tier_tournament.py` (multi-seed confidence tournament with gate-impossibility pruning, Phase A->B auto candidate handoff from prior summaries, and thresholds-driven `max_parallel_experiments_default`)
+  - `scripts/quality_top_tier_tournament.py` (multi-seed confidence tournament with gate-impossibility pruning, Phase A->B auto candidate handoff from prior summaries, and thresholds-driven `max_parallel_experiments_default`; default file args now point to parser Phase A presets)
+- Unified operator decision path is documented in `docs/07-bench/qualitysuite-product-suite.md`.
