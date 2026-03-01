@@ -62,8 +62,9 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         source_file: Path,
         sample_dir: Path,
         run_settings: RunSettings,
+        require_process_workers: bool,
     ) -> dict[str, object]:
-        _ = (source_file, sample_dir, run_settings)
+        _ = (source_file, sample_dir, run_settings, require_process_workers)
         total = next(stage_total_values)
         return {
             "total_seconds": total,
@@ -108,6 +109,7 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         ],
         warmups=1,
         repeats=2,
+        max_parallel_tasks=1,
         max_targets=1,
         run_settings=RunSettings.from_dict({}, warn_context="test speed runner"),
         progress_callback=progress_messages.append,
@@ -220,8 +222,14 @@ def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
         sample_dir: Path,
         run_settings: RunSettings,
         include_codex_farm_requested: bool,
+        require_process_workers: bool,
     ) -> dict[str, object]:
-        _ = (sample_dir, run_settings, include_codex_farm_requested)
+        _ = (
+            sample_dir,
+            run_settings,
+            include_codex_farm_requested,
+            require_process_workers,
+        )
         target_counts_seen.append(len(targets))
         total = next(total_values)
         return {
@@ -241,6 +249,7 @@ def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
         scenarios=[SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE],
         warmups=1,
         repeats=2,
+        max_parallel_tasks=1,
         max_targets=None,
         run_settings=RunSettings.from_dict({}, warn_context="test speed runner"),
         progress_callback=progress_messages.append,
@@ -261,6 +270,92 @@ def test_run_speed_suite_all_method_multi_source_runs_once_per_phase(
             SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE.value,
         )
     ]["median_total_seconds"] == pytest.approx(11.0)
+
+
+def test_run_speed_suite_forwards_require_process_workers_to_internal_samples(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "alpha.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+
+    suite = SpeedSuite(
+        name="speed_suite",
+        generated_at="2026-02-28_12.00.00",
+        gold_root=str((tmp_path / "gold").resolve()),
+        input_root=str(tmp_path.resolve()),
+        targets=[
+            SpeedTarget(
+                target_id="alpha",
+                source_file=str(source_file.resolve()),
+                gold_spans_path=str(gold_spans.resolve()),
+            )
+        ],
+        unmatched=[],
+    )
+
+    seen_stage_flags: list[bool] = []
+    seen_all_method_flags: list[bool] = []
+
+    def _fake_stage(
+        *,
+        source_file: Path,
+        sample_dir: Path,
+        run_settings: RunSettings,
+        require_process_workers: bool,
+    ) -> dict[str, object]:
+        _ = (source_file, sample_dir, run_settings)
+        seen_stage_flags.append(bool(require_process_workers))
+        return {"total_seconds": 10.0, "timing": {"total_seconds": 10.0}}
+
+    def _fake_all_method(
+        *,
+        targets: list[SpeedTarget],
+        sample_dir: Path,
+        run_settings: RunSettings,
+        include_codex_farm_requested: bool,
+        require_process_workers: bool,
+    ) -> dict[str, object]:
+        _ = (targets, sample_dir, run_settings, include_codex_farm_requested)
+        seen_all_method_flags.append(bool(require_process_workers))
+        return {"total_seconds": 20.0, "timing": {"total_seconds": 20.0}}
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner._run_stage_import_sample",
+        _fake_stage,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner._run_all_method_multi_source_sample",
+        _fake_all_method,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner._probe_process_worker_availability",
+        lambda: (True, None),
+    )
+
+    run_root = run_speed_suite(
+        suite,
+        tmp_path / "runs",
+        scenarios=[
+            SpeedScenario.STAGE_IMPORT,
+            SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE,
+        ],
+        warmups=0,
+        repeats=1,
+        max_parallel_tasks=1,
+        require_process_workers=True,
+        run_settings=RunSettings.from_dict({}, warn_context="test speed runner strict"),
+        progress_callback=None,
+    )
+
+    assert seen_stage_flags == [True]
+    assert seen_all_method_flags == [True]
+    summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["require_process_workers"] is True
+    assert summary["process_worker_probe_available"] is True
 
 
 def test_run_speed_suite_parallel_task_dispatch(
@@ -296,8 +391,9 @@ def test_run_speed_suite_parallel_task_dispatch(
         source_file: Path,
         sample_dir: Path,
         run_settings: RunSettings,
+        require_process_workers: bool,
     ) -> dict[str, object]:
-        _ = (source_file, sample_dir, run_settings)
+        _ = (source_file, sample_dir, run_settings, require_process_workers)
         stage_started.set()
         benchmark_started.wait(timeout=0.6)
         time.sleep(0.05)
@@ -379,8 +475,9 @@ def test_run_speed_suite_resume_reuses_completed_task_snapshots(
         source_file: Path,
         sample_dir: Path,
         run_settings: RunSettings,
+        require_process_workers: bool,
     ) -> dict[str, object]:
-        _ = (source_file, sample_dir, run_settings)
+        _ = (source_file, sample_dir, run_settings, require_process_workers)
         call_counts["stage"] += 1
         return {"total_seconds": 10.0, "timing": {"total_seconds": 10.0}}
 

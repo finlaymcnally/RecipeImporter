@@ -377,7 +377,7 @@ Anti-loop note:
 
 ### 2026-02-28_12.20.59 process-worker-denied fallback: stage `process -> thread -> serial`
 
-Source task file:
+Source task file (historical; removed during later docs consolidation):
 - `docs/tasks/2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
 
 Problem captured:

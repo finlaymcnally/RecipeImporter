@@ -20,7 +20,11 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from cookimport.bench.quality_eta import estimate_quality_run_eta, format_eta_seconds_short
+from cookimport.bench.quality_eta import (
+    estimate_quality_run_eta,
+    estimate_quality_run_remaining_seconds,
+    format_eta_seconds_short,
+)
 from cookimport.bench.quality_suite import QualitySuite
 from cookimport.bench.speed_suite import resolve_repo_path
 from cookimport.config.run_settings import RunSettings
@@ -32,6 +36,9 @@ _SUPPORTED_EXPERIMENT_SCHEMA_VERSION = 2
 _SUPPORTED_EXPERIMENT_SCHEMA_VERSIONS = {1, 2}
 _SUPPORTED_SEARCH_STRATEGIES = {"exhaustive", "race"}
 _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
+_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV = (
+    "COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT"
+)
 _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV = (
     "COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS"
 )
@@ -351,14 +358,24 @@ def _build_live_quality_eta_message(
     run_root: Path,
     completed_experiments: int,
     total_experiments: int,
+    parallel_workers: int,
 ) -> str | None:
     estimate = estimate_quality_run_eta(run_root / "experiments")
     if estimate.active_experiments <= 0:
         return None
-    eta_display = format_eta_seconds_short(estimate.estimated_remaining_seconds)
+    remaining_experiments = max(0, int(total_experiments) - int(completed_experiments))
+    queued_experiments = max(0, remaining_experiments - estimate.active_experiments)
+    remaining_seconds = estimate_quality_run_remaining_seconds(
+        estimate=estimate,
+        total_experiments=total_experiments,
+        completed_experiments=completed_experiments,
+        parallel_workers=parallel_workers,
+    )
+    eta_display = format_eta_seconds_short(remaining_seconds)
     return (
         f"Quality suite live task {completed_experiments}/{total_experiments}: "
         f"active_experiments={estimate.active_experiments} "
+        f"queued_experiments={queued_experiments} "
         f"work_units={estimate.pending_work_units:.1f} "
         f"eta={eta_display} "
         f"eta_models={estimate.experiments_with_eta}of{estimate.active_experiments}"
@@ -384,12 +401,14 @@ def _run_single_experiment_via_subprocess(
     include_codex_farm_requested: bool,
     include_codex_effective: bool,
     canonical_alignment_cache_root: Path,
+    prediction_reuse_cache_root: Path,
     search_strategy: str,
     race_probe_targets: int,
     race_mid_targets: int,
     race_keep_ratio: float,
     race_finalists: int,
     include_deterministic_sweeps: bool,
+    require_process_workers: bool,
 ) -> QualityExperimentResult:
     request_path = experiment_root / _QUALITY_EXPERIMENT_WORKER_REQUEST_FILENAME
     result_path = experiment_root / _QUALITY_EXPERIMENT_WORKER_RESULT_FILENAME
@@ -407,12 +426,14 @@ def _run_single_experiment_via_subprocess(
         "include_codex_farm_requested": bool(include_codex_farm_requested),
         "include_codex_effective": bool(include_codex_effective),
         "canonical_alignment_cache_root": str(canonical_alignment_cache_root),
+        "prediction_reuse_cache_root": str(prediction_reuse_cache_root),
         "search_strategy": str(search_strategy or "exhaustive"),
         "race_probe_targets": int(race_probe_targets),
         "race_mid_targets": int(race_mid_targets),
         "race_keep_ratio": float(race_keep_ratio),
         "race_finalists": int(race_finalists),
         "include_deterministic_sweeps": bool(include_deterministic_sweeps),
+        "require_process_workers": bool(require_process_workers),
         "result_path": str(result_path),
     }
     request_path.write_text(
@@ -516,6 +537,9 @@ def _run_experiment_worker_request(request_path: Path) -> int:
     canonical_alignment_cache_root = Path(
         str(payload.get("canonical_alignment_cache_root") or "")
     )
+    prediction_reuse_cache_root = Path(
+        str(payload.get("prediction_reuse_cache_root") or "")
+    )
 
     exit_code = 0
     try:
@@ -530,6 +554,7 @@ def _run_experiment_worker_request(request_path: Path) -> int:
             include_codex_farm_requested=bool(payload.get("include_codex_farm_requested")),
             include_codex_effective=bool(payload.get("include_codex_effective")),
             canonical_alignment_cache_root=canonical_alignment_cache_root,
+            prediction_reuse_cache_root=prediction_reuse_cache_root,
             search_strategy=str(payload.get("search_strategy") or "exhaustive"),
             race_probe_targets=_coerce_int(payload.get("race_probe_targets"), minimum=1),
             race_mid_targets=_coerce_int(payload.get("race_mid_targets"), minimum=1),
@@ -541,6 +566,7 @@ def _run_experiment_worker_request(request_path: Path) -> int:
             include_deterministic_sweeps=bool(
                 payload.get("include_deterministic_sweeps")
             ),
+            require_process_workers=bool(payload.get("require_process_workers")),
             progress_callback=None,
         )
     except Exception as exc:  # noqa: BLE001
@@ -770,6 +796,7 @@ def run_quality_suite(
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
     max_parallel_experiments: int | None = None,
+    require_process_workers: bool = False,
     resume_run_dir: Path | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
@@ -864,6 +891,9 @@ def run_quality_suite(
     canonical_alignment_cache_root = _resolve_quality_alignment_cache_root(
         out_dir=out_dir
     )
+    prediction_reuse_cache_root = _resolve_quality_prediction_reuse_cache_root(
+        out_dir=out_dir
+    )
 
     suite_payload = suite.model_dump()
     suite_payload["target_count_total"] = len(suite.targets)
@@ -883,6 +913,7 @@ def run_quality_suite(
         if base_run_settings_file is not None
         else experiment_payload.base_run_settings_file,
         "canonical_alignment_cache_root": str(canonical_alignment_cache_root),
+        "prediction_reuse_cache_root": str(prediction_reuse_cache_root),
         "search_strategy": search_strategy_clean,
         "race": {
             "probe_targets": race_probe_targets,
@@ -929,6 +960,9 @@ def run_quality_suite(
     include_codex_effective, _codex_warning = cli._resolve_all_method_codex_choice(
         include_codex_farm_requested
     )
+    process_worker_probe_available, process_worker_probe_error = (
+        cli._probe_all_method_process_pool_executor()
+    )
     experiment_executor_mode, experiment_executor_reason = (
         _resolve_quality_experiment_executor_mode(
             max_parallel_experiments_effective=max_parallel_experiments_effective
@@ -939,9 +973,19 @@ def run_quality_suite(
     resolved_payload["include_markdown_extractors_effective"] = bool(
         include_markdown_extractors
     )
+    resolved_payload["require_process_workers"] = bool(require_process_workers)
+    resolved_payload["process_worker_probe_available"] = bool(
+        process_worker_probe_available
+    )
+    resolved_payload["process_worker_probe_error"] = (
+        str(process_worker_probe_error).strip() if process_worker_probe_error else None
+    )
     resolved_payload["experiment_executor_mode"] = experiment_executor_mode
     resolved_payload["experiment_executor_reason"] = experiment_executor_reason
     resolved_payload["experiment_executor_mode_env"] = _QUALITY_EXPERIMENT_EXECUTOR_MODE_ENV
+    resolved_payload["prediction_reuse_cache_root_env"] = (
+        _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV
+    )
     if _codex_warning is not None:
         resolved_payload["include_codex_farm_warning"] = str(_codex_warning)
     (run_root / "experiments_resolved.json").write_text(
@@ -967,15 +1011,19 @@ def run_quality_suite(
                 include_codex_farm_requested=include_codex_farm_requested,
                 include_codex_effective=include_codex_effective,
                 canonical_alignment_cache_root=canonical_alignment_cache_root,
+                prediction_reuse_cache_root=prediction_reuse_cache_root,
                 search_strategy=search_strategy_clean,
                 race_probe_targets=race_probe_targets,
                 race_mid_targets=race_mid_targets,
                 race_keep_ratio=race_keep_ratio,
                 race_finalists=race_finalists,
                 include_deterministic_sweeps=include_deterministic_sweeps_requested,
+                require_process_workers=bool(require_process_workers),
                 progress_callback=progress_reporter,
             )
         except Exception as exc:  # noqa: BLE001
+            if require_process_workers:
+                raise
             return QualityExperimentResult(
                 id=experiment.id,
                 status="failed",
@@ -991,7 +1039,7 @@ def run_quality_suite(
         experiment_root = run_root / "experiments" / experiment.id
         experiment_root.mkdir(parents=True, exist_ok=True)
         if experiment_executor_mode == "subprocess":
-            return _run_single_experiment_via_subprocess(
+            result = _run_single_experiment_via_subprocess(
                 experiment=experiment,
                 suite_targets=selected_targets,
                 run_root=run_root,
@@ -1000,13 +1048,22 @@ def run_quality_suite(
                 include_codex_farm_requested=include_codex_farm_requested,
                 include_codex_effective=include_codex_effective,
                 canonical_alignment_cache_root=canonical_alignment_cache_root,
+                prediction_reuse_cache_root=prediction_reuse_cache_root,
                 search_strategy=search_strategy_clean,
                 race_probe_targets=race_probe_targets,
                 race_mid_targets=race_mid_targets,
                 race_keep_ratio=race_keep_ratio,
                 race_finalists=race_finalists,
                 include_deterministic_sweeps=include_deterministic_sweeps_requested,
+                require_process_workers=bool(require_process_workers),
             )
+            if require_process_workers and result.status != "ok":
+                detail = str(result.error or "unknown error").strip() or "unknown error"
+                raise RuntimeError(
+                    "Process-worker-required quality run failed in subprocess executor: "
+                    f"{experiment.id}: {detail}"
+                )
+            return result
         return _run_resolved_experiment(experiment=experiment)
 
     results_by_index: list[QualityExperimentResult | None] = [None] * total_experiments
@@ -1171,6 +1228,7 @@ def run_quality_suite(
                             run_root=run_root,
                             completed_experiments=completed,
                             total_experiments=total_experiments,
+                            parallel_workers=dynamic_worker_target,
                         )
                         if (
                             live_eta_message is not None
@@ -1217,6 +1275,8 @@ def run_quality_suite(
                     try:
                         result = future.result()
                     except Exception as exc:  # pragma: no cover - defensive fallback
+                        if require_process_workers:
+                            raise
                         result = QualityExperimentResult(
                             id=experiment.id,
                             status="failed",
@@ -1240,6 +1300,17 @@ def run_quality_suite(
         run_timestamp=run_timestamp,
         experiments=resolved_experiments,
         results=results,
+    )
+    summary_payload["require_process_workers"] = bool(require_process_workers)
+    summary_payload["process_worker_probe_available"] = bool(
+        process_worker_probe_available
+    )
+    summary_payload["process_worker_probe_error"] = (
+        str(process_worker_probe_error).strip() if process_worker_probe_error else None
+    )
+    summary_payload["prediction_reuse_cache_root"] = str(prediction_reuse_cache_root)
+    summary_payload["prediction_reuse_cache_root_env"] = (
+        _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV
     )
     _write_quality_run_checkpoint(
         run_root=run_root,
@@ -1515,6 +1586,15 @@ def _resolve_quality_alignment_cache_root(*, out_dir: Path) -> Path:
     return out_dir.expanduser().parent / ".cache" / "canonical_alignment"
 
 
+def _resolve_quality_prediction_reuse_cache_root(*, out_dir: Path) -> Path:
+    env_override = str(
+        os.getenv(_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV, "") or ""
+    ).strip()
+    if env_override:
+        return Path(env_override).expanduser()
+    return out_dir.expanduser().parent / ".cache" / "prediction_reuse"
+
+
 def _target_difficulty_score(target: Any) -> float:
     canonical_chars = float(_coerce_int(getattr(target, "canonical_text_chars", 0)))
     label_count = float(_coerce_int(getattr(target, "label_count", 0)))
@@ -1728,6 +1808,8 @@ def _run_all_method_for_round(
     include_codex_farm_requested: bool,
     include_codex_effective: bool,
     canonical_alignment_cache_root: Path,
+    prediction_reuse_cache_root: Path,
+    require_process_workers: bool,
     progress_callback: ProgressCallback | None,
 ) -> Path:
     import cookimport.cli as cli
@@ -1770,6 +1852,8 @@ def _run_all_method_for_round(
         wing_backlog_target=runtime_effective.get("wing_backlog_target"),
         smart_scheduler=bool(runtime_effective.get("smart_scheduler", True)),
         canonical_alignment_cache_root=canonical_alignment_cache_root,
+        prediction_reuse_cache_root=prediction_reuse_cache_root,
+        require_process_workers=bool(require_process_workers),
     )
 
 
@@ -1933,12 +2017,14 @@ def _run_single_experiment(
     include_codex_farm_requested: bool,
     include_codex_effective: bool,
     canonical_alignment_cache_root: Path,
+    prediction_reuse_cache_root: Path,
     search_strategy: str,
     race_probe_targets: int,
     race_mid_targets: int,
     race_keep_ratio: float,
     race_finalists: int,
     include_deterministic_sweeps: bool,
+    require_process_workers: bool,
     progress_callback: ProgressCallback | None,
 ) -> QualityExperimentResult:
     race_metadata: dict[str, Any] | None = None
@@ -1991,6 +2077,8 @@ def _run_single_experiment(
                 include_codex_farm_requested=include_codex_farm_requested,
                 include_codex_effective=include_codex_effective,
                 canonical_alignment_cache_root=canonical_alignment_cache_root,
+                prediction_reuse_cache_root=prediction_reuse_cache_root,
+                require_process_workers=bool(require_process_workers),
                 progress_callback=progress_callback,
             )
             report_json_path = report_md_path.with_suffix(".json")
@@ -2060,6 +2148,8 @@ def _run_single_experiment(
             include_codex_farm_requested=include_codex_farm_requested,
             include_codex_effective=include_codex_effective,
             canonical_alignment_cache_root=canonical_alignment_cache_root,
+            prediction_reuse_cache_root=prediction_reuse_cache_root,
+            require_process_workers=bool(require_process_workers),
             progress_callback=progress_callback,
         )
         race_metadata = {
@@ -2097,6 +2187,8 @@ def _run_single_experiment(
             include_codex_farm_requested=include_codex_farm_requested,
             include_codex_effective=include_codex_effective,
             canonical_alignment_cache_root=canonical_alignment_cache_root,
+            prediction_reuse_cache_root=prediction_reuse_cache_root,
+            require_process_workers=bool(require_process_workers),
             progress_callback=progress_callback,
         )
     report_json_path = report_md_path.with_suffix(".json")

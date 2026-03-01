@@ -5802,6 +5802,88 @@ def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts(
     assert second_prediction_record.exists()
 
 
+def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts_across_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    variant = cli.AllMethodVariant(
+        slug="reuse-check",
+        run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        dimensions={"epub_extractor": "unstructured"},
+    )
+
+    benchmark_calls = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal benchmark_calls
+        benchmark_calls += 1
+        _write_fake_all_method_prediction_phase_artifacts(
+            kwargs=kwargs,
+            source_file=source_file,
+            extractor="unstructured",
+            prediction_seconds=1.5,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    shared_prediction_reuse_cache = tmp_path / "shared-prediction-reuse-cache"
+    scheduler_events_dir = tmp_path / "events"
+    split_phase_gate_dir = tmp_path / "split-gate"
+
+    first_root_output_dir = tmp_path / "all-method-a"
+    first_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=1,
+        total_variants=1,
+        root_output_dir=first_root_output_dir,
+        scratch_root=first_root_output_dir / ".scratch",
+        processed_output_root=tmp_path / "processed-output-a",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        prediction_reuse_cache_dir=shared_prediction_reuse_cache,
+        split_worker_cap_per_config=None,
+    )
+    second_root_output_dir = tmp_path / "all-method-b"
+    second_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant,
+        config_index=1,
+        total_variants=1,
+        root_output_dir=second_root_output_dir,
+        scratch_root=second_root_output_dir / ".scratch",
+        processed_output_root=tmp_path / "processed-output-b",
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        prediction_reuse_cache_dir=shared_prediction_reuse_cache,
+        split_worker_cap_per_config=None,
+    )
+
+    assert benchmark_calls == 1
+    assert first_row["prediction_result_source"] == "executed"
+    assert second_row["prediction_result_source"] == "reused_in_run"
+    assert second_row["prediction_representative_config_dir"] == first_row["config_dir"]
+    second_prediction_record = second_root_output_dir / str(
+        second_row["prediction_record_jsonl"]
+    )
+    assert second_prediction_record.exists()
+
+
 def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -209,6 +209,24 @@ DEFAULT_BENCH_QUALITY_ROOT = DEFAULT_GOLDEN / "bench" / "quality"
 DEFAULT_BENCH_QUALITY_SUITES = DEFAULT_BENCH_QUALITY_ROOT / "suites"
 DEFAULT_BENCH_QUALITY_RUNS = DEFAULT_BENCH_QUALITY_ROOT / "runs"
 DEFAULT_BENCH_QUALITY_COMPARISONS = DEFAULT_BENCH_QUALITY_ROOT / "comparisons"
+DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES = (
+    DEFAULT_BENCH_QUALITY_ROOT / "lightweight_series"
+)
+DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE = (
+    DEFAULT_BENCH_QUALITY_ROOT
+    / "lightweight_profiles"
+    / "2026-03-01_00.00.00_qualitysuite-lightweight-main-effects-v1.json"
+)
+DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS = (
+    DEFAULT_BENCH_QUALITY_ROOT
+    / "experiments"
+    / "2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json"
+)
+DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS = (
+    DEFAULT_BENCH_QUALITY_ROOT
+    / "thresholds"
+    / "2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json"
+)
 DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
@@ -267,6 +285,9 @@ ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY = "all_method_source_shard_min_
 ALL_METHOD_WING_BACKLOG_SETTING_KEY = "all_method_wing_backlog_target"
 ALL_METHOD_SMART_SCHEDULER_SETTING_KEY = "all_method_smart_scheduler"
 ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
+ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV = (
+    "COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT"
+)
 ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION = "all_method_eval_signature.v1"
 ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION = (
     "all_method_eval_signature_result.v1"
@@ -7948,7 +7969,8 @@ def _load_all_method_prediction_reuse_cache_entry(
     if cached_key != str(expected_key):
         return None
     config_dir = str(payload.get("config_dir") or "").strip()
-    if not config_dir:
+    source_eval_output_dir = str(payload.get("source_eval_output_dir") or "").strip()
+    if not config_dir and not source_eval_output_dir:
         return None
     return payload
 
@@ -8040,28 +8062,50 @@ def _copy_all_method_prediction_artifacts_for_reuse(
     root_output_dir: Path,
     scratch_root: Path,
     processed_output_root: Path,
+    source_eval_output_dir: Path | None = None,
+    source_scratch_output_dir: Path | None = None,
+    source_processed_output_dir: Path | None = None,
 ) -> float | None:
     source_dir = str(source_config_dir or "").strip()
     target_dir = str(target_config_dir or "").strip()
-    if not source_dir or not target_dir:
+    if not target_dir:
         return None
-    if source_dir == target_dir:
+    if source_dir and source_dir == target_dir and source_eval_output_dir is None:
         return None
 
-    source_eval_output_dir = root_output_dir / source_dir
+    if source_eval_output_dir is not None:
+        resolved_source_eval_output_dir = Path(source_eval_output_dir).expanduser()
+    else:
+        if not source_dir:
+            return None
+        resolved_source_eval_output_dir = root_output_dir / source_dir
     target_eval_output_dir = root_output_dir / target_dir
-    source_prediction_records = source_eval_output_dir / "prediction-records.jsonl"
+    if resolved_source_eval_output_dir.resolve(
+        strict=False
+    ) == target_eval_output_dir.resolve(strict=False):
+        return None
+    source_prediction_records = resolved_source_eval_output_dir / "prediction-records.jsonl"
     if (
-        not source_eval_output_dir.exists()
-        or not source_eval_output_dir.is_dir()
+        not resolved_source_eval_output_dir.exists()
+        or not resolved_source_eval_output_dir.is_dir()
         or not source_prediction_records.exists()
         or not source_prediction_records.is_file()
     ):
         return None
 
-    source_scratch_dir = scratch_root / source_dir
+    if source_scratch_output_dir is not None:
+        source_scratch_dir = Path(source_scratch_output_dir).expanduser()
+    elif source_dir:
+        source_scratch_dir = scratch_root / source_dir
+    else:
+        source_scratch_dir = Path("__missing_prediction_reuse_scratch__")
     target_scratch_dir = scratch_root / target_dir
-    source_processed_dir = processed_output_root / source_dir
+    if source_processed_output_dir is not None:
+        source_processed_dir = Path(source_processed_output_dir).expanduser()
+    elif source_dir:
+        source_processed_dir = processed_output_root / source_dir
+    else:
+        source_processed_dir = Path("__missing_prediction_reuse_processed__")
     target_processed_dir = processed_output_root / target_dir
 
     def _reset_tree(target_dir_path: Path) -> None:
@@ -8072,7 +8116,7 @@ def _copy_all_method_prediction_artifacts_for_reuse(
     _reset_tree(target_eval_output_dir)
     _reset_tree(target_scratch_dir)
     _reset_tree(target_processed_dir)
-    shutil.copytree(source_eval_output_dir, target_eval_output_dir)
+    shutil.copytree(resolved_source_eval_output_dir, target_eval_output_dir)
     if source_scratch_dir.exists() and source_scratch_dir.is_dir():
         shutil.copytree(source_scratch_dir, target_scratch_dir)
     if source_processed_dir.exists() and source_processed_dir.is_dir():
@@ -8251,6 +8295,15 @@ def _resolve_all_method_eval_signature_cache_dir(
     return resolved_alignment_dir.parent / "eval_signature_results"
 
 
+def _resolve_all_method_prediction_reuse_cache_dir(*, root_output_dir: Path) -> Path:
+    env_override = str(
+        os.getenv(ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV, "") or ""
+    ).strip()
+    if env_override:
+        return Path(env_override).expanduser()
+    return root_output_dir / ".prediction_reuse_cache"
+
+
 def _load_all_method_eval_signature_cache_entry(
     *,
     cache_path: Path,
@@ -8345,6 +8398,7 @@ def _run_all_method_prediction_once(
     split_phase_gate_dir: Path,
     scheduler_events_dir: Path,
     alignment_cache_dir: Path | None,
+    prediction_reuse_cache_dir: Path | None = None,
     split_worker_cap_per_config: int | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
@@ -8469,7 +8523,13 @@ def _run_all_method_prediction_once(
             effective_split_worker_cap,
         )
 
-    prediction_reuse_cache_dir = root_output_dir / ".prediction_reuse_cache"
+    prediction_reuse_cache_dir = (
+        prediction_reuse_cache_dir
+        if prediction_reuse_cache_dir is not None
+        else _resolve_all_method_prediction_reuse_cache_dir(
+            root_output_dir=root_output_dir
+        )
+    ).expanduser()
     prediction_reuse_cache_path = _all_method_prediction_reuse_cache_entry_path(
         cache_dir=prediction_reuse_cache_dir,
         prediction_reuse_key=prediction_reuse_key,
@@ -8534,14 +8594,40 @@ def _run_all_method_prediction_once(
         if not isinstance(cache_entry, dict):
             return False
         source_config_dir = str(cache_entry.get("config_dir") or "").strip()
-        if not source_config_dir or source_config_dir == config_dir_name:
+        source_eval_output_dir: Path | None = None
+        source_scratch_output_dir: Path | None = None
+        source_processed_output_dir: Path | None = None
+        source_eval_raw = str(cache_entry.get("source_eval_output_dir") or "").strip()
+        source_scratch_raw = str(
+            cache_entry.get("source_scratch_output_dir") or ""
+        ).strip()
+        source_processed_raw = str(
+            cache_entry.get("source_processed_output_dir") or ""
+        ).strip()
+        if source_eval_raw:
+            source_eval_output_dir = Path(source_eval_raw).expanduser()
+        if source_scratch_raw:
+            source_scratch_output_dir = Path(source_scratch_raw).expanduser()
+        if source_processed_raw:
+            source_processed_output_dir = Path(source_processed_raw).expanduser()
+        if not source_config_dir and source_eval_output_dir is None:
             return False
+        if source_config_dir == config_dir_name:
+            if source_eval_output_dir is None:
+                return False
+            if source_eval_output_dir.resolve(strict=False) == eval_output_dir.resolve(
+                strict=False
+            ):
+                return False
         copy_seconds = _copy_all_method_prediction_artifacts_for_reuse(
             source_config_dir=source_config_dir,
             target_config_dir=config_dir_name,
             root_output_dir=root_output_dir,
             scratch_root=scratch_root,
             processed_output_root=processed_output_root,
+            source_eval_output_dir=source_eval_output_dir,
+            source_scratch_output_dir=source_scratch_output_dir,
+            source_processed_output_dir=source_processed_output_dir,
         )
         if copy_seconds is None:
             return False
@@ -8614,6 +8700,9 @@ def _run_all_method_prediction_once(
             "source_file": str(source_file),
             "config_index": config_index,
             "config_dir": config_dir_name,
+            "source_eval_output_dir": str(eval_output_dir),
+            "source_scratch_output_dir": str(scratch_output_dir),
+            "source_processed_output_dir": str(processed_output_dir),
         }
         try:
             _write_all_method_prediction_reuse_cache_entry(
@@ -9814,6 +9903,8 @@ def _run_all_method_benchmark_global_queue(
     wing_backlog_target: int | None = None,
     smart_scheduler: bool = False,
     canonical_alignment_cache_root: Path | None = None,
+    prediction_reuse_cache_root: Path | None = None,
+    require_process_workers: bool = False,
 ) -> Path:
     run_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -9844,6 +9935,13 @@ def _run_all_method_benchmark_global_queue(
         canonical_alignment_cache_root.expanduser()
         if canonical_alignment_cache_root is not None
         else _resolve_all_method_canonical_alignment_cache_root(
+            root_output_dir=root_output_dir
+        )
+    )
+    resolved_prediction_reuse_cache_root = (
+        prediction_reuse_cache_root.expanduser()
+        if prediction_reuse_cache_root is not None
+        else _resolve_all_method_prediction_reuse_cache_dir(
             root_output_dir=root_output_dir
         )
     )
@@ -10025,6 +10123,9 @@ def _run_all_method_benchmark_global_queue(
     )
     scheduler_admission_wing_target_current = effective_wing_backlog_target
     scheduler_admission_reason_current = "base"
+    process_worker_probe_available: bool | None = None
+    process_worker_probe_error: str | None = None
+    config_executor_backends_seen: set[str] = set()
 
     def _scheduler_event_path(config_index: int) -> Path:
         return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
@@ -10401,6 +10502,7 @@ def _run_all_method_benchmark_global_queue(
                 split_phase_gate_dir=split_phase_gate_dir,
                 scheduler_events_dir=scheduler_events_dir,
                 alignment_cache_dir=item.canonical_alignment_cache_dir,
+                prediction_reuse_cache_dir=resolved_prediction_reuse_cache_root,
                 split_worker_cap_per_config=split_worker_cap_per_config,
                 progress_callback=_variant_progress if progress_callback else None,
             )
@@ -10437,6 +10539,8 @@ def _run_all_method_benchmark_global_queue(
         *,
         dashboard_tracking: bool = True,
     ) -> None:
+        nonlocal process_worker_probe_available
+        nonlocal process_worker_probe_error
         nonlocal scheduler_admission_adjustments
         nonlocal scheduler_admission_pressure_boosts
         nonlocal scheduler_admission_saturation_clamps
@@ -10454,11 +10558,16 @@ def _run_all_method_benchmark_global_queue(
             len(items) <= 1 or effective_inflight_pipelines <= 1
         ) and not force_parallel_timeout
         if serial_by_limits:
+            config_executor_backends_seen.add("serial")
             _run_serial_items(items, dashboard_tracking=dashboard_tracking)
             return
         executor_backend = "process"
         process_workers_available, process_worker_error = (
             _probe_all_method_process_pool_executor()
+        )
+        process_worker_probe_available = bool(process_workers_available)
+        process_worker_probe_error = (
+            str(process_worker_error).strip() if process_worker_error else None
         )
         if not process_workers_available:
             detail = (
@@ -10466,6 +10575,11 @@ def _run_all_method_benchmark_global_queue(
                 if isinstance(process_worker_error, str) and process_worker_error
                 else ""
             )
+            if require_process_workers:
+                raise RuntimeError(
+                    "Process-based config concurrency is required, but runtime probe "
+                    f"reported it unavailable{detail}."
+                )
             _emit_status(
                 (
                     "Process-based config concurrency unavailable"
@@ -10474,6 +10588,7 @@ def _run_all_method_benchmark_global_queue(
                 color=typer.colors.YELLOW,
             )
             executor_backend = "thread"
+        config_executor_backends_seen.add(str(executor_backend))
 
         pending_items = list(items)
         futures: dict[Any, tuple[_AllMethodGlobalWorkItem, float]] = {}
@@ -10492,6 +10607,11 @@ def _run_all_method_benchmark_global_queue(
             )
         except (PermissionError, OSError) as exc:
             if executor_backend == "process":
+                if require_process_workers:
+                    raise RuntimeError(
+                        "Process-based config concurrency is required, but process "
+                        f"executor startup failed: {exc}"
+                    ) from exc
                 _emit_status(
                     (
                         "Process-based config concurrency unavailable "
@@ -10500,6 +10620,7 @@ def _run_all_method_benchmark_global_queue(
                     color=typer.colors.YELLOW,
                 )
                 executor_backend = "thread"
+                config_executor_backends_seen.add("thread")
                 try:
                     executor = ThreadPoolExecutor(max_workers=worker_limit)
                 except Exception as thread_exc:  # noqa: BLE001
@@ -10510,6 +10631,7 @@ def _run_all_method_benchmark_global_queue(
                         ),
                         color=typer.colors.YELLOW,
                     )
+                    config_executor_backends_seen.add("serial")
                     _run_serial_items(items, dashboard_tracking=dashboard_tracking)
                     return
             else:
@@ -10520,6 +10642,7 @@ def _run_all_method_benchmark_global_queue(
                     ),
                     color=typer.colors.YELLOW,
                 )
+                config_executor_backends_seen.add("serial")
                 _run_serial_items(items, dashboard_tracking=dashboard_tracking)
                 return
 
@@ -10585,6 +10708,7 @@ def _run_all_method_benchmark_global_queue(
                     split_phase_gate_dir=split_phase_gate_dir,
                     scheduler_events_dir=scheduler_events_dir,
                     alignment_cache_dir=item.canonical_alignment_cache_dir,
+                    prediction_reuse_cache_dir=resolved_prediction_reuse_cache_root,
                     split_worker_cap_per_config=split_worker_cap_per_config,
                     progress_callback=None,
                 )
@@ -10822,6 +10946,11 @@ def _run_all_method_benchmark_global_queue(
                 try:
                     executor = ProcessPoolExecutor(max_workers=worker_limit)
                 except (PermissionError, OSError) as exc:
+                    if require_process_workers:
+                        raise RuntimeError(
+                            "Process-based config concurrency is required, but process "
+                            f"pool restart failed after timeout: {exc}"
+                        ) from exc
                     _emit_status(
                         (
                             "Process-based config concurrency unavailable after timeout "
@@ -10830,6 +10959,7 @@ def _run_all_method_benchmark_global_queue(
                         color=typer.colors.YELLOW,
                     )
                     executor_backend = "thread"
+                    config_executor_backends_seen.add("thread")
                     try:
                         executor = ThreadPoolExecutor(max_workers=worker_limit)
                     except Exception as thread_exc:  # noqa: BLE001
@@ -10840,6 +10970,7 @@ def _run_all_method_benchmark_global_queue(
                             ),
                             color=typer.colors.YELLOW,
                         )
+                        config_executor_backends_seen.add("serial")
                         _run_serial_items(
                             pending_items,
                             dashboard_tracking=dashboard_tracking,
@@ -11506,6 +11637,13 @@ def _run_all_method_benchmark_global_queue(
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
         "canonical_alignment_cache_root": str(resolved_canonical_cache_root),
+        "prediction_reuse_cache_root": str(resolved_prediction_reuse_cache_root),
+        "executor_resolution": {
+            "process_workers_required": bool(require_process_workers),
+            "process_worker_probe_available": process_worker_probe_available,
+            "process_worker_probe_error": process_worker_probe_error,
+            "config_executor_backends_seen": sorted(config_executor_backends_seen),
+        },
         "timing_summary": {
             "run_wall_seconds": run_wall_seconds,
             "source_total_seconds": source_total_seconds,
@@ -11598,6 +11736,8 @@ def _run_all_method_benchmark_multi_source(
     wing_backlog_target: int | None = None,
     smart_scheduler: bool = False,
     canonical_alignment_cache_root: Path | None = None,
+    prediction_reuse_cache_root: Path | None = None,
+    require_process_workers: bool = False,
 ) -> Path:
     resolved_scheduler_scope = _normalize_all_method_scheduler_scope(scheduler_scope)
     if resolved_scheduler_scope == ALL_METHOD_SCHEDULER_SCOPE_LEGACY:
@@ -11625,6 +11765,8 @@ def _run_all_method_benchmark_multi_source(
             wing_backlog_target=wing_backlog_target,
             smart_scheduler=smart_scheduler,
             canonical_alignment_cache_root=canonical_alignment_cache_root,
+            prediction_reuse_cache_root=prediction_reuse_cache_root,
+            require_process_workers=require_process_workers,
         )
     return _run_all_method_benchmark_global_queue(
         target_variants=target_variants,
@@ -11650,6 +11792,8 @@ def _run_all_method_benchmark_multi_source(
         wing_backlog_target=wing_backlog_target,
         smart_scheduler=smart_scheduler,
         canonical_alignment_cache_root=canonical_alignment_cache_root,
+        prediction_reuse_cache_root=prediction_reuse_cache_root,
+        require_process_workers=require_process_workers,
     )
 
 
@@ -11678,6 +11822,8 @@ def _run_all_method_benchmark_multi_source_legacy(
     wing_backlog_target: int | None = None,
     smart_scheduler: bool = False,
     canonical_alignment_cache_root: Path | None = None,
+    prediction_reuse_cache_root: Path | None = None,
+    require_process_workers: bool = False,
 ) -> Path:
     run_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -11707,6 +11853,13 @@ def _run_all_method_benchmark_multi_source_legacy(
         canonical_alignment_cache_root.expanduser()
         if canonical_alignment_cache_root is not None
         else _resolve_all_method_canonical_alignment_cache_root(
+            root_output_dir=root_output_dir
+        )
+    )
+    resolved_prediction_reuse_cache_root = (
+        prediction_reuse_cache_root.expanduser()
+        if prediction_reuse_cache_root is not None
+        else _resolve_all_method_prediction_reuse_cache_dir(
             root_output_dir=root_output_dir
         )
     )
@@ -11856,6 +12009,12 @@ def _run_all_method_benchmark_multi_source_legacy(
             "winner_metrics": {},
             "timing_summary": {},
             "scheduler": {},
+            "executor_resolution": {
+                "process_workers_required": bool(require_process_workers),
+                "process_worker_probe_available": None,
+                "process_worker_probe_error": None,
+                "config_executor_backends_seen": [],
+            },
             "error": error,
         }
 
@@ -11946,6 +12105,8 @@ def _run_all_method_benchmark_multi_source_legacy(
                 refresh_dashboard_after_source=refresh_dashboard_after_source,
                 source_parallelism_effective=source_parallelism_effective,
                 canonical_alignment_cache_dir_override=canonical_alignment_cache_dir,
+                prediction_reuse_cache_dir_override=resolved_prediction_reuse_cache_root,
+                require_process_workers=require_process_workers,
             )
             report_json_path = report_md_path.with_suffix(".json")
             report_payload = json.loads(report_json_path.read_text(encoding="utf-8"))
@@ -11976,6 +12137,12 @@ def _run_all_method_benchmark_multi_source_legacy(
             normalized_source_scheduler = (
                 dict(source_scheduler_summary)
                 if isinstance(source_scheduler_summary, dict)
+                else {}
+            )
+            source_executor_resolution = report_payload.get("executor_resolution")
+            normalized_source_executor_resolution = (
+                dict(source_executor_resolution)
+                if isinstance(source_executor_resolution, dict)
                 else {}
             )
 
@@ -12014,6 +12181,7 @@ def _run_all_method_benchmark_multi_source_legacy(
                 "winner_metrics": winner_metrics,
                 "timing_summary": normalized_source_timing,
                 "scheduler": normalized_source_scheduler,
+                "executor_resolution": normalized_source_executor_resolution,
                 "error": "",
             }
             _mark_source_job_finished(source_position, failed=False)
@@ -12871,6 +13039,35 @@ def _run_all_method_benchmark_multi_source_legacy(
         if scheduler_wing_seconds_weight > 0
         else 0.0
     )
+    all_source_executor_resolution = [
+        row.get("executor_resolution")
+        for row in source_rows
+        if isinstance(row, dict) and isinstance(row.get("executor_resolution"), dict)
+    ]
+    executor_backends_seen_legacy: set[str] = set()
+    process_probe_values_legacy: set[bool] = set()
+    process_probe_errors_legacy: list[str] = []
+    for item in all_source_executor_resolution:
+        backends_raw = item.get("config_executor_backends_seen")
+        if isinstance(backends_raw, list):
+            for backend in backends_raw:
+                backend_text = str(backend or "").strip()
+                if backend_text:
+                    executor_backends_seen_legacy.add(backend_text)
+        probe_available_raw = item.get("process_worker_probe_available")
+        if isinstance(probe_available_raw, bool):
+            process_probe_values_legacy.add(probe_available_raw)
+        probe_error_text = str(item.get("process_worker_probe_error") or "").strip()
+        if probe_error_text:
+            process_probe_errors_legacy.append(probe_error_text)
+    process_probe_available_legacy: bool | None = None
+    if process_probe_values_legacy:
+        process_probe_available_legacy = all(process_probe_values_legacy)
+    process_probe_error_legacy = (
+        "; ".join(sorted(set(process_probe_errors_legacy)))
+        if process_probe_errors_legacy
+        else None
+    )
 
     report_payload: dict[str, Any] = {
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
@@ -12931,6 +13128,13 @@ def _run_all_method_benchmark_multi_source_legacy(
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
         "canonical_alignment_cache_root": str(resolved_canonical_cache_root),
+        "prediction_reuse_cache_root": str(resolved_prediction_reuse_cache_root),
+        "executor_resolution": {
+            "process_workers_required": bool(require_process_workers),
+            "process_worker_probe_available": process_probe_available_legacy,
+            "process_worker_probe_error": process_probe_error_legacy,
+            "config_executor_backends_seen": sorted(executor_backends_seen_legacy),
+        },
         "timing_summary": {
             "run_wall_seconds": run_wall_seconds,
             "source_total_seconds": source_total_seconds,
@@ -13062,6 +13266,8 @@ def _run_all_method_benchmark(
     refresh_dashboard_after_source: bool = True,
     source_parallelism_effective: int | None = 1,
     canonical_alignment_cache_dir_override: Path | None = None,
+    prediction_reuse_cache_dir_override: Path | None = None,
+    require_process_workers: bool = False,
 ) -> Path:
     source_started = time.monotonic()
     root_output_dir.mkdir(parents=True, exist_ok=True)
@@ -13074,6 +13280,13 @@ def _run_all_method_benchmark(
         canonical_alignment_cache_dir_override
         if canonical_alignment_cache_dir_override is not None
         else (root_output_dir / ".cache" / "canonical_alignment")
+    )
+    prediction_reuse_cache_dir = (
+        prediction_reuse_cache_dir_override.expanduser()
+        if prediction_reuse_cache_dir_override is not None
+        else _resolve_all_method_prediction_reuse_cache_dir(
+            root_output_dir=root_output_dir
+        )
     )
     scheduler_events_dir = root_output_dir / ".scheduler_events"
     scheduler_timeseries_path = root_output_dir / ALL_METHOD_SCHEDULER_TIMESERIES_FILENAME
@@ -13219,6 +13432,9 @@ def _run_all_method_benchmark(
     )
     scheduler_admission_wing_target_current = effective_wing_backlog_target
     scheduler_admission_reason_current = "base"
+    process_worker_probe_available: bool | None = None
+    process_worker_probe_error: str | None = None
+    config_executor_backends_seen: set[str] = set()
 
     def _scheduler_event_path(config_index: int) -> Path:
         return scheduler_events_dir / f"config_{config_index:03d}.jsonl"
@@ -13798,6 +14014,7 @@ def _run_all_method_benchmark(
                 split_phase_gate_dir=split_phase_gate_dir,
                 scheduler_events_dir=scheduler_events_dir,
                 alignment_cache_dir=canonical_alignment_cache_dir,
+                prediction_reuse_cache_dir=prediction_reuse_cache_dir,
                 split_worker_cap_per_config=split_worker_cap_per_config,
                 progress_callback=_variant_progress if progress_callback else None,
             )
@@ -13833,6 +14050,8 @@ def _run_all_method_benchmark(
         *,
         dashboard_tracking: bool = True,
     ) -> None:
+        nonlocal process_worker_probe_available
+        nonlocal process_worker_probe_error
         nonlocal scheduler_smart_enabled
         nonlocal scheduler_admission_adjustments
         nonlocal scheduler_admission_pressure_boosts
@@ -13850,11 +14069,16 @@ def _run_all_method_benchmark(
             len(items) <= 1 or effective_inflight_pipelines <= 1
         ) and not force_parallel_timeout
         if serial_by_limits:
+            config_executor_backends_seen.add("serial")
             _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
             return
         executor_backend = "process"
         process_workers_available, process_worker_error = (
             _probe_all_method_process_pool_executor()
+        )
+        process_worker_probe_available = bool(process_workers_available)
+        process_worker_probe_error = (
+            str(process_worker_error).strip() if process_worker_error else None
         )
         if not process_workers_available:
             detail = (
@@ -13862,6 +14086,11 @@ def _run_all_method_benchmark(
                 if isinstance(process_worker_error, str) and process_worker_error
                 else ""
             )
+            if require_process_workers:
+                raise RuntimeError(
+                    "Process-based config concurrency is required, but runtime probe "
+                    f"reported it unavailable{detail}."
+                )
             _emit_status(
                 (
                     "Process-based config concurrency unavailable"
@@ -13870,6 +14099,7 @@ def _run_all_method_benchmark(
                 color=typer.colors.YELLOW,
             )
             executor_backend = "thread"
+        config_executor_backends_seen.add(str(executor_backend))
 
         pending_items = list(items)
         futures: dict[Any, tuple[int, AllMethodVariant, float]] = {}
@@ -13887,6 +14117,11 @@ def _run_all_method_benchmark(
             )
         except (PermissionError, OSError) as exc:
             if executor_backend == "process":
+                if require_process_workers:
+                    raise RuntimeError(
+                        "Process-based config concurrency is required, but process "
+                        f"executor startup failed: {exc}"
+                    ) from exc
                 _emit_status(
                     (
                         "Process-based config concurrency unavailable "
@@ -13895,6 +14130,7 @@ def _run_all_method_benchmark(
                     color=typer.colors.YELLOW,
                 )
                 executor_backend = "thread"
+                config_executor_backends_seen.add("thread")
                 try:
                     executor = ThreadPoolExecutor(max_workers=worker_limit)
                 except Exception as thread_exc:  # noqa: BLE001
@@ -13905,6 +14141,7 @@ def _run_all_method_benchmark(
                         ),
                         color=typer.colors.YELLOW,
                     )
+                    config_executor_backends_seen.add("serial")
                     _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
                     return
             else:
@@ -13915,6 +14152,7 @@ def _run_all_method_benchmark(
                     ),
                     color=typer.colors.YELLOW,
                 )
+                config_executor_backends_seen.add("serial")
                 _run_serial_variants(items, dashboard_tracking=dashboard_tracking)
                 return
 
@@ -13996,6 +14234,7 @@ def _run_all_method_benchmark(
                     split_phase_gate_dir=split_phase_gate_dir,
                     scheduler_events_dir=scheduler_events_dir,
                     alignment_cache_dir=canonical_alignment_cache_dir,
+                    prediction_reuse_cache_dir=prediction_reuse_cache_dir,
                     split_worker_cap_per_config=split_worker_cap_per_config,
                     progress_callback=None,
                 )
@@ -14236,6 +14475,11 @@ def _run_all_method_benchmark(
                 try:
                     executor = ProcessPoolExecutor(max_workers=worker_limit)
                 except (PermissionError, OSError) as exc:
+                    if require_process_workers:
+                        raise RuntimeError(
+                            "Process-based config concurrency is required, but process "
+                            f"pool restart failed after timeout: {exc}"
+                        ) from exc
                     _emit_status(
                         (
                             "Process-based config concurrency unavailable after timeout "
@@ -14244,6 +14488,7 @@ def _run_all_method_benchmark(
                         color=typer.colors.YELLOW,
                     )
                     executor_backend = "thread"
+                    config_executor_backends_seen.add("thread")
                     try:
                         executor = ThreadPoolExecutor(max_workers=worker_limit)
                     except Exception as thread_exc:  # noqa: BLE001
@@ -14254,6 +14499,7 @@ def _run_all_method_benchmark(
                             ),
                             color=typer.colors.YELLOW,
                         )
+                        config_executor_backends_seen.add("serial")
                         _run_serial_variants(
                             pending_items,
                             dashboard_tracking=dashboard_tracking,
@@ -14719,6 +14965,13 @@ def _run_all_method_benchmark(
         "retry_recovered_configs": retry_recovered_configs,
         "include_codex_farm_requested": include_codex_farm_requested,
         "include_codex_farm_effective": include_codex_farm_effective,
+        "prediction_reuse_cache_dir": str(prediction_reuse_cache_dir),
+        "executor_resolution": {
+            "process_workers_required": bool(require_process_workers),
+            "process_worker_probe_available": process_worker_probe_available,
+            "process_worker_probe_error": process_worker_probe_error,
+            "config_executor_backends_seen": sorted(config_executor_backends_seen),
+        },
         "timing_summary": {
             "source_wall_seconds": source_wall_seconds,
             "config_total_seconds": total_config_seconds,
@@ -14867,6 +15120,11 @@ def _write_stage_run_manifest(
     if processing_timeseries.exists():
         artifacts["processing_timeseries_jsonl"] = str(
             processing_timeseries.relative_to(run_root)
+        )
+    stage_worker_resolution = run_root / "stage_worker_resolution.json"
+    if stage_worker_resolution.exists():
+        artifacts["stage_worker_resolution_json"] = str(
+            stage_worker_resolution.relative_to(run_root)
         )
     history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
@@ -15877,6 +16135,14 @@ def stage(
         min=1,
         help="Number of parallel worker processes.",
     ),
+    require_process_workers: bool = typer.Option(
+        False,
+        "--require-process-workers/--allow-worker-fallback",
+        help=(
+            "Fail fast when process-based worker concurrency is unavailable instead of "
+            "falling back to subprocess/thread/serial workers."
+        ),
+    ),
     pdf_split_workers: int = typer.Option(
         7,
         "--pdf-split-workers",
@@ -16225,6 +16491,7 @@ def stage(
     epub_spine_items_per_job = _unwrap_typer_option_default(epub_spine_items_per_job)
     warm_models = _unwrap_typer_option_default(warm_models)
     workers = _unwrap_typer_option_default(workers)
+    require_process_workers = _unwrap_typer_option_default(require_process_workers)
     pdf_split_workers = _unwrap_typer_option_default(pdf_split_workers)
     epub_split_workers = _unwrap_typer_option_default(epub_split_workers)
     write_markdown = _unwrap_typer_option_default(write_markdown)
@@ -16596,6 +16863,7 @@ def stage(
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
+    run_config["require_process_workers"] = bool(require_process_workers)
 
     def _stable_run_config_hash(payload: dict[str, Any]) -> str:
         canonical = json.dumps(
@@ -17133,6 +17401,8 @@ def stage(
         return result_payload
 
     dashboard = WorkerDashboard()
+    stage_worker_backend_effective = "serial"
+    stage_worker_resolution_messages: list[str] = []
     try:
         with Live(dashboard, refresh_per_second=10) as live:
             def _run_jobs_with_executor(executor: Any) -> None:
@@ -17328,8 +17598,20 @@ def stage(
                     f"({exc}); running jobs serially."
                 ),
             )
+            stage_worker_resolution_messages = list(executor_resolution.messages)
             for message in executor_resolution.messages:
                 live.console.print(f"[yellow]⚠ {message}[/yellow]")
+            if require_process_workers and executor_resolution.backend != "process":
+                detail = (
+                    "; ".join(executor_resolution.messages)
+                    if executor_resolution.messages
+                    else "process worker pool could not be established."
+                )
+                raise RuntimeError(
+                    "Process-based worker concurrency is required for this stage run, "
+                    f"but it is unavailable: {detail}"
+                )
+            stage_worker_backend_effective = str(executor_resolution.backend)
             if executor_resolution.executor is None:
                 _run_jobs_serial()
             else:
@@ -17345,6 +17627,7 @@ def stage(
                             "using in-process thread worker concurrency.[/yellow]"
                         )
                     if use_subprocess_workers:
+                        stage_worker_backend_effective = "subprocess"
                         _run_jobs_with_subprocess_executor(executor)
                     else:
                         _run_jobs_with_executor(executor)
@@ -17368,6 +17651,17 @@ def stage(
         typer.secho("Errors encountered:", fg=typer.colors.YELLOW)
         for message in errors:
             typer.secho(f"- {message}", fg=typer.colors.YELLOW)
+
+    stage_worker_resolution_path = out / "stage_worker_resolution.json"
+    stage_worker_resolution_payload = {
+        "process_workers_required": bool(require_process_workers),
+        "backend_effective": stage_worker_backend_effective,
+        "messages": stage_worker_resolution_messages,
+    }
+    stage_worker_resolution_path.write_text(
+        json.dumps(stage_worker_resolution_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
     try:
         from cookimport.analytics.perf_report import (
@@ -20118,6 +20412,14 @@ def bench_speed_run(
             "When omitted, speed-run auto-selects a bounded CPU-aware cap."
         ),
     ),
+    require_process_workers: bool = typer.Option(
+        False,
+        "--require-process-workers/--allow-worker-fallback",
+        help=(
+            "Fail fast when process-based worker concurrency is unavailable in "
+            "stage/all-method internals instead of falling back to subprocess/thread/serial paths."
+        ),
+    ),
     resume_run_dir: Path | None = typer.Option(
         None,
         "--resume-run-dir",
@@ -20193,6 +20495,7 @@ def bench_speed_run(
     repeats = _unwrap_typer_option_default(repeats)
     max_targets = _unwrap_typer_option_default(max_targets)
     max_parallel_tasks = _unwrap_typer_option_default(max_parallel_tasks)
+    require_process_workers = _unwrap_typer_option_default(require_process_workers)
     resume_run_dir = _unwrap_typer_option_default(resume_run_dir)
     run_settings_file = _unwrap_typer_option_default(run_settings_file)
     sequence_matcher = _unwrap_typer_option_default(sequence_matcher)
@@ -20302,6 +20605,7 @@ def bench_speed_run(
                 repeats=repeats,
                 max_targets=max_targets,
                 max_parallel_tasks=max_parallel_tasks,
+                require_process_workers=bool(require_process_workers),
                 resume_run_dir=resume_run_dir,
                 run_settings=run_settings,
                 include_codex_farm_requested=include_codex_farm,
@@ -20577,6 +20881,14 @@ def bench_quality_run(
             "When omitted, quality-run auto-selects a CPU-aware adaptive cap."
         ),
     ),
+    require_process_workers: bool = typer.Option(
+        False,
+        "--require-process-workers/--allow-worker-fallback",
+        help=(
+            "Fail fast when process-based all-method config workers are unavailable "
+            "instead of degrading to fallback worker backends."
+        ),
+    ),
     include_deterministic_sweeps: bool = typer.Option(
         False,
         "--include-deterministic-sweeps/--no-include-deterministic-sweeps",
@@ -20636,6 +20948,7 @@ def bench_quality_run(
     race_keep_ratio = _unwrap_typer_option_default(race_keep_ratio)
     race_finalists = _unwrap_typer_option_default(race_finalists)
     max_parallel_experiments = _unwrap_typer_option_default(max_parallel_experiments)
+    require_process_workers = _unwrap_typer_option_default(require_process_workers)
     if max_parallel_experiments is not None:
         try:
             max_parallel_experiments = int(max_parallel_experiments)
@@ -20709,6 +21022,7 @@ def bench_quality_run(
                 race_keep_ratio=race_keep_ratio,
                 race_finalists=race_finalists,
                 max_parallel_experiments=max_parallel_experiments,
+                require_process_workers=bool(require_process_workers),
                 resume_run_dir=resume_run_dir,
                 include_deterministic_sweeps_requested=include_deterministic_sweeps,
                 include_codex_farm_requested=include_codex_farm,
@@ -20730,6 +21044,147 @@ def bench_quality_run(
     typer.secho(f"Summary: {quality_run_root / 'summary.json'}", fg=typer.colors.CYAN)
     typer.secho(
         f"Processing telemetry: {quality_run_timeseries_path}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+
+
+@bench_app.command("quality-lightweight-series")
+def bench_quality_lightweight_series(
+    gold_root: Path = typer.Option(
+        DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
+        "--gold-root",
+        help="Root folder containing pulled gold export folders.",
+    ),
+    input_root: Path = typer.Option(
+        DEFAULT_INPUT,
+        "--input-root",
+        help="Root folder containing source files used for import runs.",
+    ),
+    profile_file: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE,
+        "--profile-file",
+        help="Versioned lightweight-series profile JSON.",
+    ),
+    experiments_file: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS,
+        "--experiments-file",
+        help="Experiments JSON used to resolve candidate patches.",
+    ),
+    thresholds_file: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS,
+        "--thresholds-file",
+        help="Thresholds JSON used for seed/fold contracts.",
+    ),
+    out_dir: Path = typer.Option(
+        DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES,
+        "--out-dir",
+        help="Output directory for timestamped lightweight series runs.",
+    ),
+    resume_series_dir: Path | None = typer.Option(
+        None,
+        "--resume-series-dir",
+        help=(
+            "Resume an existing lightweight series directory. Existing fold artifacts "
+            "are reused when compatible."
+        ),
+    ),
+    max_parallel_experiments: int | None = typer.Option(
+        None,
+        "--max-parallel-experiments",
+        help=(
+            "Maximum number of quality experiments executed concurrently inside each fold. "
+            "When omitted, quality-run auto mode is used."
+        ),
+    ),
+    require_process_workers: bool = typer.Option(
+        False,
+        "--require-process-workers/--allow-worker-fallback",
+        help=(
+            "Fail fast when process-based all-method config workers are unavailable "
+            "instead of degrading to fallback worker backends."
+        ),
+    ),
+) -> None:
+    """Run the lightweight main-effects-first QualitySuite series."""
+    from cookimport.bench.quality_lightweight_series import (
+        run_quality_lightweight_series,
+    )
+
+    gold_root = _unwrap_typer_option_default(gold_root)
+    input_root = _unwrap_typer_option_default(input_root)
+    profile_file = _unwrap_typer_option_default(profile_file)
+    experiments_file = _unwrap_typer_option_default(experiments_file)
+    thresholds_file = _unwrap_typer_option_default(thresholds_file)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    resume_series_dir = _unwrap_typer_option_default(resume_series_dir)
+    max_parallel_experiments = _unwrap_typer_option_default(max_parallel_experiments)
+    require_process_workers = _unwrap_typer_option_default(require_process_workers)
+    if max_parallel_experiments is not None:
+        try:
+            max_parallel_experiments = int(max_parallel_experiments)
+        except (TypeError, ValueError):
+            _fail("--max-parallel-experiments must be an integer >= 1.")
+        if max_parallel_experiments < 1:
+            _fail("--max-parallel-experiments must be >= 1 when provided.")
+    if resume_series_dir is not None:
+        if not resume_series_dir.exists() or not resume_series_dir.is_dir():
+            _fail(
+                "--resume-series-dir must point to an existing directory: "
+                f"{resume_series_dir}"
+            )
+
+    telemetry_source_name = (
+        Path(profile_file).name
+        if profile_file is not None
+        else "quality-lightweight-series"
+    )
+    quality_series_timeseries_path = _processing_timeseries_history_path(
+        root=out_dir,
+        scope="bench_quality_lightweight_series",
+        source_name=telemetry_source_name,
+    )
+
+    try:
+        series_root = _run_with_progress_status(
+            initial_status="Running bench quality lightweight series...",
+            progress_prefix="Bench quality lightweight",
+            telemetry_path=quality_series_timeseries_path,
+            run=lambda update_progress: run_quality_lightweight_series(
+                gold_root=gold_root,
+                input_root=input_root,
+                experiments_file=experiments_file,
+                thresholds_file=thresholds_file,
+                profile_file=profile_file,
+                out_dir=out_dir,
+                resume_series_dir=resume_series_dir,
+                max_parallel_experiments=max_parallel_experiments,
+                require_process_workers=bool(require_process_workers),
+                command=(
+                    "cookimport bench quality-lightweight-series "
+                    f"--gold-root {gold_root} --input-root {input_root} "
+                    f"--profile-file {profile_file} "
+                    f"--experiments-file {experiments_file} "
+                    f"--thresholds-file {thresholds_file}"
+                ),
+                progress_callback=update_progress,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _fail(str(exc))
+        return
+
+    typer.secho("Quality lightweight series complete.", fg=typer.colors.GREEN)
+    typer.secho(f"Run: {series_root}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Report: {series_root / 'lightweight_series_report.md'}",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        f"Summary: {series_root / 'lightweight_series_summary.json'}",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        f"Processing telemetry: {quality_series_timeseries_path}",
         fg=typer.colors.BRIGHT_BLACK,
     )
 

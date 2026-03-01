@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import statistics
 from typing import Iterable, Sequence
@@ -35,6 +36,9 @@ class QualityRunEtaEstimate:
     pending_work_units: float
     estimated_remaining_seconds: float | None
     experiments_with_eta: int
+    active_eta_median_seconds: float | None = None
+    completed_experiments: int = 0
+    completed_experiment_median_seconds: float | None = None
 
 
 def _coerce_non_negative_int(value: object) -> int:
@@ -168,6 +172,7 @@ def estimate_quality_run_eta(experiments_root: Path) -> QualityRunEtaEstimate:
     active_experiments = 0
     pending_work_units = 0.0
     eta_seconds: list[float] = []
+    completed_durations: list[float] = []
     for experiment_dir in experiment_dirs:
         last_rows = _candidate_rows_for_experiment(experiment_dir)
         if not last_rows:
@@ -175,6 +180,9 @@ def estimate_quality_run_eta(experiments_root: Path) -> QualityRunEtaEstimate:
         last_row = max(last_rows, key=remaining_work_units)
         remaining_units = remaining_work_units(last_row)
         if remaining_units <= 0:
+            total_elapsed = sum(max(0.0, float(row.elapsed_seconds)) for row in last_rows)
+            if total_elapsed > 0:
+                completed_durations.append(total_elapsed)
             continue
         active_experiments += 1
         pending_work_units += remaining_units
@@ -184,13 +192,76 @@ def estimate_quality_run_eta(experiments_root: Path) -> QualityRunEtaEstimate:
             continue
         eta_seconds.append(float(estimated))
 
+    active_eta_median = (
+        float(statistics.median(eta_seconds))
+        if eta_seconds
+        else None
+    )
+    completed_eta_median = (
+        float(statistics.median(completed_durations))
+        if completed_durations
+        else None
+    )
     return QualityRunEtaEstimate(
         experiment_count=len(experiment_dirs),
         active_experiments=active_experiments,
         pending_work_units=pending_work_units,
         estimated_remaining_seconds=max(eta_seconds) if eta_seconds else None,
         experiments_with_eta=len(eta_seconds),
+        active_eta_median_seconds=active_eta_median,
+        completed_experiments=len(completed_durations),
+        completed_experiment_median_seconds=completed_eta_median,
     )
+
+
+def estimate_quality_run_remaining_seconds(
+    *,
+    estimate: QualityRunEtaEstimate,
+    total_experiments: int,
+    completed_experiments: int,
+    parallel_workers: int,
+) -> float | None:
+    """Estimate whole-run remaining wall time (active + queued experiments)."""
+    total = max(0, int(total_experiments))
+    completed = max(0, min(int(completed_experiments), total))
+    remaining_experiments = max(0, total - completed)
+    if remaining_experiments <= 0:
+        return 0.0
+
+    workers = max(1, int(parallel_workers))
+    active_concurrency = max(1, min(workers, remaining_experiments))
+    active_count = max(0, int(estimate.active_experiments))
+    if active_count > 0:
+        active_concurrency = max(1, min(active_concurrency, active_count))
+
+    active_eta = estimate.estimated_remaining_seconds
+    per_experiment_seconds = estimate.active_eta_median_seconds
+    if per_experiment_seconds is None:
+        per_experiment_seconds = estimate.completed_experiment_median_seconds
+    if per_experiment_seconds is None and active_eta is not None and active_count > 0:
+        per_experiment_seconds = float(active_eta)
+
+    queue_experiments = max(0, remaining_experiments - active_count)
+    queue_seconds: float | None = None
+    if per_experiment_seconds is not None and queue_experiments > 0:
+        queue_waves = int(math.ceil(float(queue_experiments) / float(active_concurrency)))
+        queue_seconds = float(per_experiment_seconds) * float(queue_waves)
+    elif queue_experiments <= 0:
+        queue_seconds = 0.0
+
+    if active_eta is not None and queue_seconds is not None:
+        return max(0.0, float(active_eta) + float(queue_seconds))
+
+    if per_experiment_seconds is not None:
+        total_waves = int(
+            math.ceil(float(remaining_experiments) / float(active_concurrency))
+        )
+        return max(0.0, float(per_experiment_seconds) * float(total_waves))
+
+    if active_eta is not None:
+        return max(0.0, float(active_eta))
+
+    return None
 
 
 def format_eta_seconds_short(seconds: float | None) -> str:

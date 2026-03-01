@@ -10,6 +10,7 @@ import pytest
 from cookimport.bench.quality_runner import (
     QualityExperimentResult,
     _resolve_quality_alignment_cache_root,
+    _resolve_quality_prediction_reuse_cache_root,
     run_quality_suite,
 )
 from cookimport.bench.quality_suite import QualitySuite
@@ -98,9 +99,13 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
     )
 
     observed_cache_roots: list[Path] = []
+    observed_prediction_reuse_roots: list[Path] = []
 
     def _fake_run_all_method_multi_source(**kwargs):
         observed_cache_roots.append(Path(kwargs["canonical_alignment_cache_root"]))
+        observed_prediction_reuse_roots.append(
+            Path(kwargs["prediction_reuse_cache_root"])
+        )
         root_output_dir = Path(kwargs["root_output_dir"])
         root_output_dir.mkdir(parents=True, exist_ok=True)
         if root_output_dir.name == "broken":
@@ -232,6 +237,9 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
     assert Path(resolved["canonical_alignment_cache_root"]) == (
         tmp_path / ".cache" / "canonical_alignment"
     )
+    assert Path(resolved["prediction_reuse_cache_root"]) == (
+        tmp_path / ".cache" / "prediction_reuse"
+    )
 
     summary = json.loads((run_root / "summary.json").read_text(encoding="utf-8"))
     rows = {row["id"]: row for row in summary["experiments"]}
@@ -254,6 +262,83 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
     assert observed_cache_roots[0] == (
         tmp_path / ".cache" / "canonical_alignment"
     )
+    assert observed_prediction_reuse_roots
+    assert observed_prediction_reuse_roots[0] == (
+        tmp_path / ".cache" / "prediction_reuse"
+    )
+    assert Path(summary["prediction_reuse_cache_root"]) == (
+        tmp_path / ".cache" / "prediction_reuse"
+    )
+
+
+def test_run_quality_suite_require_process_workers_fails_fast(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_strict.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [{"id": "baseline", "run_settings_patch": {}}],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 2})
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._resolve_quality_experiment_executor_mode",
+        lambda **_kwargs: ("thread", "forced-by-test"),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+
+    seen_require_flags: list[bool] = []
+
+    def _fake_run_all_method_multi_source(**kwargs):
+        seen_require_flags.append(bool(kwargs.get("require_process_workers")))
+        raise RuntimeError("simulated process-worker-required failure")
+
+    monkeypatch.setattr(
+        "cookimport.cli._run_all_method_benchmark_multi_source",
+        _fake_run_all_method_multi_source,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated process-worker-required failure"):
+        run_quality_suite(
+            suite,
+            tmp_path / "runs",
+            experiments_file=experiments_file,
+            base_run_settings_file=base_run_settings_file,
+            max_parallel_experiments=1,
+            require_process_workers=True,
+            progress_callback=None,
+        )
+
+    assert seen_require_flags == [True]
+    run_dirs = sorted((tmp_path / "runs").iterdir())
+    assert len(run_dirs) == 1
+    run_root = run_dirs[0]
+    assert not (run_root / "summary.json").exists()
+    resolved = json.loads((run_root / "experiments_resolved.json").read_text(encoding="utf-8"))
+    assert resolved["require_process_workers"] is True
+    assert resolved["process_worker_probe_available"] is True
+    assert resolved["process_worker_probe_error"] is None
 
 
 def test_run_quality_suite_checkpoints_and_resumes_from_partial_run(
@@ -1173,6 +1258,20 @@ def test_quality_cache_root_honors_env_override(
     )
 
     resolved = _resolve_quality_alignment_cache_root(out_dir=tmp_path / "runs")
+    assert resolved == override_root
+
+
+def test_quality_prediction_reuse_cache_root_honors_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    override_root = tmp_path / "external-prediction-reuse"
+    monkeypatch.setenv(
+        "COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT",
+        str(override_root),
+    )
+
+    resolved = _resolve_quality_prediction_reuse_cache_root(out_dir=tmp_path / "runs")
     assert resolved == override_root
 
 

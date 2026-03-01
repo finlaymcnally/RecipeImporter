@@ -75,6 +75,29 @@ cookimport bench speed-run \
   --repeats 2
 ```
 
+Optional broader run across all discovered targets/scenarios with fixed task fanout:
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --scenarios stage_import,benchmark_canonical_legacy,benchmark_canonical_pipelined,benchmark_all_method_multi_source \
+  --warmups 1 \
+  --repeats 2 \
+  --max-parallel-tasks 4
+```
+
+To fail fast when stage/all-method internals cannot establish process workers:
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --scenarios stage_import,benchmark_all_method_multi_source \
+  --warmups 1 \
+  --repeats 2 \
+  --max-parallel-tasks 4 \
+  --require-process-workers
+```
+
 Optional all-method scenario:
 
 ```bash
@@ -109,6 +132,17 @@ Optional deterministic settings pin:
 cookimport bench speed-run \
   --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
   --run-settings-file path/to/run_settings.json
+```
+
+If a speed run is interrupted, resume from the existing run directory (completed task snapshots are reused):
+
+```bash
+cookimport bench speed-run \
+  --suite data/golden/bench/speed/suites/pulled_from_labelstudio.json \
+  --scenarios stage_import,benchmark_canonical_legacy \
+  --warmups 1 \
+  --repeats 2 \
+  --resume-run-dir data/golden/bench/speed/runs/<existing_timestamp>
 ```
 
 ### 3.3 Compare baseline vs candidate
@@ -175,6 +209,16 @@ cookimport bench quality-run \
   --max-parallel-experiments 4
 ```
 
+To fail fast instead of allowing process-worker fallback in per-experiment all-method runs:
+
+```bash
+cookimport bench quality-run \
+  --suite data/golden/bench/quality/suites/pulled_representative.json \
+  --experiments-file data/golden/bench/quality/experiments/example.json \
+  --max-parallel-experiments 4 \
+  --require-process-workers
+```
+
 If a run is interrupted, resume from the existing run directory (it reuses completed experiment snapshots):
 
 ```bash
@@ -208,7 +252,9 @@ cookimport bench quality-run \
   --search-strategy exhaustive
 ```
 
-By default, quality all-method reruns reuse canonical/eval caches under `data/golden/bench/quality/.cache` (override with `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
+By default, quality all-method reruns reuse:
+- canonical/eval caches under `data/golden/bench/quality/.cache` (override with `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`)
+- prediction reuse cache under `data/golden/bench/quality/.cache/prediction_reuse` (override with `COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT`)
 
 ### 4.4 Global “best config” leaderboard (across all sources)
 
@@ -236,22 +282,73 @@ cookimport bench quality-compare \
 By default, compare enforces run-settings parity (`run_settings_hash`).
 Use `--allow-settings-mismatch` only when intentional.
 
-### 4.5 Top-tier certainty tournament (multi-seed)
+### 4.5 Lightweight main-effects series (fast category answers)
+
+Use the lightweight series command when you need fast directional answers per config category plus a small interaction smoke check:
+
+```bash
+cookimport bench quality-lightweight-series \
+  --gold-root data/golden/pulled-from-labelstudio \
+  --input-root data/input \
+  --profile-file data/golden/bench/quality/lightweight_profiles/2026-03-01_00.00.00_qualitysuite-lightweight-main-effects-v1.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json
+```
+
+Primary outputs are written under `data/golden/bench/quality/lightweight_series/<timestamp>/`:
+- `lightweight_series_summary.json`: category winners, combined verdict, interaction findings, final recommendation.
+- `lightweight_series_report.md`: human-readable summary with round outcomes and artifact pointers.
+- round roots: `round_1_main_effects/`, `round_2_composition/`, `round_3_interaction_smoke/`.
+
+If interrupted, resume the same series directory:
+
+```bash
+cookimport bench quality-lightweight-series \
+  --resume-series-dir data/golden/bench/quality/lightweight_series/<existing_timestamp>
+```
+
+### 4.6 Top-tier certainty tournament (multi-seed)
 
 Use the tournament script to run repeated quality folds and apply fixed PASS/FAIL gates before promoting settings:
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json
 ```
+
+Then run the full candidate set only for shortlist finalists:
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json
+```
+
+Need a quick parsing-tools answer (without killing a long run)? Use fast parsing mode:
+
+```bash
+python scripts/quality_top_tier_tournament.py \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_20.20.04_qualitysuite-top-tier-gates-fast-sweeps-decision.json \
+  --quick-parsing
+```
+
+`--quick-parsing` applies parser-focused candidates, disables deterministic sweeps, forces `quality-run --search-strategy exhaustive`, and caps seeds to 2 unless `--max-seeds` is set.
+
+Additional runtime controls:
+- `--candidate-experiment-id <id>` (repeatable): run only selected candidate ids.
+- `--max-candidates <N>`: cap candidate count after filtering.
+- `--max-seeds <N>`: cap fold count using first N seeds.
+- `--force-no-deterministic-sweeps`: force sweeps off regardless of thresholds.
+- `--quality-search-strategy race|exhaustive`: override thresholds search strategy.
 
 Optional fixed experiment cap (otherwise quality-run auto parallel mode is used):
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json \
   --max-parallel-experiments 4
 ```
 
@@ -259,8 +356,8 @@ Resume an interrupted tournament in the same directory (reuses completed folds a
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json \
+  --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json \
   --resume-tournament-dir data/golden/bench/quality/tournaments/<existing_timestamp>
 ```
 
@@ -271,6 +368,7 @@ Outputs are written under `data/golden/bench/quality/tournaments/<timestamp>/`:
 
 Notes:
 - Tournament runs now share canonical/eval cache across folds by default (`COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT` is set to `data/golden/bench/quality/.cache/canonical_alignment` unless overridden in thresholds `quality_run.canonical_alignment_cache_root`).
+- Tournament runs now share prediction reuse cache across folds by default (`COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT` is set to `data/golden/bench/quality/.cache/prediction_reuse` unless overridden in thresholds `quality_run.prediction_reuse_cache_root`).
 - If two seeds resolve to the same selected target set, duplicate folds are skipped and excluded from gate denominators.
 - Between evaluated folds, gate-impossible candidates are pruned using optimistic best-case remaining-fold bounds, and later folds only run the surviving candidate subset plus baseline.
 
@@ -282,11 +380,17 @@ Notes:
   - `missed_gold_boundaries.jsonl`, `false_positive_boundaries.jsonl`
 - `bench speed-run`:
   - `summary.json`, `report.md`, `samples.jsonl`, `run_manifest.json`
+  - crash-safe incremental artifacts: `checkpoint.json`, `summary.partial.json`, `report.partial.md`, `samples.partial.jsonl`
+  - per-sample snapshot: `scenario_runs/<target_id>/<scenario>/<phase>/speed_sample_result.json`
 - `bench speed-compare`:
   - `comparison.json`, `comparison.md`
 - `bench quality-run`:
   - `summary.json`, `report.md`, `suite_resolved.json`, `experiments_resolved.json`
   - crash-safe incremental artifacts: `checkpoint.json`, `summary.partial.json`, `report.partial.md`, `experiments/<id>/quality_experiment_result.json`
+- `bench quality-lightweight-series`:
+  - `lightweight_series_resolved.json`, `lightweight_series_summary.json`, `lightweight_series_report.md`
+  - round roots: `round_1_main_effects/`, `round_2_composition/`, `round_3_interaction_smoke/`
+  - fold roots include `suite.json`, `experiments_effective.json`, `fold_summary_extract.json`, and `quality_runs/<timestamp>/...`
 - `bench quality-compare`:
   - `comparison.json`, `comparison.md`
 

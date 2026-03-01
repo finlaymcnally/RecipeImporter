@@ -469,6 +469,7 @@ Each stage run folder includes `run_manifest.json` for source/config/artifact tr
 Each stage run folder also includes `processing_timeseries.jsonl` (status snapshots + CPU utilization samples).
 After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `<out parent>/.history/dashboard` (best effort).
 Stage job worker fallback order is `process -> subprocess-backed workers -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to subprocess-backed worker concurrency.
+Use `--require-process-workers` to fail fast instead of using any fallback backend.
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
 
 Arguments:
@@ -487,6 +488,7 @@ Options:
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): spine-item shard size for EPUB splitting.
 - `--warm-models` (default `false`): preload heavy models before processing.
 - `--workers, -w INTEGER>=1` (default `7`): total process pool workers.
+- `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when process workers are unavailable instead of falling back to subprocess/thread/serial.
 - `--pdf-split-workers INTEGER>=1` (default `7`): max workers for one split PDF.
 - `--epub-split-workers INTEGER>=1` (default `7`): max workers for one split EPUB.
 - `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts (`sections.md`, `tips.md`, `topic_candidates.md`, `chunks.md`, `tables.md`).
@@ -866,6 +868,9 @@ Options:
 - `--warmups INTEGER>=0` (default `1`): warmup samples per target+scenario (excluded from medians).
 - `--repeats INTEGER>=1` (default `2`): measured samples per target+scenario.
 - `--max-targets INTEGER>=1`: optional cap on number of targets from the suite.
+- `--max-parallel-tasks INTEGER>=1`: optional fixed SpeedSuite task concurrency cap. When omitted, speed-run auto-selects `min(total_tasks, cpu_count, 4)`.
+- `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when stage/all-method internals cannot use process workers.
+- `--resume-run-dir PATH`: resume an existing speed run directory and skip tasks with completed sample snapshots.
 - `--run-settings-file PATH`: optional JSON payload in `RunSettings` shape for deterministic speed-run settings.
 - `--sequence-matcher TEXT`: optional canonical-text matcher override for benchmark scenarios (when omitted, uses `benchmark_sequence_matcher` from effective run settings).
 - `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method scenarios.
@@ -916,6 +921,7 @@ Options:
 - `--resume-run-dir PATH`: resume an existing quality-run directory and skip completed experiments from checkpoint snapshots.
 - `--base-run-settings-file PATH`: optional base `RunSettings` JSON payload used by all experiments. When omitted, uses `experiments.base_run_settings_file` or `cookimport.json`.
 - `--max-parallel-experiments INTEGER>=1` (optional): fixed experiment-level concurrency cap for quality-run. When omitted, quality-run auto-selects a CPU-aware adaptive cap.
+- `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when per-experiment all-method config workers cannot use process pools.
 - `--include-deterministic-sweeps / --no-include-deterministic-sweeps` (default disabled): expand each experiment’s all-method grid with deterministic Priority 2–6 sweep variants (section detector, multi-recipe splitter, ingredient missing-unit policy, instruction segmentation, time/temp/yield knobs).
 - `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method runs.
 - `--qualitysuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.

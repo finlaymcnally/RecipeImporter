@@ -27,6 +27,16 @@ DEFAULT_THRESHOLDS_FILE = (
     "2026-02-28_10.31.55_qualitysuite-top-tier-gates.json"
 )
 _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV = "COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT"
+_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV = (
+    "COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT"
+)
+_SUPPORTED_SEARCH_STRATEGIES = {"race", "exhaustive"}
+_QUICK_PARSING_CANDIDATE_IDS = (
+    "pre_br_split",
+    "pre_none",
+    "skip_headers_false",
+    "parser_v2_pre_br_skiphf_false",
+)
 
 
 def _timestamp() -> str:
@@ -100,6 +110,18 @@ def _coerce_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_id_list(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        cleaned = str(raw_value or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
 
 
 def _extract_experiment_ids(experiments_payload: dict[str, Any]) -> list[str]:
@@ -644,6 +666,10 @@ def _render_report(payload: dict[str, Any]) -> str:
         "- Shared alignment cache root: "
         f"{payload.get('shared_alignment_cache_root')}"
     )
+    lines.append(
+        "- Shared prediction reuse cache root: "
+        f"{payload.get('shared_prediction_reuse_cache_root')}"
+    )
     lines.append(f"- Planned unique folds: {payload.get('planned_unique_folds')}")
     lines.append(f"- Quality runs executed: {payload.get('quality_runs_executed')}")
     lines.append(
@@ -775,6 +801,54 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--candidate-experiment-id",
+        action="append",
+        default=[],
+        help=(
+            "Optional candidate experiment id filter (repeatable). "
+            "When set, only these candidates are tested (baseline is still included)."
+        ),
+    )
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=None,
+        help=(
+            "Optional cap on candidate experiment count (after all filters) "
+            "to keep tournaments short."
+        ),
+    )
+    parser.add_argument(
+        "--max-seeds",
+        type=int,
+        default=None,
+        help=(
+            "Optional cap on number of seeds/folds from thresholds.suite.seeds. "
+            "Uses the first N seeds."
+        ),
+    )
+    parser.add_argument(
+        "--force-no-deterministic-sweeps",
+        action="store_true",
+        help=(
+            "Override thresholds quality_run.include_deterministic_sweeps=false "
+            "for faster tournament runs."
+        ),
+    )
+    parser.add_argument(
+        "--quality-search-strategy",
+        default="",
+        help="Optional quality-run search strategy override: race or exhaustive.",
+    )
+    parser.add_argument(
+        "--quick-parsing",
+        action="store_true",
+        help=(
+            "Fast parsing-tools mode: parser-focused candidate subset, sweeps off, "
+            "exhaustive search, and a default 2-seed cap (unless --max-seeds is set)."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands and write resolved config without executing quality jobs.",
@@ -795,15 +869,27 @@ def main() -> int:
     experiments_payload = _load_json_object(experiments_file)
     thresholds_payload = _load_json_object(thresholds_file)
 
-    suite_config = thresholds_payload.get("suite") or {}
-    quality_run_config = thresholds_payload.get("quality_run") or {}
-    comparison_config = thresholds_payload.get("comparison") or {}
-    gates = thresholds_payload.get("gates") or {}
+    suite_config = dict(thresholds_payload.get("suite") or {})
+    quality_run_config = dict(thresholds_payload.get("quality_run") or {})
+    comparison_config = dict(thresholds_payload.get("comparison") or {})
+    gates = dict(thresholds_payload.get("gates") or {})
 
     seeds_raw = suite_config.get("seeds") or []
     if not isinstance(seeds_raw, list) or not seeds_raw:
         raise ValueError("thresholds.suite.seeds must be a non-empty array")
     seeds = [int(seed) for seed in seeds_raw]
+    quick_mode_default_seed_cap = 2 if bool(args.quick_parsing) else None
+    max_seeds_effective = (
+        int(args.max_seeds)
+        if args.max_seeds is not None
+        else quick_mode_default_seed_cap
+    )
+    if max_seeds_effective is not None:
+        if max_seeds_effective < 1:
+            raise ValueError("--max-seeds must be >= 1 when provided")
+        seeds = seeds[:max_seeds_effective]
+    if not seeds:
+        raise ValueError("No fold seeds remain after --max-seeds filtering.")
 
     max_targets = suite_config.get("max_targets")
     max_targets_int = int(max_targets) if max_targets is not None else None
@@ -827,7 +913,65 @@ def main() -> int:
         candidate_experiment_ids = [
             item for item in all_experiment_ids if item != baseline_experiment_id
         ]
-    candidate_experiment_ids = [item for item in candidate_experiment_ids if item]
+    candidate_experiment_ids = _normalize_id_list(
+        [item for item in candidate_experiment_ids if item]
+    )
+
+    if bool(args.quick_parsing):
+        quick_ids = [
+            experiment_id
+            for experiment_id in _QUICK_PARSING_CANDIDATE_IDS
+            if experiment_id in all_experiment_ids
+            and experiment_id != baseline_experiment_id
+        ]
+        if quick_ids:
+            candidate_experiment_ids = _normalize_id_list(quick_ids)
+        quality_run_config["include_deterministic_sweeps"] = False
+        quality_run_config["search_strategy"] = "exhaustive"
+
+    cli_candidate_ids = _normalize_id_list(
+        [str(item or "").strip() for item in list(args.candidate_experiment_id or [])]
+    )
+    if cli_candidate_ids:
+        invalid_ids = [
+            experiment_id
+            for experiment_id in cli_candidate_ids
+            if experiment_id not in all_experiment_ids
+        ]
+        if invalid_ids:
+            invalid_joined = ", ".join(invalid_ids)
+            available = ", ".join(all_experiment_ids) or "<none>"
+            raise ValueError(
+                "Unknown --candidate-experiment-id value(s): "
+                f"{invalid_joined} (available: {available})"
+            )
+        if baseline_experiment_id in cli_candidate_ids:
+            raise ValueError(
+                "--candidate-experiment-id should list candidate ids only; "
+                f"baseline '{baseline_experiment_id}' is always included automatically."
+            )
+        candidate_experiment_ids = list(cli_candidate_ids)
+
+    max_candidates_effective = None
+    if args.max_candidates is not None:
+        max_candidates_effective = int(args.max_candidates)
+        if max_candidates_effective < 1:
+            raise ValueError("--max-candidates must be >= 1 when provided")
+        candidate_experiment_ids = candidate_experiment_ids[:max_candidates_effective]
+
+    if bool(args.force_no_deterministic_sweeps):
+        quality_run_config["include_deterministic_sweeps"] = False
+
+    quality_search_strategy_override = str(args.quality_search_strategy or "").strip().lower()
+    if quality_search_strategy_override:
+        if quality_search_strategy_override not in _SUPPORTED_SEARCH_STRATEGIES:
+            supported = ", ".join(sorted(_SUPPORTED_SEARCH_STRATEGIES))
+            raise ValueError(
+                "Unsupported --quality-search-strategy value: "
+                f"{quality_search_strategy_override!r} (supported: {supported})"
+            )
+        quality_run_config["search_strategy"] = quality_search_strategy_override
+
     if not candidate_experiment_ids:
         raise ValueError("No candidate experiments configured/resolved.")
 
@@ -859,8 +1003,22 @@ def main() -> int:
         shared_alignment_cache_root = str(
             (output_root.parent / ".cache" / "canonical_alignment").resolve()
         )
+    configured_prediction_cache_root = str(
+        quality_run_config.get("prediction_reuse_cache_root") or ""
+    ).strip()
+    if configured_prediction_cache_root:
+        shared_prediction_reuse_cache_root = str(
+            Path(configured_prediction_cache_root).expanduser()
+        )
+    else:
+        shared_prediction_reuse_cache_root = str(
+            (output_root.parent / ".cache" / "prediction_reuse").resolve()
+        )
     quality_run_env = {
-        _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV: shared_alignment_cache_root
+        _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV: shared_alignment_cache_root,
+        _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV: (
+            shared_prediction_reuse_cache_root
+        ),
     }
 
     resolved_payload = {
@@ -879,12 +1037,28 @@ def main() -> int:
         "configured_fold_count": len(seeds),
         "shared_alignment_cache_root": shared_alignment_cache_root,
         "shared_alignment_cache_env_var": _ALL_METHOD_ALIGNMENT_CACHE_ROOT_ENV,
+        "shared_prediction_reuse_cache_root": shared_prediction_reuse_cache_root,
+        "shared_prediction_reuse_cache_env_var": (
+            _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV
+        ),
         "duplicate_suite_fold_dedup": True,
         "gate_impossibility_pruning": True,
         "gates": gates,
         "resume_requested": resume_requested,
         "resume_tournament_dir": str(tournament_root) if resume_requested else None,
         "dry_run": bool(args.dry_run),
+        "overrides": {
+            "quick_parsing": bool(args.quick_parsing),
+            "candidate_experiment_ids_cli": cli_candidate_ids,
+            "max_candidates": max_candidates_effective,
+            "max_seeds": max_seeds_effective,
+            "force_no_deterministic_sweeps": bool(
+                args.force_no_deterministic_sweeps
+            ),
+            "quality_search_strategy": quality_search_strategy_override
+            if quality_search_strategy_override
+            else None,
+        },
     }
     _write_json(tournament_root / "tournament_resolved.json", resolved_payload)
 
@@ -1249,6 +1423,7 @@ def main() -> int:
         "total_folds": effective_fold_count,
         "duplicate_suite_folds_skipped": duplicate_suite_folds_skipped,
         "shared_alignment_cache_root": shared_alignment_cache_root,
+        "shared_prediction_reuse_cache_root": shared_prediction_reuse_cache_root,
         "quality_runs_executed": quality_runs_executed,
         "gate_impossibility_pruning_enabled": True,
         "pruned_candidates": pruned_candidates,

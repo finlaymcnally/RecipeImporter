@@ -222,6 +222,7 @@ def test_bench_speed_run_wires_runner(
         repeats,
         max_targets,
         max_parallel_tasks,
+        require_process_workers,
         resume_run_dir,
         run_settings,
         include_codex_farm_requested,
@@ -238,6 +239,7 @@ def test_bench_speed_run_wires_runner(
         captured["repeats"] = repeats
         captured["max_targets"] = max_targets
         captured["max_parallel_tasks"] = max_parallel_tasks
+        captured["require_process_workers"] = require_process_workers
         captured["resume_run_dir"] = resume_run_dir
         captured["run_settings"] = run_settings
         return run_root
@@ -264,6 +266,7 @@ def test_bench_speed_run_wires_runner(
     assert captured["repeats"] == 2
     assert captured["max_targets"] == 1
     assert captured["max_parallel_tasks"] is None
+    assert captured["require_process_workers"] is False
     assert captured["resume_run_dir"] is None
     assert captured["include_codex_farm_requested"] is False
     assert captured["codex_farm_confirmed"] is False
@@ -342,6 +345,7 @@ def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
         repeats,
         max_targets,
         max_parallel_tasks,
+        require_process_workers,
         resume_run_dir,
         run_settings,
         include_codex_farm_requested,
@@ -356,6 +360,7 @@ def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
             repeats,
             max_targets,
             max_parallel_tasks,
+            require_process_workers,
             resume_run_dir,
             include_codex_farm_requested,
             codex_farm_confirmed,
@@ -443,12 +448,14 @@ def test_bench_speed_run_forwards_parallel_and_resume_options(
         _out_dir,
         *,
         max_parallel_tasks,
+        require_process_workers,
         resume_run_dir,
         progress_callback,
         **kwargs,
     ):
         _ = progress_callback
         captured["max_parallel_tasks"] = max_parallel_tasks
+        captured["require_process_workers"] = require_process_workers
         captured["resume_run_dir"] = resume_run_dir
         captured.update(kwargs)
         return run_root
@@ -465,10 +472,12 @@ def test_bench_speed_run_forwards_parallel_and_resume_options(
         warmups=1,
         repeats=1,
         max_parallel_tasks=3,
+        require_process_workers=True,
         resume_run_dir=run_root,
     )
 
     assert captured["max_parallel_tasks"] == 3
+    assert captured["require_process_workers"] is True
     assert captured["resume_run_dir"] == run_root
 
 
@@ -476,6 +485,42 @@ def test_bench_speed_run_rejects_missing_resume_run_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    source_file = tmp_path / "alpha.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text("{}", encoding="utf-8")
+
+    loaded_suite = BenchSpeedSuite(
+        name="speed_suite",
+        generated_at="2026-02-28_12.00.00",
+        gold_root=str((tmp_path / "gold").resolve()),
+        input_root=str(tmp_path.resolve()),
+        targets=[
+            SpeedTarget(
+                target_id="alpha",
+                source_file=str(source_file.resolve()),
+                gold_spans_path=str(gold_spans.resolve()),
+            )
+        ],
+        unmatched=[],
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite.load_speed_suite",
+        lambda _suite_path: loaded_suite,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite.validate_speed_suite",
+        lambda _suite, repo_root: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.speed_runner.parse_speed_scenarios",
+        lambda _raw: [SpeedScenario.STAGE_IMPORT],
+    )
+
     failures: list[str] = []
 
     def _fake_fail(message: str) -> None:
@@ -486,7 +531,7 @@ def test_bench_speed_run_rejects_missing_resume_run_dir(
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.bench_speed_run(
-            suite=tmp_path / "suite.json",
+            suite=suite_path,
             out_dir=tmp_path / "runs",
             scenarios="stage_import",
             warmups=1,
@@ -590,12 +635,14 @@ def test_bench_speed_run_passes_codex_farm_confirmation_to_runner(
         _out_dir,
         *,
         max_parallel_tasks,
+        require_process_workers,
         resume_run_dir,
         progress_callback,
         **kwargs,
     ):
         _ = progress_callback
         captured["max_parallel_tasks"] = max_parallel_tasks
+        captured["require_process_workers"] = require_process_workers
         captured["resume_run_dir"] = resume_run_dir
         captured.update(kwargs)
         return run_root
@@ -619,6 +666,7 @@ def test_bench_speed_run_passes_codex_farm_confirmation_to_runner(
     assert captured["include_codex_farm_requested"] is True
     assert captured["codex_farm_confirmed"] is True
     assert captured["max_parallel_tasks"] is None
+    assert captured["require_process_workers"] is False
     assert captured["resume_run_dir"] is None
 
 
@@ -826,6 +874,7 @@ def test_bench_quality_run_wires_runner(
     ):
         _ = progress_callback
         captured["max_parallel_experiments"] = _kwargs.get("max_parallel_experiments")
+        captured["require_process_workers"] = _kwargs.get("require_process_workers")
         captured["resume_run_dir"] = _kwargs.get("resume_run_dir")
         captured["include_codex_farm_requested"] = _kwargs.get(
             "include_codex_farm_requested"
@@ -856,6 +905,7 @@ def test_bench_quality_run_wires_runner(
     assert captured["base_run_settings_file"] == base_settings_file
     assert captured["resume_run_dir"] == run_root
     assert captured["max_parallel_experiments"] is None
+    assert captured["require_process_workers"] is False
     assert captured["include_codex_farm_requested"] is False
     assert captured["codex_farm_confirmed"] is False
 
@@ -1012,12 +1062,120 @@ def test_bench_quality_run_passes_codex_farm_confirmation_to_runner(
         suite=suite_path,
         experiments_file=experiments_file,
         out_dir=tmp_path / "runs",
+        require_process_workers=True,
         include_codex_farm=True,
         qualitysuite_codex_farm_confirmation=cli.QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN,
     )
 
     assert captured["include_codex_farm_requested"] is True
     assert captured["codex_farm_confirmed"] is True
+    assert captured["require_process_workers"] is True
+
+
+def test_bench_quality_lightweight_series_wires_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "lightweight" / "2026-03-01_10.15.00"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "lightweight_series_report.md").write_text("", encoding="utf-8")
+    (run_root / "lightweight_series_summary.json").write_text("{}", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "cookimport.cli._run_with_progress_status",
+        lambda *, run, **_kwargs: run(lambda _message: None),
+    )
+
+    def _fake_run_quality_lightweight_series(
+        *,
+        gold_root,
+        input_root,
+        experiments_file,
+        thresholds_file,
+        profile_file,
+        out_dir,
+        resume_series_dir,
+        max_parallel_experiments,
+        require_process_workers,
+        command,
+        progress_callback,
+    ):
+        _ = progress_callback
+        captured["gold_root"] = gold_root
+        captured["input_root"] = input_root
+        captured["experiments_file"] = experiments_file
+        captured["thresholds_file"] = thresholds_file
+        captured["profile_file"] = profile_file
+        captured["out_dir"] = out_dir
+        captured["resume_series_dir"] = resume_series_dir
+        captured["max_parallel_experiments"] = max_parallel_experiments
+        captured["require_process_workers"] = require_process_workers
+        captured["command"] = command
+        return run_root
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_lightweight_series.run_quality_lightweight_series",
+        _fake_run_quality_lightweight_series,
+    )
+    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+
+    gold_root = tmp_path / "gold"
+    input_root = tmp_path / "input"
+    experiments_file = tmp_path / "experiments.json"
+    thresholds_file = tmp_path / "thresholds.json"
+    profile_file = tmp_path / "profile.json"
+
+    cli.bench_quality_lightweight_series(
+        gold_root=gold_root,
+        input_root=input_root,
+        profile_file=profile_file,
+        experiments_file=experiments_file,
+        thresholds_file=thresholds_file,
+        out_dir=tmp_path / "lightweight",
+        max_parallel_experiments=3,
+        require_process_workers=True,
+    )
+
+    assert captured["gold_root"] == gold_root
+    assert captured["input_root"] == input_root
+    assert captured["profile_file"] == profile_file
+    assert captured["experiments_file"] == experiments_file
+    assert captured["thresholds_file"] == thresholds_file
+    assert captured["out_dir"] == tmp_path / "lightweight"
+    assert captured["resume_series_dir"] is None
+    assert captured["max_parallel_experiments"] == 3
+    assert captured["require_process_workers"] is True
+    assert "quality-lightweight-series" in str(captured["command"])
+
+
+def test_bench_quality_lightweight_series_rejects_missing_resume_series_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    failures: list[str] = []
+
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.bench_quality_lightweight_series(
+            gold_root=tmp_path / "gold",
+            input_root=tmp_path / "input",
+            profile_file=tmp_path / "profile.json",
+            experiments_file=tmp_path / "experiments.json",
+            thresholds_file=tmp_path / "thresholds.json",
+            out_dir=tmp_path / "lightweight",
+            resume_series_dir=tmp_path / "missing-series-dir",
+        )
+
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert "--resume-series-dir must point to an existing directory" in failures[0]
 
 
 def test_bench_quality_compare_fail_on_regression_exits(

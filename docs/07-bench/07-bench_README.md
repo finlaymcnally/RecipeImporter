@@ -26,13 +26,14 @@ Current scoring surfaces:
 ### 2.1 `cookimport bench`
 
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
-- `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`).
+- `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`). Supports bounded task-level fanout via `--max-parallel-tasks` (auto mode when omitted: `min(total_tasks, cpu_count, 4)`) and crash-safe resume via `--resume-run-dir`. Use `--require-process-workers` to fail fast when stage/all-method internals cannot establish process workers.
 - Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run`. Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling `16`, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
+- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling `16`, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. Use `--require-process-workers` to fail fast instead of allowing those fallback backends. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
+- `bench quality-lightweight-series`: run a fast three-round QualitySuite flow (round 1 category screening, round 2 combined winner check, round 3 interaction smoke). It discovers per-seed suites from thresholds, executes quality-run folds with a versioned lightweight profile, and writes `lightweight_series_summary.json` plus `lightweight_series_report.md`. Use `--resume-series-dir` to reuse compatible fold artifacts after interruption.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -102,8 +103,11 @@ Canonical-text outputs include:
 
 Speed suite (`bench speed-run`) artifacts include:
 - `suite_resolved.json`, `samples.jsonl`, `summary.json`, `report.md`, `run_manifest.json`
-- `summary.json` includes `run_settings`, `run_settings_summary`, `run_settings_hash`, and Codex Farm request/confirmation flags so baseline/candidate comparisons can enforce settings parity and audit Codex usage.
+- incremental crash-safe artifacts: `checkpoint.json`, `summary.partial.json`, `report.partial.md`, `samples.partial.jsonl`
+- `summary.json` includes `run_settings`, `run_settings_summary`, `run_settings_hash`, Codex Farm request/confirmation flags, and resolved parallel/resume metadata so baseline/candidate comparisons can enforce settings parity and audit execution mode.
+  - strict-worker telemetry is included: `require_process_workers`, `process_worker_probe_available`, `process_worker_probe_error`.
 - per-sample artifacts under `scenario_runs/<target_id>/<scenario>/<phase_index>/...`
+  - each sample phase folder persists `speed_sample_result.json` for resume reuse.
   - suite-level all-method samples use synthetic target id `__all_matched__` and folder `_all_matched`.
 
 Speed comparison (`bench speed-compare`) artifacts include:
@@ -116,7 +120,14 @@ Quality suite (`bench quality-run`) artifacts include:
 - one per-experiment output root under `experiments/<experiment_id>/...` containing all-method benchmark artifacts.
 - each experiment root persists `quality_experiment_result.json` after completion for resume reuse.
 - `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating.
+- quality summaries/resolved payloads include strict-worker telemetry: `require_process_workers`, `process_worker_probe_available`, `process_worker_probe_error`.
 - `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, and Codex Farm request/confirmation flags used for the run.
+
+Quality lightweight series (`bench quality-lightweight-series`) artifacts include:
+- `lightweight_series_resolved.json`, `lightweight_series_summary.json`, `lightweight_series_report.md`
+- round roots: `round_1_main_effects/`, `round_2_composition/`, `round_3_interaction_smoke/`
+- each fold root contains `suite.json`, `experiments_effective.json`, `fold_summary_extract.json`, and `quality_runs/<timestamp>/...` quality-run artifacts
+- optional round 1 confidence guard fold under `round_1_main_effects/confidence_guard/`
 
 Quality leaderboard (`bench quality-leaderboard`) artifacts include:
 - `leaderboard.json`, `leaderboard.csv`
@@ -187,6 +198,11 @@ Canonical cache:
 - `bench quality-run` uses a persistent quality cache root by default:
   - `data/golden/bench/quality/.cache/canonical_alignment/<source_group_key>`
 - Override root via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`.
+- Prediction reuse cache defaults:
+  - all-method local run root: `<run_root>/.prediction_reuse_cache`
+  - `bench quality-run`: `data/golden/bench/quality/.cache/prediction_reuse`
+  - tournament folds: shared by default at `data/golden/bench/quality/.cache/prediction_reuse`
+- Override prediction reuse root via `COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT`.
 - Cache lock recovery handles dead-owner PID locks first, then age-based fallback for malformed lock metadata.
 
 ## 6. All-Method Runtime Notes
@@ -226,6 +242,11 @@ Operational interpretation:
   - `evaluation_runs_executed`
   - `evaluation_results_reused_in_run`
   - `evaluation_results_reused_cross_run`
+- All-method reports now include `executor_resolution` telemetry:
+  - `process_workers_required`
+  - `process_worker_probe_available`
+  - `process_worker_probe_error`
+  - `config_executor_backends_seen`
 - Multi-source report counters include:
   - `scheduler_scope` (`global_config_queue` or `legacy_per_source`)
   - `global_queue_planned_configs`
@@ -253,6 +274,8 @@ Use this flow for baseline-versus-candidate runtime checks:
 
 1. `cookimport bench speed-discover`
 2. `cookimport bench speed-run --suite ...`
+   - optional: pass `--max-parallel-tasks N` to pin task fanout (omit for auto mode).
+   - interrupted runs can continue with `--resume-run-dir data/golden/bench/speed/runs/<existing_timestamp>`.
 3. `cookimport bench speed-compare --baseline ... --candidate ...`
 
 Default discovery source is `data/golden/pulled-from-labelstudio`.
@@ -270,10 +293,19 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 
 For repeated certainty checks before promoting a new top-tier set, use
 `scripts/quality_top_tier_tournament.py` with:
-- experiments file: `data/golden/bench/quality/experiments/2026-02-28_10.31.55_qualitysuite-top-tier-tournament.json`
-- thresholds file: `data/golden/bench/quality/thresholds/2026-02-28_10.31.55_qualitysuite-top-tier-gates.json`
+- shortlist experiments file: `data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-shortlist.json`
+- full-candidate experiments file: `data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json`
+- fast non-sweeps thresholds file: `data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json`
 - output root: `data/golden/bench/quality/tournaments/<timestamp>/...` (`summary.json`, `report.md`, `folds.json`)
 - resume option: `--resume-tournament-dir data/golden/bench/quality/tournaments/<existing_timestamp>` (reuses completed fold results and resumes partial fold quality-runs)
+- workflow: run shortlist first, then run full-candidate file for only shortlist finalists.
+- fast parsing answer mode: `--quick-parsing` (parser-focused candidates, sweeps off, exhaustive search, and 2-seed cap unless `--max-seeds` is provided).
+- optional scope/speed overrides:
+  - `--candidate-experiment-id <id>` (repeatable) to run only selected candidate ids
+  - `--max-candidates <N>` to cap candidate count after filters
+  - `--max-seeds <N>` to cap fold count
+  - `--force-no-deterministic-sweeps` to force sweeps off regardless of thresholds
+  - `--quality-search-strategy race|exhaustive` to override thresholds search mode
 
 Experiments file notes:
 - Schema v1 uses explicit experiments: `{"schema_version": 1, "experiments": [{"id": "...", "run_settings_patch": {...}}]}`.

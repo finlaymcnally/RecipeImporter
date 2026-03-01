@@ -150,6 +150,46 @@ def test_stage_process_pool_permission_error_falls_back_to_thread(
     assert (timestamp_dir / "file2.excel_import_report.json").exists()
 
 
+def test_stage_require_process_workers_fails_when_process_pool_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixtures_dir = TESTS_FIXTURES_DIR
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+
+    content = (fixtures_dir / "simple_text.txt").read_text(encoding="utf-8")
+    (input_dir / "file1.txt").write_text(content, encoding="utf-8")
+    (input_dir / "file2.txt").write_text(content, encoding="utf-8")
+
+    class BrokenProcessPoolExecutor:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise PermissionError("sandbox denied")
+
+    monkeypatch.setattr(
+        "cookimport.core.executor_fallback.ProcessPoolExecutor",
+        BrokenProcessPoolExecutor,
+    )
+
+    output_dir = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "stage",
+            str(input_dir),
+            "--out",
+            str(output_dir),
+            "--workers",
+            "2",
+            "--require-process-workers",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, RuntimeError)
+    assert "process-based worker concurrency is required" in str(result.exception).lower()
+
+
 def test_worker_label_includes_thread_name_for_thread_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -66,6 +66,7 @@ def run_speed_suite(
     repeats: int,
     max_targets: int | None = None,
     max_parallel_tasks: int | None = None,
+    require_process_workers: bool = False,
     resume_run_dir: Path | None = None,
     run_settings: RunSettings,
     include_codex_farm_requested: bool = False,
@@ -129,6 +130,9 @@ def run_speed_suite(
             total_tasks=total_tasks,
         )
     )
+    process_worker_probe_available, process_worker_probe_error = (
+        _probe_process_worker_availability()
+    )
 
     run_config_payload = {
         "suite_name": suite.name,
@@ -139,6 +143,7 @@ def run_speed_suite(
         "repeats": int(repeats),
         "max_targets": max_targets,
         "run_settings_hash": run_settings.stable_hash(),
+        "require_process_workers": bool(require_process_workers),
         "include_codex_farm_requested": bool(include_codex_farm_requested),
         "include_codex_farm_confirmed": bool(codex_farm_confirmed),
     }
@@ -191,6 +196,9 @@ def run_speed_suite(
             parallel_tasks_effective=parallel_tasks_effective,
             parallel_tasks_mode=parallel_tasks_mode,
             parallel_tasks_cpu_count=cpu_count,
+            require_process_workers=bool(require_process_workers),
+            process_worker_probe_available=process_worker_probe_available,
+            process_worker_probe_error=process_worker_probe_error,
             resume_requested=bool(resume_run_dir is not None),
         )
         (run_root / _SPEED_RUN_PARTIAL_SUMMARY_FILENAME).write_text(
@@ -229,6 +237,9 @@ def run_speed_suite(
                 max_parallel_tasks if max_parallel_tasks is not None else "auto"
             ),
             "parallel_tasks_effective": parallel_tasks_effective,
+            "require_process_workers": bool(require_process_workers),
+            "process_worker_probe_available": process_worker_probe_available,
+            "process_worker_probe_error": process_worker_probe_error,
             "run_config": run_config_payload,
         }
         (run_root / _SPEED_RUN_CHECKPOINT_FILENAME).write_text(
@@ -264,6 +275,7 @@ def run_speed_suite(
                 source_file=target_source,
                 sample_dir=sample_dir,
                 run_settings=run_settings,
+                require_process_workers=bool(require_process_workers),
             )
         elif task.scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
             if target_source is None or target_gold is None:
@@ -295,6 +307,7 @@ def run_speed_suite(
                 sample_dir=sample_dir,
                 run_settings=run_settings,
                 include_codex_farm_requested=include_codex_farm_requested,
+                require_process_workers=bool(require_process_workers),
             )
         else:
             raise ValueError(f"Unsupported speed scenario: {task.scenario}")
@@ -353,10 +366,6 @@ def run_speed_suite(
                     f"[{_speed_task_target_id(task)}] {task.scenario.value} {task.phase} {task.phase_index}"
                 )
         else:
-            _notify(
-                "Speed suite parallel dispatch: "
-                f"mode={parallel_tasks_mode} workers={parallel_tasks_effective} tasks={total_tasks}"
-            )
             executor: ThreadPoolExecutor | None = ThreadPoolExecutor(
                 max_workers=parallel_tasks_effective,
                 thread_name_prefix="speed-task",
@@ -429,6 +438,9 @@ def run_speed_suite(
         parallel_tasks_effective=parallel_tasks_effective,
         parallel_tasks_mode=parallel_tasks_mode,
         parallel_tasks_cpu_count=cpu_count,
+        require_process_workers=bool(require_process_workers),
+        process_worker_probe_available=process_worker_probe_available,
+        process_worker_probe_error=process_worker_probe_error,
         resume_requested=bool(resume_run_dir is not None),
     )
     (run_root / "summary.json").write_text(
@@ -456,6 +468,9 @@ def run_speed_suite(
             ),
             "max_parallel_tasks_mode": parallel_tasks_mode,
             "max_parallel_tasks_effective": parallel_tasks_effective,
+            "require_process_workers": bool(require_process_workers),
+            "process_worker_probe_available": process_worker_probe_available,
+            "process_worker_probe_error": process_worker_probe_error,
             "resume_requested": bool(resume_run_dir is not None),
             "resume_run_dir": str(run_root) if resume_run_dir is not None else None,
             "sequence_matcher": run_settings.benchmark_sequence_matcher,
@@ -531,6 +546,24 @@ def _coerce_int(value: Any, *, minimum: int = 0) -> int:
     except (TypeError, ValueError):
         numeric = minimum
     return max(minimum, numeric)
+
+
+def _probe_process_worker_availability() -> tuple[bool | None, str | None]:
+    try:
+        import cookimport.cli as cli
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc).strip()
+        if detail:
+            return None, f"{type(exc).__name__}: {detail}"
+        return None, type(exc).__name__
+    try:
+        available, error = cli._probe_all_method_process_pool_executor()
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc).strip()
+        if detail:
+            return None, f"{type(exc).__name__}: {detail}"
+        return None, type(exc).__name__
+    return bool(available), str(error).strip() if error else None
 
 
 def _resolve_speed_parallel_tasks_cap(
@@ -715,6 +748,7 @@ def _run_stage_import_sample(
     source_file: Path,
     sample_dir: Path,
     run_settings: RunSettings,
+    require_process_workers: bool,
 ) -> dict[str, Any]:
     import cookimport.cli as cli
 
@@ -731,6 +765,7 @@ def _run_stage_import_sample(
     with _suppress_cli_output():
         stage_run_root = cli.stage(
             path=source_file,
+            require_process_workers=bool(require_process_workers),
             **stage_kwargs,
         )
     report_path = _select_stage_report_path(stage_run_root)
@@ -810,6 +845,7 @@ def _run_all_method_multi_source_sample(
     sample_dir: Path,
     run_settings: RunSettings,
     include_codex_farm_requested: bool,
+    require_process_workers: bool,
 ) -> dict[str, Any]:
     import cookimport.cli as cli
 
@@ -862,6 +898,7 @@ def _run_all_method_multi_source_sample(
                 overlap_threshold=0.5,
                 force_source_match=False,
                 scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_GLOBAL,
+                require_process_workers=bool(require_process_workers),
             )
 
     report_json_path = report_md_path.with_suffix(".json")
@@ -869,6 +906,10 @@ def _run_all_method_multi_source_sample(
         raise FileNotFoundError(f"Missing all-method report: {report_json_path}")
 
     report_payload = _load_json_dict(report_json_path)
+    executor_resolution_raw = report_payload.get("executor_resolution")
+    executor_resolution = (
+        dict(executor_resolution_raw) if isinstance(executor_resolution_raw, dict) else {}
+    )
     timing_payload_raw = report_payload.get("timing_summary")
     timing_payload = (
         dict(timing_payload_raw) if isinstance(timing_payload_raw, dict) else {}
@@ -894,6 +935,7 @@ def _run_all_method_multi_source_sample(
         "successful_source_count": _coerce_float(
             report_payload.get("successful_source_count")
         ),
+        "executor_resolution": executor_resolution,
         "eval_output_dir": _path_for_payload(all_method_root),
         "report_json_path": _path_for_payload(report_json_path),
         "timing": timing_payload,
@@ -923,6 +965,9 @@ def _build_summary_payload(
     parallel_tasks_effective: int = 1,
     parallel_tasks_mode: str = "fixed",
     parallel_tasks_cpu_count: int | None = None,
+    require_process_workers: bool = False,
+    process_worker_probe_available: bool | None = None,
+    process_worker_probe_error: str | None = None,
     resume_requested: bool = False,
 ) -> dict[str, Any]:
     repeat_rows = [row for row in sample_rows if row.get("phase") == "repeat"]
@@ -1011,6 +1056,13 @@ def _build_summary_payload(
             if parallel_tasks_cpu_count is not None
             else _coerce_int(os.cpu_count(), minimum=1)
         ),
+        "require_process_workers": bool(require_process_workers),
+        "process_worker_probe_available": process_worker_probe_available,
+        "process_worker_probe_error": (
+            str(process_worker_probe_error).strip()
+            if process_worker_probe_error
+            else None
+        ),
         "resume_requested": bool(resume_requested),
         "sample_count": len(sample_rows),
         "summary_rows": summary_rows,
@@ -1032,6 +1084,12 @@ def _format_speed_run_report(summary_payload: dict[str, Any]) -> str:
         f"{summary_payload.get('max_parallel_tasks_effective')} "
         f"(mode={summary_payload.get('max_parallel_tasks_mode')}, "
         f"requested={summary_payload.get('max_parallel_tasks_requested')})",
+        (
+            "- Process workers required: "
+            f"{summary_payload.get('require_process_workers')} "
+            f"(probe_available={summary_payload.get('process_worker_probe_available')}, "
+            f"probe_error={summary_payload.get('process_worker_probe_error')})"
+        ),
         f"- Resume requested: {summary_payload.get('resume_requested')}",
         f"- Sequence matcher: {summary_payload.get('sequence_matcher')}",
         f"- Run settings hash: {summary_payload.get('run_settings_hash')}",

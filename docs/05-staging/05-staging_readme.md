@@ -255,8 +255,16 @@ Code pointers:
 
 - Includes source identity (`path`, optional `source_hash`, detected `importer_name`).
 - Includes run config snapshot used for the run.
-- Includes artifact pointers for reports, stage-block predictions, knowledge/tag indexes, and processing telemetry when present.
+- Includes artifact pointers for reports, stage-block predictions, knowledge/tag indexes, processing telemetry, and worker-resolution telemetry when present.
 - Used by parity tests and downstream tooling to compare stage and pred-run provenance/config.
+
+Worker-resolution artifact:
+
+- `stage_worker_resolution.json` is written at run root with:
+  - `process_workers_required`
+  - `backend_effective` (`process`, `subprocess`, `thread`, or `serial`)
+  - `messages` (fallback/probe details)
+- `run_manifest.json` includes `artifacts.stage_worker_resolution_json` when this file exists.
 
 Code pointers:
 - `cookimport/cli.py` (`_write_stage_run_manifest`, `_write_run_manifest_best_effort`)
@@ -381,8 +389,10 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 
 ## 2026-02-28 task consolidation (`docs/tasks` sandbox fallback hardening)
 
-Merged task file:
-- `2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
+Recent task files:
+- `2026-02-28_14.42.42-speedsuite-thread-fallback-worker-label-telemetry.md`
+- `2026-02-28_14.46.37-joblib-semlock-warning-guard.md`
+- `2026-02-28_15.00.57-stage-subprocess-worker-fallback-for-shm-restricted-hosts.md`
 
 Current stage fallback contract:
 - Stage parallel processing now follows `process -> subprocess-backed workers -> thread -> serial` fallback order when worker startup fails.
