@@ -236,6 +236,12 @@ ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 BENCH_CODEX_FARM_CONFIRMATION_TOKEN = "I_HAVE_EXPLICIT_USER_CONFIRMATION"
 QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
 SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
+QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE = (
+    "bench quality-lightweight-series is disabled. "
+    "Tournament/lightweight-series workflows were retired due to extreme "
+    "runtime and disk usage. Use `bench quality-run` + `bench quality-compare` "
+    "for quality iteration."
+)
 ALL_METHOD_EPUB_EXTRACTORS_DEFAULT = (
     "unstructured",
     "beautifulsoup",
@@ -21195,87 +21201,7 @@ def bench_quality_lightweight_series(
     ),
 ) -> None:
     """Run the lightweight main-effects-first QualitySuite series."""
-    from cookimport.bench.quality_lightweight_series import (
-        run_quality_lightweight_series,
-    )
-
-    gold_root = _unwrap_typer_option_default(gold_root)
-    input_root = _unwrap_typer_option_default(input_root)
-    profile_file = _unwrap_typer_option_default(profile_file)
-    experiments_file = _unwrap_typer_option_default(experiments_file)
-    thresholds_file = _unwrap_typer_option_default(thresholds_file)
-    out_dir = _unwrap_typer_option_default(out_dir)
-    resume_series_dir = _unwrap_typer_option_default(resume_series_dir)
-    max_parallel_experiments = _unwrap_typer_option_default(max_parallel_experiments)
-    require_process_workers = _unwrap_typer_option_default(require_process_workers)
-    if max_parallel_experiments is not None:
-        try:
-            max_parallel_experiments = int(max_parallel_experiments)
-        except (TypeError, ValueError):
-            _fail("--max-parallel-experiments must be an integer >= 1.")
-        if max_parallel_experiments < 1:
-            _fail("--max-parallel-experiments must be >= 1 when provided.")
-    if resume_series_dir is not None:
-        if not resume_series_dir.exists() or not resume_series_dir.is_dir():
-            _fail(
-                "--resume-series-dir must point to an existing directory: "
-                f"{resume_series_dir}"
-            )
-
-    telemetry_source_name = (
-        Path(profile_file).name
-        if profile_file is not None
-        else "quality-lightweight-series"
-    )
-    quality_series_timeseries_path = _processing_timeseries_history_path(
-        root=out_dir,
-        scope="bench_quality_lightweight_series",
-        source_name=telemetry_source_name,
-    )
-
-    try:
-        series_root = _run_with_progress_status(
-            initial_status="Running bench quality lightweight series...",
-            progress_prefix="Bench quality lightweight",
-            telemetry_path=quality_series_timeseries_path,
-            run=lambda update_progress: run_quality_lightweight_series(
-                gold_root=gold_root,
-                input_root=input_root,
-                experiments_file=experiments_file,
-                thresholds_file=thresholds_file,
-                profile_file=profile_file,
-                out_dir=out_dir,
-                resume_series_dir=resume_series_dir,
-                max_parallel_experiments=max_parallel_experiments,
-                require_process_workers=bool(require_process_workers),
-                command=(
-                    "cookimport bench quality-lightweight-series "
-                    f"--gold-root {gold_root} --input-root {input_root} "
-                    f"--profile-file {profile_file} "
-                    f"--experiments-file {experiments_file} "
-                    f"--thresholds-file {thresholds_file}"
-                ),
-                progress_callback=update_progress,
-            ),
-        )
-    except Exception as exc:  # noqa: BLE001
-        _fail(str(exc))
-        return
-
-    typer.secho("Quality lightweight series complete.", fg=typer.colors.GREEN)
-    typer.secho(f"Run: {series_root}", fg=typer.colors.CYAN)
-    typer.secho(
-        f"Report: {series_root / 'lightweight_series_report.md'}",
-        fg=typer.colors.CYAN,
-    )
-    typer.secho(
-        f"Summary: {series_root / 'lightweight_series_summary.json'}",
-        fg=typer.colors.CYAN,
-    )
-    typer.secho(
-        f"Processing telemetry: {quality_series_timeseries_path}",
-        fg=typer.colors.BRIGHT_BLACK,
-    )
+    _fail(QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE)
 
 
 @bench_app.command("quality-compare")

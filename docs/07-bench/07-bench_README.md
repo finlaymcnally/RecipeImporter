@@ -32,8 +32,8 @@ Current scoring surfaces:
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling `16`, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. Use `--require-process-workers` to fail fast instead of allowing those fallback backends. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
-- `bench quality-lightweight-series`: run a fast three-round QualitySuite flow (round 1 category screening, round 2 combined winner check, round 3 interaction smoke). It discovers per-seed suites from thresholds, executes quality-run folds with a versioned lightweight profile, and writes `lightweight_series_summary.json` plus `lightweight_series_report.md`. Use `--resume-series-dir` to reuse compatible fold artifacts after interruption.
+- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. WSL-specific safety caps are retired; WSL now follows the same executor/cap behavior as other Linux hosts unless you explicitly force executor mode via env. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
+- `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -121,9 +121,9 @@ Quality suite (`bench quality-run`) artifacts include:
 - each experiment root persists `quality_experiment_result.json` after completion for resume reuse.
 - `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating.
 - quality summaries/resolved payloads include strict-worker telemetry: `require_process_workers`, `process_worker_probe_available`, `process_worker_probe_error`.
-- `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, and Codex Farm request/confirmation flags used for the run.
+- `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, Codex Farm request/confirmation flags, and WSL telemetry fields (`wsl_detected`, `wsl_safety_guard_applied`, `wsl_safety_guard_reason`, `wsl_safety_guard_worker_cap`, `wsl_safety_guard_adjusted_experiments`).
 
-Quality lightweight series (`bench quality-lightweight-series`) artifacts include:
+Historical lightweight-series artifacts (command now disabled in CLI) include:
 - `lightweight_series_resolved.json`, `lightweight_series_summary.json`, `lightweight_series_report.md`
 - round roots: `round_1_main_effects/`, `round_2_composition/`, `round_3_interaction_smoke/`
 - each fold root contains `suite.json`, `experiments_effective.json`, `fold_summary_extract.json`, and `quality_runs/<timestamp>/...` quality-run artifacts
@@ -297,28 +297,9 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 3. `cookimport bench quality-leaderboard --run-dir ... --experiment-id ...`
 4. `cookimport bench quality-compare --baseline ... --candidate ...`
 
-For repeated certainty checks before promoting a new top-tier set, use
-`scripts/quality_top_tier_tournament.py` with:
-- parser Phase A experiments file: `data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json`
-- parser Phase A thresholds file: `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json`
-- parser Phase B confidence thresholds file: `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json`
-- parser Phase B+ sweeps-decision thresholds file (optional): `data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json`
-- output root: `data/golden/bench/quality/tournaments/<timestamp>/...` (`tournament_resolved.json`, `tournament_checkpoint.json`, `summary.json`, `report.md`, `folds.json`)
-- resume option: `--resume-tournament-dir data/golden/bench/quality/tournaments/<existing_timestamp>` (reuses completed fold results and resumes partial fold quality-runs)
-- workflow: run parser Phase A first, then Phase B using `--auto-candidates-from-summary` or `--auto-candidates-from-latest-in` (or explicit `--candidate-experiment-id` override) for promoted candidate ids.
-- fast parsing answer mode: `--quick-parsing` (parser-focused candidates, sweeps off, exhaustive search, and 3-seed cap unless explicit seeds or `--max-seeds` is provided).
-- phase thresholds now pin `quality_run.max_parallel_experiments_default=4`; CLI `--max-parallel-experiments` still overrides.
-- optional scope/speed overrides:
-  - `--candidate-experiment-id <id>` (repeatable) to run only selected candidate ids
-  - `--auto-candidates-from-summary <summary.json or tournament_dir>` for Phase A -> Phase B handoff
-  - `--auto-candidates-from-latest-in <tournament_root_dir>` to auto-pick from newest tournament result
-  - `--max-candidates <N>` to cap candidate count after filters
-  - `--max-seeds <N>` to cap fold count
-  - `--seed <int>` (repeatable) for explicit seed selection
-  - `--seed-list "42,2718,4242"` for comma-separated explicit seed selection
-  - explicit `--seed`/`--seed-list` can be combined with `--max-seeds` (dedupe then cap)
-  - `--force-no-deterministic-sweeps` to force sweeps off regardless of thresholds
-  - `--quality-search-strategy race|exhaustive` to override thresholds search mode
+`scripts/quality_top_tier_tournament.py` is now disabled/retired in this repo due to
+extreme runtime and disk amplification. Historical tournament artifacts remain under
+`data/golden/bench/quality/tournaments/<timestamp>/...` for read-only inspection.
 
 For one consolidated "which command when" flow with decision criteria, use `docs/07-bench/qualitysuite-product-suite.md`.
 
@@ -862,7 +843,7 @@ The items below were merged from `docs/understandings` in source timestamp order
 
 ### 2026-02-28_10.20.58 quality-run auto parallelism and load admission
 - Source: `docs/understandings/2026-02-28_10.20.58-quality-run-auto-parallelism-and-load-admission.md`
-- When `--max-parallel-experiments` is omitted, quality-run uses auto mode with effective cap `min(total_experiments, cpu_count, auto_ceiling)` where `auto_ceiling` defaults to `16` and is tunable via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`.
+- When `--max-parallel-experiments` is omitted, quality-run uses auto mode with effective cap `min(total_experiments, cpu_count, auto_ceiling)` where `auto_ceiling` defaults to detected `cpu_count` and is tunable via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`.
 - `experiments_resolved.json` persists requested/effective mode metadata (`max_parallel_experiments_requested`, `*_mode`, `*_effective`, `*_cpu_count`, `*_adaptive`).
 - Auto mode uses load-aware admission: gradual ramp up under lighter pressure and immediate clamp under hotter load.
 
@@ -945,7 +926,7 @@ Merged task files (source creation order):
 
 Current benchmark/runtime contract from this batch:
 - `bench quality-run` supports bounded experiment-level parallelism via `--max-parallel-experiments`.
-- Omitting `--max-parallel-experiments` enables auto mode: `min(total_experiments, cpu_count, auto_ceiling)`, where `auto_ceiling` defaults to `16` and is tunable via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`.
+- Omitting `--max-parallel-experiments` enables auto mode: `min(total_experiments, cpu_count, auto_ceiling)`, where `auto_ceiling` defaults to detected `cpu_count` and is tunable via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`.
 - In `/dev/shm`-restricted environments, quality-run can switch experiment fanout to subprocess workers (`COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE`) so throughput does not stay GIL-limited.
 - Codex Farm variants are confirmation-gated:
   - speed: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
@@ -954,7 +935,7 @@ Current benchmark/runtime contract from this batch:
   - per-experiment snapshot: `experiments/<id>/quality_experiment_result.json`
   - run checkpoints: `checkpoint.json`, `summary.partial.json`, `report.partial.md`
   - explicit resume path: `bench quality-run --resume-run-dir <existing_run_dir>`
-  - tournament fold reuse path: `scripts/quality_top_tier_tournament.py --resume-tournament-dir ...`
+  - historical-only fold reuse path (script now disabled): `scripts/quality_top_tier_tournament.py --resume-tournament-dir ...`
 - Sequence matcher runtime contract remains `dmp`-only (`COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp`); `stdlib` remains available only in `scripts/bench_sequence_matcher_impl.py` for parity/speed references.
 
 Known caveat retained from speed2-3 closeout:
@@ -997,7 +978,7 @@ Current benchmark contract additions from this batch:
   - Fast shortlist thresholds must be feasible for planned unique folds (for example `min_completed_folds=2` when only 2 unique folds are possible).
 
 - QualitySuite throughput and runtime shape are now explicitly environment-aware:
-  - Auto parallel cap/ramp is more aggressive (`auto_ceiling` default `16`, env override supported).
+  - Auto parallel cap/ramp is more aggressive (`auto_ceiling` default follows detected `cpu_count`; env override supported).
   - In restricted runtimes, quality-run can switch experiment fanout to subprocess mode while keeping deterministic outputs.
   - In unrestricted runtimes, SemLock/process-pool bottlenecks may disappear; tuning should then focus on run-shape knobs instead of fallback paths.
 
@@ -1061,10 +1042,11 @@ Current benchmark contract additions from this batch:
   - tournament defaults point to `2026-03-01_01.00.00` parser Phase A candidate/threshold files,
   - exact duplicate preset `2026-02-28_14.58.21_qualitysuite-top-tier-tournament-hot-io-guard.json` was removed as byte-identical to `2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json`,
   - active-vs-legacy preset status is tracked in `data/golden/bench/quality/README.md`.
-- Product-surface shape remains intentionally three-track:
-  1. `bench quality-lightweight-series` for directional main-effects answers,
-  2. `scripts/quality_top_tier_tournament.py` for Phase A/B/B+ promotion confidence,
-  3. `bench quality-run` + `bench quality-compare` for final validation/regression gates.
+- Product surface is now intentionally focused on direct quality-run flows:
+  1. `bench quality-run` for experiment execution,
+  2. `bench quality-leaderboard` for winner analysis,
+  3. `bench quality-compare` for regression gates.
+- Historical note: `bench quality-lightweight-series` and `scripts/quality_top_tier_tournament.py` are retired/disabled.
 
 Anti-loop reminders from this batch:
 - If tournament path selection feels contradictory, check explicit candidate override precedence before tuning heuristics.

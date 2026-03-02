@@ -2261,3 +2261,45 @@ Evidence preserved:
 
 Anti-loop note:
 - Candidate-source precedence (`explicit > auto summary > threshold/default`) is intentional; verify resolved metadata before changing selection heuristics.
+
+### 2026-03-01_11.47.33 quality-run WSL safety guard for nested parallelism
+
+Source task file:
+- `docs/tasks/2026-03-01_11.47.33-qualitysuite-wsl-safety-guard.md`
+
+Problem captured:
+- Parallel QualitySuite runs on WSL could combine outer experiment fanout with inner all-method/process fanout in a way that destabilized the distro and disconnected VSCode remote sessions.
+
+Durable decisions:
+- Keep non-WSL behavior unchanged.
+- For WSL with `max_parallel_experiments_effective > 1`, prefer subprocess experiment isolation in auto executor mode.
+- Add a WSL nested-parallelism safety guard that caps per-experiment workers and all-method runtime knobs (`max_parallel_sources`, `max_inflight_pipelines`, `max_concurrent_split_phases`, `max_eval_tail_pipelines`, `wing_backlog_target`, `smart_scheduler`) to conservative values.
+- Persist safety-guard telemetry in `experiments_resolved.json` so operators can verify whether guardrails were applied.
+- Allow explicit opt-out only via `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1`.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_suite_runner.py -q`
+- `pytest tests/bench/test_bench.py -k "quality_run" -q`
+
+Anti-loop note:
+- If a WSL run still destabilizes the host, check `experiments_resolved.json` first for `wsl_safety_guard_applied` and the effective worker cap before changing scheduler internals again.
+
+### 2026-03-01_12.23.08 WSL single-slot guard follow-up
+
+Source task file:
+- `docs/tasks/2026-03-01_12.23.08-qualitysuite-wsl-single-slot-guard.md`
+
+Problem captured:
+- WSL instability persisted for runs with `max_parallel_experiments_effective=1` because the first guard version only activated when outer experiment fanout was greater than one.
+
+Durable decisions:
+- On WSL, force subprocess experiment isolation even for single-slot runs in auto executor mode.
+- Apply WSL safety guard defaults regardless of experiment slot count (unless `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1`).
+- Add a hard cap (`4`) to WSL guarded worker counts so single-slot runs cannot inherit high per-config worker values from base settings.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_suite_runner.py -k "wsl" -q`
+- `pytest tests/bench/test_bench.py -k "quality_run" -q`
+
+Anti-loop note:
+- If WSL still disconnects on guarded single-slot runs, inspect `experiments_resolved.json` first for `experiment_executor_reason=wsl_single_experiment_isolation` and guard telemetry before blaming Oracle/Chromium overlap.

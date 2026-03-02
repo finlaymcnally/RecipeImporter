@@ -16,6 +16,15 @@ from cookimport.bench.quality_runner import (
 from cookimport.bench.quality_suite import QualitySuite
 
 
+@pytest.fixture(autouse=True)
+def _force_non_wsl_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Keep host-dependent WSL checks from making test expectations non-deterministic.
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._running_in_wsl",
+        lambda: False,
+    )
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -1030,9 +1039,9 @@ def test_run_quality_suite_auto_parallelism_uses_default_auto_ceiling(
         (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
     )
     assert resolved["max_parallel_experiments_mode"] == "auto"
-    assert resolved["max_parallel_experiments_effective"] == 16
-    assert resolved["max_parallel_experiments_auto_ceiling"] == 16
-    assert resolved["max_parallel_experiments_auto_ceiling_source"] == "default"
+    assert resolved["max_parallel_experiments_effective"] == 20
+    assert resolved["max_parallel_experiments_auto_ceiling"] == 64
+    assert resolved["max_parallel_experiments_auto_ceiling_source"] == "cpu_count"
 
 
 def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
@@ -1245,6 +1254,330 @@ def test_run_quality_suite_switches_to_subprocess_executor_when_process_pool_una
         resolved["experiment_executor_reason"] or ""
     )
     assert sorted(observed_ids) == ["baseline", "candidate"]
+
+
+def test_run_quality_suite_uses_thread_executor_for_parallel_wsl_runs_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_wsl_executor.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [
+                {"id": "baseline", "run_settings_patch": {}},
+                {"id": "candidate", "run_settings_patch": {"workers": 3}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 8, "pdf_split_workers": 8, "epub_split_workers": 8})
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._running_in_wsl",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+    seen_experiment_ids: list[str] = []
+
+    def _fake_thread_worker(**kwargs):
+        run_settings = kwargs["run_settings"]
+        experiment_id = kwargs["experiment_id"]
+        seen_experiment_ids.append(experiment_id)
+        return QualityExperimentResult(
+            id=experiment_id,
+            status="ok",
+            run_settings_hash=run_settings.stable_hash(),
+            run_settings_summary=run_settings.summary(),
+            strict_f1_macro=0.60,
+            practical_f1_macro=0.70,
+            source_success_rate=1.0,
+            sources_planned=1,
+            sources_successful=1,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment",
+        _fake_thread_worker,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("subprocess experiment path should not be used when pool is available")
+        ),
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=2,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["experiment_executor_mode"] == "thread"
+    assert resolved["experiment_executor_reason"] == "process_pool_available"
+    assert resolved["wsl_detected"] is True
+    assert sorted(seen_experiment_ids) == ["baseline", "candidate"]
+
+
+def test_run_quality_suite_does_not_apply_wsl_safety_guard_to_nested_parallelism(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_wsl_guard.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 2,
+            "all_method_runtime": {
+                "max_parallel_sources": 4,
+                "max_inflight_pipelines": 5,
+                "max_concurrent_split_phases": 4,
+                "max_eval_tail_pipelines": 4,
+                "wing_backlog_target": 4,
+                "smart_scheduler": True,
+            },
+            "experiments": [
+                {"id": "candidate", "run_settings_patch": {"workers": 9}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(base_run_settings_file, {"workers": 9, "pdf_split_workers": 8, "epub_split_workers": 7})
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._running_in_wsl",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.cpu_count",
+        lambda: 8,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+
+    observed_workers: dict[str, int] = {}
+    observed_pdf_workers: dict[str, int] = {}
+    observed_runtime: dict[str, dict[str, object]] = {}
+
+    def _fake_thread_worker(**kwargs):
+        experiment_id = kwargs["experiment_id"]
+        run_settings = kwargs["run_settings"]
+        all_method_runtime = kwargs["all_method_runtime"]
+        observed_workers[experiment_id] = int(run_settings.workers)
+        observed_pdf_workers[experiment_id] = int(run_settings.pdf_split_workers)
+        observed_runtime[experiment_id] = dict(all_method_runtime)
+        return QualityExperimentResult(
+            id=experiment_id,
+            status="ok",
+            run_settings_hash=run_settings.stable_hash(),
+            run_settings_summary=run_settings.summary(),
+            strict_f1_macro=0.60,
+            practical_f1_macro=0.70,
+            source_success_rate=1.0,
+            sources_planned=1,
+            sources_successful=1,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment",
+        _fake_thread_worker,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("subprocess experiment path should not be used when pool is available")
+        ),
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=2,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["wsl_safety_guard_applied"] is False
+    assert resolved["wsl_safety_guard_reason"] == "retired_unhobble"
+    assert resolved["wsl_safety_guard_worker_cap"] is None
+    assert resolved["wsl_safety_guard_adjusted_experiments"] == 0
+    assert all(value == 9 for value in observed_workers.values())
+    assert all(value == 8 for value in observed_pdf_workers.values())
+    assert all(
+        runtime.get("max_inflight_pipelines") == 5
+        and runtime.get("max_concurrent_split_phases") == 4
+        and runtime.get("max_eval_tail_pipelines") == 4
+        and runtime.get("max_parallel_sources") == 4
+        and runtime.get("wing_backlog_target") == 4
+        and runtime.get("smart_scheduler") is True
+        for runtime in observed_runtime.values()
+    )
+
+
+def test_run_quality_suite_does_not_apply_wsl_safety_guard_for_single_experiment_slot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_wsl_guard_single_slot.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 2,
+            "all_method_runtime": {
+                "max_parallel_sources": 4,
+                "max_inflight_pipelines": 5,
+                "max_concurrent_split_phases": 4,
+                "max_eval_tail_pipelines": 4,
+                "wing_backlog_target": 4,
+                "smart_scheduler": True,
+            },
+            "experiments": [
+                {"id": "candidate", "run_settings_patch": {"workers": 9}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(
+        base_run_settings_file,
+        {"workers": 9, "pdf_split_workers": 8, "epub_split_workers": 7},
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._running_in_wsl",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner.os.cpu_count",
+        lambda: 8,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+    observed_workers: dict[str, int] = {}
+    observed_pdf_workers: dict[str, int] = {}
+    observed_runtime: dict[str, dict[str, object]] = {}
+
+    def _fake_thread_worker(**kwargs):
+        experiment_id = kwargs["experiment_id"]
+        run_settings = kwargs["run_settings"]
+        all_method_runtime = kwargs["all_method_runtime"]
+        observed_workers[experiment_id] = int(run_settings.workers)
+        observed_pdf_workers[experiment_id] = int(
+            run_settings.pdf_split_workers
+        )
+        observed_runtime[experiment_id] = dict(all_method_runtime)
+        return QualityExperimentResult(
+            id=experiment_id,
+            status="ok",
+            run_settings_hash=run_settings.stable_hash(),
+            run_settings_summary=run_settings.summary(),
+            strict_f1_macro=0.60,
+            practical_f1_macro=0.70,
+            source_success_rate=1.0,
+            sources_planned=1,
+            sources_successful=1,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment",
+        _fake_thread_worker,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("subprocess experiment path should not be used in single-worker mode")
+        ),
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=1,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
+    assert resolved["experiment_executor_mode"] == "thread"
+    assert resolved["experiment_executor_reason"] == "single_worker"
+    assert resolved["wsl_safety_guard_applied"] is False
+    assert resolved["wsl_safety_guard_reason"] == "retired_unhobble"
+    assert resolved["wsl_safety_guard_worker_cap"] is None
+    assert resolved["wsl_safety_guard_adjusted_experiments"] == 0
+    assert all(value == 9 for value in observed_workers.values())
+    assert all(value == 8 for value in observed_pdf_workers.values())
+    assert all(
+        runtime.get("max_inflight_pipelines") == 5
+        and runtime.get("max_concurrent_split_phases") == 4
+        and runtime.get("max_eval_tail_pipelines") == 4
+        and runtime.get("max_parallel_sources") == 4
+        and runtime.get("wing_backlog_target") == 4
+        and runtime.get("smart_scheduler") is True
+        for runtime in observed_runtime.values()
+    )
 
 
 def test_quality_cache_root_honors_env_override(

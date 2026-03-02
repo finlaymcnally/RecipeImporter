@@ -1072,54 +1072,17 @@ def test_bench_quality_run_passes_codex_farm_confirmation_to_runner(
     assert captured["require_process_workers"] is True
 
 
-def test_bench_quality_lightweight_series_wires_runner(
+def test_bench_quality_lightweight_series_is_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    run_root = tmp_path / "lightweight" / "2026-03-01_10.15.00"
-    run_root.mkdir(parents=True, exist_ok=True)
-    (run_root / "lightweight_series_report.md").write_text("", encoding="utf-8")
-    (run_root / "lightweight_series_summary.json").write_text("{}", encoding="utf-8")
+    failures: list[str] = []
 
-    captured: dict[str, object] = {}
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
 
-    monkeypatch.setattr(
-        "cookimport.cli._run_with_progress_status",
-        lambda *, run, **_kwargs: run(lambda _message: None),
-    )
-
-    def _fake_run_quality_lightweight_series(
-        *,
-        gold_root,
-        input_root,
-        experiments_file,
-        thresholds_file,
-        profile_file,
-        out_dir,
-        resume_series_dir,
-        max_parallel_experiments,
-        require_process_workers,
-        command,
-        progress_callback,
-    ):
-        _ = progress_callback
-        captured["gold_root"] = gold_root
-        captured["input_root"] = input_root
-        captured["experiments_file"] = experiments_file
-        captured["thresholds_file"] = thresholds_file
-        captured["profile_file"] = profile_file
-        captured["out_dir"] = out_dir
-        captured["resume_series_dir"] = resume_series_dir
-        captured["max_parallel_experiments"] = max_parallel_experiments
-        captured["require_process_workers"] = require_process_workers
-        captured["command"] = command
-        return run_root
-
-    monkeypatch.setattr(
-        "cookimport.bench.quality_lightweight_series.run_quality_lightweight_series",
-        _fake_run_quality_lightweight_series,
-    )
-    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
 
     gold_root = tmp_path / "gold"
     input_root = tmp_path / "input"
@@ -1127,30 +1090,24 @@ def test_bench_quality_lightweight_series_wires_runner(
     thresholds_file = tmp_path / "thresholds.json"
     profile_file = tmp_path / "profile.json"
 
-    cli.bench_quality_lightweight_series(
-        gold_root=gold_root,
-        input_root=input_root,
-        profile_file=profile_file,
-        experiments_file=experiments_file,
-        thresholds_file=thresholds_file,
-        out_dir=tmp_path / "lightweight",
-        max_parallel_experiments=3,
-        require_process_workers=True,
-    )
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.bench_quality_lightweight_series(
+            gold_root=gold_root,
+            input_root=input_root,
+            profile_file=profile_file,
+            experiments_file=experiments_file,
+            thresholds_file=thresholds_file,
+            out_dir=tmp_path / "lightweight",
+            max_parallel_experiments=3,
+            require_process_workers=True,
+        )
 
-    assert captured["gold_root"] == gold_root
-    assert captured["input_root"] == input_root
-    assert captured["profile_file"] == profile_file
-    assert captured["experiments_file"] == experiments_file
-    assert captured["thresholds_file"] == thresholds_file
-    assert captured["out_dir"] == tmp_path / "lightweight"
-    assert captured["resume_series_dir"] is None
-    assert captured["max_parallel_experiments"] == 3
-    assert captured["require_process_workers"] is True
-    assert "quality-lightweight-series" in str(captured["command"])
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert failures[0] == cli.QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE
 
 
-def test_bench_quality_lightweight_series_rejects_missing_resume_series_dir(
+def test_bench_quality_lightweight_series_disabled_before_resume_validation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1175,7 +1132,7 @@ def test_bench_quality_lightweight_series_rejects_missing_resume_series_dir(
 
     assert excinfo.value.exit_code == 1
     assert failures
-    assert "--resume-series-dir must point to an existing directory" in failures[0]
+    assert failures[0] == cli.QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE
 
 
 def test_bench_quality_compare_fail_on_regression_exits(

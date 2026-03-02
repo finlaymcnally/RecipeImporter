@@ -42,11 +42,11 @@ _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV = (
 _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV = (
     "COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS"
 )
-_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT = 16
 _QUALITY_LIVE_ETA_POLL_SECONDS_ENV = "COOKIMPORT_QUALITY_LIVE_ETA_POLL_SECONDS"
 _QUALITY_LIVE_ETA_POLL_SECONDS_DEFAULT = 15.0
 _QUALITY_EXPERIMENT_EXECUTOR_MODE_ENV = "COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE"
 _QUALITY_EXPERIMENT_EXECUTOR_MODES = {"auto", "thread", "subprocess"}
+_QUALITY_WSL_SAFETY_GUARD_DISABLE_ENV = "COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD"
 _QUALITY_EXPERIMENT_WORKER_REQUEST_ARG = "--experiment-worker-request"
 _QUALITY_EXPERIMENT_WORKER_REQUEST_FILENAME = "_experiment_worker_request.json"
 _QUALITY_EXPERIMENT_WORKER_RESULT_FILENAME = "_experiment_worker_result.json"
@@ -248,6 +248,16 @@ class _ResolvedExperiment:
     all_method_runtime: dict[str, Any]
 
 
+def _running_in_wsl() -> bool:
+    if os.getenv("WSL_DISTRO_NAME") or os.getenv("WSL_INTEROP"):
+        return True
+    try:
+        release = str(os.uname().release or "")
+    except AttributeError:
+        return False
+    return "microsoft" in release.lower()
+
+
 def _safe_system_load_ratio_per_cpu() -> float | None:
     """Best-effort 1m load/cpu ratio; None when unavailable."""
     try:
@@ -281,15 +291,16 @@ def _resolve_experiment_parallelism_cap(
 
 
 def _resolve_auto_parallel_experiment_ceiling() -> tuple[int, str]:
+    cpu_count = _coerce_int(os.cpu_count(), minimum=1)
     env_raw = str(
         os.getenv(_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV, "") or ""
     ).strip()
     if not env_raw:
-        return _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT, "default"
+        return cpu_count, "cpu_count"
     try:
         env_value = int(env_raw)
     except (TypeError, ValueError):
-        return _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_DEFAULT, "default"
+        return cpu_count, "cpu_count"
     return max(1, env_value), "env"
 
 
@@ -314,12 +325,12 @@ def _resolve_quality_experiment_executor_mode(
     requested_mode = (
         requested_raw if requested_raw in _QUALITY_EXPERIMENT_EXECUTOR_MODES else "auto"
     )
-    if max_parallel_experiments_effective <= 1:
-        return "thread", "single_worker"
     if requested_mode == "thread":
         return "thread", "env"
     if requested_mode == "subprocess":
         return "subprocess", "env"
+    if max_parallel_experiments_effective <= 1:
+        return "thread", "single_worker"
 
     import cookimport.cli as cli
 
@@ -328,6 +339,28 @@ def _resolve_quality_experiment_executor_mode(
         return "thread", "process_pool_available"
     detail = str(error or "").strip() or "unknown"
     return "subprocess", f"process_pool_unavailable:{detail}"
+
+
+def _apply_wsl_quality_safety_guard(
+    *,
+    experiments: list[_ResolvedExperiment],
+    max_parallel_experiments_effective: int,
+    cpu_count: int,
+) -> tuple[list[_ResolvedExperiment], dict[str, Any]]:
+    _ = max_parallel_experiments_effective
+    _ = cpu_count
+    metadata: dict[str, Any] = {
+        "wsl_detected": bool(_running_in_wsl()),
+        "wsl_safety_guard_applied": False,
+        "wsl_safety_guard_disable_env": _QUALITY_WSL_SAFETY_GUARD_DISABLE_ENV,
+        "wsl_safety_guard_reason": "not_wsl",
+        "wsl_safety_guard_worker_cap": None,
+        "wsl_safety_guard_adjusted_experiments": 0,
+    }
+    if not metadata["wsl_detected"]:
+        return experiments, metadata
+    metadata["wsl_safety_guard_reason"] = "retired_unhobble"
+    return experiments, metadata
 
 
 def _desired_experiment_parallel_workers(
@@ -854,6 +887,11 @@ def run_quality_suite(
         requested=max_parallel_experiments,
         total_experiments=total_experiments,
     )
+    resolved_experiments, wsl_guard_metadata = _apply_wsl_quality_safety_guard(
+        experiments=resolved_experiments,
+        max_parallel_experiments_effective=max_parallel_experiments_effective,
+        cpu_count=cpu_count,
+    )
     live_eta_poll_seconds = _resolve_quality_live_eta_poll_seconds()
 
     progress_lock = threading.Lock()
@@ -939,6 +977,21 @@ def run_quality_suite(
         "max_parallel_experiments_auto_ceiling_env": _QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS_ENV,
         "quality_live_eta_poll_seconds": live_eta_poll_seconds,
         "quality_live_eta_poll_seconds_env": _QUALITY_LIVE_ETA_POLL_SECONDS_ENV,
+        "wsl_detected": bool(wsl_guard_metadata.get("wsl_detected")),
+        "wsl_safety_guard_applied": bool(
+            wsl_guard_metadata.get("wsl_safety_guard_applied")
+        ),
+        "wsl_safety_guard_reason": str(
+            wsl_guard_metadata.get("wsl_safety_guard_reason") or ""
+        ),
+        "wsl_safety_guard_worker_cap": wsl_guard_metadata.get(
+            "wsl_safety_guard_worker_cap"
+        ),
+        "wsl_safety_guard_adjusted_experiments": _coerce_int(
+            wsl_guard_metadata.get("wsl_safety_guard_adjusted_experiments"),
+            minimum=0,
+        ),
+        "wsl_safety_guard_disable_env": _QUALITY_WSL_SAFETY_GUARD_DISABLE_ENV,
         "resume_requested": bool(resume_run_dir is not None),
         "resume_run_dir": str(run_root) if resume_run_dir is not None else None,
         "experiments": [

@@ -25,6 +25,16 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def test_main_is_disabled(capsys: pytest.CaptureFixture[str]) -> None:
+    module = _load_tournament_module()
+    exit_code = module.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err.strip() == module._TOURNAMENT_SCRIPT_DISABLED_MESSAGE
+
+
 def test_resolve_seed_plan_prefers_explicit_cli_inputs() -> None:
     module = _load_tournament_module()
     seed_plan = module._resolve_seed_plan(

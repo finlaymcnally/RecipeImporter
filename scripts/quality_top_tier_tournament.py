@@ -40,6 +40,11 @@ _QUICK_PARSING_CANDIDATE_IDS = (
 )
 _PHASE_A_TOP_TWO_CLOSE_PRACTICAL_DELTA = 0.003
 _PHASE_A_CLEAR_WINNER_MIN_FOLDS = 2
+_TOURNAMENT_SCRIPT_DISABLED_MESSAGE = (
+    "scripts/quality_top_tier_tournament.py is disabled. "
+    "Tournament workflows were retired due to extreme runtime and disk usage. "
+    "Use `cookimport bench quality-run` + `cookimport bench quality-compare`."
+)
 
 
 def _timestamp() -> str:
@@ -1542,6 +1547,9 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    print(_TOURNAMENT_SCRIPT_DISABLED_MESSAGE, file=sys.stderr)
+    return 1
+
     args = _parse_args()
 
     experiments_file = Path(args.experiments_file)
