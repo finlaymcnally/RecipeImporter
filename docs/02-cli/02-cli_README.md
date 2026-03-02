@@ -1403,3 +1403,25 @@ Anti-loop note:
   - `. .venv/bin/activate && python - <<'PY'` import smoke for `cookimport.cli`
 - Anti-loop note:
   - Treat this warning as startup-environment noise first; only treat it as runtime regression evidence when executor-resolution telemetry also regresses.
+
+## 2026-03-02 merged understandings digest (interactive presets and progress core)
+
+Merged sources (chronological):
+- `docs/understandings/2026-03-02_00.25.21-interactive-run-settings-quality-first-preset-path.md`
+- `docs/understandings/2026-03-02_01.02.17-codex-farm-progress-active-suffix-dedup.md`
+- `docs/understandings/2026-03-02_01.06.21-cli-progress-systems-current-state.md`
+- `docs/understandings/2026-03-02_01.12.49-c3imp-interactive-throttle-and-io-pacing.md`
+- `docs/understandings/2026-03-02_08.59.03-common-core-progress-dashboard-plan-gap-audit.md`
+
+Current-contract additions:
+- `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` is the shared interactive run-settings entrypoint for Import and interactive Benchmark paths. Add/remove built-in profiles there to keep both flows synchronized.
+- The quality-first preset should keep using the same chooser patch pattern (derive from global defaults, apply patch, then build `RunSettings`) so behavior stays consistent with other preset choices.
+- `C3imp` interactive sessions default runtime pressure controls through env defaults:
+  - `COOKIMPORT_WORKER_UTILIZATION=90`
+  - `COOKIMPORT_IO_PACE_EVERY_WRITES=16`
+  - `COOKIMPORT_IO_PACE_SLEEP_MS=8`
+  These remain overrideable by explicit env values.
+- Codex-farm callback progress dedupe keys on full emitted status text; volatile `active <file>` suffixes should stay out of steady-state progress strings so duplicate suppression works in plain-progress mode.
+- CLI progress rendering still has three runtime paths (`_AllMethodProgressDashboard`, `_run_with_progress_status`, and stage `WorkerDashboard`). If shared-core extraction resumes, use all-method dashboard snapshot shape as the baseline target.
+- `_run_with_progress_status(...)` is not render-only: it also owns ETA/rate sampling, worker-sidechannel decoding, mode selection, and timeseries writes. Any progress-core extraction must preserve these behaviors.
+- Stage progress parity needs explicit tests against shared snapshot shape (including merge-phase worker updates and timeseries fields) to avoid regressions masked by all-method-only coverage.

@@ -779,3 +779,84 @@ Evidence preserved:
 
 Anti-loop note:
 - Startup warning suppression is not a throughput fix; confirm executor fallback telemetry before changing stage/bench concurrency paths.
+
+## 2026-03-02 migrated understanding ledger (interactive presets + progress architecture)
+
+Chronological migration from `docs/understandings`; source files are retired after this merge.
+
+### 2026-03-02_00.25.21 interactive quality-first preset shared chooser path
+
+Source: `docs/understandings/2026-03-02_00.25.21-interactive-run-settings-quality-first-preset-path.md`
+
+Findings preserved:
+- Interactive import and interactive benchmark both route through `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py`.
+- The lowest-risk implementation path for profile additions is to add profile options in this shared chooser, not in mode-specific menu branches.
+- Preferred/quality-style profile wiring should follow existing pattern: patch `global_defaults` and construct `RunSettings` from the patched payload.
+
+Anti-loop note:
+- If import and benchmark preset menus drift, audit chooser wiring first before patching individual interactive branches.
+
+### 2026-03-02_01.02.17 codex-farm progress active suffix dedupe
+
+Source: `docs/understandings/2026-03-02_01.02.17-codex-farm-progress-active-suffix-dedup.md`
+
+Problem captured:
+- Plain-progress logs were noisy because codex-farm progress messages included volatile `active <filename>` tails, defeating exact-string dedupe.
+
+Durable decision:
+- Keep codex-farm steady-state callback messages anchored to stable counters (`task X/Y`, running/error counts).
+- Avoid per-file active suffix text in the message key path used by dedupe.
+
+Anti-loop note:
+- If progress spam returns, inspect runner-side emitted message text before changing spinner render code.
+
+### 2026-03-02_01.06.21 CLI progress systems current state
+
+Source: `docs/understandings/2026-03-02_01.06.21-cli-progress-systems-current-state.md`
+
+Findings preserved:
+- CLI currently has three parallel progress systems:
+  1. `_AllMethodProgressDashboard` for all-method queue snapshots.
+  2. `_run_with_progress_status(...)` for generic callback-driven rendering.
+  3. Stage `Live` worker panel (`WorkerDashboard`) path.
+- These systems represent similar state but are implemented separately.
+- All-method dashboard shape is the best current extraction seed for a shared progress core.
+
+Anti-loop note:
+- If unification work starts, capture state model parity first; do not start by rewriting renderer formatting only.
+
+### 2026-03-02_01.12.49 C3imp interactive throttle and I/O pacing defaults
+
+Source: `docs/understandings/2026-03-02_01.12.49-c3imp-interactive-throttle-and-io-pacing.md`
+
+Problem captured:
+- Interactive sessions needed safer default resource pressure without forcing users to hand-set shell env vars each run.
+
+Durable decisions:
+- Centralize interactive run-setting normalization through chooser flow.
+- Seed conservative default envs in `C3imp` entrypoint:
+  - `COOKIMPORT_WORKER_UTILIZATION=90`
+  - `COOKIMPORT_IO_PACE_EVERY_WRITES=16`
+  - `COOKIMPORT_IO_PACE_SLEEP_MS=8`
+- Preserve explicit user env overrides as authoritative.
+
+Anti-loop note:
+- If throughput/pacing behavior differs from expectation, check effective env values and chooser output before tuning split scheduler internals.
+
+### 2026-03-02_08.59.03 common-core progress dashboard plan gap audit
+
+Source: `docs/understandings/2026-03-02_08.59.03-common-core-progress-dashboard-plan-gap-audit.md`
+
+Problem captured:
+- Shared progress-core migration plans under-scoped non-render runtime responsibilities and stage parity requirements.
+
+Durable findings:
+- `_run_with_progress_status(...)` includes runtime control responsibilities (ETA/rate sampling, worker sidechannel parse, mode selection, timeseries writes), not just text formatting.
+- Stage path writes timeseries from a different state source and includes merge-phase worker updates; parity cannot be inferred from all-method path alone.
+- Existing test coverage is stronger for all-method and generic callback paths than for stage shared-shape parity.
+
+Durable requirement:
+- Any shared-core migration must include dedicated stage parity tests for snapshot shape and worker reset/dedupe behavior in both plain/live modes.
+
+Anti-loop note:
+- If shared-core refactor appears complete but stage telemetry regresses, review stage-specific parity checklist before adjusting queue/admission logic.
