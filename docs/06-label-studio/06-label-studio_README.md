@@ -345,3 +345,32 @@ Current Label Studio split-convert fallback contract:
 - Split-convert fallback behavior is validated by targeted tests; remaining confusion tended to be assertion fragility, not missing fallback runtime wiring.
 - Test-contract reminder: warning text can wrap under rich/terminal output; normalize whitespace before matching fallback phrases in assertions.
 
+## 2026-03-02 merged understandings digest (labelstudio benchmark compare mode + gate hardening)
+
+### 2026-03-02_11.34.28 labelstudio benchmark compare CLI gate table
+- Source: `docs/understandings/2026-03-02_11.34.28-labelstudio-benchmark-compare-cli-gate-table.md`
+- `labelstudio_benchmark_compare` now prints pass/fail gate summary in terminal output immediately after verdict, while preserving `comparison.json` and `comparison.md` artifacts.
+- Active contract location: `cookimport/cli.py` compare handler.
+
+### 2026-03-02_11.39.21 benchmark alias normalization and prediction-manifest fallback
+- Source: `docs/understandings/2026-03-02_11.39.21-run-settings-alias-and-manifest-path-notes.md`
+- `RunSettings.from_dict` now normalizes `codex_farm_recipe_mode` aliases (`line-label`, `line-labels`, `default`, blank) to canonical `benchmark`/`extract`.
+- Labelstudio benchmark compare debug artifact lookup now prefers `artifacts.pred_run_dir` from winner `run_manifest` and falls back to `eval_dir/prediction-run` only when missing.
+
+### 2026-03-02_12.00.00 labelstudio benchmark compare mode resolution
+- Source: `docs/understandings/2026-03-02_12.00.00-labelstudio-benchmark-compare-mode-resolution.md`
+- Compare mode now resolves `codex_farm_mode_source` from either explicit metadata (`codex_farm_recipe_mode`) or raw llm evidence (`raw/llm` prompt/eval artifacts).
+- Missing intent now yields `inferred`/`unknown` states with explicit warning emission instead of silently treating unverified runs as benchmark mode.
+
+### 2026-03-02_20.44.30 labelstudio compare gates and debug artifact requirements
+- Source: `docs/understandings/2026-03-02_20.44.30-labelstudio-benchmark-compare-mode-and-debug-gates.md`
+- Verdict gating now keys on manifest-derived codex intent:
+  - required gates when `codex_farm_recipe_mode=benchmark` + `llm_recipe_pipeline=codex-farm-3pass-v1`,
+  - `aligned_prediction_blocks.jsonl`, `llm_manifest_json`, and pass-level manifests become mandatory for those paths.
+- Missing required evidence flips corresponding `*_debug_artifacts_present` gates and can drive overall verdict fail when strict compare mode is active.
+
+### 2026-03-02_23.40.00 labelstudio benchmark gate hardening
+- Source: `docs/understandings/2026-03-02_23.40.00-labelstudio-benchmark-compare-gate-hardening.md`
+- Missing explicit benchmark intent metadata is now an explicit hard-fail signal for strict debug-gate mode instead of a silent pass path.
+- Raw prompt manifest payloads (`prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt`) are now treated as required source files for pass-level debug checks.
+- Missing llm manifest metadata is surfaced in warning + gate output to prevent false confidence in incomplete candidate evaluations.

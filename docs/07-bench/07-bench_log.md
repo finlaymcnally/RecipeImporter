@@ -2512,3 +2512,88 @@ Durable decisions:
 
 Anti-loop note:
 - If sidecar files unexpectedly appear/disappear in interactive runs, inspect effective env in launch context before changing benchmark command wiring.
+
+## 2026-03-02 migrated understanding ledger (interactive paired runs + queue picklability)
+
+Chronological migration from `docs/understandings`; source files were removed after this merge.
+
+### 2026-03-02_09.10.14 interactive single-offline paired benchmark contract
+
+Source: `docs/understandings/2026-03-02_09.10.14-interactive-single-offline-paired-benchmark-contract.md`
+
+Problem captured:
+- Existing paired single-offline logic handled vanilla/codex orchestration inconsistently and gave ambiguous outputs on partial failures.
+
+Durable outcomes:
+- Enforce baseline-first pairing: `single-offline-benchmark/vanilla` before `single-offline-benchmark/codexfarm`.
+- Preserve successful vanilla artifacts when codex run fails.
+- Materialize `codex_vs_vanilla_comparison.{json,md}` only when both runs complete successfully.
+
+Anti-loop note:
+- If codex failure states start to look like contract changes, verify run-order and completion gating before editing compare output formatting.
+
+### 2026-03-02_10.10.43 benchmark queue picklability debug note
+
+Source: `docs/understandings/2026-03-02_10.10.43-benchmark-pool-picklability-debug-note.md`
+
+Problem captured:
+- Global queue multiprocessing could fail on unpicklable callbacks/closures, masking downstream benchmark behavior and causing transport instability.
+
+Durable outcomes:
+- `_run_all_method_benchmark_global_queue` now probes callback picklability before enabling `ProcessPoolExecutor`.
+- Unpicklable callbacks now force deterministic fallback to `ThreadPoolExecutor`, while keeping config retry order and telemetry paths stable.
+
+Anti-loop note:
+- Validate picklability diagnostics first when queue behavior differs by environment or test monkeypatch style.
+
+### 2026-03-02_08.36.21 paired codexfarm+vanilla single-offline benchmark layout
+
+Source task file:
+- `docs/tasks/2026-03-02_08.36.21-codexfarm-vanilla-paired-benchmark-layout.md`
+
+Problem captured:
+- Interactive single-offline benchmarks produced only one run directory, making CodexFarm vs vanilla comparison and partial-failure recovery hard to inspect.
+
+Decisions/outcomes:
+- Keep benchmark session root at one timestamp, then nest variant outputs under `single-offline-benchmark/{vanilla,codexfarm}`.
+- Force vanilla-first execution for codex-enabled requests.
+- Preserve successful vanilla outputs if CodexFarm branch fails.
+- Write codex-vs-vanilla comparison artifacts only when both variants succeed.
+- Lock comparison contract to `codex_vs_vanilla_comparison.v1` with explicit metric deltas.
+
+Anti-loop note:
+- If comparison files are missing on codex-enabled single-offline runs, first confirm run outcome states before changing compare writer code.
+
+### 2026-03-02_09.37.43 recipeimport benchmark-native CodexFarm integration
+
+Source task file:
+- `docs/tasks/2026-03-02_09.37.43-recipeimport-codexfarm-benchmark-integration.md`
+
+Problem captured:
+- Prior benchmark support mixed recipeimport workflow expectations with CodexFarm internals and lacked a clear split-mode contract for compare/gate behavior.
+
+Decisions/outcomes:
+- Scope clarified to recipeimport-side orchestration only; CodexFarm runtime stays external.
+- Added explicit `codex_farm_recipe_mode` propagation through run settings and manifest artifacts.
+- Compare path now supports acceptance gates and codex benchmark artifact diagnostics.
+- Added compare hard-fail gates for missing required artifacts when benchmark mode is in effect; extractor mode remains preserved.
+
+Known tradeoff retained:
+- Some metadata and gate strictness are intentionally strict when benchmark mode is explicit, but now can be inferred with warning mode for legacy runs.
+
+### 2026-03-02_11.57.58 relax labelstudio-benchmark compare strictness
+
+Source task file:
+- `docs/tasks/2026-03-02_11.57.58-relax-labelstudio-benchmark-compare-strictness.md`
+
+Problem captured:
+- Legacy compare outputs without `codex_farm_recipe_mode=benchmark` were failing strict benchmark-only checks despite containing benchmark artifacts.
+
+Decisions/outcomes:
+- Compare mode resolution now tracks `mode` and `mode_source` (`metadata`, `inferred`, `unknown`).
+- Benchmark-only checks now run for inferred mode, with explicit warnings recorded.
+- Unknown mode marks mode-specific checks as N/A and emits warnings instead of hard failure.
+- Comparison artifact payload and CLI output now include warning list.
+
+Anti-loop note:
+- If strict compare failures recur, verify mode resolution inputs first (`run_manifest`, artifact presence, comparison run metadata) before tuning gate thresholds.

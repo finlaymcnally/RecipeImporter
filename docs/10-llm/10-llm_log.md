@@ -673,3 +673,24 @@ Durable decisions:
 
 Anti-loop note:
 - If pass2/pass3 validate failures recur, verify field-type coercion and prompt output shape before widening schemas.
+
+### 2026-03-02_08.18.23 inline prompt input mode
+
+Source task file:
+- `docs/tasks/2026-03-02_08.18.23-codexfarm-self-contained-inline-prompts.md`
+
+Problem captured:
+- Prompt templates and orchestration asked CodexFarm agents to fetch payloads from paths, creating hidden dependency and inconsistent run environments.
+
+Decisions/outcomes:
+- Add runtime support for `{{INPUT_TEXT}}` in CodexFarm template rendering before changing recipeimport prompts.
+- Keep `{{INPUT_PATH}}` support as non-breaking compatibility.
+- Introduce/use a template mode (`prompt_input_mode`) and enforce inline linting expectations so inline passes are explicit.
+- Move `recipe` prompts to inline blocks with `BEGIN_INPUT_JSON` / `END_INPUT_JSON` framing.
+- Update llm pack tests and assets to validate both modes during migration.
+
+Critical history preserved:
+- This migration was initially blocked by the repo split (CodexFarm code lives outside recipeimport), so only the integration surface should be edited inside this repo after CodexFarm runtime support is present.
+
+Current rule:
+- Treat inline mode as preferred for prompt clarity and portability, but never drop path-mode support until all dependent runtime packs are migrated.

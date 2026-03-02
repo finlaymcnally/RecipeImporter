@@ -1445,3 +1445,44 @@ Current-contract additions:
 - CLI progress rendering for stage, single benchmark, and all-method flows now uses a shared snapshot contract via `ProgressDashboardCore`; live and plain rendering share the same dashboard model with mode-appropriate output transport.
 - `_run_with_progress_status(...)` is not render-only: it also owns ETA/rate sampling, worker-sidechannel decoding, mode selection, and timeseries writes. Any progress-core extraction must preserve these behaviors.
 - Stage progress parity is now exercised by `tests/cli/test_stage_progress_dashboard.py`, including merge-phase worker updates and shared snapshot shape behavior.
+
+## 2026-03-02 merged understanding digest (common-core progress-dashboard stabilization)
+
+Merged sources (chronological):
+- `docs/understandings/2026-03-02_01.05.35-common-core-progress-dashboard-migration.md`
+- `docs/understandings/2026-03-02_09.37.48-common-core-progress-dashboard-review-gaps.md`
+- `docs/understandings/2026-03-02_09.48.15-common-core-progress-dashboard-review-current-state-gap.md`
+- `docs/understandings/2026-03-02_09.52.00-common-core-progress-dashboard-review-fixes.md`
+- `docs/understandings/2026-03-02_10.12.00-common-core-progress-dashboard-ogplan-parity-review.md`
+- `docs/understandings/2026-03-02_19.00.00-stage-progress-live-plain-parity.md`
+- `docs/understandings/2026-03-02_22.00.00-common-core-progress-dashboard-fix-completion.md`
+- `docs/understandings/2026-03-02_23.00.00-common-core-progress-dashboard-stage-adapter-current-label.md`
+- `docs/understandings/2026-03-02_23.15.00-stage-progress-dashboard-adapter-parity.md`
+
+Current-contract additions:
+- Stage and benchmark callback progress now shares one rendering data model (`ProgressDashboardCore`) with callback state updates routed through `ProgressCallbackAdapter`; `_run_with_progress_status(...)` continues to own ETA/rate behavior and worker-sidechannel parsing.
+- Stage execution uses local `_StageProgressAdapter` ownership for worker rows/current-file lines, and both live and plain modes print the same snapshot content through the shared transport (`status.update(...)` for live).
+- Stage snapshots now include a meaningful `current:` line based on `_resolve_stage_current_file`, with merge-phase worker and backend-resolution messaging captured for durable post-run metadata (`stage_worker_resolution.json`).
+- `tests/cli/test_stage_progress_dashboard.py` and `tests/core/test_progress_dashboard.py` now guard live/plain parity for merge-phase updates, `snapshot_text()`, and stable callback rendering.
+- A prior live-path blocker (`len(worker_dashboard_adapter.snapshot_workers()[0])`, indentation drift in `_run_with_progress_status`) and stale monkeypatch targets were identified, then corrected before this ledger was finalized; if those failings reappear, treat it as a regression of the current shared-contract path, not a missing test.
+
+## 2026-03-02 docs/tasks merge (CLI progress dashboard core consolidation)
+
+### 2026-03-02_01.05.35-common-core-progress-dashboard.md
+
+Why this exists: one operator-visible progress contract for all long-running CLI flows (single benchmark/import spinner, all-method benchmarking, and stage worker runs) was missing, with three separate tracker implementations diverging over time.
+
+What it is now:
+- Shared `ProgressDashboardCore` lives in `cookimport/core/progress_dashboard.py` and owns the canonical progress snapshot fields (overall counters, current label, queue rows, task line, worker lines).
+- CLI callback flow is wrapped by `ProgressCallbackAdapter` in `cookimport/cli.py` so `_run_with_progress_status(...)` keeps ETA/rate sampling, dedupe, live/plain transport switching, and timeseries behavior while rendering from the shared model.
+- Stage flow now uses `_StageProgressAdapter` and passes worker/backend resolution messages through the same snapshot model, so live and plain modes stay visually consistent.
+- New/updated test anchors: `tests/core/test_progress_dashboard.py`, `tests/cli/test_stage_progress_dashboard.py`, `tests/labelstudio/test_labelstudio_benchmark_helpers.py` for callback/dashboard parity.
+
+Known tradeoffs/limitations to remember:
+- Stage/all-method adapters are adapter-boundary sensitive; parser or timing regressions usually come from adapter payload shape changes before core rendering.
+- Merge-phase worker messaging should be guarded because it is the first place to drift into stale or duplicated worker rows in plain mode.
+
+Where to find the current behavior:
+- Runtime wiring: `cookimport/cli.py`.
+- Adapter contracts: `ProgressDashboardCore`, `ProgressCallbackAdapter`, `_StageProgressAdapter`.
+- Current accepted command/path behavior documented in previous `2026-03-01` and `2026-03-02` merged entries in this file and `docs/02-cli/02-cli_log.md`.

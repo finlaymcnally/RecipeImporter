@@ -885,3 +885,161 @@ Durable requirement:
 
 Anti-loop note:
 - If shared-core refactor appears complete but stage telemetry regresses, review stage-specific parity checklist before adjusting queue/admission logic.
+
+## 2026-03-02 migrated understanding ledger (common-core progress dashboard execution + stage parity)
+
+Chronological migration from `docs/understandings`; source files are retired after this merge.
+
+### 2026-03-02_01.05.35 common-core progress-dashboard migration
+
+Source: `docs/understandings/2026-03-02_01.05.35-common-core-progress-dashboard-migration.md`
+
+Problem captured:
+- Stage/benchmark callback and worker rendering were duplicated across paths and ETA/rate logic was at risk of diverging.
+
+Durable decisions:
+- Route callback and worker lines through shared `ProgressCallbackAdapter` / `ProgressDashboardCore`.
+- Preserve existing callback compatibility while unifying worker-line formatting and stage `Live(...)` rendering.
+
+Anti-loop note:
+- If live behavior diverges, diff `status` and `snapshot_text` output rather than only unit tests.
+
+### 2026-03-02_09.37.48 review gaps in common-core progress migration
+
+Source: `docs/understandings/2026-03-02_09.37.48-common-core-progress-dashboard-review-gaps.md`
+
+Problem captured:
+- `_run_with_progress_status(...)` used a broken worker-count expression, and stage parity tests were asserting monkeypatched entrypoints that no longer existed on module import.
+
+Durable findings:
+- `worker_snapshot` logic needed correction to match `snapshot_workers()` return type.
+- Stage parity tests should patch through `cookimport.cli_worker` helper import surfaces (and merged split path helpers) instead of `cli` module attributes.
+
+Anti-loop note:
+- If stage tests fail after progress edits, confirm both test monkeypatch targets and worker snapshot arithmetic before rewriting the dashboard contract.
+
+### 2026-03-02_09.48.15 current-state blocker during common-core migration review
+
+Source: `docs/understandings/2026-03-02_09.48.15-common-core-progress-dashboard-review-current-state-gap.md`
+
+Problem captured:
+- `_run_with_progress_status(...)` live-path indentation made `cookimport.cli` fail import and prevented live progress behavior entirely in that working tree.
+
+Durable decisions:
+- Treat this as a non-contractual importability blocker to be fixed before relying on any migration completion checkboxes.
+
+Anti-loop note:
+- A live-mode import error always invalidates dashboard completion claims.
+
+### 2026-03-02_09.52.00 common-core progress review fixes
+
+Source: `docs/understandings/2026-03-02_09.52.00-common-core-progress-dashboard-review-fixes.md`
+
+Problem captured:
+- Live ticker and stage parity tests still failed because of incorrect worker-count handling and wrong patch targets.
+
+Durable outcomes:
+- Replaced broken worker count expression with direct worker count consumption from `snapshot_workers()`.
+- Updated stage test monkeypatch paths to `cli_worker.stage_one_file` and split helpers.
+- Added merge-phase snapshot assertions for stage parity.
+
+Anti-loop note:
+- If parity tests regress, check monkeypatch target names before changing run-loop behavior.
+
+### 2026-03-02_10.12.00 OG plan parity review after migration
+
+Source: `docs/understandings/2026-03-02_10.12.00-common-core-progress-dashboard-ogplan-parity-review.md`
+
+Problem captured:
+- OG acceptance criteria expected parity, but stage path still lacked an explicit adapter abstraction despite otherwise shared state logic.
+
+Durable findings:
+- `_run_with_progress_status(...)` migration was functionally in place, and ETA/rate contracts passed.
+- Full parity gate still required for stage merge and adapter coverage.
+
+Anti-loop note:
+- Do not close architecture gates while stage parity tests are still known-failing.
+
+### 2026-03-02_19.00.00 stage progress live/plain parity
+
+Source: `docs/understandings/2026-03-02_19.00.00-stage-progress-live-plain-parity.md`
+
+Problem captured:
+- Stage path lacked consistent live/plain parity around shared core snapshots and backend-resolution metadata capture.
+
+Durable outcomes:
+- Stage now renders snapshot text through shared core in both live and plain modes; plain mode strips rich tags.
+- `_run_jobs` uses `nonlocal` to preserve backend/merge-resolution metadata so post-run `stage_worker_resolution.json` is consistent.
+
+Anti-loop note:
+- If `stage_worker_resolution.json` misses backend/context fields, check helper-scope metadata wiring before changing spinner render code.
+
+### 2026-03-02_22.00.00 common-core progress-dashboard fix completion
+
+Source: `docs/understandings/2026-03-02_22.00.00-common-core-progress-dashboard-fix-completion.md`
+
+Problem captured:
+- Adapter surface and direct test coverage for shared progress core were incomplete.
+
+Durable decisions:
+- Added `ProgressCallbackAdapter.snapshot_text()` API.
+- Added direct adapter rendering coverage in `tests/core/test_progress_dashboard.py`.
+- Mapped `tests/core/test_progress_dashboard.py` to core marker grouping for suite organization.
+
+Anti-loop note:
+- If adapter contract changes, update tests in both core and CLI layers together.
+
+### 2026-03-02_23.00.00 stage progress current-label adapter behavior
+
+Source: `docs/understandings/2026-03-02_23.00.00-common-core-progress-dashboard-stage-adapter-current-label.md`
+
+Problem captured:
+- Snapshot `current:` context did not consistently reflect active stage files after shared core migration.
+
+Durable decisions:
+- Stage snapshots now pull `current:` from `_resolve_stage_current_file`.
+- All callback strings pass through adapter ingestion before ETA/rate accounting updates.
+- Stage parity assertions now include `current:` presence in live/plain snapshots and merge paths.
+
+Anti-loop note:
+- If no `current:` line appears in merged mode, validate `_resolve_stage_current_file` fallback order first.
+
+### 2026-03-02_23.15.00 stage adapter parity updates
+
+Source: `docs/understandings/2026-03-02_23.15.00-stage-progress-dashboard-adapter-parity.md`
+
+Problem captured:
+- Stage worker-file state was still split between local and shared paths, with parity assertions not exercising worker lines consistently.
+
+Durable decisions:
+- Added `_StageProgressAdapter` for stage worker/file state and routed stage snapshot reads/writes through it.
+- Aligned merge-phase assertions to include shared snapshot shape and active lines.
+
+Anti-loop note:
+- If stage parity regresses, compare `StageProgressAdapter` vs callback adapter inputs before touching core state model.
+
+### 2026-03-02_01.05.35 common-core-progress-dashboard migration
+
+Source task file:
+- `docs/tasks/2026-03-02_01.05.35-common-core-progress-dashboard.md`
+
+Problem captured:
+- Stage, single benchmark/import, and all-method flows had independent progress implementations and different worker/current labeling semantics, making behavior hard to compare and easy to regress.
+- Callback worker activity parsing and ETA/plain-mode behavior were coupled to each path, increasing blast radius during refactors.
+
+Decision summary from execution:
+- Build a shared snapshot/renderer core (`ProgressDashboardCore`) and move status assembly into adapters, not each caller.
+- Keep `_run_with_progress_status(...)` as the behavior owner for timing, dedupe, mode selection, and timeseries.
+- Keep stage-specific worker semantics in a stage adapter rather than adding stage-only render branches in every path.
+- Preserve callback compatibility and existing contract for `activity`/`reset` messages.
+
+Outcomes:
+- Shared core now underpins all three execution profiles.
+- `tests/core/test_progress_dashboard.py` and `tests/cli/test_stage_progress_dashboard.py` lock in live/plain parity and merge-phase behavior.
+- Stage merge/backend lines are now captured into durable artifacts and the core snapshot text in both live/plain transport modes.
+
+Failure-history that should not be repeated:
+- An early regression path around wrong worker-line indexing and stale monkeypatch targets was encountered; fix landed by standardizing on `snapshot_workers()` and canonicalizing stage adapter targets.
+
+Anti-loop note:
+- If progress text starts to drift, first inspect adapter payload mapping and callback ingestion, then touch spinner output formatting.

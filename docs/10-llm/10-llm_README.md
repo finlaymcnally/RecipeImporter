@@ -450,3 +450,25 @@ Triage shortcut for recurring pass2/pass3 failures:
 1. Verify Codex Farm process payload + run_id in runner metadata.
 2. Inspect codex-farm forensics bundle stderr/metadata for auth/network failures before editing schemas.
 3. If auth is healthy, then inspect JSON-string contract alignment (prompt outputs, coercion path, schema constraints).
+
+## 2026-03-02 docs/tasks merge (inline CodexFarm prompt inputs)
+
+### 2026-03-02_08.18.23-codexfarm-self-contained-inline-prompts.md
+
+Why this matters:
+- The user goal was to make CodexFarm prompts 100% self-contained, eliminating reliance on instructions like "read JSON from a file path".
+
+What was implemented:
+- Inline placeholder support was added in CodexFarm runtime (`src/codex_farm/pipeline_spec.py`) as `{{INPUT_TEXT}}` while preserving `{{INPUT_PATH}}` compatibility.
+- Prompt lints now support a `prompt_input_mode` contract (`path` default, `inline` for self-contained mode).
+- Recipe packs were migrated to inline prompts where active in this repo: `recipe.chunking.v1`, `recipe.schemaorg.v1`, `recipe.final.v1`, plus associated pass4/pass5 prompts.
+- LLM pack tests now validate inline substitution behavior and path-mode backward compatibility.
+
+Current contract:
+- For inline prompts, generated prompt text should include `BEGIN_INPUT_JSON`/`END_INPUT_JSON` blocks containing full input payloads.
+- Both placeholder styles remain supported during transition to avoid breaking older packs.
+- Full end-to-end log proof should still be collected for confidence after runtime updates in external CodexFarm repository.
+
+Known limitations:
+- Runtime proof depends on CodexFarm executable/pack versions aligned to the inline contract; recipeimport-side prompt/template changes alone are not sufficient.
+- Cross-repo edits are required; this repo documents both the contract and run-time dependency boundary.

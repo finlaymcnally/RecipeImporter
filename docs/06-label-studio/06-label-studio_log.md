@@ -222,3 +222,74 @@ Durable outcomes:
 Anti-loop note:
 - If fallback tests fail but warning words are visibly present, normalize whitespace first before assuming behavior regression.
 
+## 2026-03-02 merged understanding ledger (labelstudio benchmark compare contracts and gate hardening)
+
+### 2026-03-02_11.34.28 labelstudio benchmark compare CLI gate table
+
+Source: `docs/understandings/2026-03-02_11.34.28-labelstudio-benchmark-compare-cli-gate-table.md`
+
+Problem captured:
+- `labelstudio_benchmark_compare` needed clearer terminal feedback on gate outcomes in addition to artifact files.
+
+Durable outcomes:
+- Added ` _format_labelstudio_benchmark_compare_gates_markdown` usage in compare flow so a compact pass/fail gate table prints immediately after verdict.
+- Kept existing `comparison.json` and `comparison.md` outputs unchanged.
+
+Anti-loop note:
+- If gate failures are hard to reason about, read both terminal table and artifact files from the same compare run before changing compare internals.
+
+### 2026-03-02_11.39.21 RunSettings alias and pred-run manifest preference
+
+Source: `docs/understandings/2026-03-02_11.39.21-run-settings-alias-and-manifest-path-notes.md`
+
+Problem captured:
+- Raw benchmark aliases and missing prediction-manifest paths caused inconsistent compare metadata handling.
+
+Durable outcomes:
+- `RunSettings.from_dict` now normalizes `codex_farm_recipe_mode` aliases to canonical `extract` / `benchmark`.
+- Compare debug artifact discovery now prefers `run_manifest.artifacts.pred_run_dir`, with fallback to `eval_dir/prediction-run`.
+
+Anti-loop note:
+- If codex intent appears wrong, inspect canonicalized settings and winner `run_manifest` before changing warning wording.
+
+### 2026-03-02_12.00.00 labelstudio compare mode resolution
+
+Source: `docs/understandings/2026-03-02_12.00.00-labelstudio-benchmark-compare-mode-resolution.md`
+
+Problem captured:
+- Compare mode could be ambiguous when explicit metadata was missing and artifact provenance was partial.
+
+Durable outcomes:
+- Compare now resolves `codex_farm_mode_source` from explicit mode metadata first, then raw `raw/llm` evidence.
+- Inferred mode is marked explicitly; unknown mode now logs warnings and skips strict benchmark-mode debug gates when intent is not clear.
+
+Anti-loop note:
+- Before forcing strict compare behavior, verify whether `codex_farm_mode_source` is explicitly resolved or inferred from artifact evidence.
+
+### 2026-03-02_20.44.30 compare gates for benchmark-mode runs
+
+Source: `docs/understandings/2026-03-02_20.44.30-labelstudio-benchmark-compare-mode-and-debug-gates.md`
+
+Problem captured:
+- Compare verdict needed source-specific gate requirements tied to benchmark intent and codex pipeline.
+
+Durable outcomes:
+- Required debug artifacts (`aligned_prediction_blocks.jsonl`, `llm_manifest_json`, pass-level artifacts) are now gated on both benchmark mode + 3pass pipeline intent.
+- Missing required artifacts now fail corresponding `*_debug_artifacts_present` gates and can fail overall compare verdict.
+
+Anti-loop note:
+- If a run fails gates unexpectedly, first confirm the winner source was resolved as benchmark+3pass before refactoring artifact checks.
+
+### 2026-03-02_23.40.00 labelstudio compare hardening with raw prompt manifests
+
+Source: `docs/understandings/2026-03-02_23.40.00-labelstudio-benchmark-compare-gate-hardening.md`
+
+Problem captured:
+- Earlier compare hardening could still pass with incomplete prompt manifest evidence.
+
+Durable outcomes:
+- `prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt` are now hard-required in strict debug modes when benchmark intent is active.
+- Compare now validates raw manifest payload lists, not just manifest filenames, so referenced payload gaps fail fast.
+
+Anti-loop note:
+- If a run appears compliant but gates fail, inspect manifest `*_manifest_txt` file entries for missing raw artifacts before changing codex intent heuristics.

@@ -1203,3 +1203,57 @@ Current-contract additions:
 - Interactive benchmark sidecar writes stay env-driven and default-disabled in C3imp sessions:
   - `COOKIMPORT_BENCH_WRITE_MARKDOWN`
   - `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS`
+
+## 2026-03-02 merged understandings digest (single-offline pairing + benchmark queue robustness)
+
+Merged sources (chronological):
+- `docs/understandings/2026-03-02_09.10.14-interactive-single-offline-paired-benchmark-contract.md`
+- `docs/understandings/2026-03-02_10.10.43-benchmark-pool-picklability-debug-note.md`
+
+Current-contract additions:
+- Interactive single-offline codex runs keep baseline safety contract:
+  - execute `single-offline-benchmark/vanilla` first,
+  - execute `single-offline-benchmark/codexfarm` second,
+  - preserve vanilla artifacts if codex fails,
+  - write `codex_vs_vanilla_comparison.{json,md}` only when both succeed.
+- `_run_all_method_benchmark_global_queue` now probes callback function picklability before enabling process-pool parallelization; local/unpicklable monkeypatches trigger fallback to `ThreadPoolExecutor`.
+- Benchmark all-method queue execution remains deterministic about config retries and fallback transport so benchmark reproducibility is preserved on restricted multiprocessing hosts.
+
+## 2026-03-02 docs/tasks merge (interactive benchmark behavior and CodexFarm compare semantics)
+
+### 2026-03-02_08.36.21 codexfarm-vanilla paired single-offline layout
+
+Current behavior now:
+- Interactive `labelstudio_benchmark` single-offline mode now writes one session root with nested variant folders:
+  - `<timestamp>/single-offline-benchmark/vanilla/...`
+  - `<timestamp>/single-offline-benchmark/codexfarm/...`
+- When CodexFarm is enabled, `vanilla` runs first and `codexfarm` second; vanilla artifacts remain even if Codex run fails.
+- `codex_vs_vanilla_comparison.json` and `.md` only appear when both variant runs complete successfully.
+- Comparator output follows `codex_vs_vanilla_comparison.v1` schema with metric deltas.
+
+Operational contract:
+- Layout contracts are consumed by analytics collector/renderer without dedicated registration, because run discovery resolves eval reports recursively and infers run timestamps from nearest timestamped parent.
+
+### 2026-03-02_09.37.43 recipeimport-side benchmark-native CodexFarm integration
+
+Current behavior now:
+- Recipeimport now carries benchmark-mode intent explicitly via `codex_farm_recipe_mode` (`extract|benchmark`) while preserving extraction behavior.
+- `labelstudio-benchmark compare` supports named acceptance gates and explicit pass/fail reporting.
+- Compare flow can include artifact-presence checks for benchmark-mode expectations and still supports legacy/all-method/evaluation-only scenarios.
+
+Where this behavior is implemented:
+- `cookimport/cli.py` for orchestration + compare path
+- `cookimport/config/run_settings*` for mode propagation
+- `cookimport/llm/codex_farm_orchestrator.py` + `codex_farm_runner.py` for invocation details
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py` for mode-specific semantics and failure behavior
+
+### 2026-03-02_11.57.58 compare strictness inference and warnings
+
+Current behavior now:
+- `labelstudio-benchmark compare` no longer hard-fails when benchmark metadata is missing.
+- Mode is resolved as `metadata`, `inferred`, or `unknown`.
+- Missing `codex_farm_recipe_mode` no longer blocks legacy outputs; benchmark-only checks can run if artifacts imply benchmark mode, with explicit warnings carried to console and comparison artifacts.
+- Unknown mode skips benchmark-only checks as N/A and records warning(s).
+
+Known warning signals to watch:
+- "benchmark mode inferred; metadata missing" and equivalent warning list in comparison output indicate reduced certainty, not silent fallback.
