@@ -1,0 +1,24 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "20 large Haro Strait spot prawns with roe (about 600 g), whole with shells on",
+    "1/4 cup/55 g high-quality unsalted butter",
+    "Flake salt"
+  ],
+  "extracted_instructions": [],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c3",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org",
+    "@type": "Recipe",
+    "description": "S pot prawn season runs from spring until fall, and most of ours are caught by Lummi tribe members. There are a few families who have sold their catch to The Willows for years, and they often deliver it by pulling their boats up onto the beach in front of the Inn. We'll buy a few hundred pounds at a time and keep them in our seawater tank a few days to make sure we have enough between catches. Fresh, well-handled spot prawns have an incredible creamy and fresh flavor, almost like a langoustine, but better. I haven't found a way to eat spot prawns that I don't like, my favorite perhaps being grilled on the beach. We've prepared them about a dozen different ways, but this small dish is the best we've come up with at the restaurant to capture their flavor. Making prawn butter is an amazing way to get the flavor to linger. We now make all sorts of flavored butters in the same fashion, using whichever parts don't end up as the centerpiece of a dish. We try to serve only the very best bits to our guests, and in this case, we can use prawn shells, undersized prawns, and any specimens that were mangled during peeling for the butter. The method behind it involves extracting a stock from a paste, which we make using the whole shrimp. This does not result in the highest yield, but it creates an unbelievably pure flavor.",
+    "name": "BARELY WARMED PRAWNS WITH BARELY POACHED ROE",
+    "recipeIngredient": [
+      "20 large Haro Strait spot prawns with roe (about 600 g), whole with shells on",
+      "1/4 cup/55 g high-quality unsalted butter",
+      "Flake salt"
+    ],
+    "recipeYield": "4"
+  },
+  "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+  "workbook_slug": "seaandsmokecutdown"
+}

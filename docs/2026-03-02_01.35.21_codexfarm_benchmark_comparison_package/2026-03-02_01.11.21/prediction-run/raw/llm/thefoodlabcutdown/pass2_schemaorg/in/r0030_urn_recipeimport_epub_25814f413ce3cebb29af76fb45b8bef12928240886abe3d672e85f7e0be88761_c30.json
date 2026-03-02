@@ -1,0 +1,25 @@
+{
+  "blocks": [
+    {
+      "block_id": "b907",
+      "heading_level": null,
+      "index": 907,
+      "page": null,
+      "spine_index": 40,
+      "text": "CRISPY FRIED BACON"
+    },
+    {
+      "block_id": "b908",
+      "heading_level": null,
+      "index": 908,
+      "page": null,
+      "spine_index": 40,
+      "text": "SERVES 2 TO 4 8 slices bacon, cut crosswise in half"
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "CRISPY FRIED BACON\nSERVES 2 TO 4 8 slices bacon, cut crosswise in half",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c30",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

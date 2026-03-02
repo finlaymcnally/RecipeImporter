@@ -1,0 +1,41 @@
+{
+  "blocks": [
+    {
+      "block_id": "b911",
+      "heading_level": null,
+      "index": 911,
+      "page": null,
+      "spine_index": 41,
+      "text": "CRISPY OVEN-FRIED BACON"
+    },
+    {
+      "block_id": "b912",
+      "heading_level": null,
+      "index": 912,
+      "page": null,
+      "spine_index": 41,
+      "text": "FOR A CROWD"
+    },
+    {
+      "block_id": "b913",
+      "heading_level": null,
+      "index": 913,
+      "page": null,
+      "spine_index": 41,
+      "text": "SERVES 6 TO 10 24 slices bacon (about 1 pound)"
+    },
+    {
+      "block_id": "b914",
+      "heading_level": null,
+      "index": 914,
+      "page": null,
+      "spine_index": 41,
+      "text": "1. Adjust the oven racks to the lower- and upper-middle positions and preheat the oven to 425\u00b0F. Arrange the bacon slices in a single layer on two rimmed baking sheets. Roast the bacon until it's crisp and brown, 18 to 20 minutes, rotating the pans back to front and top to bottom halfway through cooking."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "CRISPY OVEN-FRIED BACON\nFOR A CROWD\nSERVES 6 TO 10 24 slices bacon (about 1 pound)\n1. Adjust the oven racks to the lower- and upper-middle positions and preheat the oven to 425\u00b0F. Arrange the bacon slices in a single layer on two rimmed baking sheets. Roast the bacon until it's crisp and brown, 18 to 20 minutes, rotating the pans back to front and top to bottom halfway through cooking.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c31",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

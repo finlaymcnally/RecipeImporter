@@ -1,0 +1,145 @@
+{
+  "blocks": [
+    {
+      "block_id": "b749",
+      "heading_level": null,
+      "index": 749,
+      "page": null,
+      "spine_index": 20,
+      "text": "COOK TIME"
+    },
+    {
+      "block_id": "b750",
+      "heading_level": null,
+      "index": 750,
+      "page": null,
+      "spine_index": 20,
+      "text": "DESCRIPTION"
+    },
+    {
+      "block_id": "b751",
+      "heading_level": null,
+      "index": 751,
+      "page": null,
+      "spine_index": 20,
+      "text": "BEST USES"
+    },
+    {
+      "block_id": "b752",
+      "heading_level": null,
+      "index": 752,
+      "page": null,
+      "spine_index": 20,
+      "text": "1 to 3 minutes"
+    },
+    {
+      "block_id": "b753",
+      "heading_level": null,
+      "index": 753,
+      "page": null,
+      "spine_index": 20,
+      "text": "Outer white set just enough to allow egg to retain its shape when carefully peeled"
+    },
+    {
+      "block_id": "b754",
+      "heading_level": null,
+      "index": 754,
+      "page": null,
+      "spine_index": 20,
+      "text": "I use 1- or 2-minute eggs when I'm tossing the eggs with salad or pasta where the uncooked egg will emulsify with other ingredients; they're not pleasant to eat on their own."
+    },
+    {
+      "block_id": "b755",
+      "heading_level": null,
+      "index": 755,
+      "page": null,
+      "spine_index": 20,
+      "text": "4 minutes"
+    },
+    {
+      "block_id": "b756",
+      "heading_level": null,
+      "index": 756,
+      "page": null,
+      "spine_index": 20,
+      "text": "White is opaque nearly all the way through but retains a bit of translucency next to the yolk; yolk is barely warm and completely raw"
+    },
+    {
+      "block_id": "b757",
+      "heading_level": null,
+      "index": 757,
+      "page": null,
+      "spine_index": 20,
+      "text": "Serve as a topping to vegetables or grains; place on top of blanched asparagus or green beans or in a bowl of noodle soup."
+    },
+    {
+      "block_id": "b758",
+      "heading_level": null,
+      "index": 758,
+      "page": null,
+      "spine_index": 20,
+      "text": "5 minutes"
+    },
+    {
+      "block_id": "b759",
+      "heading_level": null,
+      "index": 759,
+      "page": null,
+      "spine_index": 20,
+      "text": "White is opaque but still quivering and barely set toward the yolk; yolk is warm but completely raw"
+    },
+    {
+      "block_id": "b760",
+      "heading_level": null,
+      "index": 760,
+      "page": null,
+      "spine_index": 20,
+      "text": "Breakfast"
+    },
+    {
+      "block_id": "b761",
+      "heading_level": null,
+      "index": 761,
+      "page": null,
+      "spine_index": 20,
+      "text": "6 minutes"
+    },
+    {
+      "block_id": "b762",
+      "heading_level": null,
+      "index": 762,
+      "page": null,
+      "spine_index": 20,
+      "text": "White is opaque, firm all the way through; yolk is warm and starting to firm up at the edges"
+    },
+    {
+      "block_id": "b763",
+      "heading_level": null,
+      "index": 763,
+      "page": null,
+      "spine_index": 20,
+      "text": "Breakfast"
+    },
+    {
+      "block_id": "b764",
+      "heading_level": null,
+      "index": 764,
+      "page": null,
+      "spine_index": 20,
+      "text": "7 minutes"
+    },
+    {
+      "block_id": "b765",
+      "heading_level": null,
+      "index": 765,
+      "page": null,
+      "spine_index": 20,
+      "text": "White is fully cooked and as hard as that of a hard-boiled egg; yolk is golden and liquid in the center but beginning to set around the edges"
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "COOK TIME\nDESCRIPTION\nBEST USES\n1 to 3 minutes\nOuter white set just enough to allow egg to retain its shape when carefully peeled\nI use 1- or 2-minute eggs when I'm tossing the eggs with salad or pasta where the uncooked egg will emulsify with other ingredients; they're not pleasant to eat on their own.\n4 minutes\nWhite is opaque nearly all the way through but retains a bit of translucency next to the yolk; yolk is barely warm and completely raw\nServe as a topping to vegetables or grains; place on top of blanched asparagus or green beans or in a bowl of noodle soup.\n5 minutes\nWhite is opaque but still quivering and barely set toward the yolk; yolk is warm but completely raw\nBreakfast\n6 minutes\nWhite is opaque, firm all the way through; yolk is warm and starting to firm up at the edges\nBreakfast\n7 minutes\nWhite is fully cooked and as hard as that of a hard-boiled egg; yolk is golden and liquid in the center but beginning to set around the edges",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c22",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

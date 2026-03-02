@@ -1,0 +1,41 @@
+{
+  "blocks": [
+    {
+      "block_id": "b1037",
+      "heading_level": null,
+      "index": 1037,
+      "page": null,
+      "spine_index": 52,
+      "text": "FRESH RICOTTA"
+    },
+    {
+      "block_id": "b1038",
+      "heading_level": null,
+      "index": 1038,
+      "page": null,
+      "spine_index": 52,
+      "text": "IN 5 MINUTES OR LESS"
+    },
+    {
+      "block_id": "b1039",
+      "heading_level": null,
+      "index": 1039,
+      "page": null,
+      "spine_index": 52,
+      "text": "MAKES ABOUT 1 CUP 4 cups whole milk 1/2 teaspoon table salt 1/4 cup distilled white vinegar or lemon juice (from 2 lemons)"
+    },
+    {
+      "block_id": "b1040",
+      "heading_level": null,
+      "index": 1040,
+      "page": null,
+      "spine_index": 52,
+      "text": "1. Line a colander with four layers of cheesecloth or two layers of food-safe paper towels and set over a large bowl. Combine the milk, salt, and vinegar in a microwave-safe 2-quart liquid measure and microwave on high until lightly bubbling around the edges, 4 to 6 minutes; the milk should register about 165\u00b0F on an instant-read thermometer. Remove from the microwave and stir gently for 5 seconds. The milk should separate into solid white curds and translucent liquid whey. If not, microwave for 30 seconds longer and stir again. If necessary repeat until fully separated."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "FRESH RICOTTA\nIN 5 MINUTES OR LESS\nMAKES ABOUT 1 CUP 4 cups whole milk 1/2 teaspoon table salt 1/4 cup distilled white vinegar or lemon juice (from 2 lemons)\n1. Line a colander with four layers of cheesecloth or two layers of food-safe paper towels and set over a large bowl. Combine the milk, salt, and vinegar in a microwave-safe 2-quart liquid measure and microwave on high until lightly bubbling around the edges, 4 to 6 minutes; the milk should register about 165\u00b0F on an instant-read thermometer. Remove from the microwave and stir gently for 5 seconds. The milk should separate into solid white curds and translucent liquid whey. If not, microwave for 30 seconds longer and stir again. If necessary repeat until fully separated.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c37",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

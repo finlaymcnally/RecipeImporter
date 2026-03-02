@@ -1,0 +1,12 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [],
+  "extracted_instructions": [],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c19",
+  "schemaorg_recipe": {
+    "@type": "Recipe",
+    "name": "FOOLPROOF SOFT-BOILED EGGS"
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

@@ -1,0 +1,20 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [],
+  "extracted_instructions": [
+    "1. Adjust the oven racks to the lower- and upper-middle positions and preheat the oven to 425\u00b0F. Arrange the bacon slices in a single layer on two rimmed baking sheets. Roast the bacon until it's crisp and brown, 18 to 20 minutes, rotating the pans back to front and top to bottom halfway through cooking."
+  ],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c31",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org",
+    "@type": "Recipe",
+    "cookTime": "18 to 20 minutes",
+    "name": "CRISPY OVEN-FRIED BACON FOR A CROWD",
+    "recipeInstructions": [
+      "1. Adjust the oven racks to the lower- and upper-middle positions and preheat the oven to 425\u00b0F. Arrange the bacon slices in a single layer on two rimmed baking sheets. Roast the bacon until it's crisp and brown, 18 to 20 minutes, rotating the pans back to front and top to bottom halfway through cooking."
+    ],
+    "recipeYield": "6 TO 10"
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

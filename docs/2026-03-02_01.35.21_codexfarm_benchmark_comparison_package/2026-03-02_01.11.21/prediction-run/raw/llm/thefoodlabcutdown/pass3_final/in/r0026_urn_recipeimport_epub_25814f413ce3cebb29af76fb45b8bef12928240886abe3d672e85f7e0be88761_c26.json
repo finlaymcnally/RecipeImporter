@@ -1,0 +1,18 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "SERVES 4 8 large eggs 3/4 teaspoon kosher salt 3 tablespoons whole milk 2 tablespoons unsalted butter"
+  ],
+  "extracted_instructions": [],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c26",
+  "schemaorg_recipe": {
+    "@type": "Recipe",
+    "name": "LIGHT AND FLUFFY SCRAMBLED EGGS",
+    "recipeIngredient": [
+      "SERVES 4 8 large eggs 3/4 teaspoon kosher salt 3 tablespoons whole milk 2 tablespoons unsalted butter"
+    ],
+    "recipeYield": "4"
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

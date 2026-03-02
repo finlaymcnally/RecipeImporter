@@ -56,10 +56,13 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
+- `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` and
+  `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown/task
+  artifacts are disabled unless overridden in the shell.
 
 Interactive benchmark flows (`single_offline`, `all_method`) stay offline and use canonical-text scoring.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
-When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable).
+When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). Per-file `active ...` tails are intentionally omitted so plain-progress mode does not spam line-per-file churn.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 
 ## 3. Artifact Contracts

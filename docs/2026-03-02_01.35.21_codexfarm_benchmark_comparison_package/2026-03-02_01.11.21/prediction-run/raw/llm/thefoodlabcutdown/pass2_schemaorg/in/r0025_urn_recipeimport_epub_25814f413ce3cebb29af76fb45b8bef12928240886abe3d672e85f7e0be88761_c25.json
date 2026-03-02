@@ -1,0 +1,33 @@
+{
+  "blocks": [
+    {
+      "block_id": "b835",
+      "heading_level": null,
+      "index": 835,
+      "page": null,
+      "spine_index": 29,
+      "text": "EXTRA-CRISPY SUNNY-SIDE-UP EGGS"
+    },
+    {
+      "block_id": "b836",
+      "heading_level": null,
+      "index": 836,
+      "page": null,
+      "spine_index": 29,
+      "text": "SERVES 1 2 large eggs 3 tablespoons olive oil (extra-virgin, if you prefer) Kosher salt and freshly ground black pepper"
+    },
+    {
+      "block_id": "b837",
+      "heading_level": null,
+      "index": 837,
+      "page": null,
+      "spine_index": 29,
+      "text": "1. Break one egg into a small cup, then transfer to a fine-mesh strainer set over a bowl and swirl gently until any excess white passes through. Return the egg to the cup. Repeat with the second egg."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "EXTRA-CRISPY SUNNY-SIDE-UP EGGS\nSERVES 1 2 large eggs 3 tablespoons olive oil (extra-virgin, if you prefer) Kosher salt and freshly ground black pepper\n1. Break one egg into a small cup, then transfer to a fine-mesh strainer set over a bowl and swirl gently until any excess white passes through. Return the egg to the cup. Repeat with the second egg.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c25",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

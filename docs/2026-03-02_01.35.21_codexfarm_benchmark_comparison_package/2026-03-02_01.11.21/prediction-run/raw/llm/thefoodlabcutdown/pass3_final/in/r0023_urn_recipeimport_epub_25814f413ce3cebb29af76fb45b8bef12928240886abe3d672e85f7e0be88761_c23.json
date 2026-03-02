@@ -1,0 +1,25 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "MAKES ABOUT 1 CUP 3 large egg yolks 1 tablespoon lemon juice (from 1 lemon) 1 tablespoon hot water 1/2 pound (2 sticks) unsalted butter, cut into rough tablespoon-sized chunks Pinch of cayenne pepper Kosher salt TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER"
+  ],
+  "extracted_instructions": [
+    "1. Add the egg yolks, lemon juice, and hot water to the blender cup (or a cup that will just barely hold the head of your blender).",
+    "2. Melt the butter in a small saucepan over medium-low heat and continue to heat until the butter just begins to bubble and registers 180\u00b0 to 190\u00b0F on an instant-read thermometer. Transfer it to a liquid measuring cup, leaving the thin layer of whitish liquid behind (discard it)."
+  ],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c23",
+  "schemaorg_recipe": {
+    "@type": "Recipe",
+    "description": "NOTE : Cooled hollandaise can be very carefully reheated over the lowest-possible heat while whisking constantly. Hollandaise can't be refrigerated and then reheated.",
+    "name": "FOOLPROOF HOLLANDAISE SAUCE",
+    "recipeIngredient": [
+      "MAKES ABOUT 1 CUP 3 large egg yolks 1 tablespoon lemon juice (from 1 lemon) 1 tablespoon hot water 1/2 pound (2 sticks) unsalted butter, cut into rough tablespoon-sized chunks Pinch of cayenne pepper Kosher salt TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER"
+    ],
+    "recipeInstructions": [
+      "1. Add the egg yolks, lemon juice, and hot water to the blender cup (or a cup that will just barely hold the head of your blender).",
+      "2. Melt the butter in a small saucepan over medium-low heat and continue to heat until the butter just begins to bubble and registers 180\u00b0 to 190\u00b0F on an instant-read thermometer. Transfer it to a liquid measuring cup, leaving the thin layer of whitish liquid behind (discard it)."
+    ]
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

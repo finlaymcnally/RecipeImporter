@@ -1,0 +1,1098 @@
+{
+  "book_id": "SeaAndSmokeCUTDOWN",
+  "coverage": {
+    "chunked_chars": 81613,
+    "extracted_chars": 81613,
+    "warnings": []
+  },
+  "importer_name": "epub",
+  "llm_codex_farm": {
+    "counts": {
+      "pass1_dropped": 0,
+      "pass1_errors": 0,
+      "pass1_inputs": 19,
+      "pass1_ok": 19,
+      "pass2_errors": 0,
+      "pass2_inputs": 19,
+      "pass2_ok": 19,
+      "pass3_errors": 0,
+      "pass3_inputs": 19,
+      "pass3_ok": 19,
+      "recipes_total": 19
+    },
+    "enabled": true,
+    "failures": [],
+    "llmRawDir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown",
+    "output_schema_paths": {
+      "pass1": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.chunking.v1.output.schema.json",
+      "pass2": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.schemaorg.v1.output.schema.json",
+      "pass3": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.final.v1.output.schema.json"
+    },
+    "pass1_pattern_hints_enabled": false,
+    "pipeline": "codex-farm-3pass-v1",
+    "pipelines": {
+      "pass1": "recipe.chunking.v1",
+      "pass2": "recipe.schemaorg.v1",
+      "pass3": "recipe.final.v1"
+    },
+    "process_runs": {
+      "pass1": {
+        "autotune_report": {
+          "command_preview": "codex-farm process --pipeline recipe.chunking.v1 --in /home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass1_chunking/in --out /home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass1_chunking/out",
+          "flag_overrides": [],
+          "generated_at_utc": "2026-03-02T06:04:02.560Z",
+          "input_prechecks": [],
+          "model_tuning": [],
+          "pipeline_config_diff": null,
+          "pipeline_id": "recipe.chunking.v1",
+          "prompt_template_diff": null,
+          "run_id": "beedcece52da467c9275216a26f4f0c6",
+          "runtime_tuning": [],
+          "schema_edits": [],
+          "schema_version": 1,
+          "telemetry_filters": {
+            "limit": 500,
+            "pipeline_id": "recipe.chunking.v1",
+            "run_id": "beedcece52da467c9275216a26f4f0c6",
+            "source": null,
+            "status": null
+          },
+          "telemetry_schema_version": 2,
+          "warnings": []
+        },
+        "output_schema_path": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.chunking.v1.output.schema.json",
+        "pipeline_id": "recipe.chunking.v1",
+        "process_exit_code": 0,
+        "process_payload": {
+          "codex_model": "gpt-5.3-codex-spark",
+          "codex_reasoning_effort": null,
+          "control_state": "active",
+          "counts": {
+            "canceled": 0,
+            "done": 19,
+            "error": 0,
+            "queued": 0,
+            "running": 0,
+            "total": 19
+          },
+          "exit_code": 0,
+          "farm_root": "/home/mcnal/projects/recipeimport/llm_pipelines",
+          "heads_up_enabled": false,
+          "heads_up_max_tips": 3,
+          "heads_up_tips_added": 0,
+          "heads_up_tips_applied": 0,
+          "incremental": {
+            "enabled": false,
+            "fallback_counts": {
+              "hash_changed": 0,
+              "no_prior_success": 0,
+              "source_output_invalid": 0,
+              "source_output_missing": 0
+            },
+            "queued": 0,
+            "reused": 0,
+            "source_run_id": null
+          },
+          "input_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass1_chunking/in",
+          "output_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass1_chunking/out",
+          "output_schema_path": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.chunking.v1.output.schema.json",
+          "pipeline_id": "recipe.chunking.v1",
+          "progress_events_enabled": true,
+          "run_id": "beedcece52da467c9275216a26f4f0c6",
+          "status": "done",
+          "telemetry_report": {
+            "failure_patterns": {
+              "failure_categories": [],
+              "retry_error_patterns": [],
+              "schema_issue_types": [],
+              "schema_paths": []
+            },
+            "filters": {
+              "limit": 500,
+              "pipeline_id": "recipe.chunking.v1",
+              "run_id": "beedcece52da467c9275216a26f4f0c6",
+              "source": null,
+              "status": null
+            },
+            "generated_at_utc": "2026-03-02T06:04:02.293Z",
+            "heads_up_patterns": {
+              "tip_effectiveness": []
+            },
+            "insights": {
+              "input_failure_hotspots": [],
+              "model_reasoning_breakdown": [],
+              "pass_forward_effectiveness": {
+                "heads_up": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                },
+                "retry_and_heads_up": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                },
+                "retry_context": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                }
+              },
+              "prompt_fingerprint_breakdown": [],
+              "reasoning_signals": {
+                "event_count_avg_per_call": 0.0,
+                "event_count_total": 0,
+                "event_types": [],
+                "rows_with_no_events": 0,
+                "rows_with_turn_completed": 0,
+                "rows_without_turn_completed": 0
+              }
+            },
+            "matched_rows": 0,
+            "recent_rows": [],
+            "recommendations": {
+              "input_data": [],
+              "output_schema": [],
+              "prompt": [],
+              "runtime": []
+            },
+            "row_count_input": 450,
+            "schema_version": 2,
+            "summary": {
+              "accepted_nonzero_exit_rows": 0,
+              "attempt_index_counts": {},
+              "duration_avg_ms": 0,
+              "duration_p95_ms": null,
+              "failure_rate_pct": 0.0,
+              "heads_up_applied_rows": 0,
+              "heads_up_tip_rows": 0,
+              "output_missing_rows": 0,
+              "output_preview_truncated_rows": 0,
+              "rate_limit_suspected_rows": 0,
+              "retry_context_rows": 0,
+              "status_counts": {
+                "failed": 0,
+                "ok": 0,
+                "other": 0,
+                "timeout": 0
+              },
+              "success_rate_pct": 0.0,
+              "tokens_avg_per_call": 0,
+              "tokens_total": 0
+            },
+            "terminal_errors": {
+              "count": 0,
+              "samples": []
+            },
+            "tuning_playbook": {
+              "input_prechecks": [],
+              "model_tuning": [],
+              "prompt_edits": [],
+              "runtime_tuning": [],
+              "schema_edits": []
+            },
+            "warnings": []
+          },
+          "worker_exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workspace_root": null
+        },
+        "run_id": "beedcece52da467c9275216a26f4f0c6",
+        "subprocess_exit_code": 0,
+        "telemetry": {
+          "csv_path": "/home/mcnal/projects/recipeimport/var/codex_exec_activity.csv",
+          "row_count": 0,
+          "rows": [],
+          "rows_returned": 0,
+          "rows_truncated": false,
+          "summary": {
+            "attempt_index_counts": {},
+            "codex_event_count_total": 0,
+            "codex_event_types_counts": {},
+            "failure_category_counts": {},
+            "heads_up_applied_rows": 0,
+            "output_payload_missing_rows": 0,
+            "output_preview_truncated_rows": 0,
+            "rate_limit_suspected_rows": 0,
+            "retry_context_applied_rows": 0,
+            "status_counts": {},
+            "unique_output_sha256_count": 0,
+            "unique_retry_previous_error_sha256_count": 0
+          },
+          "warnings": []
+        },
+        "telemetry_report": {
+          "failure_patterns": {
+            "failure_categories": [],
+            "retry_error_patterns": [],
+            "schema_issue_types": [],
+            "schema_paths": []
+          },
+          "filters": {
+            "limit": 500,
+            "pipeline_id": "recipe.chunking.v1",
+            "run_id": "beedcece52da467c9275216a26f4f0c6",
+            "source": null,
+            "status": null
+          },
+          "generated_at_utc": "2026-03-02T06:04:02.293Z",
+          "heads_up_patterns": {
+            "tip_effectiveness": []
+          },
+          "insights": {
+            "input_failure_hotspots": [],
+            "model_reasoning_breakdown": [],
+            "pass_forward_effectiveness": {
+              "heads_up": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              },
+              "retry_and_heads_up": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              },
+              "retry_context": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              }
+            },
+            "prompt_fingerprint_breakdown": [],
+            "reasoning_signals": {
+              "event_count_avg_per_call": 0.0,
+              "event_count_total": 0,
+              "event_types": [],
+              "rows_with_no_events": 0,
+              "rows_with_turn_completed": 0,
+              "rows_without_turn_completed": 0
+            }
+          },
+          "matched_rows": 0,
+          "recent_rows": [],
+          "recommendations": {
+            "input_data": [],
+            "output_schema": [],
+            "prompt": [],
+            "runtime": []
+          },
+          "row_count_input": 450,
+          "schema_version": 2,
+          "summary": {
+            "accepted_nonzero_exit_rows": 0,
+            "attempt_index_counts": {},
+            "duration_avg_ms": 0,
+            "duration_p95_ms": null,
+            "failure_rate_pct": 0.0,
+            "heads_up_applied_rows": 0,
+            "heads_up_tip_rows": 0,
+            "output_missing_rows": 0,
+            "output_preview_truncated_rows": 0,
+            "rate_limit_suspected_rows": 0,
+            "retry_context_rows": 0,
+            "status_counts": {
+              "failed": 0,
+              "ok": 0,
+              "other": 0,
+              "timeout": 0
+            },
+            "success_rate_pct": 0.0,
+            "tokens_avg_per_call": 0,
+            "tokens_total": 0
+          },
+          "terminal_errors": {
+            "count": 0,
+            "samples": []
+          },
+          "tuning_playbook": {
+            "input_prechecks": [],
+            "model_tuning": [],
+            "prompt_edits": [],
+            "runtime_tuning": [],
+            "schema_edits": []
+          },
+          "warnings": []
+        }
+      },
+      "pass2": {
+        "autotune_report": {
+          "command_preview": "codex-farm process --pipeline recipe.schemaorg.v1 --in /home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass2_schemaorg/in --out /home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass2_schemaorg/out",
+          "flag_overrides": [],
+          "generated_at_utc": "2026-03-02T06:04:53.853Z",
+          "input_prechecks": [],
+          "model_tuning": [],
+          "pipeline_config_diff": null,
+          "pipeline_id": "recipe.schemaorg.v1",
+          "prompt_template_diff": null,
+          "run_id": "4668d6265d2143469429fc68b468a679",
+          "runtime_tuning": [],
+          "schema_edits": [],
+          "schema_version": 1,
+          "telemetry_filters": {
+            "limit": 500,
+            "pipeline_id": "recipe.schemaorg.v1",
+            "run_id": "4668d6265d2143469429fc68b468a679",
+            "source": null,
+            "status": null
+          },
+          "telemetry_schema_version": 2,
+          "warnings": []
+        },
+        "output_schema_path": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.schemaorg.v1.output.schema.json",
+        "pipeline_id": "recipe.schemaorg.v1",
+        "process_exit_code": 0,
+        "process_payload": {
+          "codex_model": "gpt-5.3-codex-spark",
+          "codex_reasoning_effort": null,
+          "control_state": "active",
+          "counts": {
+            "canceled": 0,
+            "done": 19,
+            "error": 0,
+            "queued": 0,
+            "running": 0,
+            "total": 19
+          },
+          "exit_code": 0,
+          "farm_root": "/home/mcnal/projects/recipeimport/llm_pipelines",
+          "heads_up_enabled": false,
+          "heads_up_max_tips": 3,
+          "heads_up_tips_added": 0,
+          "heads_up_tips_applied": 0,
+          "incremental": {
+            "enabled": false,
+            "fallback_counts": {
+              "hash_changed": 0,
+              "no_prior_success": 0,
+              "source_output_invalid": 0,
+              "source_output_missing": 0
+            },
+            "queued": 0,
+            "reused": 0,
+            "source_run_id": null
+          },
+          "input_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass2_schemaorg/in",
+          "output_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass2_schemaorg/out",
+          "output_schema_path": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.schemaorg.v1.output.schema.json",
+          "pipeline_id": "recipe.schemaorg.v1",
+          "progress_events_enabled": true,
+          "run_id": "4668d6265d2143469429fc68b468a679",
+          "status": "done",
+          "telemetry_report": {
+            "failure_patterns": {
+              "failure_categories": [],
+              "retry_error_patterns": [],
+              "schema_issue_types": [],
+              "schema_paths": []
+            },
+            "filters": {
+              "limit": 500,
+              "pipeline_id": "recipe.schemaorg.v1",
+              "run_id": "4668d6265d2143469429fc68b468a679",
+              "source": null,
+              "status": null
+            },
+            "generated_at_utc": "2026-03-02T06:04:53.574Z",
+            "heads_up_patterns": {
+              "tip_effectiveness": []
+            },
+            "insights": {
+              "input_failure_hotspots": [],
+              "model_reasoning_breakdown": [],
+              "pass_forward_effectiveness": {
+                "heads_up": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                },
+                "retry_and_heads_up": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                },
+                "retry_context": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                }
+              },
+              "prompt_fingerprint_breakdown": [],
+              "reasoning_signals": {
+                "event_count_avg_per_call": 0.0,
+                "event_count_total": 0,
+                "event_types": [],
+                "rows_with_no_events": 0,
+                "rows_with_turn_completed": 0,
+                "rows_without_turn_completed": 0
+              }
+            },
+            "matched_rows": 0,
+            "recent_rows": [],
+            "recommendations": {
+              "input_data": [],
+              "output_schema": [],
+              "prompt": [],
+              "runtime": []
+            },
+            "row_count_input": 469,
+            "schema_version": 2,
+            "summary": {
+              "accepted_nonzero_exit_rows": 0,
+              "attempt_index_counts": {},
+              "duration_avg_ms": 0,
+              "duration_p95_ms": null,
+              "failure_rate_pct": 0.0,
+              "heads_up_applied_rows": 0,
+              "heads_up_tip_rows": 0,
+              "output_missing_rows": 0,
+              "output_preview_truncated_rows": 0,
+              "rate_limit_suspected_rows": 0,
+              "retry_context_rows": 0,
+              "status_counts": {
+                "failed": 0,
+                "ok": 0,
+                "other": 0,
+                "timeout": 0
+              },
+              "success_rate_pct": 0.0,
+              "tokens_avg_per_call": 0,
+              "tokens_total": 0
+            },
+            "terminal_errors": {
+              "count": 0,
+              "samples": []
+            },
+            "tuning_playbook": {
+              "input_prechecks": [],
+              "model_tuning": [],
+              "prompt_edits": [],
+              "runtime_tuning": [],
+              "schema_edits": []
+            },
+            "warnings": []
+          },
+          "worker_exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workspace_root": null
+        },
+        "run_id": "4668d6265d2143469429fc68b468a679",
+        "subprocess_exit_code": 0,
+        "telemetry": {
+          "csv_path": "/home/mcnal/projects/recipeimport/var/codex_exec_activity.csv",
+          "row_count": 0,
+          "rows": [],
+          "rows_returned": 0,
+          "rows_truncated": false,
+          "summary": {
+            "attempt_index_counts": {},
+            "codex_event_count_total": 0,
+            "codex_event_types_counts": {},
+            "failure_category_counts": {},
+            "heads_up_applied_rows": 0,
+            "output_payload_missing_rows": 0,
+            "output_preview_truncated_rows": 0,
+            "rate_limit_suspected_rows": 0,
+            "retry_context_applied_rows": 0,
+            "status_counts": {},
+            "unique_output_sha256_count": 0,
+            "unique_retry_previous_error_sha256_count": 0
+          },
+          "warnings": []
+        },
+        "telemetry_report": {
+          "failure_patterns": {
+            "failure_categories": [],
+            "retry_error_patterns": [],
+            "schema_issue_types": [],
+            "schema_paths": []
+          },
+          "filters": {
+            "limit": 500,
+            "pipeline_id": "recipe.schemaorg.v1",
+            "run_id": "4668d6265d2143469429fc68b468a679",
+            "source": null,
+            "status": null
+          },
+          "generated_at_utc": "2026-03-02T06:04:53.574Z",
+          "heads_up_patterns": {
+            "tip_effectiveness": []
+          },
+          "insights": {
+            "input_failure_hotspots": [],
+            "model_reasoning_breakdown": [],
+            "pass_forward_effectiveness": {
+              "heads_up": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              },
+              "retry_and_heads_up": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              },
+              "retry_context": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              }
+            },
+            "prompt_fingerprint_breakdown": [],
+            "reasoning_signals": {
+              "event_count_avg_per_call": 0.0,
+              "event_count_total": 0,
+              "event_types": [],
+              "rows_with_no_events": 0,
+              "rows_with_turn_completed": 0,
+              "rows_without_turn_completed": 0
+            }
+          },
+          "matched_rows": 0,
+          "recent_rows": [],
+          "recommendations": {
+            "input_data": [],
+            "output_schema": [],
+            "prompt": [],
+            "runtime": []
+          },
+          "row_count_input": 469,
+          "schema_version": 2,
+          "summary": {
+            "accepted_nonzero_exit_rows": 0,
+            "attempt_index_counts": {},
+            "duration_avg_ms": 0,
+            "duration_p95_ms": null,
+            "failure_rate_pct": 0.0,
+            "heads_up_applied_rows": 0,
+            "heads_up_tip_rows": 0,
+            "output_missing_rows": 0,
+            "output_preview_truncated_rows": 0,
+            "rate_limit_suspected_rows": 0,
+            "retry_context_rows": 0,
+            "status_counts": {
+              "failed": 0,
+              "ok": 0,
+              "other": 0,
+              "timeout": 0
+            },
+            "success_rate_pct": 0.0,
+            "tokens_avg_per_call": 0,
+            "tokens_total": 0
+          },
+          "terminal_errors": {
+            "count": 0,
+            "samples": []
+          },
+          "tuning_playbook": {
+            "input_prechecks": [],
+            "model_tuning": [],
+            "prompt_edits": [],
+            "runtime_tuning": [],
+            "schema_edits": []
+          },
+          "warnings": []
+        }
+      },
+      "pass3": {
+        "autotune_report": {
+          "command_preview": "codex-farm process --pipeline recipe.final.v1 --in /home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass3_final/in --out /home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass3_final/out",
+          "flag_overrides": [],
+          "generated_at_utc": "2026-03-02T06:09:42.712Z",
+          "input_prechecks": [],
+          "model_tuning": [],
+          "pipeline_config_diff": null,
+          "pipeline_id": "recipe.final.v1",
+          "prompt_template_diff": null,
+          "run_id": "4e2e7a4311bf4b60a664b03104fd33a8",
+          "runtime_tuning": [],
+          "schema_edits": [],
+          "schema_version": 1,
+          "telemetry_filters": {
+            "limit": 500,
+            "pipeline_id": "recipe.final.v1",
+            "run_id": "4e2e7a4311bf4b60a664b03104fd33a8",
+            "source": null,
+            "status": null
+          },
+          "telemetry_schema_version": 2,
+          "warnings": []
+        },
+        "output_schema_path": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.final.v1.output.schema.json",
+        "pipeline_id": "recipe.final.v1",
+        "process_exit_code": 0,
+        "process_payload": {
+          "codex_model": "gpt-5.3-codex-spark",
+          "codex_reasoning_effort": null,
+          "control_state": "active",
+          "counts": {
+            "canceled": 0,
+            "done": 19,
+            "error": 0,
+            "queued": 0,
+            "running": 0,
+            "total": 19
+          },
+          "exit_code": 0,
+          "farm_root": "/home/mcnal/projects/recipeimport/llm_pipelines",
+          "heads_up_enabled": false,
+          "heads_up_max_tips": 3,
+          "heads_up_tips_added": 0,
+          "heads_up_tips_applied": 0,
+          "incremental": {
+            "enabled": false,
+            "fallback_counts": {
+              "hash_changed": 0,
+              "no_prior_success": 0,
+              "source_output_invalid": 0,
+              "source_output_missing": 0
+            },
+            "queued": 0,
+            "reused": 0,
+            "source_run_id": null
+          },
+          "input_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass3_final/in",
+          "output_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/raw/llm/seaandsmokecutdown/pass3_final/out",
+          "output_schema_path": "/home/mcnal/projects/recipeimport/llm_pipelines/schemas/recipe.final.v1.output.schema.json",
+          "pipeline_id": "recipe.final.v1",
+          "progress_events_enabled": true,
+          "run_id": "4e2e7a4311bf4b60a664b03104fd33a8",
+          "status": "done",
+          "telemetry_report": {
+            "failure_patterns": {
+              "failure_categories": [],
+              "retry_error_patterns": [],
+              "schema_issue_types": [],
+              "schema_paths": []
+            },
+            "filters": {
+              "limit": 500,
+              "pipeline_id": "recipe.final.v1",
+              "run_id": "4e2e7a4311bf4b60a664b03104fd33a8",
+              "source": null,
+              "status": null
+            },
+            "generated_at_utc": "2026-03-02T06:09:41.451Z",
+            "heads_up_patterns": {
+              "tip_effectiveness": []
+            },
+            "insights": {
+              "input_failure_hotspots": [],
+              "model_reasoning_breakdown": [],
+              "pass_forward_effectiveness": {
+                "heads_up": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                },
+                "retry_and_heads_up": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                },
+                "retry_context": {
+                  "delta_success_rate_pct": 0.0,
+                  "rows_applied": 0,
+                  "rows_control": 0,
+                  "success_rate_applied_pct": 0.0,
+                  "success_rate_control_pct": 0.0
+                }
+              },
+              "prompt_fingerprint_breakdown": [],
+              "reasoning_signals": {
+                "event_count_avg_per_call": 0.0,
+                "event_count_total": 0,
+                "event_types": [],
+                "rows_with_no_events": 0,
+                "rows_with_turn_completed": 0,
+                "rows_without_turn_completed": 0
+              }
+            },
+            "matched_rows": 0,
+            "recent_rows": [],
+            "recommendations": {
+              "input_data": [],
+              "output_schema": [],
+              "prompt": [],
+              "runtime": []
+            },
+            "row_count_input": 488,
+            "schema_version": 2,
+            "summary": {
+              "accepted_nonzero_exit_rows": 0,
+              "attempt_index_counts": {},
+              "duration_avg_ms": 0,
+              "duration_p95_ms": null,
+              "failure_rate_pct": 0.0,
+              "heads_up_applied_rows": 0,
+              "heads_up_tip_rows": 0,
+              "output_missing_rows": 0,
+              "output_preview_truncated_rows": 0,
+              "rate_limit_suspected_rows": 0,
+              "retry_context_rows": 0,
+              "status_counts": {
+                "failed": 0,
+                "ok": 0,
+                "other": 0,
+                "timeout": 0
+              },
+              "success_rate_pct": 0.0,
+              "tokens_avg_per_call": 0,
+              "tokens_total": 0
+            },
+            "terminal_errors": {
+              "count": 0,
+              "samples": []
+            },
+            "tuning_playbook": {
+              "input_prechecks": [],
+              "model_tuning": [],
+              "prompt_edits": [],
+              "runtime_tuning": [],
+              "schema_edits": []
+            },
+            "warnings": []
+          },
+          "worker_exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workspace_root": null
+        },
+        "run_id": "4e2e7a4311bf4b60a664b03104fd33a8",
+        "subprocess_exit_code": 0,
+        "telemetry": {
+          "csv_path": "/home/mcnal/projects/recipeimport/var/codex_exec_activity.csv",
+          "row_count": 0,
+          "rows": [],
+          "rows_returned": 0,
+          "rows_truncated": false,
+          "summary": {
+            "attempt_index_counts": {},
+            "codex_event_count_total": 0,
+            "codex_event_types_counts": {},
+            "failure_category_counts": {},
+            "heads_up_applied_rows": 0,
+            "output_payload_missing_rows": 0,
+            "output_preview_truncated_rows": 0,
+            "rate_limit_suspected_rows": 0,
+            "retry_context_applied_rows": 0,
+            "status_counts": {},
+            "unique_output_sha256_count": 0,
+            "unique_retry_previous_error_sha256_count": 0
+          },
+          "warnings": []
+        },
+        "telemetry_report": {
+          "failure_patterns": {
+            "failure_categories": [],
+            "retry_error_patterns": [],
+            "schema_issue_types": [],
+            "schema_paths": []
+          },
+          "filters": {
+            "limit": 500,
+            "pipeline_id": "recipe.final.v1",
+            "run_id": "4e2e7a4311bf4b60a664b03104fd33a8",
+            "source": null,
+            "status": null
+          },
+          "generated_at_utc": "2026-03-02T06:09:41.451Z",
+          "heads_up_patterns": {
+            "tip_effectiveness": []
+          },
+          "insights": {
+            "input_failure_hotspots": [],
+            "model_reasoning_breakdown": [],
+            "pass_forward_effectiveness": {
+              "heads_up": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              },
+              "retry_and_heads_up": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              },
+              "retry_context": {
+                "delta_success_rate_pct": 0.0,
+                "rows_applied": 0,
+                "rows_control": 0,
+                "success_rate_applied_pct": 0.0,
+                "success_rate_control_pct": 0.0
+              }
+            },
+            "prompt_fingerprint_breakdown": [],
+            "reasoning_signals": {
+              "event_count_avg_per_call": 0.0,
+              "event_count_total": 0,
+              "event_types": [],
+              "rows_with_no_events": 0,
+              "rows_with_turn_completed": 0,
+              "rows_without_turn_completed": 0
+            }
+          },
+          "matched_rows": 0,
+          "recent_rows": [],
+          "recommendations": {
+            "input_data": [],
+            "output_schema": [],
+            "prompt": [],
+            "runtime": []
+          },
+          "row_count_input": 488,
+          "schema_version": 2,
+          "summary": {
+            "accepted_nonzero_exit_rows": 0,
+            "attempt_index_counts": {},
+            "duration_avg_ms": 0,
+            "duration_p95_ms": null,
+            "failure_rate_pct": 0.0,
+            "heads_up_applied_rows": 0,
+            "heads_up_tip_rows": 0,
+            "output_missing_rows": 0,
+            "output_preview_truncated_rows": 0,
+            "rate_limit_suspected_rows": 0,
+            "retry_context_rows": 0,
+            "status_counts": {
+              "failed": 0,
+              "ok": 0,
+              "other": 0,
+              "timeout": 0
+            },
+            "success_rate_pct": 0.0,
+            "tokens_avg_per_call": 0,
+            "tokens_total": 0
+          },
+          "terminal_errors": {
+            "count": 0,
+            "samples": []
+          },
+          "tuning_playbook": {
+            "input_prechecks": [],
+            "model_tuning": [],
+            "prompt_edits": [],
+            "runtime_tuning": [],
+            "schema_edits": []
+          },
+          "warnings": []
+        }
+      }
+    },
+    "timing": {
+      "pass1_seconds": 141.949,
+      "pass2_seconds": 45.421,
+      "pass3_seconds": 265.397
+    }
+  },
+  "pipeline": "epub",
+  "prelabel": null,
+  "prelabel_errors_path": null,
+  "prelabel_prompt_log_path": null,
+  "prelabel_report_path": null,
+  "processed_report_path": "/home/mcnal/projects/recipeimport/data/output/2026-03-02_01.01.24/SeaAndSmokeCUTDOWN.excel_import_report.json",
+  "processed_run_root": "/home/mcnal/projects/recipeimport/data/output/2026-03-02_01.01.24",
+  "processed_stage_block_predictions_path": "/home/mcnal/projects/recipeimport/data/output/2026-03-02_01.01.24/.bench/SeaAndSmokeCUTDOWN/stage_block_predictions.json",
+  "recipe_count": 19,
+  "run_config": {
+    "benchmark_sequence_matcher": "dmp",
+    "codex_farm_cmd": "codex-farm",
+    "codex_farm_context_blocks": 30,
+    "codex_farm_failure_mode": "fail",
+    "codex_farm_knowledge_context_blocks": 12,
+    "codex_farm_pipeline_pass1": "recipe.chunking.v1",
+    "codex_farm_pipeline_pass2": "recipe.schemaorg.v1",
+    "codex_farm_pipeline_pass3": "recipe.final.v1",
+    "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.v1",
+    "codex_farm_pipeline_pass5_tags": "recipe.tags.v1",
+    "effective_workers": 8,
+    "epub_extractor": "unstructured",
+    "epub_extractor_effective": "unstructured",
+    "epub_extractor_requested": "unstructured",
+    "epub_spine_items_per_job": 10,
+    "epub_split_workers": 5,
+    "epub_unstructured_html_parser_version": "v2",
+    "epub_unstructured_preprocess_mode": "semantic_v1",
+    "epub_unstructured_skip_headers_footers": false,
+    "ingredient_missing_unit_policy": "null",
+    "ingredient_packaging_mode": "off",
+    "ingredient_parser_backend": "ingredient_parser_nlp",
+    "ingredient_pre_normalize_mode": "legacy",
+    "ingredient_text_fix_backend": "none",
+    "ingredient_unit_canonicalizer": "legacy",
+    "instruction_step_segmentation_policy": "auto",
+    "instruction_step_segmenter": "heuristic_v1",
+    "llm_knowledge_pipeline": "off",
+    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+    "llm_tags_pipeline": "off",
+    "multi_recipe_for_the_guardrail": true,
+    "multi_recipe_min_ingredient_lines": 1,
+    "multi_recipe_min_instruction_lines": 1,
+    "multi_recipe_splitter": "legacy",
+    "multi_recipe_trace": false,
+    "ocr_batch_size": 1,
+    "ocr_device": "auto",
+    "p6_emit_metadata_debug": false,
+    "p6_ovenlike_mode": "keywords_v1",
+    "p6_temperature_backend": "regex_v1",
+    "p6_temperature_unit_backend": "builtin_v1",
+    "p6_time_backend": "regex_v1",
+    "p6_time_total_strategy": "sum_all_v1",
+    "p6_yield_mode": "legacy_v1",
+    "pdf_pages_per_job": 50,
+    "pdf_split_workers": 5,
+    "recipe_score_bronze_min": 0.35,
+    "recipe_score_gold_min": 0.75,
+    "recipe_score_min_ingredient_lines": 1,
+    "recipe_score_min_instruction_lines": 1,
+    "recipe_score_silver_min": 0.55,
+    "recipe_scorer_backend": "heuristic_v1",
+    "section_detector_backend": "legacy",
+    "table_extraction": "off",
+    "tag_catalog_json": "data/tagging/tag_catalog.json",
+    "warm_models": false,
+    "web_html_text_extractor": "bs4",
+    "web_schema_extractor": "builtin_jsonld",
+    "web_schema_min_confidence": 0.75,
+    "web_schema_min_ingredients": 2,
+    "web_schema_min_instruction_steps": 1,
+    "web_schema_normalizer": "simple",
+    "web_schema_policy": "prefer_schema",
+    "workers": 8,
+    "write_label_studio_tasks": true,
+    "write_markdown": true
+  },
+  "run_config_hash": "a7c687a979cb60ce6efdf29ff81478bd664849333c257f3a7f99870723722bee",
+  "run_config_summary": "benchmark_sequence_matcher=dmp | codex_farm_cmd=codex-farm | codex_farm_context_blocks=30 | codex_farm_failure_mode=fail | codex_farm_knowledge_context_blocks=12 | codex_farm_pipeline_pass1=recipe.chunking.v1 | codex_farm_pipeline_pass2=recipe.schemaorg.v1 | codex_farm_pipeline_pass3=recipe.final.v1 | codex_farm_pipeline_pass4_knowledge=recipe.knowledge.v1 | codex_farm_pipeline_pass5_tags=recipe.tags.v1 | effective_workers=8 | epub_extractor=unstructured | epub_extractor_effective=unstructured | epub_extractor_requested=unstructured | epub_spine_items_per_job=10 | epub_split_workers=5 | epub_unstructured_html_parser_version=v2 | epub_unstructured_preprocess_mode=semantic_v1 | epub_unstructured_skip_headers_footers=false | ingredient_missing_unit_policy=null | ingredient_packaging_mode=off | ingredient_parser_backend=ingredient_parser_nlp | ingredient_pre_normalize_mode=legacy | ingredient_text_fix_backend=none | ingredient_unit_canonicalizer=legacy | instruction_step_segmentation_policy=auto | instruction_step_segmenter=heuristic_v1 | llm_knowledge_pipeline=off | llm_recipe_pipeline=codex-farm-3pass-v1 | llm_tags_pipeline=off | multi_recipe_for_the_guardrail=true | multi_recipe_min_ingredient_lines=1 | multi_recipe_min_instruction_lines=1 | multi_recipe_splitter=legacy | multi_recipe_trace=false | ocr_batch_size=1 | ocr_device=auto | p6_emit_metadata_debug=false | p6_ovenlike_mode=keywords_v1 | p6_temperature_backend=regex_v1 | p6_temperature_unit_backend=builtin_v1 | p6_time_backend=regex_v1 | p6_time_total_strategy=sum_all_v1 | p6_yield_mode=legacy_v1 | pdf_pages_per_job=50 | pdf_split_workers=5 | recipe_score_bronze_min=0.35 | recipe_score_gold_min=0.75 | recipe_score_min_ingredient_lines=1 | recipe_score_min_instruction_lines=1 | recipe_score_silver_min=0.55 | recipe_scorer_backend=heuristic_v1 | section_detector_backend=legacy | table_extraction=off | tag_catalog_json=data/tagging/tag_catalog.json | warm_models=false | web_html_text_extractor=bs4 | web_schema_extractor=builtin_jsonld | web_schema_min_confidence=0.75 | web_schema_min_ingredients=2 | web_schema_min_instruction_steps=1 | web_schema_normalizer=simple | web_schema_policy=prefer_schema | workers=8 | write_label_studio_tasks=true | write_markdown=true",
+  "run_timestamp": "2026-03-02T01:01:24",
+  "segment_blocks": 40,
+  "segment_focus_blocks": 40,
+  "segment_ids": [
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:0:39",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:35:74",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:70:109",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:105:144",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:140:179",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:175:214",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:210:249",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:245:284",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:280:319",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:315:354",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:350:389",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:385:424",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:420:459",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:455:494",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:490:529",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:525:564",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:560:599",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:595:634",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:630:669",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:665:677"
+  ],
+  "segment_overlap": 5,
+  "segment_overlap_effective": 5,
+  "segment_overlap_requested": 5,
+  "source_file": "/home/mcnal/projects/recipeimport/data/input/SeaAndSmokeCUTDOWN.epub",
+  "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+  "stage_block_predictions_path": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/stage_block_predictions.json",
+  "target_task_count": null,
+  "task_count": 20,
+  "task_ids": [
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:0:39",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:35:74",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:70:109",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:105:144",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:140:179",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:175:214",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:210:249",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:245:284",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:280:319",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:315:354",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:350:389",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:385:424",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:420:459",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:455:494",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:490:529",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:525:564",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:560:599",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:595:634",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:630:669",
+    "urn:cookimport:segment:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:665:677"
+  ],
+  "task_scope": "freeform-spans",
+  "tasks_jsonl_path": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-02_01.01.24/labelstudio/seaandsmokecutdown/label_studio_tasks.jsonl",
+  "tasks_jsonl_status": "written",
+  "timing": {
+    "artifact_write_seconds": 0.09865531399964311,
+    "checkpoints": {
+      "artifact_write_seconds": 0.09865531399964311,
+      "conversion_seconds": 4.279570448999948,
+      "processed_output_write_seconds": 1.5187769160002063,
+      "split_convert_seconds": 3.934722325999701,
+      "split_wait_seconds": 1.1669999366858974e-06,
+      "task_build_seconds": 0.008278467999843997
+    },
+    "parsing_seconds": 4.279570448999948,
+    "prediction_seconds": 459.46760958899995,
+    "total_seconds": 459.46760958899995,
+    "writing_seconds": 1.5187769160002063
+  },
+  "tip_count": 4,
+  "write_label_studio_tasks": true,
+  "write_markdown": true
+}

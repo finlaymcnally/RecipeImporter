@@ -1,0 +1,43 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "1 whole, plucked Khaki Campbell duck (about 2.2 kg)",
+    "Grapeseed oil",
+    "Salt",
+    "2 tablespoons/28 g high-quality unsalted butter, roughly cut into 1/2-inch/1 cm cubes",
+    "8 Hakurei turnips (about 130 g)",
+    "1 generous tablespoon/20 g salt",
+    "1 cup/235 g",
+    "light vegetable stock",
+    "1 bunch Hakurei turnip leafy tops (about 100 g)",
+    "1/2 teaspoon/2.5 g cold, high-quality unsalted butter",
+    "11/2 teaspoons/7 g",
+    "spinach pur\\u00e9e",
+    "Flake salt"
+  ],
+  "extracted_instructions": [],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c2",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org",
+    "@type": "Recipe",
+    "name": "FERMENTED TURNIPS WITH VERY AGED DUCK",
+    "recipeIngredient": [
+      "1 whole, plucked Khaki Campbell duck (about 2.2 kg)",
+      "Grapeseed oil",
+      "Salt",
+      "2 tablespoons/28 g high-quality unsalted butter, roughly cut into 1/2-inch/1 cm cubes",
+      "8 Hakurei turnips (about 130 g)",
+      "1 generous tablespoon/20 g salt",
+      "1 cup/235 g",
+      "light vegetable stock",
+      "1 bunch Hakurei turnip leafy tops (about 100 g)",
+      "1/2 teaspoon/2.5 g cold, high-quality unsalted butter",
+      "11/2 teaspoons/7 g",
+      "spinach pur\u00e9e",
+      "Flake salt"
+    ],
+    "recipeYield": "4"
+  },
+  "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+  "workbook_slug": "seaandsmokecutdown"
+}

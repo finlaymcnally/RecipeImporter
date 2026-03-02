@@ -1,0 +1,29 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "5 large eggs 3/4 teaspoon kosher salt 1/4 teaspoon freshly ground black pepper 2 tablespoons unsalted butter 4 ounces ham steak, diced 2 ounces cheddar cheese, grated"
+  ],
+  "extracted_instructions": [
+    "1. Combine the eggs, salt, and pepper in a medium bowl and whisk until homogeneous and frothy, about 1 minute. Allow to rest at room temperature for at least 15 minutes. The eggs should darken in color significantly.",
+    "2. Meanwhile, melt 1 tablespoon of the butter in a 10-inch nonstick skillet over medium heat and cook until lightly browned. Add the ham and cook, stirring frequently, until it has begun to brown on the edges, about 3 minutes. Transfer the ham to a small bowl, add the cheese, and toss to combine. Wipe out the skillet with a paper towel and return it to medium heat.",
+    "3. Add the remaining tablespoon of the butter to the pan and cook until lightly browned. Rewhisk the eggs until foamy, then add to the skillet and cook, using a silicone spatula to push the edges in toward the center as they set and tilting the pan to spread the uncooked egg underneath. Continue pushing in the edges of the eggs and tilting the skillet, working all around the pan, until the omelet is almost set, about 45 seconds. Sprinkle the ham and cheese over half of the omelet, remove from the heat, cover, and let the omelet sit until it reaches the desired consistency, about 1 minute."
+  ],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c28",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org",
+    "@type": "Recipe",
+    "description": "It's important to cook fillings without cheese before you add them to the eggs, or they will not heat up enough while the omelet cooks. Then tossing the cheese with the cooked filling will help get it started melting, so that it's nice and gooey by the time the omelet is done, without the need to overcook your eggs.",
+    "name": "DINER-STYLE HAM AND CHEESE OMELET",
+    "recipeIngredient": [
+      "5 large eggs 3/4 teaspoon kosher salt 1/4 teaspoon freshly ground black pepper 2 tablespoons unsalted butter 4 ounces ham steak, diced 2 ounces cheddar cheese, grated"
+    ],
+    "recipeInstructions": [
+      "1. Combine the eggs, salt, and pepper in a medium bowl and whisk until homogeneous and frothy, about 1 minute. Allow to rest at room temperature for at least 15 minutes. The eggs should darken in color significantly.",
+      "2. Meanwhile, melt 1 tablespoon of the butter in a 10-inch nonstick skillet over medium heat and cook until lightly browned. Add the ham and cook, stirring frequently, until it has begun to brown on the edges, about 3 minutes. Transfer the ham to a small bowl, add the cheese, and toss to combine. Wipe out the skillet with a paper towel and return it to medium heat.",
+      "3. Add the remaining tablespoon of the butter to the pan and cook until lightly browned. Rewhisk the eggs until foamy, then add to the skillet and cook, using a silicone spatula to push the edges in toward the center as they set and tilting the pan to spread the uncooked egg underneath. Continue pushing in the edges of the eggs and tilting the skillet, working all around the pan, until the omelet is almost set, about 45 seconds. Sprinkle the ham and cheese over half of the omelet, remove from the heat, cover, and let the omelet sit until it reaches the desired consistency, about 1 minute."
+    ],
+    "recipeYield": "1 LARGE OMELET, SERVING 2"
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

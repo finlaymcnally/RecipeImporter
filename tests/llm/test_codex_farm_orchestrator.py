@@ -600,6 +600,29 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
                                     "total": 2,
                                 },
                                 "progress": {"completed": 0},
+                                "running_tasks": [
+                                    {"input_path": str(in_dir / "r0000.json")},
+                                ],
+                            },
+                            sort_keys=True,
+                        ),
+                        "__codex_farm_progress__ "
+                        + json.dumps(
+                            {
+                                "event": "run_progress",
+                                "status": "running",
+                                "counts": {
+                                    "queued": 1,
+                                    "running": 1,
+                                    "done": 0,
+                                    "error": 0,
+                                    "canceled": 0,
+                                    "total": 2,
+                                },
+                                "progress": {"completed": 0},
+                                "running_tasks": [
+                                    {"input_path": str(in_dir / "r0001.json")},
+                                ],
                             },
                             sort_keys=True,
                         ),
@@ -685,6 +708,8 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     assert any("task 0/2" in message for message in progress_messages)
     assert any("task 1/2" in message for message in progress_messages)
     assert any("task 2/2" in message for message in progress_messages)
+    assert sum(1 for message in progress_messages if "task 0/2" in message) == 1
+    assert all(" | active " not in message for message in progress_messages)
 
 
 def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -28,6 +29,44 @@ _QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
     "epub_unstructured_preprocess_mode": "semantic_v1",
     "epub_unstructured_skip_headers_footers": True,
 }
+_WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
+_WORKER_UTILIZATION_DEFAULT = 0.9
+
+
+def _worker_utilization() -> float | None:
+    raw = os.getenv(_WORKER_UTILIZATION_ENV)
+    if not raw:
+        return _WORKER_UTILIZATION_DEFAULT
+    try:
+        parsed = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return _WORKER_UTILIZATION_DEFAULT
+    if parsed <= 0:
+        return _WORKER_UTILIZATION_DEFAULT
+    if parsed > 100:
+        return 1.0
+    if parsed > 1:
+        parsed = parsed / 100
+    return min(parsed, 1.0)
+
+
+def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
+    utilization = _worker_utilization()
+    if utilization is None or utilization >= 1.0:
+        return selected_settings
+    return selected_settings.model_copy(
+        update={
+            "workers": max(1, int(selected_settings.workers * utilization)),
+            "pdf_split_workers": max(
+                1,
+                int(selected_settings.pdf_split_workers * utilization),
+            ),
+            "epub_split_workers": max(
+                1,
+                int(selected_settings.epub_split_workers * utilization),
+            ),
+        }
+    )
 
 
 def _default_preferred_settings(global_defaults: RunSettings) -> RunSettings:
@@ -294,6 +333,8 @@ def choose_run_settings(
         if edited is None:
             return None
         selected_settings = edited
+
+    selected_settings = _rate_limit_workers(selected_settings)
 
     return _apply_codex_prompt(
         selected_settings=selected_settings,

@@ -38,6 +38,8 @@ environments (for example `CODEX_CI=1`, `CODEX_THREAD_ID`, or
 noise in polled PTY logs. Use `COOKIMPORT_PLAIN_PROGRESS=1` to force plain
 progress everywhere, or `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner
 status even in those agent envs.
+Codex-farm `task X/Y` callback messages intentionally omit per-file `active ...`
+tails so plain-progress mode only emits meaningful counter/error changes.
 Interactive all-method benchmark runs now keep one persistent dashboard-style
 spinner that shows the source queue, overall source/config progress, and the
 current per-config task line while suppressing per-config benchmark summary

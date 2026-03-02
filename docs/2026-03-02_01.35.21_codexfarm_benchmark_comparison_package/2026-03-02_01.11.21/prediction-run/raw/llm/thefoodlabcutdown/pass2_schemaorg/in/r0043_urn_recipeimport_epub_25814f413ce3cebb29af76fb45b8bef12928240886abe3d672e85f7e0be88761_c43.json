@@ -1,0 +1,49 @@
+{
+  "blocks": [
+    {
+      "block_id": "b1226",
+      "heading_level": null,
+      "index": 1226,
+      "page": null,
+      "spine_index": 70,
+      "text": "QUICK CHICKEN STOCK"
+    },
+    {
+      "block_id": "b1227",
+      "heading_level": null,
+      "index": 1227,
+      "page": null,
+      "spine_index": 70,
+      "text": "NOTE : This recipe also produces cooked chicken leg meat, which can be used in other recipes or saved for later use. Alternatively, replace the chicken legs with more backs and wingtips."
+    },
+    {
+      "block_id": "b1228",
+      "heading_level": null,
+      "index": 1228,
+      "page": null,
+      "spine_index": 70,
+      "text": "MAKES 2 QUARTS 1 ounce (4 packets; about 3 tablespoons) unflavored gelatin 2 pounds skin-on chicken backs and wing tips, preferably from young chickens 2 pounds chicken legs 1 large onion, roughly chopped 1 large carrot, peeled and roughly chopped 2 stalks celery, roughly chopped 2 bay leaves 2 teaspoons whole black peppercorns 1 teaspoon fennel seeds 1 teaspoon coriander seeds 6 sprigs fresh parsley"
+    },
+    {
+      "block_id": "b1229",
+      "heading_level": null,
+      "index": 1229,
+      "page": null,
+      "spine_index": 70,
+      "text": "1. Pour 4 cups water into a medium bowl and sprinkle with the gelatin. Set aside until the gelatin is hydrated, about 10 minutes."
+    },
+    {
+      "block_id": "b1230",
+      "heading_level": null,
+      "index": 1230,
+      "page": null,
+      "spine_index": 70,
+      "text": "2. Meanwhile, chop the chicken backs and wing tips with a cleaver into rough 2-inch pieces, or cut up with poultry shears. Working in two or three batches, transfer the chicken to a food processor and pulse until the texture roughly approximates ground chicken, stopping if a particularly hard bone gets stuck on the blade."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "QUICK CHICKEN STOCK\nNOTE : This recipe also produces cooked chicken leg meat, which can be used in other recipes or saved for later use. Alternatively, replace the chicken legs with more backs and wingtips.\nMAKES 2 QUARTS 1 ounce (4 packets; about 3 tablespoons) unflavored gelatin 2 pounds skin-on chicken backs and wing tips, preferably from young chickens 2 pounds chicken legs 1 large onion, roughly chopped 1 large carrot, peeled and roughly chopped 2 stalks celery, roughly chopped 2 bay leaves 2 teaspoons whole black peppercorns 1 teaspoon fennel seeds 1 teaspoon coriander seeds 6 sprigs fresh parsley\n1. Pour 4 cups water into a medium bowl and sprinkle with the gelatin. Set aside until the gelatin is hydrated, about 10 minutes.\n2. Meanwhile, chop the chicken backs and wing tips with a cleaver into rough 2-inch pieces, or cut up with poultry shears. Working in two or three batches, transfer the chicken to a food processor and pulse until the texture roughly approximates ground chicken, stopping if a particularly hard bone gets stuck on the blade.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c43",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

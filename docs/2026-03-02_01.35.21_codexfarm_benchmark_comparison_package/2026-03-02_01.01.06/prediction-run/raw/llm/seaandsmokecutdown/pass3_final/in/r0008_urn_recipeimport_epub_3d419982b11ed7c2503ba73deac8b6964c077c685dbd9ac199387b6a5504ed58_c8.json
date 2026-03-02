@@ -1,0 +1,42 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "20 small verbena leaves",
+    "1 cup/240 g rhubarb wine (",
+    "page 237",
+    ")",
+    "1 cup/225 g high-quality unsalted butter, cut into 3/4-inch/2 cm cubes",
+    "1 cup/60 g lightly packed verbena leaves",
+    "Salt",
+    "Reduced white wine (page 251)"
+  ],
+  "extracted_instructions": [
+    "I like to poach the quartered heads of cabbage in butter with sprigs of verbena and then grill them before separating the leaves and folding them over each other. For this dish, we lighten the full flavor of charred cabbage with a bright sauce made from homemade rhubarb wine and verbena."
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c8",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org",
+    "@type": "Recipe",
+    "description": "I was blown away when I first tasted cone-shaped Caraflex cabbage in 2011. Every time I eat it, it is amazing to me that any other type of cabbage would ever be grown.\nCaraflex has a juicy, crisp texture and a mild, sweet flavor, and the leaves are surprisingly delicious and tender when eaten raw. The large cabbages grow quickly and flower early in the year, whirling into dense cones that we can start using by late May, roasting or grilling the heads to amplify their flavor.",
+    "name": "GRILLED LEAVES OF CARAFLEX CABBAGE WITH LEMON VERBENA",
+    "recipeIngredient": [
+      "20 small verbena leaves",
+      "1 cup/240 g rhubarb wine (",
+      "page 237",
+      ")",
+      "1 cup/225 g high-quality unsalted butter, cut into 3/4-inch/2 cm cubes",
+      "1 cup/60 g lightly packed verbena leaves",
+      "Salt",
+      "Reduced white wine (page 251)"
+    ],
+    "recipeInstructions": [
+      {
+        "@type": "HowToStep",
+        "text": "I like to poach the quartered heads of cabbage in butter with sprigs of verbena and then grill them before separating the leaves and folding them over each other. For this dish, we lighten the full flavor of charred cabbage with a bright sauce made from homemade rhubarb wine and verbena."
+      }
+    ],
+    "recipeYield": "4"
+  },
+  "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+  "workbook_slug": "seaandsmokecutdown"
+}

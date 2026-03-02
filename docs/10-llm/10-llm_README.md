@@ -222,6 +222,10 @@ These settings remain part of run settings and stage execution:
 - Label Studio prediction-run generation (`generate_pred_run_artifacts`) currently wires recipe-pass settings only (pass1/2/3 + codex-farm command/root/workspace/context/failure mode).
 - Pass4 knowledge harvesting and pass5 tag suggestions are stage-only flows; prediction-run generation does not execute those passes.
 - Benchmark prediction generation (`labelstudio-benchmark`) reuses that same prediction-run recipe-pass boundary.
+- When `llm_recipe_pipeline` is active, Codex Farm prompt payloads are persisted as:
+  - `prompt_inputs_manifest.txt` (pass1/2/3 `in` payloads)
+  - `prompt_outputs_manifest.txt` (pass1/2/3 `out` payloads)
+- `run_manifest.json` includes `prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt` artifact pointers for active Codex Farm runs.
 
 Recipe pass execution in prediction-run paths follows selected run settings with no env gate.
 

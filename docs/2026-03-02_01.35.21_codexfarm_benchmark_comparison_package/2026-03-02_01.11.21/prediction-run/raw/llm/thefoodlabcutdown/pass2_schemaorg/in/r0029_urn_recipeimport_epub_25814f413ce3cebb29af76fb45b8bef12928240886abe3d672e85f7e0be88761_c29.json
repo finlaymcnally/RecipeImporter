@@ -1,0 +1,41 @@
+{
+  "blocks": [
+    {
+      "block_id": "b896",
+      "heading_level": null,
+      "index": 896,
+      "page": null,
+      "spine_index": 38,
+      "text": "TENDER FANCY-PANTS OMELET"
+    },
+    {
+      "block_id": "b897",
+      "heading_level": null,
+      "index": 897,
+      "page": null,
+      "spine_index": 38,
+      "text": "SERVES 1 3 large eggs 1 large egg yolk 1/2 teaspoon kosher salt 1/4 teaspoon freshly ground black pepper 1 tablespoon whole milk 1 tablespoon chopped mixed fresh herbs, such as parsley, tarragon, and chives (optional) 11/2 tablespoons unsalted butter, cut into 1/4-inch cubes and chilled"
+    },
+    {
+      "block_id": "b898",
+      "heading_level": null,
+      "index": 898,
+      "page": null,
+      "spine_index": 38,
+      "text": "1. Combine the eggs, egg yolk, salt, pepper, milk, and herbs, if using, in a medium bowl and whisk until homogeneous and frothy, about 1 minute. Allow to rest at room temperature for at least 15 minutes. The eggs should darken in color significantly."
+    },
+    {
+      "block_id": "b899",
+      "heading_level": null,
+      "index": 899,
+      "page": null,
+      "spine_index": 38,
+      "text": "2. Add two-thirds of the butter to the eggs. Melt the remaining butter in an 8-inch nonstick skillet over low heat. Add the egg mixture to the skillet and cook, stirring slowly and constantly with a silicone spatula, scraping the eggs off the bottom and sides of the skillet, until the eggs have begun to set, about 2 minutes. Then continue cooking, stirring and scraping, until the eggs are just firm enough to hold their shape when you draw the spatula through them. Shake the pan to distribute the eggs evenly over the bottom and then, holding the handle so that the pan rests at a slight angle, rap the pan against the stove so that the eggs are thicker on one side of the pan than the other. Remove from the heat, cover, and let the eggs set to the desired consistency, about 1 minute."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "TENDER FANCY-PANTS OMELET\nSERVES 1 3 large eggs 1 large egg yolk 1/2 teaspoon kosher salt 1/4 teaspoon freshly ground black pepper 1 tablespoon whole milk 1 tablespoon chopped mixed fresh herbs, such as parsley, tarragon, and chives (optional) 11/2 tablespoons unsalted butter, cut into 1/4-inch cubes and chilled\n1. Combine the eggs, egg yolk, salt, pepper, milk, and herbs, if using, in a medium bowl and whisk until homogeneous and frothy, about 1 minute. Allow to rest at room temperature for at least 15 minutes. The eggs should darken in color significantly.\n2. Add two-thirds of the butter to the eggs. Melt the remaining butter in an 8-inch nonstick skillet over low heat. Add the egg mixture to the skillet and cook, stirring slowly and constantly with a silicone spatula, scraping the eggs off the bottom and sides of the skillet, until the eggs have begun to set, about 2 minutes. Then continue cooking, stirring and scraping, until the eggs are just firm enough to hold their shape when you draw the spatula through them. Shake the pan to distribute the eggs evenly over the bottom and then, holding the handle so that the pan rests at a slight angle, rap the pan against the stove so that the eggs are thicker on one side of the pan than the other. Remove from the heat, cover, and let the eggs set to the desired consistency, about 1 minute.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c29",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

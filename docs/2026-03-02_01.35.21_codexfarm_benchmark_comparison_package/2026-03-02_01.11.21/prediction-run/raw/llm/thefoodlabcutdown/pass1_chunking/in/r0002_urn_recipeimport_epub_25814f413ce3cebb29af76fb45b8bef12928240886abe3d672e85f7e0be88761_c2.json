@@ -1,0 +1,551 @@
+{
+  "blocks_after": [
+    {
+      "block_id": "b47",
+      "heading_level": null,
+      "index": 47,
+      "page": null,
+      "spine_index": 5,
+      "text": "Sugar"
+    },
+    {
+      "block_id": "b48",
+      "heading_level": null,
+      "index": 48,
+      "page": null,
+      "spine_index": 5,
+      "text": "GranulatedBrown (light or dark)Confectioners'"
+    },
+    {
+      "block_id": "b49",
+      "heading_level": null,
+      "index": 49,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 cup"
+    },
+    {
+      "block_id": "b50",
+      "heading_level": null,
+      "index": 50,
+      "page": null,
+      "spine_index": 5,
+      "text": "6.5 ounces (184 grams)7 ounces (198 grams)4.5 ounces (128 grams)"
+    },
+    {
+      "block_id": "b51",
+      "heading_level": null,
+      "index": 51,
+      "page": null,
+      "spine_index": 5,
+      "text": "Salt"
+    },
+    {
+      "block_id": "b52",
+      "heading_level": null,
+      "index": 52,
+      "page": null,
+      "spine_index": 5,
+      "text": "TableDiamond Crystal kosherMorton's kosher"
+    },
+    {
+      "block_id": "b53",
+      "heading_level": null,
+      "index": 53,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 teaspoon"
+    },
+    {
+      "block_id": "b54",
+      "heading_level": null,
+      "index": 54,
+      "page": null,
+      "spine_index": 5,
+      "text": "0.25 ounce (7 grams)0.125 ounce (3.5 grams)0.175 ounce (5 grams)"
+    },
+    {
+      "block_id": "b55",
+      "heading_level": null,
+      "index": 55,
+      "page": null,
+      "spine_index": 5,
+      "text": "Instant Yeast"
+    },
+    {
+      "block_id": "b56",
+      "heading_level": null,
+      "index": 56,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 teaspoon"
+    },
+    {
+      "block_id": "b57",
+      "heading_level": null,
+      "index": 57,
+      "page": null,
+      "spine_index": 5,
+      "text": "0.125 ounce (3.5 grams)"
+    },
+    {
+      "block_id": "b58",
+      "heading_level": null,
+      "index": 58,
+      "page": null,
+      "spine_index": 5,
+      "text": "Butter"
+    },
+    {
+      "block_id": "b59",
+      "heading_level": null,
+      "index": 59,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 tablespoon = 1/8 stick"
+    },
+    {
+      "block_id": "b60",
+      "heading_level": null,
+      "index": 60,
+      "page": null,
+      "spine_index": 5,
+      "text": "0.5 ounce (14 grams)"
+    },
+    {
+      "block_id": "b61",
+      "heading_level": null,
+      "index": 61,
+      "page": null,
+      "spine_index": 5,
+      "text": "*Note: In standard U.S. recipes, liquids are measured in fluid ounces (volume), while dry ingredients are measured in regular ounces (weight)."
+    },
+    {
+      "block_id": "b62",
+      "heading_level": null,
+      "index": 62,
+      "page": null,
+      "spine_index": 5,
+      "text": "VOLUME EQUIVALENCIES"
+    },
+    {
+      "block_id": "b63",
+      "heading_level": null,
+      "index": 63,
+      "page": null,
+      "spine_index": 5,
+      "text": "3 teaspoons = 1 tablespoon"
+    },
+    {
+      "block_id": "b64",
+      "heading_level": null,
+      "index": 64,
+      "page": null,
+      "spine_index": 5,
+      "text": "2 tablespoons = 1 fluid ounce"
+    },
+    {
+      "block_id": "b65",
+      "heading_level": null,
+      "index": 65,
+      "page": null,
+      "spine_index": 5,
+      "text": "16 tablespoons = 1 cup (8 fluid ounces)"
+    },
+    {
+      "block_id": "b66",
+      "heading_level": null,
+      "index": 66,
+      "page": null,
+      "spine_index": 5,
+      "text": "2 cups = 1 pint (16 fluid ounces)"
+    },
+    {
+      "block_id": "b67",
+      "heading_level": null,
+      "index": 67,
+      "page": null,
+      "spine_index": 5,
+      "text": "4 cups = 1 quart (32 fluid ounces)"
+    },
+    {
+      "block_id": "b68",
+      "heading_level": null,
+      "index": 68,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 quart = 0.95 liters"
+    },
+    {
+      "block_id": "b69",
+      "heading_level": null,
+      "index": 69,
+      "page": null,
+      "spine_index": 5,
+      "text": "4 quarts = 1 gallon"
+    },
+    {
+      "block_id": "b70",
+      "heading_level": null,
+      "index": 70,
+      "page": null,
+      "spine_index": 5,
+      "text": "WEIGHT CONVERSIONS"
+    },
+    {
+      "block_id": "b71",
+      "heading_level": null,
+      "index": 71,
+      "page": null,
+      "spine_index": 5,
+      "text": "There are 28.35 grams in one ounce."
+    },
+    {
+      "block_id": "b72",
+      "heading_level": null,
+      "index": 72,
+      "page": null,
+      "spine_index": 5,
+      "text": "COMMON WEIGHT CONVERSIONS"
+    },
+    {
+      "block_id": "b73",
+      "heading_level": null,
+      "index": 73,
+      "page": null,
+      "spine_index": 5,
+      "text": "ouncesgrams"
+    },
+    {
+      "block_id": "b74",
+      "heading_level": null,
+      "index": 74,
+      "page": null,
+      "spine_index": 5,
+      "text": "128"
+    },
+    {
+      "block_id": "b75",
+      "heading_level": null,
+      "index": 75,
+      "page": null,
+      "spine_index": 5,
+      "text": "257"
+    },
+    {
+      "block_id": "b76",
+      "heading_level": null,
+      "index": 76,
+      "page": null,
+      "spine_index": 5,
+      "text": "385"
+    }
+  ],
+  "blocks_before": [
+    {
+      "block_id": "b10",
+      "heading_level": null,
+      "index": 10,
+      "page": null,
+      "spine_index": 4,
+      "text": "CONTENTS"
+    },
+    {
+      "block_id": "b11",
+      "heading_level": null,
+      "index": 11,
+      "page": null,
+      "spine_index": 4,
+      "text": "If you are going to follow links, please bookmark your page before linking."
+    },
+    {
+      "block_id": "b12",
+      "heading_level": null,
+      "index": 12,
+      "page": null,
+      "spine_index": 4,
+      "text": "CONVERSIONS"
+    },
+    {
+      "block_id": "b13",
+      "heading_level": null,
+      "index": 13,
+      "page": null,
+      "spine_index": 4,
+      "text": "PREFACE BY JEFFREY STEINGARTEN"
+    },
+    {
+      "block_id": "b14",
+      "heading_level": null,
+      "index": 14,
+      "page": null,
+      "spine_index": 4,
+      "text": "INTRODUCTION: A NERD IN THE KITCHEN"
+    },
+    {
+      "block_id": "b15",
+      "heading_level": null,
+      "index": 15,
+      "page": null,
+      "spine_index": 4,
+      "text": "WHAT'S IN THIS BOOK?"
+    },
+    {
+      "block_id": "b16",
+      "heading_level": null,
+      "index": 16,
+      "page": null,
+      "spine_index": 4,
+      "text": "THE KEYS TO GOOD KITCHEN SCIENCE"
+    },
+    {
+      "block_id": "b17",
+      "heading_level": null,
+      "index": 17,
+      "page": null,
+      "spine_index": 4,
+      "text": "WHAT IS COOKING?"
+    },
+    {
+      "block_id": "b18",
+      "heading_level": null,
+      "index": 18,
+      "page": null,
+      "spine_index": 4,
+      "text": "ESSENTIAL KITCHEN GEAR"
+    },
+    {
+      "block_id": "b19",
+      "heading_level": null,
+      "index": 19,
+      "page": null,
+      "spine_index": 4,
+      "text": "THE BASIC PANTRY"
+    },
+    {
+      "block_id": "b20",
+      "heading_level": null,
+      "index": 20,
+      "page": null,
+      "spine_index": 4,
+      "text": "1 EGGS, DAIRY, and the Science of Breakfast"
+    },
+    {
+      "block_id": "b21",
+      "heading_level": null,
+      "index": 21,
+      "page": null,
+      "spine_index": 4,
+      "text": "2 SOUPS, STEWS, and the Science of Stock"
+    },
+    {
+      "block_id": "b22",
+      "heading_level": null,
+      "index": 22,
+      "page": null,
+      "spine_index": 4,
+      "text": "3 STEAKS, CHOPS, CHICKEN, FISH, and the Science of Fast-Cooking Foods"
+    },
+    {
+      "block_id": "b23",
+      "heading_level": null,
+      "index": 23,
+      "page": null,
+      "spine_index": 4,
+      "text": "4 BLANCHING, SEARING, BRAISING, GLAZING, ROASTING, and the Science of Vegetables"
+    },
+    {
+      "block_id": "b24",
+      "heading_level": null,
+      "index": 24,
+      "page": null,
+      "spine_index": 4,
+      "text": "5 BALLS, LOAVES, LINKS, BURGERS, and the Science of Ground Meat"
+    },
+    {
+      "block_id": "b25",
+      "heading_level": null,
+      "index": 25,
+      "page": null,
+      "spine_index": 4,
+      "text": "6 CHICKENS, TURKEYS, PRIME RIB, and the Science of Roasts"
+    },
+    {
+      "block_id": "b26",
+      "heading_level": null,
+      "index": 26,
+      "page": null,
+      "spine_index": 4,
+      "text": "7 TOMATO SAUCE, MACARONI, and the Science of Pasta"
+    },
+    {
+      "block_id": "b27",
+      "heading_level": null,
+      "index": 27,
+      "page": null,
+      "spine_index": 4,
+      "text": "8 GREENS, EMULSIONS, and the Science of Salads"
+    },
+    {
+      "block_id": "b28",
+      "heading_level": null,
+      "index": 28,
+      "page": null,
+      "spine_index": 4,
+      "text": "9 BATTER, BREADINGS, and the Science of Frying"
+    },
+    {
+      "block_id": "b29",
+      "heading_level": null,
+      "index": 29,
+      "page": null,
+      "spine_index": 4,
+      "text": "ACKNOWLEDGMENTS"
+    },
+    {
+      "block_id": "b30",
+      "heading_level": null,
+      "index": 30,
+      "page": null,
+      "spine_index": 4,
+      "text": "INDEX"
+    },
+    {
+      "block_id": "b31",
+      "heading_level": null,
+      "index": 31,
+      "page": null,
+      "spine_index": 5,
+      "text": "CONVERSIONS"
+    },
+    {
+      "block_id": "b32",
+      "heading_level": null,
+      "index": 32,
+      "page": null,
+      "spine_index": 5,
+      "text": "COMMON INGREDIENTS BY VOLUME AND MASS*"
+    },
+    {
+      "block_id": "b33",
+      "heading_level": null,
+      "index": 33,
+      "page": null,
+      "spine_index": 5,
+      "text": "INGREDIENT"
+    },
+    {
+      "block_id": "b34",
+      "heading_level": null,
+      "index": 34,
+      "page": null,
+      "spine_index": 5,
+      "text": "TYPE"
+    },
+    {
+      "block_id": "b35",
+      "heading_level": null,
+      "index": 35,
+      "page": null,
+      "spine_index": 5,
+      "text": "AMOUNT"
+    },
+    {
+      "block_id": "b36",
+      "heading_level": null,
+      "index": 36,
+      "page": null,
+      "spine_index": 5,
+      "text": "WEIGHT"
+    },
+    {
+      "block_id": "b37",
+      "heading_level": null,
+      "index": 37,
+      "page": null,
+      "spine_index": 5,
+      "text": "Water-Based Liquids (including water, wine, milk, buttermilk, yogurt, etc.)"
+    },
+    {
+      "block_id": "b38",
+      "heading_level": null,
+      "index": 38,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 cup = 16 tablespoons"
+    },
+    {
+      "block_id": "b39",
+      "heading_level": null,
+      "index": 39,
+      "page": null,
+      "spine_index": 5,
+      "text": "8 ounces (227 grams)"
+    }
+  ],
+  "blocks_candidate": [
+    {
+      "block_id": "b40",
+      "heading_level": null,
+      "index": 40,
+      "page": null,
+      "spine_index": 5,
+      "text": "Eggs"
+    },
+    {
+      "block_id": "b41",
+      "heading_level": null,
+      "index": 41,
+      "page": null,
+      "spine_index": 5,
+      "text": "JumboExtra LargeLargeMediumSmallPeewee"
+    },
+    {
+      "block_id": "b42",
+      "heading_level": null,
+      "index": 42,
+      "page": null,
+      "spine_index": 5,
+      "text": "2.5 ounces (71 grams)2.25 ounces (64 grams)2 ounces (57 grams)1.75 ounces (50 grams)1.5 ounces (43 grams)1.25 ounces (35 grams)"
+    },
+    {
+      "block_id": "b43",
+      "heading_level": null,
+      "index": 43,
+      "page": null,
+      "spine_index": 5,
+      "text": "Flour"
+    },
+    {
+      "block_id": "b44",
+      "heading_level": null,
+      "index": 44,
+      "page": null,
+      "spine_index": 5,
+      "text": "All-purposeCake/pastryBread"
+    },
+    {
+      "block_id": "b45",
+      "heading_level": null,
+      "index": 45,
+      "page": null,
+      "spine_index": 5,
+      "text": "1 cup"
+    },
+    {
+      "block_id": "b46",
+      "heading_level": null,
+      "index": 46,
+      "page": null,
+      "spine_index": 5,
+      "text": "5 ounces (142 grams)4.5 ounces (128 grams)5.5 ounces (156 grams)"
+    }
+  ],
+  "bundle_version": "1",
+  "heuristic_end_block_index": 47,
+  "heuristic_start_block_index": 40,
+  "pattern_hints": [],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c2",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

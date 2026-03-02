@@ -1,0 +1,33 @@
+{
+  "blocks": [
+    {
+      "block_id": "b1131",
+      "heading_level": null,
+      "index": 1131,
+      "page": null,
+      "spine_index": 64,
+      "text": "HOMEMADE HOT CHOCOLATE MIX"
+    },
+    {
+      "block_id": "b1132",
+      "heading_level": null,
+      "index": 1132,
+      "page": null,
+      "spine_index": 64,
+      "text": "MAKES ENOUGH FOR ABOUT 18 TO 36 SERVINGS Two 4-ounce bars 100%-cacao baking chocolate 1 cup Dutch-process cocoa powder 1 cup sugar 2 tablespoons cornstarch 1/2 teaspoon kosher salt"
+    },
+    {
+      "block_id": "b1133",
+      "heading_level": null,
+      "index": 1133,
+      "page": null,
+      "spine_index": 64,
+      "text": "1. Freeze the chocolate bars until completely frozen, about 10 minutes. Remove from the freezer, break into rough pieces, and place in the food processor, along with the cocoa powder, sugar, cornstarch, and salt. Process until completely powdered, about 1 minute. Transfer to an airtight container and store in cool, dark place for up to 3 months."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "HOMEMADE HOT CHOCOLATE MIX\nMAKES ENOUGH FOR ABOUT 18 TO 36 SERVINGS Two 4-ounce bars 100%-cacao baking chocolate 1 cup Dutch-process cocoa powder 1 cup sugar 2 tablespoons cornstarch 1/2 teaspoon kosher salt\n1. Freeze the chocolate bars until completely frozen, about 10 minutes. Remove from the freezer, break into rough pieces, and place in the food processor, along with the cocoa powder, sugar, cornstarch, and salt. Process until completely powdered, about 1 minute. Transfer to an airtight container and store in cool, dark place for up to 3 months.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c42",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

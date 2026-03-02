@@ -1,0 +1,17 @@
+{
+  "blocks": [
+    {
+      "block_id": "b747",
+      "heading_level": null,
+      "index": 747,
+      "page": null,
+      "spine_index": 20,
+      "text": "NOTE : Depending on how hot your kitchen is and your cookware's heat-retention abilities, cooking times may vary slightly. It's a good idea to do a practice run with a single egg and adjust the time as necessary. Cooking times should be increased if you live at a moderately high altitude. At very high altitudes, you should maintain a boil for the first few minutes of cooking."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "NOTE : Depending on how hot your kitchen is and your cookware's heat-retention abilities, cooking times may vary slightly. It's a good idea to do a practice run with a single egg and adjust the time as necessary. Cooking times should be increased if you live at a moderately high altitude. At very high altitudes, you should maintain a boil for the first few minutes of cooking.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c20",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

@@ -2508,6 +2508,50 @@ def generate_pred_run_artifacts(
         / "llm_manifest.json"
     )
     if llm_manifest_path.exists():
+        llm_run_dir = llm_manifest_path.parent.parent
+        prompt_inputs_manifest_path = run_root / "prompt_inputs_manifest.txt"
+        prompt_outputs_manifest_path = run_root / "prompt_outputs_manifest.txt"
+        prompt_input_dirs = (
+            llm_run_dir / "pass1_chunking" / "in",
+            llm_run_dir / "pass2_schemaorg" / "in",
+            llm_run_dir / "pass3_final" / "in",
+        )
+        prompt_output_dirs = (
+            llm_run_dir / "pass1_chunking" / "out",
+            llm_run_dir / "pass2_schemaorg" / "out",
+            llm_run_dir / "pass3_final" / "out",
+        )
+
+        def _build_prompt_manifest(
+            source_dirs: tuple[Path, ...], target_path: Path
+        ) -> str | None:
+            prompt_paths: list[str] = []
+            for source_dir in source_dirs:
+                if not source_dir.exists():
+                    continue
+                for prompt_file in sorted(source_dir.glob("*.json"), key=lambda p: p.name):
+                    rel_path = _path_for_manifest(run_root, prompt_file)
+                    if rel_path is not None:
+                        prompt_paths.append(rel_path)
+            target_path.write_text("\n".join(prompt_paths) + ("\n" if prompt_paths else ""), encoding="utf-8")
+            return _path_for_manifest(run_root, target_path)
+
+        prompt_inputs_manifest = _build_prompt_manifest(
+            source_dirs=prompt_input_dirs,
+            target_path=prompt_inputs_manifest_path,
+        )
+        prompt_outputs_manifest = _build_prompt_manifest(
+            source_dirs=prompt_output_dirs,
+            target_path=prompt_outputs_manifest_path,
+        )
+        if prompt_inputs_manifest is not None:
+            run_manifest_artifacts[
+                "prompt_inputs_manifest_txt"
+            ] = prompt_inputs_manifest
+        if prompt_outputs_manifest is not None:
+            run_manifest_artifacts[
+                "prompt_outputs_manifest_txt"
+            ] = prompt_outputs_manifest
         run_manifest_artifacts["llm_manifest_json"] = _path_for_manifest(
             run_root,
             llm_manifest_path,

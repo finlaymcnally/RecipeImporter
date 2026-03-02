@@ -262,13 +262,6 @@ def _format_progress_event_message(
             parts.append(f"running {running}")
         if error > 0:
             parts.append(f"errors {error}")
-        running_tasks = payload.get("running_tasks")
-        if isinstance(running_tasks, list) and running_tasks:
-            first_task = running_tasks[0]
-            if isinstance(first_task, Mapping):
-                active_input = _clean_text(first_task.get("input_path"))
-                if active_input:
-                    parts.append(f"active {Path(active_input).name}")
         return " | ".join(parts)
 
     status = _clean_text(payload.get("status"))

@@ -1,0 +1,25 @@
+{
+  "blocks": [
+    {
+      "block_id": "b1002",
+      "heading_level": null,
+      "index": 1002,
+      "page": null,
+      "spine_index": 49,
+      "text": "BASIC DRY PANCAKE MIX"
+    },
+    {
+      "block_id": "b1003",
+      "heading_level": null,
+      "index": 1003,
+      "page": null,
+      "spine_index": 49,
+      "text": "Why buy a store-bought mix when homemade pancakes are so easy and so much better? You can use this mix immediately after putting it together or, better yet, do what I do: make a quadruple batch and store it in an airtight container in the pantry. That way, whenever you want to whip up a batch of pancakes, all you've got to do is add your wet ingredients, and you're ready to roll."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "BASIC DRY PANCAKE MIX\nWhy buy a store-bought mix when homemade pancakes are so easy and so much better? You can use this mix immediately after putting it together or, better yet, do what I do: make a quadruple batch and store it in an airtight container in the pantry. That way, whenever you want to whip up a batch of pancakes, all you've got to do is add your wet ingredients, and you're ready to roll.",
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c35",
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

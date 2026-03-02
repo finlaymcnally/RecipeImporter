@@ -1,0 +1,105 @@
+{
+  "blocks": [
+    {
+      "block_id": "b450",
+      "heading_level": null,
+      "index": 450,
+      "page": null,
+      "spine_index": 13,
+      "text": "YIELDS 2 WHOLE FILLETS"
+    },
+    {
+      "block_id": "b451",
+      "heading_level": null,
+      "index": 451,
+      "page": null,
+      "spine_index": 13,
+      "text": "FOR THE SALT BRINE"
+    },
+    {
+      "block_id": "b452",
+      "heading_level": null,
+      "index": 452,
+      "page": null,
+      "spine_index": 13,
+      "text": "1 cup/200 g kosher salt"
+    },
+    {
+      "block_id": "b453",
+      "heading_level": null,
+      "index": 453,
+      "page": null,
+      "spine_index": 13,
+      "text": "FOR THE GLAZE"
+    },
+    {
+      "block_id": "b454",
+      "heading_level": null,
+      "index": 454,
+      "page": null,
+      "spine_index": 13,
+      "text": "1/2 cup/115 g high-quality unsalted butter"
+    },
+    {
+      "block_id": "b455",
+      "heading_level": null,
+      "index": 455,
+      "page": null,
+      "spine_index": 13,
+      "text": "1/2 cup plus 1 tablespoon packed/125 g brown sugar"
+    },
+    {
+      "block_id": "b456",
+      "heading_level": null,
+      "index": 456,
+      "page": null,
+      "spine_index": 13,
+      "text": "1/4 cup/55 g verjus"
+    },
+    {
+      "block_id": "b457",
+      "heading_level": null,
+      "index": 457,
+      "page": null,
+      "spine_index": 13,
+      "text": "Salt"
+    },
+    {
+      "block_id": "b458",
+      "heading_level": null,
+      "index": 458,
+      "page": null,
+      "spine_index": 13,
+      "text": "FOR THE SALMON"
+    },
+    {
+      "block_id": "b459",
+      "heading_level": null,
+      "index": 459,
+      "page": null,
+      "spine_index": 13,
+      "text": "2 Lummi Island Wild sockeye salmon fillets (about 760 g total), pin bones removed"
+    },
+    {
+      "block_id": "b460",
+      "heading_level": null,
+      "index": 460,
+      "page": null,
+      "spine_index": 13,
+      "text": "SALT BRINE"
+    },
+    {
+      "block_id": "b461",
+      "heading_level": null,
+      "index": 461,
+      "page": null,
+      "spine_index": 13,
+      "text": "In a large resealable container, whisk the salt into 1 quart/1 L of hot water until it's completely dissolved, then store the brine in the refrigerator until cold."
+    }
+  ],
+  "bundle_version": "1",
+  "canonical_text": "YIELDS 2 WHOLE FILLETS\nFOR THE SALT BRINE\n1 cup/200 g kosher salt\nFOR THE GLAZE\n1/2 cup/115 g high-quality unsalted butter\n1/2 cup plus 1 tablespoon packed/125 g brown sugar\n1/4 cup/55 g verjus\nSalt\nFOR THE SALMON\n2 Lummi Island Wild sockeye salmon fillets (about 760 g total), pin bones removed\nSALT BRINE\nIn a large resealable container, whisk the salt into 1 quart/1 L of hot water until it's completely dissolved, then store the brine in the refrigerator until cold.",
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c11",
+  "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+  "workbook_slug": "seaandsmokecutdown"
+}

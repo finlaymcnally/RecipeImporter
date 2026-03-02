@@ -353,6 +353,10 @@ BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
 BENCHMARK_EXECUTION_MODE_LEGACY = "legacy"
 BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
+COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
+COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
+    "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS"
+)
 BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES: dict[str, str] = {
     "dmp": "DMP",
 }
@@ -2261,6 +2265,8 @@ def _interactive_single_profile_all_matched_benchmark(
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
     processed_output_root: Path,
+    write_markdown: bool,
+    write_label_studio_tasks: bool,
 ) -> bool:
     """Run one selected benchmark profile across every matched gold/source pair."""
     targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
@@ -2340,8 +2346,8 @@ def _interactive_single_profile_all_matched_benchmark(
         eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
         execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
         no_upload=True,
-        write_markdown=True,
-        write_label_studio_tasks=True,
+        write_markdown=write_markdown,
+        write_label_studio_tasks=write_label_studio_tasks,
     )
 
     failures: list[tuple[AllMethodTarget, str]] = []
@@ -3040,6 +3046,15 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 fg=typer.colors.CYAN,
             )
 
+            benchmark_write_markdown = _coerce_bool_setting(
+                os.getenv(COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV),
+                default=False,
+            )
+            benchmark_write_labelstudio_tasks = _coerce_bool_setting(
+                os.getenv(COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV),
+                default=False,
+            )
+
             if benchmark_mode == "single_offline":
                 benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
                     selected_benchmark_settings,
@@ -3048,8 +3063,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
                     execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
                     no_upload=True,
-                    write_markdown=True,
-                    write_label_studio_tasks=True,
+                    write_markdown=benchmark_write_markdown,
+                    write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                 )
 
                 labelstudio_benchmark(
@@ -3063,6 +3078,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
+                    write_markdown=benchmark_write_markdown,
+                    write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                 )
                 if completed:
                     save_last_run_settings(

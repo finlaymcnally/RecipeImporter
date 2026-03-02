@@ -1,0 +1,19 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "SERVES 2 TO 4 8 slices bacon, cut crosswise in half"
+  ],
+  "extracted_instructions": [],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c30",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org/",
+    "@type": "Recipe",
+    "name": "CRISPY FRIED BACON",
+    "recipeIngredient": [
+      "SERVES 2 TO 4 8 slices bacon, cut crosswise in half"
+    ],
+    "recipeYield": "SERVES 2 TO 4"
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

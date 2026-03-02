@@ -1,0 +1,59 @@
+{
+  "bundle_version": "1",
+  "extracted_ingredients": [
+    "2 tablespoons extra-virgin olive oil, plus more for serving",
+    "1 medium onion, finely diced (about 1 cup)",
+    "2 medium carrots, peeled and finely diced (about 1 cup)",
+    "2 stalks celery, finely diced (about 1 cup)",
+    "4 medium cloves garlic, minced or grated on a Microplane (about 4 teaspoons)",
+    "6 cups homemade or low-sodium canned chicken stock",
+    "1 cup diced canned tomatoes, with their juice",
+    "One 15-ounce can Roman (borlotti or cranberry) cannelini, or great northern beans, with their liquid",
+    "2 bay leaves",
+    "1 small zucchini, cut into 1/2-inch cubes or 1/2-inch half-moons (about 3/4 cup)",
+    "1 small summer squash, cut into 1/2-inch cubes or 1/2-inch half-moons (about 3/4 cup)",
+    "1 cup green beans cut into 1/2-inch segments",
+    "2 cups roughly chopped curly spinach or kale",
+    "1 cup small pasta, such as shells, ditali, or elbows",
+    "1/2 cup frozen peas",
+    "1/2 cup cherry tomatoes, cut in half",
+    "Kosher salt and freshly ground black pepper",
+    "1/4 cup chopped fresh basil"
+  ],
+  "extracted_instructions": [
+    "1. Heat the olive oil in a large saucepan over medium-high heat until shimmering. Reduce the heat to medium, add the onion, carrots, celery, and garlic, and cook, stirring, until softened but not browned, about 3 minutes. Add the chicken stock, tomatoes and beans, with their liquid, and the bay leaves and bring to a boil over high heat, then reduce to a bare simmer. Cook for 20 minutes, adding the zucchini, squash, green beans, and spinach for the last 10 minutes, and the pasta for last 5 or 10 minutes (depending on the package directions)."
+  ],
+  "recipe_id": "urn:recipeimport:epub:25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761:c47",
+  "schemaorg_recipe": {
+    "@context": "https://schema.org/",
+    "@type": "Recipe",
+    "description": "Minestrone is my soup of choice during the spring and early summer, when vegetables from the farmers' market are at their brightest and most flavorful. Some minestrone soups get cooked down for hours. I actually prefer my quick version, because it keeps the vegetables mildly crisp and fresh tasting. I always start with onion, carrot, celery, and canned tomatoes as my base, but on top of that, you can use the vegetables suggested here or go with anything from the table here - here . Just make sure to keep the total amount of extra vegetables at around 3 to 4 cups (not counting greens, which will cook down dramatically).",
+    "name": "30-MINUTE MINESTRONE",
+    "recipeIngredient": [
+      "2 tablespoons extra-virgin olive oil, plus more for serving",
+      "1 medium onion, finely diced (about 1 cup)",
+      "2 medium carrots, peeled and finely diced (about 1 cup)",
+      "2 stalks celery, finely diced (about 1 cup)",
+      "4 medium cloves garlic, minced or grated on a Microplane (about 4 teaspoons)",
+      "6 cups homemade or low-sodium canned chicken stock",
+      "1 cup diced canned tomatoes, with their juice",
+      "One 15-ounce can Roman (borlotti or cranberry) cannelini, or great northern beans, with their liquid",
+      "2 bay leaves",
+      "1 small zucchini, cut into 1/2-inch cubes or 1/2-inch half-moons (about 3/4 cup)",
+      "1 small summer squash, cut into 1/2-inch cubes or 1/2-inch half-moons (about 3/4 cup)",
+      "1 cup green beans cut into 1/2-inch segments",
+      "2 cups roughly chopped curly spinach or kale",
+      "1 cup small pasta, such as shells, ditali, or elbows",
+      "1/2 cup frozen peas",
+      "1/2 cup cherry tomatoes, cut in half",
+      "Kosher salt and freshly ground black pepper",
+      "1/4 cup chopped fresh basil"
+    ],
+    "recipeInstructions": [
+      "1. Heat the olive oil in a large saucepan over medium-high heat until shimmering. Reduce the heat to medium, add the onion, carrots, celery, and garlic, and cook, stirring, until softened but not browned, about 3 minutes. Add the chicken stock, tomatoes and beans, with their liquid, and the bay leaves and bring to a boil over high heat, then reduce to a bare simmer. Cook for 20 minutes, adding the zucchini, squash, green beans, and spinach for the last 10 minutes, and the pasta for last 5 or 10 minutes (depending on the package directions)."
+    ],
+    "recipeYield": "6 TO 8"
+  },
+  "source_hash": "25814f413ce3cebb29af76fb45b8bef12928240886abe3d672e85f7e0be88761",
+  "workbook_slug": "thefoodlabcutdown"
+}

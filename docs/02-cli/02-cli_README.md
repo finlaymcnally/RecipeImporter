@@ -333,6 +333,8 @@ Interactive benchmark now has a mode submenu before execution:
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - calls `labelstudio-benchmark` once with `--no-upload --eval-mode canonical-text`,
+   - defaults to writing markdown + Label Studio task artifacts off in interactive mode
+     (set `COOKIMPORT_BENCH_WRITE_MARKDOWN` / `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS` to `1` before launch to keep them on).
    - keeps spinner/status visible for both prediction generation and evaluation phases,
    - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
@@ -342,6 +344,8 @@ Interactive benchmark now has a mode submenu before execution:
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
+   - defaults to writing markdown + Label Studio task artifacts off in interactive mode
+     (set `COOKIMPORT_BENCH_WRITE_MARKDOWN` / `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS` to `1` before launch to keep them on).
    - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?`, default `No`),
    - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
    - continues when an individual source fails and prints a failure summary at the end,
@@ -1044,6 +1048,8 @@ Options:
 CLI-relevant environment variables:
 
 - `C3IMP_LIMIT`: used by interactive mode callback. If set to an integer, interactive import uses it as `stage --limit`.
+- `COOKIMPORT_WORKER_UTILIZATION`: optional percentage or ratio for interactive per-run concurrency defaults in `C3imp` (defaults to `90`).
+- `COOKIMPORT_IO_PACE_EVERY_WRITES` / `COOKIMPORT_IO_PACE_SLEEP_MS`: optional disk write pacing controls (default `16` and `8` in `C3imp`).
 - `C3IMP_EPUB_EXTRACTOR`: EPUB extractor switch read at runtime by the EPUB importer (default-enabled: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`: unstructured HTML parser version (`v1` or `v2`) for EPUB extraction.
 - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`: bool toggle for Unstructured `skip_headers_and_footers` on EPUB HTML.
