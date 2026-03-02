@@ -1344,7 +1344,7 @@ def test_run_quality_suite_uses_thread_executor_for_parallel_wsl_runs_when_avail
     assert sorted(seen_experiment_ids) == ["baseline", "candidate"]
 
 
-def test_run_quality_suite_does_not_apply_wsl_safety_guard_to_nested_parallelism(
+def test_run_quality_suite_applies_wsl_safety_guard_to_nested_parallelism(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1442,24 +1442,24 @@ def test_run_quality_suite_does_not_apply_wsl_safety_guard_to_nested_parallelism
     resolved = json.loads(
         (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
     )
-    assert resolved["wsl_safety_guard_applied"] is False
-    assert resolved["wsl_safety_guard_reason"] == "retired_unhobble"
-    assert resolved["wsl_safety_guard_worker_cap"] is None
-    assert resolved["wsl_safety_guard_adjusted_experiments"] == 0
-    assert all(value == 9 for value in observed_workers.values())
-    assert all(value == 8 for value in observed_pdf_workers.values())
+    assert resolved["wsl_safety_guard_applied"] is True
+    assert resolved["wsl_safety_guard_reason"] == "applied"
+    assert resolved["wsl_safety_guard_worker_cap"] == 2
+    assert resolved["wsl_safety_guard_adjusted_experiments"] == 2
+    assert all(value == 2 for value in observed_workers.values())
+    assert all(value == 2 for value in observed_pdf_workers.values())
     assert all(
-        runtime.get("max_inflight_pipelines") == 5
-        and runtime.get("max_concurrent_split_phases") == 4
-        and runtime.get("max_eval_tail_pipelines") == 4
-        and runtime.get("max_parallel_sources") == 4
-        and runtime.get("wing_backlog_target") == 4
-        and runtime.get("smart_scheduler") is True
+        runtime.get("max_inflight_pipelines") == 2
+        and runtime.get("max_concurrent_split_phases") == 1
+        and runtime.get("max_eval_tail_pipelines") == 2
+        and runtime.get("max_parallel_sources") == 1
+        and runtime.get("wing_backlog_target") == 1
+        and runtime.get("smart_scheduler") is False
         for runtime in observed_runtime.values()
     )
 
 
-def test_run_quality_suite_does_not_apply_wsl_safety_guard_for_single_experiment_slot(
+def test_run_quality_suite_applies_wsl_safety_guard_for_single_experiment_slot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1563,12 +1563,123 @@ def test_run_quality_suite_does_not_apply_wsl_safety_guard_for_single_experiment
     )
     assert resolved["experiment_executor_mode"] == "thread"
     assert resolved["experiment_executor_reason"] == "single_worker"
+    assert resolved["wsl_safety_guard_applied"] is True
+    assert resolved["wsl_safety_guard_reason"] == "applied"
+    assert resolved["wsl_safety_guard_worker_cap"] == 2
+    assert resolved["wsl_safety_guard_adjusted_experiments"] == 2
+    assert all(value == 2 for value in observed_workers.values())
+    assert all(value == 2 for value in observed_pdf_workers.values())
+    assert all(
+        runtime.get("max_inflight_pipelines") == 2
+        and runtime.get("max_concurrent_split_phases") == 1
+        and runtime.get("max_eval_tail_pipelines") == 2
+        and runtime.get("max_parallel_sources") == 1
+        and runtime.get("wing_backlog_target") == 1
+        and runtime.get("smart_scheduler") is False
+        for runtime in observed_runtime.values()
+    )
+
+
+def test_run_quality_suite_allows_wsl_safety_guard_opt_out_with_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_wsl_guard_disable_env.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 2,
+            "all_method_runtime": {
+                "max_parallel_sources": 4,
+                "max_inflight_pipelines": 5,
+                "max_concurrent_split_phases": 4,
+                "max_eval_tail_pipelines": 4,
+                "wing_backlog_target": 4,
+                "smart_scheduler": True,
+            },
+            "experiments": [
+                {"id": "candidate", "run_settings_patch": {"workers": 9}},
+            ],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(
+        base_run_settings_file,
+        {"workers": 9, "pdf_split_workers": 8, "epub_split_workers": 7},
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._running_in_wsl",
+        lambda: True,
+    )
+    monkeypatch.setenv("COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD", "1")
+    monkeypatch.setattr(
+        "cookimport.cli._probe_all_method_process_pool_executor",
+        lambda: (True, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_codex_choice",
+        lambda _include_codex: (False, None),
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._resolve_all_method_markdown_extractors_choice",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "cookimport.cli._build_all_method_target_variants",
+        lambda **_kwargs: [],
+    )
+
+    observed_workers: dict[str, int] = {}
+    observed_runtime: dict[str, dict[str, object]] = {}
+
+    def _fake_thread_worker(**kwargs):
+        experiment_id = kwargs["experiment_id"]
+        run_settings = kwargs["run_settings"]
+        all_method_runtime = kwargs["all_method_runtime"]
+        observed_workers[experiment_id] = int(run_settings.workers)
+        observed_runtime[experiment_id] = dict(all_method_runtime)
+        return QualityExperimentResult(
+            id=experiment_id,
+            status="ok",
+            run_settings_hash=run_settings.stable_hash(),
+            run_settings_summary=run_settings.summary(),
+            strict_f1_macro=0.60,
+            practical_f1_macro=0.70,
+            source_success_rate=1.0,
+            sources_planned=1,
+            sources_successful=1,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment",
+        _fake_thread_worker,
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("subprocess experiment path should not be used when pool is available")
+        ),
+    )
+
+    run_root = run_quality_suite(
+        suite,
+        tmp_path / "runs",
+        experiments_file=experiments_file,
+        base_run_settings_file=base_run_settings_file,
+        search_strategy="exhaustive",
+        max_parallel_experiments=1,
+        progress_callback=None,
+    )
+
+    resolved = json.loads(
+        (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
+    )
     assert resolved["wsl_safety_guard_applied"] is False
-    assert resolved["wsl_safety_guard_reason"] == "retired_unhobble"
-    assert resolved["wsl_safety_guard_worker_cap"] is None
+    assert resolved["wsl_safety_guard_reason"] == "disabled_by_env"
     assert resolved["wsl_safety_guard_adjusted_experiments"] == 0
     assert all(value == 9 for value in observed_workers.values())
-    assert all(value == 8 for value in observed_pdf_workers.values())
     assert all(
         runtime.get("max_inflight_pipelines") == 5
         and runtime.get("max_concurrent_split_phases") == 4

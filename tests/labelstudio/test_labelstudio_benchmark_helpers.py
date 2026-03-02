@@ -287,6 +287,99 @@ def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
     assert max(eta_seconds) >= 2
 
 
+def test_run_with_progress_status_defaults_to_plain_for_agent_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _GuardConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+
+        def status(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("Live status should not be used in agent env default mode.")
+
+    monkeypatch.setenv("CODEX_CI", "1")
+    monkeypatch.delenv("COOKIMPORT_PLAIN_PROGRESS", raising=False)
+    monkeypatch.setattr(cli, "console", _GuardConsole())
+    plain_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: plain_messages.append(str(message)),
+    )
+
+    def _run(update_progress):
+        update_progress("Quality suite task 1/2")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running bench quality suite...",
+        progress_prefix="Bench quality",
+        run=_run,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "Bench quality: Quality suite task 1/2" in message for message in plain_messages
+    )
+
+
+def test_run_with_progress_status_agent_plain_default_allows_explicit_live_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+
+        def __init__(self) -> None:
+            self.status_calls = 0
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.status_calls += 1
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setenv("CODEX_CI", "1")
+    monkeypatch.setenv("COOKIMPORT_PLAIN_PROGRESS", "0")
+    monkeypatch.setattr(cli, "console", capture)
+
+    def _run(update_progress):
+        update_progress("Quality suite task 1/2")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running bench quality suite...",
+        progress_prefix="Bench quality",
+        run=_run,
+        tick_seconds=0.05,
+    )
+
+    assert result == {"ok": True}
+    assert capture.status_calls == 1
+    assert any(
+        "Bench quality: Quality suite task 1/2" in message for message in capture.messages
+    )
+
+
 def test_run_with_progress_status_shows_elapsed_for_long_steps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

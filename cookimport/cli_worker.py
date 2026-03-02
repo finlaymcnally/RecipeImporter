@@ -296,6 +296,7 @@ def stage_one_file(
                     run_settings=run_settings,
                     run_root=out,
                     workbook_slug=workbook_slug,
+                    progress_callback=_report_progress,
                 )
             except CodexFarmRunnerError as exc:
                 if run_settings.codex_farm_failure_mode.value == "fallback":
@@ -350,6 +351,7 @@ def stage_one_file(
                     run_root=out,
                     workbook_slug=workbook_slug,
                     overrides=parsing_overrides,
+                    progress_callback=_report_progress,
                 )
             except CodexFarmRunnerError as exc:
                 if run_settings.codex_farm_failure_mode.value == "fallback":

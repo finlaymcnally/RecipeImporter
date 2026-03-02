@@ -106,7 +106,7 @@ Menu numbering and shortcuts:
 
 `Settings` edits global defaults in `cookimport.json`.
 
-Interactive `Import` and benchmark runs (single-offline + all-method) include a per-run chooser (`global defaults` / `preferred format` / `quality-suite winner` / `last run` / `change run settings`) so experiments do not mutate global defaults.
+Interactive `Import` and benchmark runs (single-offline + all-method) include a per-run chooser (`global defaults` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last run` / `change run settings`) so experiments do not mutate global defaults.
 
 Config keys and defaults:
 
@@ -238,6 +238,7 @@ Developer note:
 2. Show `Run settings` mode picker:
    - `Run with global defaults (...)`
    - `Run with preferred format (...)` (saved preferred settings when available; otherwise uses the built-in preferred preset: `epub_extractor=beautifulsoup` + `instruction_step_segmentation_policy=off`)
+   - `Run with quality-first winner stack (...)` (built-in preset: `epub_extractor=unstructured`, `epub_unstructured_html_parser_version=v1`, `epub_unstructured_preprocess_mode=semantic_v1`, `epub_unstructured_skip_headers_footers=true`)
    - `Run with quality-suite winner (...)` (saved leaderboard winner settings when available; written to `data/.history/qualitysuite_winner_run_settings.json`)
    - `Run with last import settings (...)` when available
    - `Change run settings...` (full-screen arrow-key editor)
@@ -328,7 +329,7 @@ Interactive benchmark now has a mode submenu before execution:
    - `Generate predictions + evaluate for all matched golden sets (single config each, offline)`
    - `All method benchmark (offline, no upload)`
 2. Single offline path:
-   - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`), using the same editor flow as Import,
+   - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`), using the same editor flow as Import,
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - calls `labelstudio-benchmark` once with `--no-upload --eval-mode canonical-text`,
@@ -337,7 +338,7 @@ Interactive benchmark now has a mode submenu before execution:
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
 3. Single-profile all-matched path:
-   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`),
+   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`),
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
@@ -347,7 +348,7 @@ Interactive benchmark now has a mode submenu before execution:
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/`,
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
 4. All method path:
-   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-suite winner` / `last benchmark` / `change`) before building all-method variants,
+   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) before building all-method variants,
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (this controls the base profile; all-method still separately prompts whether to include Codex permutations),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - all-method predict-only execution now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`, so Priority 1/3/4/6/7 parsing-scoring controls are forwarded with the same surface as single benchmark runs,

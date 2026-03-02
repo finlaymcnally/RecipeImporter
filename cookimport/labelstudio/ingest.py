@@ -1760,6 +1760,7 @@ def generate_pred_run_artifacts(
                 run_settings=run_settings,
                 run_root=run_root,
                 workbook_slug=book_slug,
+                progress_callback=_notify,
             )
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":

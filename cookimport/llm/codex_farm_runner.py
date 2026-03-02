@@ -6,12 +6,14 @@ import logging
 import os
 import shlex
 import subprocess
+import threading
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 logger = logging.getLogger(__name__)
+_CODEX_FARM_PROGRESS_PREFIX = "__codex_farm_progress__ "
 
 
 class CodexFarmRunnerError(RuntimeError):
@@ -114,6 +116,71 @@ def _run_codex_farm_command(
         ) from exc
 
 
+def _run_codex_farm_command_streaming(
+    command: list[str],
+    *,
+    env: Mapping[str, str] | None = None,
+    stderr_line_handler: Callable[[str], bool] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        proc = subprocess.Popen(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_merge_env(env),
+            bufsize=1,
+        )
+    except FileNotFoundError as exc:
+        binary = command[0] if command else "codex-farm"
+        raise CodexFarmRunnerError(
+            f"codex-farm command not found: {binary!r}. "
+            "Install codex-farm or disable llm_recipe_pipeline."
+        ) from exc
+    except OSError as exc:
+        binary = command[0] if command else "codex-farm"
+        raise CodexFarmRunnerError(
+            f"Failed to execute codex-farm command {binary!r}: {exc}"
+        ) from exc
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def _read_stdout() -> None:
+        if proc.stdout is None:
+            return
+        for line in proc.stdout:
+            stdout_lines.append(line)
+
+    def _read_stderr() -> None:
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            keep_line = True
+            if stderr_line_handler is not None:
+                try:
+                    keep_line = not bool(stderr_line_handler(line.rstrip("\r\n")))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Ignoring codex-farm stderr handler failure: %s", exc)
+                    keep_line = True
+            if keep_line:
+                stderr_lines.append(line)
+
+    stdout_thread = threading.Thread(target=_read_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+    return_code = proc.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+    return subprocess.CompletedProcess(
+        args=command,
+        returncode=return_code,
+        stdout="".join(stdout_lines),
+        stderr="".join(stderr_lines),
+    )
+
+
 def _parse_json_stdout(
     completed: subprocess.CompletedProcess[str],
     *,
@@ -137,6 +204,80 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _progress_events_option_unsupported(stderr_text: str) -> bool:
+    lowered = str(stderr_text or "").strip().lower()
+    if not lowered or "--progress-events" not in lowered:
+        return False
+    return any(
+        marker in lowered
+        for marker in (
+            "no such option",
+            "unrecognized arguments",
+            "unknown option",
+            "invalid option",
+        )
+    )
+
+
+def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
+    line = str(stderr_line or "").strip()
+    if not line.startswith(_CODEX_FARM_PROGRESS_PREFIX):
+        return None
+    raw_payload = line[len(_CODEX_FARM_PROGRESS_PREFIX) :].strip()
+    if not raw_payload:
+        return None
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return None
+    return dict(payload) if isinstance(payload, dict) else None
+
+
+def _format_progress_event_message(
+    payload: Mapping[str, Any],
+    *,
+    pipeline_id: str,
+) -> str | None:
+    counts_raw = payload.get("counts")
+    progress_raw = payload.get("progress")
+    counts = counts_raw if isinstance(counts_raw, Mapping) else {}
+    progress = progress_raw if isinstance(progress_raw, Mapping) else {}
+
+    total = _coerce_int(counts.get("total"))
+    done = _coerce_int(counts.get("done")) or 0
+    error = _coerce_int(counts.get("error")) or 0
+    canceled = _coerce_int(counts.get("canceled")) or 0
+    running = _coerce_int(counts.get("running")) or 0
+    completed = _coerce_int(progress.get("completed"))
+    if completed is None:
+        completed = done + error + canceled
+
+    if total is not None and total > 0:
+        safe_total = max(0, int(total))
+        safe_completed = max(0, min(int(completed), safe_total))
+        parts = [f"codex-farm {pipeline_id} task {safe_completed}/{safe_total}"]
+        if running > 0:
+            parts.append(f"running {running}")
+        if error > 0:
+            parts.append(f"errors {error}")
+        running_tasks = payload.get("running_tasks")
+        if isinstance(running_tasks, list) and running_tasks:
+            first_task = running_tasks[0]
+            if isinstance(first_task, Mapping):
+                active_input = _clean_text(first_task.get("input_path"))
+                if active_input:
+                    parts.append(f"active {Path(active_input).name}")
+        return " | ".join(parts)
+
+    status = _clean_text(payload.get("status"))
+    if status:
+        return f"codex-farm {pipeline_id}: {status}"
+    event = _clean_text(payload.get("event"))
+    if event:
+        return f"codex-farm {pipeline_id}: {event.replace('_', ' ')}"
+    return None
 
 
 def _read_json_dict(path: Path) -> dict[str, Any] | None:
@@ -749,6 +890,7 @@ def _fetch_run_autotune_payload(
 @dataclass(frozen=True)
 class SubprocessCodexFarmRunner:
     cmd: str = "codex-farm"
+    progress_callback: Callable[[str], None] | None = None
 
     def run_pipeline(
         self,
@@ -785,11 +927,54 @@ class SubprocessCodexFarmRunner:
             )
             command.extend(["--output-schema", str(expected_schema_path)])
         command.append("--json")
+        if self.progress_callback is not None:
+            command.append("--progress-events")
         if root_dir is not None:
             command.extend(["--root", str(root_dir)])
         if workspace_root is not None:
             command.extend(["--workspace-root", str(workspace_root)])
-        completed = _run_codex_farm_command(command, env=env)
+        progress_callback = self.progress_callback
+        last_progress_message = ""
+
+        def _emit_progress(message: str) -> None:
+            nonlocal last_progress_message
+            if progress_callback is None:
+                return
+            cleaned = str(message or "").strip()
+            if not cleaned or cleaned == last_progress_message:
+                return
+            last_progress_message = cleaned
+            try:
+                progress_callback(cleaned)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Ignoring codex-farm progress callback failure: %s", exc)
+
+        completed: subprocess.CompletedProcess[str]
+        if progress_callback is None:
+            completed = _run_codex_farm_command(command, env=env)
+        else:
+            def _handle_stderr_line(line: str) -> bool:
+                payload = _parse_progress_event(line)
+                if payload is None:
+                    return False
+                message = _format_progress_event_message(payload, pipeline_id=pipeline_id)
+                if message:
+                    _emit_progress(message)
+                return True
+
+            completed = _run_codex_farm_command_streaming(
+                command,
+                env=env,
+                stderr_line_handler=_handle_stderr_line,
+            )
+            if completed.returncode != 0 and _progress_events_option_unsupported(completed.stderr):
+                _emit_progress(
+                    f"codex-farm {pipeline_id}: live progress events unavailable; retrying without --progress-events."
+                )
+                fallback_command = list(command)
+                if "--progress-events" in fallback_command:
+                    fallback_command.remove("--progress-events")
+                completed = _run_codex_farm_command(fallback_command, env=env)
 
         if completed.stdout.strip():
             logger.info(

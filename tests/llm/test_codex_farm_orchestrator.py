@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -526,6 +527,273 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
         "--pipeline",
         "recipe.chunking.v1",
     ]
+
+
+def test_subprocess_runner_emits_progress_callback_from_progress_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    popen_command: list[str] | None = None
+
+    class _FakePopen:
+        def __init__(self, command, **_kwargs):  # noqa: ANN001
+            nonlocal popen_command
+            popen_command = list(command)
+            self.returncode = 0
+            self.stdout = io.StringIO(
+                json.dumps(
+                    {
+                        "run_id": "run-progress-events",
+                        "status": "done",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                )
+                + "\n"
+            )
+            self.stderr = io.StringIO(
+                "\n".join(
+                    [
+                        "__codex_farm_progress__ "
+                        + json.dumps(
+                            {
+                                "event": "run_started",
+                                "status": "running",
+                                "counts": {
+                                    "queued": 1,
+                                    "running": 1,
+                                    "done": 0,
+                                    "error": 0,
+                                    "canceled": 0,
+                                    "total": 2,
+                                },
+                                "progress": {"completed": 0},
+                            },
+                            sort_keys=True,
+                        ),
+                        "__codex_farm_progress__ "
+                        + json.dumps(
+                            {
+                                "event": "run_progress",
+                                "status": "running",
+                                "counts": {
+                                    "queued": 0,
+                                    "running": 1,
+                                    "done": 1,
+                                    "error": 0,
+                                    "canceled": 0,
+                                    "total": 2,
+                                },
+                                "progress": {"completed": 1},
+                            },
+                            sort_keys=True,
+                        ),
+                        "__codex_farm_progress__ "
+                        + json.dumps(
+                            {
+                                "event": "run_finished",
+                                "status": "done",
+                                "counts": {
+                                    "queued": 0,
+                                    "running": 0,
+                                    "done": 2,
+                                    "error": 0,
+                                    "canceled": 0,
+                                    "total": 2,
+                                },
+                                "progress": {"completed": 2},
+                            },
+                            sort_keys=True,
+                        ),
+                    ]
+                )
+                + "\n"
+            )
+
+        def wait(self):  # noqa: D401
+            return self.returncode
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-progress-events",
+                        "pipeline_id": "recipe.chunking.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.Popen", _FakePopen)
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    progress_messages: list[str] = []
+    runner = SubprocessCodexFarmRunner(
+        cmd="codex-farm",
+        progress_callback=progress_messages.append,
+    )
+    run_result = runner.run_pipeline(
+        "recipe.chunking.v1",
+        in_dir,
+        out_dir,
+        {},
+        root_dir=root_dir,
+    )
+
+    assert run_result.run_id == "run-progress-events"
+    assert popen_command is not None
+    assert "--progress-events" in popen_command
+    assert any("task 0/2" in message for message in progress_messages)
+    assert any("task 1/2" in message for message in progress_messages)
+    assert any("task 2/2" in message for message in progress_messages)
+
+
+def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    popen_command: list[str] | None = None
+    run_calls: list[list[str]] = []
+
+    class _UnsupportedProgressEventsPopen:
+        def __init__(self, command, **_kwargs):  # noqa: ANN001
+            nonlocal popen_command
+            popen_command = list(command)
+            self.returncode = 2
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("error: unrecognized arguments: --progress-events\n")
+
+        def wait(self):  # noqa: D401
+            return self.returncode
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        run_calls.append(argv)
+        if argv[1:3] == ["process", "--pipeline"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-progress-events-fallback",
+                        "status": "done",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-progress-events-fallback",
+                        "pipeline_id": "recipe.chunking.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner.subprocess.Popen",
+        _UnsupportedProgressEventsPopen,
+    )
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    progress_messages: list[str] = []
+    runner = SubprocessCodexFarmRunner(
+        cmd="codex-farm",
+        progress_callback=progress_messages.append,
+    )
+    run_result = runner.run_pipeline(
+        "recipe.chunking.v1",
+        in_dir,
+        out_dir,
+        {},
+        root_dir=root_dir,
+    )
+
+    assert run_result.run_id == "run-progress-events-fallback"
+    assert popen_command is not None
+    assert "--progress-events" in popen_command
+    assert run_calls
+    assert "--progress-events" not in run_calls[0]
+    assert any("--progress-events" in message for message in progress_messages)
 
 
 def test_subprocess_runner_collects_codex_exec_activity_telemetry(

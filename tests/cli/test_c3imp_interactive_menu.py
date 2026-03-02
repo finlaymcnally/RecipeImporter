@@ -228,6 +228,7 @@ def test_choose_run_settings_returns_saved_preferred_settings(
     assert selected is not None
     assert selected.to_run_config_dict() == preferred_settings.to_run_config_dict()
     assert "preferred" in captured_choice_values
+    assert "quality_first_winner_stack" in captured_choice_values
 
 
 def test_choose_run_settings_builds_default_preferred_when_unsaved(
@@ -262,6 +263,50 @@ def test_choose_run_settings_builds_default_preferred_when_unsaved(
     assert selected is not None
     assert selected.epub_extractor.value == "beautifulsoup"
     assert selected.instruction_step_segmentation_policy.value == "off"
+
+
+def test_choose_run_settings_builds_quality_first_winner_stack(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "beautifulsoup",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "none",
+            "epub_unstructured_skip_headers_footers": False,
+        },
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_last_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_preferred_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="import",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: "quality_first_winner_stack",
+        back_action=object(),
+    )
+
+    assert selected is not None
+    assert selected.epub_extractor.value == "unstructured"
+    assert selected.epub_unstructured_html_parser_version.value == "v1"
+    assert selected.epub_unstructured_preprocess_mode.value == "semantic_v1"
+    assert selected.epub_unstructured_skip_headers_footers is True
 
 
 def test_choose_run_settings_returns_saved_qualitysuite_winner_settings(

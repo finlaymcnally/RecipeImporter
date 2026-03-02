@@ -22,12 +22,27 @@ _PREFERRED_FORMAT_PATCH: dict[str, Any] = {
     "epub_extractor": "beautifulsoup",
     "instruction_step_segmentation_policy": "off",
 }
+_QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
+    "epub_extractor": "unstructured",
+    "epub_unstructured_html_parser_version": "v1",
+    "epub_unstructured_preprocess_mode": "semantic_v1",
+    "epub_unstructured_skip_headers_footers": True,
+}
 
 
 def _default_preferred_settings(global_defaults: RunSettings) -> RunSettings:
     payload = global_defaults.to_run_config_dict()
     payload.update(_PREFERRED_FORMAT_PATCH)
     return RunSettings.from_dict(payload, warn_context="preferred format defaults")
+
+
+def _default_quality_first_winner_settings(global_defaults: RunSettings) -> RunSettings:
+    payload = global_defaults.to_run_config_dict()
+    payload.update(_QUALITY_FIRST_WINNER_STACK_PATCH)
+    return RunSettings.from_dict(
+        payload,
+        warn_context="quality-first winner stack defaults",
+    )
 
 
 def _codex_farm_model_choices(
@@ -188,6 +203,9 @@ def choose_run_settings(
     last_settings = load_last_run_settings(kind, output_dir)
     preferred_settings = load_preferred_run_settings(output_dir)
     qualitysuite_winner_settings = load_qualitysuite_winner_run_settings(output_dir)
+    quality_first_winner_settings = _default_quality_first_winner_settings(
+        global_defaults
+    )
     if preferred_settings is None:
         preferred_settings = _default_preferred_settings(global_defaults)
     label = "import" if kind == "import" else "benchmark"
@@ -199,6 +217,11 @@ def choose_run_settings(
         questionary.Choice(
             f"Run with preferred format ({preferred_settings.summary()})",
             value="preferred",
+        ),
+        questionary.Choice(
+            "Run with quality-first winner stack "
+            f"({quality_first_winner_settings.summary()})",
+            value="quality_first_winner_stack",
         ),
     ]
     if qualitysuite_winner_settings is None:
@@ -250,6 +273,8 @@ def choose_run_settings(
         selected_settings = global_defaults
     elif selection == "preferred":
         selected_settings = preferred_settings
+    elif selection == "quality_first_winner_stack":
+        selected_settings = quality_first_winner_settings
     elif selection == "qualitysuite_winner":
         if qualitysuite_winner_settings is not None:
             selected_settings = qualitysuite_winner_settings

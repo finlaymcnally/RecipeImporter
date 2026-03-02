@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -43,6 +46,62 @@ _OUTPUT_CATEGORY_TABLES = "tables"
 _OUTPUT_CATEGORY_RAW = "rawArtifacts"
 _OUTPUT_CATEGORY_SECTIONS = "sections"
 _OUTPUT_CATEGORY_BENCH = "benchArtifacts"
+
+_IO_PACE_EVERY_WRITES_ENV = "COOKIMPORT_IO_PACE_EVERY_WRITES"
+_IO_PACE_SLEEP_MS_ENV = "COOKIMPORT_IO_PACE_SLEEP_MS"
+
+_io_pace_lock = threading.Lock()
+_io_pace_counter = 0
+_io_pace_every_writes = 0
+_io_pace_sleep_seconds = 0.0
+_io_pace_last_env: tuple[str | None, str | None] = (None, None)
+
+
+def _refresh_io_pace_from_env() -> None:
+    global _io_pace_every_writes
+    global _io_pace_sleep_seconds
+    global _io_pace_last_env
+
+    every_raw = os.getenv(_IO_PACE_EVERY_WRITES_ENV)
+    sleep_raw = os.getenv(_IO_PACE_SLEEP_MS_ENV)
+    if (every_raw, sleep_raw) == _io_pace_last_env:
+        return
+    _io_pace_last_env = (every_raw, sleep_raw)
+
+    try:
+        parsed_every = int(str(every_raw or "0").strip() or "0")
+    except (TypeError, ValueError):
+        parsed_every = 0
+
+    try:
+        parsed_sleep_ms = float(str(sleep_raw or "0").strip() or "0")
+    except (TypeError, ValueError):
+        parsed_sleep_ms = 0.0
+
+    _io_pace_every_writes = max(0, parsed_every)
+    _io_pace_sleep_seconds = max(0.0, parsed_sleep_ms / 1000.0)
+
+
+def _io_pace_tick() -> None:
+    """Optional I/O pacing to reduce disk-thrash on write-heavy runs (WSL/QualitySuite).
+
+    Defaults to disabled and only activates when both env vars are set:
+    - COOKIMPORT_IO_PACE_EVERY_WRITES (int)
+    - COOKIMPORT_IO_PACE_SLEEP_MS (float)
+    """
+
+    _refresh_io_pace_from_env()
+    if _io_pace_every_writes <= 0 or _io_pace_sleep_seconds <= 0:
+        return
+
+    should_sleep = False
+    with _io_pace_lock:
+        global _io_pace_counter
+        _io_pace_counter += 1
+        should_sleep = (_io_pace_counter % _io_pace_every_writes) == 0
+
+    if should_sleep:
+        time.sleep(_io_pace_sleep_seconds)
 
 
 @dataclass
@@ -110,6 +169,7 @@ def _write_json_payload(
     category: str,
 ) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    _io_pace_tick()
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     if output_stats:
         output_stats.record_path(category, out_path)
@@ -124,6 +184,7 @@ def _write_text_payload(
     encoding: str = "utf-8",
 ) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    _io_pace_tick()
     out_path.write_text(text, encoding=encoding)
     if output_stats:
         output_stats.record_path(category, out_path)
@@ -939,6 +1000,7 @@ def _write_raw_artifact(
         )
         return
     if isinstance(payload, bytes):
+        _io_pace_tick()
         target_path.write_bytes(payload)
         if output_stats:
             output_stats.record_path(_OUTPUT_CATEGORY_RAW, target_path)
@@ -962,6 +1024,7 @@ def write_report(report: ConversionReport, out_dir: Path, workbook_name: str) ->
     out_path = out_dir / f"{slug}.excel_import_report.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = report.model_dump(by_alias=True, exclude_none=True)
+    _io_pace_tick()
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return out_path
 

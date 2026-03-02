@@ -6,7 +6,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
@@ -89,6 +89,7 @@ def run_codex_farm_recipe_pipeline(
     workbook_slug: str,
     runner: CodexFarmRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmApplyResult:
     if run_settings.llm_recipe_pipeline.value == "off":
         return CodexFarmApplyResult(
@@ -188,7 +189,8 @@ def run_codex_farm_recipe_pipeline(
     workspace_root = _resolve_workspace_root(run_settings)
     env = {"CODEX_FARM_ROOT": str(pipeline_root)}
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
-        cmd=run_settings.codex_farm_cmd
+        cmd=run_settings.codex_farm_cmd,
+        progress_callback=progress_callback,
     )
     if runner is None:
         ensure_codex_farm_pipelines_exist(

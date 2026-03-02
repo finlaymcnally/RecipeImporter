@@ -2303,3 +2303,23 @@ Evidence preserved:
 
 Anti-loop note:
 - If WSL still disconnects on guarded single-slot runs, inspect `experiments_resolved.json` first for `experiment_executor_reason=wsl_single_experiment_isolation` and guard telemetry before blaming Oracle/Chromium overlap.
+
+### 2026-03-01_23.16.19 WSL guard re-enabled after OOM crash evidence
+
+Source task file:
+- `docs/tasks/2026-03-01_23.16.19-qualitysuite-wsl-guard-restore-after-oom.md`
+
+Problem captured:
+- WSL crashes were still occurring with guard telemetry showing `retired_unhobble`, and kernel OOM logs showed runaway `cookimport` fanout (dozens of concurrent processes) exhausting RAM+swap.
+
+Durable decisions:
+- Re-enable WSL safety guard rewrites in `quality_runner` by default (unless explicitly disabled).
+- Cap WSL run settings workers (`workers`, `pdf_split_workers`, `epub_split_workers`) to `2`.
+- Cap WSL all-method runtime knobs (`max_parallel_sources`, `max_inflight_pipelines`, `max_concurrent_split_phases`, `max_eval_tail_pipelines`, `wing_backlog_target`) and force `smart_scheduler=false`.
+- Preserve guard opt-out via `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1`.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_suite_runner.py -k "wsl_safety_guard" -q`
+
+Anti-loop note:
+- When WSL disconnects reappear, inspect `experiments_resolved.json` first; if `wsl_safety_guard_applied=false` with `disabled_by_env`, the guard was intentionally bypassed.

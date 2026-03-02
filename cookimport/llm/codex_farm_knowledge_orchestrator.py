@@ -5,7 +5,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, ParsingOverrides
@@ -53,6 +53,7 @@ def run_codex_farm_knowledge_harvest(
     overrides: ParsingOverrides | None = None,
     runner: CodexFarmRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmKnowledgeHarvestResult:
     """Optional pass4: harvest cooking knowledge from non-recipe blocks via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
@@ -89,7 +90,8 @@ def run_codex_farm_knowledge_harvest(
     workspace_root = _resolve_workspace_root(run_settings)
     env = {"CODEX_FARM_ROOT": str(pipeline_root)}
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
-        cmd=run_settings.codex_farm_cmd
+        cmd=run_settings.codex_farm_cmd,
+        progress_callback=progress_callback,
     )
     codex_model = run_settings.codex_farm_model
     codex_reasoning_effort = _effort_override_value(

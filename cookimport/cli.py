@@ -215,12 +215,12 @@ DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES = (
 DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE = (
     DEFAULT_BENCH_QUALITY_ROOT
     / "lightweight_profiles"
-    / "2026-03-01_00.00.00_qualitysuite-lightweight-main-effects-v1.json"
+    / "2026-03-02_00.36.30_qualitysuite-lightweight-main-effects-qualityfirst-pruned-v1.json"
 )
 DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS = (
     DEFAULT_BENCH_QUALITY_ROOT
     / "experiments"
-    / "2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json"
+    / "2026-03-02_00.36.30_qualitysuite-top-tier-tournament-full-candidates-qualityfirst-pruned.json"
 )
 DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS = (
     DEFAULT_BENCH_QUALITY_ROOT
@@ -403,6 +403,14 @@ _STATUS_TICK_SECONDS = 1.0
 _STATUS_RATE_RECENT_WINDOW = 12
 _STATUS_ALL_METHOD_STALL_MIN_SECONDS = 1.0
 _STATUS_ALL_METHOD_STALL_MULTIPLIER = 2.0
+_STATUS_PLAIN_PROGRESS_ENV = "COOKIMPORT_PLAIN_PROGRESS"
+_STATUS_ENV_TRUE_VALUES = {"1", "true", "yes", "on"}
+_STATUS_ENV_FALSE_VALUES = {"0", "false", "no", "off"}
+_STATUS_AGENT_HINT_ENV_KEYS = (
+    "CODEX_CI",
+    "CODEX_THREAD_ID",
+    "CLAUDE_CODE_SSE_PORT",
+)
 _STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _StatusReturn = TypeVar("_StatusReturn")
 _DASHBOARD_REFRESH_SENTINEL_DIRNAME = "__dashboard_refresh__"
@@ -4087,6 +4095,31 @@ def _format_status_progress_message(
     return "\n".join(lines)
 
 
+def _read_status_env_flag(name: str) -> str:
+    return str(os.getenv(name, "") or "").strip().lower()
+
+
+def _plain_progress_override_requested() -> bool | None:
+    value = _read_status_env_flag(_STATUS_PLAIN_PROGRESS_ENV)
+    if value in _STATUS_ENV_TRUE_VALUES:
+        return True
+    if value in _STATUS_ENV_FALSE_VALUES:
+        return False
+    return None
+
+
+def _should_default_plain_progress_for_agent() -> bool:
+    # Agent PTY polling tends to duplicate spinner frames into noisy logs.
+    if _read_status_env_flag("CODEX_CI") in _STATUS_ENV_TRUE_VALUES:
+        return True
+    for key in _STATUS_AGENT_HINT_ENV_KEYS:
+        if key == "CODEX_CI":
+            continue
+        if str(os.getenv(key, "") or "").strip():
+            return True
+    return False
+
+
 def _format_processing_time(elapsed_seconds: float) -> str:
     total_seconds = max(0, int(round(elapsed_seconds)))
     hours, remainder = divmod(total_seconds, 3600)
@@ -4246,8 +4279,10 @@ def _run_with_progress_status(
         else bool(console.is_terminal and not console.is_dumb_terminal)
     )
     if force_live_status is None:
-        plain_override = str(os.getenv("COOKIMPORT_PLAIN_PROGRESS", "") or "").strip().lower()
-        if plain_override in {"1", "true", "yes", "on"}:
+        plain_override = _plain_progress_override_requested()
+        if plain_override is True:
+            supports_live_status = False
+        elif plain_override is None and _should_default_plain_progress_for_agent():
             supports_live_status = False
     latest_message = ""
     latest_message_started = time.monotonic()
@@ -15901,6 +15936,7 @@ def _merge_split_jobs(
                 run_root=out,
                 workbook_slug=workbook_slug,
                 full_blocks=merged_full_blocks or None,
+                progress_callback=_report_status,
             )
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":
@@ -15957,6 +15993,7 @@ def _merge_split_jobs(
                 workbook_slug=workbook_slug,
                 overrides=parsing_overrides,
                 full_blocks=merged_full_blocks or None,
+                progress_callback=_report_status,
             )
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":
@@ -21024,6 +21061,25 @@ def bench_quality_run(
             ),
         ),
     ] = None,
+    io_pace_every_writes: int = typer.Option(
+        200,
+        "--io-pace-every-writes",
+        min=0,
+        help=(
+            "Optional disk I/O pacing: sleep briefly every N output file writes to "
+            "reduce WSL host disk-thrash during QualitySuite runs (0 disables). "
+            "Default: 200."
+        ),
+    ),
+    io_pace_sleep_ms: float = typer.Option(
+        5.0,
+        "--io-pace-sleep-ms",
+        min=0.0,
+        help=(
+            "Optional disk I/O pacing: sleep duration in milliseconds used with "
+            "--io-pace-every-writes (0 disables). Default: 5."
+        ),
+    ),
 ) -> None:
     """Run all-method quality experiments for a quality suite."""
     from cookimport.bench.quality_runner import run_quality_suite
@@ -21060,6 +21116,20 @@ def bench_quality_run(
     )
     codex_farm_model = _unwrap_typer_option_default(codex_farm_model)
     codex_farm_reasoning_effort = _unwrap_typer_option_default(codex_farm_reasoning_effort)
+    io_pace_every_writes = _unwrap_typer_option_default(io_pace_every_writes)
+    io_pace_sleep_ms = _unwrap_typer_option_default(io_pace_sleep_ms)
+    try:
+        io_pace_every_writes = int(io_pace_every_writes)
+    except (TypeError, ValueError):
+        _fail("--io-pace-every-writes must be an integer >= 0.")
+    try:
+        io_pace_sleep_ms = float(io_pace_sleep_ms)
+    except (TypeError, ValueError):
+        _fail("--io-pace-sleep-ms must be a number >= 0.")
+    if io_pace_every_writes < 0:
+        _fail("--io-pace-every-writes must be >= 0.")
+    if io_pace_sleep_ms < 0:
+        _fail("--io-pace-sleep-ms must be >= 0.")
     codex_farm_confirmed = _resolve_qualitysuite_codex_farm_confirmation(
         include_codex_farm=include_codex_farm,
         confirmation=qualitysuite_codex_farm_confirmation,
@@ -21077,61 +21147,86 @@ def bench_quality_run(
         elif include_effective:
             typer.secho("Codex Farm permutations: enabled.", fg=typer.colors.CYAN)
 
-    if not experiments_file.exists() or not experiments_file.is_file():
-        _fail(f"Experiments file not found: {experiments_file}")
-
+    io_pace_env_key_every = "COOKIMPORT_IO_PACE_EVERY_WRITES"
+    io_pace_env_key_sleep = "COOKIMPORT_IO_PACE_SLEEP_MS"
+    io_pace_prev_every = os.environ.get(io_pace_env_key_every)
+    io_pace_prev_sleep = os.environ.get(io_pace_env_key_sleep)
+    io_pace_restore_needed = False
     try:
-        loaded_suite = load_quality_suite(suite)
-    except Exception as exc:  # noqa: BLE001
-        _fail(f"Failed to load quality suite: {exc}")
+        io_pace_restore_needed = True
+        if io_pace_every_writes > 0 and io_pace_sleep_ms > 0:
+            os.environ[io_pace_env_key_every] = str(io_pace_every_writes)
+            os.environ[io_pace_env_key_sleep] = str(io_pace_sleep_ms)
+        else:
+            # Explicitly disable pacing even if inherited env vars exist.
+            os.environ.pop(io_pace_env_key_every, None)
+            os.environ.pop(io_pace_env_key_sleep, None)
 
-    validation_errors = validate_quality_suite(loaded_suite, repo_root=REPO_ROOT)
-    if validation_errors:
-        typer.secho("Quality suite validation errors:", fg=typer.colors.RED)
-        for error in validation_errors:
-            typer.secho(f"  - {error}", fg=typer.colors.RED)
-        raise typer.Exit(1)
+        if not experiments_file.exists() or not experiments_file.is_file():
+            _fail(f"Experiments file not found: {experiments_file}")
 
-    quality_run_timeseries_path = _processing_timeseries_history_path(
-        root=out_dir,
-        scope="bench_quality_run",
-        source_name=loaded_suite.name,
-    )
-    try:
         try:
-            normalized_effort = normalize_codex_reasoning_effort(codex_farm_reasoning_effort)
-        except ValueError as exc:
-            _fail(f"--codex-farm-thinking-effort invalid: {exc}")
-        quality_run_root = _run_with_progress_status(
-            initial_status="Running bench quality suite...",
-            progress_prefix="Bench quality",
-            telemetry_path=quality_run_timeseries_path,
-            run=lambda update_progress: run_quality_suite(
-                loaded_suite,
-                out_dir,
-                experiments_file=experiments_file,
-                base_run_settings_file=base_run_settings_file,
-                search_strategy=search_strategy,
-                race_probe_targets=race_probe_targets,
-                race_mid_targets=race_mid_targets,
-                race_keep_ratio=race_keep_ratio,
-                race_finalists=race_finalists,
-                max_parallel_experiments=max_parallel_experiments,
-                require_process_workers=bool(require_process_workers),
-                resume_run_dir=resume_run_dir,
-                include_deterministic_sweeps_requested=include_deterministic_sweeps,
-                include_codex_farm_requested=include_codex_farm,
-                codex_farm_confirmed=codex_farm_confirmed,
-                codex_farm_model=str(codex_farm_model).strip() or None
-                if codex_farm_model is not None
-                else None,
-                codex_farm_reasoning_effort=normalized_effort,
-                progress_callback=update_progress,
-            ),
+            loaded_suite = load_quality_suite(suite)
+        except Exception as exc:  # noqa: BLE001
+            _fail(f"Failed to load quality suite: {exc}")
+
+        validation_errors = validate_quality_suite(loaded_suite, repo_root=REPO_ROOT)
+        if validation_errors:
+            typer.secho("Quality suite validation errors:", fg=typer.colors.RED)
+            for error in validation_errors:
+                typer.secho(f"  - {error}", fg=typer.colors.RED)
+            raise typer.Exit(1)
+
+        quality_run_timeseries_path = _processing_timeseries_history_path(
+            root=out_dir,
+            scope="bench_quality_run",
+            source_name=loaded_suite.name,
         )
-    except Exception as exc:  # noqa: BLE001
-        _fail(str(exc))
-        return
+        try:
+            try:
+                normalized_effort = normalize_codex_reasoning_effort(codex_farm_reasoning_effort)
+            except ValueError as exc:
+                _fail(f"--codex-farm-thinking-effort invalid: {exc}")
+            quality_run_root = _run_with_progress_status(
+                initial_status="Running bench quality suite...",
+                progress_prefix="Bench quality",
+                telemetry_path=quality_run_timeseries_path,
+                run=lambda update_progress: run_quality_suite(
+                    loaded_suite,
+                    out_dir,
+                    experiments_file=experiments_file,
+                    base_run_settings_file=base_run_settings_file,
+                    search_strategy=search_strategy,
+                    race_probe_targets=race_probe_targets,
+                    race_mid_targets=race_mid_targets,
+                    race_keep_ratio=race_keep_ratio,
+                    race_finalists=race_finalists,
+                    max_parallel_experiments=max_parallel_experiments,
+                    require_process_workers=bool(require_process_workers),
+                    resume_run_dir=resume_run_dir,
+                    include_deterministic_sweeps_requested=include_deterministic_sweeps,
+                    include_codex_farm_requested=include_codex_farm,
+                    codex_farm_confirmed=codex_farm_confirmed,
+                    codex_farm_model=str(codex_farm_model).strip() or None
+                    if codex_farm_model is not None
+                    else None,
+                    codex_farm_reasoning_effort=normalized_effort,
+                    progress_callback=update_progress,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _fail(str(exc))
+            return
+    finally:
+        if io_pace_restore_needed:
+            if io_pace_prev_every is None:
+                os.environ.pop(io_pace_env_key_every, None)
+            else:
+                os.environ[io_pace_env_key_every] = io_pace_prev_every
+            if io_pace_prev_sleep is None:
+                os.environ.pop(io_pace_env_key_sleep, None)
+            else:
+                os.environ[io_pace_env_key_sleep] = io_pace_prev_sleep
 
     typer.secho("Quality suite run complete.", fg=typer.colors.GREEN)
     typer.secho(f"Run: {quality_run_root}", fg=typer.colors.CYAN)

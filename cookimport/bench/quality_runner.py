@@ -47,6 +47,14 @@ _QUALITY_LIVE_ETA_POLL_SECONDS_DEFAULT = 15.0
 _QUALITY_EXPERIMENT_EXECUTOR_MODE_ENV = "COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE"
 _QUALITY_EXPERIMENT_EXECUTOR_MODES = {"auto", "thread", "subprocess"}
 _QUALITY_WSL_SAFETY_GUARD_DISABLE_ENV = "COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD"
+_QUALITY_WSL_SAFETY_WORKER_CAP = 2
+_QUALITY_WSL_RUNTIME_CAPS = {
+    "max_parallel_sources": 1,
+    "max_inflight_pipelines": 2,
+    "max_concurrent_split_phases": 1,
+    "max_eval_tail_pipelines": 2,
+    "wing_backlog_target": 1,
+}
 _QUALITY_EXPERIMENT_WORKER_REQUEST_ARG = "--experiment-worker-request"
 _QUALITY_EXPERIMENT_WORKER_REQUEST_FILENAME = "_experiment_worker_request.json"
 _QUALITY_EXPERIMENT_WORKER_RESULT_FILENAME = "_experiment_worker_result.json"
@@ -348,19 +356,86 @@ def _apply_wsl_quality_safety_guard(
     cpu_count: int,
 ) -> tuple[list[_ResolvedExperiment], dict[str, Any]]:
     _ = max_parallel_experiments_effective
-    _ = cpu_count
+    worker_cap = max(
+        1,
+        min(_QUALITY_WSL_SAFETY_WORKER_CAP, _coerce_int(cpu_count, minimum=1)),
+    )
     metadata: dict[str, Any] = {
         "wsl_detected": bool(_running_in_wsl()),
         "wsl_safety_guard_applied": False,
         "wsl_safety_guard_disable_env": _QUALITY_WSL_SAFETY_GUARD_DISABLE_ENV,
         "wsl_safety_guard_reason": "not_wsl",
-        "wsl_safety_guard_worker_cap": None,
+        "wsl_safety_guard_worker_cap": worker_cap,
         "wsl_safety_guard_adjusted_experiments": 0,
     }
     if not metadata["wsl_detected"]:
         return experiments, metadata
-    metadata["wsl_safety_guard_reason"] = "retired_unhobble"
-    return experiments, metadata
+
+    disable_raw = str(os.getenv(_QUALITY_WSL_SAFETY_GUARD_DISABLE_ENV, "") or "").strip()
+    if disable_raw.lower() in {"1", "true", "yes", "on"}:
+        metadata["wsl_safety_guard_reason"] = "disabled_by_env"
+        return experiments, metadata
+
+    guarded: list[_ResolvedExperiment] = []
+    adjusted_experiments = 0
+    for experiment in experiments:
+        guarded_payload = dict(experiment.run_settings_payload)
+        payload_changed = False
+        for key in ("workers", "pdf_split_workers", "epub_split_workers"):
+            current = _coerce_int(getattr(experiment.run_settings, key), minimum=1)
+            capped = min(current, worker_cap)
+            if current != capped or guarded_payload.get(key) != capped:
+                guarded_payload[key] = capped
+                payload_changed = True
+
+        guarded_runtime = dict(experiment.all_method_runtime)
+        runtime_changed = False
+        for runtime_key, runtime_cap in _QUALITY_WSL_RUNTIME_CAPS.items():
+            current = _coerce_int(
+                guarded_runtime.get(runtime_key),
+                minimum=int(runtime_cap),
+            )
+            capped = min(current, int(runtime_cap))
+            if guarded_runtime.get(runtime_key) != capped:
+                guarded_runtime[runtime_key] = capped
+                runtime_changed = True
+
+        if bool(guarded_runtime.get("smart_scheduler", True)):
+            guarded_runtime["smart_scheduler"] = False
+            runtime_changed = True
+
+        guarded_run_settings = (
+            RunSettings.from_dict(
+                guarded_payload,
+                warn_context=(
+                    f"quality-run experiment {experiment.id} "
+                    "[wsl safety guard]"
+                ),
+            )
+            if payload_changed
+            else experiment.run_settings
+        )
+
+        if payload_changed or runtime_changed:
+            adjusted_experiments += 1
+
+        guarded.append(
+            _ResolvedExperiment(
+                id=experiment.id,
+                run_settings_patch=dict(experiment.run_settings_patch),
+                run_settings_payload=guarded_payload,
+                run_settings=guarded_run_settings,
+                all_method_runtime_patch=dict(experiment.all_method_runtime_patch),
+                all_method_runtime=guarded_runtime,
+            )
+        )
+
+    metadata["wsl_safety_guard_adjusted_experiments"] = adjusted_experiments
+    metadata["wsl_safety_guard_applied"] = adjusted_experiments > 0
+    metadata["wsl_safety_guard_reason"] = (
+        "applied" if adjusted_experiments > 0 else "already_within_guard_caps"
+    )
+    return guarded, metadata
 
 
 def _desired_experiment_parallel_workers(

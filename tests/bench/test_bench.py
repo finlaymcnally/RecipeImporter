@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -792,6 +793,9 @@ def test_bench_quality_run_wires_runner(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.delenv("COOKIMPORT_IO_PACE_EVERY_WRITES", raising=False)
+    monkeypatch.delenv("COOKIMPORT_IO_PACE_SLEEP_MS", raising=False)
+
     source_file = tmp_path / "alpha.epub"
     source_file.write_text("epub", encoding="utf-8")
     gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
@@ -873,6 +877,8 @@ def test_bench_quality_run_wires_runner(
         **_kwargs,
     ):
         _ = progress_callback
+        captured["io_pace_every_writes_env"] = os.getenv("COOKIMPORT_IO_PACE_EVERY_WRITES")
+        captured["io_pace_sleep_ms_env"] = os.getenv("COOKIMPORT_IO_PACE_SLEEP_MS")
         captured["max_parallel_experiments"] = _kwargs.get("max_parallel_experiments")
         captured["require_process_workers"] = _kwargs.get("require_process_workers")
         captured["resume_run_dir"] = _kwargs.get("resume_run_dir")
@@ -908,6 +914,10 @@ def test_bench_quality_run_wires_runner(
     assert captured["require_process_workers"] is False
     assert captured["include_codex_farm_requested"] is False
     assert captured["codex_farm_confirmed"] is False
+    assert captured["io_pace_every_writes_env"] == "200"
+    assert captured["io_pace_sleep_ms_env"] == "5.0"
+    assert os.getenv("COOKIMPORT_IO_PACE_EVERY_WRITES") is None
+    assert os.getenv("COOKIMPORT_IO_PACE_SLEEP_MS") is None
 
 
 def test_bench_quality_run_rejects_missing_resume_run_dir(

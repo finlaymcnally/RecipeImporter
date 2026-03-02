@@ -13,6 +13,7 @@ Durable output-path and section/report contracts live in `cookimport/staging/CON
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.
   - Writer helpers can optionally collect per-output file counts/bytes for inclusion in conversion reports (`outputStats`).
+  - Optional I/O pacing for write-heavy runs is env-gated: `COOKIMPORT_IO_PACE_EVERY_WRITES` + `COOKIMPORT_IO_PACE_SLEEP_MS`.
   - Writer applies one shared effective instruction-shaping path for final draft, intermediate JSON-LD, and `sections` artifacts so step boundaries stay aligned across outputs.
   - Split-merge stage runs now finalize raw-artifact moves before report write so `outputStats` includes moved raw files and merged `raw/.../full_text.json`.
   - Stage writes deterministic benchmark evidence at `.bench/<workbook_slug>/stage_block_predictions.json` for block-level freeform scoring.
