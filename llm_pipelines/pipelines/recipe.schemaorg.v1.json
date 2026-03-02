@@ -5,6 +5,7 @@
   "output_schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
   "input_glob_default": "**/*.json",
   "output_ext": ".json",
+  "prompt_input_mode": "inline",
   "codex_model": "gpt-5.3-codex-spark",
   "codex_sandbox": "read-only",
   "codex_ask_for_approval": "never",

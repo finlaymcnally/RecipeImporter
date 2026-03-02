@@ -225,6 +225,7 @@ These settings remain part of run settings and stage execution:
 - When `llm_recipe_pipeline` is active, Codex Farm prompt payloads are persisted as:
   - `prompt_inputs_manifest.txt` (pass1/2/3 `in` payloads)
   - `prompt_outputs_manifest.txt` (pass1/2/3 `out` payloads)
+- Local recipe pipeline pack prompts now run with `prompt_input_mode=inline` and embed full input JSON via `{{INPUT_TEXT}}`; recipe pass templates should not depend on file-read instructions.
 - `run_manifest.json` includes `prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt` artifact pointers for active Codex Farm runs.
 
 Recipe pass execution in prediction-run paths follows selected run settings with no env gate.

@@ -59,6 +59,7 @@ def test_default_codex_farm_pass_assets_exist_and_link() -> None:
         assert payload["pipeline_id"] == pipeline_id
         assert payload["prompt_template_path"] == expected["prompt_path"]
         assert payload["output_schema_path"] == expected["schema_path"]
+        assert payload.get("prompt_input_mode") == "inline"
 
         prompt_path = PACK_ROOT / str(payload["prompt_template_path"])
         schema_path = PACK_ROOT / str(payload["output_schema_path"])
@@ -66,7 +67,7 @@ def test_default_codex_farm_pass_assets_exist_and_link() -> None:
         assert schema_path.exists(), f"Missing schema file: {schema_path}"
 
         prompt_text = prompt_path.read_text(encoding="utf-8")
-        assert "{{INPUT_PATH}}" in prompt_text
+        assert "{{INPUT_TEXT}}" in prompt_text
 
         schema_payload = _load_json(schema_path)
         assert schema_payload["type"] == "object"

@@ -330,15 +330,22 @@ Interactive benchmark now has a mode submenu before execution:
    - `All method benchmark (offline, no upload)`
 2. Single offline path:
    - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`), using the same editor flow as Import,
-   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
-   - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
-   - calls `labelstudio-benchmark` once with `--no-upload --eval-mode canonical-text`,
+   - resolves Codex usage from selected run settings (`llm_recipe_pipeline`),
+   - when run settings resolve to `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants under one timestamp session:
+     - `single-offline-benchmark/vanilla` first (`llm_recipe_pipeline=off`),
+     - `single-offline-benchmark/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
+   - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/vanilla`,
+   - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
+   - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
+     - `single-offline-benchmark/codex_vs_vanilla_comparison.json`
+     - `single-offline-benchmark/codex_vs_vanilla_comparison.md`
+   - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
    - defaults to writing markdown + Label Studio task artifacts off in interactive mode
      (set `COOKIMPORT_BENCH_WRITE_MARKDOWN` / `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS` to `1` before launch to keep them on).
    - keeps spinner/status visible for both prediction generation and evaluation phases,
    - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
-   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/`.
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<variant>/`.
 3. Single-profile all-matched path:
    - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`),
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),

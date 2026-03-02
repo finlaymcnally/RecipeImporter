@@ -540,6 +540,48 @@ class TestCollectors:
             for r in data.benchmark_records
         )
 
+    def test_benchmark_collector_includes_nested_single_offline_variant_eval_reports(
+        self,
+        tmp_path,
+    ):
+        run_ts = "2026-03-02_12.34.56"
+        single_offline_root = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / run_ts
+            / "single-offline-benchmark"
+        )
+        vanilla_dir = single_offline_root / "vanilla"
+        codex_dir = single_offline_root / "codexfarm"
+        vanilla_dir.mkdir(parents=True)
+        codex_dir.mkdir(parents=True)
+        (vanilla_dir / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT),
+            encoding="utf-8",
+        )
+        codex_report = dict(SAMPLE_EVAL_REPORT)
+        codex_report["precision"] = 0.11
+        codex_report["recall"] = 0.31
+        codex_report["f1"] = 0.16238095238095238
+        (codex_dir / "eval_report.json").write_text(
+            json.dumps(codex_report),
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        records = [
+            r
+            for r in data.benchmark_records
+            if "single-offline-benchmark/" in str(r.artifact_dir)
+        ]
+        assert len(records) == 2
+        assert {r.run_timestamp for r in records} == {run_ts}
+        assert {Path(str(r.artifact_dir)).name for r in records} == {"vanilla", "codexfarm"}
+
     def test_benchmark_collector_normalizes_suffixed_run_dir_timestamps(self, tmp_path):
         run_dir_name = "2026-02-28_02.03.18_manual-top5-thefoodlab-all-matched"
         normalized_ts = "2026-02-28_02.03.18"

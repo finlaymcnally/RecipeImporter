@@ -48,6 +48,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 ### Benchmark JSON source
 
 - `data/golden/benchmark-vs-golden/*/eval_report.json`
+- `data/golden/benchmark-vs-golden/*/single-offline-benchmark/*/eval_report.json`
 - `data/golden/benchmark-vs-golden/*/all-method-benchmark/*/config_*/eval_report.json`
 - `data/golden/*/eval_report.json`
 
@@ -90,6 +91,7 @@ Notes:
   - `all-method-benchmark/<source_slug>/config_*`
   - `single-profile-benchmark/<source_slug>`
   (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`. The run index page is always written, even when there are zero runs.
+- `single-offline-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout

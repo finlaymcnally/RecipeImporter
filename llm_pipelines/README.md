@@ -35,7 +35,12 @@ Output schemas:
 - `schemas/recipe.knowledge.v1.output.schema.json`
 - `schemas/recipe.tags.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/` and keep `{{INPUT_PATH}}` in each template.
+To tune pass behavior, edit prompt text files in `prompts/`.
+
+Prompt input contract:
+- `prompt_input_mode` is set to `"inline"` for recipe pipelines.
+- Use `{{INPUT_TEXT}}` to inject the full JSON payload directly into the prompt.
+- Do not rely on path-read instructions for recipe pipeline prompts.
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).

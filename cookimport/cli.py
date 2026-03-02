@@ -236,6 +236,15 @@ ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 BENCH_CODEX_FARM_CONFIRMATION_TOKEN = "I_HAVE_EXPLICIT_USER_CONFIRMATION"
 QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
 SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
+SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v1"
+SINGLE_OFFLINE_COMPARISON_METRICS = (
+    "precision",
+    "recall",
+    "f1",
+    "practical_precision",
+    "practical_recall",
+    "practical_f1",
+)
 QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE = (
     "bench quality-lightweight-series is disabled. "
     "Tournament/lightweight-series workflows were retired due to extreme "
@@ -2423,6 +2432,340 @@ def _interactive_single_profile_all_matched_benchmark(
     return True
 
 
+def _interactive_single_offline_variants(
+    selected_benchmark_settings: RunSettings,
+) -> list[tuple[str, RunSettings]]:
+    current_pipeline = (
+        selected_benchmark_settings.llm_recipe_pipeline.value.strip().lower()
+    )
+    if current_pipeline != "codex-farm-3pass-v1":
+        return [("vanilla", selected_benchmark_settings)]
+
+    vanilla_payload = selected_benchmark_settings.to_run_config_dict()
+    vanilla_payload["llm_recipe_pipeline"] = "off"
+    vanilla_settings = RunSettings.from_dict(
+        vanilla_payload,
+        warn_context="interactive single-offline vanilla settings",
+    )
+    # Run vanilla first so a baseline artifact exists even if codex run fails.
+    return [("vanilla", vanilla_settings), ("codexfarm", selected_benchmark_settings)]
+
+
+def _load_json_dict(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _load_single_offline_eval_metrics(
+    eval_output_dir: Path,
+) -> dict[str, float | None] | None:
+    eval_report = _load_json_dict(eval_output_dir / "eval_report.json")
+    if eval_report is None:
+        return None
+    return {
+        metric_name: _report_optional_metric(eval_report.get(metric_name))
+        for metric_name in SINGLE_OFFLINE_COMPARISON_METRICS
+    }
+
+
+def _load_single_offline_source_path(eval_output_dir: Path) -> str | None:
+    manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
+    if not isinstance(manifest_payload, dict):
+        return None
+    source_payload = manifest_payload.get("source")
+    if not isinstance(source_payload, dict):
+        return None
+    source_path = str(source_payload.get("path") or "").strip()
+    return source_path or None
+
+
+def _single_offline_metric_deltas(
+    *,
+    codex_metrics: dict[str, float | None],
+    vanilla_metrics: dict[str, float | None],
+) -> dict[str, float | None]:
+    deltas: dict[str, float | None] = {}
+    for metric_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+        codex_value = codex_metrics.get(metric_name)
+        vanilla_value = vanilla_metrics.get(metric_name)
+        if codex_value is None or vanilla_value is None:
+            deltas[metric_name] = None
+        else:
+            deltas[metric_name] = codex_value - vanilla_value
+    return deltas
+
+
+def _format_single_offline_comparison_markdown(
+    payload: dict[str, Any],
+) -> str:
+    run_timestamp = str(payload.get("run_timestamp") or "").strip() or "unknown"
+    source_file = str(payload.get("source_file") or "").strip() or "unknown"
+
+    variants_payload = payload.get("variants")
+    if isinstance(variants_payload, dict):
+        codex_dir = str(
+            ((variants_payload.get("codexfarm") or {}).get("eval_output_dir"))
+            or ""
+        ).strip()
+        vanilla_dir = str(
+            ((variants_payload.get("vanilla") or {}).get("eval_output_dir"))
+            or ""
+        ).strip()
+    else:
+        codex_dir = ""
+        vanilla_dir = ""
+
+    metrics_payload = payload.get("metrics")
+    if isinstance(metrics_payload, dict):
+        codex_metrics = metrics_payload.get("codexfarm")
+        vanilla_metrics = metrics_payload.get("vanilla")
+    else:
+        codex_metrics = None
+        vanilla_metrics = None
+
+    deltas_payload = payload.get("deltas")
+    if isinstance(deltas_payload, dict):
+        delta_metrics = deltas_payload.get("codex_minus_vanilla")
+    else:
+        delta_metrics = None
+
+    lines: list[str] = [
+        "# CodexFarm vs Vanilla Comparison",
+        "",
+        f"- Schema version: {SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION}",
+        f"- Run timestamp: {run_timestamp}",
+        f"- Source file: {source_file}",
+        f"- Codex eval directory: {codex_dir or 'unknown'}",
+        f"- Vanilla eval directory: {vanilla_dir or 'unknown'}",
+        "",
+        "| Metric | CodexFarm | Vanilla | Codex - Vanilla |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    for metric_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+        codex_value = (
+            _report_optional_metric((codex_metrics or {}).get(metric_name))
+            if isinstance(codex_metrics, dict)
+            else None
+        )
+        vanilla_value = (
+            _report_optional_metric((vanilla_metrics or {}).get(metric_name))
+            if isinstance(vanilla_metrics, dict)
+            else None
+        )
+        delta_value = (
+            _report_optional_metric((delta_metrics or {}).get(metric_name))
+            if isinstance(delta_metrics, dict)
+            else None
+        )
+        codex_text = f"{codex_value:.6f}" if codex_value is not None else "null"
+        vanilla_text = f"{vanilla_value:.6f}" if vanilla_value is not None else "null"
+        delta_text = f"{delta_value:.6f}" if delta_value is not None else "null"
+        lines.append(
+            f"| `{metric_name}` | {codex_text} | {vanilla_text} | {delta_text} |"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
+def _write_single_offline_comparison_artifacts(
+    *,
+    run_timestamp: str,
+    session_root: Path,
+    source_file: str | None,
+    codex_eval_output_dir: Path,
+    vanilla_eval_output_dir: Path,
+) -> tuple[Path, Path] | None:
+    codex_metrics = _load_single_offline_eval_metrics(codex_eval_output_dir)
+    vanilla_metrics = _load_single_offline_eval_metrics(vanilla_eval_output_dir)
+    if codex_metrics is None or vanilla_metrics is None:
+        return None
+
+    comparison_payload = {
+        "schema_version": SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION,
+        "run_timestamp": run_timestamp,
+        "source_file": source_file,
+        "variants": {
+            "codexfarm": {"eval_output_dir": str(codex_eval_output_dir)},
+            "vanilla": {"eval_output_dir": str(vanilla_eval_output_dir)},
+        },
+        "metrics": {
+            "codexfarm": codex_metrics,
+            "vanilla": vanilla_metrics,
+        },
+        "deltas": {
+            "codex_minus_vanilla": _single_offline_metric_deltas(
+                codex_metrics=codex_metrics,
+                vanilla_metrics=vanilla_metrics,
+            )
+        },
+    }
+    comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
+    comparison_md_path = session_root / "codex_vs_vanilla_comparison.md"
+    comparison_json_path.write_text(
+        json.dumps(comparison_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    comparison_md_path.write_text(
+        _format_single_offline_comparison_markdown(comparison_payload),
+        encoding="utf-8",
+    )
+    return comparison_json_path, comparison_md_path
+
+
+def _interactive_single_offline_benchmark(
+    *,
+    selected_benchmark_settings: RunSettings,
+    benchmark_eval_output: Path,
+    processed_output_root: Path,
+    write_markdown: bool = False,
+    write_label_studio_tasks: bool = False,
+) -> bool:
+    session_root = benchmark_eval_output / "single-offline-benchmark"
+    session_processed_root = (
+        processed_output_root / benchmark_eval_output.name / "single-offline-benchmark"
+    )
+    variants = _interactive_single_offline_variants(selected_benchmark_settings)
+    if not variants:
+        typer.secho("No single-offline benchmark variants were planned.", fg=typer.colors.YELLOW)
+        return False
+
+    typer.secho(
+        f"Single-offline benchmark variants: {', '.join(slug for slug, _ in variants)}",
+        fg=typer.colors.CYAN,
+    )
+
+    variant_results: dict[str, dict[str, Any]] = {}
+    for index, (variant_slug, variant_settings) in enumerate(variants, start=1):
+        variant_eval_output = session_root / variant_slug
+        variant_processed_output = session_processed_root / variant_slug
+        typer.secho(
+            f"Single-offline benchmark {index}/{len(variants)}: {variant_slug}",
+            fg=typer.colors.CYAN,
+        )
+        variant_kwargs = build_benchmark_call_kwargs_from_run_settings(
+            variant_settings,
+            output_dir=_golden_benchmark_root(),
+            eval_output_dir=variant_eval_output,
+            processed_output_dir=variant_processed_output,
+            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+            execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
+            no_upload=True,
+            write_markdown=write_markdown,
+            write_label_studio_tasks=write_label_studio_tasks,
+        )
+        try:
+            labelstudio_benchmark(**variant_kwargs)
+            source_file = _load_single_offline_source_path(variant_eval_output)
+            variant_results[variant_slug] = {
+                "status": "ok",
+                "settings": variant_settings,
+                "eval_output_dir": variant_eval_output,
+                "processed_output_dir": variant_processed_output,
+                "source_file": source_file,
+            }
+        except typer.Exit as exc:
+            exit_code = int(getattr(exc, "exit_code", 1))
+            variant_results[variant_slug] = {
+                "status": "failed",
+                "settings": variant_settings,
+                "eval_output_dir": variant_eval_output,
+                "processed_output_dir": variant_processed_output,
+                "error": f"exit code {exit_code}",
+            }
+            typer.secho(
+                (
+                    f"Single-offline {variant_slug} failed "
+                    f"(exit code {exit_code}); continuing."
+                ),
+                fg=typer.colors.YELLOW,
+            )
+        except Exception as exc:  # noqa: BLE001
+            variant_results[variant_slug] = {
+                "status": "failed",
+                "settings": variant_settings,
+                "eval_output_dir": variant_eval_output,
+                "processed_output_dir": variant_processed_output,
+                "error": str(exc),
+            }
+            typer.secho(
+                f"Single-offline {variant_slug} failed: {exc}; continuing.",
+                fg=typer.colors.YELLOW,
+            )
+
+    succeeded = sum(
+        1 for payload in variant_results.values() if payload.get("status") == "ok"
+    )
+    summary_color = typer.colors.GREEN if succeeded == len(variants) else typer.colors.YELLOW
+    typer.secho(
+        (
+            "Single-offline benchmark complete: "
+            f"{succeeded}/{len(variants)} variant runs succeeded."
+        ),
+        fg=summary_color,
+    )
+    typer.secho(
+        f"Single-offline benchmark outputs: {session_root}",
+        fg=typer.colors.CYAN,
+    )
+    typer.secho(
+        f"Single-offline processed outputs: {session_processed_root}",
+        fg=typer.colors.CYAN,
+    )
+
+    comparison_written = False
+    codex_result = variant_results.get("codexfarm")
+    vanilla_result = variant_results.get("vanilla")
+    if (
+        isinstance(codex_result, dict)
+        and isinstance(vanilla_result, dict)
+        and codex_result.get("status") == "ok"
+        and vanilla_result.get("status") == "ok"
+    ):
+        source_file = (
+            str(codex_result.get("source_file") or "").strip()
+            or str(vanilla_result.get("source_file") or "").strip()
+            or None
+        )
+        comparison_paths = _write_single_offline_comparison_artifacts(
+            run_timestamp=benchmark_eval_output.name,
+            session_root=session_root,
+            source_file=source_file,
+            codex_eval_output_dir=Path(str(codex_result["eval_output_dir"])),
+            vanilla_eval_output_dir=Path(str(vanilla_result["eval_output_dir"])),
+        )
+        if comparison_paths is not None:
+            comparison_written = True
+            comparison_json_path, comparison_md_path = comparison_paths
+            typer.secho(
+                f"Comparison JSON: {comparison_json_path}",
+                fg=typer.colors.CYAN,
+            )
+            typer.secho(
+                f"Comparison report: {comparison_md_path}",
+                fg=typer.colors.CYAN,
+            )
+
+    if not comparison_written and isinstance(codex_result, dict):
+        typer.secho(
+            (
+                "Skipped codex-vs-vanilla comparison artifact: "
+                "both codexfarm and vanilla variant runs must succeed."
+            ),
+            fg=typer.colors.YELLOW,
+        )
+
+    if len(variants) == 1:
+        return succeeded == 1
+    return succeeded > 0
+
+
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
@@ -3056,23 +3399,17 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             )
 
             if benchmark_mode == "single_offline":
-                benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
-                    selected_benchmark_settings,
-                    output_dir=_golden_benchmark_root(),
-                    eval_output_dir=benchmark_eval_output,
-                    eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-                    execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
-                    no_upload=True,
+                completed = _interactive_single_offline_benchmark(
+                    selected_benchmark_settings=selected_benchmark_settings,
+                    benchmark_eval_output=benchmark_eval_output,
+                    processed_output_root=output_folder,
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                 )
-
-                labelstudio_benchmark(
-                    **benchmark_kwargs,
-                )
-                save_last_run_settings(
-                    "benchmark", output_folder, selected_benchmark_settings
-                )
+                if completed:
+                    save_last_run_settings(
+                        "benchmark", output_folder, selected_benchmark_settings
+                    )
             elif benchmark_mode == "single_offline_all_matched":
                 completed = _interactive_single_profile_all_matched_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,

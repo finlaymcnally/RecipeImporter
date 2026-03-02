@@ -1806,6 +1806,11 @@ def test_interactive_benchmark_uses_golden_output_roots(
         "_load_settings",
         lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
     )
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **kwargs: kwargs["global_defaults"],
+    )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
 
     def _unexpected_confirm(*_args, **_kwargs):
@@ -1826,7 +1831,14 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert captured["output_dir"] == golden_root / "benchmark-vs-golden"
     eval_output_dir = captured["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.parent == golden_root / "benchmark-vs-golden"
+    assert eval_output_dir.name == "vanilla"
+    assert eval_output_dir.parent.name == "single-offline-benchmark"
+    assert eval_output_dir.parent.parent.parent == golden_root / "benchmark-vs-golden"
+    processed_output_dir = captured["processed_output_dir"]
+    assert isinstance(processed_output_dir, Path)
+    assert processed_output_dir.name == "vanilla"
+    assert processed_output_dir.parent.name == "single-offline-benchmark"
+    assert processed_output_dir.parent.parent.parent == configured_output
     assert captured["no_upload"] is True
     assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
     assert "label_studio_url" not in captured
@@ -1852,6 +1864,11 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
         "_load_settings",
         lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
     )
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **kwargs: kwargs["global_defaults"],
+    )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(
         cli,
@@ -1874,7 +1891,14 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     assert captured["output_dir"] == golden_root / "benchmark-vs-golden"
     eval_output_dir = captured["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.parent == golden_root / "benchmark-vs-golden"
+    assert eval_output_dir.name == "vanilla"
+    assert eval_output_dir.parent.name == "single-offline-benchmark"
+    assert eval_output_dir.parent.parent.parent == golden_root / "benchmark-vs-golden"
+    processed_output_dir = captured["processed_output_dir"]
+    assert isinstance(processed_output_dir, Path)
+    assert processed_output_dir.name == "vanilla"
+    assert processed_output_dir.parent.name == "single-offline-benchmark"
+    assert processed_output_dir.parent.parent.parent == configured_output
     assert captured["no_upload"] is True
     assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
     assert "allow_labelstudio_write" not in captured
@@ -1985,10 +2009,219 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     assert eval_calls == []
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["output_dir"] == golden_root / "benchmark-vs-golden"
+    assert benchmark_calls[0]["eval_output_dir"].name == "vanilla"
+    assert benchmark_calls[0]["eval_output_dir"].parent.name == "single-offline-benchmark"
     assert benchmark_calls[0]["no_upload"] is True
     assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
     assert mode_prompt_count == 1
     assert not any("uploads to Label Studio" in title for title in mode_titles)
+
+
+def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_writes_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test codex-enabled",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+    source_path = str(tmp_path / "book.epub")
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        llm_pipeline = str(kwargs.get("llm_recipe_pipeline") or "").strip().lower()
+        metrics = {
+            "precision": 0.42 if llm_pipeline == "codex-farm-3pass-v1" else 0.39,
+            "recall": 0.33 if llm_pipeline == "codex-farm-3pass-v1" else 0.30,
+            "f1": 0.37 if llm_pipeline == "codex-farm-3pass-v1" else 0.34,
+            "practical_precision": None,
+            "practical_recall": None,
+            "practical_f1": None,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(metrics),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": source_path}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 2
+    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-farm-3pass-v1",
+    ]
+    assert [call["eval_output_dir"] for call in benchmark_calls] == [
+        benchmark_eval_output / "single-offline-benchmark" / "vanilla",
+        benchmark_eval_output / "single-offline-benchmark" / "codexfarm",
+    ]
+    assert [call["processed_output_dir"] for call in benchmark_calls] == [
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / "vanilla",
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / "codexfarm",
+    ]
+
+    comparison_json = (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / "codex_vs_vanilla_comparison.json"
+    )
+    comparison_md = (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / "codex_vs_vanilla_comparison.md"
+    )
+    assert comparison_json.exists()
+    assert comparison_md.exists()
+
+    payload = json.loads(comparison_json.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "codex_vs_vanilla_comparison.v1"
+    assert payload["run_timestamp"] == benchmark_eval_output.name
+    assert payload["source_file"] == source_path
+    assert payload["variants"]["codexfarm"]["eval_output_dir"].endswith(
+        "/single-offline-benchmark/codexfarm"
+    )
+    assert payload["variants"]["vanilla"]["eval_output_dir"].endswith(
+        "/single-offline-benchmark/vanilla"
+    )
+    assert payload["metrics"]["codexfarm"]["precision"] == pytest.approx(0.42)
+    assert payload["metrics"]["vanilla"]["precision"] == pytest.approx(0.39)
+    assert payload["deltas"]["codex_minus_vanilla"]["precision"] == pytest.approx(0.03)
+    assert payload["deltas"]["codex_minus_vanilla"]["practical_f1"] is None
+
+
+def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test codex-off",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.20, "recall": 0.30, "f1": 0.24}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-offline-benchmark" / "vanilla"
+    )
+    assert not (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / "codex_vs_vanilla_comparison.json"
+    ).exists()
+    assert not (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / "codex_vs_vanilla_comparison.md"
+    ).exists()
+
+
+def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test codex-fails",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        llm_pipeline = str(kwargs.get("llm_recipe_pipeline") or "").strip().lower()
+        if llm_pipeline == "codex-farm-3pass-v1":
+            raise cli.typer.Exit(2)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.30, "recall": 0.20, "f1": 0.24}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 2
+    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-farm-3pass-v1",
+    ]
+    vanilla_eval_dir = benchmark_eval_output / "single-offline-benchmark" / "vanilla"
+    assert (vanilla_eval_dir / "eval_report.json").exists()
+    assert not (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / "codex_vs_vanilla_comparison.json"
+    ).exists()
 
 
 def test_interactive_labelstudio_export_routes_to_export_command(
@@ -7994,6 +8227,8 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
     )
 
     assert completed is True

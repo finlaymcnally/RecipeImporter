@@ -60,7 +60,13 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown/task
   artifacts are disabled unless overridden in the shell.
 
-Interactive benchmark flows (`single_offline`, `all_method`) stay offline and use canonical-text scoring.
+Interactive benchmark flows (`single_offline`, `single_offline_all_matched`, `all_method`) stay offline and use canonical-text scoring.
+Interactive `single_offline` now writes into one session root:
+- `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/vanilla/`
+- optional paired codex run at `.../single-offline-benchmark/codexfarm/` when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`
+- optional comparison artifacts only when both variants succeed:
+  - `.../single-offline-benchmark/codex_vs_vanilla_comparison.json`
+  - `.../single-offline-benchmark/codex_vs_vanilla_comparison.md`
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). Per-file `active ...` tails are intentionally omitted so plain-progress mode does not spam line-per-file churn.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.

@@ -97,8 +97,14 @@ include `X/Y` counters, these spinners also show ETA using average
 seconds-per-item throughput.
 When stdout is not a real terminal (for example, when output is captured), the
 status spinner falls back to plain progress prints on change to avoid log
-floods; multi-line dashboard statuses also throttle tick refreshes. You can
-also force plain progress with `COOKIMPORT_PLAIN_PROGRESS=1`.
+floods; multi-line dashboard statuses also throttle tick refreshes. Agent-run
+environments (for example `CODEX_CI=1`, `CODEX_THREAD_ID`, or
+`CLAUDE_CODE_SSE_PORT`) also default to plain progress to avoid spinner-frame
+noise in polled PTY logs. Use `COOKIMPORT_PLAIN_PROGRESS=1` to force plain
+progress everywhere, or `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner
+status even in those agent envs.
+Codex-farm `task X/Y` callback messages intentionally omit per-file `active ...`
+tails so plain-progress mode only emits meaningful counter/error changes.
 Interactive all-method benchmark runs now keep one persistent dashboard-style
 spinner that shows the source queue, overall source/config progress, and the
 current per-config task line while suppressing per-config benchmark summary
