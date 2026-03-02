@@ -14,9 +14,12 @@ This package keeps only comparison-critical artifacts for each run:
 
 - `need_to_know_summary.json`
 - `eval_report.md`
+- `correct_label_lines.sample.jsonl` (first 80 inferred-correct lines)
 - `wrong_label_lines.sample.jsonl` (first 80)
 - `missed_gold_lines.sample.jsonl` (first 80)
 - `unmatched_pred_blocks.sample.jsonl` (first 80)
+
+`correct_label_lines.sample.jsonl` is generated from canonical line labels and excludes any line index present in `wrong_label_lines.jsonl`.
 
 Files intentionally removed because they are not required to judge codex-farm vs non-codex quality:
 
@@ -29,3 +32,9 @@ Files intentionally removed because they are not required to judge codex-farm vs
 - timing traces (`processing_timeseries_*.jsonl`)
 
 Use `comparison_summary.json` for quick codex-vs-baseline deltas by source book.
+
+## Flattened run artifacts
+
+Each timestamped run folder is now also mirrored as a single markdown file named
+`YYYY-MM-DD_HH.MM.SS.md` in this directory (for example `2026-03-02_01.01.06.md`),
+containing the complete contents of that run.
