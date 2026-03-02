@@ -20,10 +20,14 @@
       "minLength": 1
     },
     "draft_v1": {
-      "type": "object"
+      "type": "string",
+      "description": "JSON-stringified RecipeDraftV1 payload (must parse as a JSON object).",
+      "minLength": 2
     },
     "ingredient_step_mapping": {
-      "type": "object"
+      "type": "string",
+      "description": "JSON-stringified mapping from ingredient lines to step ids (must parse as a JSON object).",
+      "minLength": 2
     },
     "warnings": {
       "type": "array",

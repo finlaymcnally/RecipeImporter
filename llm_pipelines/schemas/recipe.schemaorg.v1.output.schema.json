@@ -22,7 +22,9 @@
       "minLength": 1
     },
     "schemaorg_recipe": {
-      "type": "object"
+      "type": "string",
+      "description": "JSON-stringified Schema.org Recipe object (must parse as a JSON object).",
+      "minLength": 2
     },
     "extracted_ingredients": {
       "type": "array",
@@ -37,7 +39,9 @@
       }
     },
     "field_evidence": {
-      "type": "object"
+      "type": "string",
+      "description": "JSON-stringified evidence map (must parse as a JSON object).",
+      "minLength": 2
     },
     "warnings": {
       "type": "array",

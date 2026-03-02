@@ -19,16 +19,20 @@ Use this file as the primary "what should I run next?" reference.
 
 Official phase presets:
 
-- `data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json`
+- `data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json`
 - `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json`
 - `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json`
 - `data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json` (optional)
 
 Official lightweight-series presets:
 
-- `data/golden/bench/quality/lightweight_profiles/2026-03-01_00.00.00_qualitysuite-lightweight-main-effects-v1.json`
-- `data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json`
+- `data/golden/bench/quality/lightweight_profiles/2026-03-02_00.36.30_qualitysuite-lightweight-main-effects-qualityfirst-pruned-v1.json`
+- `data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-top-tier-tournament-full-candidates-qualityfirst-pruned.json`
 - `data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json`
+
+Quality-first parser pruning in active presets:
+
+- dropped `pre_br_split`, `pre_none`, `skip_headers_false`, `parser_v2_pre_br_skiphf_false`.
 
 ## Current Signal Snapshot (2026-03-01)
 
@@ -60,8 +64,8 @@ Run:
 cookimport bench quality-lightweight-series \
   --gold-root data/golden/pulled-from-labelstudio \
   --input-root data/input \
-  --profile-file data/golden/bench/quality/lightweight_profiles/2026-03-01_00.00.00_qualitysuite-lightweight-main-effects-v1.json \
-  --experiments-file data/golden/bench/quality/experiments/2026-02-28_16.24.30_qualitysuite-top-tier-tournament-full-candidates.json \
+  --profile-file data/golden/bench/quality/lightweight_profiles/2026-03-02_00.36.30_qualitysuite-lightweight-main-effects-qualityfirst-pruned-v1.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-top-tier-tournament-full-candidates-qualityfirst-pruned.json \
   --thresholds-file data/golden/bench/quality/thresholds/2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json
 ```
 
@@ -79,7 +83,7 @@ Phase A fast shortlist:
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json \
   --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json \
   --quick-parsing
 ```
@@ -88,7 +92,7 @@ Phase B confidence run:
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json \
   --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json \
   --auto-candidates-from-latest-in data/golden/bench/quality/tournaments \
   --max-seeds 4
@@ -98,7 +102,7 @@ Optional B+ sweeps decision:
 
 ```bash
 python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-candidates.json \
+  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json \
   --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json \
   --auto-candidates-from-latest-in data/golden/bench/quality/tournaments \
   --max-seeds 2

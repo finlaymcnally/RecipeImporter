@@ -14,10 +14,13 @@ A) `draft_v1`:
 - Do not rewrite ingredient or instruction text
 - Preserve ingredient order exactly
 - Preserve instruction order exactly
+- `draft_v1` must be returned as a **JSON string** containing the full draft object
+- The JSON payload must be valid and parseable by `json.loads`
 
 B) `ingredient_step_mapping`:
 - Populate only when links are clear from provided inputs
-- If unclear, return `{}`
+- If unclear, return `{}` as a JSON string
+- Always return `ingredient_step_mapping` as a **JSON string**
 
 C) `warnings`:
 - Include factual integrity caveats only

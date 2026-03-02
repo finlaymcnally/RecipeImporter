@@ -72,32 +72,38 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),
-            "schemaorg_recipe": {
-                "@context": "http://schema.org",
-                "@type": "Recipe",
-                "name": recipe_name,
-            },
+            "schemaorg_recipe": json.dumps(
+                {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": recipe_name,
+                },
+                sort_keys=True,
+            ),
             "extracted_ingredients": [],
             "extracted_instructions": [],
-            "field_evidence": {},
+            "field_evidence": "{}",
             "warnings": [],
         }
     if pipeline_id == "recipe.final.v1":
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),
-            "draft_v1": {
-                "schema_v": 1,
-                "source": None,
-                "recipe": {"title": str(payload.get("recipe_id") or "Untitled Recipe")},
-                "steps": [
-                    {
-                        "instruction": "See original recipe for details.",
-                        "ingredient_lines": [],
-                    }
-                ],
-            },
-            "ingredient_step_mapping": {},
+            "draft_v1": json.dumps(
+                {
+                    "schema_v": 1,
+                    "source": None,
+                    "recipe": {"title": str(payload.get("recipe_id") or "Untitled Recipe")},
+                    "steps": [
+                        {
+                            "instruction": "See original recipe for details.",
+                            "ingredient_lines": [],
+                        }
+                    ],
+                },
+                sort_keys=True,
+            ),
+            "ingredient_step_mapping": "{}",
             "warnings": [],
         }
     if pipeline_id == "recipe.knowledge.v1":

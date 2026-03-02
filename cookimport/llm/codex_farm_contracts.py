@@ -3,10 +3,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Literal, TypeVar
+from json import JSONDecodeError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _BUNDLE_VERSION: Literal["1"] = "1"
+
+
+def _coerce_json_object_field(value: Any, field_name: str) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except JSONDecodeError as exc:
+            raise ValueError(f"{field_name} must be a JSON object or JSON object string") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"{field_name} must deserialize to a JSON object")
+        return parsed
+    raise ValueError(f"{field_name} must be a JSON object or JSON object string")
 
 
 class BlockLite(BaseModel):
@@ -79,6 +94,16 @@ class Pass2SchemaOrgOutput(BaseModel):
     field_evidence: dict[str, Any]
     warnings: list[str] = Field(default_factory=list)
 
+    @field_validator("schemaorg_recipe", mode="before")
+    @classmethod
+    def _coerce_schemaorg_recipe(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "schemaorg_recipe")
+
+    @field_validator("field_evidence", mode="before")
+    @classmethod
+    def _coerce_field_evidence(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "field_evidence")
+
 
 class Pass3FinalDraftInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -91,6 +116,11 @@ class Pass3FinalDraftInput(BaseModel):
     extracted_ingredients: list[str] = Field(default_factory=list)
     extracted_instructions: list[str] = Field(default_factory=list)
 
+    @field_validator("schemaorg_recipe", mode="before")
+    @classmethod
+    def _coerce_schemaorg_recipe(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "schemaorg_recipe")
+
 
 class Pass3FinalDraftOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -100,6 +130,16 @@ class Pass3FinalDraftOutput(BaseModel):
     draft_v1: dict[str, Any]
     ingredient_step_mapping: dict[str, Any]
     warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("draft_v1", mode="before")
+    @classmethod
+    def _coerce_draft_v1(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "draft_v1")
+
+    @field_validator("ingredient_step_mapping", mode="before")
+    @classmethod
+    def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "ingredient_step_mapping")
 
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)

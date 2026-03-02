@@ -5,6 +5,8 @@ from pydantic import ValidationError
 
 from cookimport.llm.codex_farm_contracts import (
     Pass1RecipeChunkingInput,
+    Pass2SchemaOrgOutput,
+    Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
 )
 
@@ -83,3 +85,48 @@ def test_pass3_contract_rejects_missing_required_fields() -> None:
                 "draft_v1": {"schema_v": 1},
             }
         )
+
+
+def test_pass2_contract_accepts_json_string_fields() -> None:
+    output = Pass2SchemaOrgOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "schemaorg_recipe": "{\"@type\":\"Recipe\",\"name\":\"T\"}",
+            "extracted_ingredients": [],
+            "extracted_instructions": [],
+            "field_evidence": "{\"name\":\"from_text\"}",
+            "warnings": [],
+        }
+    )
+    assert output.schemaorg_recipe == {"@type": "Recipe", "name": "T"}
+    assert output.field_evidence == {"name": "from_text"}
+
+
+def test_pass3_contract_accepts_json_string_fields() -> None:
+    output = Pass3FinalDraftOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "draft_v1": "{\"schema_v\":1,\"recipe\":{\"title\":\"T\"},\"steps\":[]}",
+            "ingredient_step_mapping": "{}",
+            "warnings": [],
+        }
+    )
+    assert output.draft_v1 == {"schema_v": 1, "recipe": {"title": "T"}, "steps": []}
+    assert output.ingredient_step_mapping == {}
+
+
+def test_pass3_input_accepts_json_string_schemaorg() -> None:
+    payload = Pass3FinalDraftInput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "workbook_slug": "book",
+            "source_hash": "hash",
+            "schemaorg_recipe": "{\"name\":\"T\"}",
+            "extracted_ingredients": [],
+            "extracted_instructions": [],
+        }
+    )
+    assert payload.schemaorg_recipe == {"name": "T"}
