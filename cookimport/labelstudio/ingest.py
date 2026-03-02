@@ -273,6 +273,17 @@ def _normalize_codex_farm_failure_mode(value: str) -> str:
     return normalized
 
 
+def _normalize_codex_farm_recipe_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "extract", "default"}:
+        return "extract"
+    if normalized in {"benchmark", "line-label", "line-labels"}:
+        return "benchmark"
+    raise ValueError(
+        "Invalid codex_farm_recipe_mode. Expected one of: extract, benchmark."
+    )
+
+
 def _normalize_codex_farm_pipeline_id(value: str, *, field_name: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -1321,6 +1332,7 @@ def generate_pred_run_artifacts(
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
+    codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
     write_markdown: bool = True,
@@ -1410,6 +1422,9 @@ def generate_pred_run_artifacts(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
+        codex_farm_recipe_mode
+    )
     selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
         codex_farm_pipeline_pass1,
         field_name="codex_farm_pipeline_pass1",
@@ -1477,6 +1492,7 @@ def generate_pred_run_artifacts(
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         all_epub=path.suffix.lower() == ".epub",
         effective_workers=compute_effective_workers(
@@ -2683,6 +2699,7 @@ def run_labelstudio_import(
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
+    codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
     split_phase_slots: int | None = None,
@@ -2778,6 +2795,7 @@ def run_labelstudio_import(
         codex_farm_pipeline_pass2=codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_recipe_mode=codex_farm_recipe_mode,
         codex_farm_failure_mode=codex_farm_failure_mode,
         processed_output_root=processed_output_root,
         split_phase_slots=split_phase_slots,

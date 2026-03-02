@@ -187,6 +187,32 @@ def _discover_run_dirs(input_dir: Path) -> list[Path]:
     return sorted(discovered.keys())
 
 
+def _read_run_id_for_dir(run_dir: Path) -> str:
+    manifest_path = run_dir / "run_manifest.json"
+    try:
+        manifest = _load_json(manifest_path)
+    except Exception:
+        return run_dir.name
+    run_id = manifest.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        return run_id.strip()
+    return run_dir.name
+
+
+def _default_output_dir_from_runs(input_dir: Path, run_dirs: list[Path]) -> Path:
+    run_ids = sorted({_read_run_id_for_dir(run_dir) for run_dir in run_dirs})
+    timestamp_ids = sorted(
+        run_id for run_id in run_ids if _parse_run_timestamp(run_id) is not None
+    )
+    if len(timestamp_ids) == 1:
+        base_name = timestamp_ids[0]
+    elif len(timestamp_ids) > 1:
+        base_name = f"{timestamp_ids[0]}__to__{timestamp_ids[-1]}"
+    else:
+        base_name = input_dir.name
+    return input_dir.parent / f"{base_name}_cutdown"
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -980,8 +1006,17 @@ def main() -> int:
         print("error: --sample-limit must be > 0", file=sys.stderr)
         return 1
 
+    run_dirs = _discover_run_dirs(input_dir)
+    if not run_dirs:
+        print(
+            "error: no benchmark run directories found (need both eval_report.json "
+            "and run_manifest.json).",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.output_dir is None:
-        output_dir = input_dir.parent / f"{input_dir.name}_cutdown"
+        output_dir = _default_output_dir_from_runs(input_dir, run_dirs)
     else:
         output_dir = args.output_dir.resolve()
 
@@ -995,15 +1030,6 @@ def main() -> int:
             return 1
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    run_dirs = _discover_run_dirs(input_dir)
-    if not run_dirs:
-        print(
-            "error: no benchmark run directories found (need both eval_report.json "
-            "and run_manifest.json).",
-            file=sys.stderr,
-        )
-        return 1
 
     seen_output_names: dict[str, int] = defaultdict(int)
     records: list[RunRecord] = []

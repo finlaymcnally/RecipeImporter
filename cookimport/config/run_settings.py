@@ -77,6 +77,7 @@ _SUMMARY_ORDER = (
     "llm_recipe_pipeline",
     "llm_knowledge_pipeline",
     "llm_tags_pipeline",
+    "codex_farm_recipe_mode",
     "codex_farm_cmd",
     "codex_farm_model",
     "codex_farm_reasoning_effort",
@@ -267,6 +268,11 @@ class LlmTagsPipeline(str, Enum):
 class CodexFarmFailureMode(str, Enum):
     fail = "fail"
     fallback = "fallback"
+
+
+class CodexFarmRecipeMode(str, Enum):
+    extract = "extract"
+    benchmark = "benchmark"
 
 
 class CodexReasoningEffort(str, Enum):
@@ -900,6 +906,19 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    codex_farm_recipe_mode: CodexFarmRecipeMode = Field(
+        default=CodexFarmRecipeMode.extract,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Recipe Mode",
+            order=117,
+            description=(
+                "Codex-farm recipe execution style. extract keeps the existing "
+                "three-pass extraction behavior; benchmark requests benchmark-native "
+                "line-label behavior."
+            ),
+        ),
+    )
     codex_farm_cmd: str = Field(
         default="codex-farm",
         json_schema_extra=_ui_meta(
@@ -1110,6 +1129,18 @@ class RunSettings(BaseModel):
                 "codex farm reasoning effort must be one of: "
                 f"{allowed}"
             ) from exc
+
+    @field_validator("codex_farm_recipe_mode", mode="before")
+    @classmethod
+    def _normalize_codex_farm_recipe_mode(cls, value: Any) -> str | CodexFarmRecipeMode:
+        normalized = str(value or "").strip().lower().replace("_", "-")
+        if normalized in {"", "extract", "default"}:
+            return CodexFarmRecipeMode.extract.value
+        if normalized in {"benchmark", "line-label", "line-labels"}:
+            return CodexFarmRecipeMode.benchmark.value
+        raise ValueError(
+            "Invalid codex_farm_recipe_mode. Expected one of: extract, benchmark."
+        )
 
     @classmethod
     def from_dict(
@@ -1438,6 +1469,7 @@ def build_run_settings(
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
+    codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | CodexReasoningEffort | None = None,
@@ -1547,6 +1579,7 @@ def build_run_settings(
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
+            "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_model": (
                 str(codex_farm_model).strip()

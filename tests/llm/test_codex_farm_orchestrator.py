@@ -116,8 +116,10 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert manifest["counts"]["pass1_ok"] == 1
     assert manifest["counts"]["pass3_ok"] == 1
     assert manifest["output_schema_paths"] == {}
+    assert manifest["codex_farm_recipe_mode"] == "extract"
     assert sorted(manifest["process_runs"].keys()) == ["pass1", "pass2", "pass3"]
     assert apply_result.llm_report["process_runs"] == manifest["process_runs"]
+    assert apply_result.llm_report["codex_farm_recipe_mode"] == "extract"
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
@@ -145,6 +147,7 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
                     "root_dir": root_dir,
                     "workspace_root": workspace_root,
                     "env_root": env.get("CODEX_FARM_ROOT"),
+                    "env_recipe_mode": env.get("COOKIMPORT_CODEX_FARM_RECIPE_MODE"),
                     "model": model,
                     "reasoning_effort": reasoning_effort,
                 }
@@ -240,6 +243,7 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
         assert call["root_dir"] == pack_root
         assert call["workspace_root"] == workspace_root
         assert call["env_root"] == str(pack_root)
+        assert call["env_recipe_mode"] == "extract"
         assert call["model"] == "gpt-test-model"
         assert call["reasoning_effort"] == "high"
 
@@ -527,6 +531,252 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
         "--pipeline",
         "recipe.chunking.v1",
     ]
+
+
+def test_subprocess_runner_appends_benchmark_mode_flag_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        calls.append(argv)
+        if argv[1:3] == ["process", "--pipeline"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-benchmark-mode-flag",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-benchmark-mode-flag",
+                        "pipeline_id": "recipe.chunking.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    run_result = runner.run_pipeline(
+        "recipe.chunking.v1",
+        in_dir,
+        out_dir,
+        {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "benchmark"},
+        root_dir=root_dir,
+    )
+
+    assert run_result.run_id == "run-benchmark-mode-flag"
+    process_command = calls[0]
+    assert "--benchmark-mode" in process_command
+    mode_index = process_command.index("--benchmark-mode")
+    assert process_command[mode_index + 1] == "benchmark"
+
+
+def test_subprocess_runner_retries_extract_without_benchmark_mode_flag_when_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    process_calls: list[list[str]] = []
+    process_attempt = {"count": 0}
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        if argv[1:3] == ["process", "--pipeline"]:
+            process_calls.append(argv)
+            process_attempt["count"] += 1
+            if process_attempt["count"] == 1:
+                return SimpleNamespace(
+                    returncode=2,
+                    stdout="",
+                    stderr="error: unrecognized arguments: --benchmark-mode\n",
+                )
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-extract-fallback",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-extract-fallback",
+                        "pipeline_id": "recipe.chunking.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    run_result = runner.run_pipeline(
+        "recipe.chunking.v1",
+        in_dir,
+        out_dir,
+        {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "extract"},
+        root_dir=root_dir,
+    )
+
+    assert run_result.run_id == "run-extract-fallback"
+    assert len(process_calls) == 2
+    assert "--benchmark-mode" in process_calls[0]
+    assert "--benchmark-mode" not in process_calls[1]
+
+
+def test_subprocess_runner_fails_when_benchmark_mode_flag_is_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "recipe.chunking.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "recipe.chunking.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.chunking.v1",
+                "prompt_template_path": "prompts/recipe.chunking.v1.prompt.md",
+                "output_schema_path": "schemas/recipe.chunking.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    process_calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        if argv[1:3] == ["process", "--pipeline"]:
+            process_calls.append(argv)
+            return SimpleNamespace(
+                returncode=2,
+                stdout="",
+                stderr="error: unrecognized arguments: --benchmark-mode\n",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    with pytest.raises(CodexFarmRunnerError, match="does not support --benchmark-mode"):
+        runner.run_pipeline(
+            "recipe.chunking.v1",
+            in_dir,
+            out_dir,
+            {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "benchmark"},
+            root_dir=root_dir,
+        )
+    assert len(process_calls) == 1
 
 
 def test_subprocess_runner_emits_progress_callback_from_progress_events(

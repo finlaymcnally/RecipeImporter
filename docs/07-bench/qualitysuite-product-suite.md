@@ -15,6 +15,11 @@ QualitySuite now has one cohesive operating model with three tracks:
 
 Use this file as the primary "what should I run next?" reference.
 
+Current status update (2026-03-01 to 2026-03-02):
+- `cookimport bench quality-lightweight-series` is retired/disabled and exits immediately.
+- `scripts/quality_top_tier_tournament.py` is retired/disabled and exits immediately.
+- Track 1 and Track 2 below are historical workflow context only (useful for reading legacy artifacts), not active runnable commands.
+
 ## Default Preset Pack
 
 Official phase presets:
@@ -136,7 +141,7 @@ Primary decision criteria:
 
 ## Practical Escalation Path
 
-1. Start with lightweight-series for directional signal.
-2. Run tournament Phase A/B for confidence and fold-level evidence.
-3. Finish with quality-compare for formal regression gating.
-4. Use B+ only when deciding deterministic sweeps policy, not for routine parser winner selection.
+1. Run `bench quality-run` with active pruned presets for current candidate evaluation.
+2. Use `bench quality-leaderboard` to surface winner settings and Pareto tradeoffs.
+3. Finish with `bench quality-compare` for formal regression gating versus baseline.
+4. Use Track 1/2 command examples only to interpret legacy artifacts from older runs.

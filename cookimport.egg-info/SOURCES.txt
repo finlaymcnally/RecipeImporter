@@ -56,6 +56,7 @@ cookimport/core/joblib_runtime.py
 cookimport/core/mapping_io.py
 cookimport/core/models.py
 cookimport/core/overrides_io.py
+cookimport/core/progress_dashboard.py
 cookimport/core/progress_messages.py
 cookimport/core/reporting.py
 cookimport/core/scoring.py

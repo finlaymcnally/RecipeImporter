@@ -14,6 +14,9 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 logger = logging.getLogger(__name__)
 _CODEX_FARM_PROGRESS_PREFIX = "__codex_farm_progress__ "
+_CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
+_CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
+_CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
 
 
 class CodexFarmRunnerError(RuntimeError):
@@ -219,6 +222,46 @@ def _progress_events_option_unsupported(stderr_text: str) -> bool:
             "invalid option",
         )
     )
+
+
+def _benchmark_mode_option_unsupported(stderr_text: str) -> bool:
+    lowered = str(stderr_text or "").strip().lower()
+    if not lowered or "--benchmark-mode" not in lowered:
+        return False
+    return any(
+        marker in lowered
+        for marker in (
+            "no such option",
+            "unrecognized arguments",
+            "unknown option",
+            "invalid option",
+        )
+    )
+
+
+def _normalize_codex_farm_recipe_mode(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if not normalized:
+        return None
+    if normalized in {
+        _CODEX_FARM_RECIPE_MODE_EXTRACT,
+        _CODEX_FARM_RECIPE_MODE_BENCHMARK,
+    }:
+        return normalized
+    raise CodexFarmRunnerError(
+        "Invalid codex-farm recipe mode from environment "
+        f"{_CODEX_FARM_RECIPE_MODE_ENV}={value!r}. "
+        "Expected one of: extract, benchmark."
+    )
+
+
+def _remove_benchmark_mode_option(command: Sequence[str]) -> list[str]:
+    tokens = list(command)
+    while "--benchmark-mode" in tokens:
+        index = tokens.index("--benchmark-mode")
+        delete_end = index + 2 if index + 1 < len(tokens) else index + 1
+        del tokens[index:delete_end]
+    return tokens
 
 
 def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
@@ -899,6 +942,9 @@ class SubprocessCodexFarmRunner:
     ) -> CodexFarmPipelineRunResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         expected_schema_path: Path | None = None
+        selected_recipe_mode = _normalize_codex_farm_recipe_mode(
+            env.get(_CODEX_FARM_RECIPE_MODE_ENV)
+        )
         command = [
             *_command_prefix(self.cmd),
             "process",
@@ -919,6 +965,8 @@ class SubprocessCodexFarmRunner:
                 pipeline_id=pipeline_id,
             )
             command.extend(["--output-schema", str(expected_schema_path)])
+        if selected_recipe_mode is not None:
+            command.extend(["--benchmark-mode", selected_recipe_mode])
         command.append("--json")
         if self.progress_callback is not None:
             command.append("--progress-events")
@@ -942,10 +990,10 @@ class SubprocessCodexFarmRunner:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ignoring codex-farm progress callback failure: %s", exc)
 
-        completed: subprocess.CompletedProcess[str]
-        if progress_callback is None:
-            completed = _run_codex_farm_command(command, env=env)
-        else:
+        def _run_process_command(command_tokens: list[str]) -> subprocess.CompletedProcess[str]:
+            if progress_callback is None:
+                return _run_codex_farm_command(command_tokens, env=env)
+
             def _handle_stderr_line(line: str) -> bool:
                 payload = _parse_progress_event(line)
                 if payload is None:
@@ -955,19 +1003,45 @@ class SubprocessCodexFarmRunner:
                     _emit_progress(message)
                 return True
 
-            completed = _run_codex_farm_command_streaming(
-                command,
+            completed_stream = _run_codex_farm_command_streaming(
+                command_tokens,
                 env=env,
                 stderr_line_handler=_handle_stderr_line,
             )
-            if completed.returncode != 0 and _progress_events_option_unsupported(completed.stderr):
+            if (
+                completed_stream.returncode != 0
+                and _progress_events_option_unsupported(completed_stream.stderr)
+            ):
                 _emit_progress(
                     f"codex-farm {pipeline_id}: live progress events unavailable; retrying without --progress-events."
                 )
-                fallback_command = list(command)
+                fallback_command = list(command_tokens)
                 if "--progress-events" in fallback_command:
                     fallback_command.remove("--progress-events")
-                completed = _run_codex_farm_command(fallback_command, env=env)
+                return _run_codex_farm_command(fallback_command, env=env)
+            return completed_stream
+
+        completed = _run_process_command(command)
+        if (
+            completed.returncode != 0
+            and _benchmark_mode_option_unsupported(completed.stderr)
+            and selected_recipe_mode == _CODEX_FARM_RECIPE_MODE_EXTRACT
+        ):
+            _emit_progress(
+                "codex-farm benchmark-mode flag unavailable; retrying extract mode without --benchmark-mode."
+            )
+            fallback_command = _remove_benchmark_mode_option(command)
+            completed = _run_process_command(fallback_command)
+        elif (
+            completed.returncode != 0
+            and _benchmark_mode_option_unsupported(completed.stderr)
+            and selected_recipe_mode == _CODEX_FARM_RECIPE_MODE_BENCHMARK
+        ):
+            raise CodexFarmRunnerError(
+                "codex-farm benchmark mode requested but this codex-farm build does "
+                "not support --benchmark-mode. Upgrade codex-farm or use "
+                "codex_farm_recipe_mode=extract."
+            )
 
         if completed.stdout.strip():
             logger.info(

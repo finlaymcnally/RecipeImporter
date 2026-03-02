@@ -40,12 +40,9 @@ from typer.models import OptionInfo
 from prompt_toolkit.key_binding.key_bindings import KeyBindings, merge_key_bindings
 from prompt_toolkit.keys import Keys
 from questionary.prompts.common import Choice as QuestionaryChoice, Separator as QuestionarySeparator
-from rich.console import Console, Group
-from rich.live import Live
+from rich.console import Console
 from rich.markup import escape as rich_escape
-from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-from rich.text import Text
 
 from cookimport.cli_ui.run_settings_flow import choose_run_settings
 from cookimport.config.last_run_store import (
@@ -76,6 +73,11 @@ from cookimport.core.progress_messages import (
     format_phase_counter,
     format_task_counter,
     parse_worker_activity,
+)
+from cookimport.core.progress_dashboard import (
+    ProgressCallbackAdapter,
+    ProgressDashboardCore,
+    ProgressQueueRow,
 )
 from cookimport.core.executor_fallback import (
     resolve_process_thread_executor,
@@ -200,6 +202,7 @@ DEFAULT_GOLDEN = GOLDEN_ROOT
 DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO = GOLDEN_SENT_TO_LABELSTUDIO_ROOT
 DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO = GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT
 DEFAULT_GOLDEN_BENCHMARK = GOLDEN_BENCHMARK_ROOT
+DEFAULT_LABELSTUDIO_BENCHMARK_COMPARISONS = DEFAULT_GOLDEN_BENCHMARK / "comparisons"
 DEFAULT_HISTORY = HISTORY_ROOT
 DEFAULT_BENCH_SPEED_ROOT = DEFAULT_GOLDEN / "bench" / "speed"
 DEFAULT_BENCH_SPEED_SUITES = DEFAULT_BENCH_SPEED_ROOT / "suites"
@@ -245,6 +248,14 @@ SINGLE_OFFLINE_COMPARISON_METRICS = (
     "practical_recall",
     "practical_f1",
 )
+LABELSTUDIO_BENCHMARK_COMPARE_SCHEMA_VERSION = "labelstudio_benchmark_compare.v1"
+CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
+CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
+CODEX_FARM_BENCHMARK_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
+BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY = "thefoodlabcutdown"
+BENCHMARK_COMPARE_SEA_SOURCE_KEY = "seaandsmokecutdown"
+BENCHMARK_COMPARE_INGREDIENT_LABEL = "INGREDIENT_LINE"
+BENCHMARK_COMPARE_VARIANT_LABEL = "RECIPE_VARIANT"
 QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE = (
     "bench quality-lightweight-series is disabled. "
     "Tournament/lightweight-series workflows were retired due to extreme "
@@ -2766,6 +2777,1109 @@ def _interactive_single_offline_benchmark(
     return succeeded > 0
 
 
+def _resolve_labelstudio_benchmark_compare_report_root(
+    run_dir: Path,
+) -> Path | None:
+    candidate = run_dir.expanduser()
+    if candidate.is_file():
+        if candidate.name == "all_method_benchmark_multi_source_report.json":
+            return candidate.parent
+        return None
+    report_path = candidate / "all_method_benchmark_multi_source_report.json"
+    if report_path.exists() and report_path.is_file():
+        return candidate
+    nested_root = candidate / "all-method-benchmark"
+    nested_report = nested_root / "all_method_benchmark_multi_source_report.json"
+    if nested_report.exists() and nested_report.is_file():
+        return nested_root
+    return None
+
+
+def _parse_run_config_summary(summary: str | None) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    text = str(summary or "").strip()
+    if not text:
+        return parsed
+    for part in text.split(" | "):
+        chunk = part.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        key, value = chunk.split("=", 1)
+        cleaned_key = key.strip()
+        if not cleaned_key:
+            continue
+        parsed[cleaned_key] = value.strip()
+    return parsed
+
+
+def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve(strict=False)
+
+
+def _source_key_from_row(row: dict[str, Any]) -> str:
+    source_group_key = str(row.get("source_group_key") or "").strip().lower()
+    if source_group_key:
+        return source_group_key
+    source_slug = str(row.get("source_slug") or "").strip().lower()
+    if source_slug:
+        return source_slug
+    source_file_name = str(row.get("source_file_name") or "").strip()
+    if source_file_name:
+        return slugify_name(Path(source_file_name).stem)
+    source_file = str(row.get("source_file") or "").strip()
+    if source_file:
+        return slugify_name(Path(source_file).stem)
+    return ""
+
+
+def _index_labelstudio_benchmark_sources(
+    report_payload: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    source_rows = report_payload.get("sources")
+    if not isinstance(source_rows, list):
+        return {}
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in source_rows:
+        if not isinstance(row, dict):
+            continue
+        source_key = _source_key_from_row(row)
+        if source_key:
+            indexed[source_key] = row
+    return indexed
+
+
+def _load_source_winner_eval_report(
+    *,
+    multi_source_report_root: Path,
+    source_row: dict[str, Any],
+) -> tuple[dict[str, Any], Path] | tuple[None, None]:
+    report_json_path_value = str(source_row.get("report_json_path") or "").strip()
+    if not report_json_path_value:
+        return None, None
+    source_report_path = _resolve_artifact_path(
+        multi_source_report_root, report_json_path_value
+    )
+    if source_report_path is None:
+        return None, None
+    source_report = _load_json_dict(source_report_path)
+    if source_report is None:
+        return None, None
+    winner_payload = source_report.get("winner_by_f1")
+    winner = winner_payload if isinstance(winner_payload, dict) else None
+    if not isinstance(winner, dict):
+        variants = source_report.get("variants")
+        if isinstance(variants, list):
+            successful_variants = [
+                row
+                for row in variants
+                if isinstance(row, dict)
+                and str(row.get("status") or "").strip().lower() == "ok"
+            ]
+            if successful_variants:
+                winner = min(
+                    successful_variants,
+                    key=lambda row: _report_count(row.get("rank")) or 10**9,
+                )
+    if not isinstance(winner, dict):
+        return None, None
+    eval_report_path_value = str(winner.get("eval_report_json") or "").strip()
+    if not eval_report_path_value:
+        return None, None
+    eval_report_path = _resolve_artifact_path(
+        source_report_path.parent,
+        eval_report_path_value,
+    )
+    if eval_report_path is None:
+        return None, None
+    eval_report = _load_json_dict(eval_report_path)
+    if eval_report is None:
+        return None, None
+    return eval_report, eval_report_path
+
+
+def _label_recall_from_eval_report(eval_report: dict[str, Any], label: str) -> float | None:
+    per_label = eval_report.get("per_label")
+    if not isinstance(per_label, dict):
+        return None
+    label_payload = per_label.get(label)
+    if not isinstance(label_payload, dict):
+        return None
+    return _report_optional_metric(label_payload.get("recall"))
+
+
+def _dir_has_json_files(path: Path | None) -> bool:
+    if path is None or not path.exists() or not path.is_dir():
+        return False
+    return any(file_path.is_file() for file_path in path.glob("*.json"))
+
+
+def _read_artifact_list_from_manifest(path: Path | None) -> list[Path]:
+    if path is None or not path.exists() or not path.is_file():
+        return []
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        return []
+    base_dir = path.parent
+    paths: list[Path] = []
+    for line in raw_text.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        artifact_path = Path(value)
+        if not artifact_path.is_absolute():
+            artifact_path = base_dir / artifact_path
+        paths.append(artifact_path)
+    return paths
+
+
+def _all_artifact_paths_exist(artifacts: list[Path] | None) -> bool:
+    if not artifacts:
+        return False
+    return all(path.exists() and path.is_file() for path in artifacts)
+
+
+def _has_llm_artifact_evidence(
+    *,
+    prediction_run_dir: Path,
+    prediction_artifacts: dict[str, Any] | None,
+) -> bool:
+    if isinstance(prediction_artifacts, dict):
+        if any(
+            bool(prediction_artifacts.get(key))
+            for key in (
+                "llm_manifest_json",
+                "prompt_inputs_manifest_txt",
+                "prompt_outputs_manifest_txt",
+            )
+        ):
+            return True
+    llm_root = prediction_run_dir / "raw" / "llm"
+    if not llm_root.exists() or not llm_root.is_dir():
+        return False
+    return any(
+        (llm_root / subpath).exists()
+        for subpath in ("pass1_chunking", "pass2_schemaorg", "pass3_final")
+    )
+
+
+def _resolve_codex_farm_mode_and_pipeline(
+    *,
+    eval_run_config: dict[str, Any],
+    summary_tokens: dict[str, str],
+    prediction_run_config: dict[str, Any],
+    prediction_run_manifest: dict[str, Any] | None,
+    prediction_artifacts: dict[str, Any] | None,
+    prediction_run_dir: Path,
+) -> tuple[str, str, str]:
+    pred_manifest_payload = (
+        prediction_run_manifest.get("run_config")
+        if isinstance(prediction_run_manifest, dict)
+        else None
+    )
+    manifest_mode = (
+        pred_manifest_payload.get("codex_farm_recipe_mode")
+        if isinstance(pred_manifest_payload, dict)
+        else None
+    )
+    manifest_pipeline = (
+        pred_manifest_payload.get("llm_recipe_pipeline")
+        if isinstance(pred_manifest_payload, dict)
+        else None
+    )
+
+    has_mode_metadata = bool(
+        prediction_run_config.get("codex_farm_recipe_mode")
+        or eval_run_config.get("codex_farm_recipe_mode")
+        or manifest_mode
+        or summary_tokens.get("codex_farm_recipe_mode")
+    )
+
+    artifact_evidence = _has_llm_artifact_evidence(
+        prediction_run_dir=prediction_run_dir,
+        prediction_artifacts=prediction_artifacts,
+    )
+
+    raw_mode = str(
+        prediction_run_config.get("codex_farm_recipe_mode")
+        or eval_run_config.get("codex_farm_recipe_mode")
+        or manifest_mode
+        or summary_tokens.get("codex_farm_recipe_mode")
+        or ""
+    ).strip()
+    if not raw_mode:
+        if artifact_evidence:
+            raw_mode = CODEX_FARM_RECIPE_MODE_BENCHMARK
+        else:
+            raw_mode = CODEX_FARM_RECIPE_MODE_EXTRACT
+
+    raw_pipeline = str(
+        prediction_run_config.get("llm_recipe_pipeline")
+        or eval_run_config.get("llm_recipe_pipeline")
+        or manifest_pipeline
+        or summary_tokens.get("llm_recipe_pipeline")
+        or ""
+    ).strip()
+    if not raw_pipeline:
+        if raw_mode == CODEX_FARM_RECIPE_MODE_BENCHMARK:
+            raw_pipeline = "codex-farm-3pass-v1"
+        else:
+            raw_pipeline = "off"
+
+    if has_mode_metadata:
+        mode_source = "metadata"
+    elif artifact_evidence and raw_mode == CODEX_FARM_RECIPE_MODE_BENCHMARK:
+        mode_source = "inferred"
+    else:
+        mode_source = "unknown"
+
+    return (
+        _normalize_codex_farm_recipe_mode(raw_mode),
+        _normalize_llm_recipe_pipeline(raw_pipeline),
+        mode_source,
+    )
+
+
+def _build_source_debug_artifact_status(
+    *,
+    eval_report_path: Path,
+    eval_report: dict[str, Any],
+    codex_farm_recipe_mode: str,
+    llm_recipe_pipeline: str,
+    prediction_run_dir: Path | None = None,
+) -> dict[str, Any]:
+    eval_dir = eval_report_path.parent
+    eval_artifacts = eval_report.get("artifacts")
+    if not isinstance(eval_artifacts, dict):
+        eval_artifacts = {}
+    aligned_path = _resolve_artifact_path(
+        eval_dir,
+        eval_artifacts.get("aligned_prediction_blocks_jsonl"),
+    )
+    if aligned_path is None:
+        aligned_path = eval_dir / "aligned_prediction_blocks.jsonl"
+
+    checks: list[dict[str, Any]] = [
+        {
+            "name": "aligned_prediction_blocks_jsonl",
+            "present": bool(aligned_path.exists() and aligned_path.is_file()),
+            "path": str(aligned_path),
+        }
+    ]
+
+    normalized_mode = _normalize_codex_farm_recipe_mode(codex_farm_recipe_mode)
+    normalized_pipeline = str(llm_recipe_pipeline or "").strip().lower()
+    requires_llm_debug = (
+        normalized_mode == CODEX_FARM_RECIPE_MODE_BENCHMARK
+        and normalized_pipeline == "codex-farm-3pass-v1"
+    )
+
+    if requires_llm_debug:
+        candidate_prediction_run_dir = (
+            prediction_run_dir
+            if isinstance(prediction_run_dir, Path)
+            else eval_dir / "prediction-run"
+        )
+        prediction_manifest = _load_json_dict(
+            candidate_prediction_run_dir / "run_manifest.json"
+        )
+        prediction_artifacts = (
+            prediction_manifest.get("artifacts")
+            if isinstance(prediction_manifest, dict)
+            else None
+        )
+        if not isinstance(prediction_artifacts, dict):
+            prediction_artifacts = {}
+        prompt_inputs_manifest = _resolve_artifact_path(
+            candidate_prediction_run_dir,
+            prediction_artifacts.get("prompt_inputs_manifest_txt"),
+        )
+        prompt_outputs_manifest = _resolve_artifact_path(
+            candidate_prediction_run_dir,
+            prediction_artifacts.get("prompt_outputs_manifest_txt"),
+        )
+        prompt_input_payloads = _read_artifact_list_from_manifest(
+            prompt_inputs_manifest
+        )
+        prompt_output_payloads = _read_artifact_list_from_manifest(
+            prompt_outputs_manifest
+        )
+        llm_manifest_path = _resolve_artifact_path(
+            candidate_prediction_run_dir,
+            prediction_artifacts.get("llm_manifest_json"),
+        )
+        llm_manifest = (
+            _load_json_dict(llm_manifest_path)
+            if llm_manifest_path is not None
+            else None
+        )
+        llm_paths = (
+            llm_manifest.get("paths")
+            if isinstance(llm_manifest, dict)
+            else None
+        )
+        if not isinstance(llm_paths, dict):
+            llm_paths = {}
+        pass1_in = _resolve_artifact_path(
+            llm_manifest_path.parent
+            if llm_manifest_path is not None
+            else candidate_prediction_run_dir,
+            llm_paths.get("pass1_in"),
+        )
+        pass1_out = _resolve_artifact_path(
+            llm_manifest_path.parent
+            if llm_manifest_path is not None
+            else candidate_prediction_run_dir,
+            llm_paths.get("pass1_out"),
+        )
+        pass2_in = _resolve_artifact_path(
+            llm_manifest_path.parent
+            if llm_manifest_path is not None
+            else candidate_prediction_run_dir,
+            llm_paths.get("pass2_in"),
+        )
+        pass2_out = _resolve_artifact_path(
+            llm_manifest_path.parent
+            if llm_manifest_path is not None
+            else candidate_prediction_run_dir,
+            llm_paths.get("pass2_out"),
+        )
+        pass3_in = _resolve_artifact_path(
+            llm_manifest_path.parent
+            if llm_manifest_path is not None
+            else candidate_prediction_run_dir,
+            llm_paths.get("pass3_in"),
+        )
+        pass3_out = _resolve_artifact_path(
+            llm_manifest_path.parent
+            if llm_manifest_path is not None
+            else candidate_prediction_run_dir,
+            llm_paths.get("pass3_out"),
+        )
+        checks.extend(
+            [
+                {
+                    "name": "prompt_inputs_manifest_txt",
+                    "present": bool(
+                        prompt_inputs_manifest is not None
+                        and prompt_inputs_manifest.exists()
+                        and prompt_inputs_manifest.is_file()
+                    ),
+                    "path": str(prompt_inputs_manifest)
+                    if prompt_inputs_manifest is not None
+                    else None,
+                },
+                {
+                    "name": "prompt_outputs_manifest_txt",
+                    "present": bool(
+                        prompt_outputs_manifest is not None
+                        and prompt_outputs_manifest.exists()
+                        and prompt_outputs_manifest.is_file()
+                    ),
+                    "path": str(prompt_outputs_manifest)
+                    if prompt_outputs_manifest is not None
+                    else None,
+                },
+                {
+                    "name": "prompt_request_payloads",
+                    "present": _all_artifact_paths_exist(prompt_input_payloads),
+                    "path": (
+                        str(prompt_inputs_manifest)
+                        if prompt_inputs_manifest is not None
+                        else None
+                    ),
+                    "count": len(prompt_input_payloads),
+                },
+                {
+                    "name": "prompt_response_payloads",
+                    "present": _all_artifact_paths_exist(prompt_output_payloads),
+                    "path": (
+                        str(prompt_outputs_manifest)
+                        if prompt_outputs_manifest is not None
+                        else None
+                    ),
+                    "count": len(prompt_output_payloads),
+                },
+                {
+                    "name": "llm_manifest_json",
+                    "present": bool(
+                        llm_manifest_path is not None
+                        and llm_manifest_path.exists()
+                        and llm_manifest_path.is_file()
+                    ),
+                    "path": str(llm_manifest_path) if llm_manifest_path is not None else None,
+                },
+                {
+                    "name": "pass1_in_json",
+                    "present": _dir_has_json_files(pass1_in),
+                    "path": str(pass1_in) if pass1_in is not None else None,
+                },
+                {
+                    "name": "pass1_out_json",
+                    "present": _dir_has_json_files(pass1_out),
+                    "path": str(pass1_out) if pass1_out is not None else None,
+                },
+                {
+                    "name": "pass2_in_json",
+                    "present": _dir_has_json_files(pass2_in),
+                    "path": str(pass2_in) if pass2_in is not None else None,
+                },
+                {
+                    "name": "pass2_out_json",
+                    "present": _dir_has_json_files(pass2_out),
+                    "path": str(pass2_out) if pass2_out is not None else None,
+                },
+                {
+                    "name": "pass3_in_json",
+                    "present": _dir_has_json_files(pass3_in),
+                    "path": str(pass3_in) if pass3_in is not None else None,
+                },
+                {
+                    "name": "pass3_out_json",
+                    "present": _dir_has_json_files(pass3_out),
+                    "path": str(pass3_out) if pass3_out is not None else None,
+                },
+            ]
+        )
+
+    required_checks = checks if requires_llm_debug else checks[:1]
+    missing = [
+        str(check.get("name"))
+        for check in required_checks
+        if not bool(check.get("present"))
+    ]
+    return {
+        "required": requires_llm_debug,
+        "checks": checks,
+        "required_checks": [str(check.get("name") or "") for check in required_checks],
+        "all_present": len(missing) == 0,
+        "missing": missing,
+    }
+
+
+def _build_labelstudio_benchmark_source_context(
+    *,
+    multi_source_report_root: Path,
+    source_row: dict[str, Any],
+) -> dict[str, Any] | None:
+    eval_report, eval_report_path = _load_source_winner_eval_report(
+        multi_source_report_root=multi_source_report_root,
+        source_row=source_row,
+    )
+    if eval_report is None or eval_report_path is None:
+        return None
+
+    summary_tokens = _parse_run_config_summary(
+        str((eval_report.get("run_config_summary") or ""))
+    )
+    winner_metrics = source_row.get("winner_metrics")
+    if not isinstance(winner_metrics, dict):
+        winner_metrics = {}
+
+    eval_run_manifest = _load_json_dict(eval_report_path.parent / "run_manifest.json")
+    run_config_payload = (
+        eval_run_manifest.get("run_config")
+        if isinstance(eval_run_manifest, dict)
+        else None
+    )
+    if not isinstance(run_config_payload, dict):
+        run_config_payload = {}
+    prediction_run_config = run_config_payload.get("prediction_run_config")
+    if not isinstance(prediction_run_config, dict):
+        prediction_run_config = {}
+    eval_run_artifacts = (
+        eval_run_manifest.get("artifacts")
+        if isinstance(eval_run_manifest, dict)
+        else None
+    )
+    if not isinstance(eval_run_artifacts, dict):
+        eval_run_artifacts = {}
+    prediction_run_dir = _resolve_artifact_path(
+        eval_report_path.parent,
+        eval_run_artifacts.get("pred_run_dir"),
+    )
+    prediction_run_dir_is_inferred = prediction_run_dir is None
+    if prediction_run_dir is None:
+        prediction_run_dir = eval_report_path.parent / "prediction-run"
+    prediction_run_manifest = _load_json_dict(prediction_run_dir / "run_manifest.json")
+    prediction_run_artifacts = (
+        prediction_run_manifest.get("artifacts")
+        if isinstance(prediction_run_manifest, dict)
+        else None
+    )
+    if not isinstance(prediction_run_artifacts, dict):
+        prediction_run_artifacts = {}
+    codex_farm_recipe_mode, llm_recipe_pipeline, mode_source = (
+        _resolve_codex_farm_mode_and_pipeline(
+            eval_run_config=run_config_payload,
+            summary_tokens=summary_tokens,
+            prediction_run_config=prediction_run_config,
+            prediction_run_manifest=prediction_run_manifest,
+            prediction_artifacts=prediction_run_artifacts,
+            prediction_run_dir=prediction_run_dir,
+        )
+    )
+
+    debug_artifacts = _build_source_debug_artifact_status(
+        eval_report_path=eval_report_path,
+        eval_report=eval_report,
+        codex_farm_recipe_mode=codex_farm_recipe_mode,
+        llm_recipe_pipeline=llm_recipe_pipeline,
+        prediction_run_dir=prediction_run_dir,
+    )
+    return {
+        "source_group_key": _source_key_from_row(source_row),
+        "source_file": str(source_row.get("source_file") or ""),
+        "winner_metrics": {
+            "precision": _report_optional_metric(winner_metrics.get("precision")),
+            "recall": _report_optional_metric(winner_metrics.get("recall")),
+            "f1": _report_optional_metric(winner_metrics.get("f1")),
+            "practical_f1": _report_optional_metric(winner_metrics.get("practical_f1")),
+        },
+        "overall_line_accuracy": _report_optional_metric(
+            eval_report.get("overall_line_accuracy")
+        ),
+        "practical_f1": _report_optional_metric(eval_report.get("practical_f1")),
+        "ingredient_recall": _label_recall_from_eval_report(
+            eval_report, BENCHMARK_COMPARE_INGREDIENT_LABEL
+        ),
+        "variant_recall": _label_recall_from_eval_report(
+            eval_report, BENCHMARK_COMPARE_VARIANT_LABEL
+        ),
+        "codex_farm_mode_source": mode_source,
+        "codex_farm_recipe_mode": _normalize_codex_farm_recipe_mode(
+            codex_farm_recipe_mode
+        ),
+        "llm_recipe_pipeline": llm_recipe_pipeline,
+        "prediction_run_dir_inferred": bool(prediction_run_dir_is_inferred),
+        "eval_report_json_path": str(eval_report_path),
+        "debug_artifacts": debug_artifacts,
+    }
+
+
+def _metric_delta(candidate: float | None, baseline: float | None) -> float | None:
+    if candidate is None or baseline is None:
+        return None
+    return candidate - baseline
+
+
+def _build_labelstudio_benchmark_compare_payload(
+    *,
+    baseline_report_root: Path,
+    candidate_report_root: Path,
+) -> dict[str, Any]:
+    baseline_report_payload = _load_json_dict(
+        baseline_report_root / "all_method_benchmark_multi_source_report.json"
+    )
+    candidate_report_payload = _load_json_dict(
+        candidate_report_root / "all_method_benchmark_multi_source_report.json"
+    )
+    if baseline_report_payload is None:
+        _fail(
+            "Baseline all-method benchmark report is missing or invalid: "
+            f"{baseline_report_root / 'all_method_benchmark_multi_source_report.json'}"
+        )
+    if candidate_report_payload is None:
+        _fail(
+            "Candidate all-method benchmark report is missing or invalid: "
+            f"{candidate_report_root / 'all_method_benchmark_multi_source_report.json'}"
+        )
+
+    baseline_rows = _index_labelstudio_benchmark_sources(baseline_report_payload)
+    candidate_rows = _index_labelstudio_benchmark_sources(candidate_report_payload)
+    known_source_keys = sorted(set(baseline_rows) | set(candidate_rows))
+    source_comparison: dict[str, dict[str, Any]] = {}
+    for source_key in known_source_keys:
+        baseline_context = (
+            _build_labelstudio_benchmark_source_context(
+                multi_source_report_root=baseline_report_root,
+                source_row=baseline_rows[source_key],
+            )
+            if source_key in baseline_rows
+            else None
+        )
+        candidate_context = (
+            _build_labelstudio_benchmark_source_context(
+                multi_source_report_root=candidate_report_root,
+                source_row=candidate_rows[source_key],
+            )
+            if source_key in candidate_rows
+            else None
+        )
+        baseline_practical_f1 = (
+            _report_optional_metric(baseline_context.get("practical_f1"))
+            if isinstance(baseline_context, dict)
+            else None
+        )
+        candidate_practical_f1 = (
+            _report_optional_metric(candidate_context.get("practical_f1"))
+            if isinstance(candidate_context, dict)
+            else None
+        )
+        baseline_line_accuracy = (
+            _report_optional_metric(baseline_context.get("overall_line_accuracy"))
+            if isinstance(baseline_context, dict)
+            else None
+        )
+        candidate_line_accuracy = (
+            _report_optional_metric(candidate_context.get("overall_line_accuracy"))
+            if isinstance(candidate_context, dict)
+            else None
+        )
+        baseline_ingredient_recall = (
+            _report_optional_metric(baseline_context.get("ingredient_recall"))
+            if isinstance(baseline_context, dict)
+            else None
+        )
+        candidate_ingredient_recall = (
+            _report_optional_metric(candidate_context.get("ingredient_recall"))
+            if isinstance(candidate_context, dict)
+            else None
+        )
+        baseline_variant_recall = (
+            _report_optional_metric(baseline_context.get("variant_recall"))
+            if isinstance(baseline_context, dict)
+            else None
+        )
+        candidate_variant_recall = (
+            _report_optional_metric(candidate_context.get("variant_recall"))
+            if isinstance(candidate_context, dict)
+            else None
+        )
+        source_comparison[source_key] = {
+            "baseline": baseline_context,
+            "candidate": candidate_context,
+            "deltas": {
+                "practical_f1": _metric_delta(
+                    candidate_practical_f1,
+                    baseline_practical_f1,
+                ),
+                "overall_line_accuracy": _metric_delta(
+                    candidate_line_accuracy,
+                    baseline_line_accuracy,
+                ),
+                "ingredient_recall": _metric_delta(
+                    candidate_ingredient_recall,
+                    baseline_ingredient_recall,
+                ),
+                "variant_recall": _metric_delta(
+                    candidate_variant_recall,
+                    baseline_variant_recall,
+                ),
+            },
+        }
+
+    gates: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    def _add_warning(message: str) -> None:
+        text = str(message).strip()
+        if not text:
+            return
+        if text not in warnings:
+            warnings.append(text)
+
+    def _add_gate(name: str, passed: bool, reason: str) -> None:
+        gates.append({"name": name, "passed": bool(passed), "reason": reason})
+
+    def _add_no_regression_gate(name: str, source_key: str) -> None:
+        source_payload = source_comparison.get(source_key)
+        if not isinstance(source_payload, dict):
+            _add_gate(name, False, f"Missing source row for {source_key}.")
+            return
+        baseline_context = source_payload.get("baseline")
+        candidate_context = source_payload.get("candidate")
+        if not isinstance(baseline_context, dict) or not isinstance(candidate_context, dict):
+            _add_gate(name, False, f"Missing baseline/candidate context for {source_key}.")
+            return
+        baseline_value = _report_optional_metric(baseline_context.get("practical_f1"))
+        candidate_value = _report_optional_metric(candidate_context.get("practical_f1"))
+        if baseline_value is None or candidate_value is None:
+            _add_gate(
+                name,
+                False,
+                f"Missing practical_f1 for baseline/candidate ({source_key}).",
+            )
+            return
+        passed = candidate_value >= baseline_value
+        _add_gate(
+            name,
+            passed,
+            (
+                f"candidate_practical_f1={candidate_value:.6f}, "
+                f"baseline_practical_f1={baseline_value:.6f}"
+            ),
+        )
+
+    _add_no_regression_gate("sea_no_regression", BENCHMARK_COMPARE_SEA_SOURCE_KEY)
+    _add_no_regression_gate("foodlab_no_regression", BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY)
+
+    foodlab_payload = source_comparison.get(BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY)
+    if not isinstance(foodlab_payload, dict):
+        _add_gate(
+            "foodlab_ingredient_at_least_baseline",
+            False,
+            "Missing thefoodlabcutdown source row.",
+        )
+        _add_gate(
+            "foodlab_variant_recall_nonzero",
+            False,
+            "Missing thefoodlabcutdown source row.",
+        )
+    else:
+        baseline_context = foodlab_payload.get("baseline")
+        candidate_context = foodlab_payload.get("candidate")
+        baseline_ingredient = (
+            _report_optional_metric(baseline_context.get("ingredient_recall"))
+            if isinstance(baseline_context, dict)
+            else None
+        )
+        candidate_ingredient = (
+            _report_optional_metric(candidate_context.get("ingredient_recall"))
+            if isinstance(candidate_context, dict)
+            else None
+        )
+        if baseline_ingredient is None or candidate_ingredient is None:
+            _add_gate(
+                "foodlab_ingredient_at_least_baseline",
+                False,
+                "Missing ingredient recall in baseline/candidate winner eval report.",
+            )
+        else:
+            ingredient_passed = candidate_ingredient >= baseline_ingredient
+            _add_gate(
+                "foodlab_ingredient_at_least_baseline",
+                ingredient_passed,
+                (
+                    f"candidate_ingredient_recall={candidate_ingredient:.6f}, "
+                    f"baseline_ingredient_recall={baseline_ingredient:.6f}"
+                ),
+            )
+
+        candidate_variant = (
+            _report_optional_metric(candidate_context.get("variant_recall"))
+            if isinstance(candidate_context, dict)
+            else None
+        )
+        if candidate_variant is None:
+            _add_gate(
+                "foodlab_variant_recall_nonzero",
+                False,
+                "Missing candidate RECIPE_VARIANT recall.",
+            )
+        else:
+            variant_passed = candidate_variant > 0.0
+            _add_gate(
+                "foodlab_variant_recall_nonzero",
+                variant_passed,
+                f"candidate_variant_recall={candidate_variant:.6f}",
+            )
+
+    for source_key, gate_name in (
+        (BENCHMARK_COMPARE_SEA_SOURCE_KEY, "sea_debug_artifacts_present"),
+        (BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY, "foodlab_debug_artifacts_present"),
+    ):
+        source_payload = source_comparison.get(source_key)
+        if not isinstance(source_payload, dict):
+            _add_gate(gate_name, False, f"Missing source row for {source_key}.")
+            continue
+        candidate_context = source_payload.get("candidate")
+        if not isinstance(candidate_context, dict):
+            _add_gate(gate_name, False, f"Missing candidate context for {source_key}.")
+            continue
+        debug_payload = candidate_context.get("debug_artifacts")
+        if not isinstance(debug_payload, dict):
+            _add_gate(gate_name, False, "Missing candidate debug artifact payload.")
+            continue
+        mode_source = str(candidate_context.get("codex_farm_mode_source") or "").strip()
+        if not mode_source:
+            mode_source = "unknown"
+        requires_debug = bool(debug_payload.get("required"))
+        if mode_source == "inferred" and requires_debug:
+            _add_warning(
+                (
+                    f"Running benchmark-only debug checks for {source_key} using "
+                    "inferred benchmark mode from artifacts (metadata missing)."
+                )
+            )
+        elif mode_source == "unknown":
+            _add_warning(
+                (
+                    f"Could not confirm benchmark mode for {source_key}: "
+                    "mode metadata is missing and artifact signals are not conclusive."
+                )
+            )
+            if requires_debug:
+                _add_warning(
+                    f"Skipping benchmark-only debug checks for {source_key}: "
+                    "mode could not be determined from metadata or artifacts."
+                )
+                _add_gate(
+                    gate_name,
+                    True,
+                    (
+                        "Not required: "
+                        f"mode={candidate_context.get('codex_farm_recipe_mode')}, "
+                        f"llm_recipe_pipeline={candidate_context.get('llm_recipe_pipeline')}"
+                    ),
+                )
+                continue
+        elif mode_source != "metadata":
+            _add_warning(f"Unrecognized mode_source for {source_key}: {mode_source}.")
+            _add_gate(
+                gate_name,
+                False,
+                f"Invalid mode source reported for benchmark comparison: {mode_source}.",
+            )
+            continue
+
+        missing = debug_payload.get("missing")
+        if not isinstance(missing, list):
+            missing = []
+        passed = bool(debug_payload.get("all_present"))
+        _add_gate(
+            gate_name,
+            passed,
+            (
+                "Required debug artifacts present."
+                if passed
+                else "Missing required debug artifacts: "
+                + ", ".join(str(name) for name in missing)
+            ),
+        )
+
+    failed_gate_count = sum(1 for gate in gates if not bool(gate.get("passed")))
+    passed_gate_count = len(gates) - failed_gate_count
+    overall_verdict = "PASS" if failed_gate_count == 0 else "FAIL"
+
+    return {
+        "schema_version": LABELSTUDIO_BENCHMARK_COMPARE_SCHEMA_VERSION,
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "baseline_report_root": str(baseline_report_root),
+        "candidate_report_root": str(candidate_report_root),
+        "overall": {
+            "verdict": overall_verdict,
+            "gate_count": len(gates),
+            "passed_gate_count": passed_gate_count,
+            "failed_gate_count": failed_gate_count,
+        },
+        "warnings": warnings,
+        "gates": gates,
+        "sources": source_comparison,
+    }
+
+
+def _format_labelstudio_benchmark_compare_markdown(
+    payload: dict[str, Any],
+) -> str:
+    lines = [
+        "# Labelstudio Benchmark Compare",
+        "",
+        f"- Schema version: {payload.get('schema_version', '')}",
+        f"- Created at: {payload.get('created_at', '')}",
+        f"- Baseline report root: {payload.get('baseline_report_root', '')}",
+        f"- Candidate report root: {payload.get('candidate_report_root', '')}",
+    ]
+    overall = payload.get("overall")
+    warnings = payload.get("warnings")
+    if isinstance(overall, dict):
+        lines.extend(
+            [
+                f"- Verdict: {overall.get('verdict', 'UNKNOWN')}",
+                (
+                    "- Gates passed/total/failed: "
+                    f"{_report_count(overall.get('passed_gate_count'))}/"
+                    f"{_report_count(overall.get('gate_count'))}"
+                    f"/{_report_count(overall.get('failed_gate_count'))}"
+                ),
+            ]
+        )
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "## Warnings", ""])
+        for warning in warnings:
+            lines.append(f"- {str(warning)}")
+    lines.extend(
+        [
+            "",
+            "## Gate Results",
+            "",
+            "| Gate | Status | Reason |",
+            "| --- | --- | --- |",
+        ]
+    )
+    gates = payload.get("gates")
+    if isinstance(gates, list):
+        for gate in gates:
+            if not isinstance(gate, dict):
+                continue
+            gate_name = str(gate.get("name") or "").strip() or "<unknown>"
+            status = "PASS" if bool(gate.get("passed")) else "FAIL"
+            reason = str(gate.get("reason") or "").strip()
+            lines.append(
+                f"| `{gate_name}` | {status} | {reason.replace('|', '\\|')} |"
+            )
+    lines.extend(
+        [
+            "",
+            "## Source Deltas",
+            "",
+            "| Source | Delta Practical F1 | Delta Line Accuracy | Delta Ingredient Recall | Delta Variant Recall |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    sources = payload.get("sources")
+    if isinstance(sources, dict):
+        for source_key in sorted(sources.keys()):
+            source_payload = sources.get(source_key)
+            if not isinstance(source_payload, dict):
+                continue
+            deltas = source_payload.get("deltas")
+            if not isinstance(deltas, dict):
+                deltas = {}
+            practical_delta = _report_optional_metric(deltas.get("practical_f1"))
+            line_delta = _report_optional_metric(deltas.get("overall_line_accuracy"))
+            ingredient_delta = _report_optional_metric(deltas.get("ingredient_recall"))
+            variant_delta = _report_optional_metric(deltas.get("variant_recall"))
+            lines.append(
+                "| "
+                + source_key
+                + " | "
+                + (f"{practical_delta:.6f}" if practical_delta is not None else "null")
+                + " | "
+                + (f"{line_delta:.6f}" if line_delta is not None else "null")
+                + " | "
+                + (f"{ingredient_delta:.6f}" if ingredient_delta is not None else "null")
+                + " | "
+                + (f"{variant_delta:.6f}" if variant_delta is not None else "null")
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Source Debug Artifact Checks (candidate source only)",
+            "",
+        ]
+    )
+    sources = payload.get("sources")
+    if isinstance(sources, dict):
+        for source_key in sorted(sources.keys()):
+            source_payload = sources.get(source_key)
+            if not isinstance(source_payload, dict):
+                continue
+            candidate_payload = source_payload.get("candidate")
+            if not isinstance(candidate_payload, dict):
+                continue
+            debug_payload = candidate_payload.get("debug_artifacts")
+            if not isinstance(debug_payload, dict):
+                continue
+            checks = debug_payload.get("checks")
+            if not isinstance(checks, list):
+                continue
+            lines.append(f"### {source_key}")
+            lines.append("")
+            lines.append("| Check | Required | Present | Path | Count |")
+            lines.append("| --- | --- | --- | --- | --- |")
+            for check in checks:
+                if not isinstance(check, dict):
+                    continue
+                check_name = str(check.get("name") or "").strip() or "<unknown>"
+                required = (
+                    "YES"
+                    if check_name in debug_payload.get("required_checks", [])
+                    else "NO"
+                )
+                present = "yes" if bool(check.get("present")) else "no"
+                count = str(check.get("count") if check.get("count") is not None else "")
+                path = str(check.get("path") or "").strip().replace("|", "\\|")
+                lines.append(
+                    f"| `{check_name}` | {required} | {present} | {path} | {count} |"
+                )
+            lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
+def _format_labelstudio_benchmark_compare_gates_markdown(
+    payload: dict[str, Any],
+) -> str:
+    lines = [
+        "## Gate Results",
+        "",
+        "| Gate | Status | Reason |",
+        "| --- | --- | --- |",
+    ]
+    gates = payload.get("gates")
+    if isinstance(gates, list):
+        for gate in gates:
+            if not isinstance(gate, dict):
+                continue
+            gate_name = str(gate.get("name") or "").strip() or "<unknown>"
+            status = "PASS" if bool(gate.get("passed")) else "FAIL"
+            reason = str(gate.get("reason") or "").strip().replace("|", "\\|")
+            lines.append(f"| `{gate_name}` | {status} | {reason} |")
+    return "\n".join(lines) + "\n"
+
+
+def labelstudio_benchmark_compare(
+    *,
+    baseline: Path,
+    candidate: Path,
+    out_dir: Path = DEFAULT_LABELSTUDIO_BENCHMARK_COMPARISONS,
+    fail_on_regression: bool = False,
+) -> dict[str, Any]:
+    baseline_root = _resolve_labelstudio_benchmark_compare_report_root(baseline)
+    if baseline_root is None:
+        _fail(
+            "Unable to resolve baseline all-method benchmark report root from: "
+            f"{baseline}"
+        )
+    candidate_root = _resolve_labelstudio_benchmark_compare_report_root(candidate)
+    if candidate_root is None:
+        _fail(
+            "Unable to resolve candidate all-method benchmark report root from: "
+            f"{candidate}"
+        )
+    comparison = _build_labelstudio_benchmark_compare_payload(
+        baseline_report_root=baseline_root,
+        candidate_report_root=candidate_root,
+    )
+    comparison_root = out_dir / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    comparison_root.mkdir(parents=True, exist_ok=True)
+    comparison_json_path = comparison_root / "comparison.json"
+    comparison_md_path = comparison_root / "comparison.md"
+    comparison_json_path.write_text(
+        json.dumps(comparison, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    comparison_md_path.write_text(
+        _format_labelstudio_benchmark_compare_markdown(comparison),
+        encoding="utf-8",
+    )
+    verdict = str((comparison.get("overall") or {}).get("verdict") or "UNKNOWN").upper()
+    typer.secho(
+        f"Labelstudio benchmark compare verdict: {verdict}",
+        fg=typer.colors.GREEN if verdict == "PASS" else typer.colors.YELLOW,
+    )
+    warnings = comparison.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        typer.secho("Warnings:", fg=typer.colors.YELLOW)
+        for warning in warnings:
+            typer.secho(f"- {str(warning)}", fg=typer.colors.YELLOW)
+    typer.echo(_format_labelstudio_benchmark_compare_gates_markdown(comparison).rstrip("\n"))
+    typer.secho(f"Report: {comparison_md_path}", fg=typer.colors.CYAN)
+    typer.secho(f"JSON: {comparison_json_path}", fg=typer.colors.CYAN)
+    if fail_on_regression and verdict == "FAIL":
+        raise typer.Exit(1)
+    return comparison
+
+
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
@@ -4046,6 +5160,19 @@ def _normalize_benchmark_execution_mode(value: str) -> str:
     return BENCHMARK_EXECUTION_MODE_LEGACY
 
 
+def _normalize_codex_farm_recipe_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "extract", "default"}:
+        return CODEX_FARM_RECIPE_MODE_EXTRACT
+    if normalized in {"benchmark", "line-labels", "line-label"}:
+        return CODEX_FARM_RECIPE_MODE_BENCHMARK
+    _fail(
+        f"Invalid codex-farm recipe mode: {value!r}. "
+        "Expected one of: extract, benchmark."
+    )
+    return CODEX_FARM_RECIPE_MODE_EXTRACT
+
+
 def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
     return tuple(str(mode) for mode in supported_sequence_matcher_modes())
 
@@ -4641,6 +5768,9 @@ def _run_with_progress_status(
     latest_message = ""
     latest_message_started = time.monotonic()
     latest_counter: tuple[int, int] | None = None
+    status_dashboard = ProgressDashboardCore()
+    worker_dashboard_adapter = ProgressCallbackAdapter(status_dashboard)
+    status_dashboard.set_status_line(str(initial_status).strip() or str(progress_prefix).strip())
     rate_total: int | None = None
     rate_last_current: int | None = None
     rate_last_progress_at: float | None = None
@@ -4650,8 +5780,6 @@ def _run_with_progress_status(
         maxlen=_STATUS_RATE_RECENT_WINDOW
     )
     all_method_metrics: dict[str, int] = {}
-    worker_total = 0
-    worker_activity: dict[int, str] = {}
     state_lock = threading.Lock()
     stop_event = threading.Event()
     timeseries_writer: _ProcessingTimeseriesWriter | None = None
@@ -4664,7 +5792,7 @@ def _run_with_progress_status(
             heartbeat_seconds=max(0.05, float(telemetry_heartbeat_seconds)),
         )
 
-    def render_plain(now: float | None = None) -> str:
+    def _build_status_line(now: float | None = None) -> str:
         current = now if now is not None else time.monotonic()
         with state_lock:
             message = latest_message
@@ -4676,8 +5804,6 @@ def _run_with_progress_status(
             sampled_units = rate_sampled_units
             recent_avg = _recent_rate_average_seconds_per_task(rate_recent_samples)
             dashboard_metrics = dict(all_method_metrics)
-            workers = worker_total
-            worker_statuses = dict(worker_activity)
         if not message:
             base = str(initial_status).strip() or str(progress_prefix).strip()
         else:
@@ -4726,97 +5852,18 @@ def _run_with_progress_status(
                 eta_seconds=eta_seconds,
                 avg_seconds_per_task=avg_seconds_per_task,
             )
-            base = f"{progress_prefix}: {decorated}".strip()
-        if workers <= 0:
-            return base
-        worker_lines = [base]
-        for worker_index in range(1, workers + 1):
-            worker_status = str(worker_statuses.get(worker_index, "idle") or "").strip() or "idle"
-            if len(worker_status) > 120:
-                worker_status = f"{worker_status[:117]}..."
-            worker_lines.append(f"  worker {worker_index:02d}: {worker_status}")
-        return "\n".join(worker_lines)
+            return f"{progress_prefix}: {decorated}".strip()
+        return str(initial_status).strip() or str(progress_prefix).strip()
+
+    def render_plain(now: float | None = None) -> str:
+        status_dashboard.set_status_line(_build_status_line(now))
+        return status_dashboard.render()
 
     def render(now: float | None = None) -> str:
-        current = now if now is not None else time.monotonic()
-        with state_lock:
-            message = latest_message
-            started_at = latest_message_started
-            counter = latest_counter
-            tracked_total = rate_total
-            last_progress_at = rate_last_progress_at
-            sampled_seconds = rate_sampled_seconds
-            sampled_units = rate_sampled_units
-            recent_avg = _recent_rate_average_seconds_per_task(rate_recent_samples)
-            dashboard_metrics = dict(all_method_metrics)
-            workers = worker_total
-            worker_statuses = {
-                worker_index: status
-                for worker_index, status in worker_activity.items()
-            }
-        if not message:
-            base = f"[bold cyan]{rich_escape(initial_status)}[/bold cyan]"
-        else:
-            elapsed = max(0, int(current - started_at))
-            eta_seconds: int | None = None
-            avg_seconds_per_task: float | None = None
-            if (
-                counter is not None
-                and tracked_total is not None
-                and counter[1] == tracked_total
-            ):
-                counter_current, counter_total = counter
-                remaining = max(0, counter_total - counter_current)
-                if recent_avg is not None:
-                    avg_seconds_per_task = recent_avg
-                elif sampled_units > 0 and sampled_seconds > 0:
-                    avg_seconds_per_task = sampled_seconds / sampled_units
-                if (
-                    remaining > 0
-                    and avg_seconds_per_task is not None
-                    and avg_seconds_per_task > 0
-                ):
-                    eta_seconds = int(round(avg_seconds_per_task * remaining))
-                    active_hint = max(0, int(dashboard_metrics.get("active") or 0))
-                    eval_hint = max(0, int(dashboard_metrics.get("eval") or 0))
-                    if (
-                        active_hint > 0
-                        and eval_hint > 0
-                        and last_progress_at is not None
-                    ):
-                        stalled_seconds = max(0.0, current - last_progress_at)
-                        if stalled_seconds >= max(
-                            _STATUS_ALL_METHOD_STALL_MIN_SECONDS,
-                            avg_seconds_per_task * _STATUS_ALL_METHOD_STALL_MULTIPLIER,
-                        ):
-                            stalled_floor = stalled_seconds / float(active_hint)
-                            if stalled_floor > avg_seconds_per_task:
-                                eta_seconds = max(
-                                    eta_seconds,
-                                    int(round(stalled_floor * remaining)),
-                                )
-            decorated = _format_status_progress_message(
-                message,
-                elapsed_seconds=elapsed,
-                elapsed_threshold_seconds=elapsed_threshold_seconds,
-                eta_seconds=eta_seconds,
-                avg_seconds_per_task=avg_seconds_per_task,
-            )
-            base = (
-                f"[bold cyan]{rich_escape(progress_prefix)}: "
-                f"{rich_escape(decorated)}[/bold cyan]"
-            )
-        if workers <= 0:
-            return base
-        worker_lines = [base]
-        for worker_index in range(1, workers + 1):
-            worker_status = worker_statuses.get(worker_index, "idle").strip() or "idle"
-            if len(worker_status) > 120:
-                worker_status = f"{worker_status[:117]}..."
-            worker_lines.append(
-                f"[cyan]  worker {worker_index:02d}: {rich_escape(worker_status)}[/cyan]"
-            )
-        return "\n".join(worker_lines)
+        snapshot = render_plain(now)
+        if not snapshot:
+            return ""
+        return rich_escape(snapshot)
 
     def _emit_timeseries(
         *,
@@ -4831,11 +5878,7 @@ def _run_with_progress_status(
             message = latest_message
             started_at = latest_message_started
             counter = latest_counter
-            workers = worker_total
-            worker_statuses = {
-                worker_index: status
-                for worker_index, status in worker_activity.items()
-            }
+        worker_total, worker_statuses = worker_dashboard_adapter.snapshot_workers()
         elapsed_seconds = max(0.0, current - started_at)
         message_value = str(message or initial_status).strip() or str(initial_status).strip()
         counter_current: int | None = None
@@ -4851,8 +5894,8 @@ def _run_with_progress_status(
         snapshot = message_value
         if counter_current is not None and counter_total is not None:
             snapshot = f"{snapshot} | task {counter_current}/{counter_total}"
-        if workers > 0:
-            snapshot = f"{snapshot} | workers {workers}"
+        if worker_total > 0:
+            snapshot = f"{snapshot} | workers {worker_total}"
         timeseries_writer.write_row(
             snapshot=snapshot,
             force=force,
@@ -4863,7 +5906,7 @@ def _run_with_progress_status(
                 "elapsed_seconds": elapsed_seconds,
                 "task_current": counter_current,
                 "task_total": counter_total,
-                "worker_total": max(0, int(workers)),
+                "worker_total": max(0, int(worker_total)),
                 "worker_active": max(0, int(worker_active)),
                 "worker_activity": {
                     str(key): str(value)
@@ -4879,36 +5922,15 @@ def _run_with_progress_status(
         nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
         nonlocal rate_sampled_seconds, rate_sampled_units
         nonlocal rate_recent_samples, all_method_metrics
-        nonlocal worker_total, worker_activity
         now = time.monotonic()
         cleaned = msg.strip()
-        worker_payload = parse_worker_activity(cleaned)
+        is_worker_activity = parse_worker_activity(cleaned) is not None
         counter = None
-        changed = False
+        # Route every callback through the shared adapter so callback+worker
+        # activity both update the same dashboard state machine.
+        changed = worker_dashboard_adapter.ingest_callback_message(cleaned)
         with state_lock:
-            if worker_payload is not None:
-                payload_type = worker_payload.get("type")
-                if payload_type == "reset":
-                    if worker_total != 0 or worker_activity:
-                        changed = True
-                    worker_total = 0
-                    worker_activity = {}
-                elif payload_type == "activity":
-                    total = int(worker_payload.get("worker_total") or 1)
-                    worker_index = int(worker_payload.get("worker_index") or 1)
-                    worker_status_text = str(worker_payload.get("status") or "").strip()
-                    if total != worker_total:
-                        changed = True
-                        worker_total = total
-                        worker_activity = {
-                            idx: value
-                            for idx, value in worker_activity.items()
-                            if idx <= total
-                        }
-                    if worker_activity.get(worker_index) != worker_status_text:
-                        changed = True
-                        worker_activity[worker_index] = worker_status_text
-            else:
+            if not is_worker_activity:
                 counter = _extract_progress_counter(cleaned)
                 message_changed = cleaned != latest_message
                 counter_changed = counter != latest_counter
@@ -4947,14 +5969,12 @@ def _run_with_progress_status(
                                 rate_recent_samples.append((elapsed_since_progress, delta))
                             rate_last_current = counter_current
                             rate_last_progress_at = now
+        status_dashboard.set_status_line(_build_status_line(now))
         return changed, now
 
     def _run_plain() -> _StatusReturn:
         nonlocal last_plain_snapshot
-        typer.secho(
-            str(initial_status).strip() or str(progress_prefix).strip(),
-            fg=typer.colors.CYAN,
-        )
+        typer.secho(render_plain(), fg=typer.colors.CYAN)
         _emit_timeseries(event="started", force=True)
 
         def update_progress(msg: str) -> None:
@@ -4983,7 +6003,7 @@ def _run_with_progress_status(
             while True:
                 with state_lock:
                     message_snapshot = latest_message
-                    worker_snapshot = worker_total
+                    worker_snapshot = worker_dashboard_adapter.snapshot_workers()[0]
                 interval = float(tick_seconds)
                 if (
                     (worker_snapshot > 0 or "\n" in (message_snapshot or ""))
@@ -5757,6 +6777,7 @@ class _AllMethodProgressDashboard:
     current_config_index: int = 0
     current_config_total: int = 0
     current_config_slug: str = ""
+    _core: ProgressDashboardCore = field(default_factory=ProgressDashboardCore, repr=False, compare=False)
     active_config_slugs_by_source: dict[int, dict[int, str]] = field(default_factory=dict)
     active_config_phases_by_source: dict[int, dict[int, str]] = field(default_factory=dict)
     task_message: str = ""
@@ -5978,28 +6999,57 @@ class _AllMethodProgressDashboard:
             if index in visible_indices:
                 yield row
 
+    def _queue_rows(self) -> list[ProgressQueueRow]:
+        marker_by_status = {
+            "pending": "[ ]",
+            "running": "[>]",
+            "done": "[x]",
+            "failed": "[!]",
+        }
+        rows = list(self.rows) if len(self.rows) <= 10 else list(self._iter_queue_rows())
+        queue_rows = [
+            ProgressQueueRow(
+                marker=marker_by_status.get(row.status, "[ ]"),
+                name=str(row.source_name),
+                completed=max(0, row.completed_configs),
+                total=max(0, row.total_configs),
+                ok=max(0, row.successful_configs),
+                fail=max(0, row.failed_configs),
+            )
+            for row in rows
+        ]
+        if len(self.rows) > 10:
+            rendered_ids = {id(row) for row in rows}
+            hidden_count = sum(1 for row in self.rows if id(row) not in rendered_ids)
+            if hidden_count > 0:
+                queue_rows.append(
+                    ProgressQueueRow(
+                        marker="...",
+                        name=f"{hidden_count} additional sources hidden",
+                        completed=0,
+                        total=0,
+                        ok=0,
+                        fail=0,
+                    )
+                )
+        return queue_rows
+
     def render(self) -> str:
         with self._lock:
             source_total = len(self.rows)
             source_done = self._completed_sources()
             config_done = self._completed_configs()
-            lines = [
-                (
-                    "overall "
-                    f"source {source_done}/{source_total} | "
-                    f"config {config_done}/{max(0, self.total_planned_configs)}"
-                )
-            ]
+            detail_lines: list[str] = []
             active_source_count = len(self._running_source_indices())
             if active_source_count > 0:
-                lines.append(f"active sources: {active_source_count}")
+                detail_lines.append(f"active sources: {active_source_count}")
 
             if (
                 self.current_source_index is not None
                 and 0 <= self.current_source_index < len(self.rows)
             ):
                 current_row = self.rows[self.current_source_index]
-                lines.append(
+                detail_lines.append(
                     (
                         "current source: "
                         f"{current_row.source_name} "
@@ -6022,7 +7072,7 @@ class _AllMethodProgressDashboard:
                     if len(active_items) == 1:
                         active_index, active_slug = active_items[0]
                         slug = active_slug or "<pending>"
-                        lines.append(
+                        detail_lines.append(
                             (
                                 f"current config {active_index}/{self.current_config_total}: "
                                 f"{slug}"
@@ -6031,13 +7081,11 @@ class _AllMethodProgressDashboard:
                     else:
                         first_active = active_items[0][0]
                         last_active = active_items[-1][0]
-                        lines.append(
-                            (
-                                f"current configs {first_active}-{last_active}/"
-                                f"{self.current_config_total} ({len(active_items)} active)"
-                            )
+                        detail_lines.append(
+                            f"current configs {first_active}-{last_active}/"
+                            f"{self.current_config_total} ({len(active_items)} active)"
                         )
-                        lines.append("active config workers:")
+                        detail_lines.append("active config workers:")
                         for active_index, active_slug in active_items:
                             phase = self._format_config_phase_label(
                                 phase_items.get(active_index, "prep")
@@ -6045,7 +7093,7 @@ class _AllMethodProgressDashboard:
                             slug = active_slug or "<pending>"
                             if len(slug) > 120:
                                 slug = f"{slug[:117]}..."
-                            lines.append(
+                            detail_lines.append(
                                 f"  config {active_index:02d}: {phase} | {slug}"
                             )
                 elif 0 <= self.current_source_index < len(self.rows):
@@ -6055,51 +7103,19 @@ class _AllMethodProgressDashboard:
                             current_row.total_configs,
                             max(1, current_row.completed_configs + 1),
                         )
-                        lines.append(
+                        detail_lines.append(
                             f"current config {queued_index}/{self.current_config_total}: <queued>"
                         )
-            lines.append("queue:")
-
-            if len(self.rows) <= 10:
-                for row in self.rows:
-                    marker = {
-                        "pending": "[ ]",
-                        "running": "[>]",
-                        "done": "[x]",
-                        "failed": "[!]",
-                    }.get(row.status, "[ ]")
-                    lines.append(
-                        (
-                            f"  {marker} {row.source_name} - "
-                            f"{row.completed_configs} of {row.total_configs} "
-                            f"(ok {row.successful_configs}, fail {row.failed_configs})"
-                        )
-                    )
-            else:
-                visible_rows = list(self._iter_queue_rows())
-                rendered_ids = {id(row) for row in visible_rows}
-                for row in visible_rows:
-                    marker = {
-                        "pending": "[ ]",
-                        "running": "[>]",
-                        "done": "[x]",
-                        "failed": "[!]",
-                    }.get(row.status, "[ ]")
-                    lines.append(
-                        (
-                            f"  {marker} {row.source_name} - "
-                            f"{row.completed_configs} of {row.total_configs} "
-                            f"(ok {row.successful_configs}, fail {row.failed_configs})"
-                        )
-                    )
-                hidden_count = sum(1 for row in self.rows if id(row) not in rendered_ids)
-                if hidden_count > 0:
-                    lines.append(f"  ... {hidden_count} additional sources hidden")
-
-            if self.task_message:
-                lines.append(f"task: {self.task_message}")
-
-            return "\n".join(lines)
+            status_line = (
+                "overall "
+                f"source {source_done}/{source_total} | "
+                f"config {config_done}/{max(0, self.total_planned_configs)}"
+            )
+            self._core.set_status_line(status_line)
+            self._core.set_extra_lines(detail_lines)
+            self._core.set_task(self.task_message)
+            self._core.set_queue_rows(self._queue_rows())
+            return self._core.render()
 
 
 def _load_pred_run_recipe_context(
@@ -7950,6 +8966,18 @@ def _probe_all_method_process_pool_executor() -> tuple[bool, str | None]:
         with ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(int, 1)
             future.result(timeout=5)
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc).strip()
+        if detail:
+            return False, f"{type(exc).__name__}: {detail}"
+        return False, type(exc).__name__
+    return True, None
+
+
+def _probe_all_method_process_worker_picklable() -> tuple[bool, str | None]:
+    """Ensure the benchmark config worker can be pickled when process pooling is active."""
+    try:
+        pickle.dumps(_run_all_method_prediction_once)
     except Exception as exc:  # noqa: BLE001
         detail = str(exc).strip()
         if detail:
@@ -11028,6 +12056,11 @@ def _run_all_method_benchmark_global_queue(
         process_workers_available, process_worker_error = (
             _probe_all_method_process_pool_executor()
         )
+        if process_workers_available:
+            picklable, picklable_error = _probe_all_method_process_worker_picklable()
+            if not picklable:
+                process_workers_available = False
+                process_worker_error = picklable_error
         process_worker_probe_available = bool(process_workers_available)
         process_worker_probe_error = (
             str(process_worker_error).strip() if process_worker_error else None
@@ -14557,6 +15590,11 @@ def _run_all_method_benchmark(
         process_workers_available, process_worker_error = (
             _probe_all_method_process_pool_executor()
         )
+        if process_workers_available:
+            picklable, picklable_error = _probe_all_method_process_worker_picklable()
+            if not picklable:
+                process_workers_available = False
+                process_worker_error = picklable_error
         process_worker_probe_available = bool(process_workers_available)
         process_worker_probe_error = (
             str(process_worker_error).strip() if process_worker_error else None
@@ -17389,10 +18427,6 @@ def stage(
     except Exception:
         progress_queue = None
     
-    # UI State
-    worker_status: Dict[str, Dict[str, Any]] = {}
-    worker_lock = threading.Lock()
-    
     job_specs = _plan_jobs(
         files_to_process,
         workers=workers,
@@ -17427,8 +18461,148 @@ def stage(
     stage_timeseries_stop = threading.Event()
     stage_timeseries_thread: threading.Thread | None = None
 
-    worker_render_cache: Text | None = None
-    worker_render_last = 0.0
+    _supports_live_status = bool(console.is_terminal and not console.is_dumb_terminal)
+    _plain_progress_override = _plain_progress_override_requested()
+    if _plain_progress_override is True:
+        _supports_live_status = False
+    elif _plain_progress_override is None and _should_default_plain_progress_for_agent():
+        _supports_live_status = False
+
+    stage_worker_dashboard = ProgressDashboardCore()
+    stage_worker_status_snapshot = ""
+
+    class _StageProgressAdapter:
+        def __init__(self) -> None:
+            self._worker_lock = threading.Lock()
+            self._worker_status: dict[str, dict[str, Any]] = {}
+            self._active_file = ""
+
+        def set_active_file(self, file_path: str) -> None:
+            clean = str(file_path or "").strip()
+            if not clean:
+                return
+            with self._worker_lock:
+                self._active_file = clean
+
+        def set_worker_status(
+            self,
+            worker_label: str,
+            filename: str,
+            status: str,
+            *,
+            updated_at: float | None = None,
+        ) -> None:
+            if updated_at is None:
+                updated_at = time.time()
+            clean_label = str(worker_label or "").strip() or "worker"
+            clean_file = str(filename or "").strip()
+            clean_status = str(status or "").strip()
+            payload = {
+                "file": clean_file,
+                "status": clean_status,
+                "updated_at": float(updated_at),
+            }
+            self.set_active_file(clean_file)
+            with self._worker_lock:
+                self._worker_status[clean_label] = payload
+
+        def collect_worker_rows(self) -> dict[str, dict[str, str]]:
+            with self._worker_lock:
+                return {
+                    str(label): {
+                        "file": str(entry.get("file") or ""),
+                        "status": str(entry.get("status") or ""),
+                        "updated_at": str(entry.get("updated_at") or ""),
+                    }
+                    for label, entry in self._worker_status.items()
+                }
+
+        def resolve_current_file(self, *, fallback_file: str = "") -> str:
+            worker_rows = self.collect_worker_rows()
+            active_rows: list[tuple[float, str]] = []
+            for entry in worker_rows.values():
+                status = str(entry.get("status") or "").strip().lower()
+                file_value = str(entry.get("file") or "").strip()
+                if not file_value:
+                    continue
+                if status in {"", "idle", "done", "skipped"}:
+                    continue
+                try:
+                    updated_at = float(entry.get("updated_at", 0.0))
+                except (TypeError, ValueError):
+                    updated_at = 0.0
+                active_rows.append((updated_at, file_value))
+
+            if active_rows:
+                active_rows.sort(key=lambda item: item[0], reverse=True)
+                return active_rows[0][1]
+
+            with self._worker_lock:
+                if self._active_file:
+                    return self._active_file
+
+            if worker_rows:
+                return list(worker_rows.values())[0].get("file", "").strip()
+
+            return str(fallback_file).strip()
+
+        def build_worker_lines(
+            self,
+            *,
+            now: float | None = None,
+            run_complete: bool = False,
+        ) -> list[str]:
+            current_time = float(time.time() if now is None else now)
+            with self._worker_lock:
+                items = list(self._worker_status.items())
+            if not items:
+                return ["Waiting for worker updates..."]
+
+            lines: list[str] = []
+            for worker_label, entry in sorted(items, key=lambda item: item[0]):
+                try:
+                    age_seconds = max(
+                        0,
+                        int(current_time - float(entry.get("updated_at", 0.0))),
+                    )
+                except (TypeError, ValueError):
+                    age_seconds = 0
+                age_label = "just now" if age_seconds < 1 else f"{age_seconds}s ago"
+                worker_status_value = str(entry.get("status") or "")
+                if not run_complete and worker_status_value.lower() in {"done", "skipped"}:
+                    worker_status_value = "Idle"
+                lines.append(
+                    f"{worker_label}: {entry.get('file', '')} - "
+                    f"{worker_status_value} ({age_label})"
+                )
+            return lines
+
+        def active_worker_count(
+            self,
+            worker_rows: dict[str, dict[str, str]] | None = None,
+        ) -> int:
+            if worker_rows is None:
+                worker_rows = self.collect_worker_rows()
+            return sum(
+                1
+                for entry in worker_rows.values()
+                if str(entry.get("status") or "").strip().lower()
+                not in {"", "idle", "done", "skipped"}
+            )
+
+    stage_progress_adapter = _StageProgressAdapter()
+    _status_style_tag_re = re.compile(r"\[[^\]]+\]")
+    stage_status_widget: Any | None = None
+    stage_status_console: Any | None = None
+
+    def _strip_rich_style(message: str) -> str:
+        return _status_style_tag_re.sub("", str(message))
+
+    def _collect_stage_worker_status_rows() -> dict[str, dict[str, str]]:
+        return stage_progress_adapter.collect_worker_rows()
+
+    def _set_stage_active_file(file_path: str) -> None:
+        stage_progress_adapter.set_active_file(file_path)
 
     def _set_worker_status(
         worker_label: str,
@@ -17437,17 +18611,12 @@ def stage(
         *,
         updated_at: float | None = None,
     ) -> None:
-        nonlocal worker_render_cache, worker_render_last
-        if updated_at is None:
-            updated_at = time.time()
-        with worker_lock:
-            worker_status[str(worker_label)] = {
-                "file": str(filename),
-                "status": str(status),
-                "updated_at": float(updated_at),
-            }
-        worker_render_cache = None
-        worker_render_last = 0.0
+        stage_progress_adapter.set_worker_status(
+            worker_label,
+            filename,
+            status,
+            updated_at=updated_at,
+        )
         _write_stage_timeseries(event="worker_update")
 
     def _write_stage_timeseries(*, event: str, force: bool = False) -> None:
@@ -17457,20 +18626,8 @@ def stage(
             if task_obj is not None
             else 0
         )
-        with worker_lock:
-            status_rows = {
-                str(label): {
-                    "file": str(entry.get("file") or ""),
-                    "status": str(entry.get("status") or ""),
-                }
-                for label, entry in worker_status.items()
-            }
-        active_workers = sum(
-            1
-            for entry in status_rows.values()
-            if str(entry.get("status") or "").strip().lower()
-            not in {"", "idle", "done", "skipped"}
-        )
+        status_rows = _collect_stage_worker_status_rows()
+        active_workers = stage_progress_adapter.active_worker_count(status_rows)
         pending_jobs = max(0, total_jobs - completed_jobs)
         snapshot = (
             f"stage task {completed_jobs}/{total_jobs} | "
@@ -17496,43 +18653,54 @@ def stage(
             },
         )
 
-    def _format_worker_lines() -> Text:
-        nonlocal worker_render_cache, worker_render_last
-        now = time.time()
-        if worker_render_cache is not None and (now - worker_render_last) < 5:
-            return worker_render_cache
-
-        with worker_lock:
-            items = list(worker_status.items())
-
-        if not items:
-            worker_render_cache = Text("Waiting for worker updates...")
-            worker_render_last = now
-            return worker_render_cache
-
+    def _build_stage_worker_lines(*, now: float | None = None) -> list[str]:
         task = progress_bar.tasks[0] if progress_bar.tasks else None
         run_complete = bool(task and task.completed >= task.total)
+        return stage_progress_adapter.build_worker_lines(now=now, run_complete=run_complete)
 
-        lines = []
-        for worker_label, entry in sorted(items, key=lambda item: item[0]):
-            age_seconds = max(0, int(now - entry["updated_at"]))
-            age_label = "just now" if age_seconds < 1 else f"{age_seconds}s ago"
-            status = entry["status"]
-            if not run_complete and status in {"Done", "skipped"}:
-                status = "Idle"
-            lines.append(
-                f"{worker_label}: {entry['file']} - {status} ({age_label})"
-            )
-        worker_render_cache = Text("\n".join(lines))
-        worker_render_last = now
-        return worker_render_cache
+    def _resolve_stage_current_file() -> str:
+        return stage_progress_adapter.resolve_current_file(
+            fallback_file=(
+                str(job_specs[0].display_name).strip() if job_specs else ""
+            ),
+        )
 
-    class WorkerDashboard:
-        def __rich__(self) -> Group:
-            return Group(
-                Panel(progress_bar),
-                Panel(_format_worker_lines(), title="Workers (updated every 5s)"),
-            )
+    def _build_stage_progress_snapshot(*, now: float | None = None) -> str:
+        task = progress_bar.tasks[0] if progress_bar.tasks else None
+        completed_jobs = max(0, int(task.completed)) if task is not None else 0
+        pending_jobs = max(0, total_jobs - completed_jobs)
+        worker_rows = _collect_stage_worker_status_rows()
+        active_workers = stage_progress_adapter.active_worker_count(worker_rows)
+        stage_worker_dashboard.set_status_line(
+            f"overall jobs {completed_jobs}/{total_jobs} | imported {imported} | "
+            f"active_workers {active_workers} | pending {pending_jobs} | "
+            f"errors {len(errors)}"
+        )
+        stage_worker_dashboard.set_task(f"stage task {completed_jobs}/{total_jobs}")
+        stage_worker_dashboard.set_current(_resolve_stage_current_file())
+        stage_worker_dashboard.set_worker_lines(_build_stage_worker_lines(now=now))
+        return stage_worker_dashboard.render()
+
+    def _emit_stage_progress_snapshot(*, force: bool = False, now: float | None = None) -> None:
+        nonlocal stage_worker_status_snapshot
+        snapshot = _build_stage_progress_snapshot(now=now)
+        if not force and snapshot == stage_worker_status_snapshot:
+            return
+        stage_worker_status_snapshot = snapshot
+        if stage_status_widget is None:
+            typer.secho(snapshot, fg=typer.colors.CYAN)
+            return
+        stage_status_widget.update(rich_escape(snapshot))
+
+    def _emit_stage_message(
+        message: str,
+        *,
+        fg: Any | None,
+    ) -> None:
+        if stage_status_console is None:
+            typer.secho(_strip_rich_style(message), fg=fg)
+            return
+        stage_status_console.print(message)
 
     # Background thread to consume queue
     stop_event = threading.Event()
@@ -17595,7 +18763,7 @@ def stage(
     def _run_config_summary_for_file(file_path: Path) -> str:
         return _render_run_config_summary(_run_config_for_file(file_path))
 
-    def handle_job_result(job: JobSpec, res: dict[str, Any], live: Live) -> None:
+    def handle_job_result(job: JobSpec, res: dict[str, Any]) -> None:
         nonlocal imported
         job_run_config = _run_config_for_file(job.file_path)
         job_run_config_hash = _run_config_hash_for_file(job.file_path)
@@ -17604,8 +18772,9 @@ def stage(
         if job.is_split:
             job_results_by_file[job.file_path].append(res)
             if res.get("status") == "error":
-                live.console.print(
-                    f"[red]✘ Error {job.file_path.name} job {job.job_index}: {res.get('reason')}[/red]"
+                _emit_stage_message(
+                    f"[red]✘ Error {job.file_path.name} job {job.job_index}: {res.get('reason')}[/red]",
+                    fg=typer.colors.RED,
                 )
 
             expected_count = expected_jobs.get(job.file_path, job.job_count)
@@ -17626,8 +18795,9 @@ def stage(
                         job.file_path.name,
                         "Merge skipped (job errors)",
                     )
-                    live.console.print(
-                        f"[red]✘ Error {job.file_path.name}: {message}[/red]"
+                    _emit_stage_message(
+                        f"[red]✘ Error {job.file_path.name}: {message}[/red]",
+                        fg=typer.colors.RED,
                     )
                     _write_error_report(
                         out,
@@ -17645,8 +18815,9 @@ def stage(
                         job.file_path.name,
                         f"Merging {expected_count} job(s)...",
                     )
-                    live.console.print(
-                        f"Merging {expected_count} jobs for {job.file_path.name}..."
+                    _emit_stage_message(
+                        f"Merging {expected_count} jobs for {job.file_path.name}...",
+                        fg=typer.colors.CYAN,
                     )
                     try:
                         def _main_merge_status(message: str) -> None:
@@ -17690,9 +18861,10 @@ def stage(
                             job.file_path.name,
                             f"Merge done ({merged['duration']:.2f}s)",
                         )
-                        live.console.print(
+                        _emit_stage_message(
                             f"[green]✔ {merged['file']}: {merged['recipes']} recipes, "
-                            f"{merged['tips']} tips (merge {merged['duration']:.2f}s)[/green]"
+                            f"{merged['tips']} tips (merge {merged['duration']:.2f}s)[/green]",
+                            fg=typer.colors.GREEN,
                         )
                     except Exception as exc:
                         errors.append(f"{job.file_path.name}: {exc}")
@@ -17701,8 +18873,9 @@ def stage(
                             job.file_path.name,
                             "Merge error",
                         )
-                        live.console.print(
-                            f"[red]✘ Error {job.file_path.name}: {exc}[/red]"
+                        _emit_stage_message(
+                            f"[red]✘ Error {job.file_path.name}: {exc}[/red]",
+                            fg=typer.colors.RED,
                         )
                         _write_error_report(
                             out,
@@ -17717,18 +18890,22 @@ def stage(
         else:
             if res["status"] == "success":
                 imported += 1
-                live.console.print(
-                    f"[green]✔ {res['file']}: {res['recipes']} recipes, {res['tips']} tips ({res['duration']:.2f}s)[/green]"
+                _emit_stage_message(
+                    f"[green]✔ {res['file']}: {res['recipes']} recipes, {res['tips']} tips ({res['duration']:.2f}s)[/green]",
+                    fg=typer.colors.GREEN,
                 )
             elif res["status"] == "skipped":
-                live.console.print(
-                    f"[yellow]⚠ Skipping {res['file']}: {res['reason']}[/yellow]"
+                _emit_stage_message(
+                    f"[yellow]⚠ Skipping {res['file']}: {res['reason']}[/yellow]",
+                    fg=typer.colors.YELLOW,
                 )
             else:
                 errors.append(f"{res['file']}: {res['reason']}")
-                live.console.print(
-                    f"[red]✘ Error {res['file']}: {res['reason']}[/red]"
+                _emit_stage_message(
+                    f"[red]✘ Error {res['file']}: {res['reason']}[/red]",
+                    fg=typer.colors.RED,
                 )
+        _emit_stage_progress_snapshot(force=True)
         _write_stage_timeseries(event="job_completed", force=True)
 
     stage_worker_request_root = out / ".stage_worker_requests"
@@ -17886,239 +19063,277 @@ def stage(
             )
         return result_payload
 
-    dashboard = WorkerDashboard()
-    stage_worker_backend_effective = "serial"
-    stage_worker_resolution_messages: list[str] = []
-    try:
-        with Live(dashboard, refresh_per_second=10) as live:
-            def _run_jobs_with_executor(executor: Any) -> None:
-                futures: dict[Any, JobSpec] = {}
-                for job in job_specs:
-                    job_run_config = _run_config_for_file(job.file_path)
-                    job_run_config_hash = _run_config_hash_for_file(job.file_path)
-                    job_run_config_summary = _run_config_summary_for_file(job.file_path)
-                    job_epub_extractor = effective_epub_extractors.get(job.file_path)
-                    if job.is_split:
-                        if job.split_kind == "epub":
-                            futures[
-                                executor.submit(
-                                    stage_epub_job,
-                                    job.file_path,
-                                    out,
-                                    base_mapping,
-                                    run_dt,
-                                    job.start_spine,
-                                    job.end_spine,
-                                    job.job_index,
-                                    job.job_count,
-                                    progress_queue,
-                                    job.display_name,
-                                    job_epub_extractor,
-                                    job_run_config,
-                                    job_run_config_hash,
-                                    job_run_config_summary,
-                                )
-                            ] = job
-                        else:
-                            futures[
-                                executor.submit(
-                                    stage_pdf_job,
-                                    job.file_path,
-                                    out,
-                                    base_mapping,
-                                    run_dt,
-                                    job.start_page,
-                                    job.end_page,
-                                    job.job_index,
-                                    job.job_count,
-                                    progress_queue,
-                                    job.display_name,
-                                    job_run_config,
-                                    job_run_config_hash,
-                                    job_run_config_summary,
-                                )
-                            ] = job
-                    else:
-                        futures[
-                            executor.submit(
-                                stage_one_file,
-                                job.file_path,
-                                out,
-                                base_mapping,
-                                limit,
-                                run_dt,
-                                progress_queue,
-                                job.display_name,
-                                job_epub_extractor,
-                                job_run_config,
-                                job_run_config_hash,
-                                job_run_config_summary,
-                                write_markdown,
-                            )
-                        ] = job
-
-                for future in as_completed(futures):
-                    job = futures[future]
-                    try:
-                        res = future.result()
-                    except Exception as exc:
-                        res = {
-                            "file": job.file_path.name,
-                            "status": "error",
-                            "reason": str(exc),
-                            "job_index": job.job_index,
-                            "job_count": job.job_count,
-                            "start_page": job.start_page,
-                            "end_page": job.end_page,
-                            "start_spine": job.start_spine,
-                            "end_spine": job.end_spine,
-                        }
-
-                    progress_bar.update(overall_task, advance=1)
-                    handle_job_result(job, res, live)
-
-            def _run_jobs_with_subprocess_executor(executor: Any) -> None:
-                worker_limit = max(1, min(effective_workers, len(job_specs)))
-                pending_jobs = list(job_specs)
-                futures: dict[Any, tuple[JobSpec, int]] = {}
-                available_slots: deque[int] = deque(range(1, worker_limit + 1))
-
-                def _submit_job(job: JobSpec, slot: int) -> None:
-                    futures[executor.submit(_run_stage_job_via_subprocess, job)] = (job, slot)
-                    _set_worker_status(
-                        f"SubprocessWorker-{slot}",
-                        job.display_name,
-                        "Running subprocess worker...",
-                    )
-
-                while pending_jobs and available_slots:
-                    _submit_job(pending_jobs.pop(0), available_slots.popleft())
-
-                while futures:
-                    future = next(as_completed(list(futures.keys())))
-                    job, slot = futures.pop(future)
-                    try:
-                        res = future.result()
-                    except Exception as exc:
-                        res = _stage_job_failure_payload(
-                            job,
-                            f"Subprocess worker dispatch failed: {exc}",
-                        )
-                    _set_worker_status(
-                        f"SubprocessWorker-{slot}",
-                        job.display_name,
-                        "Done",
-                    )
-                    progress_bar.update(overall_task, advance=1)
-                    handle_job_result(job, res, live)
-                    if pending_jobs:
-                        _submit_job(pending_jobs.pop(0), slot)
-                    else:
-                        available_slots.append(slot)
-
-            def _run_jobs_serial() -> None:
-                for job in job_specs:
-                    job_run_config = _run_config_for_file(job.file_path)
-                    job_run_config_hash = _run_config_hash_for_file(job.file_path)
-                    job_run_config_summary = _run_config_summary_for_file(job.file_path)
-                    job_epub_extractor = effective_epub_extractors.get(job.file_path)
-                    if job.is_split:
-                        if job.split_kind == "epub":
-                            res = stage_epub_job(
-                                job.file_path,
-                                out,
-                                base_mapping,
-                                run_dt,
-                                job.start_spine,
-                                job.end_spine,
-                                job.job_index,
-                                job.job_count,
-                                progress_queue,
-                                job.display_name,
-                                job_epub_extractor,
-                                job_run_config,
-                                job_run_config_hash,
-                                job_run_config_summary,
-                            )
-                        else:
-                            res = stage_pdf_job(
-                                job.file_path,
-                                out,
-                                base_mapping,
-                                run_dt,
-                                job.start_page,
-                                job.end_page,
-                                job.job_index,
-                                job.job_count,
-                                progress_queue,
-                                job.display_name,
-                                job_run_config,
-                                job_run_config_hash,
-                                job_run_config_summary,
-                            )
-                    else:
-                        res = stage_one_file(
+    def _run_jobs_with_executor(executor: Any) -> None:
+        futures: dict[Any, JobSpec] = {}
+        for job in job_specs:
+            _set_stage_active_file(job.display_name)
+            job_run_config = _run_config_for_file(job.file_path)
+            job_run_config_hash = _run_config_hash_for_file(job.file_path)
+            job_run_config_summary = _run_config_summary_for_file(job.file_path)
+            job_epub_extractor = effective_epub_extractors.get(job.file_path)
+            if job.is_split:
+                if job.split_kind == "epub":
+                    futures[
+                        executor.submit(
+                            stage_epub_job,
                             job.file_path,
                             out,
                             base_mapping,
-                            limit,
                             run_dt,
+                            job.start_spine,
+                            job.end_spine,
+                            job.job_index,
+                            job.job_count,
                             progress_queue,
                             job.display_name,
                             job_epub_extractor,
                             job_run_config,
                             job_run_config_hash,
                             job_run_config_summary,
-                            write_markdown,
                         )
-                    progress_bar.update(overall_task, advance=1)
-                    handle_job_result(job, res, live)
-            executor_resolution = resolve_process_thread_executor(
-                max_workers=effective_workers,
-                process_unavailable_message=lambda exc: (
-                    "Process-based worker concurrency unavailable "
-                    f"({exc}); using subprocess-backed worker concurrency."
-                ),
-                thread_unavailable_message=lambda exc: (
-                    "Thread-based worker concurrency unavailable "
-                    f"({exc}); running jobs serially."
-                ),
-            )
-            stage_worker_resolution_messages = list(executor_resolution.messages)
-            for message in executor_resolution.messages:
-                live.console.print(f"[yellow]⚠ {message}[/yellow]")
-            if require_process_workers and executor_resolution.backend != "process":
-                detail = (
-                    "; ".join(executor_resolution.messages)
-                    if executor_resolution.messages
-                    else "process worker pool could not be established."
-                )
-                raise RuntimeError(
-                    "Process-based worker concurrency is required for this stage run, "
-                    f"but it is unavailable: {detail}"
-                )
-            stage_worker_backend_effective = str(executor_resolution.backend)
-            if executor_resolution.executor is None:
-                _run_jobs_serial()
+                    ] = job
+                else:
+                    futures[
+                        executor.submit(
+                            stage_pdf_job,
+                            job.file_path,
+                            out,
+                            base_mapping,
+                            run_dt,
+                            job.start_page,
+                            job.end_page,
+                            job.job_index,
+                            job.job_count,
+                            progress_queue,
+                            job.display_name,
+                            job_run_config,
+                            job_run_config_hash,
+                            job_run_config_summary,
+                        )
+                    ] = job
             else:
-                executor = executor_resolution.executor
-                try:
-                    use_subprocess_workers = (
-                        executor_resolution.backend == "thread"
-                        and _stage_subprocess_worker_available()
+                futures[
+                    executor.submit(
+                        stage_one_file,
+                        job.file_path,
+                        out,
+                        base_mapping,
+                        limit,
+                        run_dt,
+                        progress_queue,
+                        job.display_name,
+                        job_epub_extractor,
+                        job_run_config,
+                        job_run_config_hash,
+                        job_run_config_summary,
+                        write_markdown,
                     )
-                    if executor_resolution.backend == "thread" and not use_subprocess_workers:
-                        live.console.print(
-                            "[yellow]⚠ Subprocess-backed worker concurrency unavailable; "
-                            "using in-process thread worker concurrency.[/yellow]"
-                        )
-                    if use_subprocess_workers:
-                        stage_worker_backend_effective = "subprocess"
-                        _run_jobs_with_subprocess_executor(executor)
-                    else:
-                        _run_jobs_with_executor(executor)
+                ] = job
+
+        for future in as_completed(futures):
+            job = futures[future]
+            try:
+                res = future.result()
+            except Exception as exc:
+                res = {
+                    "file": job.file_path.name,
+                    "status": "error",
+                    "reason": str(exc),
+                    "job_index": job.job_index,
+                    "job_count": job.job_count,
+                    "start_page": job.start_page,
+                    "end_page": job.end_page,
+                    "start_spine": job.start_spine,
+                    "end_spine": job.end_spine,
+                }
+
+            progress_bar.update(overall_task, advance=1)
+            handle_job_result(job, res)
+
+    def _run_jobs_with_subprocess_executor(executor: Any) -> None:
+        worker_limit = max(1, min(effective_workers, len(job_specs)))
+        pending_jobs = list(job_specs)
+        futures: dict[Any, tuple[JobSpec, int]] = {}
+        available_slots: deque[int] = deque(range(1, worker_limit + 1))
+
+        def _submit_job(job: JobSpec, slot: int) -> None:
+            _set_stage_active_file(job.display_name)
+            futures[executor.submit(_run_stage_job_via_subprocess, job)] = (job, slot)
+            _set_worker_status(
+                f"SubprocessWorker-{slot}",
+                job.display_name,
+                "Running subprocess worker...",
+            )
+
+        while pending_jobs and available_slots:
+            _submit_job(pending_jobs.pop(0), available_slots.popleft())
+
+        while futures:
+            future = next(as_completed(list(futures.keys())))
+            job, slot = futures.pop(future)
+            try:
+                res = future.result()
+            except Exception as exc:
+                res = _stage_job_failure_payload(
+                    job,
+                    f"Subprocess worker dispatch failed: {exc}",
+                )
+            _set_worker_status(
+                f"SubprocessWorker-{slot}",
+                job.display_name,
+                "Done",
+            )
+            progress_bar.update(overall_task, advance=1)
+            handle_job_result(job, res)
+            if pending_jobs:
+                _submit_job(pending_jobs.pop(0), slot)
+            else:
+                available_slots.append(slot)
+
+    def _run_jobs_serial() -> None:
+        for job in job_specs:
+            _set_stage_active_file(job.display_name)
+            job_run_config = _run_config_for_file(job.file_path)
+            job_run_config_hash = _run_config_hash_for_file(job.file_path)
+            job_run_config_summary = _run_config_summary_for_file(job.file_path)
+            job_epub_extractor = effective_epub_extractors.get(job.file_path)
+            if job.is_split:
+                if job.split_kind == "epub":
+                    res = stage_epub_job(
+                        job.file_path,
+                        out,
+                        base_mapping,
+                        run_dt,
+                        job.start_spine,
+                        job.end_spine,
+                        job.job_index,
+                        job.job_count,
+                        progress_queue,
+                        job.display_name,
+                        job_epub_extractor,
+                        job_run_config,
+                        job_run_config_hash,
+                        job_run_config_summary,
+                    )
+                else:
+                    res = stage_pdf_job(
+                        job.file_path,
+                        out,
+                        base_mapping,
+                        run_dt,
+                        job.start_page,
+                        job.end_page,
+                        job.job_index,
+                        job.job_count,
+                        progress_queue,
+                        job.display_name,
+                        job_run_config,
+                        job_run_config_hash,
+                        job_run_config_summary,
+                    )
+            else:
+                res = stage_one_file(
+                    job.file_path,
+                    out,
+                    base_mapping,
+                    limit,
+                    run_dt,
+                    progress_queue,
+                    job.display_name,
+                    job_epub_extractor,
+                    job_run_config,
+                    job_run_config_hash,
+                    job_run_config_summary,
+                    write_markdown,
+                )
+            progress_bar.update(overall_task, advance=1)
+            handle_job_result(job, res)
+
+    stage_worker_backend_effective = "serial"
+    stage_worker_resolution_messages: list[str] = []
+    def _run_jobs() -> None:
+        nonlocal stage_worker_backend_effective
+        nonlocal stage_worker_resolution_messages
+        executor_resolution = resolve_process_thread_executor(
+            max_workers=effective_workers,
+            process_unavailable_message=lambda exc: (
+                "Process-based worker concurrency unavailable "
+                f"({exc}); using subprocess-backed worker concurrency."
+            ),
+            thread_unavailable_message=lambda exc: (
+                "Thread-based worker concurrency unavailable "
+                f"({exc}); running jobs serially."
+            ),
+        )
+        stage_worker_resolution_messages = list(executor_resolution.messages)
+        for message in executor_resolution.messages:
+            _emit_stage_message(
+                f"[yellow]⚠ {message}[/yellow]",
+                fg=typer.colors.YELLOW,
+            )
+
+        if require_process_workers and executor_resolution.backend != "process":
+            detail = (
+                "; ".join(executor_resolution.messages)
+                if executor_resolution.messages
+                else "process worker pool could not be established."
+            )
+            raise RuntimeError(
+                "Process-based worker concurrency is required for this stage run, "
+                f"but it is unavailable: {detail}"
+            )
+        stage_worker_backend_effective = str(executor_resolution.backend)
+        if executor_resolution.executor is None:
+            _run_jobs_serial()
+        else:
+            executor = executor_resolution.executor
+            try:
+                use_subprocess_workers = (
+                    executor_resolution.backend == "thread"
+                    and _stage_subprocess_worker_available()
+                )
+                if executor_resolution.backend == "thread" and not use_subprocess_workers:
+                    _emit_stage_message(
+                        "[yellow]⚠ Subprocess-backed worker concurrency unavailable; "
+                        "using in-process thread worker concurrency.[/yellow]",
+                        fg=typer.colors.YELLOW,
+                    )
+                if use_subprocess_workers:
+                    stage_worker_backend_effective = "subprocess"
+                    _run_jobs_with_subprocess_executor(executor)
+                else:
+                    _run_jobs_with_executor(executor)
+            finally:
+                shutdown_executor(executor, wait=True, cancel_futures=False)
+
+    try:
+        _emit_stage_progress_snapshot(force=True)
+        if _supports_live_status:
+            with console.status(_build_stage_progress_snapshot(), spinner="dots", refresh_per_second=4.0) as status:
+                stage_status_widget = status
+                stage_status_console = status.console
+                _emit_stage_progress_snapshot(force=True)
+
+                def _tick() -> None:
+                    while not stop_event.wait(max(0.05, _STATUS_TICK_SECONDS)):
+                        now = time.monotonic()
+                        _emit_stage_progress_snapshot(now=now)
+                        _write_stage_timeseries(event="tick", now=now)
+
+                ticker = threading.Thread(
+                    target=_tick,
+                    name="stage-progress-ticker",
+                    daemon=True,
+                )
+                ticker.start()
+
+                try:
+                    _run_jobs()
                 finally:
-                    shutdown_executor(executor, wait=True, cancel_futures=False)
+                    stop_event.set()
+                    ticker.join(timeout=max(0.2, float(_STATUS_TICK_SECONDS) * 2))
+        else:
+            _run_jobs()
     finally:
         stop_event.set()
         if queue_thread is not None:
@@ -19269,6 +20484,9 @@ def debug_epub_extract(
 
 @app.command("labelstudio-benchmark")
 def labelstudio_benchmark(
+    action: Annotated[str, typer.Argument(
+        help="Action: run (default) or compare.",
+    )] = "run",
     gold_spans: Annotated[Path | None, typer.Option(
         "--gold-spans",
         help="Path to freeform_span_labels.jsonl (prompts if omitted).",
@@ -19336,6 +20554,32 @@ def labelstudio_benchmark(
             "When set, skips prediction generation and runs evaluate-only."
         ),
     )] = None,
+    baseline: Annotated[Path | None, typer.Option(
+        "--baseline",
+        help=(
+            "Compare action only: baseline all-method benchmark run directory "
+            "(or report JSON path)."
+        ),
+    )] = None,
+    candidate: Annotated[Path | None, typer.Option(
+        "--candidate",
+        help=(
+            "Compare action only: candidate all-method benchmark run directory "
+            "(or report JSON path)."
+        ),
+    )] = None,
+    compare_out: Annotated[Path, typer.Option(
+        "--compare-out",
+        help=(
+            "Compare action only: output root for timestamped comparison reports."
+        ),
+    )] = DEFAULT_LABELSTUDIO_BENCHMARK_COMPARISONS,
+    fail_on_regression: Annotated[bool, typer.Option(
+        "--fail-on-regression/--no-fail-on-regression",
+        help=(
+            "Compare action only: return non-zero exit code when comparison verdict is FAIL."
+        ),
+    )] = False,
     pipeline: Annotated[str, typer.Option("--pipeline", help="Importer pipeline name or auto.")] = "auto",
     project_name: Annotated[str | None, typer.Option(
         "--project-name",
@@ -19583,6 +20827,12 @@ def labelstudio_benchmark(
             "Values: off or codex-farm-3pass-v1."
         ),
     )] = "off",
+    codex_farm_recipe_mode: Annotated[str, typer.Option(
+        "--codex-farm-recipe-mode",
+        help=(
+            "Codex Farm recipe execution style: extract (default) or benchmark."
+        ),
+    )] = CODEX_FARM_RECIPE_MODE_EXTRACT,
     codex_farm_cmd: Annotated[str, typer.Option(
         "--codex-farm-cmd",
         help="Executable used for codex-farm calls when LLM recipe pipeline is enabled.",
@@ -19639,6 +20889,35 @@ def labelstudio_benchmark(
 
     def _emit_external_progress(message: str) -> None:
         _notify_progress_callback(external_progress_callback, message)
+
+    selected_action = str(action or "run").strip().lower().replace("_", "-")
+    if selected_action in {"", "run", "benchmark"}:
+        selected_action = "run"
+    elif selected_action == "compare":
+        selected_action = "compare"
+    else:
+        _fail(
+            f"Invalid labelstudio-benchmark action: {action!r}. "
+            "Expected one of: run, compare."
+        )
+
+    if selected_action == "compare":
+        if baseline is None or candidate is None:
+            _fail(
+                "compare action requires both --baseline and --candidate."
+            )
+        labelstudio_benchmark_compare(
+            baseline=baseline,
+            candidate=candidate,
+            out_dir=compare_out,
+            fail_on_regression=bool(fail_on_regression),
+        )
+        return
+
+    if baseline is not None or candidate is not None:
+        _fail(
+            "--baseline/--candidate are only valid with `labelstudio-benchmark compare`."
+        )
 
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
     selected_html_parser_version = _normalize_unstructured_html_parser_version(
@@ -19740,6 +21019,9 @@ def labelstudio_benchmark(
         0, int(recipe_score_min_instruction_lines)
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
+        codex_farm_recipe_mode
+    )
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
@@ -19909,6 +21191,7 @@ def labelstudio_benchmark(
                                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                                 codex_farm_context_blocks=codex_farm_context_blocks,
+                                codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                                 processed_output_root=processed_output_dir,
                                 write_markdown=write_markdown,
@@ -19996,6 +21279,7 @@ def labelstudio_benchmark(
                             codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                             codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                             codex_farm_context_blocks=codex_farm_context_blocks,
+                            codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
                             split_phase_slots=split_phase_slots,
@@ -20201,6 +21485,7 @@ def labelstudio_benchmark(
             "epub_spine_items_per_job": epub_spine_items_per_job,
             "warm_models": warm_models,
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
             "codex_farm_cmd": codex_farm_cmd,
             "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
             "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
@@ -20622,6 +21907,7 @@ def labelstudio_benchmark(
         "epub_spine_items_per_job": epub_spine_items_per_job,
         "warm_models": warm_models,
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+        "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
         "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
         "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,

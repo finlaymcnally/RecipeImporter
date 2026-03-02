@@ -43,6 +43,7 @@ PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
 PASS2_PIPELINE_ID = DEFAULT_PASS2_PIPELINE_ID
 PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
 _PASS1_PATTERN_HINTS_ENV = "COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS"
+_CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -147,6 +148,7 @@ def run_codex_farm_recipe_pipeline(
             "codex_farm_root": run_settings.codex_farm_root,
             "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
             "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
+            "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
             "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
             "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
             "counts": {
@@ -180,6 +182,7 @@ def run_codex_farm_recipe_pipeline(
                 "counts": llm_manifest["counts"],
                 "output_schema_paths": dict(output_schema_paths),
                 "process_runs": {},
+                "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
             },
             llm_raw_dir=llm_raw_dir,
@@ -187,7 +190,10 @@ def run_codex_farm_recipe_pipeline(
 
     pipeline_root = _resolve_pipeline_root(run_settings)
     workspace_root = _resolve_workspace_root(run_settings)
-    env = {"CODEX_FARM_ROOT": str(pipeline_root)}
+    env = {
+        "CODEX_FARM_ROOT": str(pipeline_root),
+        _CODEX_FARM_RECIPE_MODE_ENV: run_settings.codex_farm_recipe_mode.value,
+    }
     codex_runner: CodexFarmRunner = runner or SubprocessCodexFarmRunner(
         cmd=run_settings.codex_farm_cmd,
         progress_callback=progress_callback,
@@ -442,6 +448,7 @@ def run_codex_farm_recipe_pipeline(
         "timing": llm_manifest["timing"],
         "failures": llm_manifest["failures"],
         "process_runs": llm_manifest.get("process_runs", {}),
+        "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
         "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
     }
 
@@ -530,6 +537,7 @@ def _build_llm_manifest(
         "codex_farm_root": run_settings.codex_farm_root,
         "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
         "codex_farm_context_blocks": run_settings.codex_farm_context_blocks,
+        "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
         "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
         "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
         "pipelines": dict(pipelines),

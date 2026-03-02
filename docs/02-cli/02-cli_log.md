@@ -780,6 +780,31 @@ Evidence preserved:
 Anti-loop note:
 - Startup warning suppression is not a throughput fix; confirm executor fallback telemetry before changing stage/bench concurrency paths.
 
+## 2026-03-02 docs/tasks merge ledger (interactive quality-first preset)
+
+### 2026-03-02_00.24.23 quality-first winner stack preset in shared chooser
+
+Source task file:
+- `docs/tasks/2026-03-02_00.24.23-interactive-quality-first-run-settings-preset.md`
+
+Problem captured:
+- Interactive run-settings flow lacked a stable built-in quality-first preset option, forcing manual edits or dependency on saved profile artifacts.
+
+Durable decisions:
+- Add a chooser option in `choose_run_settings(...)` for `Run with quality-first winner stack (...)`.
+- Apply deterministic built-in patch values:
+  - `epub_extractor=unstructured`
+  - `epub_unstructured_html_parser_version=v1`
+  - `epub_unstructured_preprocess_mode=semantic_v1`
+  - `epub_unstructured_skip_headers_footers=true`
+- Keep this preset independent from saved winner/profile files so it is always available in interactive import and benchmark flows.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/cli/test_c3imp_interactive_menu.py -q`
+
+Anti-loop note:
+- If preset menus drift between import and benchmark, patch the shared chooser path (`cookimport/cli_ui/run_settings_flow.py`) rather than mode-specific menu branches.
+
 ## 2026-03-02 migrated understanding ledger (interactive presets + progress architecture)
 
 Chronological migration from `docs/understandings`; source files are retired after this merge.

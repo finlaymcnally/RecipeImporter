@@ -34,6 +34,7 @@ Current scoring surfaces:
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
+- `scripts/quality_top_tier_tournament.py`: disabled/retired runtime entrypoint; `main()` exits immediately with a disabled message to prevent accidental tournament fanout.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -41,9 +42,12 @@ Current scoring surfaces:
 ### 2.2 `cookimport labelstudio-benchmark` benchmark controls
 
 Most benchmark behavior is shared with this command. Active benchmark-specific controls include:
+- action positional: `run` (default) or `compare`
 - `--eval-mode stage-blocks|canonical-text`
 - `--execution-mode legacy|pipelined|predict-only`
 - `--predictions-out <jsonl>` / `--predictions-in <jsonl>`
+- `--baseline <run_or_report_path>` / `--candidate <run_or_report_path>` (compare action)
+- `--compare-out <dir>` / `--fail-on-regression`
 - `--sequence-matcher dmp`
 - `--section-detector-backend legacy|shared_v1`
 - `--multi-recipe-splitter legacy|off|rules_v1`
@@ -53,6 +57,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail`
 - `--instruction-step-segmentation-policy off|auto|always`
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
+- `--codex-farm-recipe-mode extract|benchmark`
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
@@ -61,6 +66,9 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   artifacts are disabled unless overridden in the shell.
 
 Interactive benchmark flows (`single_offline`, `single_offline_all_matched`, `all_method`) stay offline and use canonical-text scoring.
+`labelstudio-benchmark compare` evaluates named gates (`sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates) and writes timestamped reports under `data/golden/benchmark-vs-golden/comparisons/<timestamp>/`.
+
+Debug artifact mode checks in compare are resolved by metadata first and inferred from artifacts when metadata is absent. If the pipeline intent cannot be confirmed, the command emits explicit warnings in both CLI output and comparison artifacts and skips benchmark-only checks by design.
 Interactive `single_offline` now writes into one session root:
 - `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/vanilla/`
 - optional paired codex run at `.../single-offline-benchmark/codexfarm/` when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`
@@ -156,6 +164,9 @@ Prediction-record and telemetry artifacts:
 - `--predictions-in` supports evaluate-only replay for both per-block records and legacy run-pointer records.
 - benchmark runs can emit `processing_timeseries_prediction.jsonl` and `processing_timeseries_evaluation.jsonl`.
 - optional eval profiling artifacts (`eval_profile.pstats`, `eval_profile_top.txt`) are written when profiling threshold env vars are enabled and runtime crosses threshold.
+- compare action writes `comparison.json` and `comparison.md` under the configured comparison output root.
+- compare action prints the gate pass/fail table directly in CLI output.
+- comparison.md and comparison.json include source-level debug artifact diagnostics for candidate runs, including mode resolution and warning messages when benchmark mode must be inferred or cannot be confirmed.
 
 ## 4. Scoring Contracts
 
@@ -978,7 +989,6 @@ Merged source notes (chronological):
 - `docs/understandings/2026-02-28_21.14.34-qualitysuite-live-work-units-can-rise-during-normal-scheduling.md`
 - `docs/understandings/2026-02-28_21.29.32-quality-tournament-quick-overrides-for-fast-parsing-answer.md`
 - `docs/understandings/2026-02-28_21.51.19-quality-lightweight-series-entrypoint-and-profile-contract.md`
-- `docs/understandings/2026-02-28_22.11.43-oracle-parsing-accuracy-plan-scope-gap-map.md`
 - `docs/understandings/2026-03-01_00.20.00-quality-lightweight-series-fold-reuse-and-summary-contract.md`
 
 Current benchmark contract additions from this batch:
@@ -1073,7 +1083,6 @@ Merged task files from `docs/tasks` (source creation order):
 - `2026-02-28_20.35.43-qualitysuite-live-eta-queue-aware.md`
 - `2026-02-28_21.43.13-qualitysuite-lightweight-main-effects-series.md`
 - `2026-02-28_22.08.25-qualitysuite-parsing-accuracy-two-phase-and-runtime-waste-cuts.md`
-- `2026-03-01_09.48.35-qualitysuite-oracle-full-ideas-gap-closure.md`
 
 ### 2026-02-28_14.55.16 SpeedSuite parallel + resume contract
 - `bench speed-run` supports bounded task fanout with `--max-parallel-tasks` (auto mode when omitted).
@@ -1122,7 +1131,7 @@ Merged task files from `docs/tasks` (source creation order):
 - Live tournament subprogress is surfaced from fold checkpoints and mirrored to `tournament_checkpoint.json`.
 - Prediction reuse materialization is hardlink-first with copy fallback; reuse telemetry distinguishes in-run vs cross-run sources.
 
-### 2026-03-01_09.48.35 Oracle gap closure follow-through
+### 2026-03-01_09.48.35 gap closure follow-through
 - Added Phase A -> Phase B auto-handoff flags:
   - `--auto-candidates-from-summary`
   - `--auto-candidates-from-latest-in`
@@ -1135,3 +1144,62 @@ Anti-loop notes from this merge:
 - If phase handoff behavior looks wrong, inspect candidate-source precedence metadata before changing filters.
 - If race mode still looks slow, compare effective variant count against finalists before touching scoring logic.
 - If reuse speedups disappear, verify hardlink availability/fallback telemetry before changing cache keys.
+
+## 2026-03-01 to 2026-03-02 docs/tasks merge (QualitySuite guardrails and preset hygiene)
+
+Merged task files (source creation order):
+- `2026-03-01_11.47.33-qualitysuite-wsl-safety-guard.md`
+- `2026-03-01_12.23.08-qualitysuite-wsl-single-slot-guard.md`
+- `2026-03-01_19.47.08-disable-quality-lightweight-series-cli.md`
+- `2026-03-01_19.51.35-disable-quality-top-tier-tournament-script.md`
+- `2026-03-01_19.56.27-qualitysuite-unhobble-parallelism.md`
+- `2026-03-01_23.16.19-qualitysuite-wsl-guard-restore-after-oom.md`
+- `2026-03-02_00.08.28-qualitysuite-agent-spinner-noise.md`
+- `2026-03-02_00.36.30-qualitysuite-drop-regressive-parser-candidates-from-active-presets.md`
+
+Current-contract additions:
+- WSL guardrails are active by default for quality runs, including single-slot runs; opt-out remains explicit via `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1`.
+- The short-lived unhobble attempt (`2026-03-01_19.56.27`) is historical only; OOM evidence led to guard restoration (`2026-03-01_23.16.19`).
+- Retired high-cost surfaces are intentionally fail-fast:
+  - `bench quality-lightweight-series`
+  - `scripts/quality_top_tier_tournament.py`
+- Agent terminals default benchmark progress to plain change-only lines (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`) with explicit override via `COOKIMPORT_PLAIN_PROGRESS=1|0`.
+- Active QualitySuite presets point to pruned `2026-03-02_00.36.30` files that removed:
+  - `pre_br_split`
+  - `pre_none`
+  - `skip_headers_false`
+  - `parser_v2_pre_br_skiphf_false`
+- Historical timestamped preset snapshots remain intentionally untouched for replay/debug provenance.
+
+Anti-loop reminders:
+- If WSL runs destabilize again, inspect `experiments_resolved.json` guard telemetry before editing scheduler internals.
+- If old parser candidates reappear, audit active preset pointers/default file references first, not archived snapshots.
+- If a workflow still references lightweight-series/tournament commands, treat that as stale operator guidance and route to quality-run/leaderboard/compare.
+
+## 2026-03-02 merged understandings digest (artifact cutdowns and interactive paired contract)
+
+Merged sources (chronological):
+- `docs/understandings/2026-03-02_00.38.06-qualitysuite-active-vs-legacy-preset-pruning-path.md`
+- `docs/understandings/2026-03-02_07.55.57-codexfarm-benchmark-need-to-know-artifacts.md`
+- `docs/understandings/2026-03-02_08.14.12-correct-snippet-sampling-from-canonical-eval-artifacts.md`
+- `docs/understandings/2026-03-02_08.45.38-benchmark-cutdown-script-run-shape-and-pairing.md`
+- `docs/understandings/2026-03-02_08.50.19-interactive-single-offline-paired-run-failure-contract.md`
+- `docs/understandings/2026-03-02_11.26.00-interactive-benchmark-write-flags.md`
+
+Current-contract additions:
+- QualitySuite preset pruning should target active preset pointers/default references (CLI defaults + docs references), not in-place edits to historical timestamped snapshots. Keep legacy snapshots immutable for replay/debug provenance.
+- For external-AI benchmark sharing, the high-signal minimal artifact set remains:
+  - `run_manifest.json` (or compact subset with `run_config` and source identity)
+  - `eval_report.md` + key scalar metrics from `eval_report.json`
+  - bounded qualitative samples from `wrong_label_lines.jsonl`, `missed_gold_lines.jsonl`, `unmatched_pred_blocks.jsonl`
+- Large raw payload bundles (`prediction-run/raw/**`, full extracted payload artifacts, full diagnostics arrays) are debug artifacts, not required for codex-vs-baseline quality judgment.
+- Positive "correct" examples can be derived deterministically from canonical artifacts by taking canonical line indices absent from `wrong_label_lines.jsonl` and writing a capped sample file.
+- Crossover run pairing for codex-vs-baseline cutdowns should group by `source_hash` (fallback: source filename) and treat baseline pipeline values as `{off, none, ""}`.
+- C3imp interactive `single_offline` codex-enabled runs should preserve the current failure-safe contract:
+  - run `vanilla` first,
+  - run `codexfarm` second,
+  - keep successful vanilla artifacts even if codex variant fails,
+  - write comparison artifacts only when both succeed.
+- Interactive benchmark sidecar writes stay env-driven and default-disabled in C3imp sessions:
+  - `COOKIMPORT_BENCH_WRITE_MARKDOWN`
+  - `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS`

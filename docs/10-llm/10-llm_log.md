@@ -359,23 +359,6 @@ Current status:
 
 ## 2026-02-28 migrated understandings batch (LLM ops and external model tooling)
 
-### 2026-02-28_01.58.55 Oracle browser login/session blocker
-
-Source: `docs/understandings/2026-02-28_01.58.55-oracle-browser-login-session-blocker.md`
-
-Problems captured:
-- Browser-run Oracle failures with chrome disconnect/window-close errors.
-- Immediate filesystem failures from unwritable default `~/.oracle/sessions/...` paths in Codex sandbox contexts.
-
-Durable mitigations preserved:
-- Wrapper defaults now target writable Oracle-home paths under `/home/mcnal/.local/share/oracle`.
-- Wrappers create required dirs up front and auto-fallback to `/tmp/oracle-home-$USER` if requested paths are unwritable.
-- Legacy `~/.oracle` env overrides are ignored by wrappers to avoid regressing into permission failures.
-- Wrapper flow includes one-time login helper (`chromium-chatgpt-login`) before browser-headless runs.
-
-Anti-loop note:
-- If Oracle browser runs regress, verify auth/session-path health before changing prompt bundles or model ids.
-
 ### 2026-02-28_03.17.29 Codex Farm opt-in command pattern
 
 Source: `docs/understandings/2026-02-28_03.17.29-codex-farm-opt-in-command-pattern.md`
@@ -387,22 +370,6 @@ Durable pattern preserved:
 - Keep `llm_recipe_pipeline` default `off` globally.
 - Enable Codex Farm only via explicit command/profile selection.
 - Prefer absolute `codex_farm_cmd` in run settings/overrides to avoid PATH-dependent failures.
-
-### 2026-02-28_03.19.05 Oracle gpt-5.2-thinking browser blocker
-
-Source: `docs/understandings/2026-02-28_03.19.05-oracle-gpt52-thinking-browser-blocker.md`
-
-Context preserved:
-- Attempted Oracle review against `docs/reports/2026-02-28_01.51.16-thefoodlab-all-method-hotspot-report.md` with mapped code attachments.
-
-Findings preserved:
-- Dry-run bundle packaging succeeded.
-- Browser runs either stalled indefinitely in running state or failed with chrome-window-close errors.
-- No API fallback path was available because `OPENAI_API_KEY` was unset.
-- Re-login helper could time out without establishing usable session auth in this sandbox.
-
-Durable implication:
-- In this environment, the blocker is browser/auth/session execution, not prompt assembly or file selection.
 
 ### 2026-02-28_03.19.48 interactive Codex Farm gate and launcher
 
@@ -417,9 +384,7 @@ Durable pattern:
 
 ## 2026-02-28 migrated understanding ledger (03:47-04:01 LLM batch)
 
-### 2026-02-28_03.47.42 Oracle codex-farm prompt tightening priorities
-
-Source: `docs/understandings/2026-02-28_03.47.42-oracle-codex-farm-prompt-tightening-priorities.md`
+### 2026-02-28_03.47.42 codex-farm prompt tightening priorities
 
 Problem captured:
 - Prompt set produced valid outputs but lacked deterministic tie-break and schema-safety specificity, increasing variance risk.
@@ -627,3 +592,84 @@ Durable decisions/outcomes:
 
 Anti-loop note:
 - Do not treat null `autotune_report` as conversion failure; check Codex Farm binary support/version first.
+
+## 2026-03-02 docs/tasks merge ledger (codex-farm progress callback contract)
+
+### 2026-03-01_21.37.45 codex-farm spinner progress bridge
+
+Source task file:
+- `docs/tasks/2026-03-01_21.37.45-codex-farm-spinner-progress-bridge.md`
+
+Problem captured:
+- Stage and benchmark flows only showed coarse codex phase text because subprocess calls waited for full process completion before surfacing status.
+
+Durable decisions:
+- `SubprocessCodexFarmRunner` now streams `process --progress-events` stderr lines and forwards callback-safe `task X/Y` status updates.
+- Stage and benchmark call sites now pass existing callback/spinner handlers into recipe/pass4 orchestrators.
+- If installed codex-farm does not support `--progress-events`, runner retries once without the flag and continues with phase-only status.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator.py -q`
+
+Anti-loop note:
+- Keep progress-event parsing in the subprocess runner boundary; do not duplicate per-call-site parsing logic.
+
+### 2026-03-02_01.02.14 remove volatile active-file tails from codex progress text
+
+Source task file:
+- `docs/tasks/2026-03-02_01.02.14-codex-farm-progress-active-noise.md`
+
+Problem captured:
+- Progress messages included `active <filename>` suffixes that changed almost every tick, generating low-signal plain-progress noise and defeating exact-message dedupe.
+
+Durable decisions:
+- Keep stable counter-bearing callback text (`task X/Y`, running count, error count).
+- Remove volatile `active ...` suffix from emitted codex progress status strings.
+- Preserve existing dedupe behavior so same-counter updates collapse correctly.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator.py -q`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py::test_run_with_progress_status_defaults_to_plain_for_agent_env -q`
+
+Anti-loop note:
+- If progress noise returns, inspect runner-emitted status text first; do not patch spinner renderer dedupe logic before validating message stability.
+
+## 2026-03-02 migrated understanding ledger (schemaorg 403 triage + pass2/pass3 string contract)
+
+Chronological migration from `docs/understandings`; source files are retired after this merge.
+
+### 2026-03-02_00.37.59 codex-farm schemaorg 403 forbidden failure
+
+Source: `docs/understandings/2026-03-02_00.37.59-codex-farm-schemaorg-403-forbidden.md`
+
+Problem captured:
+- Offline benchmark prediction generation with `llm_recipe_pipeline=codex-farm-3pass-v1` reached pass2 (`recipe.schemaorg.v1`) and failed with subprocess exit code `1` for all tasks.
+
+Root cause retained:
+- Underlying Codex websocket call returned `403 Forbidden` (`wss://chatgpt.com/backend-api/codex/responses`) in this environment, causing codex subprocess failure before useful pass output was produced.
+
+Durable triage guidance:
+- `codex-farm run errors --run-id ... --json` can under-report first-cause details.
+- Use run forensics bundles as primary source for root-cause traces:
+  - `var/forensics/runs/<run_id>/<task_id>/attempt-*/stderr_tail.txt`
+  - `var/forensics/runs/<run_id>/<task_id>/attempt-*/metadata.json`
+
+Anti-loop note:
+- If pass2 failures are universal and immediate, check auth/connectivity for Codex backend first before changing pass2 prompt/schema contracts.
+
+### 2026-03-02_07.03.58 recipeimport pass2/pass3 JSON-string contracts
+
+Source: `docs/understandings/2026-03-02_07.03.58-recipeimport-pass2-pass3-json-string-contracts.md`
+
+Problem captured:
+- Pass2/pass3 payload shape drift caused schema-validation failures before downstream parsing.
+
+Durable decisions:
+- Top-level pass2/pass3 contract fields are JSON strings under strict object schemas (`additionalProperties: false` + string-only top-level fields):
+  - pass2: `schemaorg_recipe`, `field_evidence`
+  - pass3: `draft_v1`, `ingredient_step_mapping`
+- `cookimport/llm/codex_farm_contracts.py` includes coercion so object-form inputs can be normalized into JSON strings for validation.
+- Prompt contracts and fake runner defaults were aligned to emit these fields as serialized JSON strings.
+
+Anti-loop note:
+- If pass2/pass3 validate failures recur, verify field-type coercion and prompt output shape before widening schemas.

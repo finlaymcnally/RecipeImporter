@@ -130,6 +130,171 @@ def _write_fake_all_method_eval_artifacts(
     (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
 
 
+def _write_labelstudio_compare_source_row(
+    *,
+    run_root: Path,
+    source_key: str,
+    practical_f1: float,
+    line_accuracy: float,
+    ingredient_recall: float,
+    variant_recall: float,
+    llm_recipe_pipeline: str,
+    codex_farm_recipe_mode: str,
+    write_required_llm_debug: bool,
+    write_prompt_manifests: bool | None = None,
+    include_prediction_run_config: bool = True,
+) -> dict[str, object]:
+    source_root = run_root / "sources" / source_key
+    eval_root = source_root / "winner_eval"
+    prediction_run_root = eval_root / "prediction-run"
+    prediction_run_root.mkdir(parents=True, exist_ok=True)
+
+    (eval_root / "aligned_prediction_blocks.jsonl").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+
+    eval_report = {
+        "practical_f1": practical_f1,
+        "overall_line_accuracy": line_accuracy,
+        "per_label": {
+            "INGREDIENT_LINE": {"recall": ingredient_recall},
+            "RECIPE_VARIANT": {"recall": variant_recall},
+        },
+        "artifacts": {
+            "aligned_prediction_blocks_jsonl": "aligned_prediction_blocks.jsonl",
+        },
+    }
+    (eval_root / "eval_report.json").write_text(
+        json.dumps(eval_report, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    if write_prompt_manifests is None:
+        write_prompt_manifests = bool(write_required_llm_debug)
+    if include_prediction_run_config:
+        prediction_run_config = {
+            "llm_recipe_pipeline": llm_recipe_pipeline,
+            "codex_farm_recipe_mode": codex_farm_recipe_mode,
+        }
+    else:
+        prediction_run_config = {}
+    prediction_run_manifest = {
+        "run_config": (
+            {"prediction_run_config": prediction_run_config}
+            if prediction_run_config
+            else {}
+        ),
+        "artifacts": {},
+    }
+    (eval_root / "run_manifest.json").write_text(
+        json.dumps(prediction_run_manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    if (
+        llm_recipe_pipeline == "codex-farm-3pass-v1"
+        and codex_farm_recipe_mode == "benchmark"
+        and write_required_llm_debug
+    ):
+        llm_root = prediction_run_root / "llm"
+        pass1_in = llm_root / "pass1_chunking" / "in"
+        pass1_out = llm_root / "pass1_chunking" / "out"
+        pass2_in = llm_root / "pass2_schemaorg" / "in"
+        pass2_out = llm_root / "pass2_schemaorg" / "out"
+        pass3_in = llm_root / "pass3_final" / "in"
+        pass3_out = llm_root / "pass3_final" / "out"
+        for folder in (pass1_in, pass1_out, pass2_in, pass2_out, pass3_in, pass3_out):
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "r0000.json").write_text("{}", encoding="utf-8")
+        llm_manifest = {
+            "paths": {
+                "pass1_in": str(pass1_in),
+                "pass1_out": str(pass1_out),
+                "pass2_in": str(pass2_in),
+                "pass2_out": str(pass2_out),
+                "pass3_in": str(pass3_in),
+                "pass3_out": str(pass3_out),
+            }
+        }
+        llm_manifest_path = prediction_run_root / "llm_manifest.json"
+        llm_manifest_path.write_text(
+            json.dumps(llm_manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        prediction_run_manifest["artifacts"]["llm_manifest_json"] = str(llm_manifest_path)
+        if write_prompt_manifests:
+            prompt_input_payloads = [
+                pass1_in / "prompt_request_0.json",
+                pass2_in / "prompt_request_1.json",
+                pass3_in / "prompt_request_2.json",
+            ]
+            prompt_output_payloads = [
+                pass1_out / "prompt_response_0.json",
+                pass2_out / "prompt_response_1.json",
+                pass3_out / "prompt_response_2.json",
+            ]
+            for payload_path in prompt_input_payloads:
+                payload_path.write_text("{}", encoding="utf-8")
+            for payload_path in prompt_output_payloads:
+                payload_path.write_text("{}", encoding="utf-8")
+            prompt_inputs_manifest_path = prediction_run_root / "prompt_inputs_manifest.txt"
+            prompt_outputs_manifest_path = prediction_run_root / "prompt_outputs_manifest.txt"
+            prompt_inputs_manifest_path.write_text(
+                "\n".join(str(path) for path in prompt_input_payloads) + "\n",
+                encoding="utf-8",
+            )
+            prompt_outputs_manifest_path.write_text(
+                "\n".join(str(path) for path in prompt_output_payloads) + "\n",
+                encoding="utf-8",
+            )
+            prediction_run_manifest["artifacts"]["prompt_inputs_manifest_txt"] = str(
+                prompt_inputs_manifest_path
+            )
+            prediction_run_manifest["artifacts"]["prompt_outputs_manifest_txt"] = str(
+                prompt_outputs_manifest_path
+            )
+
+    (prediction_run_root / "run_manifest.json").write_text(
+        json.dumps(prediction_run_manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    source_report_path = source_root / "all_method_benchmark_report.json"
+    source_report = {
+        "winner_by_f1": {
+            "eval_report_json": str(eval_root / "eval_report.json"),
+        }
+    }
+    source_report_path.write_text(
+        json.dumps(source_report, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    return {
+        "source_group_key": source_key,
+        "report_json_path": str(source_report_path),
+        "winner_metrics": {
+            "precision": practical_f1,
+            "recall": practical_f1,
+            "f1": practical_f1,
+            "practical_f1": practical_f1,
+        },
+    }
+
+
+def _write_labelstudio_compare_multi_source_report(
+    run_root: Path,
+    rows: list[dict[str, object]],
+) -> None:
+    run_root.mkdir(parents=True, exist_ok=True)
+    payload = {"sources": rows}
+    (run_root / "all_method_benchmark_multi_source_report.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
 def test_format_status_progress_message_appends_elapsed_after_threshold() -> None:
     assert (
         cli._format_status_progress_message(
@@ -2222,6 +2387,452 @@ def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_co
         / "single-offline-benchmark"
         / "codex_vs_vanilla_comparison.json"
     ).exists()
+
+
+def test_labelstudio_benchmark_compare_payload_passes_with_required_debug_artifacts(
+    tmp_path: Path,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    candidate_root = tmp_path / "candidate"
+
+    _write_labelstudio_compare_multi_source_report(
+        baseline_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.40,
+                line_accuracy=0.50,
+                ingredient_recall=0.30,
+                variant_recall=0.10,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.45,
+                line_accuracy=0.55,
+                ingredient_recall=0.33,
+                variant_recall=0.11,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+    _write_labelstudio_compare_multi_source_report(
+        candidate_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.50,
+                line_accuracy=0.60,
+                ingredient_recall=0.45,
+                variant_recall=0.15,
+                llm_recipe_pipeline="codex-farm-3pass-v1",
+                codex_farm_recipe_mode="benchmark",
+                write_required_llm_debug=True,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.47,
+                line_accuracy=0.56,
+                ingredient_recall=0.34,
+                variant_recall=0.12,
+                llm_recipe_pipeline="codex-farm-3pass-v1",
+                codex_farm_recipe_mode="benchmark",
+                write_required_llm_debug=True,
+            ),
+        ],
+    )
+
+    payload = cli._build_labelstudio_benchmark_compare_payload(
+        baseline_report_root=baseline_root,
+        candidate_report_root=candidate_root,
+    )
+
+    assert payload["schema_version"] == "labelstudio_benchmark_compare.v1"
+    assert payload["overall"]["verdict"] == "PASS"
+    gates_by_name = {
+        gate["name"]: gate
+        for gate in payload["gates"]
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    assert gates_by_name["foodlab_debug_artifacts_present"]["passed"] is True
+    assert gates_by_name["sea_debug_artifacts_present"]["passed"] is True
+    assert gates_by_name["foodlab_variant_recall_nonzero"]["passed"] is True
+
+
+def test_labelstudio_benchmark_compare_payload_fails_when_required_debug_artifacts_missing(
+    tmp_path: Path,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    candidate_root = tmp_path / "candidate"
+
+    _write_labelstudio_compare_multi_source_report(
+        baseline_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.40,
+                line_accuracy=0.50,
+                ingredient_recall=0.30,
+                variant_recall=0.10,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.45,
+                line_accuracy=0.55,
+                ingredient_recall=0.33,
+                variant_recall=0.11,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+    _write_labelstudio_compare_multi_source_report(
+        candidate_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.50,
+                line_accuracy=0.60,
+                ingredient_recall=0.45,
+                variant_recall=0.15,
+                llm_recipe_pipeline="codex-farm-3pass-v1",
+                codex_farm_recipe_mode="benchmark",
+                write_required_llm_debug=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.47,
+                line_accuracy=0.56,
+                ingredient_recall=0.34,
+                variant_recall=0.12,
+                llm_recipe_pipeline="codex-farm-3pass-v1",
+                codex_farm_recipe_mode="benchmark",
+                write_required_llm_debug=True,
+            ),
+        ],
+    )
+
+    payload = cli._build_labelstudio_benchmark_compare_payload(
+        baseline_report_root=baseline_root,
+        candidate_report_root=candidate_root,
+    )
+
+    assert payload["overall"]["verdict"] == "FAIL"
+    gates_by_name = {
+        gate["name"]: gate
+        for gate in payload["gates"]
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    assert gates_by_name["foodlab_debug_artifacts_present"]["passed"] is False
+
+
+def test_labelstudio_benchmark_compare_payload_fails_when_benchmark_mode_metadata_is_missing(
+    tmp_path: Path,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    candidate_root = tmp_path / "candidate"
+
+    _write_labelstudio_compare_multi_source_report(
+        baseline_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.40,
+                line_accuracy=0.50,
+                ingredient_recall=0.30,
+                variant_recall=0.10,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.45,
+                line_accuracy=0.55,
+                ingredient_recall=0.33,
+                variant_recall=0.11,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+    _write_labelstudio_compare_multi_source_report(
+        candidate_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.50,
+                line_accuracy=0.60,
+                ingredient_recall=0.45,
+                variant_recall=0.15,
+                llm_recipe_pipeline="codex-farm-3pass-v1",
+                codex_farm_recipe_mode="benchmark",
+                write_required_llm_debug=True,
+                write_prompt_manifests=False,
+                include_prediction_run_config=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.47,
+                line_accuracy=0.56,
+                ingredient_recall=0.34,
+                variant_recall=0.12,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+
+    payload = cli._build_labelstudio_benchmark_compare_payload(
+        baseline_report_root=baseline_root,
+        candidate_report_root=candidate_root,
+    )
+
+    assert payload["overall"]["verdict"] == "FAIL"
+    gates_by_name = {
+        gate["name"]: gate
+        for gate in payload["gates"]
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    assert gates_by_name["foodlab_debug_artifacts_present"]["passed"] is False
+    assert (
+        "Missing required debug artifacts:"
+        in str(gates_by_name["foodlab_debug_artifacts_present"]["reason"])
+    )
+    warnings = payload.get("warnings")
+    assert isinstance(warnings, list)
+    assert any(
+        "inferred benchmark mode from artifacts (metadata missing)" in str(warning)
+        for warning in warnings
+    )
+
+
+def test_labelstudio_benchmark_compare_payload_infers_benchmark_mode_from_artifacts_and_passes(
+    tmp_path: Path,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    candidate_root = tmp_path / "candidate"
+
+    _write_labelstudio_compare_multi_source_report(
+        baseline_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.40,
+                line_accuracy=0.50,
+                ingredient_recall=0.30,
+                variant_recall=0.10,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.45,
+                line_accuracy=0.55,
+                ingredient_recall=0.33,
+                variant_recall=0.11,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+    _write_labelstudio_compare_multi_source_report(
+        candidate_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.50,
+                line_accuracy=0.60,
+                ingredient_recall=0.45,
+                variant_recall=0.15,
+                llm_recipe_pipeline="codex-farm-3pass-v1",
+                codex_farm_recipe_mode="benchmark",
+                write_required_llm_debug=True,
+                include_prediction_run_config=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.47,
+                line_accuracy=0.56,
+                ingredient_recall=0.34,
+                variant_recall=0.12,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+
+    payload = cli._build_labelstudio_benchmark_compare_payload(
+        baseline_report_root=baseline_root,
+        candidate_report_root=candidate_root,
+    )
+
+    assert payload["overall"]["verdict"] == "PASS"
+    warnings = payload.get("warnings")
+    assert isinstance(warnings, list)
+    assert any(
+        (
+            "Running benchmark-only debug checks for thefoodlabcutdown using "
+            "inferred benchmark mode from artifacts (metadata missing)"
+        ) in str(warning)
+        for warning in warnings
+    )
+    foodlab_debug_gate = {
+        gate["name"]: gate
+        for gate in payload["gates"]
+        if isinstance(gate, dict) and gate.get("name")
+    }["foodlab_debug_artifacts_present"]
+    assert foodlab_debug_gate["passed"] is True
+
+
+def test_labelstudio_benchmark_compare_payload_skips_debug_checks_when_mode_unknown(
+    tmp_path: Path,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    candidate_root = tmp_path / "candidate"
+
+    _write_labelstudio_compare_multi_source_report(
+        baseline_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.40,
+                line_accuracy=0.50,
+                ingredient_recall=0.30,
+                variant_recall=0.10,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=baseline_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.45,
+                line_accuracy=0.55,
+                ingredient_recall=0.33,
+                variant_recall=0.11,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+            ),
+        ],
+    )
+    _write_labelstudio_compare_multi_source_report(
+        candidate_root,
+        [
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="thefoodlabcutdown",
+                practical_f1=0.50,
+                line_accuracy=0.60,
+                ingredient_recall=0.45,
+                variant_recall=0.15,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+                include_prediction_run_config=False,
+            ),
+            _write_labelstudio_compare_source_row(
+                run_root=candidate_root,
+                source_key="seaandsmokecutdown",
+                practical_f1=0.47,
+                line_accuracy=0.56,
+                ingredient_recall=0.34,
+                variant_recall=0.12,
+                llm_recipe_pipeline="off",
+                codex_farm_recipe_mode="extract",
+                write_required_llm_debug=False,
+                include_prediction_run_config=False,
+            ),
+        ],
+    )
+
+    payload = cli._build_labelstudio_benchmark_compare_payload(
+        baseline_report_root=baseline_root,
+        candidate_report_root=candidate_root,
+    )
+
+    assert payload["overall"]["verdict"] == "PASS"
+    warnings = payload.get("warnings")
+    assert isinstance(warnings, list)
+    assert any(
+        "Could not confirm benchmark mode for seaandsmokecutdown: "
+        "mode metadata is missing and artifact signals are not conclusive."
+        in str(warning)
+        for warning in warnings
+    )
+    source_row = payload["sources"]["seaandsmokecutdown"]
+    assert isinstance(source_row, dict)
+    candidate_context = source_row.get("candidate")
+    assert isinstance(candidate_context, dict)
+    debug_payload = candidate_context.get("debug_artifacts")
+    assert isinstance(debug_payload, dict)
+    assert debug_payload.get("required") is False
+    foodlab_debug_gate = {
+        gate["name"]: gate
+        for gate in payload["gates"]
+        if isinstance(gate, dict) and gate.get("name")
+    }["sea_debug_artifacts_present"]
+    assert foodlab_debug_gate["passed"] is True
+
+
+def test_labelstudio_benchmark_action_compare_dispatches_to_compare_helper(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "baseline"
+    candidate = tmp_path / "candidate"
+    compare_out = tmp_path / "compare-out"
+    captured: dict[str, object] = {}
+
+    def fake_compare(**kwargs):
+        captured.update(kwargs)
+        return {"overall": {"verdict": "PASS"}}
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark_compare", fake_compare)
+
+    cli.labelstudio_benchmark(
+        action="compare",
+        baseline=baseline,
+        candidate=candidate,
+        compare_out=compare_out,
+        fail_on_regression=True,
+    )
+
+    assert captured["baseline"] == baseline
+    assert captured["candidate"] == candidate
+    assert captured["out_dir"] == compare_out
+    assert captured["fail_on_regression"] is True
 
 
 def test_interactive_labelstudio_export_routes_to_export_command(

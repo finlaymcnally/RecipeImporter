@@ -207,6 +207,7 @@ These settings remain part of run settings and stage execution:
 - `codex_farm_reasoning_effort` (optional override passed to codex-farm as reasoning/thinking effort)
 - `codex_farm_root`
 - `codex_farm_workspace_root`
+- `codex_farm_recipe_mode` (`extract` default, `benchmark` for benchmark-native line-label flow)
 - `codex_farm_failure_mode`
 - `codex_farm_pipeline_pass1`
 - `codex_farm_pipeline_pass2`
@@ -220,6 +221,7 @@ These settings remain part of run settings and stage execution:
 ## Prediction-run boundary
 
 - Label Studio prediction-run generation (`generate_pred_run_artifacts`) currently wires recipe-pass settings only (pass1/2/3 + codex-farm command/root/workspace/context/failure mode).
+- Prediction-run manifests now carry `codex_farm_recipe_mode`, and subprocess-backed recipe passes export `COOKIMPORT_CODEX_FARM_RECIPE_MODE` so codex-farm can receive `--benchmark-mode ...` where supported.
 - Pass4 knowledge harvesting and pass5 tag suggestions are stage-only flows; prediction-run generation does not execute those passes.
 - Benchmark prediction generation (`labelstudio-benchmark`) reuses that same prediction-run recipe-pass boundary.
 - When `llm_recipe_pipeline` is active, Codex Farm prompt payloads are persisted as:
@@ -260,21 +262,12 @@ Current-contract additions:
 - LLM docs should keep runtime-adjacent module coverage explicit (prediction wrappers, pass4 helper contracts/writer paths, pass5 provider/validation layer, stage evidence/report consumers).
 - Legacy modules (`client.py`, `prompts.py`, `repair.py`) remain non-primary runtime paths and should stay labeled accordingly.
 
-## 2026-02-28 migrated understandings digest (Oracle + Codex Farm ops)
-
-### 2026-02-28_01.58.55 Oracle browser login/session blocker
-- Source: `docs/understandings/2026-02-28_01.58.55-oracle-browser-login-session-blocker.md`
-- Recurring Oracle browser failures were traced to missing ChatGPT browser auth plus unwritable default session paths under `~/.oracle` in Codex sandbox contexts.
-- Local wrapper defaults were moved to writable persistent paths under `/home/mcnal/.local/share/oracle` with `/tmp` fallback and pre-created `sessions/` directories.
+## 2026-02-28 migrated understandings digest (Codex Farm ops)
 
 ### 2026-02-28_03.17.29 Codex Farm opt-in command pattern
 - Source: `docs/understandings/2026-02-28_03.17.29-codex-farm-opt-in-command-pattern.md`
 - Keep global defaults deterministic (`llm_recipe_pipeline=off`); enable Codex Farm per command/profile.
 - Absolute `codex_farm_cmd` paths avoid PATH fragility when Codex Farm is outside shell defaults.
-
-### 2026-02-28_03.19.05 Oracle gpt-5.2-thinking browser blocker
-- Source: `docs/understandings/2026-02-28_03.19.05-oracle-gpt52-thinking-browser-blocker.md`
-- In this sandbox, gpt-5.2-thinking Oracle browser runs were blocked by browser/auth/session constraints (stuck runs or early chrome-close errors), not prompt/file bundle construction.
 
 ### 2026-02-28_03.19.48 interactive Codex Farm gate and launcher
 - Source: `docs/understandings/2026-02-28_03.19.48-interactive-codex-farm-gate-and-launcher.md`
@@ -285,7 +278,7 @@ Current-contract additions:
 
 The items below were merged from `docs/understandings` in timestamp order and folded into LLM current-state guidance.
 
-### 2026-02-28_03.47.42 Oracle codex-farm prompt-tightening priorities
+### 2026-02-28_03.47.42 codex-farm prompt-tightening priorities
 - External review found deterministic/schema-safety under-specification across pass prompts.
 - Priority order for highest-impact tightening was:
   1. pass2 (`recipe.schemaorg.v1`)
@@ -422,3 +415,38 @@ Current contract distilled from this task batch:
 
 Known anti-loop boundary:
 - Do not duplicate telemetry parsing/wiring in each orchestrator; keep ingest/normalization centralized in the runner and only serialize shared runner payload downstream.
+
+## 2026-03-01 to 2026-03-02 docs/tasks merge (codex progress callback surface)
+
+Merged task files (source creation order):
+- `2026-03-01_21.37.45-codex-farm-spinner-progress-bridge.md`
+- `2026-03-02_01.02.14-codex-farm-progress-active-noise.md`
+
+Current-contract additions:
+- Stage and benchmark codex flows now pass progress callbacks through orchestrators into `SubprocessCodexFarmRunner`.
+- Runner requests `codex-farm process --progress-events --json` when callback status is enabled and translates event payloads into stable status lines (`task X/Y`, running count, error count).
+- Unsupported `--progress-events` is handled via one fallback retry without the flag; codex pass execution still continues.
+- Volatile per-file `active ...` suffixes are intentionally removed from callback status text so plain-progress mode remains readable and dedupe remains effective.
+
+Anti-loop reminder:
+- If codex progress looks noisy or stalls, inspect runner event parsing and emitted status strings before changing higher-level spinner UI behavior.
+
+## 2026-03-02 merged understandings digest (schemaorg failure triage + pass2/pass3 payload contract)
+
+Merged sources (chronological):
+- `docs/understandings/2026-03-02_00.37.59-codex-farm-schemaorg-403-forbidden.md`
+- `docs/understandings/2026-03-02_07.03.58-recipeimport-pass2-pass3-json-string-contracts.md`
+
+Current-contract additions:
+- When codex-farm pass2 (`recipe.schemaorg.v1`) fails broadly with exit code `1`, one observed root cause is upstream Codex websocket auth failure (`403 Forbidden`) rather than local schema/prompt bugs.
+- `codex-farm run errors` may show only trailing warnings; high-fidelity failure cause is usually in run forensics bundles (`stderr_tail.txt`, `metadata.json`) for each failed task attempt.
+- Recipe pass2/pass3 schema contract is stringified nested payloads at top level (`additionalProperties: false` object with string fields):
+  - pass2: `schemaorg_recipe`, `field_evidence`
+  - pass3: `draft_v1`, `ingredient_step_mapping`
+- Contract resilience in recipeimport should continue accepting either Python objects or JSON strings and coercing to canonical JSON-string form before strict validation.
+- Prompt assets and fake runner defaults should stay aligned with the JSON-string top-level contract so stage and benchmark codex paths behave consistently.
+
+Triage shortcut for recurring pass2/pass3 failures:
+1. Verify Codex Farm process payload + run_id in runner metadata.
+2. Inspect codex-farm forensics bundle stderr/metadata for auth/network failures before editing schemas.
+3. If auth is healthy, then inspect JSON-string contract alignment (prompt outputs, coercion path, schema constraints).

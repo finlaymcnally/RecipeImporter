@@ -756,11 +756,13 @@ Options:
 ### `cookimport labelstudio-benchmark`
 
 Prediction+eval flow against freeform gold spans (upload or offline).
+Also supports an explicit compare action for baseline-vs-candidate all-method report gating.
 
 Behavior note:
 
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
+- `cookimport labelstudio-benchmark compare --baseline ... --candidate ...` compares two all-method benchmark outputs and writes timestamped gate reports (`comparison.json`, `comparison.md`) under `--compare-out`.
 - Offline prediction generation can skip non-scoring side artifacts via:
   - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
@@ -786,6 +788,7 @@ Options:
 
 - `--gold-spans PATH`: freeform gold file; if omitted, prompt from discovered exports.
 - `--source-file PATH`: source file to re-import for predictions; if omitted, prompt/infer.
+- `ACTION` positional (default `run`): `run|compare`.
 - `--output-dir PATH` (default `data/golden/benchmark-vs-golden`): scratch root for prediction import artifacts.
 - `--processed-output-dir PATH` (default `data/output`): root for staged cookbook outputs generated during benchmark.
 - `--eval-output-dir PATH`: destination for benchmark report artifacts.
@@ -796,6 +799,10 @@ Options:
 - `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
 - `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
 - `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.
+- `--baseline PATH`: compare action only; baseline all-method benchmark directory or report JSON path.
+- `--candidate PATH`: compare action only; candidate all-method benchmark directory or report JSON path.
+- `--compare-out PATH` (default `data/golden/benchmark-vs-golden/comparisons`): compare action output root for timestamped reports.
+- `--fail-on-regression / --no-fail-on-regression` (default disabled): compare action exits non-zero when verdict is FAIL.
 - `--pipeline TEXT` (default `auto`): importer selection.
 - `--project-name TEXT`: explicit prediction project name.
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload mode.
@@ -834,6 +841,7 @@ Options:
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--codex-farm-recipe-mode TEXT` (default `extract`): `extract|benchmark`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -1404,6 +1412,18 @@ Anti-loop note:
 - Anti-loop note:
   - Treat this warning as startup-environment noise first; only treat it as runtime regression evidence when executor-resolution telemetry also regresses.
 
+## 2026-03-02 docs/tasks merge (interactive quality-first preset)
+
+### 2026-03-02_00.24.23 quality-first winner stack chooser option
+- Source task: `docs/tasks/2026-03-02_00.24.23-interactive-quality-first-run-settings-preset.md`
+- Shared chooser (`choose_run_settings(...)`) now exposes a built-in `quality-first winner stack` option for both interactive import and benchmark flows.
+- The preset applies a deterministic parser stack:
+  - `epub_extractor=unstructured`
+  - `epub_unstructured_html_parser_version=v1`
+  - `epub_unstructured_preprocess_mode=semantic_v1`
+  - `epub_unstructured_skip_headers_footers=true`
+- This option is intentionally independent from saved profile files (`preferred`, `quality-suite winner`, `last run`) so it remains available on first run and in clean environments.
+
 ## 2026-03-02 merged understandings digest (interactive presets and progress core)
 
 Merged sources (chronological):
@@ -1422,6 +1442,6 @@ Current-contract additions:
   - `COOKIMPORT_IO_PACE_SLEEP_MS=8`
   These remain overrideable by explicit env values.
 - Codex-farm callback progress dedupe keys on full emitted status text; volatile `active <file>` suffixes should stay out of steady-state progress strings so duplicate suppression works in plain-progress mode.
-- CLI progress rendering still has three runtime paths (`_AllMethodProgressDashboard`, `_run_with_progress_status`, and stage `WorkerDashboard`). If shared-core extraction resumes, use all-method dashboard snapshot shape as the baseline target.
+- CLI progress rendering for stage, single benchmark, and all-method flows now uses a shared snapshot contract via `ProgressDashboardCore`; live and plain rendering share the same dashboard model with mode-appropriate output transport.
 - `_run_with_progress_status(...)` is not render-only: it also owns ETA/rate sampling, worker-sidechannel decoding, mode selection, and timeseries writes. Any progress-core extraction must preserve these behaviors.
-- Stage progress parity needs explicit tests against shared snapshot shape (including merge-phase worker updates and timeseries fields) to avoid regressions masked by all-method-only coverage.
+- Stage progress parity is now exercised by `tests/cli/test_stage_progress_dashboard.py`, including merge-phase worker updates and shared snapshot shape behavior.

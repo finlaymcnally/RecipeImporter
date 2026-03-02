@@ -53,6 +53,7 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
+    assert settings.to_run_config_dict()["codex_farm_recipe_mode"] == "extract"
     assert settings.to_run_config_dict()["codex_farm_cmd"] == "codex-farm"
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass1"] == "recipe.chunking.v1"
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass2"] == "recipe.schemaorg.v1"
@@ -87,6 +88,21 @@ def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
     assert settings.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
 
 
+def test_run_settings_accepts_codex_farm_recipe_mode_aliases() -> None:
+    assert (
+        RunSettings.from_dict({"codex_farm_recipe_mode": "line-label"}).codex_farm_recipe_mode
+        == "benchmark"
+    )
+    assert (
+        RunSettings.from_dict({"codex_farm_recipe_mode": "line-labels"}).codex_farm_recipe_mode
+        == "benchmark"
+    )
+    assert (
+        RunSettings.from_dict({"codex_farm_recipe_mode": "default"}).codex_farm_recipe_mode
+        == "extract"
+    )
+
+
 def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
     specs = run_settings_ui_specs()
@@ -99,6 +115,10 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert by_name == expected
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
+    codex_farm_recipe_mode_spec = next(
+        spec for spec in specs if spec.name == "codex_farm_recipe_mode"
+    )
+    assert codex_farm_recipe_mode_spec.choices == ("extract", "benchmark")
     llm_tags_spec = next(spec for spec in specs if spec.name == "llm_tags_pipeline")
     assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
     epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")

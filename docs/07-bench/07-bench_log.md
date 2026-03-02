@@ -2011,9 +2011,7 @@ Source: `docs/understandings/2026-02-28_21.51.19-quality-lightweight-series-entr
 Durable decision:
 - Lightweight series should be a first-class bench command using a versioned JSON profile under `data/golden/bench/quality/lightweight_profiles/`, not an ad-hoc standalone script flow.
 
-### 2026-02-28_22.11.43 Oracle parsing-accuracy scope gap map
-
-Source: `docs/understandings/2026-02-28_22.11.43-oracle-parsing-accuracy-plan-scope-gap-map.md`
+### 2026-02-28_22.11.43 parsing-accuracy scope gap map
 
 Findings preserved:
 - Quick-parsing lane already exists but seed-selection and observability gaps remained.
@@ -2238,13 +2236,12 @@ Evidence preserved:
 Anti-loop note:
 - If race and exhaustive results diverge unexpectedly, inspect no-prune fallback metadata before editing tournament round logic.
 
-### 2026-03-01_09.48.35 Oracle full-ideas gap closure
+### 2026-03-01_09.48.35 full-ideas gap closure
 
 Source task was merged into this log and removed from `docs/tasks`:
-- `2026-03-01_09.48.35-qualitysuite-oracle-full-ideas-gap-closure.md`
 
 Problem captured:
-- Remaining Oracle recommendations needed first-class workflow surfaces: auto handoff, B+ sweeps decision presets, recommendation heuristics, and precedence cleanup.
+- Remaining recommendations needed first-class workflow surfaces: auto handoff, B+ sweeps decision presets, recommendation heuristics, and precedence cleanup.
 
 Durable decisions:
 - Add auto handoff flags (`--auto-candidates-from-summary`, `--auto-candidates-from-latest-in`) while keeping explicit candidate IDs authoritative.
@@ -2268,7 +2265,7 @@ Source task file:
 - `docs/tasks/2026-03-01_11.47.33-qualitysuite-wsl-safety-guard.md`
 
 Problem captured:
-- Parallel QualitySuite runs on WSL could combine outer experiment fanout with inner all-method/process fanout in a way that destabilized the distro and disconnected VSCode remote sessions.
+- Parallel QualitySuite runs on WSL could combine outer experiment fanout with inner all-method/process fanout in a way that destabilized host execution.
 
 Durable decisions:
 - Keep non-WSL behavior unchanged.
@@ -2282,7 +2279,7 @@ Evidence preserved:
 - `pytest tests/bench/test_bench.py -k "quality_run" -q`
 
 Anti-loop note:
-- If a WSL run still destabilizes the host, check `experiments_resolved.json` first for `wsl_safety_guard_applied` and the effective worker cap before changing scheduler internals again.
+- If a WSL run still shows unstable behavior, check `experiments_resolved.json` first for `wsl_safety_guard_applied` and the effective worker cap before changing scheduler internals again.
 
 ### 2026-03-01_12.23.08 WSL single-slot guard follow-up
 
@@ -2302,15 +2299,71 @@ Evidence preserved:
 - `pytest tests/bench/test_bench.py -k "quality_run" -q`
 
 Anti-loop note:
-- If WSL still disconnects on guarded single-slot runs, inspect `experiments_resolved.json` first for `experiment_executor_reason=wsl_single_experiment_isolation` and guard telemetry before blaming Oracle/Chromium overlap.
+- If guarded single-slot runs still show instability, inspect `experiments_resolved.json` first for `experiment_executor_reason=wsl_single_experiment_isolation` and guard telemetry before changing browser/tool overlap assumptions.
 
-### 2026-03-01_23.16.19 WSL guard re-enabled after OOM crash evidence
+### 2026-03-01_19.47.08 disable `bench quality-lightweight-series` in CLI
+
+Source task file:
+- `docs/tasks/2026-03-01_19.47.08-disable-quality-lightweight-series-cli.md`
+
+Problem captured:
+- The `bench quality-lightweight-series` command stayed callable even after it was judged too expensive (runtime + disk amplification) for active operator workflows.
+
+Durable decisions:
+- Keep command discoverable in CLI help but fail immediately with a retired/disabled message.
+- Prevent lightweight-series orchestration and artifact writes from that command path.
+- Point operators to the active path (`bench quality-run` + `bench quality-compare`) for current decisions.
+
+Evidence preserved:
+- `pytest tests/bench/test_bench.py -k "quality_lightweight_series" -q`
+
+Anti-loop note:
+- If lightweight-series is requested during normal operations, treat that as historical replay demand; do not re-enable by default.
+
+### 2026-03-01_19.51.35 disable `scripts/quality_top_tier_tournament.py` runtime entry
+
+Source task file:
+- `docs/tasks/2026-03-01_19.51.35-disable-quality-top-tier-tournament-script.md`
+
+Problem captured:
+- The standalone tournament script still allowed accidental expensive runs after the CLI lightweight-series surface was retired.
+
+Durable decisions:
+- `main()` exits immediately with a disabled/retired message and non-zero status.
+- Helper functions remain available for tests/historical analysis, but runtime launching is blocked.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_top_tier_tournament.py -k "main_is_disabled" -q`
+- `python scripts/quality_top_tier_tournament.py` (expected immediate disabled exit)
+
+Anti-loop note:
+- Script-level disablement is intentional guardrail parity with the retired lightweight-series CLI surface.
+
+### 2026-03-01_19.56.27 temporary WSL unhobble (later superseded)
+
+Source task file:
+- `docs/tasks/2026-03-01_19.56.27-qualitysuite-unhobble-parallelism.md`
+
+Problem captured:
+- WSL safety throttles reduced throughput too aggressively in some runs.
+
+Durable decision retained as history:
+- A temporary unhobble removed WSL guard rewrites, aligned WSL executor auto behavior with non-WSL, and raised auto experiment cap behavior to CPU-scaled defaults.
+
+Evidence preserved:
+- `pytest tests/bench/test_quality_suite_runner.py -q`
+- `pytest tests/bench/test_bench.py -k "quality_run" -q`
+
+Anti-loop note:
+- This change was intentionally superseded by `2026-03-01_23.16.19` after OOM evidence; keep it only as provenance for why `retired_unhobble` telemetry appears in older artifacts.
+
+### 2026-03-01_23.16.19 WSL guard re-enabled after OOM evidence
 
 Source task file:
 - `docs/tasks/2026-03-01_23.16.19-qualitysuite-wsl-guard-restore-after-oom.md`
 
 Problem captured:
-- WSL crashes were still occurring with guard telemetry showing `retired_unhobble`, and kernel OOM logs showed runaway `cookimport` fanout (dozens of concurrent processes) exhausting RAM+swap.
+- WSL runs were still failing with guard telemetry showing `retired_unhobble`, and kernel OOM logs showed runaway `cookimport` fanout (dozens of concurrent processes) exhausting RAM+swap.
 
 Durable decisions:
 - Re-enable WSL safety guard rewrites in `quality_runner` by default (unless explicitly disabled).
@@ -2322,4 +2375,140 @@ Evidence preserved:
 - `pytest tests/bench/test_quality_suite_runner.py -k "wsl_safety_guard" -q`
 
 Anti-loop note:
-- When WSL disconnects reappear, inspect `experiments_resolved.json` first; if `wsl_safety_guard_applied=false` with `disabled_by_env`, the guard was intentionally bypassed.
+- When WSL instability reappears, inspect `experiments_resolved.json` first; if `wsl_safety_guard_applied=false` with `disabled_by_env`, the guard was intentionally bypassed.
+
+### 2026-03-02_00.08.28 agent terminals default to plain benchmark progress
+
+Source task file:
+- `docs/tasks/2026-03-02_00.08.28-qualitysuite-agent-spinner-noise.md`
+
+Problem captured:
+- Agent-driven PTY polling turned animated spinner frames into noisy repeated output during long benchmark/quality runs.
+
+Durable decisions:
+- In agent environments (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), progress defaults to plain change-only lines.
+- Explicit operator override remains available (`COOKIMPORT_PLAIN_PROGRESS=1|0`).
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -q`
+
+Anti-loop note:
+- If "spinner disappeared" reports come from agent sessions, verify `COOKIMPORT_PLAIN_PROGRESS` and agent env markers before changing renderer logic.
+
+### 2026-03-02_00.36.30 active preset pruning for regressive parser candidates
+
+Source task file:
+- `docs/tasks/2026-03-02_00.36.30-qualitysuite-drop-regressive-parser-candidates-from-active-presets.md`
+
+Problem captured:
+- Active QualitySuite presets still carried four known regressive parser-direction candidates, causing avoidable replay and recommendation churn.
+
+Durable decisions:
+- Create pruned timestamped active preset files and repoint defaults/docs to those files.
+- Remove `pre_br_split`, `pre_none`, `skip_headers_false`, `parser_v2_pre_br_skiphf_false` from active candidate sets.
+- Keep historical preset snapshots intact for reproducible replay.
+
+Evidence preserved:
+- JSON parse checks on new preset files under:
+  - `data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json`
+  - `data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-top-tier-tournament-full-candidates-qualityfirst-pruned.json`
+  - `data/golden/bench/quality/lightweight_profiles/2026-03-02_00.36.30_qualitysuite-lightweight-main-effects-qualityfirst-pruned-v1.json`
+
+Anti-loop note:
+- If regressive IDs appear again, check active pointer files/defaults first before editing archived timestamped snapshots.
+
+## 2026-03-02 migrated understanding ledger (preset pruning, artifact cutdown, and paired-run behavior)
+
+Chronological migration from `docs/understandings`; source files are retired after this merge.
+
+### 2026-03-02_00.38.06 qualitysuite active vs legacy preset pruning path
+
+Source: `docs/understandings/2026-03-02_00.38.06-qualitysuite-active-vs-legacy-preset-pruning-path.md`
+
+Problem captured:
+- Candidate IDs exist across many historical timestamped preset snapshots, making blanket mutation risky and provenance-destructive.
+
+Durable decisions:
+- Prune by creating/repointing active preset files and default pointers.
+- Leave legacy timestamped snapshots intact for replay/debug provenance.
+- Keep active-pointer surfaces synchronized (CLI defaults plus docs references).
+
+Anti-loop note:
+- If old candidates "reappear," verify active preset pointer path before editing archive snapshots.
+
+### 2026-03-02_07.55.57 codexfarm benchmark need-to-know artifacts
+
+Source: `docs/understandings/2026-03-02_07.55.57-codexfarm-benchmark-need-to-know-artifacts.md`
+
+Problem captured:
+- External-review bundles were over-packed with token-heavy artifacts not required for quality comparison.
+
+Durable decisions:
+- Keep compact comparison bundles centered on run identity, top-line metrics, and bounded qualitative error samples.
+- Treat raw prompt/response payload trees and full extracted payload dumps as optional deep-debug material.
+
+Anti-loop note:
+- If a compact bundle cannot explain a regression, add targeted slices first; do not default to shipping full prediction raw payload trees.
+
+### 2026-03-02_08.14.12 correct-snippet sampling from canonical artifacts
+
+Source: `docs/understandings/2026-03-02_08.14.12-correct-snippet-sampling-from-canonical-eval-artifacts.md`
+
+Problem captured:
+- Cutdown bundles had negative examples only (`wrong`/`missed`) and lacked compact positive examples.
+
+Durable method:
+- Build per-line gold labels from canonical span overlap.
+- Treat lines absent from `wrong_label_lines.jsonl` as inferred-correct.
+- Emit capped `correct_label_lines.sample.jsonl` (small fixed upper bound) to avoid token blowup.
+
+Anti-loop note:
+- Do not derive positive examples from raw prediction payloads when canonical eval artifacts already provide deterministic line-space truth.
+
+### 2026-03-02_08.45.38 benchmark cutdown script run-shape and pairing
+
+Source: `docs/understandings/2026-03-02_08.45.38-benchmark-cutdown-script-run-shape-and-pairing.md`
+
+Problem captured:
+- Crossover pairing logic was fragile when run discovery relied on path assumptions instead of artifact contracts.
+
+Durable decisions:
+- Detect run directories by presence of both `eval_report.json` and `run_manifest.json`.
+- Ignore nested non-run manifests (for example under `prediction-run/`).
+- Group codex-vs-baseline by `source_hash` first (fallback source filename).
+- Determine baseline status from `run_config.llm_recipe_pipeline` in `{off, none, ""}`.
+- Prefer compact evidence already in `eval_report.json` (worst-label recall, confusion, per-label scalars) over index-heavy arrays.
+
+Anti-loop note:
+- If pairing mismatches happen, inspect source identity keys in `run_manifest.json` before touching cutdown sampling logic.
+
+### 2026-03-02_08.50.19 interactive single-offline paired run failure contract
+
+Source: `docs/understandings/2026-03-02_08.50.19-interactive-single-offline-paired-run-failure-contract.md`
+
+Problem captured:
+- A codex-enabled interactive run could fail without preserving a useful baseline artifact if execution order/artifact-write contracts were ambiguous.
+
+Durable contract:
+- Execute `vanilla` first, then `codexfarm`.
+- Keep successful vanilla artifacts even when codex variant fails.
+- Emit codex-vs-vanilla comparison artifacts only when both variant runs succeed.
+
+Anti-loop note:
+- If comparison files are missing on a failed codex run, treat that as expected contract behavior, not artifact-write regression.
+
+### 2026-03-02_11.26.00 interactive benchmark write flags
+
+Source: `docs/understandings/2026-03-02_11.26.00-interactive-benchmark-write-flags.md`
+
+Problem captured:
+- Interactive benchmark mode hardcoded markdown/task sidecar writes on, increasing disk churn for routine operator loops.
+
+Durable decisions:
+- Interactive benchmark entrypoints now read sidecar write toggles from env-backed defaults.
+- C3imp default session env keeps both writes disabled unless explicitly enabled:
+  - `COOKIMPORT_BENCH_WRITE_MARKDOWN`
+  - `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS`
+
+Anti-loop note:
+- If sidecar files unexpectedly appear/disappear in interactive runs, inspect effective env in launch context before changing benchmark command wiring.
