@@ -72,11 +72,12 @@ Debug artifact mode checks in compare are resolved by metadata first and inferre
 Interactive `single_offline` now writes into one session root:
 - `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/vanilla/`
 - optional paired codex run at `.../single-offline-benchmark/codexfarm/` when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`
+- `single_offline` resolves one source/gold pair once and reuses it for all planned variants (vanilla + codexfarm) in a session.
 - optional comparison artifacts only when both variants succeed:
   - `.../single-offline-benchmark/codex_vs_vanilla_comparison.json`
   - `.../single-offline-benchmark/codex_vs_vanilla_comparison.md`
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
-When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). Per-file `active ...` tails are intentionally omitted so plain-progress mode does not spam line-per-file churn.
+When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 
 ## 3. Artifact Contracts
@@ -1227,9 +1228,14 @@ Current behavior now:
 - Interactive `labelstudio_benchmark` single-offline mode now writes one session root with nested variant folders:
   - `<timestamp>/single-offline-benchmark/vanilla/...`
   - `<timestamp>/single-offline-benchmark/codexfarm/...`
+- Paired codex+vanilla runs share split conversion artifacts through a single-offline cache (`<timestamp>/single-offline-benchmark/.split-cache` by default), so the second variant reuses conversion payloads instead of re-running split conversion.
 - When CodexFarm is enabled, `vanilla` runs first and `codexfarm` second; vanilla artifacts remain even if Codex run fails.
 - `codex_vs_vanilla_comparison.json` and `.md` only appear when both variant runs complete successfully.
+- Comparison payload now includes optional `metadata.single_offline_split_cache` summary (shared key + per-variant hit/mode/conversion timing) when cache metadata is available.
 - Comparator output follows `codex_vs_vanilla_comparison.v1` schema with metric deltas.
+
+Related understanding:
+- `docs/understandings/2026-03-03_00.35.00-single-offline-split-cache-reuse.md`
 
 Operational contract:
 - Layout contracts are consumed by analytics collector/renderer without dedicated registration, because run discovery resolves eval reports recursively and infers run timestamps from nearest timestamped parent.

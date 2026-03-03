@@ -42,7 +42,7 @@ START
 |   |-- B) EPUB debug race (EPUB only)
 |   |   `-- choose EPUB -> choose output folder -> choose candidate extractors -> race report
 |   |
-|   |-- C) Label Studio: create labeling tasks (uploads)
+|   |-- C) Label Studio upload: Create labeling tasks (uploads)
 |   |   |-- choose file -> project name (blank auto-name) -> overwrite existing project
 |   |   |-- choose task scope
 |   |   |   |-- `pipeline` -> chunk level: `both` / `structural` / `atomic`
@@ -58,7 +58,7 @@ START
 |   |   |-- credentials resolution: env -> `cookimport.json` -> prompt/save
 |   |   `-- uploads tasks and writes artifacts (`manifest.json`, tasks JSONL, coverage, extracted files, prelabel reports if used)
 |   |
-|   |-- D) Label Studio: export completed labels
+|   |-- D) Label Studio export: Export completed labels into golden artifacts
 |   |   |-- choose project (or type project name)
 |   |   |-- scope auto-detected when possible; else prompt: `pipeline` / `canonical-blocks` / `freeform-spans`
 |   |   `-- write export artifacts by scope
@@ -66,7 +66,7 @@ START
 |   |       |-- canonical-blocks -> `canonical_block_labels.jsonl`, `canonical_gold_spans.jsonl`, `summary.json`
 |   |       `-- freeform-spans -> `freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`
 |   |
-|   |-- E) Evaluate predictions vs freeform gold
+|   |-- E) Evaluate vs freeform gold: Generate predictions and compare to your labels
 |   |   `-- interactive path: generate fresh predictions + upload + evaluate
 |   |       `-- CLI-only extra permutations: `--no-upload` (offline benchmark) or `labelstudio-eval` (re-score existing run)
 |   |
@@ -99,8 +99,8 @@ Start
 `-- Step 3) In the menu, pick a workflow
     |-- Import: stage files -> outputs in `data/output/<YYYY-MM-DD_HH.MM.SS>/`
     |-- Settings: change defaults (saved in `cookimport.json`)
-    |-- Label Studio: create labeling tasks (optional)
-    |-- Label Studio: export completed labels (optional)
+    |-- Label Studio upload: create labeling tasks (optional)
+    |-- Label Studio export: export completed labels (optional)
     |-- Label Studio: decorate with AI spans (optional)
     |-- Evaluate predictions vs freeform gold (optional)
     `-- Generate dashboard (optional)
@@ -170,7 +170,7 @@ cookimport --help
 ## Step 3: Pick a Workflow (What Each Menu Option Means)
 
 The menu shows different options depending on what is in `data/input/`:
-- **Stage files...** and **Label Studio: create labeling tasks...** only appear when at least one supported top-level file exists in `data/input/`.
+- **Stage:** and **Label Studio upload:** only appear when at least one supported top-level file exists in `data/input/`.
 
 After you complete any workflow, the tool returns to the main menu. It only exits when you choose **Exit**.
 
@@ -180,9 +180,9 @@ Tip: On list-style menus (where you pick from a list), Backspace goes back one l
 
 ```text
 Main Menu ("What would you like to do?")
-|-- Stage files from data/input - produce cookbook outputs
+|-- Stage: Convert files from data/input into cookbook outputs
 |   |-- Which file(s) would you like to import?
-|   |   |-- Import All - process every supported file
+|   |   |-- Import all: Process every supported file
 |   |   `-- <pick one file>
 |   |-- Run settings
 |   |   |-- Run with global defaults (...)
@@ -190,7 +190,7 @@ Main Menu ("What would you like to do?")
 |   |   `-- Change run settings... (one-run editor; does not change global defaults)
 |   `-- Outputs written to: <output_dir>/<YYYY-MM-DD_HH.MM.SS>/
 |
-|-- Label Studio: create labeling tasks (uploads)
+|-- Label Studio upload: Create labeling tasks (uploads)
 |   |-- Select a file to import into Label Studio
 |   |-- Project name (leave blank to auto-name)
 |   |-- Task scope:
@@ -199,7 +199,7 @@ Main Menu ("What would you like to do?")
 |   |   `-- freeform spans -> Segment size + overlap (+ optional AI prelabel)
 |   `-- Label Studio URL + API key (prompted if missing)
 |
-|-- Label Studio: export completed labels to golden artifacts
+|-- Label Studio export: Export completed labels into golden artifacts
 |   |-- Label Studio URL + API key (prompted if missing)
 |   |-- Select Label Studio project to export:
 |   |   |-- Type project name manually
@@ -213,16 +213,16 @@ Main Menu ("What would you like to do?")
 |   |-- Dry run only? (recommended first)
 |   `-- If writing: confirm creating new annotations in Label Studio
 |
-|-- Generate predictions + evaluate vs freeform gold
+|-- Evaluate vs freeform gold: Generate predictions and compare to your labels
 |   |-- Choose mode: single offline or all-method offline
 |   |-- Single offline: choose benchmark run settings, then run one local eval
 |   `-- All-method: uses global benchmark defaults, then runs offline permutations
 |
-|-- Generate dashboard - build lifetime stats dashboard HTML
+|-- Dashboard: Build lifetime stats dashboard HTML
 |   |-- Open dashboard in your browser after generation?
 |   `-- Writes to <output_dir_parent>/.history/dashboard/
 |
-|-- Settings - tune worker/OCR/output defaults
+|-- Settings: Change worker/OCR/output defaults
 |   `-- Settings Configuration
 |       |-- Workers / PDF Split Workers / EPUB Split Workers
 |       |-- EPUB Extractor + Unstructured tuning
@@ -232,7 +232,7 @@ Main Menu ("What would you like to do?")
 |       |-- Warm Models
 |       `-- Back to Main Menu
 |
-`-- Exit - close the tool
+`-- Exit: Close the tool
 ```
 
 ### Stage Files from `data/input/` (Import Pipeline)
@@ -303,7 +303,7 @@ Sub-prompts you will see:
 Choice tree (Label Studio upload):
 
 ```text
-Label Studio: create labeling tasks (uploads)
+Label Studio upload: Create labeling tasks (uploads)
 |-- Select a file
 |-- Project name (blank = auto-name)
 `-- Task scope
@@ -333,7 +333,7 @@ Sub-prompts you will see:
 Choice tree (Export):
 
 ```text
-Label Studio: export completed labels to golden artifacts
+Label Studio export: Export completed labels into golden artifacts
 |-- Label Studio URL + API key (if needed)
 |-- Select project:
 |   |-- Pick from list (shows detected type when possible)
@@ -381,7 +381,7 @@ If you need to re-score an existing prediction run without regeneration, use:
 Choice tree (Evaluate):
 
 ```text
-Generate predictions + evaluate vs freeform gold
+Evaluate vs freeform gold: Generate predictions and compare to your labels
 |-- Choose mode
 |   |-- Single offline
 |   |   |-- Choose benchmark run settings
@@ -403,7 +403,7 @@ Sub-prompt you will see:
 
 1. Put at least one supported file in `data/input/` (Step 1).
 2. Start `C3imp` (Step 2).
-3. Choose **Stage files from data/input**.
+3. Choose **Stage: Convert files from data/input into cookbook outputs**.
 4. Choose **Import All** or pick a single file.
 5. Choose which settings to use for this run:
    - Use global defaults
@@ -526,7 +526,7 @@ Open `http://localhost:8080` in your browser and create/get your API token.
 ### B) Create tasks (upload)
 
 1. Run `C3imp`.
-2. Choose **Label Studio: create labeling tasks (uploads)**.
+2. Choose **Label Studio upload: Create labeling tasks (uploads)**.
 3. Pick your source file.
 4. Choose the task type (pipeline vs canonical-blocks vs freeform-spans).
 5. Follow the prompts.
@@ -541,7 +541,7 @@ Note: Label Studio URL and API key can be saved in `cookimport.json`. Treat the 
 
 ### C) Export "gold" labels
 
-Use **Label Studio: export completed labels to golden artifacts** when you want your labeled data downloaded into files for evaluation.
+Use **Label Studio export: Export completed labels into golden artifacts** when you want your labeled data downloaded into files for evaluation.
 
 ### D) Add AI spans (decorate)
 

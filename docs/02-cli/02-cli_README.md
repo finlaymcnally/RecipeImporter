@@ -84,13 +84,13 @@ Important divergence to remember:
 
 Menu options:
 
-- `Stage files from data/input - produce cookbook outputs`
-- `Label Studio: create labeling tasks (uploads)`
-- `Label Studio: export completed labels to golden artifacts`
-- `Generate predictions + evaluate vs freeform gold`
-- `Generate dashboard - build lifetime stats dashboard HTML`
-- `Settings - tune worker/OCR/output defaults`
-- `Exit - close the tool`
+- `Stage: Convert files from data/input into cookbook outputs`
+- `Label Studio upload: Create labeling tasks (uploads)`
+- `Label Studio export: Export completed labels into golden artifacts`
+- `Evaluate vs freeform gold: Generate predictions and compare to your labels`
+- `Dashboard: Build lifetime stats dashboard HTML`
+- `Settings: Change worker/OCR/output defaults`
+- `Exit: Close the tool`
 
 Availability rule:
 
@@ -236,12 +236,13 @@ Developer note:
 
 1. Prompt for `Import All` or one selected file from top-level `data/input`.
 2. Show `Run settings` mode picker:
-   - `Run with global defaults (...)`
-   - `Run with preferred format (...)` (saved preferred settings when available; otherwise uses the built-in preferred preset: `epub_extractor=beautifulsoup` + `instruction_step_segmentation_policy=off`)
-   - `Run with quality-first winner stack (...)` (built-in preset: `epub_extractor=unstructured`, `epub_unstructured_html_parser_version=v1`, `epub_unstructured_preprocess_mode=semantic_v1`, `epub_unstructured_skip_headers_footers=true`)
-   - `Run with quality-suite winner (...)` (saved leaderboard winner settings when available; written to `data/.history/qualitysuite_winner_run_settings.json`)
-   - `Run with last import settings (...)` when available
+   - `Run with global defaults`
+   - `Run with preferred format`
+   - `Run with quality-first winner stack`
+   - `Run with quality-suite winner` (saved leaderboard winner settings when available; written to `data/.history/qualitysuite_winner_run_settings.json`)
+   - `Run with last import settings` when available
    - `Change run settings...` (full-screen arrow-key editor)
+   - The picker shows compact identifiers (hashes) instead of a full settings dump.
 3. Ask `Use Codex Farm recipe pipeline for this run?` (default `Yes`).
    - If enabled for this run, also ask:
    - `Codex Farm model override` picker (`keep current`, `pipeline default`, discovered models from `codex-farm models list --json`, or `custom model id...`)
@@ -325,17 +326,18 @@ Developer note:
 Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
-   - `Generate predictions + evaluate (offline, no upload)` (default first choice)
-   - `Generate predictions + evaluate for all matched golden sets (single config each, offline)`
-   - `All method benchmark (offline, no upload)`
+   - `Single offline eval: One local prediction + eval vs freeform gold` (default first choice)
+   - `Single config, all matched sets: Repeat one config for every matched golden set`
 2. Single offline path:
-   - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`), using the same editor flow as Import,
+   - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) using compact hash labels.
    - resolves Codex usage from selected run settings (`llm_recipe_pipeline`),
    - when run settings resolve to `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/vanilla` first (`llm_recipe_pipeline=off`),
      - `single-offline-benchmark/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
+   - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-offline-benchmark/.split-cache`),
+   - cache controls are available on `labelstudio-benchmark`: `--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, `--single-offline-split-cache-force`,
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
      - `single-offline-benchmark/codex_vs_vanilla_comparison.json`
      - `single-offline-benchmark/codex_vs_vanilla_comparison.md`
@@ -347,7 +349,7 @@ Interactive benchmark now has a mode submenu before execution:
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<variant>/`.
 3. Single-profile all-matched path:
-   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`),
+   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) with compact labels,
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
@@ -358,64 +360,8 @@ Interactive benchmark now has a mode submenu before execution:
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/`,
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
-4. All method path:
-   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) before building all-method variants,
-   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (this controls the base profile; all-method still separately prompts whether to include Codex permutations),
-   - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
-   - all-method predict-only execution now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`, so Priority 1/3/4/6/7 parsing-scoring controls are forwarded with the same surface as single benchmark runs,
-   - run-settings editor (`Change run settings...`) always exposes `llm_recipe_pipeline=off|codex-farm-3pass-v1`,
-   - runs `labelstudio-benchmark` configs in `canonical-text` eval mode so extractor permutations can share one freeform gold export,
-   - prompts for all-method scope:
-     - `Single golden set`: prompts for one gold export and source file.
-     - `All golden sets with matching input files`: discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename.
-   - source hint fallback order is: run `manifest.json` `source_file`, then first non-empty `freeform_span_labels.jsonl` row `source_file`, then first non-empty `freeform_segment_manifest.jsonl` row `source_file`,
-   - all-matched mode prints matched/skipped counts, planned permutation count, and sample skipped reasons before execution,
-  - asks whether to include Codex Farm permutations (default `Yes`),
-  - prints scheduler limits before confirmation, including mode and resolved values:
-    - source parallelism (configured/effective),
-    - configured/effective inflight,
-    - split-phase slots,
-    - eval-tail cap,
-    - wing backlog target,
-    - smart tail buffer (bounded by eval-tail cap when smart mode is on),
-    - per-config timeout and failed-config retry limit,
-    sourced from `cookimport.json` keys `all_method_max_parallel_sources`, `all_method_source_scheduling`, `all_method_source_shard_threshold_seconds`, `all_method_source_shard_max_parts`, `all_method_source_shard_min_variants`, `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`, `all_method_config_timeout_seconds`, and `all_method_retry_failed_configs`,
-  - asks final proceed confirmation (`Proceed with N benchmark runs?` for single or `Proceed with N benchmark runs across M matched golden sets?` for all-matched, default `No`),
-  - prints the resolved all-method canonical alignment cache root before execution (shared across timestamped runs; env override: `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`),
-  - execution uses one persistent all-method spinner dashboard (book queue + overall source/config counters + current task line), including a scheduler snapshot line:
-    - `scheduler heavy X/Y | wing Z | eval E | active A | pending P`,
-    - `current config` reflects active config slots in parallel mode (`current configs A-B/N`) rather than a stale last-submitted slug,
-    - when multiple configs are active, dashboard renders per-config worker lines (`config NN: <phase> | <slug>`) so active slots are visible,
-    - when no config is actively running but source work remains, the line shows `<queued>`,
-    - outer multi-source progress should rerender from shared dashboard state when an inbound nested snapshot is stale/partial so queue rows stay stable,
-    - all-matched mode can show multiple `[>]` source rows simultaneously (`active sources: N`),
-  - executes configs through a bounded queue:
-    - fixed mode: submit up to inflight capacity and refill on completion,
-    - smart mode: phase-aware admission keeps `heavy + wing` near `split slots + wing backlog target` and auto-raises effective inflight with eval-tail headroom (`all_method_max_eval_tail_pipelines` override or CPU-aware auto default) so evaluate-heavy tails do not starve admissions,
-    - timeout watchdog (`all_method_config_timeout_seconds`) marks timed-out configs failed and recycles worker pool so one hung config cannot block source completion,
-    - failed-only retry passes (`all_method_retry_failed_configs`) rerun only failed config indices, not successful ones,
-    - startup preflight disables process-based config concurrency when workers are unavailable and uses thread-based config concurrency (single-config execution only if thread executor setup also fails),
-   - split-worker-heavy conversion is gate-limited to at most `4` simultaneous configs (slot telemetry updates spinner task/progress output instead of printing standalone worker lines),
-   - runs each config offline (`--no-upload`) and writes per-source eval artifacts plus:
-     - `<source_slug>/all_method_benchmark_report.json`
-     - `<source_slug>/all_method_benchmark_report.md`
-     - each per-source report now includes `timing_summary` and per-config `timing` rows
-   - all-matched mode also writes a combined summary report:
-     - `all_method_benchmark_multi_source_report.json`
-     - `all_method_benchmark_multi_source_report.md`
-     - combined report now includes run-level `timing_summary` (run/source/config totals + slowest source/config),
-     - combined report includes source-parallel metadata (`source_parallelism_configured`, `source_parallelism_effective`),
-     - combined report includes source scheduling/sharding metadata (`source_schedule_strategy`, `source_schedule_plan`, shard settings, per-source shard summaries),
-     - dashboard refresh is batched once at multi-source completion when source parallelism is enabled (per-source refresh remains for serial source mode),
-   - writes per-config processed cookbook outputs under:
-     - `<interactive output_dir>/<benchmark_timestamp>/all-method-benchmark/<source_slug>/config_*/<prediction_timestamp>/...`
-   - prints `All method processed outputs: ...` with that root path.
-
-Run count note:
-- When interactive all-method prints `All method benchmark will run N configurations across M matched golden sets`, `N` is based on per-target variant expansion (for example EPUB targets default to `13` variants: `12` unstructured variants + `1` beautifulsoup variant).
-- When deterministic sweeps (Priority 2–6) are enabled in the wizard, run count increases because sweep variants are multiplied in.
-5. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile all-matched runs.
-6. Returns to the main menu on completion.
+4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile all-matched runs.
+5. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
 
@@ -483,6 +429,7 @@ After stage history CSV append, the CLI also auto-refreshes dashboard artifacts 
 Stage job worker fallback order is `process -> subprocess-backed workers -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to subprocess-backed worker concurrency.
 Use `--require-process-workers` to fail fast instead of using any fallback backend.
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
+Stage completion also prints a compact `Quick run summary` block (books, codex-farm on/off state, selected major settings, topline metrics) and writes it to `<run_dir>/run_summary.md` and `<run_dir>/run_summary.json`.
 
 Arguments:
 
@@ -768,6 +715,10 @@ Behavior note:
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
 - Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
 - Execution mode is configurable via `--execution-mode legacy|pipelined|predict-only` (default `legacy`).
+- Single-offline split-cache controls:
+  - `--single-offline-split-cache-mode off|auto` toggles split cache usage.
+  - `--single-offline-split-cache-dir PATH` overrides cache root.
+  - `--single-offline-split-cache-force` forces cache rebuild for that run.
 - Prediction-record roundtrip supports evaluate-only replays:
   - `--predictions-out` writes prediction-stage records to JSONL.
   - `--predictions-in` skips generation and evaluates from a prior record JSONL.
@@ -797,6 +748,9 @@ Options:
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
 - `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
 - `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
+- `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
+- `--single-offline-split-cache-dir PATH`: optional root for single-offline split-cache entries.
+- `--single-offline-split-cache-force / --no-single-offline-split-cache-force` (default disabled): force split-cache rebuild for the current run.
 - `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
 - `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.
 - `--baseline PATH`: compare action only; baseline all-method benchmark directory or report JSON path.
@@ -1235,6 +1189,8 @@ Durable rules:
 - `task/item/config/phase` loops should emit counters from runtime loop boundaries; CLI renderer should format and decorate them, not invent totals.
 - Worker telemetry stays a side-channel payload parsed/rendered by shared spinner code so per-worker status lines do not overwrite the primary phase/task line.
 - For multi-line dashboard snapshots, ETA/elapsed suffixes decorate the top summary line (`overall ...`) instead of the trailing `task:` line.
+- Live spinner snapshots are rendered as a compact ASCII border panel so operators can see a stable, block-style status block while counts and worker lines refresh in place.
+- The bordered spinner panel is generated once from the same shared snapshot state and used for benchmark/label-studio/import progress paths so the view stays consistent across workflows.
 
 ## Merged Task Specs (2026-02-22_23 to 2026-02-23_00)
 

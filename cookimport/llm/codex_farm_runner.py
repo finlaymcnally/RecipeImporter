@@ -7,6 +7,7 @@ import os
 import shlex
 import subprocess
 import threading
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -278,6 +279,166 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
     return dict(payload) if isinstance(payload, dict) else None
 
 
+_CODEX_FARM_LEGACY_PROGRESS_PATTERN = re.compile(
+    r"^(?P<run_id>\S+)"
+    r"(?:\s+queued=(?P<queued>-?\d+))?"
+    r"(?:\s+running=(?P<running>-?\d+))?"
+    r"(?:\s+done=(?P<done>-?\d+))?"
+    r"(?:\s+error=(?P<error>-?\d+))?"
+    r"(?:\s+canceled=(?P<canceled>-?\d+))?$"
+)
+_CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
+    r"^Created run (?P<run_id>\S+) with (?P<total_tasks>-?\d+) tasks$"
+)
+
+
+def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:
+    line = str(stderr_line or "").strip()
+    match = _CODEX_FARM_CREATED_RUN_PATTERN.match(line)
+    if match is None:
+        return None
+    run_id = str(match.group("run_id") or "").strip()
+    if not run_id:
+        return None
+    try:
+        total_tasks = int(match.group("total_tasks"))
+    except (TypeError, ValueError):
+        return None
+    return {"run_id": run_id, "total_tasks": total_tasks}
+
+
+def _format_created_run_progress_message(
+    *,
+    payload: Mapping[str, Any],
+    pipeline_id: str,
+) -> str:
+    run_id = str(payload.get("run_id") or "").strip()
+    total_tasks = payload.get("total_tasks")
+    if total_tasks is None:
+        if run_id:
+            return f"codex-farm {pipeline_id}: {run_id}"
+        return f"codex-farm {pipeline_id}: run started"
+    return (
+        f"codex-farm {pipeline_id} run {run_id} started with {total_tasks} tasks"
+    )
+
+
+def _parse_legacy_progress_line(stderr_line: str) -> dict[str, int | str] | None:
+    line = str(stderr_line or "").strip()
+    if not line.startswith("run="):
+        return None
+    match = _CODEX_FARM_LEGACY_PROGRESS_PATTERN.match(line)
+    if match is None:
+        return None
+    run_id = str(match.group("run_id")).strip()
+    if not run_id:
+        return None
+    parsed: dict[str, int | str] = {"run_id": run_id}
+    for key in ("queued", "running", "done", "error", "canceled"):
+        raw = match.group(key)
+        if raw is None:
+            continue
+        try:
+            parsed[key] = int(raw)
+        except ValueError:
+            continue
+    return parsed
+
+
+def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in str(stderr_text or "").splitlines():
+        if not raw_line.strip():
+            continue
+        if _parse_progress_event(raw_line) is not None:
+            continue
+        if _parse_created_run_line(raw_line) is not None:
+            continue
+        if _parse_legacy_progress_line(raw_line) is not None:
+            continue
+        lines.append(raw_line.rstrip("\r\n"))
+    return lines
+
+
+def _collect_progress_task_label(task: Any) -> str | None:
+    if isinstance(task, str):
+        candidate = task.strip()
+        return candidate or None
+
+    if not isinstance(task, Mapping):
+        return None
+
+    for key in (
+        "input_path",
+        "output_path",
+        "path",
+        "name",
+        "file",
+        "source",
+        "task_id",
+        "id",
+    ):
+        value = _clean_text(task.get(key))
+        if value:
+            return value
+    return None
+
+
+def _format_progress_task_labels(payload: Mapping[str, Any]) -> list[str]:
+    running_tasks: Any = None
+    for candidate in (
+        payload.get("running_tasks"),
+        payload.get("running_task_ids"),
+        payload.get("active_tasks"),
+        payload.get("inflight_tasks"),
+        payload.get("tasks"),
+    ):
+        if isinstance(candidate, list):
+            running_tasks = candidate
+            if running_tasks:
+                break
+
+    if not isinstance(running_tasks, list):
+        return []
+    labels: list[str] = []
+    seen: set[str] = set()
+    for task in running_tasks:
+        label = _collect_progress_task_label(task)
+        if not label:
+            continue
+        normalized = Path(label).name if ("/" in label or "\\" in label) else label
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        labels.append(normalized)
+    return labels
+
+
+def _format_legacy_progress_message(
+    payload: Mapping[str, Any],
+    *,
+    pipeline_id: str,
+) -> str:
+    run_id = str(payload.get("run_id") or "").strip()
+    queued = payload.get("queued")
+    running = payload.get("running")
+    done = payload.get("done")
+    error = payload.get("error")
+    canceled = payload.get("canceled")
+    parts: list[str] = [f"codex-farm {pipeline_id}: {run_id}"]
+    if queued is not None:
+        parts.append(f"queued {queued}")
+    if running is not None:
+        parts.append(f"running {running}")
+    if done is not None:
+        parts.append(f"done {done}")
+    if error is not None:
+        parts.append(f"errors {error}")
+    if canceled is not None:
+        parts.append(f"canceled {canceled}")
+    return " | ".join(parts)
+
+
 def _format_progress_event_message(
     payload: Mapping[str, Any],
     *,
@@ -297,12 +458,19 @@ def _format_progress_event_message(
     if completed is None:
         completed = done + error + canceled
 
+    task_labels = _format_progress_task_labels(payload)
     if total is not None and total > 0:
         safe_total = max(0, int(total))
         safe_completed = max(0, min(int(completed), safe_total))
         parts = [f"codex-farm {pipeline_id} task {safe_completed}/{safe_total}"]
         if running > 0:
             parts.append(f"running {running}")
+            if task_labels:
+                shown_labels = task_labels[: running]
+                if shown_labels:
+                    parts.append(f"active [{', '.join(shown_labels)}]")
+        elif task_labels:
+            parts.append(f"active [{', '.join(task_labels)}]")
         if error > 0:
             parts.append(f"errors {error}")
         return " | ".join(parts)
@@ -995,10 +1163,31 @@ class SubprocessCodexFarmRunner:
                 return _run_codex_farm_command(command_tokens, env=env)
 
             def _handle_stderr_line(line: str) -> bool:
-                payload = _parse_progress_event(line)
-                if payload is None:
-                    return False
-                message = _format_progress_event_message(payload, pipeline_id=pipeline_id)
+                progress_payload = _parse_progress_event(line)
+                if progress_payload is None:
+                    created_payload = _parse_created_run_line(line)
+                    if created_payload is not None:
+                        _emit_progress(
+                            _format_created_run_progress_message(
+                                payload=created_payload,
+                                pipeline_id=pipeline_id,
+                            )
+                        )
+                        return True
+                    legacy_payload = _parse_legacy_progress_line(line)
+                    if legacy_payload is None:
+                        return False
+                    _emit_progress(
+                        _format_legacy_progress_message(
+                            payload=legacy_payload,
+                            pipeline_id=pipeline_id,
+                        )
+                    )
+                    return True
+                message = _format_progress_event_message(
+                    progress_payload,
+                    pipeline_id=pipeline_id,
+                )
                 if message:
                     _emit_progress(message)
                 return True
@@ -1049,11 +1238,24 @@ class SubprocessCodexFarmRunner:
                 pipeline_id,
                 completed.stdout.strip(),
             )
-        if completed.stderr.strip():
-            logger.warning(
-                "codex-farm stderr (%s): %s",
+        stderr_lines = _extract_non_progress_stderr_lines(completed.stderr)
+        if stderr_lines:
+            if progress_callback is None:
+                logger.warning(
+                    "codex-farm stderr (%s): %s",
+                    pipeline_id,
+                    "\n".join(stderr_lines),
+                )
+            else:
+                logger.debug(
+                    "codex-farm stderr (%s): %s",
+                    pipeline_id,
+                    "\n".join(stderr_lines),
+                )
+        elif completed.stderr.strip():
+            logger.debug(
+                "codex-farm stderr (%s): progress-only output suppressed.",
                 pipeline_id,
-                completed.stderr.strip(),
             )
 
         process_payload: Any | None

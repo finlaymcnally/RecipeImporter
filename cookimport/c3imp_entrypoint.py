@@ -11,6 +11,7 @@ _COOKIMPORT_IO_PACE_EVERY_WRITES = "16"
 _COOKIMPORT_IO_PACE_SLEEP_MS = "8"
 _COOKIMPORT_BENCH_WRITE_MARKDOWN = "0"
 _COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS = "0"
+_COOKIMPORT_PLAIN_PROGRESS = "0"
 
 
 def main() -> None:
@@ -30,6 +31,10 @@ def main() -> None:
     os.environ.setdefault(
         "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS",
         _COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS,
+    )
+    os.environ.setdefault(
+        "COOKIMPORT_PLAIN_PROGRESS",
+        _COOKIMPORT_PLAIN_PROGRESS,
     )
 
     args = sys.argv[1:]

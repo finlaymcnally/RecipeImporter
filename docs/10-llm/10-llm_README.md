@@ -62,7 +62,7 @@ Report/model plumbing:
   - pass5 tags report: `process_run`
 - Stage + benchmark spinners now pass their callback path into codex-farm runners:
   - subprocess runner requests `codex-farm process --progress-events --json` when callback-driven status is active.
-  - stderr `__codex_farm_progress__` events are translated into spinner text with `task X/Y` counters.
+  - stderr `__codex_farm_progress__` events are translated into spinner text with `task X/Y` counters, and, when present, active task labels (for running workers) are included as an `active [...]` section.
   - when older codex-farm binaries reject `--progress-events`, runner retries once without that flag and continues with phase-only status.
 
 ## Policy boundary (current behavior)

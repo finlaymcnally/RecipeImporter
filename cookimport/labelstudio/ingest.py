@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -110,6 +111,146 @@ try:  # pragma: no cover - Windows fallback keeps behavior deterministic.
     import fcntl
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
+
+SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
+SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
+SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
+SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
+
+
+def _normalize_single_offline_split_cache_mode(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "off", "none", "disabled", "false", "0"}:
+        return "off"
+    if normalized in {"auto", "on", "enabled", "true", "1"}:
+        return "auto"
+    raise ValueError(
+        "Invalid single_offline_split_cache_mode. Expected one of: off, auto."
+    )
+
+
+def _single_offline_split_cache_entry_path(
+    *,
+    cache_root: Path,
+    split_cache_key: str,
+) -> Path:
+    safe_key = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(split_cache_key or "").strip())
+    if not safe_key:
+        safe_key = "unknown"
+    return cache_root / f"{safe_key}.json"
+
+
+def _single_offline_split_cache_lock_path(cache_path: Path) -> Path:
+    return cache_path.with_suffix(
+        f"{cache_path.suffix}{SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX}"
+    )
+
+
+def _load_single_offline_split_cache_entry(
+    *,
+    cache_path: Path,
+    expected_key: str,
+) -> dict[str, Any] | None:
+    if not cache_path.exists() or not cache_path.is_file():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if (
+        str(payload.get("schema_version") or "").strip()
+        != SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION
+    ):
+        return None
+    cached_key = str(payload.get("single_offline_split_cache_key") or "").strip()
+    if cached_key != str(expected_key or "").strip():
+        return None
+    conversion_payload = payload.get("conversion_result")
+    if not isinstance(conversion_payload, dict):
+        return None
+    return payload
+
+
+def _write_single_offline_split_cache_entry(
+    *,
+    cache_path: Path,
+    payload: dict[str, Any],
+) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix(
+        f"{cache_path.suffix}.tmp-{os.getpid()}-{time.monotonic_ns()}"
+    )
+    tmp_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    tmp_path.replace(cache_path)
+
+
+def _acquire_single_offline_split_cache_lock(lock_path: Path) -> bool:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        fd = os.open(str(lock_path), flags)
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ),
+                    },
+                    sort_keys=True,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def _release_single_offline_split_cache_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except OSError:
+        return
+
+
+def _wait_for_single_offline_split_cache_entry(
+    *,
+    cache_path: Path,
+    expected_key: str,
+    lock_path: Path,
+    wait_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS,
+    poll_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS,
+) -> dict[str, Any] | None:
+    deadline = time.monotonic() + max(0.0, float(wait_seconds))
+    sleep_seconds = max(0.05, float(poll_seconds))
+    while time.monotonic() < deadline:
+        cached = _load_single_offline_split_cache_entry(
+            cache_path=cache_path,
+            expected_key=expected_key,
+        )
+        if cached is not None:
+            return cached
+        if not lock_path.exists():
+            break
+        time.sleep(sleep_seconds)
+    return _load_single_offline_split_cache_entry(
+        cache_path=cache_path,
+        expected_key=expected_key,
+    )
 
 
 def _notify_progress_callback(
@@ -1340,6 +1481,10 @@ def generate_pred_run_artifacts(
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
     split_phase_status_label: str | None = None,
+    single_offline_split_cache_mode: str = "off",
+    single_offline_split_cache_dir: Path | str | None = None,
+    single_offline_split_cache_key: str | None = None,
+    single_offline_split_cache_force: bool = False,
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
@@ -1526,234 +1671,368 @@ def generate_pred_run_artifacts(
             ocr_device=run_settings.ocr_device.value,
             ocr_batch_size=run_settings.ocr_batch_size,
         )
-
-    conversion_started = time.monotonic()
-    with _temporary_epub_runtime_env(
-        extractor=selected_epub_extractor,
-        html_parser_version=selected_html_parser_version,
-        skip_headers_footers=selected_skip_headers_footers,
-        preprocess_mode=selected_preprocess_mode,
-    ):
-        job_specs = _plan_parallel_convert_jobs(
-            path,
-            workers=workers,
-            pdf_split_workers=pdf_split_workers,
-            epub_split_workers=epub_split_workers,
-            pdf_pages_per_job=pdf_pages_per_job,
-            epub_spine_items_per_job=epub_spine_items_per_job,
-            epub_extractor=selected_epub_extractor,
+    selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
+        single_offline_split_cache_mode
+    )
+    selected_single_offline_split_cache_key = (
+        str(single_offline_split_cache_key or "").strip() or None
+    )
+    selected_single_offline_split_cache_dir = (
+        Path(single_offline_split_cache_dir).expanduser()
+        if single_offline_split_cache_dir is not None
+        else None
+    )
+    single_offline_split_cache_enabled = (
+        selected_single_offline_split_cache_mode != "off"
+        and selected_single_offline_split_cache_dir is not None
+        and selected_single_offline_split_cache_key is not None
+    )
+    single_offline_split_cache_hit = False
+    single_offline_split_cache_entry_path: Path | None = None
+    single_offline_split_cache_lock_path: Path | None = None
+    single_offline_split_cache_lock_acquired = False
+    single_offline_split_cache_payload: dict[str, Any] | None = None
+    if single_offline_split_cache_enabled:
+        single_offline_split_cache_entry_path = _single_offline_split_cache_entry_path(
+            cache_root=selected_single_offline_split_cache_dir,
+            split_cache_key=selected_single_offline_split_cache_key or "",
         )
-        if len(job_specs) == 1:
-            result = importer.convert(
-                path,
-                run_mapping,
-                progress_callback=_notify,
-                run_settings=run_settings,
+        single_offline_split_cache_lock_path = _single_offline_split_cache_lock_path(
+            single_offline_split_cache_entry_path
+        )
+        if not single_offline_split_cache_force:
+            cached_payload = _load_single_offline_split_cache_entry(
+                cache_path=single_offline_split_cache_entry_path,
+                expected_key=selected_single_offline_split_cache_key or "",
             )
-        else:
-            split_slot_context = nullcontext()
-            normalized_split_slots = _normalize_split_phase_slots(split_phase_slots)
-            if normalized_split_slots is not None:
-                split_slot_context = _acquire_split_phase_slot(
-                    slots=normalized_split_slots,
-                    gate_dir=split_phase_gate_dir,
-                    notify=progress_callback,
-                    status_label=split_phase_status_label,
-                )
-
-            _notify_scheduler_event_callback(
-                scheduler_event_callback,
-                event="split_wait_started",
-                split_job_count=len(job_specs),
-                split_slots=normalized_split_slots,
-            )
-            split_wait_started = time.monotonic()
-            with split_slot_context:
-                split_wait_seconds = max(0.0, time.monotonic() - split_wait_started)
-                _notify_scheduler_event_callback(
-                    scheduler_event_callback,
-                    event="split_wait_finished",
-                    split_wait_seconds=split_wait_seconds,
-                )
-                split_convert_started = time.monotonic()
-                _notify_scheduler_event_callback(
-                    scheduler_event_callback,
-                    event="split_active_started",
-                    split_job_count=len(job_specs),
-                )
-                effective_workers = max(1, workers)
-                if path.suffix.lower() == ".epub":
-                    effective_workers = max(effective_workers, epub_split_workers)
-                if path.suffix.lower() == ".pdf":
-                    effective_workers = max(effective_workers, pdf_split_workers)
-                max_workers = min(effective_workers, len(job_specs))
-
-                def _split_progress_status(current: int) -> str:
-                    status = _task_progress_message(
-                        "Running split conversion...",
-                        current,
-                        len(job_specs),
+            if cached_payload is None and single_offline_split_cache_lock_path is not None:
+                single_offline_split_cache_lock_acquired = (
+                    _acquire_single_offline_split_cache_lock(
+                        single_offline_split_cache_lock_path
                     )
-                    if max_workers > 1:
-                        return f"{status} (workers={max_workers})"
-                    return status
-
-                _notify(_split_progress_status(0))
-                job_results: list[dict[str, Any]] = []
-                job_errors: list[str] = []
-
-                def _run_job_serial(spec: dict[str, int | None]) -> None:
-                    importer_name, job_result = _parallel_convert_worker(
-                        path,
-                        pipeline,
-                        run_mapping,
-                        run_config=worker_run_config,
-                        start_page=spec.get("start_page"),
-                        end_page=spec.get("end_page"),
-                        start_spine=spec.get("start_spine"),
-                        end_spine=spec.get("end_spine"),
+                )
+                if single_offline_split_cache_lock_acquired:
+                    cached_payload = _load_single_offline_split_cache_entry(
+                        cache_path=single_offline_split_cache_entry_path,
+                        expected_key=selected_single_offline_split_cache_key or "",
                     )
-                    job_results.append(
-                        {**spec, "result": job_result, "importer_name": importer_name}
+                else:
+                    cached_payload = _wait_for_single_offline_split_cache_entry(
+                        cache_path=single_offline_split_cache_entry_path,
+                        expected_key=selected_single_offline_split_cache_key or "",
+                        lock_path=single_offline_split_cache_lock_path,
                     )
-
-                def _split_worker_status(spec: dict[str, int | None]) -> str:
-                    job_number = int(spec.get("job_index") or 0) + 1
-                    base = f"job {job_number}/{len(job_specs)}"
-                    start_page = spec.get("start_page")
-                    end_page = spec.get("end_page")
-                    if start_page is not None and end_page is not None:
-                        try:
-                            start = int(start_page) + 1
-                            end = max(start, int(end_page))
-                        except (TypeError, ValueError):
-                            return base
-                        return f"{base} pages {start}-{end}"
-                    start_spine = spec.get("start_spine")
-                    end_spine = spec.get("end_spine")
-                    if start_spine is not None and end_spine is not None:
-                        try:
-                            start = int(start_spine) + 1
-                            end = max(start, int(end_spine))
-                        except (TypeError, ValueError):
-                            return base
-                        return f"{base} spine {start}-{end}"
-                    return base
-
-                def _run_parallel_split_jobs(executor: Any) -> None:
-                    if max_workers > 1:
-                        _notify(format_worker_activity_reset())
-                    pending_specs = list(job_specs)
-                    futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
-
-                    def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
-                        future = executor.submit(
-                            _parallel_convert_worker,
-                            path,
-                            pipeline,
-                            run_mapping,
-                            run_config=worker_run_config,
-                            start_page=spec.get("start_page"),
-                            end_page=spec.get("end_page"),
-                            start_spine=spec.get("start_spine"),
-                            end_spine=spec.get("end_spine"),
-                        )
-                        futures[future] = (worker_slot, spec)
-                        if max_workers > 1:
-                            _notify(
-                                format_worker_activity(
-                                    worker_slot,
-                                    max_workers,
-                                    _split_worker_status(spec),
-                                )
-                            )
-
-                    for worker_slot in range(1, max_workers + 1):
-                        if not pending_specs:
-                            break
-                        _submit(pending_specs.pop(0), worker_slot)
-
-                    completed = 0
-                    while futures:
-                        future = next(as_completed(list(futures.keys())))
-                        worker_slot, spec = futures.pop(future)
-                        try:
-                            importer_name, job_result = future.result()
-                        except Exception as exc:
-                            job_errors.append(
-                                f"job {spec.get('job_index', '?')}: {exc}"
-                            )
-                        else:
-                            job_results.append(
-                                {
-                                    **spec,
-                                    "result": job_result,
-                                    "importer_name": importer_name,
-                                }
-                            )
-                            completed += 1
-                            _notify(_split_progress_status(completed))
-                        if pending_specs:
-                            _submit(pending_specs.pop(0), worker_slot)
-                        elif max_workers > 1:
-                            _notify(
-                                format_worker_activity(
-                                    worker_slot,
-                                    max_workers,
-                                    "idle",
-                                )
-                            )
-
-                def _run_serial_split_jobs() -> None:
-                    for spec in job_specs:
-                        try:
-                            _run_job_serial(spec)
-                        except Exception as exc:  # noqa: BLE001
-                            job_errors.append(
-                                f"job {spec.get('job_index', '?')}: {exc}"
-                            )
-                        _notify(_split_progress_status(len(job_results)))
+            if cached_payload is not None:
                 try:
-                    executor_resolution = resolve_process_thread_executor(
-                        max_workers=max_workers,
-                        process_unavailable_message=lambda exc: (
-                            "Process-based worker concurrency unavailable "
-                            f"({exc}); using thread-based worker concurrency."
-                        ),
-                        thread_unavailable_message=lambda exc: (
-                            "Thread-based worker concurrency unavailable "
-                            f"({exc}); running split jobs serially."
-                        ),
+                    result = ConversionResult.model_validate(
+                        cached_payload.get("conversion_result")
                     )
-                    for message in executor_resolution.messages:
-                        _notify(message)
-                    if executor_resolution.executor is None:
-                        _run_serial_split_jobs()
-                    else:
-                        executor = executor_resolution.executor
-                        try:
-                            _run_parallel_split_jobs(executor)
-                        finally:
-                            shutdown_executor(executor, wait=True, cancel_futures=False)
-                finally:
-                    if max_workers > 1:
-                        _notify(format_worker_activity_reset())
+                except Exception:  # noqa: BLE001
+                    cached_payload = None
+                else:
+                    single_offline_split_cache_hit = True
+                    single_offline_split_cache_payload = cached_payload
+                    conversion_seconds = max(
+                        0.0,
+                        _safe_float(cached_payload.get("conversion_seconds")) or 0.0,
+                    )
+                    split_wait_seconds = max(
+                        0.0,
+                        _safe_float(cached_payload.get("split_wait_seconds")) or 0.0,
+                    )
+                    split_convert_seconds = max(
+                        0.0,
+                        _safe_float(cached_payload.get("split_convert_seconds")) or 0.0,
+                    )
+                    _notify("Reusing single-offline split cache conversion payload.")
+                    if single_offline_split_cache_lock_acquired:
+                        _release_single_offline_split_cache_lock(
+                            single_offline_split_cache_lock_path
+                        )
+                        single_offline_split_cache_lock_acquired = False
 
-                if job_errors:
-                    raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
-                if not job_results:
-                    raise RuntimeError("Split conversion produced no results.")
-
-                importer_name = str(job_results[0].get("importer_name") or importer.name)
-                result = _merge_parallel_results(path, importer_name, job_results)
-                _notify("Merged split job results.")
-                split_convert_seconds = max(0.0, time.monotonic() - split_convert_started)
-                _notify_scheduler_event_callback(
-                    scheduler_event_callback,
-                    event="split_active_finished",
-                    split_active_seconds=split_convert_seconds,
+    if not single_offline_split_cache_hit:
+        conversion_started = time.monotonic()
+        try:
+            with _temporary_epub_runtime_env(
+                extractor=selected_epub_extractor,
+                html_parser_version=selected_html_parser_version,
+                skip_headers_footers=selected_skip_headers_footers,
+                preprocess_mode=selected_preprocess_mode,
+            ):
+                job_specs = _plan_parallel_convert_jobs(
+                    path,
+                    workers=workers,
+                    pdf_split_workers=pdf_split_workers,
+                    epub_split_workers=epub_split_workers,
+                    pdf_pages_per_job=pdf_pages_per_job,
+                    epub_spine_items_per_job=epub_spine_items_per_job,
+                    epub_extractor=selected_epub_extractor,
                 )
-    conversion_seconds = max(0.0, time.monotonic() - conversion_started)
+                if len(job_specs) == 1:
+                    result = importer.convert(
+                        path,
+                        run_mapping,
+                        progress_callback=_notify,
+                        run_settings=run_settings,
+                    )
+                else:
+                    split_slot_context = nullcontext()
+                    normalized_split_slots = _normalize_split_phase_slots(split_phase_slots)
+                    if normalized_split_slots is not None:
+                        split_slot_context = _acquire_split_phase_slot(
+                            slots=normalized_split_slots,
+                            gate_dir=split_phase_gate_dir,
+                            notify=progress_callback,
+                            status_label=split_phase_status_label,
+                        )
+
+                    _notify_scheduler_event_callback(
+                        scheduler_event_callback,
+                        event="split_wait_started",
+                        split_job_count=len(job_specs),
+                        split_slots=normalized_split_slots,
+                    )
+                    split_wait_started = time.monotonic()
+                    with split_slot_context:
+                        split_wait_seconds = max(0.0, time.monotonic() - split_wait_started)
+                        _notify_scheduler_event_callback(
+                            scheduler_event_callback,
+                            event="split_wait_finished",
+                            split_wait_seconds=split_wait_seconds,
+                        )
+                        split_convert_started = time.monotonic()
+                        _notify_scheduler_event_callback(
+                            scheduler_event_callback,
+                            event="split_active_started",
+                            split_job_count=len(job_specs),
+                        )
+                        effective_workers = max(1, workers)
+                        if path.suffix.lower() == ".epub":
+                            effective_workers = max(effective_workers, epub_split_workers)
+                        if path.suffix.lower() == ".pdf":
+                            effective_workers = max(effective_workers, pdf_split_workers)
+                        max_workers = min(effective_workers, len(job_specs))
+
+                        def _split_progress_status(current: int) -> str:
+                            status = _task_progress_message(
+                                "Running split conversion...",
+                                current,
+                                len(job_specs),
+                            )
+                            if max_workers > 1:
+                                return f"{status} (workers={max_workers})"
+                            return status
+
+                        _notify(_split_progress_status(0))
+                        job_results: list[dict[str, Any]] = []
+                        job_errors: list[str] = []
+
+                        def _run_job_serial(spec: dict[str, int | None]) -> None:
+                            importer_name, job_result = _parallel_convert_worker(
+                                path,
+                                pipeline,
+                                run_mapping,
+                                run_config=worker_run_config,
+                                start_page=spec.get("start_page"),
+                                end_page=spec.get("end_page"),
+                                start_spine=spec.get("start_spine"),
+                                end_spine=spec.get("end_spine"),
+                            )
+                            job_results.append(
+                                {**spec, "result": job_result, "importer_name": importer_name}
+                            )
+
+                        def _split_worker_status(spec: dict[str, int | None]) -> str:
+                            job_number = int(spec.get("job_index") or 0) + 1
+                            base = f"job {job_number}/{len(job_specs)}"
+                            start_page = spec.get("start_page")
+                            end_page = spec.get("end_page")
+                            if start_page is not None and end_page is not None:
+                                try:
+                                    start = int(start_page) + 1
+                                    end = max(start, int(end_page))
+                                except (TypeError, ValueError):
+                                    return base
+                                return f"{base} pages {start}-{end}"
+                            start_spine = spec.get("start_spine")
+                            end_spine = spec.get("end_spine")
+                            if start_spine is not None and end_spine is not None:
+                                try:
+                                    start = int(start_spine) + 1
+                                    end = max(start, int(end_spine))
+                                except (TypeError, ValueError):
+                                    return base
+                                return f"{base} spine {start}-{end}"
+                            return base
+
+                        def _run_parallel_split_jobs(executor: Any) -> None:
+                            if max_workers > 1:
+                                _notify(format_worker_activity_reset())
+                            pending_specs = list(job_specs)
+                            futures: dict[Any, tuple[int, dict[str, int | None]]] = {}
+
+                            def _submit(spec: dict[str, int | None], worker_slot: int) -> None:
+                                future = executor.submit(
+                                    _parallel_convert_worker,
+                                    path,
+                                    pipeline,
+                                    run_mapping,
+                                    run_config=worker_run_config,
+                                    start_page=spec.get("start_page"),
+                                    end_page=spec.get("end_page"),
+                                    start_spine=spec.get("start_spine"),
+                                    end_spine=spec.get("end_spine"),
+                                )
+                                futures[future] = (worker_slot, spec)
+                                if max_workers > 1:
+                                    _notify(
+                                        format_worker_activity(
+                                            worker_slot,
+                                            max_workers,
+                                            _split_worker_status(spec),
+                                        )
+                                    )
+
+                            for worker_slot in range(1, max_workers + 1):
+                                if not pending_specs:
+                                    break
+                                _submit(pending_specs.pop(0), worker_slot)
+
+                            completed = 0
+                            while futures:
+                                future = next(as_completed(list(futures.keys())))
+                                worker_slot, spec = futures.pop(future)
+                                try:
+                                    importer_name, job_result = future.result()
+                                except Exception as exc:
+                                    job_errors.append(
+                                        f"job {spec.get('job_index', '?')}: {exc}"
+                                    )
+                                else:
+                                    job_results.append(
+                                        {
+                                            **spec,
+                                            "result": job_result,
+                                            "importer_name": importer_name,
+                                        }
+                                    )
+                                    completed += 1
+                                    _notify(_split_progress_status(completed))
+                                if pending_specs:
+                                    _submit(pending_specs.pop(0), worker_slot)
+                                elif max_workers > 1:
+                                    _notify(
+                                        format_worker_activity(
+                                            worker_slot,
+                                            max_workers,
+                                            "idle",
+                                        )
+                                    )
+
+                        def _run_serial_split_jobs() -> None:
+                            for spec in job_specs:
+                                try:
+                                    _run_job_serial(spec)
+                                except Exception as exc:  # noqa: BLE001
+                                    job_errors.append(
+                                        f"job {spec.get('job_index', '?')}: {exc}"
+                                    )
+                                _notify(_split_progress_status(len(job_results)))
+                        try:
+                            executor_resolution = resolve_process_thread_executor(
+                                max_workers=max_workers,
+                                process_unavailable_message=lambda exc: (
+                                    "Process-based worker concurrency unavailable "
+                                    f"({exc}); using thread-based worker concurrency."
+                                ),
+                                thread_unavailable_message=lambda exc: (
+                                    "Thread-based worker concurrency unavailable "
+                                    f"({exc}); running split jobs serially."
+                                ),
+                            )
+                            for message in executor_resolution.messages:
+                                _notify(message)
+                            if executor_resolution.executor is None:
+                                _run_serial_split_jobs()
+                            else:
+                                executor = executor_resolution.executor
+                                try:
+                                    _run_parallel_split_jobs(executor)
+                                finally:
+                                    shutdown_executor(executor, wait=True, cancel_futures=False)
+                        finally:
+                            if max_workers > 1:
+                                _notify(format_worker_activity_reset())
+
+                        if job_errors:
+                            raise RuntimeError("Split conversion failed: " + "; ".join(job_errors))
+                        if not job_results:
+                            raise RuntimeError("Split conversion produced no results.")
+
+                        importer_name = str(job_results[0].get("importer_name") or importer.name)
+                        result = _merge_parallel_results(path, importer_name, job_results)
+                        _notify("Merged split job results.")
+                        split_convert_seconds = max(0.0, time.monotonic() - split_convert_started)
+                        _notify_scheduler_event_callback(
+                            scheduler_event_callback,
+                            event="split_active_finished",
+                            split_active_seconds=split_convert_seconds,
+                        )
+            conversion_seconds = max(0.0, time.monotonic() - conversion_started)
+
+            if (
+                single_offline_split_cache_enabled
+                and single_offline_split_cache_entry_path is not None
+                and selected_single_offline_split_cache_key is not None
+            ):
+                if (
+                    not single_offline_split_cache_lock_acquired
+                    and single_offline_split_cache_lock_path is not None
+                ):
+                    single_offline_split_cache_lock_acquired = (
+                        _acquire_single_offline_split_cache_lock(
+                            single_offline_split_cache_lock_path
+                        )
+                    )
+                if single_offline_split_cache_lock_acquired:
+                    cache_write_payload = {
+                        "schema_version": SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION,
+                        "single_offline_split_cache_key": selected_single_offline_split_cache_key,
+                        "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ),
+                        "source_file": str(path),
+                        "run_config_hash": run_config_hash,
+                        "run_config_summary": run_config_summary,
+                        "conversion_seconds": conversion_seconds,
+                        "split_wait_seconds": split_wait_seconds,
+                        "split_convert_seconds": split_convert_seconds,
+                        "conversion_result": result.model_dump(
+                            mode="json",
+                            by_alias=True,
+                        ),
+                    }
+                    _write_single_offline_split_cache_entry(
+                        cache_path=single_offline_split_cache_entry_path,
+                        payload=cache_write_payload,
+                    )
+                    single_offline_split_cache_payload = cache_write_payload
+        finally:
+            if (
+                single_offline_split_cache_lock_acquired
+                and single_offline_split_cache_lock_path is not None
+            ):
+                _release_single_offline_split_cache_lock(
+                    single_offline_split_cache_lock_path
+                )
+                single_offline_split_cache_lock_acquired = False
+    elif single_offline_split_cache_payload is not None:
+        conversion_seconds = max(
+            0.0,
+            _safe_float(single_offline_split_cache_payload.get("conversion_seconds"))
+            or conversion_seconds,
+        )
     _notify_scheduler_event_callback(
         scheduler_event_callback,
         event="prep_finished",
@@ -2408,6 +2687,33 @@ def generate_pred_run_artifacts(
         timing=timing_payload,
         notify=_notify,
     )
+    single_offline_split_cache_summary: dict[str, Any] | None = None
+    if single_offline_split_cache_enabled or single_offline_split_cache_payload is not None:
+        single_offline_split_cache_summary = {
+            "enabled": bool(single_offline_split_cache_enabled),
+            "mode": selected_single_offline_split_cache_mode,
+            "key": selected_single_offline_split_cache_key,
+            "dir": (
+                str(selected_single_offline_split_cache_dir)
+                if selected_single_offline_split_cache_dir is not None
+                else None
+            ),
+            "force": bool(single_offline_split_cache_force),
+            "hit": bool(single_offline_split_cache_hit),
+            "entry_path": (
+                str(single_offline_split_cache_entry_path)
+                if single_offline_split_cache_entry_path is not None
+                else None
+            ),
+            "source_hash": file_hash,
+            "conversion_seconds": conversion_seconds,
+            "split_wait_seconds": split_wait_seconds,
+            "split_convert_seconds": split_convert_seconds,
+            "created_at": (
+                str((single_offline_split_cache_payload or {}).get("created_at") or "").strip()
+                or None
+            ),
+        }
 
     manifest = {
         "pipeline": importer.name,
@@ -2465,6 +2771,8 @@ def generate_pred_run_artifacts(
             str(prelabel_prompt_log_path) if prelabel_prompt_log_path is not None else None
         ),
     }
+    if single_offline_split_cache_summary is not None:
+        manifest["single_offline_split_cache"] = single_offline_split_cache_summary
 
     manifest_path = run_root / "manifest.json"
     manifest_path.write_text(
@@ -2573,6 +2881,12 @@ def generate_pred_run_artifacts(
             llm_manifest_path,
         )
 
+    run_manifest_run_config = dict(run_config)
+    if single_offline_split_cache_summary is not None:
+        run_manifest_run_config["single_offline_split_cache"] = (
+            single_offline_split_cache_summary
+        )
+
     run_manifest_payload = RunManifest(
         run_kind=run_manifest_kind,
         run_id=run_root.name,
@@ -2582,7 +2896,7 @@ def generate_pred_run_artifacts(
             source_hash=file_hash,
             importer_name=importer.name,
         ),
-        run_config=run_config,
+        run_config=run_manifest_run_config,
         artifacts=run_manifest_artifacts,
     )
     _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
@@ -2617,6 +2931,7 @@ def generate_pred_run_artifacts(
         "run_config": run_config,
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
+        "single_offline_split_cache": single_offline_split_cache_summary,
         "llm_codex_farm": llm_report,
         "book_id": book_id,
         "file_hash": file_hash,
@@ -2705,6 +3020,10 @@ def run_labelstudio_import(
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
     split_phase_status_label: str | None = None,
+    single_offline_split_cache_mode: str = "off",
+    single_offline_split_cache_dir: Path | str | None = None,
+    single_offline_split_cache_key: str | None = None,
+    single_offline_split_cache_force: bool = False,
     prelabel: bool = False,
     prelabel_provider: str = "codex-cli",
     codex_cmd: str | None = None,
@@ -2801,6 +3120,10 @@ def run_labelstudio_import(
         split_phase_slots=split_phase_slots,
         split_phase_gate_dir=split_phase_gate_dir,
         split_phase_status_label=split_phase_status_label,
+        single_offline_split_cache_mode=single_offline_split_cache_mode,
+        single_offline_split_cache_dir=single_offline_split_cache_dir,
+        single_offline_split_cache_key=single_offline_split_cache_key,
+        single_offline_split_cache_force=single_offline_split_cache_force,
         prelabel=prelabel,
         prelabel_provider=prelabel_provider,
         codex_cmd=codex_cmd,

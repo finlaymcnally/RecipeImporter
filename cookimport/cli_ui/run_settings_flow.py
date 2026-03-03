@@ -30,7 +30,7 @@ _QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
     "epub_unstructured_skip_headers_footers": True,
 }
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
-_WORKER_UTILIZATION_DEFAULT = 0.9
+_WORKER_UTILIZATION_DEFAULT = 1.0
 
 
 def _worker_utilization() -> float | None:
@@ -67,6 +67,17 @@ def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
             ),
         }
     )
+
+
+def _run_settings_choice_label(
+    label: str,
+    settings: RunSettings,
+    *,
+    show_summary: bool,
+) -> str:
+    if show_summary:
+        return f"{label} ({settings.summary()})"
+    return f"{label} ({settings.short_hash()})"
 
 
 def _default_preferred_settings(global_defaults: RunSettings) -> RunSettings:
@@ -234,6 +245,7 @@ def choose_run_settings(
     output_dir: Path,
     menu_select: MenuSelect,
     back_action: Any,
+    show_summary: bool = True,
     prompt_confirm: PromptConfirm | None = None,
     prompt_text: PromptText | None = None,
 ) -> RunSettings | None:
@@ -250,16 +262,27 @@ def choose_run_settings(
     label = "import" if kind == "import" else "benchmark"
     choices: list[Any] = [
         questionary.Choice(
-            f"Run with global defaults ({global_defaults.summary()})",
+            _run_settings_choice_label(
+                "Run with global defaults",
+                global_defaults,
+                show_summary=show_summary,
+            ),
             value="global",
         ),
         questionary.Choice(
-            f"Run with preferred format ({preferred_settings.summary()})",
+            _run_settings_choice_label(
+                "Run with preferred format",
+                preferred_settings,
+                show_summary=show_summary,
+            ),
             value="preferred",
         ),
         questionary.Choice(
-            "Run with quality-first winner stack "
-            f"({quality_first_winner_settings.summary()})",
+            _run_settings_choice_label(
+                "Run with quality-first winner stack",
+                quality_first_winner_settings,
+                show_summary=show_summary,
+            ),
             value="quality_first_winner_stack",
         ),
     ]
@@ -274,8 +297,11 @@ def choose_run_settings(
     else:
         choices.append(
             questionary.Choice(
-                "Run with quality-suite winner "
-                f"({qualitysuite_winner_settings.summary()})",
+                _run_settings_choice_label(
+                    "Run with quality-suite winner",
+                    qualitysuite_winner_settings,
+                    show_summary=show_summary,
+                ),
                 value="qualitysuite_winner",
             )
         )
@@ -290,7 +316,11 @@ def choose_run_settings(
     else:
         choices.append(
             questionary.Choice(
-                f"Run with last {label} settings ({last_settings.summary()})",
+                _run_settings_choice_label(
+                    f"Run with last {label} settings",
+                    last_settings,
+                    show_summary=show_summary,
+                ),
                 value="last",
             )
         )

@@ -248,6 +248,12 @@ SINGLE_OFFLINE_COMPARISON_METRICS = (
     "practical_recall",
     "practical_f1",
 )
+SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
+SINGLE_OFFLINE_SPLIT_CACHE_KEY_SCHEMA_VERSION = "single_offline_split_cache_key.v1"
+SINGLE_OFFLINE_SPLIT_CACHE_ROOT_ENV = "COOKIMPORT_SINGLE_OFFLINE_SPLIT_CACHE_ROOT"
+SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
+SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
+SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 LABELSTUDIO_BENCHMARK_COMPARE_SCHEMA_VERSION = "labelstudio_benchmark_compare.v1"
 CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
 CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
@@ -365,6 +371,20 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "codex_farm_pipeline_pass3",
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
+)
+SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
+    "llm_recipe_pipeline",
+    "codex_farm_cmd",
+    "codex_farm_pipeline_pass1",
+    "codex_farm_pipeline_pass2",
+    "codex_farm_pipeline_pass3",
+    "codex_farm_context_blocks",
+    "codex_farm_failure_mode",
+)
+SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_FIELDS = tuple(
+    field_name
+    for field_name in ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS
+    if field_name not in SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS
 )
 PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
@@ -2497,6 +2517,72 @@ def _load_single_offline_source_path(eval_output_dir: Path) -> str | None:
     return source_path or None
 
 
+def _load_single_offline_split_cache_metadata(
+    eval_output_dir: Path,
+) -> dict[str, Any] | None:
+    manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
+    if not isinstance(manifest_payload, dict):
+        return None
+    run_config_payload = manifest_payload.get("run_config")
+    if not isinstance(run_config_payload, dict):
+        return None
+    split_cache_payload = run_config_payload.get("single_offline_split_cache")
+    if isinstance(split_cache_payload, dict):
+        return dict(split_cache_payload)
+    return None
+
+
+def _resolve_single_offline_split_cache_root(
+    *,
+    session_root: Path,
+    split_cache_dir: Path | None,
+) -> Path:
+    if split_cache_dir is not None:
+        return split_cache_dir.expanduser()
+    env_override = str(os.getenv(SINGLE_OFFLINE_SPLIT_CACHE_ROOT_ENV, "") or "").strip()
+    if env_override:
+        return Path(env_override).expanduser()
+    return session_root / ".split-cache"
+
+
+def _single_offline_split_cache_summary(
+    *,
+    vanilla_metadata: dict[str, Any] | None,
+    codex_metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    variant_rows: dict[str, dict[str, Any]] = {}
+    for variant_slug, payload in (
+        ("vanilla", vanilla_metadata),
+        ("codexfarm", codex_metadata),
+    ):
+        if not isinstance(payload, dict):
+            continue
+        variant_rows[variant_slug] = {
+            "enabled": bool(payload.get("enabled")),
+            "mode": str(payload.get("mode") or "").strip() or "off",
+            "key": str(payload.get("key") or "").strip() or None,
+            "hit": bool(payload.get("hit")),
+            "force": bool(payload.get("force")),
+            "source_hash": str(payload.get("source_hash") or "").strip() or None,
+            "conversion_seconds": _report_optional_metric(
+                payload.get("conversion_seconds")
+            ),
+        }
+    if not variant_rows:
+        return None
+    shared_key: str | None = None
+    if "vanilla" in variant_rows and "codexfarm" in variant_rows:
+        vanilla_key = str(variant_rows["vanilla"].get("key") or "").strip()
+        codex_key = str(variant_rows["codexfarm"].get("key") or "").strip()
+        if vanilla_key and vanilla_key == codex_key:
+            shared_key = vanilla_key
+    return {
+        "schema_version": SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION,
+        "shared_key": shared_key,
+        "variants": variant_rows,
+    }
+
+
 def _single_offline_metric_deltas(
     *,
     codex_metrics: dict[str, float | None],
@@ -2546,6 +2632,10 @@ def _format_single_offline_comparison_markdown(
         delta_metrics = deltas_payload.get("codex_minus_vanilla")
     else:
         delta_metrics = None
+    metadata_payload = payload.get("metadata")
+    split_cache_payload = None
+    if isinstance(metadata_payload, dict):
+        split_cache_payload = metadata_payload.get("single_offline_split_cache")
 
     lines: list[str] = [
         "# CodexFarm vs Vanilla Comparison",
@@ -2582,6 +2672,35 @@ def _format_single_offline_comparison_markdown(
             f"| `{metric_name}` | {codex_text} | {vanilla_text} | {delta_text} |"
         )
 
+    if isinstance(split_cache_payload, dict):
+        shared_key = str(split_cache_payload.get("shared_key") or "").strip()
+        variant_payload = split_cache_payload.get("variants")
+        lines.extend(
+            [
+                "",
+                "## Shared Split Cache",
+                "",
+                f"- Schema version: {split_cache_payload.get('schema_version') or 'unknown'}",
+                f"- Shared key: {shared_key or 'unknown'}",
+            ]
+        )
+        if isinstance(variant_payload, dict):
+            for variant_slug in ("vanilla", "codexfarm"):
+                row = variant_payload.get(variant_slug)
+                if not isinstance(row, dict):
+                    continue
+                mode = str(row.get("mode") or "").strip() or "off"
+                hit_text = "yes" if bool(row.get("hit")) else "no"
+                conversion_seconds = _report_optional_metric(row.get("conversion_seconds"))
+                conversion_text = (
+                    f"{conversion_seconds:.3f}s"
+                    if conversion_seconds is not None
+                    else "unknown"
+                )
+                lines.append(
+                    f"- {variant_slug}: mode={mode} cache_hit={hit_text} conversion={conversion_text}"
+                )
+
     return "\n".join(lines) + "\n"
 
 
@@ -2592,6 +2711,7 @@ def _write_single_offline_comparison_artifacts(
     source_file: str | None,
     codex_eval_output_dir: Path,
     vanilla_eval_output_dir: Path,
+    split_cache_metadata: dict[str, Any] | None = None,
 ) -> tuple[Path, Path] | None:
     codex_metrics = _load_single_offline_eval_metrics(codex_eval_output_dir)
     vanilla_metrics = _load_single_offline_eval_metrics(vanilla_eval_output_dir)
@@ -2617,6 +2737,10 @@ def _write_single_offline_comparison_artifacts(
             )
         },
     }
+    if isinstance(split_cache_metadata, dict):
+        comparison_payload["metadata"] = {
+            "single_offline_split_cache": split_cache_metadata
+        }
     comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
     comparison_md_path = session_root / "codex_vs_vanilla_comparison.md"
     comparison_json_path.write_text(
@@ -2637,6 +2761,9 @@ def _interactive_single_offline_benchmark(
     processed_output_root: Path,
     write_markdown: bool = False,
     write_label_studio_tasks: bool = False,
+    single_offline_split_cache_mode: str = "auto",
+    single_offline_split_cache_dir: Path | None = None,
+    single_offline_split_cache_force: bool = False,
 ) -> bool:
     session_root = benchmark_eval_output / "single-offline-benchmark"
     session_processed_root = (
@@ -2647,10 +2774,62 @@ def _interactive_single_offline_benchmark(
         typer.secho("No single-offline benchmark variants were planned.", fg=typer.colors.YELLOW)
         return False
 
+    selected_gold: Path | None = None
+    selected_source: Path | None = None
+    if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+        resolved_inputs = _resolve_benchmark_gold_and_source(
+            gold_spans=None,
+            source_file=None,
+            output_dir=DEFAULT_GOLDEN,
+            allow_cancel=True,
+        )
+        if resolved_inputs is None:
+            typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+            return False
+        selected_gold, selected_source = resolved_inputs
+
     typer.secho(
         f"Single-offline benchmark variants: {', '.join(slug for slug, _ in variants)}",
         fg=typer.colors.CYAN,
     )
+
+    selected_split_cache_mode = _normalize_single_offline_split_cache_mode(
+        single_offline_split_cache_mode
+    )
+    split_cache_key: str | None = None
+    split_cache_root: Path | None = None
+    split_cache_source_hash: str | None = None
+    if len(variants) > 1 and selected_split_cache_mode != "off":
+        split_cache_root = _resolve_single_offline_split_cache_root(
+            session_root=session_root,
+            split_cache_dir=single_offline_split_cache_dir,
+        )
+        key_source_path = (
+            selected_source
+            if selected_source is not None
+            else session_root / "__single_offline_split_cache_source__"
+        )
+        try:
+            split_cache_source_hash = (
+                compute_file_hash(key_source_path)
+                if key_source_path.exists() and key_source_path.is_file()
+                else None
+            )
+        except Exception:  # noqa: BLE001
+            split_cache_source_hash = None
+        split_cache_key = _build_single_offline_split_cache_key(
+            source_file=key_source_path,
+            source_hash=split_cache_source_hash,
+            pipeline="auto",
+            run_settings=variants[0][1],
+        )
+        typer.secho(
+            (
+                "Single-offline split cache enabled: "
+                f"mode={selected_split_cache_mode} key={split_cache_key[:12]}..."
+            ),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
 
     variant_results: dict[str, dict[str, Any]] = {}
     for index, (variant_slug, variant_settings) in enumerate(variants, start=1):
@@ -2671,15 +2850,34 @@ def _interactive_single_offline_benchmark(
             write_markdown=write_markdown,
             write_label_studio_tasks=write_label_studio_tasks,
         )
+        if selected_gold is not None:
+            variant_kwargs["gold_spans"] = selected_gold
+        if selected_source is not None:
+            variant_kwargs["source_file"] = selected_source
+        if split_cache_root is not None and split_cache_key:
+            variant_kwargs.update(
+                {
+                    "single_offline_split_cache_mode": selected_split_cache_mode,
+                    "single_offline_split_cache_dir": split_cache_root,
+                    "single_offline_split_cache_key": split_cache_key,
+                    "single_offline_split_cache_force": bool(
+                        single_offline_split_cache_force and index == 1
+                    ),
+                }
+            )
         try:
             labelstudio_benchmark(**variant_kwargs)
             source_file = _load_single_offline_source_path(variant_eval_output)
+            split_cache_metadata = _load_single_offline_split_cache_metadata(
+                variant_eval_output
+            )
             variant_results[variant_slug] = {
                 "status": "ok",
                 "settings": variant_settings,
                 "eval_output_dir": variant_eval_output,
                 "processed_output_dir": variant_processed_output,
                 "source_file": source_file,
+                "single_offline_split_cache": split_cache_metadata,
             }
         except typer.Exit as exc:
             exit_code = int(getattr(exc, "exit_code", 1))
@@ -2750,6 +2948,16 @@ def _interactive_single_offline_benchmark(
             source_file=source_file,
             codex_eval_output_dir=Path(str(codex_result["eval_output_dir"])),
             vanilla_eval_output_dir=Path(str(vanilla_result["eval_output_dir"])),
+            split_cache_metadata=_single_offline_split_cache_summary(
+                vanilla_metadata=cast(
+                    dict[str, Any] | None,
+                    vanilla_result.get("single_offline_split_cache"),
+                ),
+                codex_metadata=cast(
+                    dict[str, Any] | None,
+                    codex_result.get("single_offline_split_cache"),
+                ),
+            ),
         )
         if comparison_paths is not None:
             comparison_written = True
@@ -3895,50 +4103,50 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         if importable_files:
             choices.append(
                 questionary.Choice(
-                    "Stage files from data/input - produce cookbook outputs",
+                    "Stage: Convert files from data/input into cookbook outputs",
                     value="import",
                 )
             )
             choices.append(
                 questionary.Choice(
-                    "Label Studio: create labeling tasks (uploads)",
+                    "Label Studio upload: Create labeling tasks (uploads)",
                     value="labelstudio",
                 )
             )
         choices.append(
             questionary.Choice(
-                "Label Studio: export completed labels to golden artifacts",
+                "Label Studio export: Export completed labels into golden artifacts",
                 value="labelstudio_export",
             )
         )
         choices.append(
             questionary.Choice(
-                "Generate predictions + evaluate vs freeform gold",
+                "Evaluate vs freeform gold: Generate predictions and compare to your labels",
                 value="labelstudio_benchmark",
             )
         )
         choices.append(
             questionary.Choice(
-                "Generate dashboard - build lifetime stats dashboard HTML",
+                "Dashboard: Build lifetime stats dashboard HTML",
                 value="generate_dashboard",
             )
         )
         choices.append(
             questionary.Choice(
-                "Settings - tune worker/OCR/output defaults",
+                "Settings: Change worker/OCR/output defaults",
                 value="settings",
             )
         )
-        choices.append(questionary.Choice("Exit - close the tool", value="exit"))
+        choices.append(questionary.Choice("Exit: Close the tool", value="exit"))
 
         action = _menu_select(
             "What would you like to do?",
             choices=choices,
             menu_help=(
-                "Choose a workflow. Stage produces cookbook outputs, Label Studio task "
-                "creation uploads annotation tasks, export pulls completed labels, "
-                "and evaluate compares predictions against gold. "
-                "Dashboard builds a static lifetime summary."
+                "Pick a workflow. Stage converts files into cookbook outputs. Label Studio upload "
+                "creates annotation tasks. Export pulls completed labels into golden artifacts. "
+                "Evaluate runs predictions and compares them against freeform gold. Dashboard "
+                "builds a static lifetime summary."
             ),
         )
 
@@ -3992,7 +4200,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     "Choosing one file runs conversion only for that file."
                 ),
                 choices=[
-                    questionary.Choice("Import All - process every supported file", value="all"),
+                    questionary.Choice(
+                        "Import all: Process every supported file",
+                        value="all",
+                    ),
                     *[questionary.Choice(f.name, value=f) for f in importable_files]
                 ]
             )
@@ -4014,15 +4225,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
                 prompt_text=_prompt_text,
+                show_summary=False,
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
                 continue
 
             typer.secho(
-                "Run settings: "
-                f"{selected_run_settings.summary()} "
-                f"(hash {selected_run_settings.short_hash()})",
+                f"Run settings hash: {selected_run_settings.short_hash()}",
                 fg=typer.colors.CYAN,
             )
 
@@ -4450,37 +4660,33 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             benchmark_mode = _menu_select(
                 "How would you like to evaluate?",
                 menu_help=(
-                    "Single offline mode runs one local prediction + eval against freeform gold "
-                    "without Label Studio upload. Single-profile all-matched mode runs that same "
-                    "single config across every matched golden set. All method benchmark runs "
-                    "many offline permutations with one summary report. Markdown extractors are "
-                    f"policy-locked off unless {EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV}=1. If unlocked, "
-                    "all method still excludes markdown/markitdown by default; set "
-                    f"{ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS_ENV}=1 to include them."
+                    "All modes are offline (no upload).\n"
+                    "Single offline runs one local prediction + eval vs freeform gold.\n"
+                    "Single config, all matched sets repeats that same config across each matched golden set."
                 ),
                 choices=[
                     questionary.Choice(
-                        "Generate predictions + evaluate (offline, no upload)",
+                        "Single offline eval: One local prediction + eval vs freeform gold",
                         value="single_offline",
                     ),
                     questionary.Choice(
-                        (
-                            "Generate predictions + evaluate for all matched golden sets "
-                            "(single config each, offline)"
-                        ),
-                        value="single_offline_all_matched",
+                    (
+                        "Single config, all matched sets: Repeat one config for every matched golden set"
                     ),
-                    questionary.Choice(
-                        "All method benchmark (offline, no upload)",
-                        value="all_method",
+                    value="single_offline_all_matched",
                     ),
                 ],
             )
             if benchmark_mode in {None, BACK_ACTION}:
                 continue
 
+            benchmark_defaults_payload = {
+                key: value
+                for key, value in settings.items()
+                if key in RunSettings.model_fields
+            }
             benchmark_defaults = RunSettings.from_dict(
-                settings,
+                benchmark_defaults_payload,
                 warn_context="interactive benchmark global settings",
             )
             selected_benchmark_settings = choose_run_settings(
@@ -4491,15 +4697,14 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
                 prompt_text=_prompt_text,
+                show_summary=False,
             )
             if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
                 continue
 
             typer.secho(
-                "Run settings: "
-                f"{selected_benchmark_settings.summary()} "
-                f"(hash {selected_benchmark_settings.short_hash()})",
+                f"Run settings hash: {selected_benchmark_settings.short_hash()}",
                 fg=typer.colors.CYAN,
             )
 
@@ -4536,65 +4741,82 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     save_last_run_settings(
                         "benchmark", output_folder, selected_benchmark_settings
                     )
-            else:
-                all_method_max_parallel_sources = _coerce_positive_int(
-                    settings.get(ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY)
-                )
-                all_method_max_inflight = _coerce_positive_int(
-                    settings.get(ALL_METHOD_MAX_INFLIGHT_SETTING_KEY)
-                )
-                all_method_max_split_slots = _coerce_positive_int(
-                    settings.get(ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY)
-                )
-                all_method_max_eval_tail = _coerce_positive_int(
-                    settings.get(ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY)
-                )
-                all_method_config_timeout_seconds = _coerce_non_negative_int(
-                    settings.get(ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY)
-                )
-                all_method_retry_failed_configs = _coerce_non_negative_int(
-                    settings.get(ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY)
-                )
-                all_method_scheduler_scope = _normalize_all_method_scheduler_scope(
-                    settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
-                )
-                all_method_source_scheduling = _normalize_all_method_source_scheduling(
-                    settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY)
-                )
-                all_method_source_shard_threshold_seconds = _coerce_positive_float(
-                    settings.get(ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY)
-                )
-                all_method_source_shard_max_parts = _coerce_positive_int(
-                    settings.get(ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY)
-                )
-                all_method_source_shard_min_variants = _coerce_positive_int(
-                    settings.get(ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY)
-                )
-                all_method_wing_backlog = _coerce_positive_int(
-                    settings.get(ALL_METHOD_WING_BACKLOG_SETTING_KEY)
-                )
-                all_method_smart_scheduler = _coerce_bool_setting(
-                    settings.get(ALL_METHOD_SMART_SCHEDULER_SETTING_KEY),
-                    default=True,
-                )
+            elif benchmark_mode == "all_method":
                 _interactive_all_method_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
-                    max_parallel_sources=all_method_max_parallel_sources,
-                    max_inflight_pipelines=all_method_max_inflight,
-                    max_concurrent_split_phases=all_method_max_split_slots,
-                    max_eval_tail_pipelines=all_method_max_eval_tail,
-                    config_timeout_seconds=all_method_config_timeout_seconds,
-                    retry_failed_configs=all_method_retry_failed_configs,
-                    scheduler_scope=all_method_scheduler_scope,
-                    source_scheduling=all_method_source_scheduling,
-                    source_shard_threshold_seconds=all_method_source_shard_threshold_seconds,
-                    source_shard_max_parts=all_method_source_shard_max_parts,
-                    source_shard_min_variants=all_method_source_shard_min_variants,
-                    wing_backlog_target=all_method_wing_backlog,
-                    smart_scheduler=all_method_smart_scheduler,
+                    max_parallel_sources=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY,
+                        fallback=_all_method_default_parallel_sources_from_cpu(),
+                    ),
+                    max_inflight_pipelines=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_MAX_INFLIGHT_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_INFLIGHT_DEFAULT,
+                    ),
+                    max_concurrent_split_phases=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                    ),
+                    max_eval_tail_pipelines=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY,
+                        fallback=_resolve_positive_int_setting(
+                            settings,
+                            key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                            fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                        ),
+                    ),
+                    config_timeout_seconds=_resolve_non_negative_int_setting(
+                        settings,
+                        key=ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY,
+                        fallback=ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT,
+                    ),
+                    retry_failed_configs=_resolve_non_negative_int_setting(
+                        settings,
+                        key=ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY,
+                        fallback=ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT,
+                    ),
+                    scheduler_scope=_normalize_all_method_scheduler_scope(
+                        settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
+                    ),
+                    source_scheduling=_normalize_all_method_source_scheduling(
+                        settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY)
+                    ),
+                    source_shard_threshold_seconds=_resolve_positive_float_setting(
+                        settings,
+                        key=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY,
+                        fallback=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT,
+                    ),
+                    source_shard_max_parts=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY,
+                        fallback=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT,
+                    ),
+                    source_shard_min_variants=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY,
+                        fallback=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT,
+                    ),
+                    wing_backlog_target=_resolve_positive_int_setting(
+                        settings,
+                        key=ALL_METHOD_WING_BACKLOG_SETTING_KEY,
+                        fallback=_resolve_positive_int_setting(
+                            settings,
+                            key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+                            fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+                        ),
+                    ),
+                    smart_scheduler=_coerce_bool_setting(
+                        settings.get(ALL_METHOD_SMART_SCHEDULER_SETTING_KEY),
+                        default=True,
+                    ),
                 )
+            # Legacy "all method benchmark" mode is intentionally not offered in the
+            # interactive menu anymore.
             continue
 
 
@@ -5158,6 +5380,19 @@ def _normalize_benchmark_execution_mode(value: str) -> str:
         "Expected one of: legacy, pipelined, predict-only."
     )
     return BENCHMARK_EXECUTION_MODE_LEGACY
+
+
+def _normalize_single_offline_split_cache_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "off", "none", "disabled", "false", "0"}:
+        return "off"
+    if normalized in {"auto", "on", "enabled", "true", "1"}:
+        return "auto"
+    _fail(
+        f"Invalid single-offline split-cache mode: {value!r}. "
+        "Expected one of: off, auto."
+    )
+    return "off"
 
 
 def _normalize_codex_farm_recipe_mode(value: str) -> str:
@@ -5743,6 +5978,34 @@ def _processing_timeseries_history_path(
         suffix += 1
 
 
+def _append_processing_timeseries_marker(
+    *,
+    telemetry_path: Path,
+    event: str,
+    payload: dict[str, Any],
+) -> None:
+    event_name = str(event or "").strip()
+    if not event_name:
+        return
+    row = {
+        "event": event_name,
+        "timestamp": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+            timespec="milliseconds"
+        ),
+    }
+    row.update(payload)
+    try:
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        with telemetry_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(_json_safe(row), sort_keys=True) + "\n")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Ignoring processing time-series marker write failure for %s: %s",
+            telemetry_path,
+            exc,
+        )
+
+
 def _run_with_progress_status(
     *,
     initial_status: str,
@@ -5768,6 +6031,8 @@ def _run_with_progress_status(
     latest_message = ""
     latest_message_started = time.monotonic()
     latest_counter: tuple[int, int] | None = None
+    latest_running_workers: int | None = None
+    latest_active_tasks: list[str] | None = None
     status_dashboard = ProgressDashboardCore()
     worker_dashboard_adapter = ProgressCallbackAdapter(status_dashboard)
     status_dashboard.set_status_line(str(initial_status).strip() or str(progress_prefix).strip())
@@ -5782,6 +6047,9 @@ def _run_with_progress_status(
     all_method_metrics: dict[str, int] = {}
     state_lock = threading.Lock()
     stop_event = threading.Event()
+    _PROGRESS_BLUE_STYLE = "blue"
+    _PROGRESS_BLUE_ANSI = "\x1b[34m"
+    _PROGRESS_ANSI_RESET = "\x1b[0m"
     timeseries_writer: _ProcessingTimeseriesWriter | None = None
     if telemetry_path is not None:
         telemetry_file = Path(telemetry_path).expanduser()
@@ -5791,6 +6059,133 @@ def _run_with_progress_status(
             path=telemetry_file,
             heartbeat_seconds=max(0.05, float(telemetry_heartbeat_seconds)),
         )
+
+    _WORKER_PANEL_LABEL_RE = re.compile(
+        r"^\s*(?:active\s+tasks|active\s+workers)\b",
+        re.IGNORECASE,
+    )
+    _WORKER_PREFIX_RE = re.compile(
+        r"^worker\s+\d+\s*:",
+        re.IGNORECASE,
+    )
+    _ACTIVE_TASKS_RE = re.compile(
+        r"\bactive\s*\[([^]]*)\]",
+        re.IGNORECASE,
+    )
+    _RUNNING_WORKERS_RE = re.compile(
+        r"\brunning\s+(\d+)\b",
+        re.IGNORECASE,
+    )
+    _CODEX_FARM_PROGRESS_LINE_RE = re.compile(
+        r"^codex-farm\s+",
+        re.IGNORECASE,
+    )
+
+    def _extract_active_tasks(message: str) -> list[str] | None:
+        match = _ACTIVE_TASKS_RE.search(str(message or ""))
+        if match is None:
+            return None
+        raw = str(match.group(1)).strip()
+        if not raw:
+            return []
+        values = [item.strip() for item in raw.split(",")]
+        cleaned = [value for value in values if value]
+        return cleaned[:max(1, 8)]
+
+    def _extract_running_workers(message: str) -> int | None:
+        match = _RUNNING_WORKERS_RE.search(str(message or ""))
+        if match is None:
+            return None
+        try:
+            return int(match.group(1))
+        except (TypeError, ValueError):
+            return None
+
+    def _inject_worker_summary_lines(snapshot: str) -> str:
+        with state_lock:
+            running_workers = latest_running_workers
+            active_tasks = (
+                None if latest_active_tasks is None else list(latest_active_tasks)
+            )
+        if running_workers is None and active_tasks is None:
+            return snapshot
+
+        lines = [line.strip() for line in str(snapshot or "").splitlines() if line.strip()]
+        if not lines:
+            return ""
+
+        if any(
+            _WORKER_PANEL_LABEL_RE.search(line)
+            or _WORKER_PREFIX_RE.match(line)
+            for line in lines
+        ):
+            return "\n".join(lines)
+
+        running_slots = max(0, int(running_workers)) if running_workers is not None else 0
+        display_slots = 8
+        if running_slots <= 0:
+            if running_workers is None:
+                running_slots = display_slots
+            else:
+                running_slots = 0
+        else:
+            running_slots = min(max(running_slots, 1), display_slots)
+
+        worker_lines: list[str] = []
+        if active_tasks is not None:
+            task_count = len(active_tasks)
+            if task_count > 0:
+                worker_lines.append(
+                    f"active tasks ({task_count}"
+                    + (f"/{running_slots}" if running_slots else "")
+                    + ")"
+                )
+                for index, task in enumerate(active_tasks[:running_slots], start=1):
+                    worker_lines.append(
+                        f"worker {index:02d}: {str(task).strip() or '[unknown task]'}"
+                    )
+                if task_count < running_slots:
+                    for index in range(task_count + 1, running_slots + 1):
+                        worker_lines.append(
+                            f"worker {index:02d}: processing (unresolved)"
+                        )
+            else:
+                worker_lines.append(f"active workers: {running_slots}")
+                for index in range(1, running_slots + 1):
+                    worker_lines.append(f"worker {index:02d}: processing")
+        else:
+            worker_lines.append(f"active workers: {running_slots}")
+            for index in range(1, running_slots + 1):
+                worker_lines.append(f"worker {index:02d}: running")
+
+        if not worker_lines:
+            return "\n".join(lines)
+
+        insert_at = len(lines)
+        for index, line in enumerate(lines):
+            if line.lower().startswith("task:"):
+                insert_at = index + 1
+                break
+        merged = lines[:insert_at] + worker_lines + lines[insert_at:]
+        return "\n".join(merged)
+
+    def _format_boxed_progress(snapshot: str) -> str:
+        lines = [
+            line.rstrip()
+            for line in str(snapshot or "").splitlines()
+            if line.strip()
+        ]
+        if not lines:
+            return ""
+        width = max(len(line) for line in lines)
+        title = (progress_prefix or initial_status).strip() or "Progress"
+        width = max(width, len(title))
+        width = min(width, 120)
+        header = f"| {title.center(width)} |"
+        top_bottom = "+" + "-" * (width + 2) + "+"
+        divider = "+" + "-" * (width + 2) + "+"
+        body_lines = [f"| {line[:width].ljust(width)} |" for line in lines]
+        return "\n".join([top_bottom, header, divider, *body_lines, top_bottom])
 
     def _build_status_line(now: float | None = None) -> str:
         current = now if now is not None else time.monotonic()
@@ -5857,13 +6252,18 @@ def _run_with_progress_status(
 
     def render_plain(now: float | None = None) -> str:
         status_dashboard.set_status_line(_build_status_line(now))
-        return status_dashboard.render()
+        return _inject_worker_summary_lines(status_dashboard.render())
 
     def render(now: float | None = None) -> str:
         snapshot = render_plain(now)
         if not snapshot:
             return ""
-        return rich_escape(snapshot)
+        escaped = rich_escape(snapshot)
+        return (
+            f"[{_PROGRESS_BLUE_STYLE}]"
+            f"{_format_boxed_progress(escaped)}"
+            f"[/{_PROGRESS_BLUE_STYLE}]"
+        )
 
     def _emit_timeseries(
         *,
@@ -5922,10 +6322,21 @@ def _run_with_progress_status(
         nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
         nonlocal rate_sampled_seconds, rate_sampled_units
         nonlocal rate_recent_samples, all_method_metrics
+        nonlocal latest_running_workers, latest_active_tasks
         now = time.monotonic()
         cleaned = msg.strip()
         is_worker_activity = parse_worker_activity(cleaned) is not None
         counter = None
+        is_codex_progress = _CODEX_FARM_PROGRESS_LINE_RE.search(cleaned) is not None
+        if is_codex_progress:
+            running_workers = _extract_running_workers(cleaned)
+            active_tasks = _extract_active_tasks(cleaned)
+            if running_workers is not None:
+                latest_running_workers = running_workers
+            if active_tasks is not None:
+                latest_active_tasks = active_tasks
+            else:
+                latest_active_tasks = None
         # Route every callback through the shared adapter so callback+worker
         # activity both update the same dashboard state machine.
         changed = worker_dashboard_adapter.ingest_callback_message(cleaned)
@@ -5974,8 +6385,66 @@ def _run_with_progress_status(
 
     def _run_plain() -> _StatusReturn:
         nonlocal last_plain_snapshot
-        typer.secho(render_plain(), fg=typer.colors.CYAN)
+        console_file = getattr(console, "file", None)
+        plain_tty = bool(
+            console.is_terminal
+            and not console.is_dumb_terminal
+            and hasattr(console_file, "isatty")
+            and console_file.isatty()
+        )
+        initial_snapshot = render_plain()
+
+        def _snapshot_to_single_line(snapshot: str) -> str:
+            parts = [line.strip() for line in snapshot.splitlines() if line.strip()]
+            if not parts:
+                return ""
+            return " | ".join(parts)
+
+        def _render_plain_snapshot(snapshot: str) -> None:
+            nonlocal last_plain_snapshot
+            line = _snapshot_to_single_line(snapshot)
+            if not line:
+                return
+            with state_lock:
+                if line == last_plain_snapshot:
+                    return
+                last_plain_snapshot = line
+            if plain_tty:
+                assert console_file is not None
+                console_file.write(
+                    f"\r\u001b[2K{_PROGRESS_BLUE_ANSI}{line}{_PROGRESS_ANSI_RESET}"
+                )
+                console_file.flush()
+            else:
+                typer.secho(line, fg=typer.colors.BLUE)
+
+        if initial_snapshot:
+            _render_plain_snapshot(initial_snapshot)
         _emit_timeseries(event="started", force=True)
+
+        def tick() -> None:
+            while True:
+                with state_lock:
+                    message_snapshot = latest_message
+                    worker_snapshot = worker_dashboard_adapter.snapshot_workers()[0]
+                interval = float(tick_seconds)
+                if (
+                    (worker_snapshot > 0 or "\n" in (message_snapshot or ""))
+                    and interval >= 0.5
+                ):
+                    interval = max(interval, 5.0)
+                if stop_event.wait(max(0.05, interval)):
+                    return
+                now = time.monotonic()
+                snapshot = render_plain(now)
+                _render_plain_snapshot(snapshot)
+
+        ticker = threading.Thread(
+            target=tick,
+            name="cli-status-progress-ticker",
+            daemon=True,
+        )
+        ticker.start()
 
         def update_progress(msg: str) -> None:
             nonlocal last_plain_snapshot
@@ -5983,20 +6452,29 @@ def _run_with_progress_status(
             if not changed:
                 return
             snapshot = render_plain(now)
-            if snapshot and snapshot != last_plain_snapshot:
-                typer.secho(snapshot, fg=typer.colors.CYAN)
-                last_plain_snapshot = snapshot
+            _render_plain_snapshot(snapshot)
             _emit_timeseries(event="update", now=now)
 
         try:
             return run(update_progress)
         finally:
+            stop_event.set()
+            ticker.join(timeout=max(0.2, float(tick_seconds) * 2))
+            if plain_tty:
+                assert console_file is not None
+                console_file.write("\n")
+                console_file.flush()
             _emit_timeseries(event="finished", force=True)
 
     if not supports_live_status:
         return _run_plain()
 
-    with console.status(render(), spinner="dots", refresh_per_second=4.0) as status:
+    with console.status(
+        render(),
+        spinner="dots",
+        spinner_style=_PROGRESS_BLUE_STYLE,
+        refresh_per_second=4.0,
+    ) as status:
         _emit_timeseries(event="started", force=True)
 
         def tick() -> None:
@@ -7223,6 +7701,134 @@ def _resolve_stage_predictions_for_benchmark(
     return pred_run / "stage_block_predictions.json"
 
 
+def _build_codex_farm_prompt_response_log(
+    *,
+    pred_run: Path,
+    eval_output_dir: Path,
+) -> Path | None:
+    raw_llm_dir = pred_run / "raw" / "llm"
+    if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
+        return None
+
+    run_dirs: list[Path] = [
+        path for path in raw_llm_dir.iterdir() if path.is_dir()
+    ]
+    if not run_dirs:
+        return None
+
+    codexfarm_dir = eval_output_dir / "codexfarm"
+    codexfarm_dir.mkdir(parents=True, exist_ok=True)
+    prompt_response_log_path = codexfarm_dir / "prompt_request_response_log.txt"
+
+    pass_dir_map: dict[str, str] = {
+        "pass1": "pass1_chunking",
+        "pass2": "pass2_schemaorg",
+        "pass3": "pass3_final",
+    }
+
+    lines: list[str] = []
+    for run_dir in sorted(run_dirs, key=lambda value: value.name):
+        manifest_path = run_dir / "llm_manifest.json"
+        manifest_payload = _load_json_dict(manifest_path) or {}
+        if not manifest_payload:
+            lines.append(f"=== SKIP: missing manifest at {manifest_path} ===")
+            continue
+
+        lines.append(f"=== CODexFarm run: {run_dir.name} ===")
+        lines.append(f"manifest: {manifest_path}")
+        llm_enabled = manifest_payload.get("enabled")
+        if llm_enabled is not None:
+            lines.append(f"enabled: {llm_enabled}")
+        codex_pipeline = manifest_payload.get("pipeline")
+        if isinstance(codex_pipeline, str):
+            lines.append(f"pipeline: {codex_pipeline}")
+        codex_model = manifest_payload.get("codex_farm_model")
+        if isinstance(codex_model, str):
+            lines.append(f"codex_farm_model: {codex_model}")
+        lines.append("")
+
+        process_runs = manifest_payload.get("process_runs")
+        if isinstance(process_runs, dict):
+            lines.append("--- PROCESS RUN PAYLOAD SNIPPETS ---")
+            for pass_name in ("pass1", "pass2", "pass3"):
+                run_payload = process_runs.get(pass_name)
+                if not isinstance(run_payload, dict):
+                    continue
+                lines.append(f"--- process_runs[{pass_name}] ---")
+                try:
+                    lines.append(json.dumps(run_payload, indent=2, sort_keys=True))
+                except Exception:
+                    lines.append(str(run_payload))
+            lines.append("")
+
+        for pass_name, path_root in pass_dir_map.items():
+            paths_payload = manifest_payload.get("paths")
+            pass_paths = {}
+            if isinstance(paths_payload, dict):
+                pass_paths = paths_payload
+            pass_in = pass_paths.get(f"{pass_name}_in")
+            pass_out = pass_paths.get(f"{pass_name}_out")
+
+            in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
+            out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
+            if in_dir is None or not in_dir.exists():
+                in_dir = run_dir / path_root / "in"
+            if out_dir is None or not out_dir.exists():
+                out_dir = run_dir / path_root / "out"
+
+            lines.append(f"--- {pass_name.upper()} INPUT FILES ---")
+            lines.append(f"source_dir: {in_dir}")
+            for prompt_file in sorted(
+                [p for p in in_dir.iterdir() if p.is_file()],
+                key=lambda p: p.name,
+            ):
+                lines.append(f"INPUT {pass_name} => {prompt_file.name}")
+                lines.append("-" * 80)
+                try:
+                    lines.append(
+                        prompt_file.read_text(encoding="utf-8")
+                    )
+                except UnicodeDecodeError:
+                    lines.append(
+                        prompt_file.read_text(encoding="utf-8", errors="replace")
+                    )
+                except Exception as exc:
+                    lines.append(f"<<unreadable file: {exc}>>")
+                lines.append("-" * 80)
+                lines.append("")
+
+            lines.append(f"--- {pass_name.upper()} RESPONSE FILES ---")
+            lines.append(f"source_dir: {out_dir}")
+            for response_file in sorted(
+                [p for p in out_dir.iterdir() if p.is_file()],
+                key=lambda p: p.name,
+            ):
+                lines.append(f"OUTPUT {pass_name} => {response_file.name}")
+                lines.append("-" * 80)
+                try:
+                    lines.append(
+                        response_file.read_text(encoding="utf-8")
+                    )
+                except UnicodeDecodeError:
+                    lines.append(
+                        response_file.read_text(encoding="utf-8", errors="replace")
+                    )
+                except Exception as exc:
+                    lines.append(f"<<unreadable file: {exc}>>")
+                lines.append("-" * 80)
+                lines.append("")
+            lines.append("")
+
+    if not lines:
+        return None
+
+    prompt_response_log_path.write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+    return prompt_response_log_path
+
+
 def _build_prediction_bundle_from_import_result(
     *,
     import_result: dict[str, Any],
@@ -8046,6 +8652,10 @@ def _resolve_benchmark_gold_and_source(
         )
         if selected_gold in {None, BACK_ACTION}:
             return _abort("Benchmark cancelled.")
+    if isinstance(selected_gold, str):
+        selected_gold = Path(selected_gold)
+    if not isinstance(selected_gold, Path):
+        return _abort("Benchmark cancelled.")
     if not selected_gold.exists():
         return _abort(f"Gold spans file not found: {selected_gold}")
 
@@ -9356,6 +9966,172 @@ def _build_all_method_split_convert_input_key(
             source_file=source_file,
             run_settings=run_settings,
         )
+    )
+
+
+def _single_offline_split_cache_key_payload(
+    *,
+    source_file: Path,
+    source_hash: str | None,
+    pipeline: str | None,
+    run_settings: RunSettings,
+) -> dict[str, Any]:
+    run_config = run_settings.to_run_config_dict()
+    selected_inputs = {
+        key: run_config.get(key)
+        for key in SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_FIELDS
+        if key in run_config
+    }
+    normalized_pipeline = str(pipeline or "auto").strip().lower()
+    return {
+        "schema_version": SINGLE_OFFLINE_SPLIT_CACHE_KEY_SCHEMA_VERSION,
+        "source_file": str(source_file),
+        "source_hash": str(source_hash or "").strip() or None,
+        "pipeline": normalized_pipeline or "auto",
+        "inputs": selected_inputs,
+    }
+
+
+def _build_single_offline_split_cache_key(
+    *,
+    source_file: Path,
+    source_hash: str | None,
+    pipeline: str | None,
+    run_settings: RunSettings,
+) -> str:
+    return _stable_json_sha256(
+        _single_offline_split_cache_key_payload(
+            source_file=source_file,
+            source_hash=source_hash,
+            pipeline=pipeline,
+            run_settings=run_settings,
+        )
+    )
+
+
+def _single_offline_split_cache_entry_path(
+    *,
+    cache_root: Path,
+    split_cache_key: str,
+) -> Path:
+    safe_key = re.sub(r"[^a-zA-Z0-9_.-]+", "_", str(split_cache_key or "").strip())
+    if not safe_key:
+        safe_key = "unknown"
+    return cache_root / f"{safe_key}.json"
+
+
+def _single_offline_split_cache_lock_path(
+    cache_path: Path,
+) -> Path:
+    return cache_path.with_suffix(
+        f"{cache_path.suffix}{SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX}"
+    )
+
+
+def _load_single_offline_split_cache_entry(
+    *,
+    cache_path: Path,
+    expected_key: str,
+) -> dict[str, Any] | None:
+    if not cache_path.exists() or not cache_path.is_file():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if (
+        str(payload.get("schema_version") or "").strip()
+        != SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION
+    ):
+        return None
+    cached_key = str(payload.get("single_offline_split_cache_key") or "").strip()
+    if cached_key != str(expected_key or "").strip():
+        return None
+    conversion_payload = payload.get("conversion_result")
+    if not isinstance(conversion_payload, dict):
+        return None
+    return payload
+
+
+def _write_single_offline_split_cache_entry(
+    *,
+    cache_path: Path,
+    payload: dict[str, Any],
+) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_suffix(
+        f"{cache_path.suffix}.tmp-{os.getpid()}-{time.monotonic_ns()}"
+    )
+    tmp_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    tmp_path.replace(cache_path)
+
+
+def _acquire_single_offline_split_cache_lock(lock_path: Path) -> bool:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        fd = os.open(str(lock_path), flags)
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ),
+                    },
+                    sort_keys=True,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+        return False
+    return True
+
+
+def _release_single_offline_split_cache_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except OSError:
+        return
+
+
+def _wait_for_single_offline_split_cache_entry(
+    *,
+    cache_path: Path,
+    expected_key: str,
+    lock_path: Path,
+    wait_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS,
+    poll_seconds: float = SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS,
+) -> dict[str, Any] | None:
+    deadline = time.monotonic() + max(0.0, float(wait_seconds))
+    sleep_seconds = max(0.05, float(poll_seconds))
+    while time.monotonic() < deadline:
+        cached = _load_single_offline_split_cache_entry(
+            cache_path=cache_path,
+            expected_key=expected_key,
+        )
+        if cached is not None:
+            return cached
+        if not lock_path.exists():
+            break
+        time.sleep(sleep_seconds)
+    return _load_single_offline_split_cache_entry(
+        cache_path=cache_path,
+        expected_key=expected_key,
     )
 
 
@@ -16643,6 +17419,12 @@ def _write_stage_run_manifest(
         artifacts["processing_timeseries_jsonl"] = str(
             processing_timeseries.relative_to(run_root)
         )
+    run_summary_json = run_root / "run_summary.json"
+    if run_summary_json.exists():
+        artifacts["run_summary_json"] = str(run_summary_json.relative_to(run_root))
+    run_summary_md = run_root / "run_summary.md"
+    if run_summary_md.exists():
+        artifacts["run_summary_md"] = str(run_summary_md.relative_to(run_root))
     stage_worker_resolution = run_root / "stage_worker_resolution.json"
     if stage_worker_resolution.exists():
         artifacts["stage_worker_resolution_json"] = str(
@@ -17010,6 +17792,305 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_non_negative_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _collect_stage_run_report_payloads(run_root: Path) -> list[tuple[Path, dict[str, Any]]]:
+    payloads: list[tuple[Path, dict[str, Any]]] = []
+    for report_path in sorted(run_root.glob("*.excel_import_report.json")):
+        try:
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        payloads.append((report_path, payload))
+    return payloads
+
+
+def _build_stage_run_summary_payload(
+    *,
+    run_root: Path,
+    requested_path: Path,
+    run_config: dict[str, Any],
+    errors: list[str],
+) -> dict[str, Any]:
+    reports = _collect_stage_run_report_payloads(run_root)
+
+    totals: dict[str, int] = {
+        "recipes": 0,
+        "tips": 0,
+        "tip_candidates": 0,
+        "topic_candidates": 0,
+        "standalone_blocks": 0,
+        "standalone_topic_blocks": 0,
+    }
+    durations: dict[str, float] = {
+        "total_seconds": 0.0,
+        "parsing_seconds": 0.0,
+        "writing_seconds": 0.0,
+        "ocr_seconds": 0.0,
+    }
+
+    books: list[dict[str, Any]] = []
+    for report_path, payload in reports:
+        source_file = str(payload.get("sourceFile") or "").strip()
+        book_slug = report_path.name.removesuffix(".excel_import_report.json")
+        source_name = Path(source_file).name if source_file else f"{book_slug}"
+        timing = payload.get("timing") if isinstance(payload.get("timing"), dict) else {}
+        row = {
+            "book_slug": book_slug,
+            "source_file": source_file or None,
+            "book_name": source_name,
+            "importer": payload.get("importerName"),
+            "recipes": _coerce_int(payload.get("totalRecipes")) or 0,
+            "tips": _coerce_int(payload.get("totalTips")) or 0,
+            "tip_candidates": _coerce_int(payload.get("totalTipCandidates")) or 0,
+            "topic_candidates": _coerce_int(payload.get("totalTopicCandidates")) or 0,
+            "standalone_blocks": _coerce_int(payload.get("totalStandaloneBlocks")) or 0,
+            "standalone_topic_blocks": _coerce_int(
+                payload.get("totalStandaloneTopicBlocks")
+            )
+            or 0,
+            "total_seconds": _coerce_non_negative_float(timing.get("total_seconds"))
+            or 0.0,
+            "parsing_seconds": _coerce_non_negative_float(
+                timing.get("parsing_seconds")
+            )
+            or 0.0,
+            "writing_seconds": _coerce_non_negative_float(
+                timing.get("writing_seconds")
+            )
+            or 0.0,
+            "ocr_seconds": _coerce_non_negative_float(timing.get("ocr_seconds")) or 0.0,
+            "report_file": report_path.name,
+        }
+        books.append(row)
+        totals["recipes"] += row["recipes"]
+        totals["tips"] += row["tips"]
+        totals["tip_candidates"] += row["tip_candidates"]
+        totals["topic_candidates"] += row["topic_candidates"]
+        totals["standalone_blocks"] += row["standalone_blocks"]
+        totals["standalone_topic_blocks"] += row["standalone_topic_blocks"]
+        durations["total_seconds"] += row["total_seconds"]
+        durations["parsing_seconds"] += row["parsing_seconds"]
+        durations["writing_seconds"] += row["writing_seconds"]
+        durations["ocr_seconds"] += row["ocr_seconds"]
+
+    codex_recipe = str(run_config.get("llm_recipe_pipeline", "off")).strip().lower()
+    codex_knowledge = str(run_config.get("llm_knowledge_pipeline", "off")).strip().lower()
+    codex_tags = str(run_config.get("llm_tags_pipeline", "off")).strip().lower()
+
+    return {
+        "run_dir": run_root.name,
+        "run_root": str(run_root),
+        "requested_path": str(requested_path),
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "book_count": len(books),
+        "error_count": len(errors),
+        "books": books,
+        "totals": {
+            **totals,
+            "files_with_reports": len(books),
+            "errors": len(errors),
+            **durations,
+        },
+        "major_settings": {
+            "workers": run_config.get("workers"),
+            "effective_workers": run_config.get("effective_workers"),
+            "pdf_split_workers": run_config.get("pdf_split_workers"),
+            "epub_split_workers": run_config.get("epub_split_workers"),
+            "epub_extractor": run_config.get("epub_extractor"),
+            "table_extraction": run_config.get("table_extraction"),
+            "section_detector_backend": run_config.get("section_detector_backend"),
+            "multi_recipe_splitter": run_config.get("multi_recipe_splitter"),
+            "instruction_step_segmentation_policy": run_config.get(
+                "instruction_step_segmentation_policy"
+            ),
+            "instruction_step_segmenter": run_config.get("instruction_step_segmenter"),
+        },
+        "codex_farm": {
+            "recipe_pipeline": codex_recipe,
+            "knowledge_pipeline": codex_knowledge,
+            "tags_pipeline": codex_tags,
+            "recipe_enabled": codex_recipe != "off",
+            "knowledge_enabled": codex_knowledge != "off",
+            "tags_enabled": codex_tags != "off",
+            "pass1": run_config.get("codex_farm_pipeline_pass1"),
+            "pass2": run_config.get("codex_farm_pipeline_pass2"),
+            "pass3": run_config.get("codex_farm_pipeline_pass3"),
+            "pass4_knowledge": run_config.get("codex_farm_pipeline_pass4_knowledge"),
+            "pass5_tags": run_config.get("codex_farm_pipeline_pass5_tags"),
+            "context_blocks": run_config.get("codex_farm_context_blocks"),
+            "knowledge_context_blocks": run_config.get("codex_farm_knowledge_context_blocks"),
+        },
+    }
+
+
+def _write_stage_run_summary(
+    *,
+    run_root: Path,
+    requested_path: Path,
+    run_config: dict[str, Any],
+    errors: list[str],
+) -> dict[str, Any] | None:
+    payload = _build_stage_run_summary_payload(
+        run_root=run_root,
+        requested_path=requested_path,
+        run_config=run_config,
+        errors=errors,
+    )
+
+    run_summary_json = run_root / "run_summary.json"
+    run_summary_md = run_root / "run_summary.md"
+
+    try:
+        run_summary_json.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    except OSError:
+        logger.warning("Failed to write %s", run_summary_json)
+
+    def _fmt_s(seconds: float | None) -> str:
+        if seconds is None:
+            return "n/a"
+        return f"{seconds:.2f}s"
+
+    totals = payload.get("totals", {})
+    major_settings = payload.get("major_settings", {})
+    codex = payload.get("codex_farm", {})
+    md_lines = [
+        f"# Stage run summary",
+        f"Run: {payload.get('run_dir')}",
+        f"Requested: {payload.get('requested_path')}",
+        "",
+        "## Books",
+    ]
+    if payload.get("books"):
+        for book in payload.get("books", []):
+            md_lines.append(
+                "- {name}: {recipes} recipes, {tips} tips, {tip_candidates} tip candidates, {topic_candidates} topic candidates".format(
+                    name=book.get("book_name") or book.get("book_slug") or "unknown",
+                    recipes=book.get("recipes", 0),
+                    tips=book.get("tips", 0),
+                    tip_candidates=book.get("tip_candidates", 0),
+                    topic_candidates=book.get("topic_candidates", 0),
+                )
+            )
+    else:
+        md_lines.append("- none")
+
+    md_lines.extend(
+        [
+            "",
+            "## Major settings",
+            f"- Codex-farm recipe pipeline: {codex.get('recipe_pipeline')}",
+            f"- Codex-farm knowledge pipeline: {codex.get('knowledge_pipeline')}",
+            f"- Codex-farm tags pipeline: {codex.get('tags_pipeline')}",
+            f"- workers: {major_settings.get('workers')}",
+            f"- effective_workers: {major_settings.get('effective_workers')}",
+            f"- epub_extractor: {major_settings.get('epub_extractor')}",
+            f"- table_extraction: {major_settings.get('table_extraction')}",
+            "",
+            "## Topline metrics",
+            "- total recipes: {recipes}".format(recipes=totals.get("recipes", 0)),
+            "- total tips: {tips}".format(tips=totals.get("tips", 0)),
+            "- total tip candidates: {tip_candidates}".format(
+                tip_candidates=totals.get("tip_candidates", 0)
+            ),
+            "- total topic candidates: {topic_candidates}".format(
+                topic_candidates=totals.get("topic_candidates", 0)
+            ),
+            "- total standalone blocks: {standalone_blocks}".format(
+                standalone_blocks=totals.get("standalone_blocks", 0)
+            ),
+            "- total standalone topic blocks: {standalone_topic_blocks}".format(
+                standalone_topic_blocks=totals.get("standalone_topic_blocks", 0)
+            ),
+            "- timing total/parsing/writing/ocr: {total}/{parsing}/{writing}/{ocr}".format(
+                total=_fmt_s(totals.get("total_seconds")),
+                parsing=_fmt_s(totals.get("parsing_seconds")),
+                writing=_fmt_s(totals.get("writing_seconds")),
+                ocr=_fmt_s(totals.get("ocr_seconds")),
+            ),
+            "",
+            f"## Files",
+            f"- reports: {payload.get('totals', {}).get('files_with_reports', 0)}",
+            f"- errors: {payload.get('error_count', 0)}",
+        ]
+    )
+
+    try:
+        run_summary_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+    except OSError:
+        logger.warning("Failed to write %s", run_summary_md)
+        return payload
+
+    return payload
+
+
+def _print_stage_summary(payload: dict[str, Any]) -> None:
+    books = payload.get("books")
+    if not isinstance(books, list):
+        return
+    if books:
+        book_names = [
+            str(book.get("book_name") or book.get("book_slug") or "unknown")
+            for book in books
+        ]
+    else:
+        book_names = []
+
+    totals = payload.get("totals", {})
+    codex = payload.get("codex_farm", {})
+    major_settings = payload.get("major_settings", {})
+    run_root = str(payload.get("run_root") or "").strip()
+    run_summary_path = (
+        str(Path(run_root) / "run_summary.md")
+        if run_root
+        else f"{payload.get('run_dir')}/run_summary.md"
+    )
+
+    typer.secho("\nQuick run summary:", fg=typer.colors.CYAN)
+    typer.echo(f"  Books ({len(book_names)}): {', '.join(book_names) if book_names else 'none'}")
+    typer.echo(
+        "  Codex-farm (recipe/knowledge/tags): {recipe}/{knowledge}/{tags}".format(
+            recipe=codex.get("recipe_pipeline", "off"),
+            knowledge=codex.get("knowledge_pipeline", "off"),
+            tags=codex.get("tags_pipeline", "off"),
+        )
+    )
+    typer.echo(
+        "  Settings: workers={workers} effective_workers={effective_workers} "
+        "epub_extractor={epub_extractor}".format(
+            workers=major_settings.get("workers"),
+            effective_workers=major_settings.get("effective_workers"),
+            epub_extractor=major_settings.get("epub_extractor"),
+        )
+    )
+    typer.echo(
+        "  Totals: recipes={recipes} tips={tips} tip_candidates={tip_candidates} "
+        "topic_candidates={topic_candidates}".format(
+            recipes=totals.get("recipes", 0),
+            tips=totals.get("tips", 0),
+            tip_candidates=totals.get("tip_candidates", 0),
+            topic_candidates=totals.get("topic_candidates", 0),
+        )
+    )
+    typer.echo(f"  Timing: total={totals.get('total_seconds', 0.0):.2f}s")
+    typer.echo(f"  Run summary file: {run_summary_path}")
 
 
 def _offset_mapping_int(payload: dict[str, Any], key: str, offset: int) -> None:
@@ -19455,6 +20536,15 @@ def stage(
                     fg=typer.colors.GREEN,
                 )
 
+    stage_run_summary = _write_stage_run_summary(
+        run_root=out,
+        requested_path=path,
+        run_config=run_config,
+        errors=errors,
+    )
+    if stage_run_summary is not None:
+        _print_stage_summary(stage_run_summary)
+
     _write_stage_run_manifest(
         run_root=out,
         output_root=output_root,
@@ -20869,6 +21959,29 @@ def labelstudio_benchmark(
         "--codex-farm-failure-mode",
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
     )] = "fail",
+    single_offline_split_cache_mode: Annotated[str, typer.Option(
+        "--single-offline-split-cache-mode",
+        help=(
+            "Single-offline split conversion cache mode: off or auto. "
+            "Interactive paired runs use auto by default."
+        ),
+    )] = "off",
+    single_offline_split_cache_dir: Annotated[Path | None, typer.Option(
+        "--single-offline-split-cache-dir",
+        help=(
+            "Root directory for single-offline split cache entries "
+            "(JSON conversion payloads keyed by source+split inputs)."
+        ),
+    )] = None,
+    single_offline_split_cache_key: Annotated[str | None, typer.Option(
+        "--single-offline-split-cache-key",
+        help="Internal: explicit single-offline split cache key.",
+        hidden=True,
+    )] = None,
+    single_offline_split_cache_force: Annotated[bool, typer.Option(
+        "--single-offline-split-cache-force/--no-single-offline-split-cache-force",
+        help="Force rebuild of single-offline split cache entry for this run.",
+    )] = False,
     alignment_cache_dir: Annotated[Path | None, typer.Option(
         "--alignment-cache-dir",
         help="Internal: optional canonical alignment cache directory for benchmark runs.",
@@ -21042,6 +22155,20 @@ def labelstudio_benchmark(
         sequence_matcher
     )
     selected_execution_mode = _normalize_benchmark_execution_mode(execution_mode)
+    selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
+        single_offline_split_cache_mode
+    )
+    selected_single_offline_split_cache_dir = (
+        single_offline_split_cache_dir.expanduser()
+        if single_offline_split_cache_dir is not None
+        else None
+    )
+    selected_single_offline_split_cache_key = (
+        str(single_offline_split_cache_key or "").strip() or None
+    )
+    if selected_single_offline_split_cache_mode == "off":
+        selected_single_offline_split_cache_dir = None
+        selected_single_offline_split_cache_key = None
 
     predictions_in_path = predictions_in.expanduser() if predictions_in is not None else None
     predictions_out_path = (
@@ -21069,6 +22196,10 @@ def labelstudio_benchmark(
     should_generate_predictions = predictions_in_path is None
     should_upload_predictions = should_generate_predictions and not no_upload
     should_run_evaluation = selected_execution_mode != BENCHMARK_EXECUTION_MODE_PREDICT_ONLY
+    if not should_generate_predictions:
+        selected_single_offline_split_cache_mode = "off"
+        selected_single_offline_split_cache_dir = None
+        selected_single_offline_split_cache_key = None
 
     if should_upload_predictions and not write_label_studio_tasks:
         _fail("--no-write-labelstudio-tasks can only be used with --no-upload.")
@@ -21093,6 +22224,85 @@ def labelstudio_benchmark(
         timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
         eval_output_dir = _golden_benchmark_root() / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
+    if selected_single_offline_split_cache_mode != "off":
+        if selected_single_offline_split_cache_dir is None:
+            selected_single_offline_split_cache_dir = eval_output_dir / ".split-cache"
+        if selected_single_offline_split_cache_key is None:
+            try:
+                split_cache_source_hash = compute_file_hash(selected_source)
+            except Exception:  # noqa: BLE001
+                split_cache_source_hash = None
+            split_cache_run_settings = build_run_settings(
+                workers=workers,
+                pdf_split_workers=pdf_split_workers,
+                epub_split_workers=epub_split_workers,
+                pdf_pages_per_job=pdf_pages_per_job,
+                epub_spine_items_per_job=epub_spine_items_per_job,
+                epub_extractor=selected_epub_extractor,
+                epub_unstructured_html_parser_version=selected_html_parser_version,
+                epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+                epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                ocr_device=selected_ocr_device,
+                ocr_batch_size=ocr_batch_size,
+                warm_models=warm_models,
+                section_detector_backend=selected_section_detector_backend,
+                multi_recipe_splitter=selected_multi_recipe_splitter,
+                multi_recipe_trace=selected_multi_recipe_trace,
+                multi_recipe_min_ingredient_lines=selected_multi_recipe_min_ingredient_lines,
+                multi_recipe_min_instruction_lines=selected_multi_recipe_min_instruction_lines,
+                multi_recipe_for_the_guardrail=selected_multi_recipe_for_the_guardrail,
+                instruction_step_segmentation_policy=selected_instruction_step_segmentation_policy,
+                instruction_step_segmenter=selected_instruction_step_segmenter,
+                web_schema_extractor=selected_web_schema_extractor,
+                web_schema_normalizer=selected_web_schema_normalizer,
+                web_html_text_extractor=selected_web_html_text_extractor,
+                web_schema_policy=selected_web_schema_policy,
+                web_schema_min_confidence=selected_web_schema_min_confidence,
+                web_schema_min_ingredients=selected_web_schema_min_ingredients,
+                web_schema_min_instruction_steps=selected_web_schema_min_instruction_steps,
+                ingredient_text_fix_backend=selected_ingredient_text_fix_backend,
+                ingredient_pre_normalize_mode=selected_ingredient_pre_normalize_mode,
+                ingredient_packaging_mode=selected_ingredient_packaging_mode,
+                ingredient_parser_backend=selected_ingredient_parser_backend,
+                ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
+                ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+                p6_time_backend=selected_p6_time_backend,
+                p6_time_total_strategy=selected_p6_time_total_strategy,
+                p6_temperature_backend=selected_p6_temperature_backend,
+                p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
+                p6_ovenlike_mode=selected_p6_ovenlike_mode,
+                p6_yield_mode=selected_p6_yield_mode,
+                p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
+                recipe_scorer_backend=selected_recipe_scorer_backend,
+                recipe_score_gold_min=selected_recipe_score_gold_min,
+                recipe_score_silver_min=selected_recipe_score_silver_min,
+                recipe_score_bronze_min=selected_recipe_score_bronze_min,
+                recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
+                recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
+                llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                codex_farm_cmd=codex_farm_cmd,
+                codex_farm_root=codex_farm_root,
+                codex_farm_workspace_root=codex_farm_workspace_root,
+                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                codex_farm_context_blocks=codex_farm_context_blocks,
+                codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
+                codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                all_epub=selected_source.suffix.lower() == ".epub",
+                effective_workers=compute_effective_workers(
+                    workers=workers,
+                    epub_split_workers=epub_split_workers,
+                    epub_extractor=selected_epub_extractor,
+                    all_epub=selected_source.suffix.lower() == ".epub",
+                ),
+            )
+            selected_single_offline_split_cache_key = _build_single_offline_split_cache_key(
+                source_file=selected_source,
+                source_hash=split_cache_source_hash,
+                pipeline=pipeline,
+                run_settings=split_cache_run_settings,
+            )
 
     if warm_models:
         with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
@@ -21108,6 +22318,9 @@ def labelstudio_benchmark(
     prewarmed_canonical_paths: dict[str, Path] | None = None
     prediction_records_output: list[PredictionRecord] = []
     pipelined_replay_bundle: BenchmarkPredictionBundle | None = None
+    codexfarm_prompt_response_log_path: Path | None = None
+    single_offline_split_cache_metadata: dict[str, Any] | None = None
+    single_offline_split_cache_run_config: dict[str, Any] | None = None
 
     try:
         if should_generate_predictions:
@@ -21199,6 +22412,18 @@ def labelstudio_benchmark(
                                 split_phase_slots=split_phase_slots,
                                 split_phase_gate_dir=split_phase_gate_dir,
                                 split_phase_status_label=split_phase_status_label,
+                                single_offline_split_cache_mode=(
+                                    selected_single_offline_split_cache_mode
+                                ),
+                                single_offline_split_cache_dir=(
+                                    selected_single_offline_split_cache_dir
+                                ),
+                                single_offline_split_cache_key=(
+                                    selected_single_offline_split_cache_key
+                                ),
+                                single_offline_split_cache_force=(
+                                    single_offline_split_cache_force
+                                ),
                                 scheduler_event_callback=scheduler_event_callback,
                                 progress_callback=callback,
                                 run_manifest_kind="bench_pred_run",
@@ -21285,6 +22510,18 @@ def labelstudio_benchmark(
                             split_phase_slots=split_phase_slots,
                             split_phase_gate_dir=split_phase_gate_dir,
                             split_phase_status_label=split_phase_status_label,
+                            single_offline_split_cache_mode=(
+                                selected_single_offline_split_cache_mode
+                            ),
+                            single_offline_split_cache_dir=(
+                                selected_single_offline_split_cache_dir
+                            ),
+                            single_offline_split_cache_key=(
+                                selected_single_offline_split_cache_key
+                            ),
+                            single_offline_split_cache_force=(
+                                single_offline_split_cache_force
+                            ),
                             scheduler_event_callback=scheduler_event_callback,
                             auto_project_name_on_scope_mismatch=True,
                             allow_labelstudio_write=True,
@@ -21382,10 +22619,27 @@ def labelstudio_benchmark(
             prediction_records_output = list(prediction_record_input)
 
         import_result = prediction_bundle.import_result
+        imported_split_cache_payload = import_result.get("single_offline_split_cache")
+        if isinstance(imported_split_cache_payload, dict):
+            single_offline_split_cache_metadata = dict(imported_split_cache_payload)
+            _append_processing_timeseries_marker(
+                telemetry_path=(
+                    eval_output_dir / "processing_timeseries_prediction.jsonl"
+                ),
+                event="single_offline_split_cache",
+                payload={
+                    "single_offline_split_cache": single_offline_split_cache_metadata
+                },
+            )
+
         pred_run = prediction_bundle.pred_run
         pred_context = prediction_bundle.pred_context
         stage_predictions_path = prediction_bundle.stage_predictions_path
         extracted_archive_path = prediction_bundle.extracted_archive_path
+        codexfarm_prompt_response_log_path = _build_codex_farm_prompt_response_log(
+            pred_run=pred_run,
+            eval_output_dir=eval_output_dir,
+        )
         prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
         evaluation_stage_predictions_path = stage_predictions_path
         evaluation_extracted_archive_path = extracted_archive_path
@@ -21403,6 +22657,36 @@ def labelstudio_benchmark(
         if suppress_summary:
             raise
         _fail(str(exc))
+
+    if (
+        selected_single_offline_split_cache_mode != "off"
+        or single_offline_split_cache_metadata is not None
+    ):
+        single_offline_split_cache_run_config = {
+            "enabled": selected_single_offline_split_cache_mode != "off",
+            "mode": selected_single_offline_split_cache_mode,
+            "key": selected_single_offline_split_cache_key,
+            "dir": (
+                str(selected_single_offline_split_cache_dir)
+                if selected_single_offline_split_cache_dir is not None
+                else None
+            ),
+            "force": bool(single_offline_split_cache_force),
+            "hit": bool(
+                isinstance(single_offline_split_cache_metadata, dict)
+                and single_offline_split_cache_metadata.get("hit")
+            ),
+            "source_hash": (
+                str(
+                    (single_offline_split_cache_metadata or {}).get("source_hash")
+                    or ""
+                ).strip()
+                or None
+            ),
+            "conversion_seconds": _report_optional_metric(
+                (single_offline_split_cache_metadata or {}).get("conversion_seconds")
+            ),
+        }
 
     if not should_run_evaluation:
         prediction_timing = _normalize_timing_payload(import_result.get("timing"))
@@ -21494,6 +22778,10 @@ def labelstudio_benchmark(
             "codex_farm_failure_mode": selected_codex_farm_failure_mode,
             "stage_block_predictions_path": str(stage_predictions_path),
         }
+        if single_offline_split_cache_run_config is not None:
+            predict_only_run_config["single_offline_split_cache"] = (
+                single_offline_split_cache_run_config
+            )
         if codex_farm_root is not None:
             predict_only_run_config["codex_farm_root"] = str(codex_farm_root)
         if codex_farm_workspace_root is not None:
@@ -21916,6 +23204,10 @@ def labelstudio_benchmark(
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
         "stage_block_predictions_path": str(stage_predictions_path),
     }
+    if single_offline_split_cache_run_config is not None:
+        benchmark_run_config["single_offline_split_cache"] = (
+            single_offline_split_cache_run_config
+        )
     if codex_farm_root is not None:
         benchmark_run_config["codex_farm_root"] = str(codex_farm_root)
     if codex_farm_workspace_root is not None:
@@ -22009,6 +23301,13 @@ def labelstudio_benchmark(
         benchmark_artifacts["processed_report_json"] = _path_for_manifest(
             eval_output_dir,
             csv_report_path,
+        )
+    if codexfarm_prompt_response_log_path is not None:
+        benchmark_artifacts[
+            "codexfarm_prompt_request_response_txt"
+        ] = _path_for_manifest(
+            eval_output_dir,
+            codexfarm_prompt_response_log_path,
         )
     processed_run_root = import_result.get("processed_run_root")
     if processed_run_root:

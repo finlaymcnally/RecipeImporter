@@ -72,6 +72,14 @@ Common run patterns:
 - `. .venv/bin/activate && pytest -m smoke`
 - `. .venv/bin/activate && pytest -m "ingestion and not slow" --collect-only`
 - `. .venv/bin/activate && pytest tests/labelstudio -m "labelstudio and not slow" --collect-only`
+- `./scripts/test-suite.sh smoke`
+- `./scripts/test-suite.sh fast`
+- `./scripts/test-suite.sh domain <domain>`
+- `./scripts/test-suite.sh all-fast`
+- `./scripts/test-suite.sh full`
+- `./scripts/test-suite.sh domain parsing --collect-only`
+
+For fast-feedback agent workflows, use these `scripts/test-suite.sh` modes by default. Avoid raw `pytest` routine loops; the unchunked full path can exceed 5 minutes and should be used only intentionally.
 
 ## Compact Output Behavior
 

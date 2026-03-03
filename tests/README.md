@@ -4,6 +4,8 @@ The repo now tags tests by domain automatically in `tests/conftest.py`.
 Use marker filters so AI runs only what is needed.
 Durable low-noise and modularity contracts live in `tests/CONVENTIONS.md`.
 
+For agent/day-to-day loops, do not run raw `pytest` directly because it can become a long-running full-suite loop. Use `./scripts/test-suite.sh` domain batches instead: `smoke`, `domain <domain>`, `all-fast`, `fast`, and `full` only when intentionally required.
+
 ## Folder Layout
 
 ```text
@@ -23,21 +25,19 @@ tests/
 ## Minimal Runs
 
 ```bash
-. .venv/bin/activate
+source .venv/bin/activate
+./scripts/test-suite.sh smoke
+./scripts/test-suite.sh fast
+./scripts/test-suite.sh all-fast
+./scripts/test-suite.sh domain <domain>
+
+# all test-suite.sh commands accept extra pytest args after mode/domain
+./scripts/test-suite.sh domain parsing -k "table"
+
+# marker-based equivalents
 pytest -m smoke
 pytest -m "not slow"
-pytest tests/parsing
-pytest tests/ingestion
-pytest tests/labelstudio
-pytest -m ingestion
-pytest -m parsing
-pytest -m staging
-pytest -m cli
-pytest -m labelstudio
-pytest -m bench
-pytest -m analytics
-pytest -m tagging
-pytest -m llm
+pytest -m "<domain> and not slow"
 ```
 
 Default output is intentionally compact, and this is enforced in `tests/conftest.py`

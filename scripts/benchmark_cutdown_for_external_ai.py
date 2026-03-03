@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Build a compact benchmark package for external AI review.
 
+Run with:
+    python3 scripts/benchmark_cutdown_for_external_ai.py <input_dir> [--output-dir <dir>]
+
 This script creates a deterministic, low-token benchmark package that preserves
 the signals needed to answer:
 1) how well the run performed, and
@@ -13,6 +16,7 @@ folders that contain both `eval_report.json` and `run_manifest.json`.
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import shutil
 import subprocess
@@ -27,7 +31,8 @@ from typing import Any
 DEFAULT_SAMPLE_LIMIT = 80
 DEFAULT_TOP_CONFUSIONS = 8
 DEFAULT_TOP_LABELS = 6
-EXCERPT_LIMIT = 240
+DEFAULT_EXCERPT_LIMIT = 440
+DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 2
 
 # Keep this focused on settings that are likely to explain quality deltas.
 RUN_CONFIG_KEYS_OF_INTEREST = (
@@ -59,11 +64,21 @@ ROOT_METADATA_FILES = (
     "comparison_summary.json",
     "process_manifest.json",
 )
+AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
+PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
+PROMPT_LOG_SEPARATOR = "--------------------------------------------------------------------------------"
+PROMPT_SECTION_HEADER_RE = re.compile(r"^---\s+(PASS[0-9A-Za-z_]+)\s+(INPUT|RESPONSE) FILES ---$")
+PROMPT_ENTRY_RE = re.compile(r"^(INPUT|OUTPUT)\s+(pass[0-9A-Za-z_]+)\s*=>\s*(.+)$")
 
 SAMPLED_JSONL_INPUTS = (
     ("wrong_label_lines.jsonl", "wrong_label_lines.sample.jsonl"),
     ("missed_gold_lines.jsonl", "missed_gold_lines.sample.jsonl"),
     ("unmatched_pred_blocks.jsonl", "unmatched_pred_blocks.sample.jsonl"),
+    ("wrong_label_blocks.jsonl", "wrong_label_blocks.sample.jsonl"),
+    ("missed_gold_blocks.jsonl", "missed_gold_blocks.sample.jsonl"),
+    ("false_positive_preds.jsonl", "false_positive_preds.sample.jsonl"),
+    ("aligned_prediction_blocks.jsonl", "aligned_prediction_blocks.sample.jsonl"),
+    ("alignment_gaps.jsonl", "alignment_gaps.sample.jsonl"),
 )
 
 
@@ -129,6 +144,21 @@ def _parse_args() -> argparse.Namespace:
         help=f"Number of low-recall/precision labels to keep (default: {DEFAULT_TOP_LABELS}).",
     )
     parser.add_argument(
+        "--excerpt-limit",
+        type=int,
+        default=DEFAULT_EXCERPT_LIMIT,
+        help=f"Max chars kept in sampled text fields (default: {DEFAULT_EXCERPT_LIMIT}).",
+    )
+    parser.add_argument(
+        "--prompt-pairs-per-category",
+        type=int,
+        default=DEFAULT_PROMPT_PAIRS_PER_CATEGORY,
+        help=(
+            "Max full input/output pairs to keep per prompt category from the prompt log "
+            "(default: 2). Set to 0 to keep the full log."
+        ),
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite output directory if it already exists.",
@@ -137,6 +167,14 @@ def _parse_args() -> argparse.Namespace:
         "--no-flatten",
         action="store_true",
         help="Skip flattening output folder into <output_dir>_md.",
+    )
+    parser.add_argument(
+        "--keep-cutdown",
+        action="store_true",
+        help=(
+            "Keep the intermediate non-flattened <output_dir> folder. "
+            "By default, the intermediate folder is removed."
+        ),
     )
     parser.add_argument(
         "--flatten-script",
@@ -280,7 +318,7 @@ def _coerce_float(value: Any) -> float | None:
     return None
 
 
-def _excerpt(text: str, max_len: int = EXCERPT_LIMIT) -> str:
+def _excerpt(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     if max_len <= 3:
@@ -288,13 +326,34 @@ def _excerpt(text: str, max_len: int = EXCERPT_LIMIT) -> str:
     return text[: max_len - 3] + "..."
 
 
-def _clip_large_text_fields(row: dict[str, Any]) -> dict[str, Any]:
+def _clip_large_text_fields(row: dict[str, Any], *, excerpt_limit: int) -> dict[str, Any]:
     clipped = dict(row)
     for key in ("line_text_excerpt", "block_text_excerpt", "selected_text", "text"):
         value = clipped.get(key)
         if isinstance(value, str):
-            clipped[key] = _excerpt(value)
+            clipped[key] = _excerpt(value, max_len=excerpt_limit)
     return clipped
+
+
+def _sample_rows_evenly(rows: list[dict[str, Any]], sample_limit: int) -> list[dict[str, Any]]:
+    if sample_limit >= len(rows):
+        return list(rows)
+    if sample_limit <= 0 or not rows:
+        return []
+    if sample_limit == 1:
+        return [rows[0]]
+
+    last_index = len(rows) - 1
+    selected_indices = {
+        int(round(position * last_index / (sample_limit - 1))) for position in range(sample_limit)
+    }
+    if len(selected_indices) < sample_limit:
+        extras = [
+            index for index in range(len(rows)) if index not in selected_indices
+        ][: sample_limit - len(selected_indices)]
+        selected_indices.update(extras)
+    ordered_indices = sorted(selected_indices)[:sample_limit]
+    return [rows[index] for index in ordered_indices]
 
 
 def _write_jsonl_sample(
@@ -302,15 +361,171 @@ def _write_jsonl_sample(
     source_path: Path,
     output_path: Path,
     sample_limit: int,
+    excerpt_limit: int,
 ) -> dict[str, int]:
     rows = _iter_jsonl(source_path)
-    sampled = [_clip_large_text_fields(row) for row in rows[:sample_limit]]
+    sampled_raw = _sample_rows_evenly(rows, sample_limit)
+    sampled = [_clip_large_text_fields(row, excerpt_limit=excerpt_limit) for row in sampled_raw]
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
         for row in sampled:
             handle.write(json.dumps(row))
             handle.write("\n")
     return {"total_rows": len(rows), "sample_rows": len(sampled)}
+
+
+def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[dict[str, str]]]]:
+    sections: dict[str, dict[str, list[dict[str, str]]]] = defaultdict(
+        lambda: {"input": [], "output": []}
+    )
+
+    current_category: str | None = None
+    current_kind: str | None = None
+    current_filename: str | None = None
+    current_lines: list[str] = []
+    collecting = False
+
+    def flush_current_entry() -> None:
+        nonlocal collecting, current_category, current_kind, current_filename, current_lines
+        if not collecting or current_category is None or current_kind is None:
+            return
+        if current_filename is None:
+            return
+        text = "\n".join(current_lines).strip()
+        if text:
+            sections[current_category][current_kind].append(
+                {"filename": current_filename, "text": text}
+            )
+        collecting = False
+        current_filename = None
+        current_lines = []
+        current_kind = None
+
+    for raw_line in source_path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+
+        section_match = PROMPT_SECTION_HEADER_RE.match(stripped)
+        if section_match:
+            flush_current_entry()
+            current_category = section_match.group(1).lower()
+            continue
+
+        entry_match = PROMPT_ENTRY_RE.match(stripped)
+        if entry_match:
+            flush_current_entry()
+            current_category = entry_match.group(2).lower()
+            current_kind = "input" if entry_match.group(1).upper() == "INPUT" else "output"
+            current_filename = entry_match.group(3).strip()
+            current_lines = [raw_line]
+            collecting = True
+            continue
+
+        if stripped == PROMPT_LOG_SEPARATOR:
+            flush_current_entry()
+            continue
+
+        if collecting and current_category is not None:
+            current_lines.append(raw_line)
+
+    flush_current_entry()
+    return {
+        category: payload
+        for category, payload in sections.items()
+        if payload["input"] or payload["output"]
+    }
+
+
+def _prompt_category_sort_key(category: str) -> tuple[int, int | str]:
+    lower = category.lower()
+    match = re.match(r"^pass(\d+)$", lower)
+    if match:
+        return (0, int(match.group(1)))
+    return (1, lower)
+
+
+def _write_prompt_log_samples(
+    *,
+    source_path: Path,
+    output_path: Path,
+    max_pairs_per_category: int,
+) -> dict[str, Any]:
+    parsed = _parse_prompt_log_sections(source_path)
+    if not parsed:
+        output_path.write_text(
+            (
+                "No parseable prompt input/response sections were found in this log.\n"
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "status": "no_sections",
+            "max_pairs_per_category": max_pairs_per_category,
+            "categories": [],
+            "sampled_pairs": 0,
+        }
+
+    lines: list[str] = [
+        "# CodexFarm prompt input/output examples (sampled)",
+        "",
+        (
+            "This file keeps a deterministic sample of whole prompt-input/output file "
+            f"blocks from the full prompt log, at most {max_pairs_per_category} pairs "
+            "per category."
+        ),
+        "",
+        f"Source log: {source_path}",
+        "",
+    ]
+
+    category_metadata: dict[str, dict[str, int]] = {}
+    sampled_pairs = 0
+    for category in sorted(parsed.keys(), key=_prompt_category_sort_key):
+        input_blocks = parsed[category]["input"]
+        output_blocks = parsed[category]["output"]
+        pair_count = min(len(input_blocks), len(output_blocks), max_pairs_per_category)
+
+        category_metadata[category] = {
+            "input_blocks": len(input_blocks),
+            "output_blocks": len(output_blocks),
+            "sampled_pairs": pair_count,
+        }
+        lines.append(
+            (
+                f"--- {category.upper()} INPUT/OUTPUT PAIRS (showing {pair_count} of "
+                f"{min(len(input_blocks), len(output_blocks))}) ---"
+            )
+        )
+        if pair_count == 0:
+            lines.append("No full input/output pair available for this category in this log.")
+            lines.append("")
+            continue
+
+        for index in range(pair_count):
+            input_block = input_blocks[index]
+            output_block = output_blocks[index]
+            pair_no = index + 1
+            lines.extend(
+                [
+                    f"[{category}] Pair {pair_no} - INPUT file: {input_block['filename']}",
+                    input_block["text"],
+                    PROMPT_LOG_SEPARATOR,
+                    f"[{category}] Pair {pair_no} - OUTPUT file: {output_block['filename']}",
+                    output_block["text"],
+                    PROMPT_LOG_SEPARATOR,
+                    "",
+                ]
+            )
+            sampled_pairs += 1
+
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return {
+        "status": "sampled",
+        "source_path": str(source_path),
+        "max_pairs_per_category": max_pairs_per_category,
+        "categories": sorted(parsed.keys(), key=_prompt_category_sort_key),
+        "sampled_pairs": sampled_pairs,
+        "category_metadata": category_metadata,
+    }
 
 
 def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
@@ -417,6 +632,7 @@ def _build_correct_label_sample(
     eval_report: dict[str, Any],
     wrong_label_rows: list[dict[str, Any]],
     sample_limit: int,
+    excerpt_limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     canonical = eval_report.get("canonical")
     if not isinstance(canonical, dict):
@@ -459,7 +675,7 @@ def _build_correct_label_sample(
         gold_label = gold_labels[0] if gold_labels else "OTHER"
         row = {
             "line_index": line_index,
-            "line_text_excerpt": _excerpt(str(line.get("text") or "")),
+            "line_text_excerpt": _excerpt(str(line.get("text") or ""), max_len=excerpt_limit),
             "gold_label": gold_label,
             "gold_labels": gold_labels,
             "pred_label": gold_label,
@@ -621,8 +837,10 @@ def _build_run_cutdown(
     run_dir: Path,
     output_run_dir: Path,
     sample_limit: int,
+    excerpt_limit: int,
     top_confusions_limit: int,
     top_labels_limit: int,
+    prompt_pairs_per_category: int,
 ) -> RunRecord:
     run_manifest = _load_json(run_dir / "run_manifest.json")
     eval_report = _load_json(run_dir / "eval_report.json")
@@ -645,8 +863,7 @@ def _build_run_cutdown(
     if eval_report_md_path.is_file():
         shutil.copy2(eval_report_md_path, output_run_dir / "eval_report.md")
 
-    sample_counts: dict[str, dict[str, int]] = {}
-    sampled_rows_by_name: dict[str, list[dict[str, Any]]] = {}
+    sample_counts: dict[str, Any] = {}
     for source_name, output_name in SAMPLED_JSONL_INPUTS:
         source_path_jsonl = run_dir / source_name
         output_path_jsonl = output_run_dir / output_name
@@ -654,15 +871,16 @@ def _build_run_cutdown(
             source_path=source_path_jsonl,
             output_path=output_path_jsonl,
             sample_limit=sample_limit,
+            excerpt_limit=excerpt_limit,
         )
         sample_counts[output_name] = counts
-        sampled_rows_by_name[source_name] = _iter_jsonl(output_path_jsonl)
 
     wrong_rows_for_correct = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
     correct_rows, correct_metadata = _build_correct_label_sample(
         eval_report=eval_report,
         wrong_label_rows=wrong_rows_for_correct,
         sample_limit=sample_limit,
+        excerpt_limit=excerpt_limit,
     )
     correct_path = output_run_dir / "correct_label_lines.sample.jsonl"
     _write_jsonl(correct_path, correct_rows)
@@ -671,9 +889,21 @@ def _build_run_cutdown(
         "sample_rows": len(correct_rows),
     }
 
-    codex_prompt_log = run_dir / "codexfarm_prompt_log.dedup.txt"
+    codex_prompt_log = run_dir / PROMPT_LOG_FILE_NAME
     if codex_prompt_log.is_file():
-        shutil.copy2(codex_prompt_log, output_run_dir / codex_prompt_log.name)
+        prompt_log_output = output_run_dir / PROMPT_LOG_FILE_NAME
+        if prompt_pairs_per_category <= 0:
+            shutil.copy2(codex_prompt_log, prompt_log_output)
+            sample_counts[PROMPT_LOG_FILE_NAME] = {
+                "status": "full_copied",
+                "source_path": str(codex_prompt_log),
+            }
+        else:
+            sample_counts[PROMPT_LOG_FILE_NAME] = _write_prompt_log_samples(
+                source_path=codex_prompt_log,
+                output_path=prompt_log_output,
+                max_pairs_per_category=prompt_pairs_per_category,
+            )
 
     top_confusions = _top_confusions(
         eval_report.get("confusion"),
@@ -751,6 +981,7 @@ def _build_run_cutdown(
             "gold_total": _coerce_int(worst_label_recall.get("gold_total")),
         },
         "top_confusions": top_confusions,
+        "per_label_metrics": compact_per_label,
         "lowest_recall_labels": low_recall_labels,
         "lowest_precision_labels": low_precision_labels,
         "sample_counts": sample_counts,
@@ -927,6 +1158,8 @@ def _write_readme(
     input_dir: Path,
     records: list[RunRecord],
     sample_limit: int,
+    excerpt_limit: int,
+    prompt_pairs_per_category: int,
     flattened: bool,
 ) -> None:
     lines: list[str] = []
@@ -936,15 +1169,22 @@ def _write_readme(
     lines.append(f"Source folder: `{input_dir}`")
     lines.append(f"Run count: {len(records)}")
     lines.append(f"Sample limit per JSONL artifact: {sample_limit}")
+    lines.append(f"Excerpt char limit for sampled text fields: {excerpt_limit}")
+    if prompt_pairs_per_category <= 0:
+        lines.append("CodexFarm prompt log: full file copied.")
+    else:
+        lines.append(
+            "CodexFarm prompt log: sampled prompt input/output pairs per category "
+            f"(max {prompt_pairs_per_category})"
+        )
     lines.append("")
     lines.append("Each run folder includes:")
     lines.append("- `need_to_know_summary.json`")
     lines.append("- `eval_report.md` (if present in source run)")
     lines.append("- `correct_label_lines.sample.jsonl`")
-    lines.append("- `wrong_label_lines.sample.jsonl`")
-    lines.append("- `missed_gold_lines.sample.jsonl`")
-    lines.append("- `unmatched_pred_blocks.sample.jsonl`")
-    lines.append("- `codexfarm_prompt_log.dedup.txt` (if present)")
+    for _, output_name in SAMPLED_JSONL_INPUTS:
+        lines.append(f"- `{output_name}`")
+    lines.append(f"- `{PROMPT_LOG_FILE_NAME}` (if present)")
     lines.append("")
     lines.append("Root files:")
     lines.append("- `run_index.json`")
@@ -993,7 +1233,59 @@ def _flatten_output(
         source = output_dir / file_name
         if source.is_file():
             shutil.copy2(source, md_output_dir / file_name)
+
+    _write_root_summary_markdown(md_output_dir)
     return md_output_dir
+
+
+def _write_root_summary_markdown(output_dir: Path) -> Path:
+    readme_path = output_dir / "README.md"
+    run_index_path = output_dir / "run_index.json"
+    comparison_summary_path = output_dir / "comparison_summary.json"
+    process_manifest_path = output_dir / "process_manifest.json"
+
+    sections: list[str] = []
+    sections.append("# Benchmark Need-To-Know Package (Flattened)")
+    sections.append("")
+
+    if readme_path.is_file():
+        sections.append("## README")
+        sections.append(readme_path.read_text(encoding="utf-8").rstrip())
+        sections.append("")
+
+    if run_index_path.is_file():
+        sections.append("## run_index.json")
+        sections.append("```json")
+        sections.append(json.dumps(_load_json(run_index_path), indent=2, sort_keys=True))
+        sections.append("```")
+        sections.append("")
+
+    if comparison_summary_path.is_file():
+        sections.append("## comparison_summary.json")
+        sections.append("```json")
+        sections.append(
+            json.dumps(_load_json(comparison_summary_path), indent=2, sort_keys=True)
+        )
+        sections.append("```")
+        sections.append("")
+
+    if process_manifest_path.is_file():
+        sections.append("## process_manifest.json")
+        sections.append("```json")
+        sections.append(
+            json.dumps(_load_json(process_manifest_path), indent=2, sort_keys=True)
+        )
+        sections.append("```")
+        sections.append("")
+
+    output_path = output_dir / AGGREGATED_ROOT_SUMMARY_MD
+    output_path.write_text("\n".join(sections).rstrip() + "\n", encoding="utf-8")
+
+    for source_path in (readme_path, run_index_path, comparison_summary_path, process_manifest_path):
+        if source_path.is_file():
+            source_path.unlink()
+
+    return output_path
 
 
 def main() -> int:
@@ -1004,6 +1296,15 @@ def main() -> int:
         return 1
     if args.sample_limit <= 0:
         print("error: --sample-limit must be > 0", file=sys.stderr)
+        return 1
+    if args.excerpt_limit <= 0:
+        print("error: --excerpt-limit must be > 0", file=sys.stderr)
+        return 1
+    if args.prompt_pairs_per_category < 0:
+        print(
+            "error: --prompt-pairs-per-category must be >= 0",
+            file=sys.stderr,
+        )
         return 1
 
     run_dirs = _discover_run_dirs(input_dir)
@@ -1017,8 +1318,10 @@ def main() -> int:
 
     if args.output_dir is None:
         output_dir = _default_output_dir_from_runs(input_dir, run_dirs)
+        output_dir_explicit = False
     else:
         output_dir = args.output_dir.resolve()
+        output_dir_explicit = True
 
     if output_dir.exists():
         if not args.overwrite:
@@ -1042,8 +1345,10 @@ def main() -> int:
             run_dir=run_dir,
             output_run_dir=output_run_dir,
             sample_limit=args.sample_limit,
+            excerpt_limit=args.excerpt_limit,
             top_confusions_limit=args.top_confusions,
             top_labels_limit=args.top_labels,
+            prompt_pairs_per_category=args.prompt_pairs_per_category,
         )
         records.append(record)
 
@@ -1083,8 +1388,10 @@ def main() -> int:
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
         "sample_limit": args.sample_limit,
+        "excerpt_limit": args.excerpt_limit,
         "top_confusions": args.top_confusions,
         "top_labels": args.top_labels,
+        "prompt_pairs_per_category": args.prompt_pairs_per_category,
         "flatten_enabled": not args.no_flatten,
         "flatten_script": str(args.flatten_script),
     }
@@ -1095,6 +1402,8 @@ def main() -> int:
         input_dir=input_dir,
         records=records,
         sample_limit=args.sample_limit,
+        excerpt_limit=args.excerpt_limit,
+        prompt_pairs_per_category=args.prompt_pairs_per_category,
         flattened=not args.no_flatten,
     )
 
@@ -1107,8 +1416,14 @@ def main() -> int:
             flatten_script=args.flatten_script,
         )
 
-    print(f"Built cutdown package: {output_dir}")
-    if md_output_dir is not None:
+        if not args.keep_cutdown and not output_dir_explicit:
+            shutil.rmtree(output_dir)
+
+    final_output_dir = md_output_dir if md_output_dir is not None else output_dir
+    print(f"Built cutdown package: {final_output_dir}")
+    if args.keep_cutdown and not args.no_flatten:
+        print(f"Kept intermediate package: {output_dir}")
+    if md_output_dir is not None and not args.no_flatten:
         print(f"Built flattened package: {md_output_dir}")
     print(f"Runs processed: {len(records)}")
     return 0

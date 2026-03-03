@@ -959,7 +959,8 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     assert any("task 1/2" in message for message in progress_messages)
     assert any("task 2/2" in message for message in progress_messages)
     assert sum(1 for message in progress_messages if "task 0/2" in message) == 1
-    assert all(" | active " not in message for message in progress_messages)
+    assert any("active [r0000.json]" in message for message in progress_messages)
+    assert any("active [r0001.json]" in message for message in progress_messages)
 
 
 def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported(

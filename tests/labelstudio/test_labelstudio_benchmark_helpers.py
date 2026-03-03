@@ -2010,9 +2010,9 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert "label_studio_api_key" not in captured
     assert captured["epub_extractor"] == "beautifulsoup"
     assert mode_prompts
-    assert any("offline, no upload" in title for title in mode_prompts[0])
-    assert any("All method benchmark" in title for title in mode_prompts[0])
+    assert not any("offline, no upload" in title for title in mode_prompts[0])
     assert not any("uploads to Label Studio" in title for title in mode_prompts[0])
+    assert not any("All method benchmark" in title for title in mode_prompts[0])
 
 
 def test_interactive_benchmark_single_offline_mode_skips_credentials(
@@ -2234,6 +2234,27 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
         "codex-farm-3pass-v1",
+    ]
+    expected_split_cache_dir = (
+        benchmark_eval_output / "single-offline-benchmark" / ".split-cache"
+    )
+    assert [call["single_offline_split_cache_mode"] for call in benchmark_calls] == [
+        "auto",
+        "auto",
+    ]
+    assert [call["single_offline_split_cache_dir"] for call in benchmark_calls] == [
+        expected_split_cache_dir,
+        expected_split_cache_dir,
+    ]
+    split_cache_keys = [
+        str(call.get("single_offline_split_cache_key") or "")
+        for call in benchmark_calls
+    ]
+    assert split_cache_keys[0]
+    assert split_cache_keys[0] == split_cache_keys[1]
+    assert [call["single_offline_split_cache_force"] for call in benchmark_calls] == [
+        False,
+        False,
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-offline-benchmark" / "vanilla",
