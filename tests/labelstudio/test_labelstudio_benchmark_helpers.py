@@ -1903,6 +1903,19 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert pass1_row["parsed_response"] == {"result": "pass1 response"}
     assert pass1_row["raw_response"]["output_file"].endswith("r0000.json")
 
+    prompt_samples_path = (
+        eval_output_dir
+        / "codexfarm"
+        / "prompt_type_samples_from_full_prompt_log.md"
+    )
+    assert prompt_samples_path.exists()
+    prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
+    assert "## pass1 (Chunking)" in prompt_samples
+    assert "## pass2 (Schema.org Extraction)" in prompt_samples
+    assert "## pass3 (Final Draft)" in prompt_samples
+    assert "call_id: `r0000`" in prompt_samples
+    assert "Telemetry prompt body" in prompt_samples
+
 
 def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     tmp_path: Path,
@@ -1947,6 +1960,16 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     ]
     assert len(full_prompt_rows) == 1
     assert full_prompt_rows[0]["pass"] == "pass1"
+    prompt_samples_path = (
+        eval_output_dir
+        / "codexfarm"
+        / "prompt_type_samples_from_full_prompt_log.md"
+    )
+    assert prompt_samples_path.exists()
+    prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
+    assert "## pass1 (Chunking)" in prompt_samples
+    assert "## pass2 (Schema.org Extraction)" in prompt_samples
+    assert "_No rows captured for this pass._" in prompt_samples
 
 
 def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
@@ -3075,6 +3098,77 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
         payload["metadata"]["codex_farm_runtime"]["codex_reasoning_effort"]
         == "high"
     )
+
+
+def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    (codex_home / "models_cache.json").write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.3-codex-spark",
+                        "default_reasoning_level": "high",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setattr(cli, "default_codex_reasoning_effort", lambda cmd=None: None)
+
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(tmp_path / "book.epub"),
+                "source_hash": "source-hash",
+                "recipe_count": 7,
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "codex_farm_cmd": "codex-farm",
+                    "workers": 1,
+                },
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+                "llm_codex_farm": {
+                    "process_runs": {
+                        "pass1": {
+                            "process_payload": {
+                                "codex_model": "gpt-5.3-codex-spark",
+                                "codex_reasoning_effort": None,
+                            },
+                            "telemetry_report": {
+                                "insights": {
+                                    "model_reasoning_breakdown": [
+                                        {
+                                            "model": "gpt-5.3-codex-spark",
+                                            "reasoning_effort": "<default>",
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    context = cli._load_pred_run_recipe_context(pred_run)
+
+    assert context.run_config is not None
+    assert context.run_config.get("codex_farm_model") == "gpt-5.3-codex-spark"
+    assert context.run_config.get("codex_farm_reasoning_effort") == "high"
+    assert context.run_config_hash is None
+    assert context.run_config_summary is None
 
 
 def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(

@@ -951,6 +951,43 @@ def default_codex_reasoning_effort(cmd: str | None = None) -> str | None:
     return None
 
 
+def default_codex_reasoning_effort_for_model(
+    model: str | None,
+    *,
+    cmd: str | None = None,
+) -> str | None:
+    """Resolve model-default reasoning effort from Codex models cache files."""
+    target = str(model or "").strip().lower()
+    if not target:
+        return None
+
+    for cache_path in _codex_models_cache_paths(cmd=cmd):
+        if not cache_path.exists():
+            continue
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        rows = payload.get("models")
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            slug = str(row.get("slug") or "").strip().lower()
+            if slug != target:
+                continue
+            try:
+                effort = normalize_codex_reasoning_effort(
+                    str(row.get("default_reasoning_level") or "").strip()
+                )
+            except ValueError:
+                effort = None
+            if effort:
+                return effort
+    return None
+
+
 def _supported_reasoning_efforts_from_model_row(row: dict[str, Any]) -> list[str]:
     """Best-effort normalized reasoning-effort list from one models_cache row."""
     raw_levels = row.get("supported_reasoning_levels")

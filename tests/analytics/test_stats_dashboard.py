@@ -734,6 +734,87 @@ class TestCollectors:
             for path in artifact_dirs
         )
 
+    def test_csv_collector_backfills_codex_runtime_from_prediction_run_manifest(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "output"
+        history_dir = output_root / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        eval_dir = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / "2026-03-03_01.24.28"
+            / "single-offline-benchmark"
+            / "seaandsmokecutdown"
+            / "codexfarm"
+        )
+        pred_run_dir = eval_dir / "prediction-run"
+        pred_run_dir.mkdir(parents=True, exist_ok=True)
+        (pred_run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(tmp_path / "input" / "SeaAndSmokeCUTDOWN.epub"),
+                    "importer_name": "epub",
+                    "recipe_count": 19,
+                    "run_config": {
+                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "workers": 7,
+                    },
+                    "llm_codex_farm": {
+                        "process_runs": {
+                            "pass1": {
+                                "process_payload": {
+                                    "codex_model": "gpt-5.3-codex-spark",
+                                    "codex_reasoning_effort": "<default>",
+                                }
+                            }
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        row = {field: "" for field in _CSV_FIELDS}
+        row.update(
+            {
+                "run_timestamp": "2026-03-03T01:28:32",
+                "run_dir": str(eval_dir),
+                "file_name": "SeaAndSmokeCUTDOWN.epub",
+                "run_category": "benchmark_eval",
+                "eval_scope": "canonical-text",
+                "strict_accuracy": "0.2739",
+                "macro_f1_excluding_other": "0.3484",
+                "gold_total": "595",
+                "gold_matched": "163",
+                "run_config_json": json.dumps(
+                    {
+                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "workers": 7,
+                    }
+                ),
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(row)
+
+        data = collect_dashboard_data(
+            output_root=output_root,
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        record = data.benchmark_records[0]
+        assert record.run_config is not None
+        assert record.run_config.get("codex_farm_model") == "gpt-5.3-codex-spark"
+        assert record.run_config.get("codex_farm_reasoning_effort") == "<default>"
+        assert "codex_farm_model=gpt-5.3-codex-spark" in str(record.run_config_summary)
+        assert "codex_farm_reasoning_effort=<default>" in str(record.run_config_summary)
+
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
         history_dir.mkdir(parents=True)
@@ -1192,7 +1273,9 @@ class TestRenderer:
         assert "function importerLabelForRecord(record)" in js
         assert "all-method: " in js
         assert "function aiModelEffortLabelForRecord(record)" in js
-        assert "return String(pipeline);" in js
+        assert 'if (pipelineText === "off") return "off";' in js
+        assert "return \"-\";" in js
+        assert 'lower === "<default>"' in js
         assert "function renderLatestRuntime()" in js
         assert 'const latestTs = String(preferred[0].run_timestamp || "");' in js
         assert "const latestGroup = preferred.filter(" in js

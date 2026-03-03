@@ -142,6 +142,9 @@ class QualityExperimentResult(BaseModel):
     error: str | None = None
     run_settings_hash: str | None = None
     run_settings_summary: str | None = None
+    # Optional: when line-role pipeline artifacts exist under the experiment root,
+    # capture a tiny, human-friendly summary plus file pointers.
+    line_role_artifacts: dict[str, Any] | None = None
     strict_precision_macro: float | None = None
     strict_recall_macro: float | None = None
     strict_f1_macro: float | None = None
@@ -2399,6 +2402,10 @@ def _run_single_experiment(
         experiment_root=experiment_root,
         report_payload=report_payload,
     )
+    line_role_artifacts = _summarize_line_role_artifacts(
+        experiment_root=experiment_root,
+        run_root=run_root,
+    )
 
     status = aggregate_payload["status"]
     error = aggregate_payload.get("error")
@@ -2408,6 +2415,7 @@ def _run_single_experiment(
         error=error,
         run_settings_hash=run_settings.stable_hash(),
         run_settings_summary=run_settings.summary(),
+        line_role_artifacts=line_role_artifacts,
         strict_precision_macro=aggregate_payload.get("strict_precision_macro"),
         strict_recall_macro=aggregate_payload.get("strict_recall_macro"),
         strict_f1_macro=aggregate_payload.get("strict_f1_macro"),
@@ -2768,9 +2776,67 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
             f"source_success_rate={_render_metric(row.get('source_success_rate'))} | "
             f"settings_hash={row.get('run_settings_hash') or 'n/a'}"
         )
+        report_md_path = str(row.get("report_md_path") or "").strip()
+        report_json_path = str(row.get("report_json_path") or "").strip()
+        if report_md_path or report_json_path:
+            report_bits = []
+            if report_md_path:
+                report_bits.append(f"md={report_md_path}")
+            if report_json_path:
+                report_bits.append(f"json={report_json_path}")
+            lines.append(f"  report: {', '.join(report_bits)}")
         error_text = str(row.get("error") or "").strip()
         if error_text:
             lines.append(f"  error: {error_text}")
+        artifacts = row.get("line_role_artifacts")
+        if isinstance(artifacts, dict):
+            eval_dir_count = _coerce_int(artifacts.get("line_role_eval_dir_count"))
+            lines.append(f"  line-role: eval_dirs={eval_dir_count}")
+            gate_counts = artifacts.get("gate_verdict_counts")
+            if isinstance(gate_counts, dict) and gate_counts:
+                rendered = ", ".join(f"{k}={gate_counts[k]}" for k in sorted(gate_counts))
+                lines.append(f"  line-role gates: {rendered}")
+            examples = artifacts.get("examples")
+            if isinstance(examples, list) and examples:
+                example = examples[0] if isinstance(examples[0], dict) else None
+                if isinstance(example, dict):
+                    line_role_dir = str(example.get("line_role_dir") or "").strip()
+                    if line_role_dir:
+                        lines.append(f"  line-role sample: {line_role_dir}")
+                    joined = str(example.get("joined_line_table_jsonl") or "").strip()
+                    flips = str(example.get("line_role_flips_vs_baseline_jsonl") or "").strip()
+                    slice_path = str(example.get("slice_metrics_json") or "").strip()
+                    kb_path = str(example.get("knowledge_budget_json") or "").strip()
+                    gates_path = str(example.get("regression_gates_json") or "").strip()
+                    if joined or flips or slice_path or kb_path or gates_path:
+                        artifact_bits = []
+                        if joined:
+                            artifact_bits.append(f"joined={joined}")
+                        if flips:
+                            artifact_bits.append(f"flips={flips}")
+                        if slice_path:
+                            artifact_bits.append(f"slices={slice_path}")
+                        if kb_path:
+                            artifact_bits.append(f"knowledge={kb_path}")
+                        if gates_path:
+                            artifact_bits.append(f"gates={gates_path}")
+                        lines.append(f"  line-role artifacts (sample): {', '.join(artifact_bits)}")
+                    slice_summary = example.get("slice_metrics_summary")
+                    if isinstance(slice_summary, dict) and slice_summary:
+                        # Keep report short: just show line counts for each slice.
+                        slice_counts = ", ".join(
+                            f"{name}={_coerce_int((slice_summary.get(name) or {}).get('line_count'))}"
+                            for name in sorted(slice_summary)
+                        )
+                        lines.append(f"  line-role slices (sample): {slice_counts}")
+                    kb = example.get("knowledge_budget_summary")
+                    if isinstance(kb, dict) and kb:
+                        total = _coerce_int(kb.get("knowledge_pred_total"))
+                        inside = _coerce_int(kb.get("knowledge_pred_inside_recipe"))
+                        outside = _coerce_int(kb.get("knowledge_pred_outside_recipe"))
+                        lines.append(
+                            f"  knowledge (sample): total={total}, inside_recipe={inside}, outside_recipe={outside}"
+                        )
     lines.append("")
     return "\n".join(lines)
 
@@ -2828,6 +2894,117 @@ def _render_metric(value: Any) -> str:
     if numeric is None:
         return "n/a"
     return f"{numeric:.4f}"
+
+
+def _load_json_object_or_none(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _summarize_line_role_artifacts(
+    *,
+    experiment_root: Path,
+    run_root: Path,
+    max_examples: int = 8,
+) -> dict[str, Any] | None:
+    """Best-effort detector for line-role pipeline artifacts under an experiment root.
+
+    This must never raise: QualitySuite should still complete/report even when the
+    line-role pipeline was not enabled or artifacts are partially missing.
+    """
+    if max_examples < 1:
+        max_examples = 1
+
+    # In labelstudio-benchmark runs these artifacts live under:
+    # <eval_output_dir>/line-role-pipeline/<artifact>
+    slice_metric_paths = list(
+        experiment_root.glob("**/line-role-pipeline/slice_metrics.json")
+    )
+    if not slice_metric_paths:
+        return None
+
+    line_role_dirs = sorted({path.parent for path in slice_metric_paths}, key=str)
+    example_dirs = line_role_dirs[: max_examples]
+
+    def _rel(path: Path) -> str:
+        return _relative_to_run_root(path, run_root)
+
+    examples: list[dict[str, Any]] = []
+    gate_verdict_counts: dict[str, int] = {}
+    for line_role_dir in example_dirs:
+        joined_path = line_role_dir / "joined_line_table.jsonl"
+        flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
+        slice_path = line_role_dir / "slice_metrics.json"
+        knowledge_path = line_role_dir / "knowledge_budget.json"
+        gates_path = line_role_dir / "regression_gates.json"
+
+        slice_payload = _load_json_object_or_none(slice_path) or {}
+        knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
+        gates_payload = _load_json_object_or_none(gates_path) or {}
+
+        gates_verdict = str(
+            ((gates_payload.get("overall") or {}).get("verdict")) or ""
+        ).strip().upper()
+        if gates_verdict:
+            gate_verdict_counts[gates_verdict] = gate_verdict_counts.get(gates_verdict, 0) + 1
+
+        slices_summary: dict[str, Any] = {}
+        slices_payload = slice_payload.get("slices")
+        if isinstance(slices_payload, dict):
+            for slice_name in sorted(slices_payload):
+                slice_row = slices_payload.get(slice_name)
+                if not isinstance(slice_row, dict):
+                    continue
+                slices_summary[str(slice_name)] = {
+                    "line_count": _coerce_int(slice_row.get("line_count")),
+                    "overall_line_accuracy": _coerce_float(
+                        slice_row.get("overall_line_accuracy")
+                    ),
+                    "macro_f1_excluding_other": _coerce_float(
+                        slice_row.get("macro_f1_excluding_other")
+                    ),
+                }
+
+        examples.append(
+            {
+                "line_role_dir": _rel(line_role_dir),
+                "joined_line_table_jsonl": _rel(joined_path) if joined_path.exists() else None,
+                "line_role_flips_vs_baseline_jsonl": _rel(flips_path) if flips_path.exists() else None,
+                "slice_metrics_json": _rel(slice_path) if slice_path.exists() else None,
+                "knowledge_budget_json": _rel(knowledge_path) if knowledge_path.exists() else None,
+                "regression_gates_json": _rel(gates_path) if gates_path.exists() else None,
+                "regression_gates_verdict": gates_verdict or None,
+                "slice_metrics_summary": slices_summary,
+                "knowledge_budget_summary": {
+                    "knowledge_pred_total": _coerce_int(knowledge_payload.get("knowledge_pred_total")),
+                    "knowledge_pred_inside_recipe": _coerce_int(
+                        knowledge_payload.get("knowledge_pred_inside_recipe")
+                    ),
+                    "knowledge_pred_outside_recipe": _coerce_int(
+                        knowledge_payload.get("knowledge_pred_outside_recipe")
+                    ),
+                    "knowledge_inside_ratio": _coerce_float(
+                        knowledge_payload.get("knowledge_inside_ratio")
+                    ),
+                }
+                if knowledge_payload
+                else {},
+            }
+        )
+
+    return {
+        "schema_version": "quality_line_role_artifacts.v1",
+        "line_role_eval_dir_count": len(line_role_dirs),
+        "examples": examples,
+        "gate_verdict_counts": dict(sorted(gate_verdict_counts.items())),
+    }
 
 
 def _build_worker_cli_parser() -> argparse.ArgumentParser:

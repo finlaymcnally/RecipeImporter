@@ -336,3 +336,106 @@ def test_quality_leaderboard_winner_settings_prefers_prediction_run_config(
     assert winner_settings.get("pdf_split_workers") == 10
     assert winner_settings.get("epub_split_workers") == 10
     assert "effective_workers" not in winner_settings
+
+
+@pytest.mark.bench
+def test_quality_leaderboard_includes_line_role_artifacts_when_present(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "quality_run"
+    experiment_id = "baseline"
+    experiment_dir = run_dir / "experiments" / experiment_id
+    source_dir = experiment_dir / "source_a"
+    config_dir = source_dir / "config_001_example"
+    line_role_dir = config_dir / "line-role-pipeline"
+    line_role_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_json(
+        run_dir / "experiments_resolved.json",
+        {
+            "schema_version": 2,
+            "experiments": [
+                {
+                    "id": experiment_id,
+                    "run_settings": {
+                        "multi_recipe_splitter": "legacy",
+                    },
+                }
+            ],
+        },
+    )
+    _write_json(
+        experiment_dir / "all_method_benchmark_multi_source_report.json",
+        {
+            "sources": [
+                {
+                    "source_group_key": "source_a",
+                    "report_json_path": "source_a/all_method_benchmark_report.json",
+                }
+            ]
+        },
+    )
+    _write_json(
+        source_dir / "all_method_benchmark_report.json",
+        {
+            "variants": [
+                {
+                    "status": "ok",
+                    "dimensions": {
+                        "epub_extractor": "unstructured",
+                        "source_extension": ".epub",
+                    },
+                    "run_config_hash": "winnerhash1234winnerhash1234",
+                    "run_config_summary": "epub_extractor=unstructured",
+                    "config_dir": "config_001_example",
+                    "practical_f1": 0.9,
+                    "f1": 0.8,
+                    "duration_seconds": 3.0,
+                }
+            ]
+        },
+    )
+    (line_role_dir / "joined_line_table.jsonl").write_text("", encoding="utf-8")
+    (line_role_dir / "line_role_flips_vs_baseline.jsonl").write_text(
+        "", encoding="utf-8"
+    )
+    _write_json(
+        line_role_dir / "slice_metrics.json",
+        {
+            "schema_version": "line_role_slice_metrics.v1",
+            "line_count": 1,
+            "slices": {"outside_recipe": {"line_count": 1}},
+        },
+    )
+    _write_json(
+        line_role_dir / "knowledge_budget.json",
+        {
+            "schema_version": "line_role_knowledge_budget.v1",
+            "line_count": 1,
+            "knowledge_pred_total": 0,
+            "knowledge_pred_inside_recipe": 0,
+            "knowledge_pred_outside_recipe": 0,
+            "knowledge_inside_ratio": 0.0,
+        },
+    )
+    _write_json(
+        line_role_dir / "regression_gates.json",
+        {"overall": {"verdict": "PASS"}, "gates": []},
+    )
+
+    payload = build_quality_leaderboard(
+        run_dir=run_dir,
+        experiment_id=experiment_id,
+        allow_partial_coverage=False,
+    )
+    leaderboard = payload.get("leaderboard")
+    assert isinstance(leaderboard, list)
+    assert leaderboard
+    winner = leaderboard[0]
+    assert winner.get("line_role_gates_verdict") == "PASS"
+    line_role_payload = winner.get("line_role")
+    assert isinstance(line_role_payload, dict)
+    assert (
+        line_role_payload.get("line_role_dir")
+        == "experiments/baseline/source_a/config_001_example/line-role-pipeline"
+    )

@@ -56,6 +56,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 
 Collector mode:
 - benchmark rows are CSV-first by default
+- CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model + Effort` can stay populated without full report scanning
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
 - benchmark history rows remain dashboard-visible after `bench gc --apply` because GC now refuses to prune run roots without confirmed durable CSV metrics
 
@@ -117,7 +118,8 @@ Notes:
   - Click any table header to toggle sort direction for that column (`A→Z` / `Z→A`), including timestamps.
   - Includes table column controls: drag headers to reorder, resize via header drag handles, and add/remove fields dynamically from discovered benchmark keys.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
-  - `AI Model + Effort` column uses run-config metadata (`run_config` / `run_config_summary`) with fallback aliases.
+  - `AI Model + Effort` column only shows model/effort-derived runtime values; pipeline profile names are not used as fallback (`off` still displays as `off`).
+  - Placeholder effort values like `<default>`/`default` are treated as unknown effort, so the label renders model-only unless a concrete effort value exists.
   - `Source` prefers `source_file` basename, then artifact-path source slug fallback (`all-method-benchmark`, `single-profile-benchmark`, `scenario_runs`, `eval/<slug>` patterns).
   - `Importer` uses CSV/importer metadata first, then source-path/run-config fallback (for older benchmark rows with blank CSV importer).
   - All-method benchmark sweeps collapse to one row with summarized `Source` text (`all-method: <top source> + N more`), and timestamp links to generated run-summary HTML under `all-method-benchmark/`.

@@ -874,6 +874,149 @@ def _collect_nested_benchmark_csv_rows(
     return records
 
 
+def _enrich_csv_benchmark_records_from_manifests(
+    records: list[BenchmarkRecord],
+    *,
+    warnings: list[str],
+) -> None:
+    """Backfill benchmark CSV runtime metadata from nearby manifest files."""
+    if not records:
+        return
+
+    manifest_cache: dict[Path, dict[str, Any] | None] = {}
+    processed_report_recipes_cache: dict[str, int | None] = {}
+
+    def _load_manifest(path: Path) -> dict[str, Any] | None:
+        if path in manifest_cache:
+            return manifest_cache[path]
+        if not path.is_file():
+            manifest_cache[path] = None
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            warnings.append(f"Malformed manifest.json in {path.parent}: {exc}")
+            manifest_cache[path] = None
+            return None
+        if not isinstance(payload, dict):
+            manifest_cache[path] = None
+            return None
+        manifest_cache[path] = payload
+        return payload
+
+    for record in records:
+        artifact_dir = _normalize_path(record.artifact_dir)
+        if not artifact_dir:
+            continue
+        eval_dir = Path(artifact_dir)
+        if not eval_dir.is_dir():
+            continue
+
+        config_changed = False
+
+        manifest_candidates = (
+            eval_dir / "manifest.json",
+            eval_dir / "run_manifest.json",
+            eval_dir / _PREDICTION_RUN / "manifest.json",
+            eval_dir / _PREDICTION_RUN / "run_manifest.json",
+        )
+        for manifest_path in manifest_candidates:
+            manifest = _load_manifest(manifest_path)
+            if manifest is None:
+                continue
+
+            if record.source_file is None:
+                source_file = _clean_runtime_text(manifest.get("source_file"))
+                if source_file is not None:
+                    record.source_file = source_file
+            if record.importer_name is None:
+                importer_name = _clean_runtime_text(
+                    manifest.get("importer_name") or manifest.get("pipeline")
+                )
+                if importer_name is not None:
+                    record.importer_name = importer_name
+            if record.task_count is None:
+                record.task_count = _safe_int(manifest.get("task_count"))
+            if record.recipes is None:
+                recipe_count = _safe_int(manifest.get("recipe_count"))
+                if recipe_count is not None:
+                    record.recipes = recipe_count
+
+            if record.processed_report_path is None:
+                processed_report_path = manifest.get("processed_report_path")
+                if processed_report_path:
+                    record.processed_report_path = str(processed_report_path)
+            if record.recipes is None and record.processed_report_path:
+                record.recipes = _load_total_recipes_from_report(
+                    record.processed_report_path,
+                    warnings=warnings,
+                    context=f"benchmark manifest {manifest_path}",
+                    cache=processed_report_recipes_cache,
+                )
+
+            manifest_run_config = manifest.get("run_config")
+            if isinstance(manifest_run_config, dict):
+                if not isinstance(record.run_config, dict):
+                    record.run_config = dict(manifest_run_config)
+                    config_changed = True
+                else:
+                    merged_run_config = dict(record.run_config)
+                    merged = False
+                    for key, value in manifest_run_config.items():
+                        if key in merged_run_config and merged_run_config.get(key) not in (
+                            None,
+                            "",
+                        ):
+                            continue
+                        merged_run_config[key] = value
+                        merged = True
+                    if merged:
+                        record.run_config = merged_run_config
+                        config_changed = True
+
+            codex_model, codex_reasoning_effort = _extract_codex_runtime_from_manifest(
+                manifest
+            )
+            if codex_model is not None or codex_reasoning_effort is not None:
+                merged_run_config: dict[str, Any]
+                if isinstance(record.run_config, dict):
+                    merged_run_config = dict(record.run_config)
+                else:
+                    merged_run_config = {}
+                if (
+                    codex_model is not None
+                    and not _clean_runtime_text(merged_run_config.get("codex_farm_model"))
+                    and not _clean_runtime_text(merged_run_config.get("codex_model"))
+                ):
+                    merged_run_config["codex_farm_model"] = codex_model
+                    config_changed = True
+                if (
+                    codex_reasoning_effort is not None
+                    and not _clean_runtime_text(
+                        merged_run_config.get("codex_farm_reasoning_effort")
+                    )
+                    and not _clean_runtime_text(
+                        merged_run_config.get("codex_reasoning_effort")
+                    )
+                    and not _clean_runtime_text(
+                        merged_run_config.get("model_reasoning_effort")
+                    )
+                ):
+                    merged_run_config["codex_farm_reasoning_effort"] = (
+                        codex_reasoning_effort
+                    )
+                    config_changed = True
+                record.run_config = merged_run_config
+
+        if isinstance(record.run_config, dict) and (
+            config_changed
+            or record.run_config_hash is None
+            or record.run_config_summary is None
+        ):
+            record.run_config_hash = _stable_hash_for_run_config(record.run_config)
+            record.run_config_summary = _summary_for_run_config(record.run_config)
+
+
 def _benchmark_record_from_csv_row(
     row: dict[str, str],
     row_category: str,
@@ -1679,6 +1822,11 @@ def collect_dashboard_data(
                 list(csv_bench_records),
                 nested_csv_bench_records,
             )
+    if csv_bench_records:
+        _enrich_csv_benchmark_records_from_manifests(
+            csv_bench_records,
+            warnings=warnings,
+        )
 
     # Sort stage records by parsed timestamp (un-parseable sorts last)
     stage_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))

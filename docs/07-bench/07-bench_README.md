@@ -84,6 +84,7 @@ Interactive `single_offline` now writes into one session root:
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/codexfarm/`:
   - `prompt_request_response_log.txt` (combined full dump),
   - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
+  - `prompt_type_samples_from_full_prompt_log.md` (auto-generated easy-read markdown with up to 3 literal prompt examples per pass from `full_prompt_log.jsonl`),
   - `full_prompt_log.jsonl` rows include `request_payload_source` (`telemetry_csv` when `codex_exec_activity.csv` has a matching call; fallback `reconstructed_from_prompt_template` otherwise) and `request_telemetry` with per-call runtime metadata.
   - `prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt` (split by prompt category),
   - `prompt_category_logs_manifest.txt` (one-path-per-line index of category files).

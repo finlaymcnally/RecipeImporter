@@ -141,6 +141,7 @@ from cookimport.labelstudio.prelabel import (
     default_codex_cmd,
     default_codex_model,
     default_codex_reasoning_effort,
+    default_codex_reasoning_effort_for_model,
     list_codex_models,
     normalize_codex_reasoning_effort,
     normalize_prelabel_granularity,
@@ -2796,12 +2797,21 @@ def _resolve_single_offline_reasoning_effort(
     effort: str | None,
     *,
     codex_cmd: str | None,
+    codex_model: str | None = None,
 ) -> str | None:
     normalized_effort = _single_offline_text_or_none(effort)
     if normalized_effort is None:
-        return None
+        return default_codex_reasoning_effort_for_model(
+            codex_model,
+            cmd=codex_cmd,
+        )
     if normalized_effort.lower() in {"<default>", "default"}:
-        return default_codex_reasoning_effort(cmd=codex_cmd)
+        return default_codex_reasoning_effort(
+            cmd=codex_cmd
+        ) or default_codex_reasoning_effort_for_model(
+            codex_model,
+            cmd=codex_cmd,
+        )
     try:
         return normalize_codex_reasoning_effort(normalized_effort)
     except ValueError:
@@ -2910,6 +2920,7 @@ def _load_single_offline_codex_farm_runtime(
         run_config_payload.get("codex_farm_reasoning_effort")
         or run_config_payload.get("codex_reasoning_effort"),
         codex_cmd=codex_cmd,
+        codex_model=codex_model,
     )
 
     artifacts_payload = manifest_payload.get("artifacts")
@@ -2937,6 +2948,7 @@ def _load_single_offline_codex_farm_runtime(
             codex_reasoning_effort = _resolve_single_offline_reasoning_effort(
                 inferred_reasoning_effort,
                 codex_cmd=codex_cmd,
+                codex_model=codex_model,
             )
 
     if codex_model is None and codex_reasoning_effort is None:
@@ -8869,6 +8881,51 @@ def _load_pred_run_recipe_context(
         run_config = None
     run_config_hash = str(payload.get("run_config_hash") or "").strip() or None
     run_config_summary = str(payload.get("run_config_summary") or "").strip() or None
+    llm_codex_farm_payload = payload.get("llm_codex_farm")
+    if isinstance(run_config, dict) and isinstance(llm_codex_farm_payload, dict):
+        merged_run_config = dict(run_config)
+        run_config_updated = False
+        codex_cmd = _single_offline_text_or_none(merged_run_config.get("codex_farm_cmd"))
+        existing_model = _single_offline_text_or_none(
+            merged_run_config.get("codex_farm_model")
+        ) or _single_offline_text_or_none(merged_run_config.get("codex_model"))
+        inferred_model, inferred_reasoning_effort = _extract_codex_farm_runtime_from_llm_manifest(
+            llm_codex_farm_payload
+        )
+        resolved_model = existing_model or _single_offline_text_or_none(inferred_model)
+        if resolved_model is not None and not _single_offline_text_or_none(
+            merged_run_config.get("codex_farm_model")
+        ):
+            merged_run_config["codex_farm_model"] = resolved_model
+            run_config_updated = True
+
+        resolved_reasoning_effort = _resolve_single_offline_reasoning_effort(
+            merged_run_config.get("codex_farm_reasoning_effort")
+            or merged_run_config.get("codex_reasoning_effort"),
+            codex_cmd=codex_cmd,
+            codex_model=resolved_model,
+        )
+        if resolved_reasoning_effort is None:
+            resolved_reasoning_effort = _resolve_single_offline_reasoning_effort(
+                inferred_reasoning_effort,
+                codex_cmd=codex_cmd,
+                codex_model=resolved_model,
+            )
+        if (
+            resolved_reasoning_effort is not None
+            and _single_offline_text_or_none(
+                merged_run_config.get("codex_farm_reasoning_effort")
+            )
+            != resolved_reasoning_effort
+        ):
+            merged_run_config["codex_farm_reasoning_effort"] = resolved_reasoning_effort
+            run_config_updated = True
+
+        if run_config_updated:
+            run_config = merged_run_config
+            # Recompute against enriched payload when benchmark CSV append persists this context.
+            run_config_hash = None
+            run_config_summary = None
 
     recipes: int | None
     try:
@@ -8981,6 +9038,126 @@ def _resolve_line_role_predictions_for_benchmark(
     return None
 
 
+_PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
+
+
+def _build_codex_farm_prompt_type_samples_markdown(
+    *,
+    full_prompt_log_path: Path,
+    output_path: Path,
+    examples_per_pass: int = 3,
+) -> Path | None:
+    if examples_per_pass <= 0:
+        return None
+    if not full_prompt_log_path.exists() or not full_prompt_log_path.is_file():
+        return None
+
+    pass_order = ("pass1", "pass2", "pass3")
+    pass_labels = {
+        "pass1": "Chunking",
+        "pass2": "Schema.org Extraction",
+        "pass3": "Final Draft",
+    }
+    samples_by_pass: dict[str, list[dict[str, str]]] = {
+        pass_name: [] for pass_name in pass_order
+    }
+
+    try:
+        with full_prompt_log_path.open("r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                if all(
+                    len(samples_by_pass[pass_name]) >= examples_per_pass
+                    for pass_name in pass_order
+                ):
+                    break
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                pass_name = str(row.get("pass") or "").strip()
+                if pass_name not in samples_by_pass:
+                    continue
+                if len(samples_by_pass[pass_name]) >= examples_per_pass:
+                    continue
+
+                prompt_text: str | None = None
+                request_messages = row.get("request_messages")
+                if isinstance(request_messages, list) and request_messages:
+                    first_message = request_messages[0]
+                    if isinstance(first_message, dict):
+                        content = first_message.get("content")
+                        if isinstance(content, str):
+                            prompt_text = content
+                if prompt_text is None:
+                    rendered_prompt_text = row.get("rendered_prompt_text")
+                    if isinstance(rendered_prompt_text, str):
+                        prompt_text = rendered_prompt_text
+                if prompt_text is None:
+                    user_prompt = row.get("user_prompt")
+                    if isinstance(user_prompt, str):
+                        prompt_text = user_prompt
+                prompt_text = str(prompt_text or "")
+
+                call_id = str(row.get("call_id") or "").strip() or "<unknown>"
+                recipe_id = str(row.get("recipe_id") or "").strip() or "<unknown>"
+                samples_by_pass[pass_name].append(
+                    {
+                        "call_id": call_id,
+                        "recipe_id": recipe_id,
+                        "prompt": prompt_text.rstrip("\n"),
+                    }
+                )
+    except OSError:
+        return None
+
+    if not any(samples_by_pass.values()):
+        return None
+
+    generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    lines: list[str] = [
+        "# CodexFarm Prompt Samples (Literal)",
+        "",
+        f"Generated: {generated_timestamp}",
+        "Source:",
+        f"- {full_prompt_log_path}",
+        "",
+        "Notes:",
+        "- Samples are verbatim from `request_messages[0].content` when available.",
+        "- Includes full inline JSON payloads exactly as emitted.",
+        f"- Up to {examples_per_pass} examples each for `pass1`, `pass2`, and `pass3`.",
+        "",
+    ]
+
+    for pass_name in pass_order:
+        lines.append(f"## {pass_name} ({pass_labels[pass_name]})")
+        lines.append("")
+        pass_samples = samples_by_pass.get(pass_name, [])
+        if not pass_samples:
+            lines.append("_No rows captured for this pass._")
+            lines.append("")
+            continue
+        for index, sample in enumerate(pass_samples, start=1):
+            lines.append(f"### Example {index}")
+            lines.append(f"call_id: `{sample['call_id']}`")
+            lines.append(f"recipe_id: `{sample['recipe_id']}`")
+            lines.append("")
+            lines.append("```text")
+            lines.append(sample["prompt"])
+            lines.append("```")
+            lines.append("")
+
+    try:
+        output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        return None
+    return output_path
+
+
 def _build_codex_farm_prompt_response_log(
     *,
     pred_run: Path,
@@ -9000,6 +9177,7 @@ def _build_codex_farm_prompt_response_log(
     codexfarm_dir.mkdir(parents=True, exist_ok=True)
     prompt_response_log_path = codexfarm_dir / "prompt_request_response_log.txt"
     full_prompt_log_path = codexfarm_dir / "full_prompt_log.jsonl"
+    prompt_type_samples_path = codexfarm_dir / _PROMPT_TYPE_SAMPLES_MD_NAME
 
     pass_dir_map: dict[str, str] = {
         "pass1": "pass1_chunking",
@@ -9761,6 +9939,7 @@ def _build_codex_farm_prompt_response_log(
 
     if not lines:
         full_prompt_log_path.unlink(missing_ok=True)
+        prompt_type_samples_path.unlink(missing_ok=True)
         return None
 
     prompt_response_log_path.write_text(
@@ -9787,6 +9966,13 @@ def _build_codex_farm_prompt_response_log(
 
     if full_prompt_log_rows <= 0:
         full_prompt_log_path.unlink(missing_ok=True)
+        prompt_type_samples_path.unlink(missing_ok=True)
+    else:
+        _build_codex_farm_prompt_type_samples_markdown(
+            full_prompt_log_path=full_prompt_log_path,
+            output_path=prompt_type_samples_path,
+            examples_per_pass=3,
+        )
 
     return prompt_response_log_path
 
@@ -25671,6 +25857,9 @@ def labelstudio_benchmark(
         full_prompt_log_path = (
             codexfarm_prompt_response_log_path.parent / "full_prompt_log.jsonl"
         )
+        prompt_type_samples_path = (
+            codexfarm_prompt_response_log_path.parent / _PROMPT_TYPE_SAMPLES_MD_NAME
+        )
         if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
             full_prompt_log_rows = 0
             try:
@@ -25694,6 +25883,13 @@ def labelstudio_benchmark(
             benchmark_artifacts["full_prompt_log_status"] = "missing"
             benchmark_artifacts["full_prompt_log_rows"] = 0
             benchmark_artifacts["full_prompt_log_path"] = None
+        if prompt_type_samples_path.exists() and prompt_type_samples_path.is_file():
+            benchmark_artifacts[
+                "codexfarm_prompt_type_samples_from_full_prompt_log_md"
+            ] = _path_for_manifest(
+                eval_output_dir,
+                prompt_type_samples_path,
+            )
     processed_run_root = import_result.get("processed_run_root")
     if processed_run_root:
         benchmark_artifacts["processed_output_run_dir"] = _path_for_manifest(
@@ -27129,6 +27325,9 @@ def bench_quality_leaderboard(
                 f"median_seconds={float(winner.get('median_duration_seconds') or 0.0):.2f}"
             )
         )
+        line_role_verdict = str(winner.get("line_role_gates_verdict") or "").strip()
+        if line_role_verdict:
+            typer.echo(f"  line_role_gates={line_role_verdict}")
         typer.secho(
             f"Winner settings: {paths.winner_run_settings_json}",
             fg=typer.colors.CYAN,
@@ -27148,6 +27347,9 @@ def bench_quality_leaderboard(
                     f"median_s={float(row.get('median_duration_seconds') or 0.0):.2f}"
                 )
             )
+            row_line_role_verdict = str(row.get("line_role_gates_verdict") or "").strip()
+            if row_line_role_verdict:
+                typer.echo(f"     line_role_gates={row_line_role_verdict}")
 
     typer.secho(f"Artifacts: {paths.out_dir}", fg=typer.colors.CYAN)
     typer.secho(f"Leaderboard JSON: {paths.leaderboard_json}", fg=typer.colors.CYAN)

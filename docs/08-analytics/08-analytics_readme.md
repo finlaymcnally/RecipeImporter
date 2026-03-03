@@ -125,6 +125,7 @@ Collector behavior (`collect_dashboard_data`):
 - Benchmark rows:
   - CSV-first by default
   - includes supplemental benchmark rows from nested benchmark history CSVs under `--output-root`
+  - CSV benchmark rows now backfill missing codex model/effort runtime from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) when available
   - optional recursive JSON scan only when `--scan-benchmark-reports` is enabled
   - scan fallback still activates when benchmark CSV rows are unavailable
   - scan mode merges JSON-discovered benchmark rows with benchmark CSV rows (dedupe key: normalized benchmark artifact dir path)
@@ -172,6 +173,8 @@ Benchmark scan details:
 - `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes `AI Model + Effort`; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
+  - `AI Model + Effort` shows only model/effort-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
+  - Effort placeholders (`<default>`, `default`) are treated as missing effort in the UI label so model-only rows do not claim a specific thinking level.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
 - `Previous Runs` now includes a rules + boolean-expression filter builder over benchmark fields (including nested `run_config.*`) and applies the same filtered dataset to the score trend chart.
 - `Previous Runs` table renders full filtered history by default and keeps horizontal scrolling with a fixed minimum table width so benchmark columns remain readable on narrow windows.

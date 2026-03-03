@@ -138,6 +138,100 @@ def _normalize_source_extension(value: Any) -> str:
     return cleaned
 
 
+def _relative_to_root(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def _load_json_object_or_none(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _extract_line_role_artifacts(
+    *,
+    eval_output_dir: Path,
+    run_root: Path,
+) -> dict[str, Any] | None:
+    """Best-effort extraction of optional line-role diagnostic artifacts."""
+    line_role_dir = eval_output_dir / "line-role-pipeline"
+    if not line_role_dir.exists() or not line_role_dir.is_dir():
+        return None
+
+    joined_path = line_role_dir / "joined_line_table.jsonl"
+    flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
+    slice_path = line_role_dir / "slice_metrics.json"
+    knowledge_path = line_role_dir / "knowledge_budget.json"
+    gates_path = line_role_dir / "regression_gates.json"
+
+    slice_payload = _load_json_object_or_none(slice_path) or {}
+    knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
+    gates_payload = _load_json_object_or_none(gates_path) or {}
+
+    gates_verdict = str(
+        ((gates_payload.get("overall") or {}).get("verdict")) or ""
+    ).strip().upper()
+
+    slice_summary: dict[str, Any] = {}
+    slices_payload = slice_payload.get("slices")
+    if isinstance(slices_payload, dict):
+        for slice_name in sorted(slices_payload):
+            row = slices_payload.get(slice_name)
+            if not isinstance(row, dict):
+                continue
+            slice_summary[str(slice_name)] = {
+                "line_count": row.get("line_count"),
+                "overall_line_accuracy": row.get("overall_line_accuracy"),
+                "macro_f1_excluding_other": row.get("macro_f1_excluding_other"),
+            }
+
+    knowledge_summary = {}
+    if knowledge_payload:
+        knowledge_summary = {
+            "knowledge_pred_total": knowledge_payload.get("knowledge_pred_total"),
+            "knowledge_pred_inside_recipe": knowledge_payload.get(
+                "knowledge_pred_inside_recipe"
+            ),
+            "knowledge_pred_outside_recipe": knowledge_payload.get(
+                "knowledge_pred_outside_recipe"
+            ),
+            "knowledge_inside_ratio": knowledge_payload.get("knowledge_inside_ratio"),
+        }
+
+    return {
+        "schema_version": "qualitysuite_line_role_artifacts.v1",
+        "eval_output_dir": _relative_to_root(eval_output_dir, run_root),
+        "line_role_dir": _relative_to_root(line_role_dir, run_root),
+        "joined_line_table_jsonl": _relative_to_root(joined_path, run_root)
+        if joined_path.exists()
+        else None,
+        "line_role_flips_vs_baseline_jsonl": _relative_to_root(flips_path, run_root)
+        if flips_path.exists()
+        else None,
+        "slice_metrics_json": _relative_to_root(slice_path, run_root)
+        if slice_path.exists()
+        else None,
+        "knowledge_budget_json": _relative_to_root(knowledge_path, run_root)
+        if knowledge_path.exists()
+        else None,
+        "regression_gates_json": _relative_to_root(gates_path, run_root)
+        if gates_path.exists()
+        else None,
+        "regression_gates_verdict": gates_verdict or None,
+        "slice_metrics_summary": slice_summary,
+        "knowledge_budget_summary": knowledge_summary,
+    }
+
+
 def _source_group_count_for_groups(groups: dict[str, dict[str, Any]]) -> int:
     source_group_keys: set[str] = set()
     for group in groups.values():
@@ -233,6 +327,11 @@ def _build_ranked_rows(
                 "representative_run_manifest_path": group.get(
                     "representative_run_manifest_path"
                 ),
+                "line_role": group.get("line_role")
+                if isinstance(group.get("line_role"), dict)
+                else None,
+                "line_role_gates_verdict": str(group.get("line_role_gates_verdict") or "").strip().upper()
+                or None,
                 "coverage_sources": coverage_count,
                 "coverage_ratio": coverage_ratio,
                 "mean_practical_f1": float(mean_practical),
@@ -343,6 +442,7 @@ def build_quality_leaderboard(
         practical_f1: float,
         strict_f1: float,
         duration_seconds: float | None,
+        line_role: dict[str, Any] | None = None,
     ) -> None:
         group = group_map.setdefault(
             config_key,
@@ -358,6 +458,15 @@ def build_quality_leaderboard(
         )
         if group.get("representative_run_manifest_path") is None and run_manifest_path:
             group["representative_run_manifest_path"] = str(run_manifest_path).strip()
+        if (
+            line_role is not None
+            and isinstance(line_role, dict)
+            and group.get("line_role") is None
+        ):
+            group["line_role"] = dict(line_role)
+            verdict = str(line_role.get("regression_gates_verdict") or "").strip().upper()
+            if verdict:
+                group["line_role_gates_verdict"] = verdict
         by_source = group["by_source_group"].setdefault(source_group_key, [])
         by_source.append(
             {
@@ -422,10 +531,15 @@ def build_quality_leaderboard(
                 duration_seconds = _as_float(variant_row.get("duration_seconds"))
                 config_dir_name = str(variant_row.get("config_dir") or "").strip()
                 run_manifest_path: str | None = None
+                line_role_payload: dict[str, Any] | None = None
                 if config_dir_name:
                     candidate_manifest = report_path.parent / config_dir_name / "run_manifest.json"
                     if candidate_manifest.exists() and candidate_manifest.is_file():
                         run_manifest_path = str(candidate_manifest)
+                    line_role_payload = _extract_line_role_artifacts(
+                        eval_output_dir=report_path.parent / config_dir_name,
+                        run_root=run_dir,
+                    )
                 record_contribution(
                     group_map=groups,
                     config_key=config_key,
@@ -439,6 +553,7 @@ def build_quality_leaderboard(
                     duration_seconds=float(duration_seconds)
                     if duration_seconds is not None
                     else None,
+                    line_role=line_role_payload,
                 )
                 if include_by_source_extension:
                     source_extension = _normalize_source_extension(
@@ -461,6 +576,7 @@ def build_quality_leaderboard(
                         duration_seconds=float(duration_seconds)
                         if duration_seconds is not None
                         else None,
+                        line_role=line_role_payload,
                     )
 
     _, full_coverage_rows, ranked, winner = _build_ranked_rows(
@@ -613,7 +729,9 @@ def write_quality_leaderboard_artifacts(
         "mean_strict_f1",
         "median_duration_seconds",
         "mean_duration_seconds",
+        "line_role_gates_verdict",
         "dimensions_json",
+        "line_role_json",
     ]
     with leaderboard_csv.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -622,6 +740,7 @@ def write_quality_leaderboard_artifacts(
             if not isinstance(row, dict):
                 continue
             dimensions = row.get("dimensions") if isinstance(row.get("dimensions"), dict) else {}
+            line_role = row.get("line_role") if isinstance(row.get("line_role"), dict) else {}
             writer.writerow(
                 {
                     "rank": row.get("rank"),
@@ -633,7 +752,9 @@ def write_quality_leaderboard_artifacts(
                     "mean_strict_f1": row.get("mean_strict_f1"),
                     "median_duration_seconds": row.get("median_duration_seconds"),
                     "mean_duration_seconds": row.get("mean_duration_seconds"),
+                    "line_role_gates_verdict": row.get("line_role_gates_verdict"),
                     "dimensions_json": _stable_json(dimensions),
+                    "line_role_json": _stable_json(line_role) if line_role else "",
                 }
             )
 

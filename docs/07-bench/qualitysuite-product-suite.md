@@ -29,6 +29,7 @@ Official phase presets:
 - `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json`
 - `data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json` (optional)
 - `data/golden/bench/quality/experiments/2026-03-02_23.40.00_qualitysuite-pdf-first-small-pack.json` (small PDF-first deterministic pack)
+- `data/golden/bench/quality/experiments/2026-03-03_09.41.22_qualitysuite-line-role-det-v1.json` (deterministic canonical line-role pack: `atomic_block_splitter=atomic-v1`, `line_role_pipeline=deterministic-v1`)
 
 Official lightweight-series presets:
 

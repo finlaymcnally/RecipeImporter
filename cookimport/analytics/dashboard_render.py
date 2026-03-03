@@ -5752,7 +5752,16 @@ _JS = """\
     const text = String(value).trim();
     if (!text) return null;
     const lower = text.toLowerCase();
-    if (lower === "none" || lower === "null" || lower === "n/a") return null;
+    if (
+      lower === "none" ||
+      lower === "null" ||
+      lower === "n/a" ||
+      lower === "<default>" ||
+      lower === "default" ||
+      lower === "(default)"
+    ) {
+      return null;
+    }
     return text;
   }
   function runConfigSummaryMap(summary) {
@@ -5817,7 +5826,7 @@ _JS = """\
     if (pipeline) {
       const pipelineText = String(pipeline).toLowerCase();
       if (pipelineText === "off") return "off";
-      return String(pipeline);
+      return "-";
     }
     return "-";
   }
