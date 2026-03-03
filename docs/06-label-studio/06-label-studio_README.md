@@ -207,6 +207,7 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 - eval-only from prediction records (`--predictions-in`)
 - prediction-record output (`--predictions-out`)
 - prediction-only artifact generation (`--execution-mode predict-only`)
+- line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
 
 Execution modes:
 
@@ -224,6 +225,7 @@ Evaluation implementation:
 - `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
 - `canonical-text` path uses `cookimport/bench/eval_canonical_text.py`.
 - Canonical mode ensures canonical gold artifacts from export payloads via `cookimport/labelstudio/canonical_gold.py` when needed.
+- When `line_role_pipeline != off`, canonical benchmark prediction loading prefers projection artifacts from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) instead of legacy recipe-extraction stage artifacts.
 
 Benchmark eval artifacts include:
 
@@ -244,6 +246,18 @@ Canonical-text mode also writes line/alignment diagnostics:
 - `alignment_gaps.jsonl`
 
 Prediction/eval telemetry files are written under eval output roots, and benchmark appends history CSV/dashboard artifacts.
+When line-role prediction is enabled in prediction generation, prediction runs also write:
+- `line-role-pipeline/line_role_predictions.jsonl`
+- `line-role-pipeline/freeform_span_predictions.jsonl`
+- `line-role-pipeline/stage_block_predictions.json`
+- `line-role-pipeline/extracted_archive.json`
+When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write:
+- `line-role-pipeline/joined_line_table.jsonl`
+- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
+- `line-role-pipeline/slice_metrics.json`
+- `line-role-pipeline/knowledge_budget.json`
+- `line-role-pipeline/prompt_eval_alignment.md`
+- stable sampled cutdowns keyed from one joined `sample_id` table
 
 ## 6) Artifact Layout
 
@@ -266,6 +280,7 @@ Prediction/eval telemetry files are written under eval output roots, and benchma
 - Prediction run is co-located under eval root (`prediction-run/`).
 - Benchmark also records processed cookbook outputs under configured processed output root.
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
+- If `line_role_pipeline != off`, prediction-run manifests include `line_role_pipeline_*` artifact pointers and optional `line_role_pipeline_recipe_projection` summary from draft-field application.
 
 ## 7) Troubleshooting Checklist
 

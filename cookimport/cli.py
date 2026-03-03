@@ -108,6 +108,16 @@ from cookimport.bench.prediction_records import (
     read_prediction_records,
     write_prediction_records,
 )
+from cookimport.bench.cutdown_export import (
+    build_line_role_joined_line_rows,
+    write_line_role_stable_samples,
+    write_prompt_eval_alignment_doc,
+)
+from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
+from cookimport.bench.slice_metrics import (
+    build_line_role_knowledge_budget,
+    build_line_role_slice_metrics,
+)
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.ingest import (
@@ -149,7 +159,12 @@ from cookimport.plugins import (
     paprika,
     webschema,
 )  # noqa: F401
-from cookimport.runs import RunManifest, RunSource, write_run_manifest
+from cookimport.runs import (
+    RunManifest,
+    RunSource,
+    write_eval_run_manifest,
+    write_run_manifest,
+)
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
 from cookimport.parsing.tips import partition_tip_candidates
@@ -260,6 +275,13 @@ BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY = "thefoodlabcutdown"
 BENCHMARK_COMPARE_SEA_SOURCE_KEY = "seaandsmokecutdown"
 BENCHMARK_COMPARE_INGREDIENT_LABEL = "INGREDIENT_LINE"
 BENCHMARK_COMPARE_VARIANT_LABEL = "RECIPE_VARIANT"
+LINE_ROLE_REGRESSION_GATES_SCHEMA_VERSION = "line_role_regression_gates.v1"
+LINE_ROLE_GATED_METRIC_DELTA_MIN = 0.05
+LINE_ROLE_GATED_INGREDIENT_YIELD_DROP_MIN = 0.40
+LINE_ROLE_GATED_OTHER_KNOWLEDGE_DROP_MIN = 0.30
+LINE_ROLE_GATED_MIN_RECIPE_NOTES_RECALL = 0.40
+LINE_ROLE_GATED_MIN_RECIPE_VARIANT_RECALL = 0.40
+LINE_ROLE_GATED_MIN_INGREDIENT_RECALL = 0.35
 QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE = (
     "bench quality-lightweight-series is disabled. "
     "Tournament/lightweight-series workflows were retired due to extreme "
@@ -4229,6 +4251,449 @@ def _metric_delta(candidate: float | None, baseline: float | None) -> float | No
     if candidate is None or baseline is None:
         return None
     return candidate - baseline
+
+
+def _is_pipeline_off(value: Any) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"", "off", "none", "null"}
+
+
+def _source_key_from_source_path(path_value: str) -> str:
+    source_text = str(path_value or "").strip()
+    if not source_text:
+        return ""
+    return slugify_name(Path(source_text).stem)
+
+
+def _history_timestamp_sort_key(row: dict[str, Any]) -> tuple[str, int]:
+    timestamp_text = str(row.get("run_timestamp") or "").strip()
+    return (timestamp_text, int(row.get("_history_order") or 0))
+
+
+def _load_benchmark_history_rows(csv_path: Path) -> list[dict[str, Any]]:
+    if not csv_path.exists() or not csv_path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for order, row in enumerate(reader):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("run_category") or "").strip() != "benchmark_eval":
+                continue
+            materialized = dict(row)
+            materialized["_history_order"] = order
+            run_config_payload = materialized.get("run_config_json")
+            run_config: dict[str, Any] = {}
+            if isinstance(run_config_payload, str) and run_config_payload.strip():
+                try:
+                    parsed = json.loads(run_config_payload)
+                except json.JSONDecodeError:
+                    parsed = {}
+                if isinstance(parsed, dict):
+                    run_config = parsed
+            materialized["_run_config"] = run_config
+            materialized["_source_key"] = _source_key_from_source_path(
+                str(materialized.get("file_name") or "")
+            )
+            rows.append(materialized)
+    return rows
+
+
+def _load_eval_report_from_history_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    run_dir_raw = str(row.get("run_dir") or "").strip()
+    if not run_dir_raw:
+        return None
+    report_path = Path(run_dir_raw) / "eval_report.json"
+    payload = _load_json_dict(report_path)
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _build_joined_line_rows_for_history_row(
+    row: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    run_dir_raw = str(row.get("run_dir") or "").strip()
+    if not run_dir_raw:
+        return None
+    eval_output_dir = Path(run_dir_raw)
+    report = _load_eval_report_from_history_row(row)
+    if not isinstance(report, dict):
+        return None
+    return build_line_role_joined_line_rows(
+        report=report,
+        eval_output_dir=eval_output_dir,
+        line_role_predictions_path=None,
+    )
+
+
+def _resolve_line_role_baseline_joined_rows(
+    *,
+    history_csv_path: Path,
+    source_key: str,
+    llm_recipe_pipeline: str,
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+    history_rows = _load_benchmark_history_rows(history_csv_path)
+    primary_row = _find_latest_history_row(
+        history_rows,
+        source_key=source_key,
+        predicate=lambda row: (
+            str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
+            and str((row.get("_run_config") or {}).get("llm_recipe_pipeline") or "").strip()
+            == str(llm_recipe_pipeline or "").strip()
+        ),
+    )
+    fallback_row: dict[str, Any] | None = None
+    if primary_row is None and not _is_pipeline_off(llm_recipe_pipeline):
+        fallback_row = _find_latest_history_row(
+            history_rows,
+            source_key=source_key,
+            predicate=lambda row: (
+                str(row.get("eval_scope") or "").strip()
+                == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+                and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
+                and _is_pipeline_off((row.get("_run_config") or {}).get("llm_recipe_pipeline"))
+            ),
+        )
+
+    for row in (primary_row, fallback_row):
+        if row is None:
+            continue
+        joined_rows = _build_joined_line_rows_for_history_row(row)
+        if joined_rows is not None:
+            return joined_rows, row
+    return None, None
+
+
+def _confusion_count(
+    *,
+    report: dict[str, Any],
+    gold_label: str,
+    pred_label: str,
+) -> int | None:
+    confusion = report.get("confusion")
+    if not isinstance(confusion, dict):
+        return None
+    by_gold = confusion.get(gold_label)
+    if not isinstance(by_gold, dict):
+        return 0
+    value = _coerce_int(by_gold.get(pred_label))
+    return value if value is not None else 0
+
+
+def _find_latest_history_row(
+    rows: list[dict[str, Any]],
+    *,
+    source_key: str,
+    predicate: Callable[[dict[str, Any]], bool],
+) -> dict[str, Any] | None:
+    candidates = [
+        row
+        for row in rows
+        if str(row.get("_source_key") or "") == source_key and predicate(row)
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=_history_timestamp_sort_key, reverse=True)
+    return candidates[0]
+
+
+def _source_available_in_input_root(source_key: str) -> bool:
+    if not DEFAULT_INPUT.exists() or not DEFAULT_INPUT.is_dir():
+        return False
+    for path in DEFAULT_INPUT.iterdir():
+        if not path.is_file():
+            continue
+        if slugify_name(path.stem) == source_key:
+            return True
+    return False
+
+
+def _build_line_role_regression_gate_payload(
+    *,
+    candidate_report: dict[str, Any],
+    candidate_source_key: str,
+    history_csv_path: Path,
+) -> dict[str, Any]:
+    history_rows = _load_benchmark_history_rows(history_csv_path)
+    gates: list[dict[str, Any]] = []
+
+    def _add_gate(name: str, passed: bool, reason: str) -> None:
+        gates.append({"name": name, "passed": bool(passed), "reason": reason})
+
+    if candidate_source_key != BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY:
+        _add_gate(
+            "foodlab_source_required",
+            False,
+            (
+                "line-role gated mode currently requires source "
+                f"{BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY}; got {candidate_source_key or '<unknown>'}."
+            ),
+        )
+    vanilla_foodlab_row = _find_latest_history_row(
+        history_rows,
+        source_key=BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY,
+        predicate=lambda row: (
+            _is_pipeline_off((row.get("_run_config") or {}).get("llm_recipe_pipeline"))
+            and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
+            and str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+        ),
+    )
+    codex_foodlab_row = _find_latest_history_row(
+        history_rows,
+        source_key=BENCHMARK_COMPARE_FOODLAB_SOURCE_KEY,
+        predicate=lambda row: (
+            str((row.get("_run_config") or {}).get("llm_recipe_pipeline") or "").strip()
+            == "codex-farm-3pass-v1"
+            and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
+            and str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+        ),
+    )
+    vanilla_foodlab_report = (
+        _load_eval_report_from_history_row(vanilla_foodlab_row)
+        if vanilla_foodlab_row is not None
+        else None
+    )
+    codex_foodlab_report = (
+        _load_eval_report_from_history_row(codex_foodlab_row)
+        if codex_foodlab_row is not None
+        else None
+    )
+
+    candidate_macro = _report_optional_metric(
+        candidate_report.get("macro_f1_excluding_other")
+    )
+    candidate_accuracy = _report_optional_metric(
+        candidate_report.get("overall_line_accuracy")
+    )
+    baseline_macro = (
+        _report_optional_metric(vanilla_foodlab_report.get("macro_f1_excluding_other"))
+        if isinstance(vanilla_foodlab_report, dict)
+        else None
+    )
+    baseline_accuracy = (
+        _report_optional_metric(vanilla_foodlab_report.get("overall_line_accuracy"))
+        if isinstance(vanilla_foodlab_report, dict)
+        else None
+    )
+    macro_delta = _metric_delta(candidate_macro, baseline_macro)
+    accuracy_delta = _metric_delta(candidate_accuracy, baseline_accuracy)
+    if macro_delta is None:
+        _add_gate(
+            "foodlab_macro_f1_delta_min",
+            False,
+            "Missing baseline/candidate macro_f1_excluding_other.",
+        )
+    else:
+        _add_gate(
+            "foodlab_macro_f1_delta_min",
+            macro_delta >= LINE_ROLE_GATED_METRIC_DELTA_MIN,
+            (
+                f"candidate_minus_baseline={macro_delta:.6f} "
+                f"(threshold {LINE_ROLE_GATED_METRIC_DELTA_MIN:.2f})."
+            ),
+        )
+    if accuracy_delta is None:
+        _add_gate(
+            "foodlab_line_accuracy_delta_min",
+            False,
+            "Missing baseline/candidate overall_line_accuracy.",
+        )
+    else:
+        _add_gate(
+            "foodlab_line_accuracy_delta_min",
+            accuracy_delta >= LINE_ROLE_GATED_METRIC_DELTA_MIN,
+            (
+                f"candidate_minus_baseline={accuracy_delta:.6f} "
+                f"(threshold {LINE_ROLE_GATED_METRIC_DELTA_MIN:.2f})."
+            ),
+        )
+
+    candidate_ingredient_yield = _confusion_count(
+        report=candidate_report,
+        gold_label="INGREDIENT_LINE",
+        pred_label="YIELD_LINE",
+    )
+    candidate_other_knowledge = _confusion_count(
+        report=candidate_report,
+        gold_label="OTHER",
+        pred_label="KNOWLEDGE",
+    )
+    baseline_ingredient_yield = (
+        _confusion_count(
+            report=codex_foodlab_report,
+            gold_label="INGREDIENT_LINE",
+            pred_label="YIELD_LINE",
+        )
+        if isinstance(codex_foodlab_report, dict)
+        else None
+    )
+    baseline_other_knowledge = (
+        _confusion_count(
+            report=codex_foodlab_report,
+            gold_label="OTHER",
+            pred_label="KNOWLEDGE",
+        )
+        if isinstance(codex_foodlab_report, dict)
+        else None
+    )
+
+    def _confusion_drop_gate(
+        *,
+        gate_name: str,
+        baseline_value: int | None,
+        candidate_value: int | None,
+        min_drop_ratio: float,
+    ) -> None:
+        if baseline_value is None or candidate_value is None:
+            _add_gate(gate_name, False, "Missing baseline/candidate confusion counts.")
+            return
+        if baseline_value <= 0:
+            passed = candidate_value <= 0
+            _add_gate(
+                gate_name,
+                passed,
+                (
+                    "Baseline confusion count is 0; "
+                    f"candidate={candidate_value}."
+                ),
+            )
+            return
+        drop_ratio = (baseline_value - candidate_value) / baseline_value
+        _add_gate(
+            gate_name,
+            drop_ratio >= min_drop_ratio,
+            (
+                f"baseline={baseline_value}, candidate={candidate_value}, "
+                f"drop_ratio={drop_ratio:.6f}, threshold={min_drop_ratio:.2f}."
+            ),
+        )
+
+    _confusion_drop_gate(
+        gate_name="foodlab_ingredient_to_yield_confusion_drop",
+        baseline_value=baseline_ingredient_yield,
+        candidate_value=candidate_ingredient_yield,
+        min_drop_ratio=LINE_ROLE_GATED_INGREDIENT_YIELD_DROP_MIN,
+    )
+    _confusion_drop_gate(
+        gate_name="foodlab_other_to_knowledge_confusion_drop",
+        baseline_value=baseline_other_knowledge,
+        candidate_value=candidate_other_knowledge,
+        min_drop_ratio=LINE_ROLE_GATED_OTHER_KNOWLEDGE_DROP_MIN,
+    )
+
+    candidate_notes_recall = _label_recall_from_eval_report(
+        candidate_report,
+        "RECIPE_NOTES",
+    )
+    candidate_variant_recall = _label_recall_from_eval_report(
+        candidate_report,
+        "RECIPE_VARIANT",
+    )
+    candidate_ingredient_recall = _label_recall_from_eval_report(
+        candidate_report,
+        "INGREDIENT_LINE",
+    )
+    for gate_name, recall_value, threshold in (
+        (
+            "foodlab_recipe_notes_recall_min",
+            candidate_notes_recall,
+            LINE_ROLE_GATED_MIN_RECIPE_NOTES_RECALL,
+        ),
+        (
+            "foodlab_recipe_variant_recall_min",
+            candidate_variant_recall,
+            LINE_ROLE_GATED_MIN_RECIPE_VARIANT_RECALL,
+        ),
+        (
+            "foodlab_ingredient_recall_min",
+            candidate_ingredient_recall,
+            LINE_ROLE_GATED_MIN_INGREDIENT_RECALL,
+        ),
+    ):
+        if recall_value is None:
+            _add_gate(gate_name, False, "Missing candidate per-label recall.")
+            continue
+        _add_gate(
+            gate_name,
+            recall_value > threshold,
+            f"candidate_recall={recall_value:.6f}, threshold>{threshold:.2f}.",
+        )
+
+    sea_exists = _source_available_in_input_root(BENCHMARK_COMPARE_SEA_SOURCE_KEY)
+    if sea_exists:
+        sea_vanilla_row = _find_latest_history_row(
+            history_rows,
+            source_key=BENCHMARK_COMPARE_SEA_SOURCE_KEY,
+            predicate=lambda row: (
+                _is_pipeline_off((row.get("_run_config") or {}).get("llm_recipe_pipeline"))
+                and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
+                and str(row.get("eval_scope") or "").strip()
+                == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            ),
+        )
+        sea_candidate_row = _find_latest_history_row(
+            history_rows,
+            source_key=BENCHMARK_COMPARE_SEA_SOURCE_KEY,
+            predicate=lambda row: (
+                not _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
+                and str(row.get("eval_scope") or "").strip()
+                == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            ),
+        )
+        sea_vanilla_report = (
+            _load_eval_report_from_history_row(sea_vanilla_row)
+            if sea_vanilla_row is not None
+            else None
+        )
+        sea_candidate_report = (
+            _load_eval_report_from_history_row(sea_candidate_row)
+            if sea_candidate_row is not None
+            else None
+        )
+        for metric_name, field in (
+            ("sea_macro_f1_no_regression", "macro_f1_excluding_other"),
+            ("sea_line_accuracy_no_regression", "overall_line_accuracy"),
+        ):
+            baseline_value = (
+                _report_optional_metric(sea_vanilla_report.get(field))
+                if isinstance(sea_vanilla_report, dict)
+                else None
+            )
+            candidate_value = (
+                _report_optional_metric(sea_candidate_report.get(field))
+                if isinstance(sea_candidate_report, dict)
+                else None
+            )
+            if baseline_value is None or candidate_value is None:
+                _add_gate(
+                    metric_name,
+                    False,
+                    "Missing seaandsmokecutdown baseline/candidate metrics in benchmark history.",
+                )
+                continue
+            _add_gate(
+                metric_name,
+                candidate_value >= baseline_value,
+                f"candidate={candidate_value:.6f}, baseline={baseline_value:.6f}.",
+            )
+
+    failed_gate_count = sum(1 for gate in gates if not bool(gate.get("passed")))
+    return {
+        "schema_version": LINE_ROLE_REGRESSION_GATES_SCHEMA_VERSION,
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "history_csv": str(history_csv_path),
+        "candidate_source_key": candidate_source_key,
+        "overall": {
+            "verdict": "PASS" if failed_gate_count == 0 else "FAIL",
+            "gate_count": len(gates),
+            "failed_gate_count": failed_gate_count,
+            "passed_gate_count": len(gates) - failed_gate_count,
+        },
+        "gates": gates,
+    }
 
 
 def _build_labelstudio_benchmark_compare_payload(
@@ -8444,6 +8909,66 @@ def _resolve_stage_predictions_for_benchmark(
     return pred_run / "stage_block_predictions.json"
 
 
+def _resolve_line_role_projection_for_benchmark(
+    *,
+    import_result: dict[str, Any],
+    pred_context: PredRunContext,
+    pred_run: Path,
+) -> tuple[Path, Path] | None:
+    stage_candidates: list[Path] = []
+    for value in (
+        import_result.get("line_role_pipeline_stage_block_predictions_path"),
+        pred_context.line_role_stage_block_predictions_path,
+        pred_run / "line-role-pipeline" / "stage_block_predictions.json",
+    ):
+        if not value:
+            continue
+        stage_candidates.append(Path(str(value)))
+
+    archive_candidates: list[Path] = []
+    for value in (
+        import_result.get("line_role_pipeline_extracted_archive_path"),
+        pred_context.line_role_extracted_archive_path,
+        pred_run / "line-role-pipeline" / "extracted_archive.json",
+    ):
+        if not value:
+            continue
+        archive_candidates.append(Path(str(value)))
+
+    resolved_stage: Path | None = None
+    for candidate in stage_candidates:
+        if candidate.exists() and candidate.is_file():
+            resolved_stage = candidate
+            break
+    resolved_archive: Path | None = None
+    for candidate in archive_candidates:
+        if candidate.exists() and candidate.is_file():
+            resolved_archive = candidate
+            break
+    if resolved_stage is None or resolved_archive is None:
+        return None
+    return resolved_stage, resolved_archive
+
+
+def _resolve_line_role_predictions_for_benchmark(
+    *,
+    import_result: dict[str, Any],
+    pred_run: Path,
+) -> Path | None:
+    candidates: list[Path] = []
+    for value in (
+        import_result.get("line_role_pipeline_line_role_predictions_path"),
+        pred_run / "line-role-pipeline" / "line_role_predictions.jsonl",
+    ):
+        if not value:
+            continue
+        candidates.append(Path(str(value)))
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
 def _build_codex_farm_prompt_response_log(
     *,
     pred_run: Path,
@@ -9259,21 +9784,34 @@ def _build_prediction_bundle_from_import_result(
     import_result: dict[str, Any],
     eval_output_dir: Path,
     prediction_phase_seconds: float,
+    prefer_line_role_projection: bool = False,
 ) -> BenchmarkPredictionBundle:
     pred_run = _co_locate_prediction_run_for_benchmark(
         Path(import_result["run_root"]),
         eval_output_dir,
     )
     pred_context = _load_pred_run_recipe_context(pred_run)
-    stage_predictions_path = _resolve_stage_predictions_for_benchmark(
+    default_stage_predictions_path = _resolve_stage_predictions_for_benchmark(
         import_result=import_result,
         pred_context=pred_context,
         pred_run=pred_run,
     )
-
-    extracted_archive_path = pred_run / "extracted_archive.json"
-    if not extracted_archive_path.exists() or not extracted_archive_path.is_file():
+    default_extracted_archive_path = pred_run / "extracted_archive.json"
+    if (
+        not default_extracted_archive_path.exists()
+        or not default_extracted_archive_path.is_file()
+    ):
         _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
+    stage_predictions_path = default_stage_predictions_path
+    extracted_archive_path = default_extracted_archive_path
+    if prefer_line_role_projection:
+        projected = _resolve_line_role_projection_for_benchmark(
+            import_result=import_result,
+            pred_context=pred_context,
+            pred_run=pred_run,
+        )
+        if projected is not None:
+            stage_predictions_path, extracted_archive_path = projected
 
     return BenchmarkPredictionBundle(
         import_result=import_result,
@@ -9516,6 +10054,8 @@ def _build_prediction_bundle_from_legacy_record(
         recipes=_coerce_int(predict_meta.get("recipes")),
         processed_report_path=str(predict_meta.get("processed_report_path") or ""),
         stage_block_predictions_path=str(stage_predictions_path),
+        line_role_stage_block_predictions_path="",
+        line_role_extracted_archive_path="",
         source_file=str(predict_meta.get("source_file") or ""),
         source_hash=str(predict_meta.get("source_hash") or "").strip() or None,
         run_config=run_config,
@@ -9677,6 +10217,8 @@ def _build_prediction_bundle_from_stage_records(
         recipes=_coerce_int(first_meta.get("recipes")),
         processed_report_path=str(first_meta.get("processed_report_path") or ""),
         stage_block_predictions_path=str(stage_predictions_path),
+        line_role_stage_block_predictions_path="",
+        line_role_extracted_archive_path="",
         source_file=source_file,
         source_hash=source_hash if source_hash != "unknown" else None,
         run_config=run_config,
@@ -18912,20 +19454,24 @@ def _write_eval_run_manifest(
     artifacts: dict[str, Any],
     notes: str | None = None,
 ) -> None:
-    manifest = RunManifest(
-        run_kind=run_kind,
-        run_id=run_root.name,
-        created_at=dt.datetime.now().isoformat(timespec="seconds"),
-        source=RunSource(
-            path=source_path,
+    try:
+        write_eval_run_manifest(
+            run_root=run_root,
+            run_kind=run_kind,
+            source_path=source_path,
             source_hash=source_hash,
             importer_name=importer_name,
-        ),
-        run_config=run_config,
-        artifacts=artifacts,
-        notes=notes,
-    )
-    _write_run_manifest_best_effort(run_root, manifest)
+            run_config=run_config,
+            artifacts=artifacts,
+            notes=notes,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Warning: failed to write run_manifest.json in {run_root}: {exc}",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        logger.warning("Failed to write run_manifest.json in %s: %s", run_root, exc)
 
 
 def _require_importer(path: Path):
@@ -23397,6 +23943,13 @@ def labelstudio_benchmark(
             "experiments: off, deterministic-v1, or codex-line-role-v1."
         ),
     )] = "off",
+    line_role_gated: Annotated[bool, typer.Option(
+        "--line-role-gated/--no-line-role-gated",
+        help=(
+            "Enable Milestone-5 regression gates for canonical line-role runs. "
+            "Fails the command when gates do not pass."
+        ),
+    )] = False,
     codex_farm_recipe_mode: Annotated[str, typer.Option(
         "--codex-farm-recipe-mode",
         help=(
@@ -24066,10 +24619,15 @@ def labelstudio_benchmark(
                         stage_prediction_seconds = max(
                             0.0, time.monotonic() - prediction_phase_started
                         )
+                        use_line_role_projection = (
+                            selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+                            and selected_line_role_pipeline != "off"
+                        )
                         return _build_prediction_bundle_from_import_result(
                             import_result=stage_import_result,
                             eval_output_dir=eval_output_dir,
                             prediction_phase_seconds=stage_prediction_seconds,
+                            prefer_line_role_projection=use_line_role_projection,
                         )
 
                     def _prewarm_evaluation_inputs() -> dict[str, Path] | None:
@@ -24273,6 +24831,7 @@ def labelstudio_benchmark(
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
+            "line_role_gated": bool(line_role_gated),
             "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
             "codex_farm_cmd": codex_farm_cmd,
             "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
@@ -24638,6 +25197,219 @@ def labelstudio_benchmark(
     else:
         report_md_path.unlink(missing_ok=True)
 
+    line_role_diagnostics_artifacts: dict[str, Any] = {}
+    line_role_gate_payload: dict[str, Any] | None = None
+    if (
+        selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+        and selected_line_role_pipeline != "off"
+    ):
+        line_role_output_dir = eval_output_dir / "line-role-pipeline"
+        line_role_output_dir.mkdir(parents=True, exist_ok=True)
+        resolved_line_role_predictions_path = _resolve_line_role_predictions_for_benchmark(
+            import_result=import_result,
+            pred_run=pred_run,
+        )
+        local_line_role_predictions_path = (
+            line_role_output_dir / "line_role_predictions.jsonl"
+        )
+        if (
+            resolved_line_role_predictions_path is not None
+            and resolved_line_role_predictions_path.exists()
+            and resolved_line_role_predictions_path.resolve(strict=False)
+            != local_line_role_predictions_path.resolve(strict=False)
+        ):
+            shutil.copy2(
+                resolved_line_role_predictions_path,
+                local_line_role_predictions_path,
+            )
+        elif (
+            resolved_line_role_predictions_path is not None
+            and resolved_line_role_predictions_path.exists()
+        ):
+            local_line_role_predictions_path = resolved_line_role_predictions_path
+
+        joined_line_rows = build_line_role_joined_line_rows(
+            report=report,
+            eval_output_dir=eval_output_dir,
+            line_role_predictions_path=(
+                local_line_role_predictions_path
+                if local_line_role_predictions_path.exists()
+                else None
+            ),
+        )
+        joined_line_table_path = line_role_output_dir / "joined_line_table.jsonl"
+        joined_line_table_path.write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in joined_line_rows),
+            encoding="utf-8",
+        )
+
+        baseline_joined_line_rows, baseline_history_row = _resolve_line_role_baseline_joined_rows(
+            history_csv_path=csv_history_path,
+            source_key=_source_key_from_source_path(str(selected_source)),
+            llm_recipe_pipeline=selected_llm_recipe_pipeline,
+        )
+        flips_rows = build_line_role_flips_vs_baseline(
+            joined_line_rows=joined_line_rows,
+            line_role_predictions_path=(
+                local_line_role_predictions_path
+                if local_line_role_predictions_path.exists()
+                else None
+            ),
+            baseline_joined_line_rows=baseline_joined_line_rows,
+        )
+        line_role_flips_path = line_role_output_dir / "line_role_flips_vs_baseline.jsonl"
+        line_role_flips_path.write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in flips_rows),
+            encoding="utf-8",
+        )
+
+        slice_metrics_payload = build_line_role_slice_metrics(joined_line_rows)
+        slice_metrics_path = line_role_output_dir / "slice_metrics.json"
+        slice_metrics_path.write_text(
+            json.dumps(slice_metrics_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        knowledge_budget_payload = build_line_role_knowledge_budget(joined_line_rows)
+        knowledge_budget_path = line_role_output_dir / "knowledge_budget.json"
+        knowledge_budget_path.write_text(
+            json.dumps(knowledge_budget_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        prompt_eval_alignment_path = line_role_output_dir / "prompt_eval_alignment.md"
+        write_prompt_eval_alignment_doc(
+            output_path=prompt_eval_alignment_path,
+            llm_recipe_pipeline=selected_llm_recipe_pipeline,
+            line_role_pipeline=selected_line_role_pipeline,
+            atomic_block_splitter=selected_atomic_block_splitter,
+        )
+
+        sample_summary = write_line_role_stable_samples(
+            output_dir=line_role_output_dir,
+            joined_line_rows=joined_line_rows,
+            flips_rows=flips_rows,
+        )
+        sample_summary_path = line_role_output_dir / "sample_summary.json"
+        sample_summary_path.write_text(
+            json.dumps(sample_summary, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        line_role_diagnostics_artifacts = {
+            "line_role_predictions_jsonl": _path_for_manifest(
+                eval_output_dir,
+                local_line_role_predictions_path
+                if local_line_role_predictions_path.exists()
+                else None,
+            ),
+            "joined_line_table_jsonl": _path_for_manifest(
+                eval_output_dir,
+                joined_line_table_path,
+            ),
+            "line_role_flips_vs_baseline_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_flips_path,
+            ),
+            "slice_metrics_json": _path_for_manifest(
+                eval_output_dir,
+                slice_metrics_path,
+            ),
+            "knowledge_budget_json": _path_for_manifest(
+                eval_output_dir,
+                knowledge_budget_path,
+            ),
+            "prompt_eval_alignment_md": _path_for_manifest(
+                eval_output_dir,
+                prompt_eval_alignment_path,
+            ),
+            "sample_summary_json": _path_for_manifest(
+                eval_output_dir,
+                sample_summary_path,
+            ),
+            "wrong_label_lines_sample_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "wrong_label_lines.sample.jsonl",
+            ),
+            "correct_label_lines_sample_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "correct_label_lines.sample.jsonl",
+            ),
+            "aligned_prediction_blocks_sample_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "aligned_prediction_blocks.sample.jsonl",
+            ),
+            "line_role_flips_vs_baseline_sample_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "line_role_flips_vs_baseline.sample.jsonl",
+            ),
+        }
+        if isinstance(baseline_history_row, dict):
+            baseline_run_dir = str(baseline_history_row.get("run_dir") or "").strip()
+            if baseline_run_dir:
+                line_role_diagnostics_artifacts["line_role_flips_baseline_run_dir"] = (
+                    _path_for_manifest(eval_output_dir, baseline_run_dir) or baseline_run_dir
+                )
+            baseline_run_timestamp = str(
+                baseline_history_row.get("run_timestamp") or ""
+            ).strip()
+            if baseline_run_timestamp:
+                line_role_diagnostics_artifacts[
+                    "line_role_flips_baseline_run_timestamp"
+                ] = baseline_run_timestamp
+
+        if line_role_gated:
+            line_role_gate_payload = _build_line_role_regression_gate_payload(
+                candidate_report=report,
+                candidate_source_key=_source_key_from_source_path(str(selected_source)),
+                history_csv_path=csv_history_path,
+            )
+            line_role_gate_json_path = line_role_output_dir / "regression_gates.json"
+            line_role_gate_json_path.write_text(
+                json.dumps(line_role_gate_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            gate_lines = [
+                "# Line-Role Regression Gates",
+                "",
+                (
+                    "Verdict: "
+                    + str(
+                        ((line_role_gate_payload.get("overall") or {}).get("verdict"))
+                        or "UNKNOWN"
+                    )
+                ),
+                "",
+                "| Gate | Status | Reason |",
+                "| --- | --- | --- |",
+            ]
+            gates_payload = line_role_gate_payload.get("gates")
+            if isinstance(gates_payload, list):
+                for gate in gates_payload:
+                    if not isinstance(gate, dict):
+                        continue
+                    gate_name = str(gate.get("name") or "").strip() or "<unknown>"
+                    status = "PASS" if bool(gate.get("passed")) else "FAIL"
+                    reason = str(gate.get("reason") or "").strip().replace("|", "\\|")
+                    gate_lines.append(f"| `{gate_name}` | {status} | {reason} |")
+            line_role_gate_md_path = line_role_output_dir / "regression_gates.md"
+            line_role_gate_md_path.write_text(
+                "\n".join(gate_lines).rstrip() + "\n",
+                encoding="utf-8",
+            )
+            line_role_diagnostics_artifacts[
+                "line_role_regression_gates_json"
+            ] = _path_for_manifest(
+                eval_output_dir,
+                line_role_gate_json_path,
+            )
+            line_role_diagnostics_artifacts[
+                "line_role_regression_gates_md"
+            ] = _path_for_manifest(
+                eval_output_dir,
+                line_role_gate_md_path,
+            )
+
     benchmark_run_config: dict[str, Any] = {
         "eval_mode": selected_eval_mode,
         "sequence_matcher": selected_sequence_matcher,
@@ -24707,6 +25479,7 @@ def labelstudio_benchmark(
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
         "atomic_block_splitter": selected_atomic_block_splitter,
         "line_role_pipeline": selected_line_role_pipeline,
+        "line_role_gated": bool(line_role_gated),
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
         "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
@@ -24864,6 +25637,9 @@ def labelstudio_benchmark(
             eval_output_dir,
             processed_run_root,
         )
+    for artifact_key, artifact_value in line_role_diagnostics_artifacts.items():
+        if artifact_value:
+            benchmark_artifacts[artifact_key] = artifact_value
 
     _write_eval_run_manifest(
         run_root=eval_output_dir,
@@ -24887,6 +25663,18 @@ def labelstudio_benchmark(
             )
         ),
     )
+    if line_role_gated and isinstance(line_role_gate_payload, dict):
+        overall_payload = line_role_gate_payload.get("overall")
+        verdict = (
+            str((overall_payload or {}).get("verdict") or "").strip().upper()
+            if isinstance(overall_payload, dict)
+            else ""
+        )
+        if verdict == "FAIL":
+            _fail(
+                "Line-role regression gates failed. "
+                f"See {eval_output_dir / 'line-role-pipeline' / 'regression_gates.md'}."
+            )
 
     if not suppress_summary:
         typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
@@ -24923,6 +25711,23 @@ def labelstudio_benchmark(
         typer.secho(f"Report JSON: {report_json_path}", fg=typer.colors.CYAN)
         if write_markdown:
             typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+        if line_role_diagnostics_artifacts:
+            typer.secho(
+                f"Line-role diagnostics: {eval_output_dir / 'line-role-pipeline'}",
+                fg=typer.colors.CYAN,
+            )
+        if line_role_gated and isinstance(line_role_gate_payload, dict):
+            overall_payload = line_role_gate_payload.get("overall")
+            gate_verdict = (
+                str((overall_payload or {}).get("verdict") or "UNKNOWN").strip().upper()
+                if isinstance(overall_payload, dict)
+                else "UNKNOWN"
+            )
+            gate_color = typer.colors.GREEN if gate_verdict == "PASS" else typer.colors.RED
+            typer.secho(
+                f"Line-role regression gates: {gate_verdict}",
+                fg=gate_color,
+            )
         prediction_timeseries_path = (
             eval_output_dir / "processing_timeseries_prediction.jsonl"
         )

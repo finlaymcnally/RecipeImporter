@@ -275,11 +275,17 @@ def _fallback_prediction(
     *,
     reason: str,
 ) -> CanonicalLineRolePrediction:
-    label = "OTHER"
-    for option in candidate.candidate_labels:
-        if option in FREEFORM_ALLOWED_LABELS:
-            label = option
-            break
+    deterministic_label, deterministic_confidence, deterministic_tags = _deterministic_label(
+        candidate
+    )
+    if deterministic_label is not None and deterministic_label in FREEFORM_ALLOWED_LABELS:
+        label = deterministic_label
+        confidence = max(0.35, float(deterministic_confidence))
+        reason_tags = [reason, "deterministic_recovered", *deterministic_tags]
+    else:
+        label = "OTHER"
+        confidence = 0.35
+        reason_tags = [reason, "deterministic_unavailable"]
     return CanonicalLineRolePrediction(
         recipe_id=candidate.recipe_id,
         block_id=str(candidate.block_id),
@@ -287,9 +293,9 @@ def _fallback_prediction(
         atomic_index=int(candidate.atomic_index),
         text=str(candidate.text),
         label=label,
-        confidence=0.35,
+        confidence=confidence,
         decided_by="fallback",
-        reason_tags=[reason],
+        reason_tags=reason_tags,
     )
 
 

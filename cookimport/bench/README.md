@@ -13,12 +13,13 @@ Current scoring contract:
 - `labelstudio-benchmark --execution-mode predict-only` generates prediction artifacts (and optional prediction-record JSONL) without running evaluation.
 - `bench eval-stage` evaluates existing stage outputs against freeform gold and writes stage-block diagnostics (`eval_report.*`, `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`, boundary mismatch JSONL artifacts).
 - canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so DMP alignment mappings can be audited directly.
+- line-role Milestone-5 diagnostics now live in `cutdown_export.py`, `pairwise_flips.py`, and `slice_metrics.py`; canonical line-role runs emit joined-line tables, flips, slice/knowledge metrics, and stable sampled cutdown JSONLs keyed by one `sample_id` source table.
 - Deterministic speed regression tooling lives in:
   - `speed_suite.py` (`bench speed-discover` target discovery from pulled gold exports)
   - `speed_runner.py` (`bench speed-run` repeated stage/benchmark timing samples, including optional `benchmark_all_method_multi_source`)
   - `speed_compare.py` (`bench speed-compare` baseline-vs-candidate regression gating)
 - Deterministic quality regression tooling now mirrors the speed loop:
-  - `quality_suite.py` (`bench quality-discover` defaults to curated CUTDOWN target IDs: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; falls back to representative stratified selection when unavailable, and retries filename matching when importer-scored discovery is empty)
+  - `quality_suite.py` (`bench quality-discover` defaults to curated CUTDOWN target IDs: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `roastchickenandotherstoriescutdown`; falls back to representative stratified selection when unavailable, and retries filename matching when importer-scored discovery is empty)
   - `quality_runner.py` (`bench quality-run` supports adaptive parallel experiment execution with persistent canonical/eval + prediction-reuse caches under `data/golden/bench/quality/.cache`; race mode auto-falls back to exhaustive when finalists cannot prune the current variant set; gentle output-write pacing is enabled by default to reduce WSL disk I/O spikes and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`)
   - `quality_compare.py` (`bench quality-compare` baseline-vs-candidate quality gating)
   - `quality_lightweight_series.py` (`bench quality-lightweight-series` main-effects-first orchestration: category screening, combined winner check, and interaction smoke variants with resume-compatible fold artifacts)

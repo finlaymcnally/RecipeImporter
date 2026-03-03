@@ -32,7 +32,7 @@ Current scoring surfaces:
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Run roots are pruned only when benchmark history durability is confirmed from CSV rows.
-- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
+- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
 - `scripts/quality_top_tier_tournament.py`: disabled/retired runtime entrypoint; `main()` exits immediately with a disabled message to prevent accidental tournament fanout.
@@ -62,6 +62,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
+- `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - `--codex-farm-recipe-mode extract|benchmark`
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
@@ -94,6 +95,17 @@ Interactive `single_offline` now writes into one session root:
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
+Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
+When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
+- `line_role_predictions.jsonl` (copied from prediction-run artifact)
+- `joined_line_table.jsonl`
+- `line_role_flips_vs_baseline.jsonl`
+  - baseline source is paired history eval rows when available (same source, canonical mode, `line_role_pipeline=off`, preferring matching `llm_recipe_pipeline`); fallback remains inferred baseline from `decided_by` metadata when no paired baseline exists.
+- `slice_metrics.json`
+- `knowledge_budget.json`
+- `prompt_eval_alignment.md`
+- stable sampled cutdowns (`wrong_label_lines.sample.jsonl`, `correct_label_lines.sample.jsonl`, `aligned_prediction_blocks.sample.jsonl`, `line_role_flips_vs_baseline.sample.jsonl`)
+- if `--line-role-gated`: `regression_gates.json` + `regression_gates.md`
 
 ## 3. Artifact Contracts
 
@@ -108,6 +120,7 @@ Required supporting artifact:
 Generated roots:
 - `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
+- Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, and `line-role-pipeline/extracted_archive.json`.
 
 ### 3.2 Gold artifacts
 
@@ -152,7 +165,7 @@ Speed comparison (`bench speed-compare`) artifacts include:
 - comparison payload includes `baseline_run_settings_hash`, `candidate_run_settings_hash`, `settings_match`, and mismatch-verdict metadata.
 
 Benchmark GC (`bench gc`) artifacts/side effects include:
-- optional history backup before mutation: `performance_history.<YYYY-MM-DD_HH.MM.SS>.gc.bak.csv`
+- timestamped history backup before apply-time mutation when history CSV exists: `performance_history.<YYYY-MM-DD_HH.MM.SS>.gc.bak.csv`
 - optional CSV hydration for benchmark rows (`per_label_json` plus strict/macro/boundary fallback fields) before deletion
 - conditional stale-row prune for deleted run roots when benchmark rows have no durable metrics
 - policy summary in CLI output (`kept/pruned counts`, `estimated reclaim`, `history rows updated/pruned`)
@@ -797,6 +810,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
   - `saltfatacidheatcutdown`
   - `thefoodlabcutdown`
   - `seaandsmokecutdown`
+  - `roastchickenandotherstoriescutdown`
 - If curated IDs are absent, discovery keeps existing representative stratified fallback behavior.
 - Keep selection logic centralized in quality-suite discovery so downstream quality-run behavior stays deterministic and unchanged.
 
@@ -936,6 +950,7 @@ The items below were merged from `docs/understandings` in source timestamp order
   - `saltfatacidheatcutdown`
   - `thefoodlabcutdown`
   - `seaandsmokecutdown`
+  - `roastchickenandotherstoriescutdown`
 - Enabling deterministic sweeps in race mode can multiply probe-round cardinality quickly (observed round-1 probe: `286` configs).
 - If large runs are interrupted, `cannot schedule new futures after interpreter shutdown` can appear as interruption fallout and should not be treated as quality signal.
 
@@ -1396,28 +1411,33 @@ Current benchmark contracts to keep:
   - CLI normalization -> benchmark helper branches -> ingest import paths -> `build_run_settings(...)`,
   - split-cache key input set must include new PDF knobs to avoid stale reuse.
 - Benchmark cutdown manifest contract:
-  - `process_manifest.included_files` must include nested codex full prompt log paths (for example `codexfarm/full_prompt_log.jsonl`), not only root-level files.
+  - `process_manifest.included_files` must include nested per-run paths for codex full prompt logs and additive failure gzip exports (for example `codexfarm/full_prompt_log.jsonl`, `codexfarm/wrong_label_lines.with_context.full.jsonl.gz`, `codexfarm/preprocess_trace_failures.jsonl.gz`), not only root-level files.
 
 ### 2026-03-02_23.54.21 external-AI cutdown feedback coverage snapshot
 
 Source:
 - `docs/understandings/2026-03-02_23.54.21-external-ai-cutdown-feedback-coverage.md`
+- `docs/understandings/2026-03-03_10.40.00-external-ai-preprocess-trace-join-contract.md`
 
 Current contract reminder:
-- `scripts/benchmark_cutdown_for_external_ai.py` already includes most requested high-value coverage (full prompt JSONL inclusion, changed-line rows, per-recipe/per-span breakdowns, prompt-warning aggregates, projection trace, targeted prompt cases, label-policy notes).
-- Remaining gaps are additive diagnostics, mainly:
-  - explicit preprocess-failure tracing (`raw` vs post-preprocess for failing cases),
-  - compressed full-failure export for deeper unsampled investigation.
+- `scripts/benchmark_cutdown_for_external_ai.py` includes high-value causality coverage: full prompt JSONL inclusion, changed-line rows, per-recipe/per-span breakdowns, prompt-warning aggregates, projection trace, targeted prompt cases, and label-policy notes.
+- Root `README.md` now includes `## Project Context Digest` (benchmark contract framing + label ontology cheat-sheet + projection bridge + artifact legend), and flattened `benchmark_summary.md` inherits it via embedded README content.
+- Root metadata now includes stable project-context pointers for reviewer traceability to onboarding docs: `process_manifest.json` has `project_context_path/title/version_or_date/hash` plus `project_context_digest_included`; `comparison_summary.json` includes matching fields under `project_context`.
+- If `docs/AI_Context.md` is missing, project-context metadata falls back to explicit `missing` values instead of failing package generation.
+- Additive failure diagnostics are now part of the run-level contract:
+  - `wrong_label_lines.with_context.full.jsonl.gz` for unsampled wrong-line context rows,
+  - `preprocess_trace_failures.jsonl.gz` for wrong-line traces joined to prediction-run archive and prompt context where available.
+- Missing upstream trace dependencies are reported explicitly in `need_to_know_summary.json` `sample_counts` (`missing_prediction_run`, `missing_extracted_archive`, `missing_full_prompt_log`) instead of failing package generation.
 
-### 2026-03-02_23.56.48 benchmark GC backup-on-history-write-only behavior
+### 2026-03-02_23.56.48 benchmark GC backup-before-apply-mutation behavior
 
 Source:
 - `docs/understandings/2026-03-02_23.56.48-benchmark-gc-backup-on-history-write-only.md`
 
 Current contract reminder:
-- `bench gc` writes a timestamped history CSV backup when benchmark history rows are rewritten/pruned.
-- Artifact deletion can happen without a new backup when matching benchmark rows are already durable and no CSV mutation is required.
-- If stricter always-backup semantics are desired later, treat that as a deliberate policy change (not current behavior regression).
+- `bench gc` writes a timestamped history CSV backup before apply-time deletion/rewrite when history CSV exists.
+- This includes artifact pruning cases where matching benchmark rows are already durable and no CSV row rewrite is needed.
+- If no mutation is applied (for example, no confirmed run roots and no row rewrites), no new backup is written.
 
 ### 2026-03-02_23.58.00 benchmark cutdown causality artifacts and span bridge
 

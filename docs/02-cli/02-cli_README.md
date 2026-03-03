@@ -875,7 +875,7 @@ Options:
 
 ### `cookimport bench quality-discover`
 
-Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`. Selection metadata now includes per-format counts (`format_counts`, `selected_format_counts`) and per-target `source_extension`.
+Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `roastchickenandotherstoriescutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`. Selection metadata now includes per-format counts (`format_counts`, `selected_format_counts`) and per-target `source_extension`.
 
 Options:
 

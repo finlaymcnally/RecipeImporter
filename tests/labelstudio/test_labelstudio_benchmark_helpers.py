@@ -4496,6 +4496,96 @@ def test_labelstudio_benchmark_predictions_in_supports_legacy_run_pointer_record
     assert captured_eval["extracted_blocks_json"] == extracted_archive_path
 
 
+def test_build_prediction_bundle_prefers_line_role_projection_for_canonical_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    prediction_run = tmp_path / "prediction-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+
+    default_stage_predictions_path = prediction_run / "stage_block_predictions.json"
+    default_stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 1,
+                "block_labels": {"0": "OTHER"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    default_extracted_archive_path = prediction_run / "extracted_archive.json"
+    default_extracted_archive_path.write_text(
+        json.dumps([{"index": 0, "text": "default"}], sort_keys=True),
+        encoding="utf-8",
+    )
+
+    line_role_dir = prediction_run / "line-role-pipeline"
+    line_role_dir.mkdir(parents=True, exist_ok=True)
+    line_role_stage_predictions_path = line_role_dir / "stage_block_predictions.json"
+    line_role_stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    line_role_extracted_archive_path = line_role_dir / "extracted_archive.json"
+    line_role_extracted_archive_path.write_text(
+        json.dumps([{"index": 0, "text": "line-role"}], sort_keys=True),
+        encoding="utf-8",
+    )
+
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "stage_block_predictions_path": str(default_stage_predictions_path),
+                "line_role_pipeline_stage_block_predictions_path": str(
+                    line_role_stage_predictions_path
+                ),
+                "line_role_pipeline_extracted_archive_path": str(
+                    line_role_extracted_archive_path
+                ),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    import_result = {"run_root": prediction_run}
+
+    default_bundle = cli._build_prediction_bundle_from_import_result(
+        import_result=import_result,
+        eval_output_dir=tmp_path / "eval-default",
+        prediction_phase_seconds=1.0,
+        prefer_line_role_projection=False,
+    )
+    assert default_bundle.stage_predictions_path == default_stage_predictions_path
+    assert default_bundle.extracted_archive_path == default_extracted_archive_path
+
+    line_role_bundle = cli._build_prediction_bundle_from_import_result(
+        import_result=import_result,
+        eval_output_dir=tmp_path / "eval-line-role",
+        prediction_phase_seconds=1.0,
+        prefer_line_role_projection=True,
+    )
+    assert line_role_bundle.stage_predictions_path == line_role_stage_predictions_path
+    assert line_role_bundle.extracted_archive_path == line_role_extracted_archive_path
+
+
 def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

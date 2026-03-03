@@ -50,8 +50,9 @@ and observing:
 - [x] (2026-03-02 23:30Z) Milestone 1: Added `line_role_pipeline` and `atomic_block_splitter` run settings + CLI flags, propagated them through prediction generation/manifests, and included them in benchmark cutdown summaries.
 - [x] (2026-03-02 23:38Z) Milestone 2: Added `cookimport/parsing/recipe_block_atomizer.py` with deterministic boundary-first splitting plus fixture-backed tests for merged blocks, variant lines, inline numbered tails, and ingredient-range vs yield behavior.
 - [x] (2026-03-03 00:31 America/Toronto) Milestone 3: Added deterministic-first canonical line-role labeling (`cookimport/parsing/canonical_line_roles.py`), shared Codex exec helper extraction (`cookimport/llm/codex_exec.py`), structured line-role prompt builder/template, strict parse+allowlist fallback behavior, prompt-log artifacts (`prompt_<N>`, `response_<N>`, `parsed_<N>`, dedup log, parse-error summary), and fixture-backed parsing tests.
-- [ ] Milestone 4: Wire benchmark export and optional draft building to consume the same labeled atomic lines (integration test).
-- [ ] Milestone 5: Add paired-run diagnostics, stable cutdown exports, and regression gates; update docs; run acceptance benchmark(s) and record results here.
+- [x] (2026-03-03 01:20 America/Toronto) Milestone 4: Added line-role projection module (`cookimport/labelstudio/canonical_line_projection.py`), wired prediction manifests/artifacts (`line-role-pipeline/*`), switched canonical benchmark bundle loading to prefer line-role projection artifacts when enabled (with legacy fallback), and wired optional draft-field application from projected spans; landed integration tests in `tests/labelstudio/test_labelstudio_ingest_parallel.py` and `tests/labelstudio/test_labelstudio_benchmark_helpers.py`.
+- [x] (2026-03-03 00:26 America/Toronto) Milestone 5 implementation: added line-role diagnostics artifacts (`joined_line_table`, flips, slices, knowledge budget, prompt/eval alignment), stable sampled cutdowns keyed from one line table, and optional `--line-role-gated` regression-gate enforcement with benchmark-history baselines.
+- [x] (2026-03-03 00:37 America/Toronto) Milestone 5 acceptance replay: ran real `--line-role-gated` CUTDOWN benchmarks for both `deterministic-v1` and `codex-line-role-v1`, recorded run dirs + gate outcomes in this ExecPlan; both runs currently fail regression gates.
 
 ## Surprises & Discoveries
 
@@ -81,6 +82,15 @@ and observing:
 
 - Observation: Outside-recipe prose can be misclassified as instruction-like when sentence-length heuristics fire before span context is considered.
   Evidence: A narrative paragraph outside recipe span initially labeled `INSTRUCTION_LINE`; fixed by prioritizing outside-span prose handling before instruction fallback in deterministic line-role rules.
+
+- Observation: Gated acceptance replay currently fails mostly on missing history-comparison metrics and two low-recall floors, not on ingestion/runtime failure.
+  Evidence: Both `regression_gates.md` files report 8/9 failed gates with reasons including missing baseline/candidate history metrics, `RECIPE_NOTES` recall `0.220339 < 0.40`, and `RECIPE_VARIANT` recall `0.074074 < 0.40`.
+
+- Observation: Current CUTDOWN slice metrics are not yet recipe-slice-informative in replay runs.
+  Evidence: `slice_metrics.json` reports `outside_recipe.line_count=2353` and all recipe-specific slice line counts as `0`.
+
+- Observation: Codex line-role fallback changed very few lines in this replay.
+  Evidence: `line_role_flips_vs_baseline.sample.jsonl` for codex run shows only 3 sampled flips (`OTHER -> INSTRUCTION_LINE`), with aggregate accuracy/macro-F1 effectively unchanged vs deterministic.
 
 ## Decision Log
 
@@ -120,16 +130,33 @@ and observing:
   Rationale: The benchmark failures are dominated by low-ambiguity lines that rules can cover safely; Codex should only resolve ambiguity, never override impossible labels (e.g., ingredient as yield, knowledge inside recipe span without prose support).
   Date/Author: 2026-03-03 / assistant (GPT-5.2)
 
+- Decision: Run Milestone 5 acceptance replay with `--llm-recipe-pipeline off` while keeping `--atomic-block-splitter atomic-v1`.
+  Rationale: This isolates line-role behavior from schema extraction passes and keeps the acceptance signal tied to the new line-role path.
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
+- Decision: Record both deterministic and codex line-role gated runs before tuning thresholds.
+  Rationale: Capturing both outcomes now establishes a concrete acceptance baseline and prevents overfitting fixes to one pipeline mode.
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
 ## Outcomes & Retrospective
 
-Partial implementation complete. Milestones 0, 1, 2, and 3 are now landed:
+Implementation is complete through Milestone 5, with initial acceptance replay evidence recorded:
 
 - canonical-text evaluation keeps explicit HOWTO labels so per-label totals/confusions report them correctly;
 - benchmark run settings now expose `llm_recipe_pipeline`, `atomic_block_splitter`, and `line_role_pipeline` independently in run config/manifests/cutdown summaries.
 - deterministic block atomization now produces atomic candidates with candidate labels/rule tags and stable adjacency context.
 - deterministic-first canonical line-role predictions now exist with optional Codex fallback, strict parse/allowlist fallback behavior, prompt logs, and regression tests for the known canonical-line failure cases.
+- canonical line-role predictions now project into benchmark-ready stage/extracted artifacts under `line-role-pipeline/`, and canonical benchmark loading prefers those projection artifacts when enabled.
+- optional draft-field application now reuses the same projected line-role spans used by benchmark prediction artifacts, with integration tests asserting ingredient/instruction/note alignment.
 
-Remaining work is Milestones 4–5 (projection/draft wiring, diagnostics/gates, and acceptance benchmarks).
+Milestones 0-5 implementation and Milestone 5 acceptance replay execution are complete. Current acceptance status is that gates fail on the first real replay and need follow-up calibration/fixes.
+
+Acceptance replay evidence captured in-run:
+
+- `data/golden/benchmark-vs-golden/2026-03-03_00.34.16_line-role-gated-foodlab` (`line_role_pipeline=deterministic-v1`): overall line accuracy `0.468`, macro-F1 excluding OTHER `0.309`, gate verdict `FAIL` (`1/9` passed).
+- `data/golden/benchmark-vs-golden/2026-03-03_00.35.03_line-role-gated-foodlab-codex` (`line_role_pipeline=codex-line-role-v1`): overall line accuracy `0.468`, macro-F1 excluding OTHER `0.309`, gate verdict `FAIL` (`1/9` passed).
+
+Remaining work is now focused on gate follow-up: benchmark-history comparison wiring/data availability and the low-recall floors for `RECIPE_NOTES` and `RECIPE_VARIANT`.
 
 ## Context and Orientation
 
@@ -493,25 +520,54 @@ Work from the repository root.
 
      python -m pytest tests/bench/test_cutdown_export_consistency.py
 
-7. Run the benchmark locally on the provided book.
+7. Run the benchmark locally on the provided book (real acceptance replay, deterministic line-role).
 
      cookimport labelstudio-benchmark \
-       --source data/input/thefoodlabCUTDOWN.epub \
-       --gold-export-dir data/golden/pulled-from-labelstudio/thefoodlabcutdown/exports \
-       --llm-recipe-pipeline codex-farm-3pass-v1 \
+       --source-file data/input/thefoodlabCUTDOWN.epub \
+       --gold-spans data/golden/pulled-from-labelstudio/thefoodlabcutdown/exports/freeform_span_labels.jsonl \
+       --eval-mode canonical-text \
+       --no-upload \
+       --no-write-labelstudio-tasks \
+       --workers 1 \
+       --epub-split-workers 1 \
+       --llm-recipe-pipeline off \
        --atomic-block-splitter atomic-v1 \
-       --line-role-pipeline codex-line-role-v1
+       --line-role-pipeline deterministic-v1 \
+       --line-role-gated \
+       --eval-output-dir data/golden/benchmark-vs-golden/2026-03-03_00.34.16_line-role-gated-foodlab
 
-   Expected observable output should include the run directory and new artifact names, for example:
+8. Run the codex line-role variant under the same gated settings.
 
-     Wrote benchmark run to data/golden/benchmark-vs-golden/2026-03-03_.../
-     Wrote line_role_predictions.jsonl
-     Wrote slice_metrics.json
-     Wrote line_role_flips_vs_baseline.jsonl
+     cookimport labelstudio-benchmark \
+       --source-file data/input/thefoodlabCUTDOWN.epub \
+       --gold-spans data/golden/pulled-from-labelstudio/thefoodlabcutdown/exports/freeform_span_labels.jsonl \
+       --eval-mode canonical-text \
+       --no-upload \
+       --no-write-labelstudio-tasks \
+       --workers 1 \
+       --epub-split-workers 1 \
+       --llm-recipe-pipeline off \
+       --atomic-block-splitter atomic-v1 \
+       --line-role-pipeline codex-line-role-v1 \
+       --line-role-gated \
+       --eval-output-dir data/golden/benchmark-vs-golden/2026-03-03_00.35.03_line-role-gated-foodlab-codex
 
-8. If `SeaAndSmokeCUTDOWN` is available locally, run the same command with that source and its matching gold export directory.
+   Observable output should include the run directory and gate verdict. In this replay both runs ended with:
 
-9. Run the full test suite once at the end.
+     Line-role regression gates failed. See .../line-role-pipeline/regression_gates.md.
+
+   Gate snapshot (both runs):
+
+     FAIL: foodlab_macro_f1_delta_min (missing baseline/candidate comparison)
+     FAIL: foodlab_line_accuracy_delta_min (missing baseline/candidate comparison)
+     FAIL: foodlab_recipe_notes_recall_min (0.220339 < 0.40)
+     FAIL: foodlab_recipe_variant_recall_min (0.074074 < 0.40)
+     PASS: foodlab_ingredient_recall_min (0.741419 >= 0.35)
+     FAIL: sea_* gates (missing seaandsmokecutdown baseline/candidate metrics)
+
+9. If `SeaAndSmokeCUTDOWN` is available locally, run the same command with that source and its matching gold export directory.
+
+10. Run the full test suite once at the end.
 
      python -m pytest
 
@@ -552,6 +608,7 @@ Benchmark quality gates pass:
 
 - The metric gates in Milestone 5 pass on `thefoodlabCUTDOWN`.
 - If `SeaAndSmokeCUTDOWN` exists locally, the non-regression gate passes there too.
+- Current replay status (2026-03-03): not yet satisfied; both recorded CUTDOWN gated runs fail. See `line-role-pipeline/regression_gates.md` inside each run directory listed above.
 
 Optional draft builder alignment:
 
@@ -625,3 +682,9 @@ Store prompt text in version-controlled template files (for example `cookimport/
 (2026-03-02 23:38 America/Toronto) Updated plan after Milestone 2 implementation: added deterministic `recipe_block_atomizer` runtime + fixtures/tests and updated parsing docs/understandings with the boundary-first split-order contract.
 
 (2026-03-03 00:31 America/Toronto) Updated plan after Milestone 3 implementation: added deterministic-first canonical line-role labeling with optional Codex fallback, extracted shared `codex exec` helper, added line-role prompt template/builder, introduced strict parse/allowlist fallback + sanitizer behavior, and landed fixture-backed parsing tests.
+
+(2026-03-03 01:20 America/Toronto) Updated plan after Milestone 4 implementation: added `canonical_line_projection` wiring for `line-role-pipeline` benchmark artifacts, enabled canonical benchmark bundle preference for projected line-role artifacts with legacy fallback, applied optional draft fields from projected spans, and added integration tests proving benchmark/draft alignment.
+
+(2026-03-03 00:26 America/Toronto) Updated plan after Milestone 5 implementation pass: benchmark eval runs with `line_role_pipeline` now emit joined-line diagnostics, stable sampled cutdowns, and prompt/eval alignment docs under `line-role-pipeline/`; optional `--line-role-gated` now evaluates regression gates against benchmark-history baselines and fails the run on gate failure. Acceptance replay runs remain open.
+
+(2026-03-03 00:37 America/Toronto) Updated plan after Milestone 5 acceptance replay execution: ran real `--line-role-gated` CUTDOWN benchmarks for both `deterministic-v1` and `codex-line-role-v1` and recorded run evidence in this plan. Both runs fail gates (`1/9` passed), with dominant failures from missing benchmark-history comparison metrics and low `RECIPE_NOTES`/`RECIPE_VARIANT` recall floors.

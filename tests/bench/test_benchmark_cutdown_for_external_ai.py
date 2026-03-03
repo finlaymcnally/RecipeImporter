@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gzip
+import hashlib
 import importlib.util
 import json
 import sys
@@ -26,12 +28,110 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _read_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row))
             handle.write("\n")
+
+
+def _read_jsonl_gzip(path: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _run_main(module, argv: list[str]) -> int:
+    prior_argv = list(sys.argv)
+    try:
+        sys.argv = ["benchmark_cutdown_for_external_ai.py", *argv]
+        return int(module.main())
+    finally:
+        sys.argv = prior_argv
+
+
+def _set_pred_run_artifact(run_dir: Path, pred_run_value: str) -> None:
+    run_manifest_path = run_dir / "run_manifest.json"
+    payload = _read_json(run_manifest_path)
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    artifacts["pred_run_dir"] = pred_run_value
+    payload["artifacts"] = artifacts
+    _write_json(run_manifest_path, payload)
+
+
+def _write_prediction_run(
+    run_dir: Path,
+    *,
+    with_extracted_archive: bool,
+) -> Path:
+    prediction_run = run_dir / "prediction-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    if with_extracted_archive:
+        _write_json(
+            prediction_run / "extracted_archive.json",
+            [
+                {
+                    "index": 1,
+                    "text": "1 cup flour (raw block)",
+                    "location": {
+                        "features": {
+                            "unstructured_preprocess_mode": "semantic_v1",
+                            "unstructured_stable_key": "block-1",
+                        }
+                    },
+                },
+                {
+                    "index": 3,
+                    "text": "Chef note (raw block)",
+                    "location": {
+                        "features": {
+                            "unstructured_preprocess_mode": "semantic_v1",
+                            "unstructured_stable_key": "block-3",
+                        }
+                    },
+                },
+            ],
+        )
+    return prediction_run
+
+
+def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
+    return [
+        {
+            "pass": "pass1",
+            "call_id": "fixture-pass1",
+            "recipe_id": "recipe:c0",
+            "parsed_response": {
+                "is_recipe": True,
+                "recipe_id": "recipe:c0",
+                "start_block_index": 0,
+                "end_block_index": 3,
+            },
+            "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
+        },
+        {
+            "pass": "pass3",
+            "call_id": "fixture-pass3",
+            "recipe_id": "recipe:c0",
+            "parsed_response": {
+                "warnings": ["Serving information is split across two lines."],
+                "ingredient_step_mapping": "{}",
+            },
+            "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+        },
+    ]
 
 
 def _build_eval_artifacts(module, run_dir: Path) -> tuple[Path, Path]:
@@ -317,3 +417,391 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
     assert len(changed_lines) == 2
     assert len(pair_breakdowns) == 1
     assert targeted_cases
+
+
+def test_build_run_cutdown_writes_new_gzip_artifacts(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    run_id = "2026-03-03_10.00.00"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[
+            {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
+            {"line_index": 3, "gold_label": "RECIPE_NOTES", "pred_label": "KNOWLEDGE"},
+        ],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    run_dir = run_root / run_id
+    _write_prediction_run(run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+
+    output_run_dir = tmp_path / "cutdown" / run_id
+    module._build_run_cutdown(
+        run_dir=run_dir,
+        output_run_dir=output_run_dir,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+    )
+
+    summary = _read_json(output_run_dir / "need_to_know_summary.json")
+    sample_counts = summary["sample_counts"]
+    assert sample_counts[module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME]["status"] == "written"
+    assert sample_counts[module.PREPROCESS_TRACE_FAILURES_FILE_NAME]["status"] == "written"
+
+    wrong_context_rows = _read_jsonl_gzip(
+        output_run_dir / module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME
+    )
+    preprocess_rows = _read_jsonl_gzip(
+        output_run_dir / module.PREPROCESS_TRACE_FAILURES_FILE_NAME
+    )
+    assert len(wrong_context_rows) == 2
+    assert len(preprocess_rows) == 2
+    assert all("current_line" in row for row in wrong_context_rows)
+    assert all("raw_block_excerpt" in row for row in preprocess_rows)
+    assert preprocess_rows[0]["trace_status"] in {
+        "joined_with_prompt_and_archive",
+        "joined_with_archive_only",
+        "joined_with_prompt_only",
+        "missing_prompt_and_archive_context",
+    }
+
+
+def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+
+    missing_pred_run_id = "2026-03-03_10.01.00"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=missing_pred_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    missing_pred_output = tmp_path / "out_missing_pred" / missing_pred_run_id
+    module._build_run_cutdown(
+        run_dir=run_root / missing_pred_run_id,
+        output_run_dir=missing_pred_output,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+    )
+    missing_pred_summary = _read_json(missing_pred_output / "need_to_know_summary.json")
+    assert (
+        missing_pred_summary["sample_counts"][module.PREPROCESS_TRACE_FAILURES_FILE_NAME]["status"]
+        == "missing_prediction_run"
+    )
+
+    missing_archive_run_id = "2026-03-03_10.02.00"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=missing_archive_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    missing_archive_dir = run_root / missing_archive_run_id
+    _write_prediction_run(missing_archive_dir, with_extracted_archive=False)
+    _set_pred_run_artifact(missing_archive_dir, "prediction-run")
+    missing_archive_output = tmp_path / "out_missing_archive" / missing_archive_run_id
+    module._build_run_cutdown(
+        run_dir=missing_archive_dir,
+        output_run_dir=missing_archive_output,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+    )
+    missing_archive_summary = _read_json(missing_archive_output / "need_to_know_summary.json")
+    assert (
+        missing_archive_summary["sample_counts"][module.PREPROCESS_TRACE_FAILURES_FILE_NAME][
+            "status"
+        ]
+        == "missing_extracted_archive"
+    )
+
+    missing_full_prompt_run_id = "2026-03-03_10.03.00"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=missing_full_prompt_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=None,
+    )
+    missing_full_prompt_dir = run_root / missing_full_prompt_run_id
+    _write_prediction_run(missing_full_prompt_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(missing_full_prompt_dir, "prediction-run")
+    missing_full_prompt_output = tmp_path / "out_missing_full_prompt" / missing_full_prompt_run_id
+    module._build_run_cutdown(
+        run_dir=missing_full_prompt_dir,
+        output_run_dir=missing_full_prompt_output,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+    )
+    missing_full_prompt_summary = _read_json(
+        missing_full_prompt_output / "need_to_know_summary.json"
+    )
+    assert (
+        missing_full_prompt_summary["sample_counts"][module.PREPROCESS_TRACE_FAILURES_FILE_NAME][
+            "status"
+        ]
+        == "missing_full_prompt_log"
+    )
+
+
+def test_main_process_manifest_includes_new_nested_gzip_paths(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    run_id = "2026-03-03_10.04.00"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    run_dir = run_root / run_id
+    _write_prediction_run(run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+
+    output_dir = tmp_path / "cutdown_out"
+    exit_code = _run_main(
+        module,
+        [
+            str(run_root),
+            "--output-dir",
+            str(output_dir),
+            "--overwrite",
+            "--no-flatten",
+        ],
+    )
+    assert exit_code == 0
+
+    manifest = _read_json(output_dir / "process_manifest.json")
+    included_files = set(manifest["included_files"])
+    assert f"{run_id}/{module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME}" in included_files
+    assert f"{run_id}/{module.PREPROCESS_TRACE_FAILURES_FILE_NAME}" in included_files
+
+
+def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    codex_run_id = "2026-03-03_10.06.00"
+    baseline_run_id = "2026-03-03_10.05.00"
+
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "INGREDIENT_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    codex_run_dir = run_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    output_dir = tmp_path / "cutdown_out"
+    assert (
+        _run_main(
+            module,
+            [str(run_root), "--output-dir", str(output_dir), "--overwrite", "--no-flatten"],
+        )
+        == 0
+    )
+
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
+    assert "## Project Context Digest" in readme
+    assert "- benchmark_contract:" in readme
+    assert "- label_ontology_cheat_sheet:" in readme
+    assert "- projection_bridge:" in readme
+    assert "- artifact_legend:" in readme
+    assert "- sampling_caveat:" in readme
+
+    context_path = Path(__file__).resolve().parents[2] / "docs" / "AI_Context.md"
+    expected_hash = hashlib.sha256(context_path.read_bytes()).hexdigest()
+
+    manifest = _read_json(output_dir / "process_manifest.json")
+    assert manifest["project_context_path"] == "docs/AI_Context.md"
+    assert manifest["project_context_digest_included"] is True
+    assert manifest["project_context_hash"] == expected_hash
+    assert manifest["project_context_title"] != "missing"
+    assert manifest["project_context_version_or_date"] != "missing"
+
+    comparison = _read_json(output_dir / "comparison_summary.json")
+    project_context = comparison["project_context"]
+    assert project_context["project_context_path"] == "docs/AI_Context.md"
+    assert project_context["project_context_hash"] == expected_hash
+    assert project_context["project_context_title"] == manifest["project_context_title"]
+    assert (
+        project_context["project_context_version_or_date"]
+        == manifest["project_context_version_or_date"]
+    )
+
+
+def test_main_flattened_summary_includes_project_context_digest(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    codex_run_id = "2026-03-03_10.08.00"
+    baseline_run_id = "2026-03-03_10.07.00"
+
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "INGREDIENT_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    output_dir = tmp_path / "cutdown_out"
+    assert _run_main(module, [str(run_root), "--output-dir", str(output_dir), "--overwrite"]) == 0
+
+    flattened_dir = output_dir.parent / f"{output_dir.name}_md"
+    benchmark_summary = flattened_dir / module.AGGREGATED_ROOT_SUMMARY_MD
+    assert benchmark_summary.is_file()
+    summary_text = benchmark_summary.read_text(encoding="utf-8")
+    assert "## README" in summary_text
+    assert "## Project Context Digest" in summary_text
+    assert "- benchmark_contract:" in summary_text
+    assert "- label_ontology_cheat_sheet:" in summary_text
+    assert "- projection_bridge:" in summary_text
+
+
+def test_main_project_context_metadata_fallback_when_context_missing(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    module.PROJECT_CONTEXT_REL_PATH = Path("docs/DOES_NOT_EXIST_FOR_CONTEXT_TEST.md")
+    run_root = tmp_path / "runs"
+    run_id = "2026-03-03_10.09.00"
+
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+
+    output_dir = tmp_path / "cutdown_out"
+    assert (
+        _run_main(
+            module,
+            [str(run_root), "--output-dir", str(output_dir), "--overwrite", "--no-flatten"],
+        )
+        == 0
+    )
+
+    manifest = _read_json(output_dir / "process_manifest.json")
+    assert manifest["project_context_path"] == "docs/DOES_NOT_EXIST_FOR_CONTEXT_TEST.md"
+    assert manifest["project_context_title"] == "missing"
+    assert manifest["project_context_version_or_date"] == "missing"
+    assert manifest["project_context_hash"] == "missing"
+    assert manifest["project_context_digest_included"] is True
+
+    comparison = _read_json(output_dir / "comparison_summary.json")
+    project_context = comparison["project_context"]
+    assert project_context["project_context_path"] == "docs/DOES_NOT_EXIST_FOR_CONTEXT_TEST.md"
+    assert project_context["project_context_title"] == "missing"
+    assert project_context["project_context_version_or_date"] == "missing"
+    assert project_context["project_context_hash"] == "missing"
+
+    readme = (output_dir / "README.md").read_text(encoding="utf-8")
+    assert "- context_pointer: `docs/DOES_NOT_EXIST_FOR_CONTEXT_TEST.md`" in readme
+    assert "title=`missing`" in readme
+    assert "version_or_date=`missing`" in readme
+    assert "sha256=`missing`" in readme
+
+
+def test_main_gzip_exports_are_byte_stable_across_repeated_runs(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    run_id = "2026-03-03_10.05.00"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    run_dir = run_root / run_id
+    _write_prediction_run(run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+
+    out_a = tmp_path / "out_a"
+    out_b = tmp_path / "out_b"
+    assert (
+        _run_main(
+            module,
+            [str(run_root), "--output-dir", str(out_a), "--overwrite", "--no-flatten"],
+        )
+        == 0
+    )
+    assert (
+        _run_main(
+            module,
+            [str(run_root), "--output-dir", str(out_b), "--overwrite", "--no-flatten"],
+        )
+        == 0
+    )
+
+    wrong_context_bytes_a = (
+        out_a / run_id / module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME
+    ).read_bytes()
+    wrong_context_bytes_b = (
+        out_b / run_id / module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME
+    ).read_bytes()
+    preprocess_bytes_a = (out_a / run_id / module.PREPROCESS_TRACE_FAILURES_FILE_NAME).read_bytes()
+    preprocess_bytes_b = (out_b / run_id / module.PREPROCESS_TRACE_FAILURES_FILE_NAME).read_bytes()
+
+    assert wrong_context_bytes_a == wrong_context_bytes_b
+    assert preprocess_bytes_a == preprocess_bytes_b
+
+    manifest_a = _read_json(out_a / "process_manifest.json")
+    manifest_b = _read_json(out_b / "process_manifest.json")
+    for key in (
+        "project_context_path",
+        "project_context_title",
+        "project_context_version_or_date",
+        "project_context_hash",
+        "project_context_digest_included",
+    ):
+        assert manifest_a[key] == manifest_b[key]
+
+    comparison_a = _read_json(out_a / "comparison_summary.json")
+    comparison_b = _read_json(out_b / "comparison_summary.json")
+    assert comparison_a["project_context"] == comparison_b["project_context"]

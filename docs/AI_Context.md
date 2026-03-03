@@ -5,7 +5,7 @@ read_when:
   - When you need to understand how recipe ingestion and parsing works in this codebase
 ---
 
-# AI Onboarding & Project Summary: `cookimport` (code-verified on 2026-02-22)
+# AI Onboarding & Project Summary: `cookimport` (code-verified on 2026-03-03)
 
 This file is the high-level orientation map for the current implementation.
 For subsystem details, use the stage docs in `docs/01-architecture` through `docs/11-reference`.
@@ -50,7 +50,7 @@ From `pyproject.toml`:
 - `labelstudio-eval`
 - `debug-epub-extract`
 - `labelstudio-benchmark`
-- `bench` (subcommands: `validate`, `run`, `sweep`, `knobs`)
+- `bench` (offline benchmark suite: speed/quality discovery-runs/compare, `gc`, `eval-stage`)
 - `tag-catalog` (subcommand: `export`)
 - `tag-recipes` (subcommands: `debug-signals`, `suggest`, `apply`)
 - `epub` (subcommands: `inspect`, `dump`, `unpack`, `blocks`, `candidates`, `validate`)
@@ -84,7 +84,9 @@ Canonical per-run settings live in `cookimport/config/run_settings.py` (`RunSett
 - worker topology (`workers`, split workers, pages/spine items per job),
 - EPUB extractor choices (`unstructured`, `legacy`, `markdown`, `auto`, `markitdown`),
 - unstructured tuning options,
-- OCR options (`ocr_device`, `ocr_batch_size`).
+- OCR options (`ocr_device`, `ocr_batch_size`, PDF OCR policy),
+- deterministic parsing knobs (section detector, multi-recipe splitter, instruction segmentation, ingredient parser controls, priority-6 metadata controls),
+- optional codex-farm run settings (recipe pass, knowledge pass, tag pass).
 
 Interactive flows use the same run settings model and persist last-run snapshots via `cookimport/config/last_run_store.py`.
 
@@ -119,6 +121,8 @@ Active importers:
   - `.paprikarecipes` zip/gzip JSON and HTML export merge path.
 - `cookimport/plugins/recipesage.py`:
   - JSON export ingestion with recipe normalization.
+- `cookimport/plugins/webschema.py`:
+  - schema-first web recipe ingestion with deterministic fallback extraction.
 
 ## 5. Output Contracts
 
@@ -132,21 +136,28 @@ Main artifacts:
 
 - `intermediate drafts/<workbook>/r*.jsonld`
 - `final drafts/<workbook>/r*.json`
+- `sections/<workbook>/r*.sections.json`
 - `tips/<workbook>/...`
 - `chunks/<workbook>/...`
+- `tables/<workbook>/...` (when table extraction is enabled)
 - `raw/<importer>/<source_hash>/...`
+- `.bench/<workbook>/stage_block_predictions.json`
+- `knowledge/<workbook>/...` (when pass4 is enabled)
+- `tags/<workbook>/...` (when pass5 is enabled)
 - `<workbook>.excel_import_report.json`
+- `run_summary.json`
+- `run_summary.md`
 - `run_manifest.json`
 
 ### 5.2 Performance history + dashboard
 
 Stage runs summarize and append history rows to:
 
-- `data/.history/performance_history.csv`
+- `<stage_output_parent>/.history/performance_history.csv`
 
 Dashboard output:
 
-- `cookimport stats-dashboard` writes to `<output_root parent>/.history/dashboard/`
+- `cookimport stats-dashboard` writes to `data/.history/dashboard` by default
 - emits `index.html` + local assets + embedded inline JSON fallback for `file://` usage.
 
 ### 5.3 Label Studio / benchmark artifacts
@@ -178,7 +189,8 @@ All run-producing paths now rely on `run_manifest.json` as a stable traceability
 ### 6.3 Evaluation and offline suite
 
 - `labelstudio-eval` and `labelstudio-benchmark` evaluate freeform predictions against freeform gold.
-- `bench speed-*`, `bench quality-*`, and `bench eval-stage` provide offline benchmark/regression tooling.
+- `bench speed-*`, `bench quality-*`, `bench gc`, and `bench eval-stage` provide offline benchmark/regression tooling.
+- `bench quality-lightweight-series` is currently disabled in CLI to prevent accidental heavy runs.
 
 ## 7. Tagging Subsystem
 
@@ -209,41 +221,21 @@ Important clarification:
 
 ## 9. LLM Boundary (current)
 
-- `cookimport/llm/repair.py` and `cookimport/llm/client.py` still exist as optional/legacy repair plumbing; `LLMClient` provider path remains mock-backed.
-- active operational LLM usage today is concentrated in Label Studio freeform prelabel flows (Codex CLI).
-- deterministic extraction is still the default stage pipeline behavior.
+- Stage LLM paths are optional run-settings choices:
+  - recipe correction: `llm_recipe_pipeline=codex-farm-3pass-v1`
+  - knowledge harvesting: `llm_knowledge_pipeline=codex-farm-knowledge-v1` (pass4)
+  - tag suggestion pass: `llm_tags_pipeline=codex-farm-tags-v1` (pass5)
+- Label Studio freeform prelabel uses local Codex CLI invocation (`codex exec -` fallback path included).
+- Deterministic stage behavior remains the baseline when LLM settings are `off`.
+- Legacy modules (`cookimport/llm/client.py`, `cookimport/llm/repair.py`) still exist but are not the primary active stage path.
 
-## 10. Current Health Snapshot (review run on 2026-02-22)
-
-Test sweep in project venv:
-
-- command run: `pytest`
-- result: `450 passed`, `5 failed`, `21 warnings` (455 collected)
-
-Current failing area:
-
-1. Missing importer fixture files
-- tests reference `docs/template/examples/...` paths that do not exist in repo.
-- affected tests:
-  - `tests/test_paprika_importer.py`
-  - `tests/test_recipesage_importer.py`
-
-2. Error-path validation bug in importer `inspect(...)`
-- `WorkbookInspection` does not allow a top-level `warnings` field, but exception handlers in:
-  - `cookimport/plugins/paprika.py`
-  - `cookimport/plugins/recipesage.py`
-  return `WorkbookInspection(..., warnings=[...])`, which raises a Pydantic validation error instead of returning a graceful inspection payload.
-
-3. RecipeSage convert pre-try hash call
-- `cookimport/plugins/recipesage.py` computes `file_hash = compute_file_hash(path)` before its `try` block, so missing-path errors raise immediately instead of returning a normal `ConversionResult` with report errors.
-
-## 11. Directory Map
+## 10. Directory Map
 
 ```text
 cookimport/
 ├── cli.py                    # Main command surface + interactive mode
 ├── cli_worker.py             # Worker-side stage/split execution
-├── plugins/                  # Importers (excel/text/pdf/epub/paprika/recipesage)
+├── plugins/                  # Importers (excel/text/pdf/epub/paprika/recipesage/webschema)
 ├── parsing/                  # Signals, ingredient parsing, tips, chunks, EPUB helpers
 ├── staging/                  # JSON-LD + draft writers and output stats
 ├── labelstudio/              # Import/export/eval/prelabel
@@ -253,11 +245,11 @@ cookimport/
 ├── epubdebug/                # EPUB inspection/race/debug commands
 ├── config/                   # Run settings + last-run persistence
 ├── runs/                     # run_manifest model/writer
-├── llm/                      # Optional/legacy LLM repair boundary
+├── llm/                      # codex-farm orchestration + legacy repair modules
 └── core/                     # Shared models/reporting/timing/IDs
 ```
 
-## 12. Recommended Deep Docs
+## 11. Recommended Deep Docs
 
 - architecture source of truth: `docs/01-architecture/01-architecture_README.md`
 - CLI behavior + interactive flow: `docs/02-cli/02-cli_README.md`
@@ -266,8 +258,10 @@ cookimport/
 - staging contracts: `docs/05-staging/05-staging_readme.md`
 - Label Studio and benchmark semantics: `docs/06-label-studio/06-label-studio_README.md` and `docs/07-bench/07-bench_README.md`
 - analytics/dashboard contracts: `docs/08-analytics/08-analytics_readme.md`
+- tagging contracts: `docs/09-tagging/09-tagging_README.md`
+- codex-farm boundary details: `docs/10-llm/10-llm_README.md`
 
-## 13. Durable Convention File Map
+## 12. Durable Convention File Map
 
 Durable subsystem rules are code-adjacent and should be updated there first:
 - `cookimport/CONVENTIONS.md`

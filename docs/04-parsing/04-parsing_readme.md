@@ -446,13 +446,14 @@ Gates include:
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
 - Supports optional Codex fallback for unresolved candidates when `line_role_pipeline=codex-line-role-v1`.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`) and reason tags.
+- Prediction rows also carry `within_recipe_span` context (from atomized candidates), which benchmark Milestone-5 diagnostics reuse for slice metrics and knowledge-budget reporting.
 
 ### Current safeguards
 
 - Rule-first path handles low-ambiguity cases (`NOTE`, yield, ingredient-like, method headers, variants, and instruction lines).
 - `TIME_LINE` is only used for primary time metadata; instruction lines that mention duration stay `INSTRUCTION_LINE`.
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
-- Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures fall back deterministically and write parse-error artifacts.
+- Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 
 ### Related modules
 

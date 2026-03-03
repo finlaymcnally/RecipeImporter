@@ -6,8 +6,11 @@ from typing import Any, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
-from cookimport.core.models import ConversionResult, RecipeComment
+from cookimport.core.models import ConversionResult
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
+from cookimport.staging.draft_v1 import (
+    apply_line_role_spans_to_recipes as apply_line_role_spans_to_staging_recipes,
+)
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
@@ -177,56 +180,10 @@ def apply_line_role_spans_to_recipes(
     conversion_result: ConversionResult,
     spans: Sequence[FreeformSpanPrediction],
 ) -> dict[str, Any]:
-    grouped: dict[int, list[FreeformSpanPrediction]] = {}
-    for span in spans:
-        if span.recipe_index is None:
-            continue
-        if span.recipe_index < 0 or span.recipe_index >= len(conversion_result.recipes):
-            continue
-        grouped.setdefault(int(span.recipe_index), []).append(span)
-
-    recipes_applied = 0
-    for recipe_index, rows in grouped.items():
-        recipe = conversion_result.recipes[recipe_index]
-        ordered = sorted(rows, key=lambda row: int(row.line_index))
-
-        title_lines = _select_lines(ordered, "RECIPE_TITLE")
-        variant_lines = _select_lines(ordered, "RECIPE_VARIANT")
-        yield_lines = _select_lines(ordered, "YIELD_LINE")
-        ingredient_lines = _select_lines(ordered, "INGREDIENT_LINE")
-        instruction_lines = _select_lines(
-            ordered,
-            "HOWTO_SECTION",
-            "INSTRUCTION_LINE",
-        )
-        note_lines = _select_lines(ordered, "RECIPE_NOTES")
-
-        touched = False
-        if title_lines:
-            recipe.name = title_lines[0]
-            touched = True
-        elif variant_lines and not str(recipe.name or "").strip():
-            recipe.name = variant_lines[0]
-            touched = True
-        if yield_lines:
-            recipe.recipe_yield = yield_lines[0]
-            touched = True
-        if ingredient_lines:
-            recipe.ingredients = ingredient_lines
-            touched = True
-        if instruction_lines:
-            recipe.instructions = instruction_lines
-            touched = True
-        if note_lines:
-            recipe.comments = [RecipeComment(text=text) for text in note_lines]
-            touched = True
-        if touched:
-            recipes_applied += 1
-
-    return {
-        "recipes_applied": recipes_applied,
-        "recipe_count": len(conversion_result.recipes),
-    }
+    return apply_line_role_spans_to_staging_recipes(
+        conversion_result=conversion_result,
+        spans=list(spans),
+    )
 
 
 def _recipe_index_from_recipe_id(recipe_id: str | None) -> int | None:
@@ -243,21 +200,4 @@ def _recipe_index_from_recipe_id(recipe_id: str | None) -> int | None:
             return None
     return None
 
-
-def _select_lines(
-    rows: Sequence[FreeformSpanPrediction],
-    *labels: str,
-) -> list[str]:
-    allowed = {label for label in labels}
-    selected: list[str] = []
-    seen: set[str] = set()
-    for row in rows:
-        if row.label not in allowed:
-            continue
-        text = str(row.text or "").strip()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        selected.append(text)
-    return selected
 

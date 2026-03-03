@@ -28,6 +28,8 @@ from cookimport.labelstudio.ingest import (
     run_labelstudio_import,
 )
 from cookimport.labelstudio.models import ArchiveBlock
+from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
+from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 
 def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
@@ -1150,6 +1152,227 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
     run_manifest = json.loads((run_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["artifacts"]["tasks_jsonl_status"] == "skipped_by_config"
     assert "tasks_jsonl" not in run_manifest["artifacts"]
+
+
+def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    processed_root = tmp_path / "processed"
+
+    fake_result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Original name",
+                identifier="recipe-1",
+                provenance={"location": {"start_block": 0, "end_block": 0}},
+            )
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    captured_processed_recipes: dict[str, list[RecipeCandidate]] = {}
+
+    def _fake_write_processed_outputs(**kwargs):
+        result = kwargs["result"]
+        assert isinstance(result, ConversionResult)
+        captured_processed_recipes["recipes"] = [
+            recipe.model_copy(deep=True) for recipe in result.recipes
+        ]
+        run_root = processed_root / "2026-03-03_01.02.03"
+        run_root.mkdir(parents=True, exist_ok=True)
+        return run_root
+
+    def _fake_label_atomic_lines(candidates, _settings, **_kwargs):
+        output: list[CanonicalLineRolePrediction] = []
+        for candidate in candidates:
+            text = str(candidate.text)
+            normalized = text.lower()
+            if normalized.startswith("pancakes"):
+                label = "RECIPE_TITLE"
+            elif normalized.startswith("serves"):
+                label = "YIELD_LINE"
+            elif "flour" in normalized:
+                label = "INGREDIENT_LINE"
+            elif normalized.startswith("whisk"):
+                label = "INSTRUCTION_LINE"
+            elif normalized.startswith("note:"):
+                label = "RECIPE_NOTES"
+            else:
+                label = "OTHER"
+            output.append(
+                CanonicalLineRolePrediction(
+                    recipe_id=candidate.recipe_id,
+                    block_id=candidate.block_id,
+                    block_index=candidate.block_index,
+                    atomic_index=candidate.atomic_index,
+                    text=text,
+                    label=label,
+                    confidence=0.95,
+                    decided_by="rule",
+                    reason_tags=["test_label"],
+                )
+            )
+        return output
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Pancakes SERVES 2 1 cup flour; Whisk batter NOTE: Keep warm",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash-123",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._write_processed_outputs",
+        _fake_write_processed_outputs,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
+        lambda **_kwargs: [
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:0",
+                block_index=0,
+                atomic_index=0,
+                text="Pancakes",
+                within_recipe_span=True,
+                candidate_labels=["RECIPE_TITLE"],
+            ),
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:0",
+                block_index=0,
+                atomic_index=1,
+                text="SERVES 2",
+                within_recipe_span=True,
+                candidate_labels=["YIELD_LINE"],
+            ),
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:0",
+                block_index=0,
+                atomic_index=2,
+                text="1 cup flour",
+                within_recipe_span=True,
+                candidate_labels=["INGREDIENT_LINE"],
+            ),
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:0",
+                block_index=0,
+                atomic_index=3,
+                text="Whisk batter",
+                within_recipe_span=True,
+                candidate_labels=["INSTRUCTION_LINE"],
+            ),
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:0",
+                block_index=0,
+                atomic_index=4,
+                text="NOTE: Keep warm",
+                within_recipe_span=True,
+                candidate_labels=["RECIPE_NOTES"],
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.label_atomic_lines",
+        _fake_label_atomic_lines,
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        processed_output_root=processed_root,
+        line_role_pipeline="deterministic-v1",
+        write_label_studio_tasks=False,
+        write_markdown=False,
+    )
+
+    projected_stage_path = result["line_role_pipeline_stage_block_predictions_path"]
+    projected_archive_path = result["line_role_pipeline_extracted_archive_path"]
+    projected_spans_path = result["line_role_pipeline_projected_spans_path"]
+    assert projected_stage_path is not None and projected_stage_path.exists()
+    assert projected_archive_path is not None and projected_archive_path.exists()
+    assert projected_spans_path is not None and projected_spans_path.exists()
+
+    stage_payload = json.loads(projected_stage_path.read_text(encoding="utf-8"))
+    projected_labels = set(stage_payload.get("block_labels", {}).values())
+    assert {
+        "RECIPE_TITLE",
+        "YIELD_LINE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "RECIPE_NOTES",
+    } <= projected_labels
+
+    projected_rows = [
+        json.loads(line)
+        for line in projected_spans_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    predicted_ingredients = [
+        row["text"] for row in projected_rows if row.get("label") == "INGREDIENT_LINE"
+    ]
+    predicted_instructions = [
+        row["text"] for row in projected_rows if row.get("label") == "INSTRUCTION_LINE"
+    ]
+    predicted_notes = [
+        row["text"] for row in projected_rows if row.get("label") == "RECIPE_NOTES"
+    ]
+
+    processed_recipe = captured_processed_recipes["recipes"][0]
+    assert processed_recipe.ingredients == predicted_ingredients
+    assert processed_recipe.instructions == predicted_instructions
+    assert [comment.text for comment in processed_recipe.comments] == predicted_notes
+    assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 1
 
 
 def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(

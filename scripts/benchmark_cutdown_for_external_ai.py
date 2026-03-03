@@ -16,6 +16,8 @@ folders that contain both `eval_report.json` and `run_manifest.json`.
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import re
 import json
 import shutil
@@ -62,6 +64,10 @@ RUN_CONFIG_KEYS_OF_INTEREST = (
     "workers",
     "predict_only",
 )
+PROJECT_CONTEXT_REL_PATH = Path("docs/AI_Context.md")
+PROJECT_CONTEXT_FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+PROJECT_CONTEXT_HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+PROJECT_CONTEXT_DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 
 ROOT_METADATA_FILES = (
     "README.md",
@@ -82,6 +88,8 @@ CHANGED_LINES_FILE_NAME = "changed_lines.codex_vs_vanilla.jsonl"
 PER_RECIPE_BREAKDOWN_FILE_NAME = "per_recipe_or_per_span_breakdown.json"
 TARGETED_PROMPT_CASES_FILE_NAME = "targeted_prompt_cases.md"
 LABEL_POLICY_NOTES_FILE_NAME = "label_policy_adjudication_notes.md"
+WRONG_LABEL_FULL_CONTEXT_FILE_NAME = "wrong_label_lines.with_context.full.jsonl.gz"
+PREPROCESS_TRACE_FAILURES_FILE_NAME = "preprocess_trace_failures.jsonl.gz"
 PROMPT_REQUEST_RESPONSE_LOG_NAME = "prompt_request_response_log.txt"
 PROMPT_LOG_MANIFEST_ARTIFACT_KEY = "codexfarm_prompt_request_response_txt"
 FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS = (
@@ -932,6 +940,288 @@ def _jsonl_row_count(path: Path) -> int:
     return count
 
 
+def _write_jsonl_gzip_deterministic(path: Path, rows: list[dict[str, Any]]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with path.open("wb") as raw_handle:
+        with gzip.GzipFile(fileobj=raw_handle, mode="wb", mtime=0) as gzip_handle:
+            for row in rows:
+                payload = json.dumps(
+                    row,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                gzip_handle.write(payload)
+                gzip_handle.write(b"\n")
+                written += 1
+    return written
+
+
+def _load_extracted_archive_blocks(path: Path) -> dict[int, dict[str, Any]]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+    rows: list[dict[str, Any]]
+    if isinstance(payload, list):
+        rows = [row for row in payload if isinstance(row, dict)]
+    elif isinstance(payload, dict):
+        blocks = payload.get("blocks")
+        rows = [row for row in blocks if isinstance(row, dict)] if isinstance(blocks, list) else []
+    else:
+        rows = []
+
+    indexed: dict[int, dict[str, Any]] = {}
+    for fallback_index, row in enumerate(rows):
+        index = _coerce_int(row.get("index"))
+        if index is None:
+            index = _coerce_int(row.get("block_index"))
+        location = row.get("location")
+        if index is None and isinstance(location, dict):
+            index = _coerce_int(location.get("block_index"))
+        if index is None:
+            index = fallback_index
+        features = location.get("features") if isinstance(location, dict) else None
+        indexed[int(index)] = {
+            "text": str(row.get("text") or ""),
+            "features": dict(features) if isinstance(features, dict) else {},
+        }
+    return indexed
+
+
+def _prompt_row_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
+    pass_name = str(row.get("pass") or "").strip().lower()
+    if pass_name == "pass3":
+        pass_rank = 0
+    elif pass_name == "pass2":
+        pass_rank = 1
+    elif pass_name == "pass1":
+        pass_rank = 2
+    else:
+        pass_rank = 3
+
+    parsed_response = _parse_json_like(row.get("parsed_response"))
+    parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+    warning_count = len(_coerce_str_list(parsed_response.get("warnings")))
+    call_id = str(row.get("call_id") or "")
+    return (pass_rank, -warning_count, call_id)
+
+
+def _select_prompt_rows_by_recipe(
+    full_prompt_rows: list[dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any] | None]:
+    if not full_prompt_rows:
+        return {}, None
+    sorted_rows = sorted(full_prompt_rows, key=_prompt_row_sort_key)
+    by_recipe: dict[str, dict[str, Any]] = {}
+    fallback: dict[str, Any] | None = sorted_rows[0]
+    for row in sorted_rows:
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        if not recipe_id:
+            continue
+        if recipe_id not in by_recipe:
+            by_recipe[recipe_id] = row
+    return by_recipe, fallback
+
+
+def _build_wrong_label_full_context_rows(
+    *,
+    run_dir: Path,
+    recipe_spans: list[dict[str, Any]],
+    excerpt_limit: int,
+) -> list[dict[str, Any]]:
+    wrong_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
+    if not wrong_rows:
+        return []
+
+    run_manifest_path = run_dir / "run_manifest.json"
+    run_manifest = _load_json(run_manifest_path) if run_manifest_path.is_file() else {}
+    run_id = str(run_manifest.get("run_id") or run_dir.name)
+    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+    source_path = source.get("path") if isinstance(source, dict) else None
+    source_hash = source.get("source_hash") if isinstance(source, dict) else None
+    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+    source_key = _source_key(
+        source_hash if isinstance(source_hash, str) else None,
+        source_file,
+    )
+
+    line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
+
+    rows: list[dict[str, Any]] = []
+    for wrong_row in wrong_rows:
+        line_index = _coerce_int(wrong_row.get("line_index"))
+        if line_index is None:
+            continue
+        recipe_id = line_view.recipe_id_by_index.get(line_index)
+        span_region = line_view.recipe_span_by_index.get(line_index, "outside_active_recipe_span")
+        gold_label = str(
+            wrong_row.get("gold_label")
+            or line_view.gold_label_by_index.get(line_index)
+            or "OTHER"
+        )
+        pred_label = str(
+            wrong_row.get("pred_label")
+            or line_view.pred_label_by_index.get(line_index)
+            or "OTHER"
+        )
+        rows.append(
+            {
+                "run_id": run_id,
+                "line_index": line_index,
+                "recipe_id": recipe_id,
+                "span_region": span_region,
+                "gold_label": gold_label,
+                "pred_label": pred_label,
+                "source_file": source_file,
+                "source_hash": source_hash if isinstance(source_hash, str) else None,
+                "source_key": source_key,
+                **_line_context(
+                    line_text_by_index=line_view.line_text_by_index,
+                    line_index=line_index,
+                    excerpt_limit=excerpt_limit,
+                ),
+            }
+        )
+    rows.sort(key=lambda row: int(row.get("line_index") or 0))
+    return rows
+
+
+def _build_preprocess_trace_failure_rows(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    full_prompt_rows: list[dict[str, Any]],
+    excerpt_limit: int,
+) -> tuple[list[dict[str, Any]], str]:
+    wrong_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
+    if not wrong_rows:
+        return [], "not_applicable"
+
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    if pred_run_dir is None:
+        return [], "missing_prediction_run"
+
+    extracted_archive_path = pred_run_dir / "extracted_archive.json"
+    if not extracted_archive_path.is_file():
+        return [], "missing_extracted_archive"
+
+    if not full_prompt_rows:
+        return [], "missing_full_prompt_log"
+
+    archive_blocks = _load_extracted_archive_blocks(extracted_archive_path)
+    prompt_rows_by_recipe, fallback_prompt_row = _select_prompt_rows_by_recipe(full_prompt_rows)
+    recipe_spans = _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
+    line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
+
+    run_id = str(run_manifest.get("run_id") or run_dir.name)
+    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+    source_path = source.get("path") if isinstance(source, dict) else None
+    source_hash = source.get("source_hash") if isinstance(source, dict) else None
+    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+    source_key = _source_key(
+        source_hash if isinstance(source_hash, str) else None,
+        source_file,
+    )
+
+    rows: list[dict[str, Any]] = []
+    for wrong_row in wrong_rows:
+        line_index = _coerce_int(wrong_row.get("line_index"))
+        if line_index is None:
+            continue
+
+        recipe_id = line_view.recipe_id_by_index.get(line_index)
+        recipe_key = str(recipe_id or "").strip()
+        prompt_row = prompt_rows_by_recipe.get(recipe_key) or fallback_prompt_row
+        pass_name = str(prompt_row.get("pass") or "").strip().lower() if prompt_row else None
+        call_id = str(prompt_row.get("call_id") or "").strip() if prompt_row else None
+
+        parsed_response = (
+            _parse_json_like(prompt_row.get("parsed_response")) if isinstance(prompt_row, dict) else {}
+        )
+        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+        warnings = _coerce_str_list(parsed_response.get("warnings"))
+        warning_buckets = sorted(
+            {
+                _prompt_warning_bucket(_normalize_whitespace(warning))
+                for warning in warnings
+                if warning.strip()
+            }
+        )
+        prompt_candidate_block_excerpt = (
+            _first_prompt_block_excerpt(prompt_row, excerpt_limit=excerpt_limit)
+            if isinstance(prompt_row, dict)
+            else ""
+        )
+
+        archive_row = archive_blocks.get(line_index, {})
+        raw_block_text = str(archive_row.get("text") or "")
+        raw_block_excerpt = (
+            _excerpt(_normalize_whitespace(raw_block_text), max_len=excerpt_limit)
+            if raw_block_text
+            else ""
+        )
+        features = archive_row.get("features")
+        features = features if isinstance(features, dict) else {}
+        if raw_block_excerpt and prompt_candidate_block_excerpt:
+            trace_status = "joined_with_prompt_and_archive"
+        elif raw_block_excerpt:
+            trace_status = "joined_with_archive_only"
+        elif prompt_candidate_block_excerpt:
+            trace_status = "joined_with_prompt_only"
+        else:
+            trace_status = "missing_prompt_and_archive_context"
+
+        rows.append(
+            {
+                "run_id": run_id,
+                "line_index": line_index,
+                "recipe_id": recipe_id,
+                "span_region": line_view.recipe_span_by_index.get(
+                    line_index,
+                    "outside_active_recipe_span",
+                ),
+                "gold_label": str(
+                    wrong_row.get("gold_label")
+                    or line_view.gold_label_by_index.get(line_index)
+                    or "OTHER"
+                ),
+                "pred_label": str(
+                    wrong_row.get("pred_label")
+                    or line_view.pred_label_by_index.get(line_index)
+                    or "OTHER"
+                ),
+                "raw_block_excerpt": raw_block_excerpt,
+                "raw_block_unstructured_preprocess_mode": features.get(
+                    "unstructured_preprocess_mode"
+                ),
+                "raw_block_stable_key": features.get("unstructured_stable_key"),
+                "prompt_candidate_block_excerpt": prompt_candidate_block_excerpt,
+                "pass": pass_name,
+                "call_id": call_id,
+                "warning_buckets": warning_buckets,
+                "trace_status": trace_status,
+                "source_file": source_file,
+                "source_hash": source_hash if isinstance(source_hash, str) else None,
+                "source_key": source_key,
+                **_line_context(
+                    line_text_by_index=line_view.line_text_by_index,
+                    line_index=line_index,
+                    excerpt_limit=excerpt_limit,
+                ),
+            }
+        )
+
+    rows.sort(key=lambda row: int(row.get("line_index") or 0))
+    if not rows:
+        return [], "not_applicable"
+    return rows, "ready"
+
+
 def _parse_json_like(value: Any) -> Any:
     if isinstance(value, (dict, list)):
         return value
@@ -1377,6 +1667,193 @@ def _config_snapshot(run_manifest: dict[str, Any]) -> dict[str, Any]:
         snapshot[key] = run_config.get(key)
     snapshot["prediction_run_config_hash"] = run_config.get("prediction_run_config_hash")
     return snapshot
+
+
+def _normalized_setting_value(value: Any) -> str:
+    if value is None:
+        return "unset"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value).strip()
+    return text if text else "unset"
+
+
+def _format_setting_values(values: set[str]) -> str:
+    normalized = sorted(value for value in values if value)
+    if not normalized:
+        return "`unset`"
+    return ", ".join(f"`{value}`" for value in normalized)
+
+
+def _record_setting_values(records: list[RunRecord], key: str) -> set[str]:
+    return {_normalized_setting_value(record.config_snapshot.get(key)) for record in records}
+
+
+def _extract_project_context_front_matter(text: str) -> dict[str, str]:
+    match = PROJECT_CONTEXT_FRONT_MATTER_RE.match(text)
+    if not match:
+        return {}
+    payload: dict[str, str] = {}
+    for raw_line in match.group(1).splitlines():
+        if ":" not in raw_line:
+            continue
+        key, value = raw_line.split(":", 1)
+        key_text = key.strip()
+        value_text = value.strip().strip("'\"")
+        if key_text and value_text:
+            payload[key_text] = value_text
+    return payload
+
+
+def _extract_project_context_title(text: str, context_path: Path) -> str:
+    heading_match = PROJECT_CONTEXT_HEADING_RE.search(text)
+    if heading_match:
+        heading = heading_match.group(1).strip()
+        heading = re.sub(r"`[^`]+`", "", heading)
+        heading = re.sub(r"\s*\(code-verified on [^)]+\)\s*$", "", heading, flags=re.IGNORECASE)
+        if ":" in heading:
+            heading = heading.split(":", 1)[0].strip()
+        heading = " ".join(heading.split())
+        if heading:
+            return heading
+
+    front_matter = _extract_project_context_front_matter(text)
+    summary = front_matter.get("summary")
+    if summary:
+        return summary
+    return context_path.stem
+
+
+def _extract_project_context_version_or_date(text: str, context_path: Path) -> str:
+    heading_match = PROJECT_CONTEXT_HEADING_RE.search(text)
+    if heading_match:
+        heading = heading_match.group(1)
+        date_match = PROJECT_CONTEXT_DATE_RE.search(heading)
+        if date_match:
+            return date_match.group(1)
+
+    front_matter = _extract_project_context_front_matter(text)
+    for key in ("version", "date", "updated", "last_updated"):
+        value = front_matter.get(key)
+        if value:
+            date_match = PROJECT_CONTEXT_DATE_RE.search(value)
+            if date_match:
+                return date_match.group(1)
+            return value
+
+    timestamp = datetime.fromtimestamp(context_path.stat().st_mtime, tz=timezone.utc)
+    return timestamp.strftime("%Y-%m-%d")
+
+
+def _project_context_metadata(repo_root: Path) -> dict[str, Any]:
+    context_path = repo_root / PROJECT_CONTEXT_REL_PATH
+    metadata = {
+        "project_context_path": str(PROJECT_CONTEXT_REL_PATH).replace("\\", "/"),
+        "project_context_title": "missing",
+        "project_context_version_or_date": "missing",
+        "project_context_hash": "missing",
+    }
+    if not context_path.is_file():
+        return metadata
+
+    raw_bytes = context_path.read_bytes()
+    text = raw_bytes.decode("utf-8", errors="replace")
+    metadata["project_context_title"] = _extract_project_context_title(text, context_path)
+    metadata["project_context_version_or_date"] = _extract_project_context_version_or_date(
+        text,
+        context_path,
+    )
+    metadata["project_context_hash"] = hashlib.sha256(raw_bytes).hexdigest()
+    return metadata
+
+
+def _build_project_context_digest(
+    *,
+    records: list[RunRecord],
+    comparison_summary: dict[str, Any],
+    project_context_metadata: dict[str, Any],
+    prompt_pairs_per_category: int,
+) -> list[str]:
+    codex_runs = [record for record in records if record.codex_enabled]
+    baseline_runs = [record for record in records if not record.codex_enabled]
+    pairs_raw = comparison_summary.get("pairs")
+    pair_count = len(pairs_raw) if isinstance(pairs_raw, list) else 0
+    changed_lines_total = _coerce_int(comparison_summary.get("changed_lines_total")) or 0
+
+    llm_pipelines = {_normalized_setting_value(record.llm_recipe_pipeline) for record in records}
+    line_role_values = {record.line_role_pipeline for record in records}
+    atomic_splitter_values = {record.atomic_block_splitter for record in records}
+    section_backends = _record_setting_values(records, "section_detector_backend")
+    ingredient_parsers = _record_setting_values(records, "ingredient_parser_backend")
+    ingredient_fix_backends = _record_setting_values(records, "ingredient_text_fix_backend")
+    epub_preprocess_modes = _record_setting_values(records, "epub_unstructured_preprocess_mode")
+
+    prompt_sampling_caveat = (
+        "convenience prompt log keeps all calls when `--prompt-pairs-per-category 0`; "
+        "`full_prompt_log.jsonl` remains the source of truth."
+        if prompt_pairs_per_category <= 0
+        else (
+            "convenience prompt log samples at most "
+            f"{prompt_pairs_per_category} calls per pass; `full_prompt_log.jsonl` remains complete."
+        )
+    )
+
+    return [
+        (
+            "- context_pointer: "
+            f"`{project_context_metadata['project_context_path']}` | "
+            f"title=`{project_context_metadata['project_context_title']}` | "
+            f"version_or_date=`{project_context_metadata['project_context_version_or_date']}` | "
+            f"sha256=`{project_context_metadata['project_context_hash']}`"
+        ),
+        (
+            "- system_summary: "
+            f"runs={len(records)} (codex={len(codex_runs)}, baseline={len(baseline_runs)}), "
+            f"paired_comparisons={pair_count}, changed_lines={changed_lines_total}."
+        ),
+        (
+            "- benchmark_contract: canonical-text scoring compares predicted labels against "
+            "canonical line-space gold labels (including structural labels such as "
+            "`INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`)."
+        ),
+        (
+            "- label_ontology_cheat_sheet: common canonical labels in this benchmark include "
+            "`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, "
+            "`RECIPE_NOTES`, and `OTHER`."
+        ),
+        (
+            "- projection_bridge: codex pass1 prompt spans (`start_block_index`/`end_block_index`) "
+            "are projected into canonical line diagnostics so changed-line rows can be split into "
+            "`inside_active_recipe_span` vs `outside_active_recipe_span`."
+        ),
+        (
+            "- active_pipeline_map: llm_recipe_pipeline="
+            f"{_format_setting_values(llm_pipelines)}, "
+            f"line_role_pipeline={_format_setting_values(line_role_values)}, "
+            f"atomic_block_splitter={_format_setting_values(atomic_splitter_values)}; "
+            "codex-vs-baseline pairing is by source_key with nearest timestamp baseline "
+            "(baseline values: `off`/`none`/empty)."
+        ),
+        (
+            "- backend_caveat: section_detector_backend="
+            f"{_format_setting_values(section_backends)}, "
+            f"ingredient_parser_backend={_format_setting_values(ingredient_parsers)}, "
+            f"ingredient_text_fix_backend={_format_setting_values(ingredient_fix_backends)}, "
+            f"epub_unstructured_preprocess_mode={_format_setting_values(epub_preprocess_modes)}."
+        ),
+        (
+            "- artifact_legend: root diagnosis artifacts are `changed_lines.codex_vs_vanilla.jsonl`, "
+            "`per_recipe_or_per_span_breakdown.json`, `targeted_prompt_cases.md`, and "
+            "`label_policy_adjudication_notes.md`; run folders retain `need_to_know_summary.json` "
+            "plus codex trace artifacts when available."
+        ),
+        (
+            "- sampling_caveat: sampled line-level JSONL artifacts are bounded by `--sample-limit`; "
+            "`unmatched_pred_blocks.jsonl` is counts-only unless alignment quality is weak "
+            f"(coverage<{ALIGNMENT_HEALTHY_COVERAGE_MIN} or match_ratio<{ALIGNMENT_HEALTHY_MATCH_RATIO_MIN}); "
+            f"{prompt_sampling_caveat}"
+        ),
+    ]
 
 
 def _source_file_name(path_raw: str | None) -> str | None:
@@ -1968,6 +2445,11 @@ def _build_run_cutdown(
         "rows": full_prompt_log_rows,
         "source_path": str(full_prompt_log_source) if full_prompt_log_source is not None else None,
     }
+    recipe_spans = (
+        _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
+        if full_prompt_rows
+        else []
+    )
 
     prompt_log_output = output_run_dir / PROMPT_LOG_FILE_NAME
     if full_prompt_log_status == "complete" and full_prompt_log_output.is_file():
@@ -2005,7 +2487,6 @@ def _build_run_cutdown(
             "warnings_total": int(prompt_warning_aggregate.get("warnings_total") or 0),
         }
 
-        recipe_spans = _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
         line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
         projection_trace = _build_projection_trace(
             line_view=line_view,
@@ -2024,6 +2505,77 @@ def _build_run_cutdown(
     elif codex_enabled:
         sample_counts[PROMPT_WARNING_AGGREGATE_FILE_NAME] = {"status": "missing_full_prompt_log"}
         sample_counts[PROJECTION_TRACE_FILE_NAME] = {"status": "missing_full_prompt_log"}
+
+    wrong_label_total_rows = _jsonl_row_count(run_dir / "wrong_label_lines.jsonl")
+    if wrong_label_total_rows <= 0:
+        sample_counts[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = {
+            "status": "not_applicable",
+            "rows": 0,
+            "source_rows": 0,
+        }
+        sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
+            "status": "not_applicable",
+            "rows": 0,
+            "source_rows": 0,
+        }
+    else:
+        wrong_label_full_rows = _build_wrong_label_full_context_rows(
+            run_dir=run_dir,
+            recipe_spans=recipe_spans,
+            excerpt_limit=excerpt_limit,
+        )
+        wrong_label_full_output = output_run_dir / WRONG_LABEL_FULL_CONTEXT_FILE_NAME
+        if wrong_label_full_rows:
+            written_wrong_context_rows = _write_jsonl_gzip_deterministic(
+                wrong_label_full_output,
+                wrong_label_full_rows,
+            )
+            sample_counts[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = {
+                "status": "written",
+                "rows": written_wrong_context_rows,
+                "source_rows": wrong_label_total_rows,
+            }
+        else:
+            sample_counts[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = {
+                "status": "not_applicable",
+                "rows": 0,
+                "source_rows": wrong_label_total_rows,
+            }
+
+        if not codex_enabled:
+            sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
+                "status": "not_applicable",
+                "rows": 0,
+                "source_rows": wrong_label_total_rows,
+            }
+        else:
+            preprocess_rows, preprocess_status = _build_preprocess_trace_failure_rows(
+                run_dir=run_dir,
+                run_manifest=run_manifest,
+                full_prompt_rows=full_prompt_rows,
+                excerpt_limit=excerpt_limit,
+            )
+            preprocess_output = output_run_dir / PREPROCESS_TRACE_FAILURES_FILE_NAME
+            if preprocess_status == "ready" and preprocess_rows:
+                written_preprocess_rows = _write_jsonl_gzip_deterministic(
+                    preprocess_output,
+                    preprocess_rows,
+                )
+                sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
+                    "status": "written",
+                    "rows": written_preprocess_rows,
+                    "source_rows": wrong_label_total_rows,
+                }
+            else:
+                sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
+                    "status": (
+                        preprocess_status
+                        if preprocess_status != "ready"
+                        else "not_applicable"
+                    ),
+                    "rows": 0,
+                    "source_rows": wrong_label_total_rows,
+                }
 
     top_confusions = _top_confusions(
         eval_report.get("confusion"),
@@ -2707,6 +3259,7 @@ def _write_readme(
     sample_limit: int,
     excerpt_limit: int,
     prompt_pairs_per_category: int,
+    project_context_digest_lines: list[str],
     flattened: bool,
 ) -> None:
     lines: list[str] = []
@@ -2737,6 +3290,11 @@ def _write_readme(
     lines.append(f"- `{FULL_PROMPT_LOG_FILE_NAME}` (required for codex-enabled runs)")
     for _, output_name in LINE_LEVEL_SAMPLED_JSONL_INPUTS:
         lines.append(f"- `{output_name}`")
+    lines.append(f"- `{WRONG_LABEL_FULL_CONTEXT_FILE_NAME}` (when wrong-label rows exist)")
+    lines.append(
+        f"- `{PREPROCESS_TRACE_FAILURES_FILE_NAME}` "
+        "(codex runs with failures and available prediction/context artifacts)"
+    )
     lines.append(f"- `{PROMPT_LOG_FILE_NAME}` (optional convenience-only)")
     lines.append(f"- `{PROMPT_WARNING_AGGREGATE_FILE_NAME}` (codex runs when full log is available)")
     lines.append(f"- `{PROJECTION_TRACE_FILE_NAME}` (codex runs when full log is available)")
@@ -2759,6 +3317,10 @@ def _write_readme(
             "Flattened markdown output is written to sibling folder "
             f"`{output_dir.name}_md`."
         )
+    lines.append("")
+    lines.append("## Project Context Digest")
+    lines.append("")
+    lines.extend(project_context_digest_lines)
     lines.append("")
     lines.append("Run index:")
     for record in sorted(records, key=lambda row: row.run_id):
@@ -2885,6 +3447,7 @@ def _write_root_summary_markdown(output_dir: Path) -> Path:
 
 def main() -> int:
     args = _parse_args()
+    repo_root = Path(__file__).resolve().parents[1]
     input_dir = args.input_dir.resolve()
     if not input_dir.is_dir():
         print(f"error: input directory does not exist: {input_dir}", file=sys.stderr)
@@ -3015,6 +3578,16 @@ def main() -> int:
         encoding="utf-8",
     )
 
+    project_context_metadata = _project_context_metadata(repo_root)
+    project_context_pointer = {
+        "project_context_path": project_context_metadata["project_context_path"],
+        "project_context_title": project_context_metadata["project_context_title"],
+        "project_context_version_or_date": project_context_metadata[
+            "project_context_version_or_date"
+        ],
+        "project_context_hash": project_context_metadata["project_context_hash"],
+    }
+
     comparison_summary["generated_at"] = _timestamp_now()
     comparison_summary["input_dir"] = str(input_dir)
     comparison_summary["output_dir"] = str(output_dir)
@@ -3023,6 +3596,14 @@ def main() -> int:
     comparison_summary["per_recipe_or_per_span_breakdown_file"] = PER_RECIPE_BREAKDOWN_FILE_NAME
     comparison_summary["targeted_prompt_cases_file"] = TARGETED_PROMPT_CASES_FILE_NAME
     comparison_summary["label_policy_notes_file"] = LABEL_POLICY_NOTES_FILE_NAME
+    comparison_summary["project_context"] = dict(project_context_pointer)
+
+    project_context_digest_lines = _build_project_context_digest(
+        records=records,
+        comparison_summary=comparison_summary,
+        project_context_metadata=project_context_metadata,
+        prompt_pairs_per_category=args.prompt_pairs_per_category,
+    )
     _write_json(output_dir / "comparison_summary.json", comparison_summary)
 
     codex_records = [record for record in records if record.codex_enabled]
@@ -3057,6 +3638,13 @@ def main() -> int:
         "full_prompt_log_path": (
             records[0].full_prompt_log_path if len(records) == 1 else None
         ),
+        "project_context_path": project_context_pointer["project_context_path"],
+        "project_context_title": project_context_pointer["project_context_title"],
+        "project_context_version_or_date": project_context_pointer[
+            "project_context_version_or_date"
+        ],
+        "project_context_hash": project_context_pointer["project_context_hash"],
+        "project_context_digest_included": True,
         "full_prompt_log_runs": [
             {
                 "run_id": record.run_id,
@@ -3076,6 +3664,7 @@ def main() -> int:
         sample_limit=args.sample_limit,
         excerpt_limit=args.excerpt_limit,
         prompt_pairs_per_category=args.prompt_pairs_per_category,
+        project_context_digest_lines=project_context_digest_lines,
         flattened=not args.no_flatten,
     )
     included_files = {path.name for path in output_dir.iterdir() if path.is_file()}
@@ -3083,12 +3672,19 @@ def main() -> int:
     for record in records:
         if record.full_prompt_log_path:
             included_files.add(record.full_prompt_log_path)
+        run_output_dir = output_dir / record.output_subdir
+        for nested_file_name in (
+            WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
+            PREPROCESS_TRACE_FAILURES_FILE_NAME,
+        ):
+            nested_path = run_output_dir / nested_file_name
+            if nested_path.is_file():
+                included_files.add(f"{record.output_subdir}/{nested_file_name}")
     process_manifest["included_files"] = sorted(included_files)
     _write_json(output_dir / "process_manifest.json", process_manifest)
 
     md_output_dir: Path | None = None
     if not args.no_flatten:
-        repo_root = Path(__file__).resolve().parents[1]
         md_output_dir = _flatten_output(
             repo_root=repo_root,
             output_dir=output_dir,

@@ -127,9 +127,13 @@ def run_benchmark_gc(
             rows,
             deleted_roots=tuple(run.path for run in confirmed_pruned),
         )
-        if not dry_run and (history_rows_updated > 0 or history_rows_pruned > 0):
-            history_backup = _write_backup(csv_path)
-            history_backup_path = str(history_backup)
+        should_write_history_rows = history_rows_updated > 0 or history_rows_pruned > 0
+        should_backup_history = should_write_history_rows or bool(confirmed_pruned)
+        if not dry_run and should_backup_history:
+            if history_backup_path is None:
+                history_backup = _write_backup(csv_path)
+                history_backup_path = str(history_backup)
+        if not dry_run and should_write_history_rows:
             _write_history_rows(csv_path, rows)
 
     reclaimed_bytes = sum(run.size_bytes for run in confirmed_pruned)

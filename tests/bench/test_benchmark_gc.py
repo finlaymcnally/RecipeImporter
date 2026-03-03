@@ -133,6 +133,51 @@ def test_benchmark_gc_apply_hydrates_csv_then_prunes_runs(tmp_path: Path) -> Non
     assert row["boundary_correct"] == "4"
 
 
+def test_benchmark_gc_apply_prune_writes_backup_without_history_rewrite(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "golden" / "bench" / "quality" / "runs" / "2026-02-01_10.00.00"
+    _write_eval_report(run_dir)
+    output_root = tmp_path / "output"
+    csv_path = tmp_path / ".history" / "performance_history.csv"
+    _write_history_rows(
+        csv_path,
+        [
+            {
+                "run_timestamp": "2026-02-16T15:00:00",
+                "run_dir": str(run_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "file_name": "book.epub",
+                "strict_accuracy": "0.42",
+                "macro_f1_excluding_other": "0.33",
+                "boundary_correct": "4",
+                "boundary_over": "1",
+                "boundary_under": "2",
+                "boundary_partial": "0",
+                "per_label_json": '[{"gold_total":2,"label":"INGREDIENT_LINE","precision":0.1,"pred_total":3,"recall":0.2}]',
+            }
+        ],
+    )
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=output_root,
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+    )
+
+    assert result.pruned_run_roots == 1
+    assert result.history_rows_updated == 0
+    assert result.history_rows_pruned == 0
+    assert result.history_backup_path is not None
+    backup_path = Path(result.history_backup_path)
+    assert backup_path.exists()
+    assert not run_dir.exists()
+
+
 def test_benchmark_gc_apply_without_history_csv_keeps_unconfirmed_runs(
     tmp_path: Path,
 ) -> None:

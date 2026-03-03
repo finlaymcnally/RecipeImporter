@@ -21,12 +21,15 @@ cookimport/analytics/dashboard_render.py
 cookimport/analytics/dashboard_schema.py
 cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
+cookimport/bench/artifact_gc.py
 cookimport/bench/canonical_alignment_cache.py
 cookimport/bench/cost.py
+cookimport/bench/cutdown_export.py
 cookimport/bench/dmp_sequence_matcher.py
 cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
 cookimport/bench/noise.py
+cookimport/bench/pairwise_flips.py
 cookimport/bench/prediction_records.py
 cookimport/bench/quality_compare.py
 cookimport/bench/quality_eta.py
@@ -39,6 +42,7 @@ cookimport/bench/segeval_adapter.py
 cookimport/bench/segmentation_metrics.py
 cookimport/bench/sequence_matcher_multilayer.py
 cookimport/bench/sequence_matcher_select.py
+cookimport/bench/slice_metrics.py
 cookimport/bench/speed_compare.py
 cookimport/bench/speed_runner.py
 cookimport/bench/speed_suite.py
@@ -70,6 +74,7 @@ cookimport/epubdebug/models.py
 cookimport/labelstudio/__init__.py
 cookimport/labelstudio/archive.py
 cookimport/labelstudio/canonical_gold.py
+cookimport/labelstudio/canonical_line_projection.py
 cookimport/labelstudio/client.py
 cookimport/labelstudio/eval_freeform.py
 cookimport/labelstudio/export.py
@@ -80,7 +85,9 @@ cookimport/labelstudio/label_config_freeform.py
 cookimport/labelstudio/models.py
 cookimport/labelstudio/prelabel.py
 cookimport/llm/__init__.py
+cookimport/llm/canonical_line_role_prompt.py
 cookimport/llm/client.py
+cookimport/llm/codex_exec.py
 cookimport/llm/codex_farm_contracts.py
 cookimport/llm/codex_farm_ids.py
 cookimport/llm/codex_farm_knowledge_contracts.py
@@ -100,6 +107,7 @@ cookimport/ocr/doctr_engine.py
 cookimport/parsing/__init__.py
 cookimport/parsing/atoms.py
 cookimport/parsing/block_roles.py
+cookimport/parsing/canonical_line_roles.py
 cookimport/parsing/chunks.py
 cookimport/parsing/classifier.py
 cookimport/parsing/cleaning.py
@@ -116,6 +124,7 @@ cookimport/parsing/markitdown_adapter.py
 cookimport/parsing/multi_recipe_splitter.py
 cookimport/parsing/pattern_flags.py
 cookimport/parsing/patterns.py
+cookimport/parsing/recipe_block_atomizer.py
 cookimport/parsing/schemaorg_ingest.py
 cookimport/parsing/section_detector.py
 cookimport/parsing/sections.py

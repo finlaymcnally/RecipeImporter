@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from cookimport.core.models import HowToStep, RecipeCandidate
+from cookimport.core.models import HowToStep, RecipeCandidate, RecipeComment
 from cookimport.parsing.ingredients import (
     normalize_ingredient_parser_options,
     parse_ingredient_line,
@@ -41,6 +41,96 @@ def _normalize_nonempty_text(value: Any) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def apply_line_role_spans_to_recipes(
+    *,
+    conversion_result: Any,
+    spans: list[Any],
+) -> dict[str, Any]:
+    """Apply projected canonical line-role spans onto recipe draft fields."""
+    recipes = getattr(conversion_result, "recipes", None)
+    if not isinstance(recipes, list):
+        return {"recipes_applied": 0, "recipe_count": 0}
+
+    grouped: dict[int, list[Any]] = {}
+    for span in spans:
+        recipe_index = _coerce_span_int(span, "recipe_index")
+        if recipe_index is None:
+            continue
+        if recipe_index < 0 or recipe_index >= len(recipes):
+            continue
+        grouped.setdefault(recipe_index, []).append(span)
+
+    recipes_applied = 0
+    for recipe_index, rows in grouped.items():
+        recipe = recipes[recipe_index]
+        ordered = sorted(rows, key=lambda row: _coerce_span_int(row, "line_index") or 0)
+
+        title_lines = _select_line_role_span_texts(ordered, "RECIPE_TITLE")
+        variant_lines = _select_line_role_span_texts(ordered, "RECIPE_VARIANT")
+        yield_lines = _select_line_role_span_texts(ordered, "YIELD_LINE")
+        ingredient_lines = _select_line_role_span_texts(ordered, "INGREDIENT_LINE")
+        instruction_lines = _select_line_role_span_texts(
+            ordered, "HOWTO_SECTION", "INSTRUCTION_LINE"
+        )
+        note_lines = _select_line_role_span_texts(ordered, "RECIPE_NOTES")
+
+        touched = False
+        if title_lines:
+            recipe.name = title_lines[0]
+            touched = True
+        elif variant_lines and not str(getattr(recipe, "name", "") or "").strip():
+            recipe.name = variant_lines[0]
+            touched = True
+        if yield_lines:
+            recipe.recipe_yield = yield_lines[0]
+            touched = True
+        if ingredient_lines:
+            recipe.ingredients = ingredient_lines
+            touched = True
+        if instruction_lines:
+            recipe.instructions = instruction_lines
+            touched = True
+        if note_lines:
+            recipe.comments = [RecipeComment(text=text) for text in note_lines]
+            touched = True
+        if touched:
+            recipes_applied += 1
+
+    return {"recipes_applied": recipes_applied, "recipe_count": len(recipes)}
+
+
+def _coerce_span_int(span: Any, key: str) -> int | None:
+    value = _coerce_span_value(span, key)
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_span_value(span: Any, key: str) -> Any:
+    if isinstance(span, Mapping):
+        return span.get(key)
+    return getattr(span, key, None)
+
+
+def _select_line_role_span_texts(rows: list[Any], *labels: str) -> list[str]:
+    allowed = {label for label in labels}
+    selected: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        label = str(_coerce_span_value(row, "label") or "").strip().upper()
+        if label not in allowed:
+            continue
+        text = str(_coerce_span_value(row, "text") or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        selected.append(text)
+    return selected
 
 def _to_positive_number(value: Any) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):

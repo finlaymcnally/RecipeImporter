@@ -149,6 +149,7 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     )
     assert predictions[0].label == "OTHER"
     assert predictions[0].decided_by == "fallback"
+    assert "deterministic_unavailable" in predictions[0].reason_tags
     parse_errors_path = tmp_path / "line-role-pipeline" / "prompts" / "parse_errors.json"
     payload = json.loads(parse_errors_path.read_text(encoding="utf-8"))
     assert payload["parse_error_count"] == 1
