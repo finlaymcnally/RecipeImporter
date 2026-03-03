@@ -332,29 +332,32 @@ Interactive benchmark now has a mode submenu before execution:
    - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) using compact hash labels.
    - resolves Codex usage from selected run settings (`llm_recipe_pipeline`),
    - when run settings resolve to `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants under one timestamp session:
-     - `single-offline-benchmark/vanilla` first (`llm_recipe_pipeline=off`),
-     - `single-offline-benchmark/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
-   - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/vanilla`,
+     - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
+     - `single-offline-benchmark/<source_slug>/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
+   - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
-   - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-offline-benchmark/.split-cache`),
+   - source slug is derived from the selected source filename stem (slugified),
+   - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-offline-benchmark/<source_slug>/.split-cache`),
    - cache controls are available on `labelstudio-benchmark`: `--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, `--single-offline-split-cache-force`,
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
-     - `single-offline-benchmark/codex_vs_vanilla_comparison.json`
-     - `single-offline-benchmark/codex_vs_vanilla_comparison.md`
+     - `single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
+     - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
+   - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
+     - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
-   - defaults to writing markdown + Label Studio task artifacts off in interactive mode
-     (set `COOKIMPORT_BENCH_WRITE_MARKDOWN` / `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS` to `1` before launch to keep them on).
+   - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
+     (set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` to disable summaries, and `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=1` to keep task JSONL).
    - keeps spinner/status visible for both prediction generation and evaluation phases,
    - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
-   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<variant>/`.
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/<variant>/`.
 3. Single-profile all-matched path:
    - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) with compact labels,
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
-   - defaults to writing markdown + Label Studio task artifacts off in interactive mode
-     (set `COOKIMPORT_BENCH_WRITE_MARKDOWN` / `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS` to `1` before launch to keep them on).
+   - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
+     (set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` to disable summaries, and `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=1` to keep task JSONL).
    - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?`, default `No`),
    - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
    - continues when an individual source fails and prints a failure summary at the end,

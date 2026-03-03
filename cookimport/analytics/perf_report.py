@@ -400,6 +400,7 @@ def append_benchmark_csv(
     run_dir: str,
     eval_scope: str = "",
     source_file: str = "",
+    importer_name: str | None = None,
     recipes: int | None = None,
     processed_report_path: str = "",
     run_config: dict[str, Any] | None = None,
@@ -431,26 +432,49 @@ def append_benchmark_csv(
                     title_metrics.get("gold_total")
                 )
 
-    precision = _safe_float_or_none(report.get("precision"))
-    recall = _safe_float_or_none(report.get("recall"))
-    f1 = _safe_float_or_none(report.get("f1"))
-    if precision is not None and recall is not None and (precision + recall) > 0:
-        if f1 is None:
+    strict_accuracy = _benchmark_report_metric_value(report, "strict_accuracy")
+    has_explicit_strict_metric = any(
+        _safe_float_or_none(report.get(key)) is not None
+        for key in (
+            "strict_accuracy",
+            "overall_line_accuracy",
+            "overall_block_accuracy",
+            "accuracy",
+        )
+    )
+    if has_explicit_strict_metric and strict_accuracy is not None:
+        precision = strict_accuracy
+        recall = strict_accuracy
+        f1 = strict_accuracy
+    else:
+        precision = _safe_float_or_none(report.get("precision"))
+        recall = _safe_float_or_none(report.get("recall"))
+        f1 = _safe_float_or_none(report.get("f1"))
+        if f1 is None and precision is not None and recall is not None and (precision + recall) > 0:
             f1 = 2 * precision * recall / (precision + recall)
 
-    practical_precision = _safe_float_or_none(report.get("practical_precision"))
-    practical_recall = _safe_float_or_none(report.get("practical_recall"))
-    practical_f1 = _safe_float_or_none(report.get("practical_f1"))
-    if (
-        practical_f1 is None
-        and practical_precision is not None
-        and practical_recall is not None
-        and (practical_precision + practical_recall) > 0
-    ):
-        practical_f1 = (
-            2 * practical_precision * practical_recall
-            / (practical_precision + practical_recall)
-        )
+    macro_f1 = _benchmark_report_metric_value(report, "macro_f1_excluding_other")
+    has_explicit_macro_metric = (
+        _safe_float_or_none(report.get("macro_f1_excluding_other")) is not None
+    )
+    if has_explicit_macro_metric and macro_f1 is not None:
+        practical_precision = macro_f1
+        practical_recall = macro_f1
+        practical_f1 = macro_f1
+    else:
+        practical_precision = _safe_float_or_none(report.get("practical_precision"))
+        practical_recall = _safe_float_or_none(report.get("practical_recall"))
+        practical_f1 = _safe_float_or_none(report.get("practical_f1"))
+        if (
+            practical_f1 is None
+            and practical_precision is not None
+            and practical_recall is not None
+            and (practical_precision + practical_recall) > 0
+        ):
+            practical_f1 = (
+                2 * practical_precision * practical_recall
+                / (practical_precision + practical_recall)
+            )
 
     app_aligned = report.get("app_aligned") or {}
     supported_relaxed = app_aligned.get("supported_labels_relaxed") or {}
@@ -495,10 +519,10 @@ def append_benchmark_csv(
     gold_width_p50 = _safe_float_or_none((span_width_stats.get("gold") or {}).get("p50"))
 
     boundary = report.get("boundary") or {}
-    overall_block_accuracy = _safe_float_or_none(report.get("overall_block_accuracy"))
+    overall_block_accuracy = strict_accuracy
     if overall_block_accuracy is None:
         overall_block_accuracy = _safe_float_or_none(report.get("accuracy"))
-    macro_f1_excluding_other = _safe_float_or_none(report.get("macro_f1_excluding_other"))
+    macro_f1_excluding_other = macro_f1
     worst_label = ""
     worst_label_recall = None
     worst_label_payload = report.get("worst_label_recall")
@@ -527,6 +551,25 @@ def append_benchmark_csv(
         )
     if resolved_effective is None and run_config is not None:
         resolved_effective = _normalize_optional_text(run_config.get("epub_extractor"))
+
+    def _infer_importer_from_source(source: str, cfg: dict[str, Any] | None) -> str | None:
+        source_text = str(source or "").strip()
+        suffix = Path(source_text).suffix.lower() if source_text else ""
+        if suffix == ".epub":
+            return "epub"
+        if suffix == ".pdf":
+            return "pdf"
+        if suffix in {".doc", ".docx", ".txt", ".md", ".rtf"}:
+            return "text"
+        if suffix in {".html", ".htm"}:
+            return "web"
+        if cfg and any(str(k).startswith("epub_") for k in cfg.keys()):
+            return "epub"
+        return None
+
+    resolved_importer = _normalize_optional_text(importer_name)
+    if resolved_importer is None:
+        resolved_importer = _infer_importer_from_source(source_file, run_config)
 
     resolved_timing = _resolve_benchmark_timing_payload(
         timing=timing,
@@ -578,6 +621,7 @@ def append_benchmark_csv(
         "run_dir": run_dir,
         "file_name": source_file,
         "report_path": processed_report_path,
+        "importer_name": resolved_importer or "",
         "total_seconds": stage_total_seconds if stage_total_seconds is not None else "",
         "parsing_seconds": (
             stage_parsing_seconds if stage_parsing_seconds is not None else ""
@@ -589,6 +633,12 @@ def append_benchmark_csv(
         "recipes": recipes if recipes is not None else "",
         "run_category": run_category,
         "eval_scope": eval_scope,
+        "strict_accuracy": (
+            strict_accuracy if strict_accuracy is not None else ""
+        ),
+        "macro_f1_excluding_other": (
+            macro_f1_excluding_other if macro_f1_excluding_other is not None else ""
+        ),
         "precision": (
             precision
             if precision is not None
@@ -966,6 +1016,56 @@ def _safe_float_or_none(value: Any) -> float | None:
         return None
 
 
+def _benchmark_report_metric_value(
+    report: dict[str, Any] | None,
+    metric_name: str,
+) -> float | None:
+    if not isinstance(report, dict):
+        return None
+    if metric_name == "strict_accuracy":
+        for key in (
+            "strict_accuracy",
+            "overall_line_accuracy",
+            "overall_block_accuracy",
+            "accuracy",
+        ):
+            value = _safe_float_or_none(report.get(key))
+            if value is not None:
+                return value
+        precision = _safe_float_or_none(report.get("precision"))
+        recall = _safe_float_or_none(report.get("recall"))
+        f1 = _safe_float_or_none(report.get("f1"))
+        if (
+            precision is not None
+            and recall is not None
+            and f1 is not None
+            and abs(precision - recall) <= 1e-9
+            and abs(recall - f1) <= 1e-9
+        ):
+            return precision
+        return None
+    if metric_name == "macro_f1_excluding_other":
+        explicit_macro = _safe_float_or_none(report.get("macro_f1_excluding_other"))
+        if explicit_macro is not None:
+            return explicit_macro
+        practical_f1 = _safe_float_or_none(report.get("practical_f1"))
+        if practical_f1 is not None:
+            return practical_f1
+        practical_precision = _safe_float_or_none(report.get("practical_precision"))
+        practical_recall = _safe_float_or_none(report.get("practical_recall"))
+        if (
+            practical_precision is not None
+            and practical_recall is not None
+            and (practical_precision + practical_recall) > 0
+        ):
+            return (
+                2 * practical_precision * practical_recall
+                / (practical_precision + practical_recall)
+            )
+        return None
+    return _safe_float_or_none(report.get(metric_name))
+
+
 def _normalize_optional_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -1129,6 +1229,8 @@ _CSV_FIELDS = [
     # Benchmark eval columns (empty for stage_import rows)
     "run_category",
     "eval_scope",
+    "strict_accuracy",
+    "macro_f1_excluding_other",
     "precision",
     "recall",
     "f1",
@@ -1218,6 +1320,8 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "dominant_checkpoint_seconds": dominant_checkpoint_seconds,
         "run_category": "stage_import",
         "eval_scope": "",
+        "strict_accuracy": "",
+        "macro_f1_excluding_other": "",
         "precision": "",
         "recall": "",
         "f1": "",

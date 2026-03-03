@@ -31,7 +31,6 @@ This README intentionally documents only active behavior. Historical implementat
 - Default root: `data/.history/dashboard`
 - Main page: `index.html`
 - Standalone all-method pages:
-  - `all-method-benchmark/index.html`
   - `all-method-benchmark/all-method-benchmark-run__<run_ts>.html`
   - `all-method-benchmark/all-method-benchmark__<run_ts>__<source_slug>.html`
 - Data contract: `cookimport/analytics/dashboard_schema.py` (`SCHEMA_VERSION = "10"`)
@@ -93,8 +92,9 @@ Stage/import rows (`run_category=stage_import` or `labelstudio_import`):
 - EPUB metadata: `epub_extractor_requested`, `epub_extractor_effective`
 
 Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`):
-- Score fields: `precision`, `recall`, `f1`, `practical_*`, supported metrics
+- Score fields: explicit `strict_accuracy`, `macro_f1_excluding_other` plus legacy compatibility fields (`precision`, `recall`, `f1`, `practical_*`), supported metrics
 - Count/boundary fields: `gold_total`, `gold_matched`, `pred_total`, boundary columns
+  - Canonical-text benchmark eval now emits `report.boundary` (computed from aligned canonical-line spans), so canonical benchmark rows can populate `boundary_*` columns without requiring separate freeform-eval runs.
 - Recipe-level context: `recipes`, `gold_recipe_headers`
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`, eval checkpoint timing columns
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
@@ -102,6 +102,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`):
 Compatibility behavior:
 - Appenders auto-expand older CSV headers to current schema before writing.
 - CSV append operations use inter-process file locking to reduce concurrent write corruption.
+- Benchmark readers collapse strict/practical aliases only when explicit benchmark metrics exist (`strict_accuracy`, `macro_f1_excluding_other`); legacy split precision/recall/practical fields are preserved when explicit metrics are absent.
 
 ### 3.3 Dashboard artifacts and data sources
 
@@ -130,6 +131,10 @@ Benchmark scan details:
 - For suffixed run folders (for example `2026-02-28_02.03.18_manual-top5-...`), benchmark `run_timestamp` is normalized to the timestamp prefix (`2026-02-28_02.03.18`) so sweep rows aggregate correctly.
 - Excludes `prediction-run` eval dirs and pytest temp artifacts
 - Optional enrichment from `manifest.json` / `coverage.json` (eval dir and `prediction-run/`)
+  - Manifest enrichment also backfills codex runtime context into benchmark `run_config` when needed:
+    - `codex_farm_model`
+    - `codex_farm_reasoning_effort`
+    using `llm_codex_farm.process_runs.*.process_payload` with telemetry reasoning fallback.
 
 ## 4) Command behavior (current)
 
@@ -158,8 +163,14 @@ Benchmark scan details:
 - Supports `--open` to launch the generated `index.html` in browser.
 - Prints collector warnings (first 10) when malformed/partial inputs are detected.
 - `Per-Label Breakdown` aggregates per-label totals across the latest all-method benchmark run timestamp (fallback: latest benchmark run timestamp when no all-method rows exist), not just one eval file row.
+- `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
+- If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
+- `Previous Runs` includes `AI Model + Effort`; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
+- Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
+- `Previous Runs` now includes a rules + boolean-expression filter builder over benchmark fields (including nested `run_config.*`) and applies the same filtered dataset to the score trend chart.
+- `Previous Runs` table uses horizontal + vertical scrolling with a fixed minimum table width so benchmark columns remain readable on narrow windows.
+- `Previous Runs` table columns are configurable in-browser: move columns left/right, resize by dragging header edges, and add/remove fields from discovered benchmark keys.
 - Main page is intentionally narrow in scope:
-  - `All-Method Benchmark Runs`
   - `Diagnostics (Latest Benchmark)`
   - `Previous Runs`
 
@@ -174,7 +185,7 @@ Grouping and hierarchy:
 - All-method grouping is derived from benchmark artifact paths containing either:
   - `all-method-benchmark/<source_slug>/config_*`
   - `single-profile-benchmark/<source_slug>`
-- Renderer always writes all-method run index page (`all-method-benchmark/index.html`) even when there are zero all-method runs.
+- Renderer writes all-method run-summary and per-book detail pages under `all-method-benchmark/`; no standalone `all-method-benchmark/index.html` page is emitted.
 - Renderer removes stale legacy all-method root pages before writing the current subfolder hierarchy.
 
 Standalone page behavior:
@@ -236,7 +247,7 @@ Merged source notes:
 
 Current-contract additions:
 - Analytics ownership covers telemetry artifact persistence and dashboard collector/renderer behavior, including command-side history appenders in `labelstudio-eval` and `labelstudio-benchmark`.
-- Main dashboard index contract remains intentionally reduced to `All-Method Benchmark Runs`, `Diagnostics (Latest Benchmark)`, and `Previous Runs`.
+- Main dashboard index contract remains intentionally reduced to `Diagnostics (Latest Benchmark)` and `Previous Runs`.
 - Legacy throughput/filter/KPI main-index branches are retired behavior and should stay historical-only.
 - Compatibility fallback for legacy history path lookup (`<output_root>/.history/performance_history.csv`) and stale all-method root-page cleanup are active renderer/collector hygiene rules.
 
@@ -306,7 +317,6 @@ Current dashboard interaction contract:
   - no-data fallback text when rows have no trend points,
   - offline/CDN failure fallback text when Highcharts is unavailable,
   - table rendering remains usable regardless of chart state.
-- Trend series contract currently includes: `precision`, `recall`, `f1`, `practical_f1`.
+- Trend series contract currently includes: `strict_accuracy`, `macro_f1_excluding_other`.
 - Timestamp parsing must continue to accept both `YYYY-MM-DD_HH.MM.SS` and ISO-style strings so historical rows sort correctly.
 - Y-axis score bounds are intentionally fixed to `0..1` for comparability across runs.
-

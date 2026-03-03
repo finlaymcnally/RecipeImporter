@@ -23,7 +23,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,7 @@ DEFAULT_SAMPLE_LIMIT = 80
 DEFAULT_TOP_CONFUSIONS = 8
 DEFAULT_TOP_LABELS = 6
 DEFAULT_EXCERPT_LIMIT = 440
-DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 2
+DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
 
 # Keep this focused on settings that are likely to explain quality deltas.
 RUN_CONFIG_KEYS_OF_INTEREST = (
@@ -66,9 +66,29 @@ ROOT_METADATA_FILES = (
 )
 AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
+FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
+PROMPT_REQUEST_RESPONSE_LOG_NAME = "prompt_request_response_log.txt"
+PROMPT_LOG_MANIFEST_ARTIFACT_KEY = "codexfarm_prompt_request_response_txt"
+FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS = (
+    "full_prompt_log_path",
+    "codexfarm_full_prompt_log_jsonl",
+)
 PROMPT_LOG_SEPARATOR = "--------------------------------------------------------------------------------"
-PROMPT_SECTION_HEADER_RE = re.compile(r"^---\s+(PASS[0-9A-Za-z_]+)\s+(INPUT|RESPONSE) FILES ---$")
-PROMPT_ENTRY_RE = re.compile(r"^(INPUT|OUTPUT)\s+(pass[0-9A-Za-z_]+)\s*=>\s*(.+)$")
+PROMPT_SECTION_HEADER_RE = re.compile(
+    r"^---\s+([0-9A-Za-z_-]+)\s+(INPUT|RESPONSE)\s+FILES\s+---$"
+)
+PROMPT_ENTRY_RE = re.compile(r"^(INPUT|OUTPUT)\s+([0-9A-Za-z_-]+)\s*=>\s*(.+)$")
+PROMPT_CATEGORY_SORT_RE = re.compile(r"^([a-z]+)(\d+)(.*)$")
+PASS_DIR_MAP = {
+    "pass1": "pass1_chunking",
+    "pass2": "pass2_schemaorg",
+    "pass3": "pass3_final",
+}
+PASS_PIPELINE_MAP = {
+    "pass1": "recipe.chunking.v1",
+    "pass2": "recipe.schemaorg.v1",
+    "pass3": "recipe.final.v1",
+}
 
 SAMPLED_JSONL_INPUTS = (
     ("wrong_label_lines.jsonl", "wrong_label_lines.sample.jsonl"),
@@ -99,6 +119,9 @@ class RunRecord:
     config_snapshot: dict[str, Any]
     top_confusions: list[dict[str, Any]]
     summary_path: str
+    full_prompt_log_status: str
+    full_prompt_log_rows: int
+    full_prompt_log_path: str | None
 
 
 def _parse_args() -> argparse.Namespace:
@@ -155,7 +178,7 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_PROMPT_PAIRS_PER_CATEGORY,
         help=(
             "Max full input/output pairs to keep per prompt category from the prompt log "
-            "(default: 2). Set to 0 to keep the full log."
+            f"(default: {DEFAULT_PROMPT_PAIRS_PER_CATEGORY}). Set to 0 to keep the full log."
         ),
     )
     parser.add_argument(
@@ -336,24 +359,28 @@ def _clip_large_text_fields(row: dict[str, Any], *, excerpt_limit: int) -> dict[
 
 
 def _sample_rows_evenly(rows: list[dict[str, Any]], sample_limit: int) -> list[dict[str, Any]]:
-    if sample_limit >= len(rows):
-        return list(rows)
-    if sample_limit <= 0 or not rows:
-        return []
-    if sample_limit == 1:
-        return [rows[0]]
+    selected_indices = _sample_indices_evenly(len(rows), sample_limit)
+    return [rows[index] for index in selected_indices]
 
-    last_index = len(rows) - 1
+
+def _sample_indices_evenly(total_count: int, sample_limit: int) -> list[int]:
+    if total_count <= 0 or sample_limit <= 0:
+        return []
+    if sample_limit >= total_count:
+        return list(range(total_count))
+    if sample_limit == 1:
+        return [0]
+
+    last_index = total_count - 1
     selected_indices = {
         int(round(position * last_index / (sample_limit - 1))) for position in range(sample_limit)
     }
     if len(selected_indices) < sample_limit:
-        extras = [
-            index for index in range(len(rows)) if index not in selected_indices
-        ][: sample_limit - len(selected_indices)]
+        extras = [index for index in range(total_count) if index not in selected_indices][
+            : sample_limit - len(selected_indices)
+        ]
         selected_indices.update(extras)
-    ordered_indices = sorted(selected_indices)[:sample_limit]
-    return [rows[index] for index in ordered_indices]
+    return sorted(selected_indices)[:sample_limit]
 
 
 def _write_jsonl_sample(
@@ -383,15 +410,17 @@ def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[di
     current_kind: str | None = None
     current_filename: str | None = None
     current_lines: list[str] = []
+    current_body_started = False
     collecting = False
 
     def flush_current_entry() -> None:
         nonlocal collecting, current_category, current_kind, current_filename, current_lines
+        nonlocal current_body_started
         if not collecting or current_category is None or current_kind is None:
             return
         if current_filename is None:
             return
-        text = "\n".join(current_lines).strip()
+        text = "\n".join(current_lines).rstrip()
         if text:
             sections[current_category][current_kind].append(
                 {"filename": current_filename, "text": text}
@@ -400,6 +429,7 @@ def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[di
         current_filename = None
         current_lines = []
         current_kind = None
+        current_body_started = False
 
     for raw_line in source_path.read_text(encoding="utf-8").splitlines():
         stripped = raw_line.strip()
@@ -417,11 +447,16 @@ def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[di
             current_kind = "input" if entry_match.group(1).upper() == "INPUT" else "output"
             current_filename = entry_match.group(3).strip()
             current_lines = [raw_line]
+            current_body_started = False
             collecting = True
             continue
 
-        if stripped == PROMPT_LOG_SEPARATOR:
-            flush_current_entry()
+        if collecting and stripped == PROMPT_LOG_SEPARATOR:
+            current_lines.append(raw_line)
+            if current_body_started:
+                flush_current_entry()
+            else:
+                current_body_started = True
             continue
 
         if collecting and current_category is not None:
@@ -435,12 +470,12 @@ def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[di
     }
 
 
-def _prompt_category_sort_key(category: str) -> tuple[int, int | str]:
+def _prompt_category_sort_key(category: str) -> tuple[int, str, int, str]:
     lower = category.lower()
-    match = re.match(r"^pass(\d+)$", lower)
+    match = PROMPT_CATEGORY_SORT_RE.match(lower)
     if match:
-        return (0, int(match.group(1)))
-    return (1, lower)
+        return (0, match.group(1), int(match.group(2)), match.group(3))
+    return (1, lower, 0, "")
 
 
 def _write_prompt_log_samples(
@@ -482,17 +517,21 @@ def _write_prompt_log_samples(
     for category in sorted(parsed.keys(), key=_prompt_category_sort_key):
         input_blocks = parsed[category]["input"]
         output_blocks = parsed[category]["output"]
-        pair_count = min(len(input_blocks), len(output_blocks), max_pairs_per_category)
+        pairable_count = min(len(input_blocks), len(output_blocks))
+        sampled_pair_indices = _sample_indices_evenly(pairable_count, max_pairs_per_category)
+        pair_count = len(sampled_pair_indices)
 
         category_metadata[category] = {
             "input_blocks": len(input_blocks),
             "output_blocks": len(output_blocks),
+            "pairable_blocks": pairable_count,
             "sampled_pairs": pair_count,
+            "sampled_pair_indices": sampled_pair_indices,
         }
         lines.append(
             (
                 f"--- {category.upper()} INPUT/OUTPUT PAIRS (showing {pair_count} of "
-                f"{min(len(input_blocks), len(output_blocks))}) ---"
+                f"{pairable_count}) ---"
             )
         )
         if pair_count == 0:
@@ -500,16 +539,21 @@ def _write_prompt_log_samples(
             lines.append("")
             continue
 
-        for index in range(pair_count):
-            input_block = input_blocks[index]
-            output_block = output_blocks[index]
-            pair_no = index + 1
+        for pair_no, pair_index in enumerate(sampled_pair_indices, start=1):
+            input_block = input_blocks[pair_index]
+            output_block = output_blocks[pair_index]
             lines.extend(
                 [
-                    f"[{category}] Pair {pair_no} - INPUT file: {input_block['filename']}",
+                    (
+                        f"[{category}] Pair {pair_no} (source index {pair_index + 1}) "
+                        f"- INPUT file: {input_block['filename']}"
+                    ),
                     input_block["text"],
                     PROMPT_LOG_SEPARATOR,
-                    f"[{category}] Pair {pair_no} - OUTPUT file: {output_block['filename']}",
+                    (
+                        f"[{category}] Pair {pair_no} (source index {pair_index + 1}) "
+                        f"- OUTPUT file: {output_block['filename']}"
+                    ),
                     output_block["text"],
                     PROMPT_LOG_SEPARATOR,
                     "",
@@ -832,6 +876,327 @@ def _run_output_dir_name(run_id: str, seen: dict[str, int]) -> str:
     return f"{base}__{suffix}"
 
 
+def _resolve_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    candidate_paths: list[Path] = []
+
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        manifest_path_raw = artifacts.get(PROMPT_LOG_MANIFEST_ARTIFACT_KEY)
+        if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
+            manifest_path = Path(manifest_path_raw.strip())
+            candidate_paths.append(
+                manifest_path if manifest_path.is_absolute() else run_dir / manifest_path
+            )
+
+    candidate_paths.extend(
+        [
+            run_dir / PROMPT_LOG_FILE_NAME,
+            run_dir / "codexfarm" / PROMPT_REQUEST_RESPONSE_LOG_NAME,
+            run_dir / "codexfarm" / PROMPT_LOG_FILE_NAME,
+            run_dir / PROMPT_REQUEST_RESPONSE_LOG_NAME,
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _resolve_full_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    candidate_paths: list[Path] = []
+
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        for key in FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS:
+            manifest_path_raw = artifacts.get(key)
+            if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
+                manifest_path = Path(manifest_path_raw.strip())
+                candidate_paths.append(
+                    manifest_path if manifest_path.is_absolute() else run_dir / manifest_path
+                )
+
+    candidate_paths.extend(
+        [
+            run_dir / FULL_PROMPT_LOG_FILE_NAME,
+            run_dir / "codexfarm" / FULL_PROMPT_LOG_FILE_NAME,
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        pred_run_raw = artifacts.get("pred_run_dir")
+        if isinstance(pred_run_raw, str) and pred_run_raw.strip():
+            pred_candidate = Path(pred_run_raw.strip())
+            pred_path = pred_candidate if pred_candidate.is_absolute() else run_dir / pred_candidate
+            if pred_path.exists() and pred_path.is_dir():
+                return pred_path
+    fallback = run_dir / "prediction-run"
+    if fallback.exists() and fallback.is_dir():
+        return fallback
+    return None
+
+
+def _safe_read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _parse_json_text(raw_text: str) -> Any | None:
+    text = str(raw_text or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _mtime_utc(path: Path | None) -> str | None:
+    if path is None or not path.exists() or not path.is_file():
+        return None
+    try:
+        stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+    return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _load_run_assets_payload(run_id: str) -> dict[str, Any]:
+    if not run_id:
+        return {}
+    run_assets_dir = Path("var") / "run_assets" / run_id
+    if not run_assets_dir.exists() or not run_assets_dir.is_dir():
+        return {"run_id": run_id}
+
+    def _safe_load_json_dict(path: Path) -> dict[str, Any] | None:
+        if not path.is_file():
+            return None
+        try:
+            return _load_json(path)
+        except Exception:
+            return None
+
+    return {
+        "run_id": run_id,
+        "prompt_template_text": _safe_read_text(run_assets_dir / "prompt.template.txt"),
+        "output_schema_payload": _safe_load_json_dict(run_assets_dir / "output.schema.json"),
+        "effective_pipeline_payload": _safe_load_json_dict(
+            run_assets_dir / "effective_pipeline.json"
+        ),
+        "manifest_payload": _safe_load_json_dict(run_assets_dir / "manifest.json"),
+    }
+
+
+def _render_prompt(template_text: str | None, input_text: str, input_file: Path) -> str:
+    template = str(template_text or "")
+    if not template.strip():
+        return input_text
+    rendered = template.replace("{{INPUT_TEXT}}", input_text)
+    rendered = rendered.replace("{{ INPUT_TEXT }}", input_text)
+    rendered = rendered.replace("{{INPUT_PATH}}", str(input_file))
+    rendered = rendered.replace("{{ INPUT_PATH }}", str(input_file))
+    return rendered
+
+
+def _collect_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
+    if not isinstance(parsed_input, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for key in ("blocks_before", "blocks_candidate", "blocks_after", "blocks"):
+        blocks = parsed_input.get(key)
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            rows.append(
+                {
+                    "source_key": key,
+                    "block_id": block.get("block_id"),
+                    "index": block.get("index"),
+                    "text": block.get("text"),
+                }
+            )
+    return rows
+
+
+def _reconstruct_full_prompt_log(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    output_path: Path,
+) -> int:
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    if pred_run_dir is None:
+        return 0
+    raw_llm_dir = pred_run_dir / "raw" / "llm"
+    if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
+        return 0
+
+    pred_manifest_path = pred_run_dir / "manifest.json"
+    pred_manifest = _load_json(pred_manifest_path) if pred_manifest_path.is_file() else {}
+    llm_payload = pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
+    process_runs = llm_payload.get("process_runs") if isinstance(llm_payload, dict) else {}
+    source_payload = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+    source_file = source_payload.get("path") if isinstance(source_payload, dict) else None
+    source_file = str(source_file).strip() if isinstance(source_file, str) else None
+
+    rows_written = 0
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as handle:
+        run_dirs = sorted(path for path in raw_llm_dir.iterdir() if path.is_dir())
+        for llm_run_dir in run_dirs:
+            for pass_name, pass_dir in PASS_DIR_MAP.items():
+                pass_in_dir = llm_run_dir / pass_dir / "in"
+                pass_out_dir = llm_run_dir / pass_dir / "out"
+                input_files = (
+                    sorted(path for path in pass_in_dir.iterdir() if path.is_file())
+                    if pass_in_dir.exists()
+                    else []
+                )
+                output_files = (
+                    sorted(path for path in pass_out_dir.iterdir() if path.is_file())
+                    if pass_out_dir.exists()
+                    else []
+                )
+                if not input_files and not output_files:
+                    continue
+                input_by_name = {path.name: path for path in input_files}
+                output_by_name = {path.name: path for path in output_files}
+                pass_process_payload = (
+                    process_runs.get(pass_name) if isinstance(process_runs, dict) else None
+                )
+                pass_run_id = None
+                if isinstance(pass_process_payload, dict):
+                    pass_run_id = str(pass_process_payload.get("run_id") or "").strip() or None
+                run_assets = _load_run_assets_payload(pass_run_id or "")
+                prompt_template_text = (
+                    run_assets.get("prompt_template_text")
+                    if isinstance(run_assets, dict)
+                    else None
+                )
+                output_schema_payload = (
+                    run_assets.get("output_schema_payload")
+                    if isinstance(run_assets, dict)
+                    else None
+                )
+                effective_pipeline_payload = (
+                    run_assets.get("effective_pipeline_payload")
+                    if isinstance(run_assets, dict)
+                    else None
+                )
+                model_value = None
+                if isinstance(effective_pipeline_payload, dict):
+                    model_raw = effective_pipeline_payload.get("codex_model")
+                    if isinstance(model_raw, str) and model_raw.strip():
+                        model_value = model_raw.strip()
+
+                for file_name in sorted(set(input_by_name) | set(output_by_name)):
+                    input_file = input_by_name.get(file_name)
+                    output_file = output_by_name.get(file_name)
+                    input_text = _safe_read_text(input_file) if input_file is not None else ""
+                    output_text = _safe_read_text(output_file) if output_file is not None else ""
+                    parsed_input = _parse_json_text(input_text)
+                    parsed_output = _parse_json_text(output_text)
+                    timestamp_utc = _mtime_utc(output_file) or _mtime_utc(input_file)
+                    call_id = (
+                        input_file.stem
+                        if input_file is not None
+                        else (output_file.stem if output_file is not None else Path(file_name).stem)
+                    )
+                    recipe_id = None
+                    if isinstance(parsed_input, dict):
+                        recipe_id = str(parsed_input.get("recipe_id") or "").strip() or None
+                    if recipe_id is None and isinstance(parsed_output, dict):
+                        recipe_id = str(parsed_output.get("recipe_id") or "").strip() or None
+                    rendered_prompt = _render_prompt(
+                        prompt_template_text,
+                        input_text,
+                        input_file or (pass_in_dir / file_name),
+                    )
+                    request_messages = [{"role": "user", "content": rendered_prompt}]
+                    response_format = (
+                        {
+                            "type": "json_schema",
+                            "json_schema": output_schema_payload,
+                        }
+                        if isinstance(output_schema_payload, dict)
+                        else None
+                    )
+                    row = {
+                        "run_id": str(run_manifest.get("run_id") or run_dir.name),
+                        "pass": pass_name,
+                        "call_id": call_id,
+                        "timestamp_utc": timestamp_utc,
+                        "recipe_id": recipe_id,
+                        "source_file": source_file,
+                        "pipeline_id": PASS_PIPELINE_MAP.get(pass_name),
+                        "process_run_id": pass_run_id,
+                        "model": model_value,
+                        "request_messages": request_messages,
+                        "system_prompt": None,
+                        "developer_prompt": None,
+                        "user_prompt": rendered_prompt,
+                        "rendered_prompt_text": rendered_prompt,
+                        "rendered_messages": request_messages,
+                        "prompt_templates": {
+                            "prompt_template_text": prompt_template_text,
+                        },
+                        "template_vars": {
+                            "INPUT_PATH": str(input_file) if input_file is not None else None,
+                            "INPUT_TEXT": input_text,
+                        },
+                        "inserted_context_blocks": _collect_context_blocks(parsed_input),
+                        "request": {
+                            "messages": request_messages,
+                            "tools": [],
+                            "response_format": response_format,
+                            "model": model_value,
+                            "temperature": None,
+                            "top_p": None,
+                            "max_output_tokens": None,
+                            "seed": None,
+                            "pipeline_id": PASS_PIPELINE_MAP.get(pass_name),
+                        },
+                        "raw_response": {
+                            "output_text": output_text,
+                            "output_file": str(output_file) if output_file is not None else None,
+                        },
+                        "parsed_response": parsed_output,
+                        "request_input_payload": parsed_input,
+                        "request_input_file": str(input_file) if input_file is not None else None,
+                    }
+                    handle.write(json.dumps(row, ensure_ascii=False))
+                    handle.write("\n")
+                    rows_written += 1
+
+    if rows_written <= 0:
+        output_path.unlink(missing_ok=True)
+    return rows_written
+
+
 def _build_run_cutdown(
     *,
     run_dir: Path,
@@ -889,8 +1254,8 @@ def _build_run_cutdown(
         "sample_rows": len(correct_rows),
     }
 
-    codex_prompt_log = run_dir / PROMPT_LOG_FILE_NAME
-    if codex_prompt_log.is_file():
+    codex_prompt_log = _resolve_prompt_log_path(run_dir, run_manifest)
+    if codex_prompt_log is not None:
         prompt_log_output = output_run_dir / PROMPT_LOG_FILE_NAME
         if prompt_pairs_per_category <= 0:
             shutil.copy2(codex_prompt_log, prompt_log_output)
@@ -904,6 +1269,38 @@ def _build_run_cutdown(
                 output_path=prompt_log_output,
                 max_pairs_per_category=prompt_pairs_per_category,
             )
+
+    full_prompt_log_source = _resolve_full_prompt_log_path(run_dir, run_manifest)
+    full_prompt_log_output = output_run_dir / FULL_PROMPT_LOG_FILE_NAME
+    full_prompt_log_status = "not_applicable"
+    full_prompt_log_rows = 0
+    full_prompt_log_output_path: str | None = None
+    if full_prompt_log_source is not None:
+        shutil.copy2(full_prompt_log_source, full_prompt_log_output)
+        with full_prompt_log_output.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    full_prompt_log_rows += 1
+        full_prompt_log_status = "complete"
+        full_prompt_log_output_path = FULL_PROMPT_LOG_FILE_NAME
+    elif codex_enabled:
+        reconstructed_rows = _reconstruct_full_prompt_log(
+            run_dir=run_dir,
+            run_manifest=run_manifest,
+            output_path=full_prompt_log_output,
+        )
+        if reconstructed_rows > 0:
+            full_prompt_log_status = "complete"
+            full_prompt_log_rows = reconstructed_rows
+            full_prompt_log_output_path = FULL_PROMPT_LOG_FILE_NAME
+        else:
+            full_prompt_log_status = "missing"
+
+    sample_counts[FULL_PROMPT_LOG_FILE_NAME] = {
+        "status": full_prompt_log_status,
+        "rows": full_prompt_log_rows,
+        "source_path": str(full_prompt_log_source) if full_prompt_log_source is not None else None,
+    }
 
     top_confusions = _top_confusions(
         eval_report.get("confusion"),
@@ -986,6 +1383,9 @@ def _build_run_cutdown(
         "lowest_precision_labels": low_precision_labels,
         "sample_counts": sample_counts,
         "correct_sample_metadata": correct_metadata,
+        "full_prompt_log_status": full_prompt_log_status,
+        "full_prompt_log_rows": full_prompt_log_rows,
+        "full_prompt_log_path": full_prompt_log_output_path,
         "included_files": sorted(
             path.name for path in output_run_dir.iterdir() if path.is_file()
         ),
@@ -1019,6 +1419,13 @@ def _build_run_cutdown(
         config_snapshot=_config_snapshot(run_manifest),
         top_confusions=top_confusions,
         summary_path=str(summary_path),
+        full_prompt_log_status=full_prompt_log_status,
+        full_prompt_log_rows=full_prompt_log_rows,
+        full_prompt_log_path=(
+            f"{output_run_dir.name}/{FULL_PROMPT_LOG_FILE_NAME}"
+            if full_prompt_log_output_path is not None
+            else None
+        ),
     )
 
 
@@ -1171,20 +1578,24 @@ def _write_readme(
     lines.append(f"Sample limit per JSONL artifact: {sample_limit}")
     lines.append(f"Excerpt char limit for sampled text fields: {excerpt_limit}")
     if prompt_pairs_per_category <= 0:
-        lines.append("CodexFarm prompt log: full file copied.")
+        lines.append("CodexFarm sampled prompt log: convenience file copies full request/response text log.")
     else:
         lines.append(
-            "CodexFarm prompt log: sampled prompt input/output pairs per category "
+            "CodexFarm sampled prompt log: convenience-only sampled prompt input/output pairs per category "
             f"(max {prompt_pairs_per_category})"
         )
+    lines.append(
+        "CodexFarm full prompt log: `full_prompt_log.jsonl` copied as complete machine-readable call rows (no sampling/truncation)."
+    )
     lines.append("")
     lines.append("Each run folder includes:")
     lines.append("- `need_to_know_summary.json`")
     lines.append("- `eval_report.md` (if present in source run)")
+    lines.append(f"- `{FULL_PROMPT_LOG_FILE_NAME}` (required for codex-enabled runs)")
     lines.append("- `correct_label_lines.sample.jsonl`")
     for _, output_name in SAMPLED_JSONL_INPUTS:
         lines.append(f"- `{output_name}`")
-    lines.append(f"- `{PROMPT_LOG_FILE_NAME}` (if present)")
+    lines.append(f"- `{PROMPT_LOG_FILE_NAME}` (optional convenience-only)")
     lines.append("")
     lines.append("Root files:")
     lines.append("- `run_index.json`")
@@ -1369,6 +1780,9 @@ def main() -> int:
                 "overall_line_accuracy": record.metric_overall_line_accuracy,
                 "macro_f1_excluding_other": record.metric_macro_f1_excluding_other,
                 "practical_f1": record.metric_practical_f1,
+                "full_prompt_log_status": record.full_prompt_log_status,
+                "full_prompt_log_rows": record.full_prompt_log_rows,
+                "full_prompt_log_path": record.full_prompt_log_path,
                 "summary_path": record.summary_path,
             }
             for record in sorted(records, key=lambda row: row.run_id)
@@ -1382,6 +1796,18 @@ def main() -> int:
     comparison_summary["output_dir"] = str(output_dir)
     _write_json(output_dir / "comparison_summary.json", comparison_summary)
 
+    codex_records = [record for record in records if record.codex_enabled]
+    missing_codex_full_prompt_logs = [
+        record
+        for record in codex_records
+        if record.full_prompt_log_status != "complete"
+    ]
+    if codex_records:
+        package_full_prompt_status = (
+            "complete" if not missing_codex_full_prompt_logs else "missing"
+        )
+    else:
+        package_full_prompt_status = "not_applicable"
     process_manifest = {
         "generated_at": _timestamp_now(),
         "tool": "scripts/benchmark_cutdown_for_external_ai.py",
@@ -1394,8 +1820,22 @@ def main() -> int:
         "prompt_pairs_per_category": args.prompt_pairs_per_category,
         "flatten_enabled": not args.no_flatten,
         "flatten_script": str(args.flatten_script),
+        "full_prompt_log_status": package_full_prompt_status,
+        "full_prompt_log_rows": sum(record.full_prompt_log_rows for record in records),
+        "full_prompt_log_path": (
+            records[0].full_prompt_log_path if len(records) == 1 else None
+        ),
+        "full_prompt_log_runs": [
+            {
+                "run_id": record.run_id,
+                "output_subdir": record.output_subdir,
+                "status": record.full_prompt_log_status,
+                "rows": record.full_prompt_log_rows,
+                "path": record.full_prompt_log_path,
+            }
+            for record in sorted(records, key=lambda row: row.run_id)
+        ],
     }
-    _write_json(output_dir / "process_manifest.json", process_manifest)
 
     _write_readme(
         output_dir=output_dir,
@@ -1406,6 +1846,12 @@ def main() -> int:
         prompt_pairs_per_category=args.prompt_pairs_per_category,
         flattened=not args.no_flatten,
     )
+    included_root_files = {
+        path.name for path in output_dir.iterdir() if path.is_file()
+    }
+    included_root_files.add("process_manifest.json")
+    process_manifest["included_files"] = sorted(included_root_files)
+    _write_json(output_dir / "process_manifest.json", process_manifest)
 
     md_output_dir: Path | None = None
     if not args.no_flatten:

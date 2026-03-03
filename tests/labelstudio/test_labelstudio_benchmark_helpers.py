@@ -1685,6 +1685,163 @@ def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_p
     assert not (moved / "old.txt").exists()
 
 
+def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    run_dir = pred_run / "raw" / "llm" / "book"
+    pass1_in = run_dir / "pass1_chunking" / "in"
+    pass1_out = run_dir / "pass1_chunking" / "out"
+    pass2_in = run_dir / "pass2_schemaorg" / "in"
+    pass2_out = run_dir / "pass2_schemaorg" / "out"
+    pass3_in = run_dir / "pass3_final" / "in"
+    pass3_out = run_dir / "pass3_final" / "out"
+    for folder in (pass1_in, pass1_out, pass2_in, pass2_out, pass3_in, pass3_out):
+        folder.mkdir(parents=True, exist_ok=True)
+
+    attached = run_dir / "attachments" / "task1_notes.txt"
+    attached.parent.mkdir(parents=True, exist_ok=True)
+    attached.write_text("attachment content\n", encoding="utf-8")
+
+    (pass1_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "pass1 prompt", "attachment_file_path": str(attached)}),
+        encoding="utf-8",
+    )
+    (pass1_out / "r0000.json").write_text(
+        json.dumps({"result": "pass1 response"}),
+        encoding="utf-8",
+    )
+    (pass2_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "pass2 prompt"}),
+        encoding="utf-8",
+    )
+    (pass2_out / "r0000.json").write_text(
+        json.dumps({"result": "pass2 response"}),
+        encoding="utf-8",
+    )
+    (pass3_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "pass3 prompt"}),
+        encoding="utf-8",
+    )
+    (pass3_out / "r0000.json").write_text(
+        json.dumps({"result": "pass3 response"}),
+        encoding="utf-8",
+    )
+
+    (run_dir / "llm_manifest.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "pipeline": "codex-farm-3pass-v1",
+                "paths": {
+                    "pass1_in": str(pass1_in),
+                    "pass1_out": str(pass1_out),
+                    "pass2_in": str(pass2_in),
+                    "pass2_out": str(pass2_out),
+                    "pass3_in": str(pass3_in),
+                    "pass3_out": str(pass3_out),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = cli._build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+    )
+
+    assert log_path == eval_output_dir / "codexfarm" / "prompt_request_response_log.txt"
+    assert log_path is not None and log_path.exists()
+    combined = log_path.read_text(encoding="utf-8")
+    assert "INPUT pass1 => r0000.json" in combined
+    assert "OUTPUT pass3 => r0000.json" in combined
+
+    task1_path = eval_output_dir / "codexfarm" / "prompt_task1_pass1_chunking.txt"
+    task2_path = eval_output_dir / "codexfarm" / "prompt_task2_pass2_schemaorg.txt"
+    task3_path = eval_output_dir / "codexfarm" / "prompt_task3_pass3_final.txt"
+    for category_path in (task1_path, task2_path, task3_path):
+        assert category_path.exists()
+
+    task1_text = task1_path.read_text(encoding="utf-8")
+    assert "ATTACHMENT task1 =>" in task1_text
+    assert str(attached) in task1_text
+    assert "attachment content" in task1_text
+
+    manifest_path = eval_output_dir / "codexfarm" / "prompt_category_logs_manifest.txt"
+    assert manifest_path.exists()
+    manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    assert manifest_lines == [str(task1_path), str(task2_path), str(task3_path)]
+
+    full_prompt_log_path = eval_output_dir / "codexfarm" / "full_prompt_log.jsonl"
+    assert full_prompt_log_path.exists()
+    full_prompt_rows = [
+        json.loads(line)
+        for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 3
+    assert {str(row.get("pass") or "") for row in full_prompt_rows} == {
+        "pass1",
+        "pass2",
+        "pass3",
+    }
+    pass1_row = next(row for row in full_prompt_rows if row.get("pass") == "pass1")
+    assert pass1_row["call_id"] == "r0000"
+    assert pass1_row["request_messages"][0]["role"] == "user"
+    assert "pass1 prompt" in pass1_row["request_messages"][0]["content"]
+    assert pass1_row["parsed_response"] == {"result": "pass1 response"}
+    assert pass1_row["raw_response"]["output_file"].endswith("r0000.json")
+
+
+def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    run_dir = pred_run / "raw" / "llm" / "book"
+    pass1_in = run_dir / "pass1_chunking" / "in"
+    pass1_out = run_dir / "pass1_chunking" / "out"
+    pass1_in.mkdir(parents=True, exist_ok=True)
+    pass1_out.mkdir(parents=True, exist_ok=True)
+    (pass1_in / "r0000.json").write_text(json.dumps({"prompt_text": "ok"}), encoding="utf-8")
+    (pass1_out / "r0000.json").write_text(json.dumps({"result": "ok"}), encoding="utf-8")
+
+    (run_dir / "llm_manifest.json").write_text(
+        json.dumps(
+            {
+                "paths": {
+                    "pass1_in": str(pass1_in),
+                    "pass1_out": str(pass1_out),
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = cli._build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+    )
+    assert log_path is not None and log_path.exists()
+    assert (eval_output_dir / "codexfarm" / "prompt_task1_pass1_chunking.txt").exists()
+    assert not (eval_output_dir / "codexfarm" / "prompt_task2_pass2_schemaorg.txt").exists()
+    assert not (eval_output_dir / "codexfarm" / "prompt_task3_pass3_final.txt").exists()
+    full_prompt_log_path = eval_output_dir / "codexfarm" / "full_prompt_log.jsonl"
+    full_prompt_rows = [
+        json.loads(line)
+        for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 1
+    assert full_prompt_rows[0]["pass"] == "pass1"
+
+
 def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2006,6 +2163,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert processed_output_dir.parent.parent.parent == configured_output
     assert captured["no_upload"] is True
     assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+    assert captured["write_markdown"] is False
     assert "label_studio_url" not in captured
     assert "label_studio_api_key" not in captured
     assert captured["epub_extractor"] == "beautifulsoup"
@@ -2217,7 +2375,22 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
             encoding="utf-8",
         )
         (eval_output_dir / "run_manifest.json").write_text(
-            json.dumps({"source": {"path": source_path}}),
+            json.dumps(
+                {
+                    "source": {"path": source_path},
+                    "run_config": {
+                        "llm_recipe_pipeline": llm_pipeline,
+                        "codex_farm_model": (
+                            "gpt-5.3-codex-spark"
+                            if llm_pipeline == "codex-farm-3pass-v1"
+                            else None
+                        ),
+                        "codex_farm_reasoning_effort": (
+                            "low" if llm_pipeline == "codex-farm-3pass-v1" else None
+                        ),
+                    },
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -2282,10 +2455,10 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
         / "codex_vs_vanilla_comparison.md"
     )
     assert comparison_json.exists()
-    assert comparison_md.exists()
+    assert not comparison_md.exists()
 
     payload = json.loads(comparison_json.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "codex_vs_vanilla_comparison.v1"
+    assert payload["schema_version"] == "codex_vs_vanilla_comparison.v2"
     assert payload["run_timestamp"] == benchmark_eval_output.name
     assert payload["source_file"] == source_path
     assert payload["variants"]["codexfarm"]["eval_output_dir"].endswith(
@@ -2294,10 +2467,254 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     assert payload["variants"]["vanilla"]["eval_output_dir"].endswith(
         "/single-offline-benchmark/vanilla"
     )
-    assert payload["metrics"]["codexfarm"]["precision"] == pytest.approx(0.42)
-    assert payload["metrics"]["vanilla"]["precision"] == pytest.approx(0.39)
-    assert payload["deltas"]["codex_minus_vanilla"]["precision"] == pytest.approx(0.03)
-    assert payload["deltas"]["codex_minus_vanilla"]["practical_f1"] is None
+    assert payload["metrics"]["codexfarm"]["strict_accuracy"] == pytest.approx(0.42)
+    assert payload["metrics"]["vanilla"]["strict_accuracy"] == pytest.approx(0.39)
+    assert "precision" not in payload["metrics"]["codexfarm"]
+    assert "precision" not in payload["metrics"]["vanilla"]
+    assert "precision" not in payload["deltas"]["codex_minus_vanilla"]
+    assert payload["deltas"]["codex_minus_vanilla"]["strict_accuracy"] == pytest.approx(0.03)
+    assert payload["deltas"]["codex_minus_vanilla"]["macro_f1_excluding_other"] is None
+    assert payload["metadata"]["codex_farm_runtime"]["codex_model"] == "gpt-5.3-codex-spark"
+    assert (
+        payload["metadata"]["codex_farm_runtime"]["codex_reasoning_effort"] == "low"
+    )
+
+
+def test_interactive_single_offline_uses_book_slug_in_session_root_when_source_selected(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test source-slugged-single-offline-root",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+    source_file = tmp_path / "The Book Name.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    class _FakeStdin:
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(cli.sys, "stdin", _FakeStdin())
+    monkeypatch.setattr(
+        cli,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (gold_spans, source_file),
+    )
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.20, "recall": 0.30, "f1": 0.24}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(source_file)}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 1
+    source_slug = cli.slugify_name(source_file.stem)
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / source_slug
+        / "vanilla"
+    )
+    assert benchmark_calls[0]["processed_output_dir"] == (
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / source_slug
+        / "vanilla"
+    )
+
+
+def test_single_offline_comparison_markdown_table_columns_are_width_aligned() -> None:
+    payload = {
+        "schema_version": "codex_vs_vanilla_comparison.v2",
+        "run_timestamp": "2026-03-02_21.25.24",
+        "source_file": "book.epub",
+        "variants": {
+            "codexfarm": {"eval_output_dir": "codex"},
+            "vanilla": {"eval_output_dir": "vanilla"},
+        },
+        "metrics": {
+            "codexfarm": {
+                "strict_accuracy": 0.438589,
+                "macro_f1_excluding_other": 0.295998,
+            },
+            "vanilla": {
+                "strict_accuracy": 0.399915,
+                "macro_f1_excluding_other": 0.290594,
+            },
+        },
+        "deltas": {
+            "codex_minus_vanilla": {
+                "strict_accuracy": 0.038674,
+                "macro_f1_excluding_other": 0.005404,
+            }
+        },
+        "metadata": {},
+    }
+
+    markdown = cli._format_single_offline_comparison_markdown(payload)
+    table_lines = [line for line in markdown.splitlines() if line.startswith("|")]
+    assert len(table_lines) == 4
+
+    expected_pipes = [idx for idx, char in enumerate(table_lines[0]) if char == "|"]
+    assert len(expected_pipes) == 5
+    for line in table_lines[1:]:
+        assert [idx for idx, char in enumerate(line) if char == "|"] == expected_pipes
+
+    assert table_lines[0] == "| Metric                     | CodexFarm |  Vanilla | Codex - Vanilla |"
+    assert table_lines[2] == "| `strict_accuracy`          |  0.438589 | 0.399915 |        0.038674 |"
+    assert table_lines[3] == "| `macro_f1_excluding_other` |  0.295998 | 0.290594 |        0.005404 |"
+    assert "Compatibility aliases in eval JSON" not in markdown
+
+
+def test_single_offline_comparison_markdown_includes_per_label_breakdown() -> None:
+    payload = {
+        "schema_version": "codex_vs_vanilla_comparison.v2",
+        "run_timestamp": "2026-03-02_21.25.24",
+        "source_file": "book.epub",
+        "variants": {
+            "codexfarm": {"eval_output_dir": "codex"},
+            "vanilla": {"eval_output_dir": "vanilla"},
+        },
+        "metrics": {},
+        "deltas": {"codex_minus_vanilla": {}},
+        "metadata": {
+            "per_label_breakdown": {
+                "schema_version": "single_offline_per_label_breakdown.v1",
+                "run_timestamp": "2026-03-02_21.25.24",
+                "eval_count": 2,
+                "rows": [
+                    {
+                        "label": "RECIPE_TITLE",
+                        "precision": 0.811111,
+                        "recall": 0.598361,
+                        "gold_total": 122,
+                        "pred_total": 90,
+                    },
+                    {
+                        "label": "INGREDIENT_LINE",
+                        "precision": 0.745341,
+                        "recall": 0.137300,
+                        "gold_total": 874,
+                        "pred_total": 161,
+                    },
+                ],
+            }
+        },
+    }
+
+    markdown = cli._format_single_offline_comparison_markdown(payload)
+    assert "## Per-Label Breakdown (2026-03-02_21.25.24, 2 evals)" in markdown
+    assert (
+        "Per label: precision answers false alarms, recall answers misses."
+        in markdown
+    )
+    assert "| Label           | Precision | Recall | Gold | Pred |" in markdown
+    assert "| INGREDIENT_LINE |    0.7453 | 0.1373 |  874 |  161 |" in markdown
+    assert "| RECIPE_TITLE    |    0.8111 | 0.5984 |  122 |   90 |" in markdown
+
+
+def test_single_offline_comparison_artifacts_include_per_label_breakdown(
+    tmp_path: Path,
+) -> None:
+    session_root = tmp_path / "session"
+    codex_eval_output_dir = session_root / "codexfarm"
+    vanilla_eval_output_dir = session_root / "vanilla"
+    codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
+    vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    (codex_eval_output_dir / "eval_report.json").write_text(
+        json.dumps(
+            {
+                "precision": 0.5,
+                "recall": 0.6,
+                "f1": 0.55,
+                "per_label": {
+                    "RECIPE_TITLE": {
+                        "precision": 1.0,
+                        "recall": 0.5,
+                        "gold_total": 10,
+                        "pred_total": 5,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (vanilla_eval_output_dir / "eval_report.json").write_text(
+        json.dumps(
+            {
+                "precision": 0.4,
+                "recall": 0.5,
+                "f1": 0.45,
+                "per_label": {
+                    "RECIPE_TITLE": {
+                        "precision": 0.5,
+                        "recall": 1.0,
+                        "gold_total": 4,
+                        "pred_total": 8,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    written = cli._write_single_offline_comparison_artifacts(
+        run_timestamp="2026-03-02_21.25.24",
+        session_root=session_root,
+        source_file="book.epub",
+        codex_eval_output_dir=codex_eval_output_dir,
+        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        write_markdown=True,
+    )
+
+    assert written is not None
+    comparison_json_path, comparison_md_path = written
+    payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
+    per_label_breakdown = payload["metadata"]["per_label_breakdown"]
+    assert per_label_breakdown["schema_version"] == "single_offline_per_label_breakdown.v1"
+    assert per_label_breakdown["run_timestamp"] == "2026-03-02_21.25.24"
+    assert per_label_breakdown["eval_count"] == 2
+    assert len(per_label_breakdown["rows"]) == 1
+    row = per_label_breakdown["rows"][0]
+    assert row["label"] == "RECIPE_TITLE"
+    assert row["precision"] == pytest.approx(9 / 13)
+    assert row["recall"] == pytest.approx(9 / 14)
+    assert row["gold_total"] == 14
+    assert row["pred_total"] == 13
+
+    assert comparison_md_path is not None
+    markdown = comparison_md_path.read_text(encoding="utf-8")
+    assert "## Per-Label Breakdown (2026-03-02_21.25.24, 2 evals)" in markdown
+    assert "| RECIPE_TITLE |    0.6923 | 0.6429 |   14 |   13 |" in markdown
 
 
 def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_comparison(
@@ -2353,6 +2770,212 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
         / "single-offline-benchmark"
         / "codex_vs_vanilla_comparison.md"
     ).exists()
+
+
+def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> None:
+    session_root = tmp_path / "session"
+    codex_eval_output_dir = session_root / "codexfarm"
+    vanilla_eval_output_dir = session_root / "vanilla"
+    codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
+    vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    (codex_eval_output_dir / "eval_report.json").write_text(
+        json.dumps({"precision": 0.50, "recall": 0.60, "f1": 0.55}),
+        encoding="utf-8",
+    )
+    (vanilla_eval_output_dir / "eval_report.json").write_text(
+        json.dumps({"precision": 0.40, "recall": 0.50, "f1": 0.45}),
+        encoding="utf-8",
+    )
+
+    comparison_paths = cli._write_single_offline_comparison_artifacts(
+        run_timestamp="2026-03-02_12.34.56",
+        session_root=session_root,
+        source_file="book.epub",
+        codex_eval_output_dir=codex_eval_output_dir,
+        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        write_markdown=False,
+    )
+
+    assert comparison_paths is not None
+    comparison_json_path, comparison_md_path = comparison_paths
+    assert comparison_json_path.exists()
+    assert comparison_md_path is None
+    assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
+
+    comparison_paths_markdown = cli._write_single_offline_comparison_artifacts(
+        run_timestamp="2026-03-02_12.34.56",
+        session_root=session_root,
+        source_file="book.epub",
+        codex_eval_output_dir=codex_eval_output_dir,
+        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        write_markdown=True,
+    )
+    assert comparison_paths_markdown is not None
+    _, comparison_md_path_markdown = comparison_paths_markdown
+    assert comparison_md_path_markdown is not None
+    assert comparison_md_path_markdown.exists()
+
+
+def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test markdown-summary",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+    source_path = str(tmp_path / "book.epub")
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        llm_pipeline = str(kwargs.get("llm_recipe_pipeline") or "").strip().lower()
+        metrics = {
+            "overall_line_accuracy": 0.71 if llm_pipeline == "codex-farm-3pass-v1" else 0.68,
+            "precision": 0.42 if llm_pipeline == "codex-farm-3pass-v1" else 0.39,
+            "recall": 0.41 if llm_pipeline == "codex-farm-3pass-v1" else 0.38,
+            "f1": 0.40 if llm_pipeline == "codex-farm-3pass-v1" else 0.37,
+            "macro_f1_excluding_other": 0.52
+            if llm_pipeline == "codex-farm-3pass-v1"
+            else 0.49,
+            "practical_precision": 0.31 if llm_pipeline == "codex-farm-3pass-v1" else 0.29,
+            "practical_recall": 0.30 if llm_pipeline == "codex-farm-3pass-v1" else 0.28,
+            "practical_f1": 0.29 if llm_pipeline == "codex-farm-3pass-v1" else 0.27,
+        }
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(metrics),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": source_path}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=True,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 2
+    assert all(call["write_markdown"] is False for call in benchmark_calls)
+    session_root = benchmark_eval_output / "single-offline-benchmark"
+    summary_path = session_root / "single_offline_summary.md"
+    assert summary_path.exists()
+    md_files = sorted(session_root.rglob("*.md"))
+    assert md_files == [summary_path]
+    summary_text = summary_path.read_text(encoding="utf-8")
+    assert "Single Offline Benchmark Summary" in summary_text
+    assert "Codex vs Vanilla" in summary_text
+    assert "codex_vs_vanilla_comparison.json" in summary_text
+    assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
+
+
+def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, "default_codex_reasoning_effort", lambda cmd=None: "high")
+
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_eval_output_dir = session_root / "codexfarm"
+    vanilla_eval_output_dir = session_root / "vanilla"
+    codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
+    vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    (codex_eval_output_dir / "eval_report.json").write_text(
+        json.dumps({"precision": 0.40, "recall": 0.32, "f1": 0.35}),
+        encoding="utf-8",
+    )
+    (vanilla_eval_output_dir / "eval_report.json").write_text(
+        json.dumps({"precision": 0.38, "recall": 0.30, "f1": 0.33}),
+        encoding="utf-8",
+    )
+    (vanilla_eval_output_dir / "run_manifest.json").write_text(
+        json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+        encoding="utf-8",
+    )
+    (codex_eval_output_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "source": {"path": str(tmp_path / "book.epub")},
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "codex_farm_model": None,
+                    "codex_farm_reasoning_effort": None,
+                },
+                "artifacts": {"pred_run_dir": "prediction-run"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    llm_manifest_path = (
+        codex_eval_output_dir
+        / "prediction-run"
+        / "raw"
+        / "llm"
+        / "book"
+        / "llm_manifest.json"
+    )
+    llm_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    llm_manifest_path.write_text(
+        json.dumps(
+            {
+                "codex_farm_model": None,
+                "codex_farm_reasoning_effort": None,
+                "process_runs": {
+                    "pass1": {
+                        "process_payload": {
+                            "codex_model": "gpt-5.3-codex-spark",
+                            "codex_reasoning_effort": None,
+                        },
+                        "telemetry_report": {
+                            "insights": {
+                                "model_reasoning_breakdown": [
+                                    {
+                                        "model": "gpt-5.3-codex-spark",
+                                        "reasoning_effort": "<default>",
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    written = cli._write_single_offline_comparison_artifacts(
+        run_timestamp="2026-03-02_12.34.56",
+        session_root=session_root,
+        source_file=str(tmp_path / "book.epub"),
+        codex_eval_output_dir=codex_eval_output_dir,
+        vanilla_eval_output_dir=vanilla_eval_output_dir,
+    )
+
+    assert written is not None
+    comparison_json_path = written[0]
+    payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
+    assert payload["metadata"]["codex_farm_runtime"]["codex_model"] == "gpt-5.3-codex-spark"
+    assert (
+        payload["metadata"]["codex_farm_runtime"]["codex_reasoning_effort"]
+        == "high"
+    )
 
 
 def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(
@@ -3422,6 +4045,8 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
+    assert "eval_report_md" not in run_manifest["artifacts"]
+    assert not (eval_root / "eval_report.md").exists()
 
 
 def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
@@ -8804,6 +9429,8 @@ def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
         == chosen_settings.to_run_config_dict()
     )
     assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT
+    assert captured["write_markdown"] is True
+    assert captured["write_label_studio_tasks"] is False
     assert len(saved_calls) == 1
     assert saved_calls[0][0] == "benchmark"
 

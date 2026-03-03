@@ -63,6 +63,56 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _benchmark_report_metric_value(
+    report: dict[str, Any] | None,
+    metric_name: str,
+) -> float | None:
+    if not isinstance(report, dict):
+        return None
+    if metric_name == "strict_accuracy":
+        for key in (
+            "strict_accuracy",
+            "overall_line_accuracy",
+            "overall_block_accuracy",
+            "accuracy",
+        ):
+            value = _safe_float(report.get(key))
+            if value is not None:
+                return value
+        precision = _safe_float(report.get("precision"))
+        recall = _safe_float(report.get("recall"))
+        f1 = _safe_float(report.get("f1"))
+        if (
+            precision is not None
+            and recall is not None
+            and f1 is not None
+            and abs(precision - recall) <= 1e-9
+            and abs(recall - f1) <= 1e-9
+        ):
+            return precision
+        return None
+    if metric_name == "macro_f1_excluding_other":
+        explicit_macro = _safe_float(report.get("macro_f1_excluding_other"))
+        if explicit_macro is not None:
+            return explicit_macro
+        practical_f1 = _safe_float(report.get("practical_f1"))
+        if practical_f1 is not None:
+            return practical_f1
+        practical_precision = _safe_float(report.get("practical_precision"))
+        practical_recall = _safe_float(report.get("practical_recall"))
+        if (
+            practical_precision is not None
+            and practical_recall is not None
+            and (practical_precision + practical_recall) > 0
+        ):
+            return (
+                2 * practical_precision * practical_recall
+                / (practical_precision + practical_recall)
+            )
+        return None
+    return _safe_float(report.get(metric_name))
+
+
 def _safe_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -109,6 +159,13 @@ def _summary_for_run_config(run_config: dict[str, Any]) -> str:
         "pdf_pages_per_job",
         "epub_spine_items_per_job",
         "warm_models",
+        "llm_recipe_pipeline",
+        "codex_farm_model",
+        "codex_farm_reasoning_effort",
+        "codex_model",
+        "codex_reasoning_effort",
+        "model",
+        "model_reasoning_effort",
     )
     parts: list[str] = []
     for key in ordered_keys:
@@ -121,6 +178,75 @@ def _summary_for_run_config(run_config: dict[str, Any]) -> str:
             rendered = str(value)
         parts.append(f"{key}={rendered}")
     return " | ".join(parts)
+
+
+def _clean_runtime_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in {"none", "null", "n/a"}:
+        return None
+    return text
+
+
+def _extract_codex_runtime_from_manifest(
+    manifest: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    """Return (model, reasoning_effort) from llm_codex_farm manifest payloads."""
+    llm_codex_farm = manifest.get("llm_codex_farm")
+    if not isinstance(llm_codex_farm, dict):
+        return (None, None)
+
+    model_candidates: list[str] = []
+    effort_candidates: list[str] = []
+
+    def _collect(model_value: Any, effort_value: Any) -> None:
+        model = _clean_runtime_text(model_value)
+        effort = _clean_runtime_text(effort_value)
+        if model is not None:
+            model_candidates.append(model)
+        if effort is not None:
+            effort_candidates.append(effort)
+
+    _collect(
+        llm_codex_farm.get("codex_farm_model") or llm_codex_farm.get("codex_model"),
+        llm_codex_farm.get("codex_farm_reasoning_effort")
+        or llm_codex_farm.get("codex_reasoning_effort"),
+    )
+
+    process_runs = llm_codex_farm.get("process_runs")
+    if isinstance(process_runs, dict):
+        for pass_name in sorted(process_runs):
+            run_entry = process_runs.get(pass_name)
+            if not isinstance(run_entry, dict):
+                continue
+            process_payload = run_entry.get("process_payload")
+            if not isinstance(process_payload, dict):
+                continue
+            _collect(
+                process_payload.get("codex_model"),
+                process_payload.get("codex_reasoning_effort"),
+            )
+            telemetry = process_payload.get("telemetry_report")
+            if not isinstance(telemetry, dict):
+                continue
+            insights = telemetry.get("insights")
+            if not isinstance(insights, dict):
+                continue
+            breakdown = insights.get("model_reasoning_breakdown")
+            if not isinstance(breakdown, list):
+                continue
+            for row in breakdown:
+                if not isinstance(row, dict):
+                    continue
+                _collect(row.get("model"), row.get("reasoning_effort"))
+
+    model = model_candidates[0] if model_candidates else None
+    effort = effort_candidates[0] if effort_candidates else None
+    return (model, effort)
 
 
 def _normalize_path(value: str | Path | None) -> str | None:
@@ -582,6 +708,22 @@ def _benchmark_record_from_csv_row(
     context: str,
 ) -> BenchmarkRecord:
     """Build a BenchmarkRecord from a CSV row with benchmark columns."""
+    strict_accuracy = _safe_float(row.get("strict_accuracy"))
+    if strict_accuracy is None:
+        strict_accuracy = _safe_float(row.get("benchmark_overall_accuracy"))
+    if strict_accuracy is None:
+        strict_accuracy = _safe_float(row.get("benchmark_overall_block_accuracy"))
+    if strict_accuracy is None:
+        strict_accuracy = _safe_float(row.get("benchmark_overall_line_accuracy"))
+    if strict_accuracy is None:
+        strict_accuracy = _safe_float(row.get("benchmark_accuracy"))
+
+    macro_f1_excluding_other = _safe_float(row.get("macro_f1_excluding_other"))
+    if macro_f1_excluding_other is None:
+        macro_f1_excluding_other = _safe_float(
+            row.get("benchmark_macro_f1_excluding_other")
+        )
+
     precision = _safe_float(row.get("precision"))
     recall = _safe_float(row.get("recall"))
     f1 = _safe_float(row.get("f1"))
@@ -599,6 +741,24 @@ def _benchmark_record_from_csv_row(
         practical_f1 = (
             2 * practical_precision * practical_recall
             / (practical_precision + practical_recall)
+        )
+    if strict_accuracy is None:
+        strict_accuracy = _benchmark_report_metric_value(
+            {
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+            },
+            "strict_accuracy",
+        )
+    if macro_f1_excluding_other is None:
+        macro_f1_excluding_other = _benchmark_report_metric_value(
+            {
+                "practical_precision": practical_precision,
+                "practical_recall": practical_recall,
+                "practical_f1": practical_f1,
+            },
+            "macro_f1_excluding_other",
         )
 
     cat = RunCategory.benchmark_eval
@@ -625,6 +785,8 @@ def _benchmark_record_from_csv_row(
         artifact_dir=normalized_run_dir,
         report_path=normalized_report_path,
         run_category=cat,
+        strict_accuracy=strict_accuracy,
+        macro_f1_excluding_other=macro_f1_excluding_other,
         precision=precision,
         recall=recall,
         f1=f1,
@@ -685,6 +847,8 @@ def _merge_benchmark_record_fields(
     for field in (
         "run_timestamp",
         "report_path",
+        "strict_accuracy",
+        "macro_f1_excluding_other",
         "precision",
         "recall",
         "f1",
@@ -947,24 +1111,49 @@ def _collect_benchmarks(
 
         # Top-level counts/metrics
         counts = data.get("counts") or {}
-        precision = _safe_float(data.get("precision"))
-        recall = _safe_float(data.get("recall"))
-        f1 = _safe_float(data.get("f1"))
-        if f1 is None and precision is not None and recall is not None and (precision + recall) > 0:
-            f1 = 2 * precision * recall / (precision + recall)
-        practical_precision = _safe_float(data.get("practical_precision"))
-        practical_recall = _safe_float(data.get("practical_recall"))
-        practical_f1 = _safe_float(data.get("practical_f1"))
-        if (
-            practical_f1 is None
-            and practical_precision is not None
-            and practical_recall is not None
-            and (practical_precision + practical_recall) > 0
-        ):
-            practical_f1 = (
-                2 * practical_precision * practical_recall
-                / (practical_precision + practical_recall)
+        strict_accuracy = _benchmark_report_metric_value(data, "strict_accuracy")
+        has_explicit_strict_metric = any(
+            _safe_float(data.get(key)) is not None
+            for key in (
+                "strict_accuracy",
+                "overall_line_accuracy",
+                "overall_block_accuracy",
+                "accuracy",
             )
+        )
+        if has_explicit_strict_metric and strict_accuracy is not None:
+            precision = strict_accuracy
+            recall = strict_accuracy
+            f1 = strict_accuracy
+        else:
+            precision = _safe_float(data.get("precision"))
+            recall = _safe_float(data.get("recall"))
+            f1 = _safe_float(data.get("f1"))
+            if f1 is None and precision is not None and recall is not None and (precision + recall) > 0:
+                f1 = 2 * precision * recall / (precision + recall)
+
+        macro_f1 = _benchmark_report_metric_value(data, "macro_f1_excluding_other")
+        has_explicit_macro_metric = (
+            _safe_float(data.get("macro_f1_excluding_other")) is not None
+        )
+        if has_explicit_macro_metric and macro_f1 is not None:
+            practical_precision = macro_f1
+            practical_recall = macro_f1
+            practical_f1 = macro_f1
+        else:
+            practical_precision = _safe_float(data.get("practical_precision"))
+            practical_recall = _safe_float(data.get("practical_recall"))
+            practical_f1 = _safe_float(data.get("practical_f1"))
+            if (
+                practical_f1 is None
+                and practical_precision is not None
+                and practical_recall is not None
+                and (practical_precision + practical_recall) > 0
+            ):
+                practical_f1 = (
+                    2 * practical_precision * practical_recall
+                    / (practical_precision + practical_recall)
+                )
 
         # Supported-labels relaxed metrics (from app_aligned)
         app_aligned = data.get("app_aligned") or {}
@@ -1027,6 +1216,8 @@ def _collect_benchmarks(
             artifact_dir=_normalize_path(eval_dir),
             report_path=_normalize_path(rp),
             run_category=RunCategory.benchmark_eval,
+            strict_accuracy=strict_accuracy,
+            macro_f1_excluding_other=macro_f1,
             precision=precision,
             recall=recall,
             f1=f1,
@@ -1104,6 +1295,49 @@ def _collect_benchmarks(
                 run_config_summary = str(manifest.get("run_config_summary") or "").strip()
                 if run_config_summary:
                     record.run_config_summary = run_config_summary
+                codex_model, codex_reasoning_effort = _extract_codex_runtime_from_manifest(
+                    manifest
+                )
+                if codex_model is not None or codex_reasoning_effort is not None:
+                    merged_run_config: dict[str, Any]
+                    if isinstance(record.run_config, dict):
+                        merged_run_config = dict(record.run_config)
+                    else:
+                        merged_run_config = {}
+                    if (
+                        codex_model is not None
+                        and not _clean_runtime_text(
+                            merged_run_config.get("codex_farm_model")
+                        )
+                        and not _clean_runtime_text(
+                            merged_run_config.get("codex_model")
+                        )
+                    ):
+                        merged_run_config["codex_farm_model"] = codex_model
+                    if (
+                        codex_reasoning_effort is not None
+                        and not _clean_runtime_text(
+                            merged_run_config.get("codex_farm_reasoning_effort")
+                        )
+                        and not _clean_runtime_text(
+                            merged_run_config.get("codex_reasoning_effort")
+                        )
+                        and not _clean_runtime_text(
+                            merged_run_config.get("model_reasoning_effort")
+                        )
+                    ):
+                        merged_run_config["codex_farm_reasoning_effort"] = (
+                            codex_reasoning_effort
+                        )
+                    record.run_config = merged_run_config
+                    if record.run_config_hash is None:
+                        record.run_config_hash = _stable_hash_for_run_config(
+                            merged_run_config
+                        )
+                    if record.run_config_summary is None:
+                        record.run_config_summary = _summary_for_run_config(
+                            merged_run_config
+                        )
                 processed_report_path = manifest.get("processed_report_path")
                 if processed_report_path:
                     record.processed_report_path = str(processed_report_path)

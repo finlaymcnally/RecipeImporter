@@ -16,6 +16,7 @@ Schema version history:
     8 – practical benchmark metrics + granularity mismatch fields
     9 – benchmark golden recipe-header count (`gold_recipe_headers`) for recipe-coverage charts
     10 – removed retired EPUB auto-score field from stage records
+    11 – explicit benchmark metric fields (`strict_accuracy`, `macro_f1_excluding_other`)
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "11"
 
 
 class RunCategory(str, Enum):
@@ -100,7 +101,11 @@ class BenchmarkRecord(BaseModel):
     report_path: str | None = None
     run_category: RunCategory = RunCategory.benchmark_eval
 
-    # top-level metrics
+    # Canonical benchmark metrics (explicit contract)
+    strict_accuracy: float | None = None
+    macro_f1_excluding_other: float | None = None
+
+    # Legacy alias metrics (compatibility for historical rows/artifacts)
     precision: float | None = None
     recall: float | None = None
     f1: float | None = None

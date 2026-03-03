@@ -297,9 +297,12 @@ def test_canonical_alignment_cache_hit_and_boundary_invalidation(
     assert boundary_telemetry["alignment_cache_key"] != second_telemetry["alignment_cache_key"]
 
     assert first_report["overall_line_accuracy"] == pytest.approx(second_report["overall_line_accuracy"])
+    assert first_report["strict_accuracy"] == pytest.approx(second_report["strict_accuracy"])
     assert first_report["macro_f1_excluding_other"] == pytest.approx(
         second_report["macro_f1_excluding_other"]
     )
+    assert "precision" not in first_report
+    assert "practical_f1" not in first_report
     assert first_report["wrong_label_blocks"] == second_report["wrong_label_blocks"]
     assert first_report["missed_gold_blocks"] == second_report["missed_gold_blocks"]
 

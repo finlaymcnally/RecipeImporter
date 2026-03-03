@@ -56,6 +56,7 @@ _FAST_ALIGN_LOCAL_MIN_CHARS = 24
 _AUTO_MIN_NONEMPTY_BLOCK_MATCH_RATIO = 0.98
 _AUTO_MIN_PREDICTION_CHAR_COVERAGE = 0.96
 _AUTO_LOCAL_CONFIDENCE_MIN_RATIO = 0.93
+_CANONICAL_BOUNDARY_OVERLAP_THRESHOLD = 0.5
 
 try:  # pragma: no cover - non-Unix runtimes may not expose resource.
     import resource
@@ -257,6 +258,225 @@ def _overlap_len(
     overlap_start = max(left_start, right_start)
     overlap_end = min(left_end, right_end)
     return max(0, overlap_end - overlap_start)
+
+
+def _canonical_boundary_overlap_ratio(
+    *,
+    pred_start: int,
+    pred_end: int,
+    gold_start: int,
+    gold_end: int,
+) -> float:
+    intersection = max(0, min(pred_end, gold_end) - max(pred_start, gold_start) + 1)
+    if intersection <= 0:
+        return 0.0
+    union = (pred_end - pred_start + 1) + (gold_end - gold_start + 1) - intersection
+    if union <= 0:
+        return 0.0
+    return intersection / union
+
+
+def _canonical_boundary_classification(
+    *,
+    pred_start: int,
+    pred_end: int,
+    gold_start: int,
+    gold_end: int,
+) -> str:
+    if pred_start == gold_start and pred_end == gold_end:
+        return "correct"
+    if pred_start <= gold_start and pred_end >= gold_end:
+        return "over"
+    if pred_start >= gold_start and pred_end <= gold_end:
+        return "under"
+    return "partial"
+
+
+def _build_canonical_line_boundary_spans(
+    *,
+    canonical_lines: list[dict[str, Any]],
+    char_spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not canonical_lines or not char_spans:
+        return []
+
+    ordered_lines = sorted(canonical_lines, key=lambda row: int(row["start_char"]))
+    ordered_spans = sorted(
+        char_spans,
+        key=lambda row: (
+            int(_coerce_int(row.get("start_char")) or -1),
+            int(_coerce_int(row.get("end_char")) or -1),
+        ),
+    )
+
+    line_spans: list[dict[str, Any]] = []
+    line_cursor = 0
+    line_total = len(ordered_lines)
+    for span in ordered_spans:
+        start_char = _coerce_int(span.get("start_char"))
+        end_char = _coerce_int(span.get("end_char"))
+        if start_char is None or end_char is None or end_char <= start_char:
+            continue
+        label = normalize_freeform_label(str(span.get("label") or "OTHER"))
+        if label not in _FREEFORM_LABEL_SET:
+            label = "OTHER"
+        span_id = str(span.get("span_id") or "").strip()
+        if not span_id:
+            span_id = f"span:{len(line_spans)}"
+
+        while (
+            line_cursor < line_total
+            and int(ordered_lines[line_cursor]["end_char"]) <= start_char
+        ):
+            line_cursor += 1
+
+        first_line: int | None = None
+        last_line: int | None = None
+        scan_index = line_cursor
+        while scan_index < line_total:
+            line_row = ordered_lines[scan_index]
+            line_start = int(line_row["start_char"])
+            if line_start >= end_char:
+                break
+            line_end = int(line_row["end_char"])
+            if line_end > start_char:
+                line_index = int(line_row["line_index"])
+                if first_line is None:
+                    first_line = line_index
+                last_line = line_index
+            scan_index += 1
+
+        if first_line is None or last_line is None:
+            continue
+
+        line_spans.append(
+            {
+                "span_id": span_id,
+                "label": label,
+                "start_block_index": first_line,
+                "end_block_index": last_line,
+            }
+        )
+
+    return line_spans
+
+
+def _compute_canonical_boundary_counts(
+    *,
+    canonical_lines: list[dict[str, Any]],
+    gold_spans: list[dict[str, Any]],
+    aligned_prediction_blocks: list[dict[str, Any]],
+    overlap_threshold: float,
+) -> dict[str, int]:
+    boundary_counts = {"correct": 0, "over": 0, "under": 0, "partial": 0}
+    if not canonical_lines:
+        return boundary_counts
+
+    gold_char_spans = [
+        {
+            "span_id": str(row.get("span_id") or f"gold:{index}"),
+            "label": str(row.get("label") or "OTHER"),
+            "start_char": int(row["start_char"]),
+            "end_char": int(row["end_char"]),
+        }
+        for index, row in enumerate(gold_spans)
+        if isinstance(row, dict)
+    ]
+    pred_char_spans = [
+        {
+            "span_id": (
+                f"pred:{int(_coerce_int(row.get('block_index')) or index)}:{index}"
+            ),
+            "label": str(row.get("label") or "OTHER"),
+            "start_char": int(_coerce_int(row.get("canonical_start_char")) or 0),
+            "end_char": int(_coerce_int(row.get("canonical_end_char")) or 0),
+        }
+        for index, row in enumerate(aligned_prediction_blocks)
+        if isinstance(row, dict) and bool(row.get("matched"))
+    ]
+
+    gold_line_spans = _build_canonical_line_boundary_spans(
+        canonical_lines=canonical_lines,
+        char_spans=gold_char_spans,
+    )
+    pred_line_spans = _build_canonical_line_boundary_spans(
+        canonical_lines=canonical_lines,
+        char_spans=pred_char_spans,
+    )
+    if not gold_line_spans or not pred_line_spans:
+        return boundary_counts
+
+    gold_by_label: dict[str, list[dict[str, Any]]] = {}
+    pred_by_label: dict[str, list[dict[str, Any]]] = {}
+    for span in gold_line_spans:
+        gold_by_label.setdefault(str(span["label"]), []).append(span)
+    for span in pred_line_spans:
+        pred_by_label.setdefault(str(span["label"]), []).append(span)
+    for spans in gold_by_label.values():
+        spans.sort(
+            key=lambda row: (
+                int(row["start_block_index"]),
+                int(row["end_block_index"]),
+            )
+        )
+    for spans in pred_by_label.values():
+        spans.sort(
+            key=lambda row: (
+                int(row["start_block_index"]),
+                int(row["end_block_index"]),
+            )
+        )
+
+    for label, gold_label_spans in gold_by_label.items():
+        pred_label_spans = pred_by_label.get(label, [])
+        if not pred_label_spans:
+            continue
+        pred_cursor = 0
+        pred_total = len(pred_label_spans)
+        for gold_span in gold_label_spans:
+            gold_start = int(gold_span["start_block_index"])
+            gold_end = int(gold_span["end_block_index"])
+
+            while (
+                pred_cursor < pred_total
+                and int(pred_label_spans[pred_cursor]["end_block_index"]) < gold_start
+            ):
+                pred_cursor += 1
+
+            best_overlap = 0.0
+            best_pred: dict[str, Any] | None = None
+            scan_index = pred_cursor
+            while scan_index < pred_total:
+                pred_span = pred_label_spans[scan_index]
+                pred_start = int(pred_span["start_block_index"])
+                if pred_start > gold_end:
+                    break
+                pred_end = int(pred_span["end_block_index"])
+                overlap = _canonical_boundary_overlap_ratio(
+                    pred_start=pred_start,
+                    pred_end=pred_end,
+                    gold_start=gold_start,
+                    gold_end=gold_end,
+                )
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_pred = pred_span
+                scan_index += 1
+
+            if best_pred is None or best_overlap < overlap_threshold:
+                continue
+
+            boundary_bucket = _canonical_boundary_classification(
+                pred_start=int(best_pred["start_block_index"]),
+                pred_end=int(best_pred["end_block_index"]),
+                gold_start=gold_start,
+                gold_end=gold_end,
+            )
+            boundary_counts[boundary_bucket] = (
+                int(boundary_counts.get(boundary_bucket, 0)) + 1
+            )
+
+    return boundary_counts
 
 
 def _collect_matching_blocks(
@@ -1346,6 +1566,7 @@ def evaluate_canonical_text(
     report["eval_mode"] = "canonical_text"
     report["unit"] = "canonical_line"
     report["overall_line_accuracy"] = float(report.get("overall_block_accuracy") or 0.0)
+    report["strict_accuracy"] = float(report.get("overall_line_accuracy") or 0.0)
     report["alignment"] = alignment
     report["canonical"] = {
         "line_count": len(canonical_lines),
@@ -1360,6 +1581,18 @@ def evaluate_canonical_text(
         "source_file": str(stage_payload.get("source_file") or ""),
         "source_hash": stage_payload.get("source_hash"),
     }
+    boundary_started = time.monotonic()
+    report["boundary"] = _compute_canonical_boundary_counts(
+        canonical_lines=canonical_lines,
+        gold_spans=gold_spans,
+        aligned_prediction_blocks=aligned_blocks,
+        overlap_threshold=_CANONICAL_BOUNDARY_OVERLAP_THRESHOLD,
+    )
+    report["boundary_overlap_threshold"] = _CANONICAL_BOUNDARY_OVERLAP_THRESHOLD
+    subphase_seconds["boundary_metrics_seconds"] = max(
+        0.0,
+        time.monotonic() - boundary_started,
+    )
 
     diagnostics_started = time.monotonic()
     wrong_line_metrics = report.get("wrong_label_blocks")

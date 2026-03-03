@@ -1060,6 +1060,7 @@ def compute_block_metrics(
         "eval_type": "stage_block_classification",
         "labels": list(FREEFORM_LABELS),
         "counts": counts,
+        "strict_accuracy": accuracy,
         "overall_block_accuracy": accuracy,
         "macro_f1_excluding_other": macro_f1,
         "macro_f1_labels": macro_labels,
@@ -1072,13 +1073,6 @@ def compute_block_metrics(
         "confusion": confusion,
         "missed_gold_blocks": missed_gold_blocks,
         "wrong_label_blocks": wrong_label_blocks,
-        # Compatibility fields used elsewhere in reports/history.
-        "precision": accuracy,
-        "recall": accuracy,
-        "f1": accuracy,
-        "practical_precision": macro_f1,
-        "practical_recall": macro_f1,
-        "practical_f1": macro_f1,
     }
 
 

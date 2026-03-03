@@ -267,7 +267,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "10"
+        assert d.schema_version == "11"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -718,6 +718,30 @@ class TestCollectors:
                         "epub_extractor": "beautifulsoup",
                         "ocr_device": "auto",
                         "workers": 6,
+                        "codex_farm_model": None,
+                        "codex_farm_reasoning_effort": None,
+                    },
+                    "llm_codex_farm": {
+                        "codex_farm_model": None,
+                        "codex_farm_reasoning_effort": None,
+                        "process_runs": {
+                            "pass1": {
+                                "process_payload": {
+                                    "codex_model": "gpt-5.3-codex-spark",
+                                    "codex_reasoning_effort": None,
+                                    "telemetry_report": {
+                                        "insights": {
+                                            "model_reasoning_breakdown": [
+                                                {
+                                                    "model": "gpt-5.3-codex-spark",
+                                                    "reasoning_effort": "<default>",
+                                                }
+                                            ]
+                                        }
+                                    },
+                                }
+                            }
+                        },
                     },
                     "processed_report_path": str(processed_report_path),
                 }
@@ -738,11 +762,12 @@ class TestCollectors:
         assert b.task_count == 42
         assert b.source_file == "/tmp/source/book.epub"
         assert b.importer_name == "epub"
-        assert b.run_config == {
-            "epub_extractor": "beautifulsoup",
-            "ocr_device": "auto",
-            "workers": 6,
-        }
+        assert b.run_config is not None
+        assert b.run_config.get("epub_extractor") == "beautifulsoup"
+        assert b.run_config.get("ocr_device") == "auto"
+        assert b.run_config.get("workers") == 6
+        assert b.run_config.get("codex_farm_model") == "gpt-5.3-codex-spark"
+        assert b.run_config.get("codex_farm_reasoning_effort") == "<default>"
         assert b.processed_report_path == str(processed_report_path)
         assert b.recipes == 19
         assert b.extracted_chars == 200
@@ -948,6 +973,8 @@ class TestRenderer:
                 BenchmarkRecord(
                     run_timestamp="2026-02-11_16.00.00",
                     artifact_dir="/tmp/eval",
+                    strict_accuracy=0.2,
+                    macro_f1_excluding_other=0.55,
                     precision=0.1,
                     recall=0.2,
                     practical_f1=0.55,
@@ -961,18 +988,32 @@ class TestRenderer:
         html = html_path.read_text(encoding="utf-8")
         assert "Previous Runs" in html
         assert 'id="previous-runs-table"' in html
-        assert ">Timestamp</th>" in html
-        assert ">Strict Precision</th>" in html
-        assert ">Strict Recall</th>" in html
-        assert ">Practical F1</th>" in html
-        assert ">Strict F1</th>" in html
-        assert ">Gold</th>" in html
-        assert ">Matched</th>" in html
-        assert ">Recipes</th>" in html
-        assert ">Source</th>" in html
-        assert ">Importer</th>" in html
+        assert "<thead><tr></tr></thead>" in html
+        assert "<th>Timestamp</th>" not in html
+        assert "<th>Strict Precision</th>" not in html
+        assert "<th>Strict Recall</th>" not in html
+        assert "<th>Practical F1</th>" not in html
+        assert "<th>Strict F1</th>" not in html
+        assert "strict_accuracy" in html
+        assert "macro_f1_excluding_other" in html
+        assert ">AI Model + Effort<" not in html
         assert "Run Config" not in html
         assert "<th>Artifact</th>" not in html
+
+    def test_html_includes_previous_runs_filter_controls(self, tmp_path):
+        html_path = render_dashboard(tmp_path / "dash", DashboardData())
+        html = html_path.read_text(encoding="utf-8")
+        assert 'id="previous-runs-filter-panel"' in html
+        assert 'id="previous-runs-filter-builder"' in html
+        assert 'id="previous-runs-add-rule"' in html
+        assert 'id="previous-runs-reset-rules"' in html
+        assert 'id="previous-runs-filter-expression"' in html
+        assert 'id="previous-runs-filter-status"' in html
+        assert 'id="previous-runs-columns-panel"' in html
+        assert 'id="previous-runs-columns-editor"' in html
+        assert 'id="previous-runs-column-add-select"' in html
+        assert 'id="previous-runs-column-add"' in html
+        assert 'id="previous-runs-column-reset"' in html
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -997,8 +1038,9 @@ class TestRenderer:
         )
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
-        assert "All-Method Benchmark Runs" in html
+        assert "All-Method Benchmark Runs" not in html
         assert "Diagnostics (Latest Benchmark)" in html
+        assert 'id="runtime-section"' in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html
         assert "Stage / Import Throughput" not in html
@@ -1051,14 +1093,47 @@ class TestRenderer:
         assert "function renderPreviousRuns()" in js
         assert 'document.getElementById("previous-runs-section")' in js
         assert 'document.getElementById("previous-runs-table")' in js
-        assert 'const href = r.artifact_dir || "";' in js
+        assert "function renderPreviousRunsCell(row, fieldName)" in js
+        assert 'const href = row.href || "";' in js
         assert 'const ALL_METHOD_SEGMENT = "all-method-benchmark";' in js
         assert '"all-method-benchmark-run__" + slugToken(ts) + ".html"' in js
-        assert 'source: "all-method benchmark run"' in js
-        assert (
-            '\'<a href="\' + esc(href) + \'" title="\' + esc(href) + \'">\' + esc(ts) + "</a>"'
-            in js
-        )
+        assert "function sourceLabelForRecord(record)" in js
+        assert "function sourceSlugFromArtifactPath(pathValue)" in js
+        assert "function importerLabelForRecord(record)" in js
+        assert "all-method: " in js
+        assert "function aiModelEffortLabelForRecord(record)" in js
+        assert "return String(pipeline);" in js
+        assert "function renderLatestRuntime()" in js
+        assert 'const latestTs = String(preferred[0].run_timestamp || "");' in js
+        assert "const latestGroup = preferred.filter(" in js
+        assert "link.href = href;" in js
+
+    def test_js_supports_previous_runs_rules_and_boolean_expression_filters(
+        self, tmp_path
+    ):
+        render_dashboard(tmp_path / "dash", DashboardData())
+        js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "const PREVIOUS_RUNS_RULE_OPERATORS = [" in js
+        assert "const PREVIOUS_RUNS_MOST_USED_FIELDS = [" in js
+        assert '"source_label"' in js
+        assert '"ai_model_effort"' in js
+        assert "function setupPreviousRunsFilters()" in js
+        assert 'const expressionInput = document.getElementById("previous-runs-filter-expression");' in js
+        assert "function collectBenchmarkFieldPaths()" in js
+        assert "function groupedPreviousRunsFieldOptions()" in js
+        assert '"Most used (table columns)"' in js
+        assert '"All other fields"' in js
+        assert '"run_config.model"' in js
+        assert "function parseRuleBooleanExpression(expression, ruleIds)" in js
+        assert "function evaluateRuleBooleanAst(node, ruleResults)" in js
+        assert "function evaluatePreviousRunsRule(record, rule)" in js
+        assert "function currentPreviousRunsFilterResult()" in js
+        assert "const filterResult = currentPreviousRunsFilterResult();" in js
+        assert "const PREVIOUS_RUNS_DEFAULT_COLUMNS = [" in js
+        assert "const PREVIOUS_RUNS_COLUMN_META = {" in js
+        assert "function setupPreviousRunsColumnsControls()" in js
+        assert "function renderPreviousRunsTableColumns(table, columns)" in js
+        assert "function renderPreviousRunsColumnEditor()" in js
 
     def test_js_per_label_aggregates_latest_run_timestamp_group(self, tmp_path):
         data = DashboardData(
@@ -1158,6 +1233,17 @@ class TestRenderer:
         assert 'window.Highcharts.stockChart("benchmark-trend-chart", {' in js
         assert "chart: {" in js
         assert "height: 400," in js
+
+    def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
+        render_dashboard(tmp_path / "dash", DashboardData())
+        css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
+        assert "#previous-runs-table {" in css
+        assert "width: max-content;" in css
+        assert "min-width: 1600px;" in css
+        assert "#previous-runs-table th," in css
+        assert "white-space: nowrap;" in css
+        assert ".previous-runs-resize-handle {" in css
+        assert "cursor: col-resize;" in css
 
     def test_render_builds_all_method_standalone_pages(self, tmp_path):
         all_method_root = (
@@ -1266,12 +1352,10 @@ class TestRenderer:
         )
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
-        assert "All-Method Benchmark Runs" in html
-        assert "all-method-benchmark/index.html" in html
+        assert "All-Method Benchmark Runs" not in html
+        assert "all-method-benchmark/index.html" not in html
 
         all_method_dir = tmp_path / "dash" / "all-method-benchmark"
-        all_method_index = all_method_dir / "index.html"
-        assert all_method_index.exists()
         run_detail_path = (
             all_method_dir
             / "all-method-benchmark-run__2026-02-23_16.01.06.html"
@@ -1337,15 +1421,10 @@ class TestRenderer:
             "config_001_aaa_extractor_beautifulsoup"
         )
         assert "strict_f1=0.3000" in detail_html
-
-        index_html = all_method_index.read_text(encoding="utf-8")
-        assert "All Method Benchmark Runs" in index_html
-        assert "Open run details" in index_html
-        assert "Book Jobs" in index_html
-        assert "Mean Strict F1" in index_html
-        assert "all-method-benchmark-run__2026-02-23_16.01.06.html" in index_html
+        assert 'href="../index.html#previous-runs-section"' in detail_html
 
         run_detail_html = run_detail_path.read_text(encoding="utf-8")
+        assert 'href="../index.html#previous-runs-section"' in run_detail_html
         assert 'class="all-method-quick-nav"' in run_detail_html
         assert 'href="#run-summary"' in run_detail_html
         assert 'href="#run-charts"' in run_detail_html
@@ -1506,9 +1585,16 @@ class TestRenderer:
         render_dashboard(tmp_path / "dash", data)
 
         all_method_index = tmp_path / "dash" / "all-method-benchmark" / "index.html"
-        index_html = all_method_index.read_text(encoding="utf-8")
-        assert "2026-02-23_16.01.06" in index_html
-        assert "<td class=\"num\">3</td>" in index_html
+        assert not all_method_index.exists()
+
+        run_detail_html = (
+            tmp_path
+            / "dash"
+            / "all-method-benchmark"
+            / "all-method-benchmark-run__2026-02-23_16.01.06.html"
+        ).read_text(encoding="utf-8")
+        assert "<strong>Run folder:</strong> 2026-02-23_16.01.06" in run_detail_html
+        assert "<strong>Configs aggregated:</strong> 3" in run_detail_html
 
         detail_path = (
             tmp_path
@@ -1566,17 +1652,15 @@ class TestRenderer:
         render_dashboard(tmp_path / "dash", data)
 
         all_method_dir = tmp_path / "dash" / "all-method-benchmark"
-        index_html = (all_method_dir / "index.html").read_text(encoding="utf-8")
-        assert (
-            "<tr><td>2026-02-28_03.35.11</td><td class=\"num\">2</td>"
-            "<td class=\"num\">1</td><td>profile_abcdef123456</td>"
-        ) in index_html
-        assert "all-method-benchmark-run__2026-02-28_03.35.11.html" in index_html
+        assert not (all_method_dir / "index.html").exists()
 
         run_detail_html = (
             all_method_dir
             / "all-method-benchmark-run__2026-02-28_03.35.11.html"
         ).read_text(encoding="utf-8")
+        assert "<strong>Book jobs:</strong> 2" in run_detail_html
+        assert "<strong>Configs aggregated:</strong> 1" in run_detail_html
+        assert "profile_abcdef123456" in run_detail_html
         assert "all-method-benchmark__2026-02-28_03.35.11__01_book_a.html" in run_detail_html
         assert "all-method-benchmark__2026-02-28_03.35.11__02_book_b.html" in run_detail_html
 
@@ -1597,9 +1681,9 @@ class TestRenderer:
         )
         html_path = render_dashboard(tmp_path / "dash", data)
         html = html_path.read_text(encoding="utf-8")
-        assert "all-method-benchmark/index.html" in html
-        assert "No all-method benchmark runs found in benchmark history." in html
-        assert (tmp_path / "dash" / "all-method-benchmark" / "index.html").exists()
+        assert "all-method-benchmark/index.html" not in html
+        assert "No all-method benchmark runs found in benchmark history." not in html
+        assert not (tmp_path / "dash" / "all-method-benchmark" / "index.html").exists()
         assert not (tmp_path / "dash" / "all-method-benchmark.html").exists()
 
     def test_idempotent(self, tmp_path):
@@ -1656,6 +1740,7 @@ class TestBenchmarkCsv:
         assert row["boundary_under"] == "5"
         assert row["boundary_partial"] == "2"
         assert row["file_name"] == "my_book.pdf"
+        assert row["importer_name"] == "pdf"
         assert row["report_path"] == ""
         # Stage-only fields should be empty
         assert row["recipes"] == ""
@@ -1696,6 +1781,7 @@ class TestBenchmarkCsv:
         assert len(rows) == 1
         row = rows[0]
         assert row["recipes"] == "31"
+        assert row["importer_name"] == "pdf"
         assert (
             row["report_path"]
             == "/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json"

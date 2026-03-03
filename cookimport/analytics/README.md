@@ -33,11 +33,16 @@ Data sources (read-only):
   (includes source/importer/run-config context when available)
 
 Output: `data/.history/dashboard/` (configurable via `--out-dir`)
-- Always writes `data/.history/dashboard/all-method-benchmark/index.html` as an in-site run index page.
-- For grouped all-method runs, also writes run-level summary pages:
+- Main `index.html` diagnostics now includes a latest benchmark runtime card (model/thinking/pipeline when available).
+- Main `index.html` `Previous Runs` now includes `AI Model + Effort` and source-slug fallbacks when `source_file` is missing.
+- Benchmark CSV appends now write `importer_name`; dashboard importer display also has source-path/run-config fallback for historical blank rows.
+- Codex model/effort is backfilled from benchmark manifest `llm_codex_farm` runtime payloads when run-config omits those fields.
+- Benchmark runtime model/effort now falls back to prediction-run manifest `llm_codex_farm` telemetry when run-config values are unset/default.
+- For grouped all-method runs, writes run-level summary pages under `all-method-benchmark/`:
   - `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html`
 - Per-book detail pages live in the same all-method subfolder:
   - `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`
+- No standalone `all-method-benchmark/index.html` page is generated; entry is via main-page `Previous Runs` timestamp links.
 - Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`; run-level pages aggregate those per-book groups by run folder.
 - Run-summary pages include config-level charts plus per-cookbook average bar/radar sections (averaged across all configs per source) before config and per-book tables.
 

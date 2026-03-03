@@ -61,21 +61,30 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
-- `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` and
-  `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown/task
-  artifacts are disabled unless overridden in the shell.
+- `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=1` and
+  `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown
+  summaries are enabled while task JSONL artifacts stay disabled unless
+  overridden in the shell.
 
 Interactive benchmark flows (`single_offline`, `single_offline_all_matched`, `all_method`) stay offline and use canonical-text scoring.
 `labelstudio-benchmark compare` evaluates named gates (`sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates) and writes timestamped reports under `data/golden/benchmark-vs-golden/comparisons/<timestamp>/`.
 
 Debug artifact mode checks in compare are resolved by metadata first and inferred from artifacts when metadata is absent. If the pipeline intent cannot be confirmed, the command emits explicit warnings in both CLI output and comparison artifacts and skips benchmark-only checks by design.
 Interactive `single_offline` now writes into one session root:
-- `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/vanilla/`
-- optional paired codex run at `.../single-offline-benchmark/codexfarm/` when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`
+- `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/vanilla/`
+- optional paired codex run at `.../single-offline-benchmark/<source_slug>/codexfarm/` when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`
+- `<source_slug>` is derived from the selected source filename stem (slugified).
 - `single_offline` resolves one source/gold pair once and reuses it for all planned variants (vanilla + codexfarm) in a session.
+- codex variant runs now include prompt-debug text artifacts under `.../codexfarm/codexfarm/`:
+  - `prompt_request_response_log.txt` (combined full dump),
+  - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
+  - `prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt` (split by prompt category),
+  - `prompt_category_logs_manifest.txt` (one-path-per-line index of category files).
+  - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
-  - `.../single-offline-benchmark/codex_vs_vanilla_comparison.json`
-  - `.../single-offline-benchmark/codex_vs_vanilla_comparison.md`
+  - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
+- optional consolidated markdown summary (when markdown writes are enabled):
+  - `.../single-offline-benchmark/<source_slug>/single_offline_summary.md`
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
@@ -107,14 +116,16 @@ Canonical-text mode:
 ### 3.3 Core eval outputs
 
 Stage-block outputs include:
-- `eval_report.json`, `eval_report.md`
+- `eval_report.json`
+- `eval_report.md` (only when markdown writes are enabled)
 - `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`
 - `missed_gold_boundaries.jsonl`, `false_positive_boundaries.jsonl`
 - compatibility aliases: `missed_gold_spans.jsonl`, `false_positive_preds.jsonl`
 - diagnostics: `gold_conflicts.jsonl`
 
 Canonical-text outputs include:
-- `eval_report.json`, `eval_report.md`
+- `eval_report.json`
+- `eval_report.md` (only when markdown writes are enabled)
 - `aligned_prediction_blocks.jsonl`
 - `missed_gold_lines.jsonl`, `wrong_label_lines.jsonl`
 - `unmatched_pred_blocks.jsonl`, `alignment_gaps.jsonl`
@@ -181,9 +192,11 @@ Prediction-record and telemetry artifacts:
 - Evaluator compares blockization fingerprints and fails fast with `gold_prediction_blockization_mismatch` when severe drift makes block-level comparison invalid.
 
 Primary metrics:
+- `strict_accuracy`
 - `overall_block_accuracy`
 - `macro_f1_excluding_other`
 - `worst_label_recall`
+- Stage/canonical `eval_report.json` now uses explicit metric keys and does not emit legacy alias keys (`precision/recall/f1`, `practical_*`).
 - additive segmentation diagnostics under `segmentation`:
   - `label_projection` (currently `core_structural_v1`)
   - `boundary_tolerance_blocks`
@@ -197,6 +210,8 @@ Primary metrics:
 - Scoring is in canonical line space and is extractor/blockization independent.
 - Canonical line labels also resolve predicted/gold `HOWTO_SECTION` into structural ingredient/instruction classes before metrics.
 - Legacy global alignment is enforced for scoring safety; fast alignment is deprecated and forced to legacy when requested.
+- Canonical reports include explicit strict metric field `strict_accuracy` (line-space accuracy alias for benchmark consumers).
+- Canonical reports now also emit `boundary` (`correct/over/under/partial`) computed in canonical line space from aligned prediction spans vs canonical gold spans (`overlap_threshold=0.5`).
 
 Telemetry includes:
 - alignment subphase timings
@@ -1191,7 +1206,7 @@ Current-contract additions:
 - QualitySuite preset pruning should target active preset pointers/default references (CLI defaults + docs references), not in-place edits to historical timestamped snapshots. Keep legacy snapshots immutable for replay/debug provenance.
 - For external-AI benchmark sharing, the high-signal minimal artifact set remains:
   - `run_manifest.json` (or compact subset with `run_config` and source identity)
-  - `eval_report.md` + key scalar metrics from `eval_report.json`
+  - `eval_report.md` (if present) + key scalar metrics from `eval_report.json`
   - bounded qualitative samples from `wrong_label_lines.jsonl`, `missed_gold_lines.jsonl`, `unmatched_pred_blocks.jsonl`
 - Large raw payload bundles (`prediction-run/raw/**`, full extracted payload artifacts, full diagnostics arrays) are debug artifacts, not required for codex-vs-baseline quality judgment.
 - Positive "correct" examples can be derived deterministically from canonical artifacts by taking canonical line indices absent from `wrong_label_lines.jsonl` and writing a capped sample file.
@@ -1213,10 +1228,11 @@ Merged sources (chronological):
 
 Current-contract additions:
 - Interactive single-offline codex runs keep baseline safety contract:
-  - execute `single-offline-benchmark/vanilla` first,
-  - execute `single-offline-benchmark/codexfarm` second,
+  - execute `single-offline-benchmark/<source_slug>/vanilla` first,
+  - execute `single-offline-benchmark/<source_slug>/codexfarm` second,
   - preserve vanilla artifacts if codex fails,
-  - write `codex_vs_vanilla_comparison.{json,md}` only when both succeed.
+  - write `codex_vs_vanilla_comparison.json` only when both succeed.
+  - write `single_offline_summary.md` only when markdown writes are enabled.
 - `_run_all_method_benchmark_global_queue` now probes callback function picklability before enabling process-pool parallelization; local/unpicklable monkeypatches trigger fallback to `ThreadPoolExecutor`.
 - Benchmark all-method queue execution remains deterministic about config retries and fallback transport so benchmark reproducibility is preserved on restricted multiprocessing hosts.
 
@@ -1226,13 +1242,16 @@ Current-contract additions:
 
 Current behavior now:
 - Interactive `labelstudio_benchmark` single-offline mode now writes one session root with nested variant folders:
-  - `<timestamp>/single-offline-benchmark/vanilla/...`
-  - `<timestamp>/single-offline-benchmark/codexfarm/...`
-- Paired codex+vanilla runs share split conversion artifacts through a single-offline cache (`<timestamp>/single-offline-benchmark/.split-cache` by default), so the second variant reuses conversion payloads instead of re-running split conversion.
+  - `<timestamp>/single-offline-benchmark/<source_slug>/vanilla/...`
+  - `<timestamp>/single-offline-benchmark/<source_slug>/codexfarm/...`
+- Paired codex+vanilla runs share split conversion artifacts through a single-offline cache (`<timestamp>/single-offline-benchmark/<source_slug>/.split-cache` by default), so the second variant reuses conversion payloads instead of re-running split conversion.
 - When CodexFarm is enabled, `vanilla` runs first and `codexfarm` second; vanilla artifacts remain even if Codex run fails.
-- `codex_vs_vanilla_comparison.json` and `.md` only appear when both variant runs complete successfully.
+- `codex_vs_vanilla_comparison.json` appears only when both variant runs complete successfully.
+- `single_offline_summary.md` appears only when markdown writes are enabled and consolidates markdown output for the session.
 - Comparison payload now includes optional `metadata.single_offline_split_cache` summary (shared key + per-variant hit/mode/conversion timing) when cache metadata is available.
-- Comparator output follows `codex_vs_vanilla_comparison.v1` schema with metric deltas.
+- Comparison payload also includes optional `metadata.codex_farm_runtime` with `codex_model` and `codex_reasoning_effort` (resolved from run config, with llm-manifest fallback; `<default>` now resolves through Codex config `model_reasoning_effort` when available).
+- Comparator output follows `codex_vs_vanilla_comparison.v2` schema with explicit canonical metric deltas.
+- Comparison JSON and markdown now use explicit canonical metric names (`strict_accuracy`, `macro_f1_excluding_other`) rather than legacy alias keys.
 
 Related understanding:
 - `docs/understandings/2026-03-03_00.35.00-single-offline-split-cache-reuse.md`

@@ -49,6 +49,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 
 - `data/golden/benchmark-vs-golden/*/eval_report.json`
 - `data/golden/benchmark-vs-golden/*/single-offline-benchmark/*/eval_report.json`
+- `data/golden/benchmark-vs-golden/*/single-offline-benchmark/*/*/eval_report.json`
 - `data/golden/benchmark-vs-golden/*/all-method-benchmark/*/config_*/eval_report.json`
 - `data/golden/*/eval_report.json`
 
@@ -78,7 +79,6 @@ The renderer writes:
 - `data/.history/dashboard/assets/dashboard_data.json`
 - `data/.history/dashboard/assets/dashboard.js`
 - `data/.history/dashboard/assets/style.css`
-- `data/.history/dashboard/all-method-benchmark/index.html` (always generated run index)
 - `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep, when present)
 - `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book config breakdown pages, when present)
 
@@ -90,7 +90,7 @@ Notes:
 - All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by benchmark sweep paths:
   - `all-method-benchmark/<source_slug>/config_*`
   - `single-profile-benchmark/<source_slug>`
-  (CSV-first; no extra dashboard-only metric store). The hierarchy is run index -> run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`. The run index page is always written, even when there are zero runs.
+  (CSV-first; no extra dashboard-only metric store). The hierarchy is run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`.
 - `single-offline-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
@@ -98,13 +98,24 @@ Notes:
 
 `index.html` is intentionally minimal:
 
-- `All-Method Benchmark Runs`: links to a standalone all-method run index page.
-- `Diagnostics (Latest Benchmark)`: per-label + boundary breakdown for the most recent benchmark record that contains that data.
+- `Diagnostics (Latest Benchmark)`: runtime + per-label + boundary breakdown for the most recent benchmark record.
+  - Runtime card surfaces best-effort AI context from benchmark run-config metadata (`model`, `thinking effort`, pipeline mode), preferring latest non-speed rows when both speed/non-speed exist.
+  - When multiple latest rows share one timestamp (for example single-offline `codexfarm` + `vanilla`), diagnostics prefers the row with richer AI metadata (model/effort/pipeline-on) instead of defaulting to `off`.
+  - If benchmark run-config is missing codex model/effort, collector backfills from benchmark manifest `llm_codex_farm.process_runs.*.process_payload` (and telemetry reasoning breakdown fallback) so codex rows do not show false `off` labels.
+  - When run-config omits explicit model/effort (for example defaults), collector backfills from prediction-run manifest `llm_codex_farm` runtime payload when available.
   - When both speed-suite benchmark rows (`.../bench/speed/runs/...`) and regular benchmark rows exist, diagnostics prefer the latest non-speed rows to avoid one-target speed samples overriding multi-book benchmark diagnostics.
   - Speed/non-speed and all-method detection normalizes `artifact_dir` path separators first, so Windows-style `\\` paths in history data are handled the same as `/`.
+  - Canonical-text benchmark reports now include `boundary` counts again, so boundary diagnostics can advance with current single-offline/all-method benchmark rows instead of falling back to older freeform-eval rows.
 - `Previous Runs`: scrollable table (about ~5 visible rows) with key benchmark columns only.
+  - Vertical + horizontal scrolling are both enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
+  - Includes table column controls: reorder visible columns, resize via header drag handles, and add/remove fields dynamically from discovered benchmark keys.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
-  - All-method benchmark sweeps: collapsed to one row; `Source` shows `all-method benchmark run`, and the timestamp links to the generated run-summary HTML page under `all-method-benchmark/`.
+  - `AI Model + Effort` column uses run-config metadata (`run_config` / `run_config_summary`) with fallback aliases.
+  - `Source` prefers `source_file` basename, then artifact-path source slug fallback (`all-method-benchmark`, `single-profile-benchmark`, `scenario_runs`, `eval/<slug>` patterns).
+  - `Importer` uses CSV/importer metadata first, then source-path/run-config fallback (for older benchmark rows with blank CSV importer).
+  - All-method benchmark sweeps collapse to one row with summarized `Source` text (`all-method: <top source> + N more`), and timestamp links to generated run-summary HTML under `all-method-benchmark/`.
+  - Includes a rules filter builder: define row rules over any benchmark field (including nested keys like `run_config.*`) and combine them with a boolean expression (`AND` / `OR` / `NOT`, parentheses) using rule IDs (`R1`, `R2`, ...).
+  - Rule field dropdown is grouped into `Most used (table columns)` first, then `All other fields`.
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 400px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
   - Highcharts mouse-wheel zoom is disabled globally in dashboard JS (`HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false`) so page scrolling does not zoom charts by accident; toggle that constant to re-enable later.
 
@@ -112,6 +123,7 @@ Timestamp ordering note:
 - The `Previous Runs` table sorts by parsed time (not raw string compare), so mixed timestamp formats like `YYYY-MM-DDTHH:MM:SS` and `YYYY-MM-DD_HH.MM.SS` still appear in true chronological order.
 - Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
 - Benchmark collector normalizes suffixed sweep folder names like `2026-02-28_02.03.18_manual-top5-...` to `2026-02-28_02.03.18` for dashboard run-grouping.
+- For grouped all-method rows, frontend timestamp extraction now scans backward in `artifact_dir` for the nearest timestamp token, so paths containing segments like `.../repeat_01/eval_output/all-method-benchmark/...` do not show `eval_output` as the timestamp label.
 
 Benchmark recipes note:
 - `Previous Runs` includes a `Recipes` column.
@@ -120,14 +132,12 @@ Benchmark recipes note:
 - For historical rows created before CSV persistence was complete, run `cookimport benchmark-csv-backfill` once to patch missing values.
 
 Benchmark metrics note:
-- `Previous Runs` shows strict precision/recall plus both `Practical F1` and `Strict F1`.
-- `Strict F1` is the IoU-threshold localization metric (`precision/recall/f1` fields from eval).
-- `Practical F1` is the any-overlap content metric (`practical_*` eval fields).
-- Main dashboard includes an `All-Method Benchmark Runs` section linking to a run index page.
-- All-method run index rows link to run-summary pages that aggregate config metrics across all book jobs in the sweep (including single-profile all-matched sweeps).
+- `Previous Runs` and benchmark trend chart use explicit metric names: `strict_accuracy` and `macro_f1_excluding_other`.
+- Dashboard collector populates explicit metrics from new eval-report keys directly and falls back to legacy alias fields for historical artifacts.
+- Main dashboard does not include an all-method run-index section; all-method access is through `Previous Runs` timestamp links to run-summary pages.
 - All-method pages prefer reading `all_method_benchmark_report.json` (when present) so the dashboard can list all configured variants even when evaluation results were reused and not every `config_*/eval_report.json` exists.
 - Run-summary pages now include a compact stats table plus per-metric bar charts (one bar per aggregated configuration), per-config radar/web charts, and per-cookbook average bar/radar sections before the aggregate table/drilldown links.
-  - Score metrics on those charts (`Strict Precision`, `Strict Recall`, `Strict F1`, `Practical F1`) are fixed to a 0-100% scale (`1.0 == 100%`).
+  - Score metrics on those charts are fixed to a 0-100% scale (`1.0 == 100%`).
   - `Recipes` now charts `% identified` against golden recipe headers for each book (from eval `recipe_counts.gold_recipe_headers`) on the same fixed 0-100% scale.
 - Run-summary pages link to per-book detail pages for existing single-source config drilldown.
 - All-method run-summary/detail pages include a sticky quick-nav (Summary / Charts / Ranked Table / Drilldown) and use native collapsible section groups (`details`) to shorten default scan length without hiding metrics.

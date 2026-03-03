@@ -226,7 +226,7 @@ Evaluation implementation:
 Benchmark eval artifacts include:
 
 - `eval_report.json`
-- `eval_report.md`
+- `eval_report.md` (only when markdown writes are enabled)
 - `missed_gold_blocks.jsonl`
 - `wrong_label_blocks.jsonl`
 - `missed_gold_spans.jsonl` (legacy alias)

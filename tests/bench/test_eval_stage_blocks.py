@@ -205,8 +205,13 @@ def test_compute_block_metrics_reports_macro_and_worst_label() -> None:
 
     metrics = compute_block_metrics(gold, pred)
 
+    assert metrics["strict_accuracy"] == pytest.approx(0.75)
     assert metrics["overall_block_accuracy"] == pytest.approx(0.75)
     assert metrics["macro_f1_excluding_other"] == pytest.approx(2 / 3)
+    assert "precision" not in metrics
+    assert "recall" not in metrics
+    assert "f1" not in metrics
+    assert "practical_f1" not in metrics
     assert metrics["worst_label_recall"]["label"] == "INGREDIENT_LINE"
     assert metrics["worst_label_recall"]["recall"] == pytest.approx(0.0)
     assert metrics["per_label"]["INGREDIENT_LINE"]["gold_total"] == 1
@@ -866,6 +871,13 @@ def test_evaluate_canonical_text_scores_lines_across_different_blockization(
     assert report["eval_mode"] == "canonical_text"
     assert report["overall_line_accuracy"] == pytest.approx(1.0)
     assert report["macro_f1_excluding_other"] == pytest.approx(1.0)
+    assert report["boundary"] == {
+        "correct": 1,
+        "over": 2,
+        "under": 0,
+        "partial": 0,
+    }
+    assert report["boundary_overlap_threshold"] == pytest.approx(0.5)
     telemetry = report.get("evaluation_telemetry")
     assert isinstance(telemetry, dict)
     assert telemetry["total_seconds"] >= 0.0

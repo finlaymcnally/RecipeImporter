@@ -239,15 +239,12 @@ ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 BENCH_CODEX_FARM_CONFIRMATION_TOKEN = "I_HAVE_EXPLICIT_USER_CONFIRMATION"
 QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
 SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
-SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v1"
-SINGLE_OFFLINE_COMPARISON_METRICS = (
-    "precision",
-    "recall",
-    "f1",
-    "practical_precision",
-    "practical_recall",
-    "practical_f1",
+SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v2"
+SINGLE_OFFLINE_COMPARISON_METRICS: tuple[tuple[str, str], ...] = (
+    ("strict_accuracy", "strict_accuracy"),
+    ("macro_f1_excluding_other", "macro_f1_excluding_other"),
 )
+SINGLE_OFFLINE_PER_LABEL_BREAKDOWN_SCHEMA_VERSION = "single_offline_per_label_breakdown.v1"
 SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
 SINGLE_OFFLINE_SPLIT_CACHE_KEY_SCHEMA_VERSION = "single_offline_split_cache_key.v1"
 SINGLE_OFFLINE_SPLIT_CACHE_ROOT_ENV = "COOKIMPORT_SINGLE_OFFLINE_SPLIT_CACHE_ROOT"
@@ -2500,9 +2497,241 @@ def _load_single_offline_eval_metrics(
     eval_report = _load_json_dict(eval_output_dir / "eval_report.json")
     if eval_report is None:
         return None
+    return _single_offline_eval_metrics_from_report(eval_report)
+
+
+def _single_offline_eval_metrics_from_report(
+    eval_report: dict[str, Any],
+) -> dict[str, float | None]:
     return {
-        metric_name: _report_optional_metric(eval_report.get(metric_name))
-        for metric_name in SINGLE_OFFLINE_COMPARISON_METRICS
+        metric_name: _benchmark_report_metric_value(eval_report, metric_name)
+        for metric_name, _display_name in SINGLE_OFFLINE_COMPARISON_METRICS
+    }
+
+
+def _build_single_offline_per_label_breakdown(
+    *,
+    run_timestamp: str,
+    eval_reports: Iterable[dict[str, Any] | None],
+) -> dict[str, Any] | None:
+    by_label: dict[str, dict[str, Any]] = {}
+    eval_count = 0
+    for eval_report in eval_reports:
+        if not isinstance(eval_report, dict):
+            continue
+        per_label_payload = eval_report.get("per_label")
+        if not isinstance(per_label_payload, dict) or not per_label_payload:
+            continue
+        eval_count += 1
+        for label_name, label_metrics_payload in per_label_payload.items():
+            if not isinstance(label_metrics_payload, dict):
+                continue
+            label = str(label_name or "").strip()
+            if not label:
+                continue
+            aggregate = by_label.setdefault(
+                label,
+                {
+                    "label": label,
+                    "gold_total": 0.0,
+                    "pred_total": 0.0,
+                    "tp_from_recall": 0.0,
+                    "tp_from_precision": 0.0,
+                    "has_gold": False,
+                    "has_pred": False,
+                },
+            )
+            gold_total = _report_optional_metric(label_metrics_payload.get("gold_total"))
+            pred_total = _report_optional_metric(label_metrics_payload.get("pred_total"))
+            recall = _report_optional_metric(label_metrics_payload.get("recall"))
+            precision = _report_optional_metric(label_metrics_payload.get("precision"))
+
+            if gold_total is not None:
+                aggregate["gold_total"] += gold_total
+                aggregate["has_gold"] = True
+                if recall is not None:
+                    aggregate["tp_from_recall"] += recall * gold_total
+            if pred_total is not None:
+                aggregate["pred_total"] += pred_total
+                aggregate["has_pred"] = True
+                if precision is not None:
+                    aggregate["tp_from_precision"] += precision * pred_total
+
+    if not by_label:
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for label in sorted(by_label):
+        aggregate = by_label[label]
+        gold_total = aggregate["gold_total"] if aggregate["has_gold"] else None
+        pred_total = aggregate["pred_total"] if aggregate["has_pred"] else None
+        tp: float | None = None
+        if aggregate["has_gold"] and aggregate["has_pred"]:
+            tp = (aggregate["tp_from_recall"] + aggregate["tp_from_precision"]) / 2.0
+        elif aggregate["has_gold"]:
+            tp = aggregate["tp_from_recall"]
+        elif aggregate["has_pred"]:
+            tp = aggregate["tp_from_precision"]
+
+        precision: float | None = None
+        if pred_total is not None:
+            precision = tp / pred_total if pred_total > 0 and tp is not None else 0.0
+        recall: float | None = None
+        if gold_total is not None:
+            recall = tp / gold_total if gold_total > 0 and tp is not None else 0.0
+
+        def _count_value(raw_value: float | None) -> int | float | None:
+            if raw_value is None:
+                return None
+            rounded = round(raw_value)
+            if abs(raw_value - rounded) <= 1e-9:
+                return int(rounded)
+            return raw_value
+
+        rows.append(
+            {
+                "label": label,
+                "precision": precision,
+                "recall": recall,
+                "gold_total": _count_value(gold_total),
+                "pred_total": _count_value(pred_total),
+            }
+        )
+
+    return {
+        "schema_version": SINGLE_OFFLINE_PER_LABEL_BREAKDOWN_SCHEMA_VERSION,
+        "run_timestamp": run_timestamp,
+        "eval_count": eval_count,
+        "rows": rows,
+    }
+
+
+def _single_offline_display_metric_value(
+    metrics: dict[str, Any] | None,
+    metric_name: str,
+) -> float | None:
+    if not isinstance(metrics, dict):
+        return None
+    if metric_name == "strict_accuracy":
+        for key in (
+            "strict_accuracy",
+            "overall_line_accuracy",
+            "overall_block_accuracy",
+            "accuracy",
+        ):
+            value = _report_optional_metric(metrics.get(key))
+            if value is not None:
+                return value
+        precision = _report_optional_metric(metrics.get("precision"))
+        recall = _report_optional_metric(metrics.get("recall"))
+        f1 = _report_optional_metric(metrics.get("f1"))
+        equal_pr = (
+            precision is not None
+            and recall is not None
+            and abs(precision - recall) <= 1e-9
+        )
+        equal_rf = (
+            recall is not None
+            and f1 is not None
+            and abs(recall - f1) <= 1e-9
+        )
+        equal_pf = (
+            precision is not None
+            and f1 is not None
+            and abs(precision - f1) <= 1e-9
+        )
+        if equal_pr and equal_rf and equal_pf:
+            return precision
+        # Legacy compatibility: older eval reports may only expose split
+        # precision/recall/f1. For single-offline strict_accuracy display,
+        # keep prior behavior by preferring strict precision.
+        if precision is not None:
+            return precision
+        if recall is not None:
+            return recall
+        if f1 is not None:
+            return f1
+        return None
+    if metric_name == "macro_f1_excluding_other":
+        for key in (
+            "macro_f1_excluding_other",
+            "practical_f1",
+            "practical_precision",
+            "practical_recall",
+        ):
+            value = _report_optional_metric(metrics.get(key))
+            if value is not None:
+                return value
+        return None
+    return _report_optional_metric(metrics.get(metric_name))
+
+
+def _benchmark_report_metric_value(
+    metrics: dict[str, Any] | None,
+    metric_name: str,
+) -> float | None:
+    return _single_offline_display_metric_value(metrics, metric_name)
+
+
+def _benchmark_report_metric_bundle(
+    metrics: dict[str, Any] | None,
+) -> dict[str, float]:
+    metrics_payload = metrics or {}
+    strict_accuracy_raw = _benchmark_report_metric_value(metrics, "strict_accuracy")
+    macro_f1_raw = _benchmark_report_metric_value(metrics, "macro_f1_excluding_other")
+    has_explicit_strict_metric = any(
+        _report_optional_metric(metrics_payload.get(key)) is not None
+        for key in (
+            "strict_accuracy",
+            "overall_line_accuracy",
+            "overall_block_accuracy",
+            "accuracy",
+        )
+    )
+
+    if has_explicit_strict_metric and strict_accuracy_raw is not None:
+        precision = strict_accuracy_raw
+        recall = strict_accuracy_raw
+        f1 = strict_accuracy_raw
+    else:
+        precision = _report_metric(_report_optional_metric(metrics_payload.get("precision")))
+        recall = _report_metric(_report_optional_metric(metrics_payload.get("recall")))
+        f1_raw = _report_optional_metric(metrics_payload.get("f1"))
+        if f1_raw is None and (precision + recall) > 0:
+            f1_raw = (2.0 * precision * recall) / (precision + recall)
+        f1 = _report_metric(f1_raw)
+        strict_accuracy_raw = f1_raw
+
+    has_explicit_macro_metric = (
+        _report_optional_metric(metrics_payload.get("macro_f1_excluding_other"))
+        is not None
+    )
+    if has_explicit_macro_metric and macro_f1_raw is not None:
+        practical_precision = macro_f1_raw
+        practical_recall = macro_f1_raw
+        practical_f1 = macro_f1_raw
+    else:
+        practical_precision = _report_metric(_report_optional_metric(metrics_payload.get("practical_precision")))
+        practical_recall = _report_metric(_report_optional_metric(metrics_payload.get("practical_recall")))
+        practical_f1_raw = _report_optional_metric(metrics_payload.get("practical_f1"))
+        if practical_f1_raw is None and (practical_precision + practical_recall) > 0:
+            practical_f1_raw = (
+                2.0 * practical_precision * practical_recall
+            ) / (practical_precision + practical_recall)
+        practical_f1 = _report_metric(practical_f1_raw)
+        macro_f1_raw = practical_f1_raw
+
+    strict_accuracy = _report_metric(strict_accuracy_raw)
+    macro_f1 = _report_metric(macro_f1_raw)
+    return {
+        "strict_accuracy": strict_accuracy,
+        "macro_f1_excluding_other": macro_f1,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "practical_precision": practical_precision,
+        "practical_recall": practical_recall,
+        "practical_f1": practical_f1,
     }
 
 
@@ -2530,6 +2759,166 @@ def _load_single_offline_split_cache_metadata(
     if isinstance(split_cache_payload, dict):
         return dict(split_cache_payload)
     return None
+
+
+def _single_offline_text_or_none(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _resolve_single_offline_reasoning_effort(
+    effort: str | None,
+    *,
+    codex_cmd: str | None,
+) -> str | None:
+    normalized_effort = _single_offline_text_or_none(effort)
+    if normalized_effort is None:
+        return None
+    if normalized_effort.lower() in {"<default>", "default"}:
+        return default_codex_reasoning_effort(cmd=codex_cmd)
+    try:
+        return normalize_codex_reasoning_effort(normalized_effort)
+    except ValueError:
+        return normalized_effort
+
+
+def _find_single_offline_llm_manifest_path(
+    prediction_run_dir: Path,
+) -> Path | None:
+    prediction_manifest = _load_json_dict(prediction_run_dir / "run_manifest.json")
+    if isinstance(prediction_manifest, dict):
+        prediction_artifacts = prediction_manifest.get("artifacts")
+        if isinstance(prediction_artifacts, dict):
+            candidate = _resolve_artifact_path(
+                prediction_run_dir,
+                prediction_artifacts.get("llm_manifest_json"),
+            )
+            if candidate is not None and candidate.exists() and candidate.is_file():
+                return candidate
+
+    raw_llm_root = prediction_run_dir / "raw" / "llm"
+    if not raw_llm_root.exists() or not raw_llm_root.is_dir():
+        return None
+    for run_dir in sorted(raw_llm_root.iterdir(), key=lambda path: path.name):
+        if not run_dir.is_dir():
+            continue
+        candidate = run_dir / "llm_manifest.json"
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _extract_codex_farm_runtime_from_llm_manifest(
+    llm_manifest: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    model = _single_offline_text_or_none(llm_manifest.get("codex_farm_model"))
+    reasoning_effort = _single_offline_text_or_none(
+        llm_manifest.get("codex_farm_reasoning_effort")
+    )
+
+    process_runs = llm_manifest.get("process_runs")
+    if not isinstance(process_runs, dict):
+        return model, reasoning_effort
+
+    for pass_name in ("pass1", "pass2", "pass3"):
+        pass_payload = process_runs.get(pass_name)
+        if not isinstance(pass_payload, dict):
+            continue
+
+        process_payload = pass_payload.get("process_payload")
+        if isinstance(process_payload, dict):
+            if model is None:
+                model = _single_offline_text_or_none(process_payload.get("codex_model"))
+            if reasoning_effort is None:
+                reasoning_effort = _single_offline_text_or_none(
+                    process_payload.get("codex_reasoning_effort")
+                )
+
+        if reasoning_effort is None:
+            telemetry_report = pass_payload.get("telemetry_report")
+            insights = (
+                telemetry_report.get("insights")
+                if isinstance(telemetry_report, dict)
+                else None
+            )
+            breakdown_rows = (
+                insights.get("model_reasoning_breakdown")
+                if isinstance(insights, dict)
+                else None
+            )
+            if isinstance(breakdown_rows, list):
+                for row in breakdown_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if model is None:
+                        model = _single_offline_text_or_none(row.get("model"))
+                    candidate_reasoning = _single_offline_text_or_none(
+                        row.get("reasoning_effort")
+                    )
+                    if candidate_reasoning is not None:
+                        reasoning_effort = candidate_reasoning
+                        break
+
+        if model is not None and reasoning_effort is not None:
+            break
+
+    return model, reasoning_effort
+
+
+def _load_single_offline_codex_farm_runtime(
+    eval_output_dir: Path,
+) -> dict[str, Any] | None:
+    manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
+    if not isinstance(manifest_payload, dict):
+        return None
+
+    run_config_payload = manifest_payload.get("run_config")
+    if not isinstance(run_config_payload, dict):
+        run_config_payload = {}
+
+    codex_cmd = _single_offline_text_or_none(run_config_payload.get("codex_farm_cmd"))
+    codex_model = _single_offline_text_or_none(
+        run_config_payload.get("codex_farm_model")
+    ) or _single_offline_text_or_none(run_config_payload.get("codex_model"))
+    codex_reasoning_effort = _resolve_single_offline_reasoning_effort(
+        run_config_payload.get("codex_farm_reasoning_effort")
+        or run_config_payload.get("codex_reasoning_effort"),
+        codex_cmd=codex_cmd,
+    )
+
+    artifacts_payload = manifest_payload.get("artifacts")
+    prediction_run_dir: Path | None = None
+    if isinstance(artifacts_payload, dict):
+        prediction_run_dir = _resolve_artifact_path(
+            eval_output_dir,
+            artifacts_payload.get("pred_run_dir"),
+        )
+    if prediction_run_dir is None:
+        prediction_run_dir = eval_output_dir / "prediction-run"
+
+    llm_manifest = None
+    if prediction_run_dir.exists() and prediction_run_dir.is_dir():
+        llm_manifest_path = _find_single_offline_llm_manifest_path(prediction_run_dir)
+        if llm_manifest_path is not None:
+            llm_manifest = _load_json_dict(llm_manifest_path)
+    if isinstance(llm_manifest, dict):
+        inferred_model, inferred_reasoning_effort = (
+            _extract_codex_farm_runtime_from_llm_manifest(llm_manifest)
+        )
+        if codex_model is None:
+            codex_model = inferred_model
+        if codex_reasoning_effort is None:
+            codex_reasoning_effort = _resolve_single_offline_reasoning_effort(
+                inferred_reasoning_effort,
+                codex_cmd=codex_cmd,
+            )
+
+    if codex_model is None and codex_reasoning_effort is None:
+        return None
+    return {
+        "codex_model": codex_model,
+        "codex_reasoning_effort": codex_reasoning_effort,
+    }
 
 
 def _resolve_single_offline_split_cache_root(
@@ -2589,9 +2978,9 @@ def _single_offline_metric_deltas(
     vanilla_metrics: dict[str, float | None],
 ) -> dict[str, float | None]:
     deltas: dict[str, float | None] = {}
-    for metric_name in SINGLE_OFFLINE_COMPARISON_METRICS:
-        codex_value = codex_metrics.get(metric_name)
-        vanilla_value = vanilla_metrics.get(metric_name)
+    for metric_name, _display_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+        codex_value = _benchmark_report_metric_value(codex_metrics, metric_name)
+        vanilla_value = _benchmark_report_metric_value(vanilla_metrics, metric_name)
         if codex_value is None or vanilla_value is None:
             deltas[metric_name] = None
         else:
@@ -2634,43 +3023,181 @@ def _format_single_offline_comparison_markdown(
         delta_metrics = None
     metadata_payload = payload.get("metadata")
     split_cache_payload = None
+    codex_runtime_payload = None
+    per_label_breakdown_payload = None
     if isinstance(metadata_payload, dict):
         split_cache_payload = metadata_payload.get("single_offline_split_cache")
+        codex_runtime_payload = metadata_payload.get("codex_farm_runtime")
+        per_label_breakdown_payload = metadata_payload.get("per_label_breakdown")
 
+    codex_model = ""
+    codex_reasoning_effort = ""
+    if isinstance(codex_runtime_payload, dict):
+        codex_model = (
+            str(codex_runtime_payload.get("codex_model") or "").strip()
+        )
+        codex_reasoning_effort = (
+            str(codex_runtime_payload.get("codex_reasoning_effort") or "").strip()
+        )
+
+    metric_rows: list[tuple[str, str, str, str]] = []
+    for metric_name, display_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+        codex_value = _benchmark_report_metric_value(
+            codex_metrics if isinstance(codex_metrics, dict) else None,
+            metric_name,
+        )
+        vanilla_value = _benchmark_report_metric_value(
+            vanilla_metrics if isinstance(vanilla_metrics, dict) else None,
+            metric_name,
+        )
+        delta_value = _benchmark_report_metric_value(
+            delta_metrics if isinstance(delta_metrics, dict) else None,
+            metric_name,
+        )
+        if delta_value is None and codex_value is not None and vanilla_value is not None:
+            delta_value = codex_value - vanilla_value
+        metric_rows.append(
+            (
+                f"`{display_name}`",
+                f"{codex_value:.6f}" if codex_value is not None else "null",
+                f"{vanilla_value:.6f}" if vanilla_value is not None else "null",
+                f"{delta_value:.6f}" if delta_value is not None else "null",
+            )
+        )
+
+    metric_col_width = max(len("Metric"), *(len(row[0]) for row in metric_rows))
+    codex_col_width = max(len("CodexFarm"), *(len(row[1]) for row in metric_rows))
+    vanilla_col_width = max(len("Vanilla"), *(len(row[2]) for row in metric_rows))
+    delta_col_width = max(
+        len("Codex - Vanilla"),
+        *(len(row[3]) for row in metric_rows),
+    )
     lines: list[str] = [
         "# CodexFarm vs Vanilla Comparison",
         "",
         f"- Schema version: {SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION}",
         f"- Run timestamp: {run_timestamp}",
         f"- Source file: {source_file}",
+        f"- Codex model: {codex_model or 'unknown'}",
+        f"- Codex reasoning effort: {codex_reasoning_effort or 'unknown'}",
         f"- Codex eval directory: {codex_dir or 'unknown'}",
         f"- Vanilla eval directory: {vanilla_dir or 'unknown'}",
         "",
-        "| Metric | CodexFarm | Vanilla | Codex - Vanilla |",
-        "| --- | ---: | ---: | ---: |",
+        (
+            f"| {'Metric':<{metric_col_width}}"
+            f" | {'CodexFarm':>{codex_col_width}}"
+            f" | {'Vanilla':>{vanilla_col_width}}"
+            f" | {'Codex - Vanilla':>{delta_col_width}} |"
+        ),
+        (
+            f"| {'-' * max(metric_col_width, 3)}"
+            f" | {'-' * (max(codex_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(vanilla_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(delta_col_width, 3) - 1) + ':'} |"
+        ),
     ]
-    for metric_name in SINGLE_OFFLINE_COMPARISON_METRICS:
-        codex_value = (
-            _report_optional_metric((codex_metrics or {}).get(metric_name))
-            if isinstance(codex_metrics, dict)
-            else None
-        )
-        vanilla_value = (
-            _report_optional_metric((vanilla_metrics or {}).get(metric_name))
-            if isinstance(vanilla_metrics, dict)
-            else None
-        )
-        delta_value = (
-            _report_optional_metric((delta_metrics or {}).get(metric_name))
-            if isinstance(delta_metrics, dict)
-            else None
-        )
-        codex_text = f"{codex_value:.6f}" if codex_value is not None else "null"
-        vanilla_text = f"{vanilla_value:.6f}" if vanilla_value is not None else "null"
-        delta_text = f"{delta_value:.6f}" if delta_value is not None else "null"
+    for metric_text, codex_text, vanilla_text, delta_text in metric_rows:
         lines.append(
-            f"| `{metric_name}` | {codex_text} | {vanilla_text} | {delta_text} |"
+            f"| {metric_text:<{metric_col_width}}"
+            f" | {codex_text:>{codex_col_width}}"
+            f" | {vanilla_text:>{vanilla_col_width}}"
+            f" | {delta_text:>{delta_col_width}} |"
         )
+    if isinstance(per_label_breakdown_payload, dict):
+        rows_payload = per_label_breakdown_payload.get("rows")
+        if isinstance(rows_payload, list):
+            per_label_rows: list[tuple[str, str, str, str, str]] = []
+            for row_payload in rows_payload:
+                if not isinstance(row_payload, dict):
+                    continue
+                label = str(row_payload.get("label") or "").strip()
+                if not label:
+                    continue
+                precision = _report_optional_metric(row_payload.get("precision"))
+                recall = _report_optional_metric(row_payload.get("recall"))
+                gold_total = _report_optional_metric(row_payload.get("gold_total"))
+                pred_total = _report_optional_metric(row_payload.get("pred_total"))
+
+                def _format_count(value: float | None) -> str:
+                    if value is None:
+                        return "null"
+                    rounded = round(value)
+                    if abs(value - rounded) <= 1e-9:
+                        return str(int(rounded))
+                    return f"{value:.4f}"
+
+                per_label_rows.append(
+                    (
+                        label,
+                        f"{precision:.4f}" if precision is not None else "null",
+                        f"{recall:.4f}" if recall is not None else "null",
+                        _format_count(gold_total),
+                        _format_count(pred_total),
+                    )
+                )
+            if per_label_rows:
+                eval_count = _coerce_non_negative_int(
+                    per_label_breakdown_payload.get("eval_count")
+                )
+                run_label = (
+                    str(per_label_breakdown_payload.get("run_timestamp") or "").strip()
+                    or run_timestamp
+                )
+                eval_count_text = (
+                    f"{eval_count} eval{'s' if eval_count != 1 else ''}"
+                    if eval_count is not None
+                    else "unknown evals"
+                )
+                label_col_width = max(
+                    len("Label"),
+                    *(len(row[0]) for row in per_label_rows),
+                )
+                precision_col_width = max(
+                    len("Precision"),
+                    *(len(row[1]) for row in per_label_rows),
+                )
+                recall_col_width = max(
+                    len("Recall"),
+                    *(len(row[2]) for row in per_label_rows),
+                )
+                gold_col_width = max(len("Gold"), *(len(row[3]) for row in per_label_rows))
+                pred_col_width = max(len("Pred"), *(len(row[4]) for row in per_label_rows))
+                lines.extend(
+                    [
+                        "",
+                        f"## Per-Label Breakdown ({run_label}, {eval_count_text})",
+                        "",
+                        "Per label: precision answers false alarms, recall answers misses. Values aggregate all benchmark records with the latest run timestamp.",
+                        (
+                            f"| {'Label':<{label_col_width}}"
+                            f" | {'Precision':>{precision_col_width}}"
+                            f" | {'Recall':>{recall_col_width}}"
+                            f" | {'Gold':>{gold_col_width}}"
+                            f" | {'Pred':>{pred_col_width}} |"
+                        ),
+                        (
+                            f"| {'-' * max(label_col_width, 3)}"
+                            f" | {'-' * (max(precision_col_width, 3) - 1) + ':'}"
+                            f" | {'-' * (max(recall_col_width, 3) - 1) + ':'}"
+                            f" | {'-' * (max(gold_col_width, 3) - 1) + ':'}"
+                            f" | {'-' * (max(pred_col_width, 3) - 1) + ':'} |"
+                        ),
+                    ]
+                )
+                for (
+                    label_text,
+                    precision_text,
+                    recall_text,
+                    gold_text,
+                    pred_text,
+                ) in per_label_rows:
+                    lines.append(
+                        f"| {label_text:<{label_col_width}}"
+                        f" | {precision_text:>{precision_col_width}}"
+                        f" | {recall_text:>{recall_col_width}}"
+                        f" | {gold_text:>{gold_col_width}}"
+                        f" | {pred_text:>{pred_col_width}} |"
+                    )
 
     if isinstance(split_cache_payload, dict):
         shared_key = str(split_cache_payload.get("shared_key") or "").strip()
@@ -2712,11 +3239,14 @@ def _write_single_offline_comparison_artifacts(
     codex_eval_output_dir: Path,
     vanilla_eval_output_dir: Path,
     split_cache_metadata: dict[str, Any] | None = None,
-) -> tuple[Path, Path] | None:
-    codex_metrics = _load_single_offline_eval_metrics(codex_eval_output_dir)
-    vanilla_metrics = _load_single_offline_eval_metrics(vanilla_eval_output_dir)
-    if codex_metrics is None or vanilla_metrics is None:
+    write_markdown: bool = True,
+) -> tuple[Path, Path | None] | None:
+    codex_eval_report = _load_json_dict(codex_eval_output_dir / "eval_report.json")
+    vanilla_eval_report = _load_json_dict(vanilla_eval_output_dir / "eval_report.json")
+    if codex_eval_report is None or vanilla_eval_report is None:
         return None
+    codex_metrics = _single_offline_eval_metrics_from_report(codex_eval_report)
+    vanilla_metrics = _single_offline_eval_metrics_from_report(vanilla_eval_report)
 
     comparison_payload = {
         "schema_version": SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION,
@@ -2737,21 +3267,123 @@ def _write_single_offline_comparison_artifacts(
             )
         },
     }
+    metadata_payload: dict[str, Any] = {}
+    codex_runtime_payload = _load_single_offline_codex_farm_runtime(codex_eval_output_dir)
+    if isinstance(codex_runtime_payload, dict):
+        metadata_payload["codex_farm_runtime"] = codex_runtime_payload
+    per_label_breakdown = _build_single_offline_per_label_breakdown(
+        run_timestamp=run_timestamp,
+        eval_reports=(vanilla_eval_report, codex_eval_report),
+    )
+    if isinstance(per_label_breakdown, dict):
+        metadata_payload["per_label_breakdown"] = per_label_breakdown
     if isinstance(split_cache_metadata, dict):
-        comparison_payload["metadata"] = {
-            "single_offline_split_cache": split_cache_metadata
-        }
+        metadata_payload["single_offline_split_cache"] = split_cache_metadata
+    if metadata_payload:
+        comparison_payload["metadata"] = metadata_payload
     comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
     comparison_md_path = session_root / "codex_vs_vanilla_comparison.md"
     comparison_json_path.write_text(
         json.dumps(comparison_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    comparison_md_path.write_text(
-        _format_single_offline_comparison_markdown(comparison_payload),
-        encoding="utf-8",
-    )
+    if write_markdown:
+        comparison_md_path.write_text(
+            _format_single_offline_comparison_markdown(comparison_payload),
+            encoding="utf-8",
+        )
+    else:
+        comparison_md_path.unlink(missing_ok=True)
+        comparison_md_path = None
     return comparison_json_path, comparison_md_path
+
+
+def _write_single_offline_summary_markdown(
+    *,
+    run_timestamp: str,
+    session_root: Path,
+    variant_results: dict[str, dict[str, Any]],
+    comparison_json_path: Path | None,
+) -> Path:
+    lines: list[str] = [
+        "# Single Offline Benchmark Summary",
+        "",
+        f"- Run timestamp: {run_timestamp}",
+        "",
+        "## Variant Results",
+        "",
+    ]
+    for variant_slug in ("vanilla", "codexfarm"):
+        row = variant_results.get(variant_slug)
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "unknown").strip().lower() or "unknown"
+        eval_output_dir_raw = row.get("eval_output_dir")
+        eval_output_dir = (
+            Path(str(eval_output_dir_raw)) if eval_output_dir_raw is not None else None
+        )
+        eval_report_json = (
+            eval_output_dir / "eval_report.json"
+            if eval_output_dir is not None
+            else None
+        )
+        relative_eval_report_json = (
+            eval_report_json.relative_to(session_root)
+            if eval_report_json is not None
+            and eval_report_json.is_absolute()
+            and str(eval_report_json).startswith(str(session_root))
+            else eval_report_json
+        )
+        metrics = (
+            _load_single_offline_eval_metrics(eval_output_dir)
+            if eval_output_dir is not None and status == "ok"
+            else None
+        )
+        lines.append(f"### `{variant_slug}`")
+        lines.append("")
+        lines.append(f"- Status: `{status}`")
+        if relative_eval_report_json is not None:
+            lines.append(f"- Eval report JSON: `{relative_eval_report_json}`")
+        if isinstance(metrics, dict):
+            for metric_name, _display_name in SINGLE_OFFLINE_COMPARISON_METRICS:
+                metric_value = _benchmark_report_metric_value(metrics, metric_name)
+                metric_text = (
+                    f"{metric_value:.6f}" if metric_value is not None else "null"
+                )
+                lines.append(f"- `{metric_name}`: `{metric_text}`")
+        else:
+            error_text = str(row.get("error") or "").strip()
+            if error_text:
+                lines.append(f"- Error: `{error_text}`")
+        lines.append("")
+
+    if comparison_json_path is not None and comparison_json_path.exists():
+        comparison_payload = _load_json_dict(comparison_json_path)
+        if isinstance(comparison_payload, dict):
+            lines.extend(
+                [
+                    "## Codex vs Vanilla",
+                    "",
+                    f"- Comparison JSON: `{comparison_json_path.name}`",
+                    "",
+                ]
+            )
+            comparison_md_lines = (
+                _format_single_offline_comparison_markdown(comparison_payload)
+                .strip()
+                .splitlines()
+            )
+            if comparison_md_lines and comparison_md_lines[0].startswith("# "):
+                comparison_md_lines = comparison_md_lines[1:]
+            while comparison_md_lines and not comparison_md_lines[0].strip():
+                comparison_md_lines = comparison_md_lines[1:]
+            lines.extend(comparison_md_lines)
+            lines.append("")
+
+    summary_md_path = session_root / "single_offline_summary.md"
+    summary_md_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_md_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return summary_md_path
 
 
 def _interactive_single_offline_benchmark(
@@ -2765,10 +3397,6 @@ def _interactive_single_offline_benchmark(
     single_offline_split_cache_dir: Path | None = None,
     single_offline_split_cache_force: bool = False,
 ) -> bool:
-    session_root = benchmark_eval_output / "single-offline-benchmark"
-    session_processed_root = (
-        processed_output_root / benchmark_eval_output.name / "single-offline-benchmark"
-    )
     variants = _interactive_single_offline_variants(selected_benchmark_settings)
     if not variants:
         typer.secho("No single-offline benchmark variants were planned.", fg=typer.colors.YELLOW)
@@ -2787,6 +3415,15 @@ def _interactive_single_offline_benchmark(
             typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
             return False
         selected_gold, selected_source = resolved_inputs
+
+    session_root = benchmark_eval_output / "single-offline-benchmark"
+    session_processed_root = (
+        processed_output_root / benchmark_eval_output.name / "single-offline-benchmark"
+    )
+    if selected_source is not None:
+        source_slug = slugify_name(selected_source.stem) or "source"
+        session_root = session_root / source_slug
+        session_processed_root = session_processed_root / source_slug
 
     typer.secho(
         f"Single-offline benchmark variants: {', '.join(slug for slug, _ in variants)}",
@@ -2847,7 +3484,9 @@ def _interactive_single_offline_benchmark(
             eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
             execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
             no_upload=True,
-            write_markdown=write_markdown,
+            # Single-offline keeps per-variant runs JSON-first and writes one
+            # consolidated markdown summary at the session root.
+            write_markdown=False,
             write_label_studio_tasks=write_label_studio_tasks,
         )
         if selected_gold is not None:
@@ -2929,6 +3568,7 @@ def _interactive_single_offline_benchmark(
     )
 
     comparison_written = False
+    comparison_json_path: Path | None = None
     codex_result = variant_results.get("codexfarm")
     vanilla_result = variant_results.get("vanilla")
     if (
@@ -2958,16 +3598,13 @@ def _interactive_single_offline_benchmark(
                     codex_result.get("single_offline_split_cache"),
                 ),
             ),
+            write_markdown=False,
         )
         if comparison_paths is not None:
             comparison_written = True
-            comparison_json_path, comparison_md_path = comparison_paths
+            comparison_json_path, _comparison_md_path = comparison_paths
             typer.secho(
                 f"Comparison JSON: {comparison_json_path}",
-                fg=typer.colors.CYAN,
-            )
-            typer.secho(
-                f"Comparison report: {comparison_md_path}",
                 fg=typer.colors.CYAN,
             )
 
@@ -2979,6 +3616,15 @@ def _interactive_single_offline_benchmark(
             ),
             fg=typer.colors.YELLOW,
         )
+
+    if write_markdown:
+        summary_md_path = _write_single_offline_summary_markdown(
+            run_timestamp=benchmark_eval_output.name,
+            session_root=session_root,
+            variant_results=variant_results,
+            comparison_json_path=comparison_json_path,
+        )
+        typer.secho(f"Summary report: {summary_md_path}", fg=typer.colors.CYAN)
 
     if len(variants) == 1:
         return succeeded == 1
@@ -3541,19 +4187,23 @@ def _build_labelstudio_benchmark_source_context(
         llm_recipe_pipeline=llm_recipe_pipeline,
         prediction_run_dir=prediction_run_dir,
     )
+    winner_metric_bundle = _benchmark_report_metric_bundle(
+        winner_metrics if isinstance(winner_metrics, dict) else None
+    )
+    eval_metric_bundle = _benchmark_report_metric_bundle(eval_report)
+    overall_line_accuracy = _report_optional_metric(eval_report.get("overall_line_accuracy"))
+    if overall_line_accuracy is None:
+        overall_line_accuracy = _report_optional_metric(
+            eval_metric_bundle.get("strict_accuracy")
+        )
     return {
         "source_group_key": _source_key_from_row(source_row),
         "source_file": str(source_row.get("source_file") or ""),
-        "winner_metrics": {
-            "precision": _report_optional_metric(winner_metrics.get("precision")),
-            "recall": _report_optional_metric(winner_metrics.get("recall")),
-            "f1": _report_optional_metric(winner_metrics.get("f1")),
-            "practical_f1": _report_optional_metric(winner_metrics.get("practical_f1")),
-        },
-        "overall_line_accuracy": _report_optional_metric(
-            eval_report.get("overall_line_accuracy")
+        "winner_metrics": {**winner_metric_bundle},
+        "overall_line_accuracy": overall_line_accuracy,
+        "practical_f1": _report_optional_metric(
+            eval_metric_bundle.get("macro_f1_excluding_other")
         ),
-        "practical_f1": _report_optional_metric(eval_report.get("practical_f1")),
         "ingredient_recall": _label_recall_from_eval_report(
             eval_report, BENCHMARK_COMPARE_INGREDIENT_LABEL
         ),
@@ -4710,7 +5360,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
 
             benchmark_write_markdown = _coerce_bool_setting(
                 os.getenv(COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV),
-                default=False,
+                default=True,
             )
             benchmark_write_labelstudio_tasks = _coerce_bool_setting(
                 os.getenv(COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV),
@@ -7719,113 +8369,505 @@ def _build_codex_farm_prompt_response_log(
     codexfarm_dir = eval_output_dir / "codexfarm"
     codexfarm_dir.mkdir(parents=True, exist_ok=True)
     prompt_response_log_path = codexfarm_dir / "prompt_request_response_log.txt"
+    full_prompt_log_path = codexfarm_dir / "full_prompt_log.jsonl"
 
     pass_dir_map: dict[str, str] = {
         "pass1": "pass1_chunking",
         "pass2": "pass2_schemaorg",
         "pass3": "pass3_final",
     }
+    pass_task_map: dict[str, str] = {
+        "pass1": "task1",
+        "pass2": "task2",
+        "pass3": "task3",
+    }
+    pass_pipeline_map: dict[str, str] = {
+        "pass1": "recipe.chunking.v1",
+        "pass2": "recipe.schemaorg.v1",
+        "pass3": "recipe.final.v1",
+    }
+    pass_sort_order: dict[str, int] = {"pass1": 1, "pass2": 2, "pass3": 3}
+
+    def _safe_read_text(path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:  # noqa: BLE001
+            return f"<<unreadable file: {exc}>>"
+
+    def _files_in_dir(path: Path | None) -> list[Path]:
+        if path is None or not path.exists() or not path.is_dir():
+            return []
+        return sorted((child for child in path.iterdir() if child.is_file()), key=lambda p: p.name)
+
+    text_attachment_suffixes = {
+        ".json",
+        ".jsonl",
+        ".md",
+        ".txt",
+        ".yaml",
+        ".yml",
+        ".csv",
+    }
+
+    def _parse_json_text(raw_text: str) -> Any | None:
+        text = str(raw_text or "").strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+    def _timestamp_utc_for_path(path: Path | None) -> str | None:
+        if path is None or not path.exists() or not path.is_file():
+            return None
+        try:
+            timestamp = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+        except OSError:
+            return None
+        return timestamp.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    def _resolve_recipe_id(*, parsed_input: Any, parsed_output: Any, fallback_name: str) -> str | None:
+        for payload in (parsed_input, parsed_output):
+            if isinstance(payload, dict):
+                candidate = str(payload.get("recipe_id") or "").strip()
+                if candidate:
+                    return candidate
+        stem = Path(fallback_name).stem
+        candidate_from_name = re.sub(r"^r\d+_", "", stem).strip()
+        return candidate_from_name or None
+
+    def _load_run_assets_for_pass(
+        *,
+        manifest_payload: dict[str, Any],
+        pass_name: str,
+    ) -> dict[str, Any]:
+        process_runs = manifest_payload.get("process_runs")
+        if not isinstance(process_runs, dict):
+            return {}
+        pass_payload = process_runs.get(pass_name)
+        if not isinstance(pass_payload, dict):
+            return {}
+        run_id = str(pass_payload.get("run_id") or "").strip()
+        if not run_id:
+            return {}
+        run_assets_dir = (REPO_ROOT / "var" / "run_assets" / run_id).resolve()
+        if not run_assets_dir.exists() or not run_assets_dir.is_dir():
+            return {"run_id": run_id}
+
+        assets_manifest = _load_json_dict(run_assets_dir / "manifest.json") or {}
+        prompt_template_text = _safe_read_text(run_assets_dir / "prompt.template.txt")
+        output_schema_payload = _load_json_dict(run_assets_dir / "output.schema.json")
+        effective_pipeline_payload = _load_json_dict(run_assets_dir / "effective_pipeline.json")
+        pipeline_source_payload = _load_json_dict(run_assets_dir / "pipeline.source.json")
+        source_metadata = assets_manifest.get("source_metadata")
+        prompt_source_path = None
+        output_schema_source_path = None
+        if isinstance(source_metadata, dict):
+            prompt_source_path = str(source_metadata.get("prompt_source_path") or "").strip() or None
+            output_schema_source_path = (
+                str(source_metadata.get("output_schema_source_path") or "").strip() or None
+            )
+        return {
+            "run_id": run_id,
+            "run_assets_dir": str(run_assets_dir),
+            "prompt_template_text": prompt_template_text,
+            "prompt_source_path": prompt_source_path,
+            "output_schema_source_path": output_schema_source_path,
+            "output_schema_payload": output_schema_payload,
+            "effective_pipeline_payload": effective_pipeline_payload,
+            "pipeline_source_payload": pipeline_source_payload,
+        }
+
+    def _render_prompt_text(
+        *,
+        template_text: str | None,
+        input_text: str,
+        input_file: Path,
+    ) -> str:
+        template = str(template_text or "")
+        if not template.strip():
+            return input_text
+        rendered = template.replace("{{INPUT_TEXT}}", input_text)
+        rendered = rendered.replace("{{ INPUT_TEXT }}", input_text)
+        rendered = rendered.replace("{{INPUT_PATH}}", str(input_file))
+        rendered = rendered.replace("{{ INPUT_PATH }}", str(input_file))
+        return rendered
+
+    def _collect_inserted_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
+        if not isinstance(parsed_input, dict):
+            return []
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple[str, int | None]] = set()
+        for key in ("blocks_before", "blocks_candidate", "blocks_after", "blocks"):
+            blocks = parsed_input.get(key)
+            if not isinstance(blocks, list):
+                continue
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                block_id = str(block.get("block_id") or "").strip() or None
+                index_value = block.get("index")
+                try:
+                    index = int(index_value) if index_value is not None else None
+                except (TypeError, ValueError):
+                    index = None
+                dedupe_key = (str(block_id or ""), index)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                rows.append(
+                    {
+                        "source_key": key,
+                        "block_id": block_id,
+                        "index": index,
+                        "text": block.get("text"),
+                    }
+                )
+        return rows
+
+    pred_run_manifest = _load_json_dict(pred_run / "run_manifest.json") or {}
+    pred_run_source = (
+        pred_run_manifest.get("source")
+        if isinstance(pred_run_manifest.get("source"), dict)
+        else {}
+    )
+    source_file = None
+    if isinstance(pred_run_source, dict):
+        source_file_raw = pred_run_source.get("path")
+        if isinstance(source_file_raw, str) and source_file_raw.strip():
+            source_file = source_file_raw.strip()
+
+    benchmark_run_id = eval_output_dir.name
+    full_prompt_log_rows = 0
+    full_prompt_log_handle = full_prompt_log_path.open("w", encoding="utf-8")
+
+    def _collect_prompt_attachments(
+        payload: Any,
+        *,
+        prompt_file: Path,
+    ) -> list[Path]:
+        found: list[Path] = []
+        seen: set[Path] = set()
+
+        def _walk(node: Any, current_key: str | None = None) -> None:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    _walk(value, str(key))
+                return
+            if isinstance(node, list):
+                for value in node:
+                    _walk(value, current_key)
+                return
+            if not isinstance(node, str):
+                return
+            key = (current_key or "").strip().lower()
+            if "path" not in key and "file" not in key:
+                return
+            raw_value = node.strip()
+            if not raw_value or "\n" in raw_value or re.match(r"^[a-z]+://", raw_value):
+                return
+            candidate = Path(raw_value)
+            candidates: list[Path] = []
+            if candidate.is_absolute():
+                candidates.append(candidate)
+            else:
+                candidates.append((prompt_file.parent / candidate).resolve())
+                candidates.append((pred_run / candidate).resolve())
+            for resolved in candidates:
+                if (
+                    resolved.exists()
+                    and resolved.is_file()
+                    and resolved.suffix.lower() in text_attachment_suffixes
+                ):
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        found.append(resolved)
+                    break
+
+        _walk(payload)
+        return found
 
     lines: list[str] = []
-    for run_dir in sorted(run_dirs, key=lambda value: value.name):
-        manifest_path = run_dir / "llm_manifest.json"
-        manifest_payload = _load_json_dict(manifest_path) or {}
-        if not manifest_payload:
-            lines.append(f"=== SKIP: missing manifest at {manifest_path} ===")
-            continue
+    category_lines: dict[str, list[str]] = {pass_name: [] for pass_name in pass_dir_map}
+    category_has_payload: dict[str, bool] = {pass_name: False for pass_name in pass_dir_map}
+    try:
+        for run_dir in sorted(run_dirs, key=lambda value: value.name):
+            manifest_path = run_dir / "llm_manifest.json"
+            manifest_payload = _load_json_dict(manifest_path) or {}
+            if not manifest_payload:
+                lines.append(f"=== SKIP: missing manifest at {manifest_path} ===")
+                continue
 
-        lines.append(f"=== CODexFarm run: {run_dir.name} ===")
-        lines.append(f"manifest: {manifest_path}")
-        llm_enabled = manifest_payload.get("enabled")
-        if llm_enabled is not None:
-            lines.append(f"enabled: {llm_enabled}")
-        codex_pipeline = manifest_payload.get("pipeline")
-        if isinstance(codex_pipeline, str):
-            lines.append(f"pipeline: {codex_pipeline}")
-        codex_model = manifest_payload.get("codex_farm_model")
-        if isinstance(codex_model, str):
-            lines.append(f"codex_farm_model: {codex_model}")
-        lines.append("")
-
-        process_runs = manifest_payload.get("process_runs")
-        if isinstance(process_runs, dict):
-            lines.append("--- PROCESS RUN PAYLOAD SNIPPETS ---")
-            for pass_name in ("pass1", "pass2", "pass3"):
-                run_payload = process_runs.get(pass_name)
-                if not isinstance(run_payload, dict):
-                    continue
-                lines.append(f"--- process_runs[{pass_name}] ---")
-                try:
-                    lines.append(json.dumps(run_payload, indent=2, sort_keys=True))
-                except Exception:
-                    lines.append(str(run_payload))
+            lines.append(f"=== CODexFarm run: {run_dir.name} ===")
+            lines.append(f"manifest: {manifest_path}")
+            llm_enabled = manifest_payload.get("enabled")
+            if llm_enabled is not None:
+                lines.append(f"enabled: {llm_enabled}")
+            codex_pipeline = manifest_payload.get("pipeline")
+            if isinstance(codex_pipeline, str):
+                lines.append(f"pipeline: {codex_pipeline}")
+            codex_model = manifest_payload.get("codex_farm_model")
+            if isinstance(codex_model, str):
+                lines.append(f"codex_farm_model: {codex_model}")
+            codex_reasoning_effort = str(
+                manifest_payload.get("codex_farm_reasoning_effort") or ""
+            ).strip() or None
             lines.append("")
 
-        for pass_name, path_root in pass_dir_map.items():
-            paths_payload = manifest_payload.get("paths")
-            pass_paths = {}
-            if isinstance(paths_payload, dict):
-                pass_paths = paths_payload
-            pass_in = pass_paths.get(f"{pass_name}_in")
-            pass_out = pass_paths.get(f"{pass_name}_out")
-
-            in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
-            out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
-            if in_dir is None or not in_dir.exists():
-                in_dir = run_dir / path_root / "in"
-            if out_dir is None or not out_dir.exists():
-                out_dir = run_dir / path_root / "out"
-
-            lines.append(f"--- {pass_name.upper()} INPUT FILES ---")
-            lines.append(f"source_dir: {in_dir}")
-            for prompt_file in sorted(
-                [p for p in in_dir.iterdir() if p.is_file()],
-                key=lambda p: p.name,
-            ):
-                lines.append(f"INPUT {pass_name} => {prompt_file.name}")
-                lines.append("-" * 80)
-                try:
-                    lines.append(
-                        prompt_file.read_text(encoding="utf-8")
-                    )
-                except UnicodeDecodeError:
-                    lines.append(
-                        prompt_file.read_text(encoding="utf-8", errors="replace")
-                    )
-                except Exception as exc:
-                    lines.append(f"<<unreadable file: {exc}>>")
-                lines.append("-" * 80)
+            process_runs = manifest_payload.get("process_runs")
+            if isinstance(process_runs, dict):
+                lines.append("--- PROCESS RUN PAYLOAD SNIPPETS ---")
+                for pass_name in ("pass1", "pass2", "pass3"):
+                    run_payload = process_runs.get(pass_name)
+                    if not isinstance(run_payload, dict):
+                        continue
+                    lines.append(f"--- process_runs[{pass_name}] ---")
+                    try:
+                        lines.append(json.dumps(run_payload, indent=2, sort_keys=True))
+                    except Exception:
+                        lines.append(str(run_payload))
                 lines.append("")
 
-            lines.append(f"--- {pass_name.upper()} RESPONSE FILES ---")
-            lines.append(f"source_dir: {out_dir}")
-            for response_file in sorted(
-                [p for p in out_dir.iterdir() if p.is_file()],
-                key=lambda p: p.name,
-            ):
-                lines.append(f"OUTPUT {pass_name} => {response_file.name}")
-                lines.append("-" * 80)
-                try:
-                    lines.append(
-                        response_file.read_text(encoding="utf-8")
+            for pass_name, path_root in pass_dir_map.items():
+                task_name = pass_task_map.get(pass_name, pass_name)
+                pass_assets = _load_run_assets_for_pass(
+                    manifest_payload=manifest_payload,
+                    pass_name=pass_name,
+                )
+                paths_payload = manifest_payload.get("paths")
+                pass_paths = {}
+                if isinstance(paths_payload, dict):
+                    pass_paths = paths_payload
+                pass_in = pass_paths.get(f"{pass_name}_in")
+                pass_out = pass_paths.get(f"{pass_name}_out")
+
+                in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
+                out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
+                if in_dir is None or not in_dir.exists():
+                    in_dir = run_dir / path_root / "in"
+                if out_dir is None or not out_dir.exists():
+                    out_dir = run_dir / path_root / "out"
+
+                category = category_lines[pass_name]
+                category.append(
+                    f"=== CATEGORY {task_name} ({pass_name} / {path_root}) | run: {run_dir.name} ==="
+                )
+                category.append(f"manifest: {manifest_path}")
+                category.append("")
+
+                input_files = _files_in_dir(in_dir)
+                lines.append(f"--- {pass_name.upper()} INPUT FILES ---")
+                lines.append(f"source_dir: {in_dir}")
+                category.append(f"--- {task_name.upper()} PROMPT INPUT FILES ---")
+                category.append(f"source_dir: {in_dir}")
+                for prompt_file in input_files:
+                    category_has_payload[pass_name] = True
+                    lines.append(f"INPUT {pass_name} => {prompt_file.name}")
+                    lines.append("-" * 80)
+                    prompt_text = _safe_read_text(prompt_file)
+                    lines.append(prompt_text)
+                    lines.append("-" * 80)
+                    lines.append("")
+
+                    category.append(f"INPUT {task_name} => {prompt_file.name}")
+                    category.append("-" * 80)
+                    category.append(prompt_text)
+                    category.append("-" * 80)
+                    category.append("")
+
+                    payload: Any = _parse_json_text(prompt_text)
+                    attachment_paths = _collect_prompt_attachments(
+                        payload,
+                        prompt_file=prompt_file,
                     )
-                except UnicodeDecodeError:
-                    lines.append(
-                        response_file.read_text(encoding="utf-8", errors="replace")
-                    )
-                except Exception as exc:
-                    lines.append(f"<<unreadable file: {exc}>>")
-                lines.append("-" * 80)
+                    if attachment_paths:
+                        category.append(
+                            f"--- ATTACHMENT FILES REFERENCED BY {prompt_file.name} ---"
+                        )
+                        for attachment_path in attachment_paths:
+                            category.append(f"ATTACHMENT {task_name} => {attachment_path}")
+                            category.append("-" * 80)
+                            category.append(_safe_read_text(attachment_path))
+                            category.append("-" * 80)
+                            category.append("")
+
+                output_files = _files_in_dir(out_dir)
+                lines.append(f"--- {pass_name.upper()} RESPONSE FILES ---")
+                lines.append(f"source_dir: {out_dir}")
+                category.append(f"--- {task_name.upper()} PROMPT RESPONSE FILES ---")
+                category.append(f"source_dir: {out_dir}")
+                for response_file in output_files:
+                    category_has_payload[pass_name] = True
+                    lines.append(f"OUTPUT {pass_name} => {response_file.name}")
+                    lines.append("-" * 80)
+                    response_text = _safe_read_text(response_file)
+                    lines.append(response_text)
+                    lines.append("-" * 80)
+                    lines.append("")
+                    category.append(f"OUTPUT {task_name} => {response_file.name}")
+                    category.append("-" * 80)
+                    category.append(response_text)
+                    category.append("-" * 80)
+                    category.append("")
                 lines.append("")
-            lines.append("")
+                category.append("")
+
+                file_names = sorted({file.name for file in input_files} | {file.name for file in output_files})
+                output_by_name = {file.name: file for file in output_files}
+                input_by_name = {file.name: file for file in input_files}
+                for file_name in file_names:
+                    input_file = input_by_name.get(file_name)
+                    output_file = output_by_name.get(file_name)
+                    input_text = _safe_read_text(input_file) if input_file is not None else ""
+                    output_text = _safe_read_text(output_file) if output_file is not None else ""
+                    parsed_input = _parse_json_text(input_text)
+                    parsed_output = _parse_json_text(output_text)
+
+                    timestamp_utc = (
+                        _timestamp_utc_for_path(output_file)
+                        or _timestamp_utc_for_path(input_file)
+                    )
+                    call_stem = (
+                        input_file.stem
+                        if input_file is not None
+                        else (output_file.stem if output_file is not None else Path(file_name).stem)
+                    )
+                    recipe_id = _resolve_recipe_id(
+                        parsed_input=parsed_input,
+                        parsed_output=parsed_output,
+                        fallback_name=file_name,
+                    )
+
+                    rendered_prompt_text = _render_prompt_text(
+                        template_text=pass_assets.get("prompt_template_text")
+                        if isinstance(pass_assets, dict)
+                        else None,
+                        input_text=input_text,
+                        input_file=(input_file or (in_dir / file_name)),
+                    )
+                    request_messages = [
+                        {
+                            "role": "user",
+                            "content": rendered_prompt_text,
+                        }
+                    ]
+                    response_format_payload: dict[str, Any] | None = None
+                    output_schema_payload = pass_assets.get("output_schema_payload")
+                    if isinstance(output_schema_payload, dict):
+                        response_format_payload = {
+                            "type": "json_schema",
+                            "json_schema": output_schema_payload,
+                        }
+
+                    effective_pipeline_payload = pass_assets.get("effective_pipeline_payload")
+                    model_value = None
+                    if isinstance(effective_pipeline_payload, dict):
+                        model_candidate = str(
+                            effective_pipeline_payload.get("codex_model") or ""
+                        ).strip()
+                        if model_candidate:
+                            model_value = model_candidate
+                    if model_value is None and isinstance(codex_model, str):
+                        model_value = codex_model
+
+                    request_payload: dict[str, Any] = {
+                        "messages": request_messages,
+                        "tools": [],
+                        "response_format": response_format_payload,
+                        "model": model_value,
+                        "reasoning_effort": codex_reasoning_effort,
+                        "temperature": None,
+                        "top_p": None,
+                        "max_output_tokens": None,
+                        "seed": None,
+                        "pipeline_id": pass_pipeline_map.get(pass_name),
+                    }
+
+                    template_vars: dict[str, Any] = {
+                        "INPUT_PATH": str(input_file) if input_file is not None else None,
+                        "INPUT_TEXT": input_text,
+                    }
+                    prompt_templates = {
+                        "prompt_template_text": pass_assets.get("prompt_template_text"),
+                        "prompt_template_path": pass_assets.get("prompt_source_path"),
+                    }
+
+                    row_payload = {
+                        "run_id": benchmark_run_id,
+                        "pass": pass_name,
+                        "call_id": call_stem,
+                        "timestamp_utc": timestamp_utc,
+                        "recipe_id": recipe_id,
+                        "source_file": source_file,
+                        "pipeline_id": pass_pipeline_map.get(pass_name),
+                        "process_run_id": pass_assets.get("run_id"),
+                        "model": model_value,
+                        "request_messages": request_messages,
+                        "system_prompt": None,
+                        "developer_prompt": None,
+                        "user_prompt": rendered_prompt_text,
+                        "rendered_prompt_text": rendered_prompt_text,
+                        "rendered_messages": request_messages,
+                        "prompt_templates": prompt_templates,
+                        "template_vars": template_vars,
+                        "inserted_context_blocks": _collect_inserted_context_blocks(parsed_input),
+                        "request": request_payload,
+                        "request_input_payload": parsed_input,
+                        "tools": [],
+                        "response_format": response_format_payload,
+                        "decoding_params": {
+                            "temperature": None,
+                            "top_p": None,
+                            "max_output_tokens": None,
+                            "seed": None,
+                            "reasoning_effort": codex_reasoning_effort,
+                        },
+                        "raw_response": {
+                            "output_text": output_text,
+                            "output_file": str(output_file) if output_file is not None else None,
+                        },
+                        "parsed_response": parsed_output,
+                        "request_input_file": str(input_file) if input_file is not None else None,
+                    }
+                    full_prompt_log_handle.write(
+                        json.dumps(row_payload, ensure_ascii=False) + "\n"
+                    )
+                    full_prompt_log_rows += 1
+    finally:
+        full_prompt_log_handle.close()
 
     if not lines:
+        full_prompt_log_path.unlink(missing_ok=True)
         return None
 
     prompt_response_log_path.write_text(
         "\n".join(lines) + "\n",
         encoding="utf-8",
     )
+
+    category_manifest_lines: list[str] = []
+    for pass_name, path_root in pass_dir_map.items():
+        if not category_has_payload.get(pass_name):
+            continue
+        task_name = pass_task_map.get(pass_name, pass_name)
+        category_path = codexfarm_dir / f"prompt_{task_name}_{path_root}.txt"
+        category_path.write_text(
+            "\n".join(category_lines[pass_name]) + "\n",
+            encoding="utf-8",
+        )
+        category_manifest_lines.append(str(category_path))
+    if category_manifest_lines:
+        (codexfarm_dir / "prompt_category_logs_manifest.txt").write_text(
+            "\n".join(category_manifest_lines) + "\n",
+            encoding="utf-8",
+        )
+
+    if full_prompt_log_rows <= 0:
+        full_prompt_log_path.unlink(missing_ok=True)
+
     return prompt_response_log_path
 
 
@@ -11214,15 +12256,11 @@ def _run_all_method_evaluate_prediction_record_once(
         if report_md_path.exists() and report_md_path.is_file()
         else ""
     )
+    metric_bundle = _benchmark_report_metric_bundle(report_payload)
     return {
         "status": "ok",
         "error": "",
-        "precision": _report_metric(report_payload.get("precision")),
-        "recall": _report_metric(report_payload.get("recall")),
-        "f1": _report_metric(report_payload.get("f1")),
-        "practical_precision": _report_metric(report_payload.get("practical_precision")),
-        "practical_recall": _report_metric(report_payload.get("practical_recall")),
-        "practical_f1": _report_metric(report_payload.get("practical_f1")),
+        **metric_bundle,
         "timing": normalized_timing,
         "report": report_payload,
         "report_md_text": report_md_text,
@@ -13526,17 +14564,11 @@ def _run_all_method_benchmark_global_queue(
                     report_md_text=cached_md,
                 )
             )
+            metric_bundle = _benchmark_report_metric_bundle(cached_report)
             evaluation_summary = {
                 "status": "ok",
                 "error": "",
-                "precision": _report_metric(cached_report.get("precision")),
-                "recall": _report_metric(cached_report.get("recall")),
-                "f1": _report_metric(cached_report.get("f1")),
-                "practical_precision": _report_metric(
-                    cached_report.get("practical_precision")
-                ),
-                "practical_recall": _report_metric(cached_report.get("practical_recall")),
-                "practical_f1": _report_metric(cached_report.get("practical_f1")),
+                **metric_bundle,
                 "timing": _normalize_timing_payload(cached_report.get("timing")),
                 "report": cached_report,
                 "report_md_text": cached_md,
@@ -16989,17 +18021,11 @@ def _run_all_method_benchmark(
                     report_md_text=cached_md,
                 )
             )
+            metric_bundle = _benchmark_report_metric_bundle(cached_report)
             evaluation_summary = {
                 "status": "ok",
                 "error": "",
-                "precision": _report_metric(cached_report.get("precision")),
-                "recall": _report_metric(cached_report.get("recall")),
-                "f1": _report_metric(cached_report.get("f1")),
-                "practical_precision": _report_metric(
-                    cached_report.get("practical_precision")
-                ),
-                "practical_recall": _report_metric(cached_report.get("practical_recall")),
-                "practical_f1": _report_metric(cached_report.get("practical_f1")),
+                **metric_bundle,
                 "timing": _normalize_timing_payload(cached_report.get("timing")),
                 "report": cached_report,
                 "report_md_text": cached_md,
@@ -17522,6 +18548,24 @@ def _require_importer(path: Path):
     if importer is None or score <= 0:
         _fail("No importer available for this path.")
     return importer
+
+
+def _infer_importer_name_from_source_path(source: str | Path | None) -> str | None:
+    if source is None:
+        return None
+    try:
+        suffix = Path(str(source)).suffix.lower()
+    except Exception:
+        return None
+    if suffix == ".epub":
+        return "epub"
+    if suffix == ".pdf":
+        return "pdf"
+    if suffix in {".doc", ".docx", ".txt", ".md", ".rtf"}:
+        return "text"
+    if suffix in {".html", ".htm"}:
+        return "web"
+    return None
 
 
 def _iter_files(root: Path) -> Iterable[Path]:
@@ -21294,6 +22338,7 @@ def labelstudio_eval(
         run_dir=str(output_dir),
         eval_scope=scope,
         source_file=csv_source_file,
+        importer_name=_infer_importer_name_from_source_path(csv_source_file),
         recipes=pred_context.recipes,
         processed_report_path=pred_context.processed_report_path,
         run_config=pred_context.run_config,
@@ -23099,6 +24144,7 @@ def labelstudio_benchmark(
         run_dir=str(eval_output_dir),
         eval_scope=eval_scope,
         source_file=str(selected_source),
+        importer_name=_infer_importer_name_from_source_path(selected_source),
         recipes=benchmark_recipes,
         processed_report_path=csv_report_path,
         run_config=pred_context.run_config,
@@ -23128,7 +24174,10 @@ def labelstudio_benchmark(
     report_json_path.write_text(
         json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
     )
-    report_md_path.write_text(report_md, encoding="utf-8")
+    if write_markdown:
+        report_md_path.write_text(report_md, encoding="utf-8")
+    else:
+        report_md_path.unlink(missing_ok=True)
 
     benchmark_run_config: dict[str, Any] = {
         "eval_mode": selected_eval_mode,
@@ -23229,7 +24278,6 @@ def labelstudio_benchmark(
             stage_predictions_path,
         ),
         "eval_report_json": "eval_report.json",
-        "eval_report_md": "eval_report.md",
         "missed_gold_blocks_jsonl": "missed_gold_blocks.jsonl",
         "wrong_label_blocks_jsonl": "wrong_label_blocks.jsonl",
         "missed_gold_spans_jsonl": "missed_gold_spans.jsonl",
@@ -23237,6 +24285,8 @@ def labelstudio_benchmark(
         "history_csv": str(history_csv_for_output(processed_output_dir)),
         "timing": benchmark_timing,
     }
+    if write_markdown:
+        benchmark_artifacts["eval_report_md"] = "eval_report.md"
     prediction_timeseries_path = eval_output_dir / "processing_timeseries_prediction.jsonl"
     evaluation_timeseries_path = eval_output_dir / "processing_timeseries_evaluation.jsonl"
     if prediction_timeseries_path.exists():
@@ -23309,6 +24359,42 @@ def labelstudio_benchmark(
             eval_output_dir,
             codexfarm_prompt_response_log_path,
         )
+        category_manifest_path = (
+            codexfarm_prompt_response_log_path.parent / "prompt_category_logs_manifest.txt"
+        )
+        if category_manifest_path.exists() and category_manifest_path.is_file():
+            benchmark_artifacts[
+                "codexfarm_prompt_category_logs_manifest_txt"
+            ] = _path_for_manifest(
+                eval_output_dir,
+                category_manifest_path,
+            )
+        full_prompt_log_path = (
+            codexfarm_prompt_response_log_path.parent / "full_prompt_log.jsonl"
+        )
+        if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
+            full_prompt_log_rows = 0
+            try:
+                with full_prompt_log_path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        if line.strip():
+                            full_prompt_log_rows += 1
+            except OSError:
+                full_prompt_log_rows = 0
+            benchmark_artifacts["full_prompt_log_status"] = "complete"
+            benchmark_artifacts["full_prompt_log_rows"] = full_prompt_log_rows
+            benchmark_artifacts["full_prompt_log_path"] = _path_for_manifest(
+                eval_output_dir,
+                full_prompt_log_path,
+            )
+            benchmark_artifacts["codexfarm_full_prompt_log_jsonl"] = _path_for_manifest(
+                eval_output_dir,
+                full_prompt_log_path,
+            )
+        else:
+            benchmark_artifacts["full_prompt_log_status"] = "missing"
+            benchmark_artifacts["full_prompt_log_rows"] = 0
+            benchmark_artifacts["full_prompt_log_path"] = None
     processed_run_root = import_result.get("processed_run_root")
     if processed_run_root:
         benchmark_artifacts["processed_output_run_dir"] = _path_for_manifest(
@@ -23371,7 +24457,9 @@ def labelstudio_benchmark(
                     f"Worst-label recall: {worst_label} {worst_recall:.3f}",
                     fg=typer.colors.YELLOW,
                 )
-        typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
+        typer.secho(f"Report JSON: {report_json_path}", fg=typer.colors.CYAN)
+        if write_markdown:
+            typer.secho(f"Report: {report_md_path}", fg=typer.colors.CYAN)
         prediction_timeseries_path = (
             eval_output_dir / "processing_timeseries_prediction.jsonl"
         )
