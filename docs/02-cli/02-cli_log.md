@@ -236,8 +236,7 @@ Preserved finding:
 - `generate_dashboard` already worked, but immediate menu redraw looked like a no-op.
 
 Current rule:
-- Interactive dashboard generation prompts whether to open the produced dashboard.
-- `open_browser` response is forwarded into `stats_dashboard(...)` call.
+- Superseded by `2026-03-02_23.01.36` (merged below): interactive dashboard generation no longer prompts to open browser and always calls `stats_dashboard(..., open_browser=False)`.
 
 ### 2026-02-16_12.09.36 run-settings config propagation
 
@@ -1173,3 +1172,33 @@ Summary: Track why codex-farm benchmark progress now includes active worker task
 - Kept counter-only fallback behavior when task metadata is not available.
 - Updated tests/docs so this is now a stable one-line live summary behavior instead of per-task spinner/noise.
 
+## 2026-03-03 docs/tasks consolidation batch (interactive wording + dashboard prompt removal)
+
+### 2026-03-02_18.22.28 clarify interactive menu labels
+
+Source task file:
+- `docs/tasks/2026-03-02_18.22.28 - clarify interactive menu labels.md`
+
+Problem captured:
+- Interactive select labels mixed styles (`name - description`, longer phrases), reducing scanability.
+
+Durable decisions/outcomes:
+- Interactive select labels now follow `NAME: short description` consistently (numeric prefixes continue to come from Questionary shortcuts).
+- Benchmark submenu wording now keeps mode options distinct at one glance without changing flow behavior.
+- Docs and tests were aligned to runtime wording contract.
+
+### 2026-03-02_23.01.36 remove interactive dashboard open-browser prompt
+
+Source task file:
+- `docs/tasks/2026-03-02_23.01.36 - remove-dashboard-open-browser-prompt.md`
+
+Problem captured:
+- Interactive dashboard flow asked `Open dashboard in your browser after generation?`, adding friction and unreliable behavior in some environments.
+
+Durable decisions/outcomes:
+- Interactive dashboard branch now always generates files with `open_browser=False`.
+- Interactive flow no longer asks for open-browser confirmation.
+- Non-interactive `cookimport stats-dashboard --open` behavior is unchanged.
+
+Evidence preserved:
+- Fail-before then pass-after on `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k interactive_generate_dashboard_runs_without_browser_prompt`.

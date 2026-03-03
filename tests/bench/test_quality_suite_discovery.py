@@ -101,10 +101,13 @@ def test_discover_quality_suite_is_deterministic_with_representative_cap(
 
     assert len(suite_a.targets) == 3
     assert len(suite_a.unmatched) == 1
-    assert suite_a.selection["algorithm_version"] == "quality_representative_v1"
+    assert suite_a.selection["algorithm_version"] == "quality_representative_v2"
     assert suite_a.selection["selection_mode"] == "representative_strata"
     assert suite_a.selection["max_targets"] == 2
     assert suite_a.selection["seed"] == 42
+    assert suite_a.selection["format_counts"] == {".epub": 3}
+    assert suite_a.selection["selected_format_counts"] == {".epub": 2}
+    assert all(target.source_extension == ".epub" for target in suite_a.targets)
     assert suite_a.selected_target_ids == suite_b.selected_target_ids
     assert len(suite_a.selected_target_ids) == 2
     assert set(suite_a.selected_target_ids).issubset(
@@ -281,6 +284,228 @@ def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_cap
     assert len(suite_a.selection["representative_fill_target_ids"]) == 2
 
 
+def test_discover_quality_suite_representative_selection_covers_extensions_when_possible(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    for source_name in ("alpha.epub", "beta.epub", "gamma.pdf", "delta.pdf"):
+        (input_root / source_name).write_text("source", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    _write_target(
+        gold_root,
+        target_name="alpha_target",
+        source_file="alpha.epub",
+        labels=["OTHER"],
+        canonical_chars=120,
+    )
+    _write_target(
+        gold_root,
+        target_name="beta_target",
+        source_file="beta.epub",
+        labels=["INGREDIENT_LINE"],
+        canonical_chars=240,
+    )
+    _write_target(
+        gold_root,
+        target_name="gamma_target",
+        source_file="gamma.pdf",
+        labels=["INSTRUCTION_LINE"],
+        canonical_chars=360,
+    )
+    _write_target(
+        gold_root,
+        target_name="delta_target",
+        source_file="delta.pdf",
+        labels=["RECIPE_TITLE"],
+        canonical_chars=480,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite._list_importable_files",
+        lambda _input_root: [
+            input_root / "alpha.epub",
+            input_root / "beta.epub",
+            input_root / "gamma.pdf",
+            input_root / "delta.pdf",
+        ],
+    )
+
+    suite = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        max_targets=2,
+        seed=42,
+        preferred_target_ids=None,
+    )
+
+    assert suite.selection["format_counts"] == {".epub": 2, ".pdf": 2}
+    assert suite.selection["selected_format_counts"] == {".epub": 1, ".pdf": 1}
+    selected_ids = set(suite.selected_target_ids)
+    selected_extensions = {
+        target.source_extension
+        for target in suite.targets
+        if target.target_id in selected_ids
+    }
+    assert selected_extensions == {".epub", ".pdf"}
+
+
+def test_discover_quality_suite_representative_selection_caps_extensions_when_under_capacity(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    for source_name in (
+        "alpha.epub",
+        "beta.epub",
+        "gamma.pdf",
+        "delta.pdf",
+        "epsilon.docx",
+        "zeta.docx",
+    ):
+        (input_root / source_name).write_text("source", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    _write_target(
+        gold_root,
+        target_name="alpha_target",
+        source_file="alpha.epub",
+        labels=["OTHER"],
+        canonical_chars=120,
+    )
+    _write_target(
+        gold_root,
+        target_name="beta_target",
+        source_file="beta.epub",
+        labels=["INGREDIENT_LINE"],
+        canonical_chars=240,
+    )
+    _write_target(
+        gold_root,
+        target_name="gamma_target",
+        source_file="gamma.pdf",
+        labels=["INSTRUCTION_LINE"],
+        canonical_chars=360,
+    )
+    _write_target(
+        gold_root,
+        target_name="delta_target",
+        source_file="delta.pdf",
+        labels=["RECIPE_TITLE"],
+        canonical_chars=480,
+    )
+    _write_target(
+        gold_root,
+        target_name="epsilon_target",
+        source_file="epsilon.docx",
+        labels=["OTHER"],
+        canonical_chars=600,
+    )
+    _write_target(
+        gold_root,
+        target_name="zeta_target",
+        source_file="zeta.docx",
+        labels=["INSTRUCTION_LINE"],
+        canonical_chars=720,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite._list_importable_files",
+        lambda _input_root: [
+            input_root / "alpha.epub",
+            input_root / "beta.epub",
+            input_root / "gamma.pdf",
+            input_root / "delta.pdf",
+            input_root / "epsilon.docx",
+            input_root / "zeta.docx",
+        ],
+    )
+
+    suite_a = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        max_targets=2,
+        seed=42,
+        preferred_target_ids=None,
+    )
+    suite_b = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        max_targets=2,
+        seed=42,
+        preferred_target_ids=None,
+    )
+
+    assert suite_a.selection["format_counts"] == {".docx": 2, ".epub": 2, ".pdf": 2}
+    assert suite_a.selected_target_ids == suite_b.selected_target_ids
+    assert len(suite_a.selected_target_ids) == 2
+    assert len(set(suite_a.selected_target_ids)) == 2
+    selected_id_set = set(suite_a.selected_target_ids)
+    discovered_target_ids = {target.target_id for target in suite_a.targets}
+    assert selected_id_set.issubset(discovered_target_ids)
+    selected_extensions = {
+        target.source_extension
+        for target in suite_a.targets
+        if target.target_id in selected_id_set
+    }
+    assert len(selected_extensions) == 2
+    assert selected_extensions.issubset({".docx", ".epub", ".pdf"})
+    assert suite_a.selection["selected_format_counts"] == {
+        extension: 1 for extension in sorted(selected_extensions)
+    }
+
+
+def test_discover_quality_suite_applies_formats_filter(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    for source_name in ("alpha.epub", "gamma.pdf"):
+        (input_root / source_name).write_text("source", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    _write_target(
+        gold_root,
+        target_name="alpha_target",
+        source_file="alpha.epub",
+        labels=["OTHER"],
+        canonical_chars=120,
+    )
+    _write_target(
+        gold_root,
+        target_name="gamma_target",
+        source_file="gamma.pdf",
+        labels=["OTHER"],
+        canonical_chars=140,
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.speed_suite._list_importable_files",
+        lambda _input_root: [
+            input_root / "alpha.epub",
+            input_root / "gamma.pdf",
+        ],
+    )
+
+    suite = discover_quality_suite(
+        gold_root=gold_root,
+        input_root=input_root,
+        seed=42,
+        preferred_target_ids=None,
+        formats=["pdf"],
+    )
+
+    assert [target.target_id for target in suite.targets] == ["gamma_target"]
+    assert suite.selection["formats_filter"] == [".pdf"]
+    assert suite.selection["format_counts"] == {".pdf": 1}
+    assert suite.selection["selected_format_counts"] == {".pdf": 1}
+    assert suite.selected_target_ids == ["gamma_target"]
+
+
 def test_discover_quality_suite_falls_back_to_raw_input_filenames_when_importable_scan_is_empty(
     monkeypatch,
     tmp_path: Path,
@@ -331,11 +556,13 @@ def test_quality_suite_round_trip_and_validate(tmp_path: Path) -> None:
         seed=42,
         max_targets=1,
         selection={
-            "algorithm_version": "quality_representative_v1",
+            "algorithm_version": "quality_representative_v2",
             "seed": 42,
             "max_targets": 1,
             "matched_count": 1,
             "strata_counts": {"small:sparse": 1},
+            "format_counts": {".epub": 1},
+            "selected_format_counts": {".epub": 1},
         },
         targets=[
             {
@@ -359,5 +586,6 @@ def test_quality_suite_round_trip_and_validate(tmp_path: Path) -> None:
     loaded = load_quality_suite(suite_path)
 
     assert loaded.name == suite.name
+    assert loaded.targets[0].source_extension is None
     assert loaded.selected_target_ids == ["alpha"]
     assert validate_quality_suite(loaded, repo_root=tmp_path) == []

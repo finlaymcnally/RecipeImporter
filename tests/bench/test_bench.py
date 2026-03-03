@@ -786,7 +786,46 @@ def test_bench_quality_discover_writes_suite(tmp_path: Path) -> None:
     payload = json.loads(suite_out.read_text(encoding="utf-8"))
     assert payload["targets"]
     assert payload["selected_target_ids"]
-    assert payload["selection"]["algorithm_version"] == "quality_representative_v1"
+    assert payload["selection"]["algorithm_version"] == "quality_representative_v2"
+
+
+def test_bench_quality_discover_formats_filter(tmp_path: Path) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    (input_root / "alpha.epub").write_text("epub", encoding="utf-8")
+    (input_root / "gamma.pdf").write_text("pdf", encoding="utf-8")
+
+    gold_root = tmp_path / "gold"
+    alpha_exports = gold_root / "alpha" / "exports"
+    alpha_exports.mkdir(parents=True, exist_ok=True)
+    (alpha_exports / "freeform_span_labels.jsonl").write_text(
+        '{"source_file":"alpha.epub","label":"OTHER"}\n',
+        encoding="utf-8",
+    )
+    (alpha_exports / "canonical_text.txt").write_text("abc", encoding="utf-8")
+    gamma_exports = gold_root / "gamma" / "exports"
+    gamma_exports.mkdir(parents=True, exist_ok=True)
+    (gamma_exports / "freeform_span_labels.jsonl").write_text(
+        '{"source_file":"gamma.pdf","label":"OTHER"}\n',
+        encoding="utf-8",
+    )
+    (gamma_exports / "canonical_text.txt").write_text("abcd", encoding="utf-8")
+
+    suite_out = tmp_path / "quality_suite_pdf.json"
+    cli.bench_quality_discover(
+        gold_root=gold_root,
+        input_root=input_root,
+        out=suite_out,
+        seed=42,
+        formats=".pdf",
+        prefer_curated=False,
+    )
+
+    payload = json.loads(suite_out.read_text(encoding="utf-8"))
+    target_ids = [row["target_id"] for row in payload["targets"]]
+    assert target_ids == ["gamma"]
+    assert payload["selection"]["formats_filter"] == [".pdf"]
+    assert payload["selection"]["selected_format_counts"] == {".pdf": 1}
 
 
 def test_bench_quality_run_wires_runner(
@@ -810,7 +849,7 @@ def test_bench_quality_run_wires_runner(
         seed=42,
         max_targets=1,
         selection={
-            "algorithm_version": "quality_representative_v1",
+            "algorithm_version": "quality_representative_v2",
             "seed": 42,
             "max_targets": 1,
             "matched_count": 1,
@@ -988,7 +1027,7 @@ def test_bench_quality_run_passes_codex_farm_confirmation_to_runner(
         seed=42,
         max_targets=1,
         selection={
-            "algorithm_version": "quality_representative_v1",
+            "algorithm_version": "quality_representative_v2",
             "seed": 42,
             "max_targets": 1,
             "matched_count": 1,

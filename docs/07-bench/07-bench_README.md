@@ -31,11 +31,11 @@ Current scoring surfaces:
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
-- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
+- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
 - `scripts/quality_top_tier_tournament.py`: disabled/retired runtime entrypoint; `main()` exits immediately with a disabled message to prevent accidental tournament fanout.
-- `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier.
+- `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier; optional `--by-source-extension` emits per-format leaderboard slices.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
 
@@ -57,6 +57,8 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail`
 - `--instruction-step-segmentation-policy off|auto|always`
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
+- `--atomic-block-splitter off|atomic-v1`
+- `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
 - `--codex-farm-recipe-mode extract|benchmark`
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
@@ -78,6 +80,7 @@ Interactive `single_offline` now writes into one session root:
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/codexfarm/`:
   - `prompt_request_response_log.txt` (combined full dump),
   - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
+  - `full_prompt_log.jsonl` rows include `request_payload_source` (`telemetry_csv` when `codex_exec_activity.csv` has a matching call; fallback `reconstructed_from_prompt_template` otherwise) and `request_telemetry` with per-call runtime metadata.
   - `prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt` (split by prompt category),
   - `prompt_category_logs_manifest.txt` (one-path-per-line index of category files).
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
@@ -150,7 +153,7 @@ Quality suite (`bench quality-run`) artifacts include:
 - incremental crash-safe artifacts: `checkpoint.json`, `summary.partial.json`, `report.partial.md`
 - one per-experiment output root under `experiments/<experiment_id>/...` containing all-method benchmark artifacts.
 - each experiment root persists `quality_experiment_result.json` after completion for resume reuse.
-- `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating.
+- `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating, plus format visibility fields `format_counts` and `selected_format_counts`.
 - quality summaries/resolved payloads include strict-worker telemetry: `require_process_workers`, `process_worker_probe_available`, `process_worker_probe_error`.
 - `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, Codex Farm request/confirmation flags, and WSL telemetry fields (`wsl_detected`, `wsl_safety_guard_applied`, `wsl_safety_guard_reason`, `wsl_safety_guard_worker_cap`, `wsl_safety_guard_adjusted_experiments`).
 
@@ -164,6 +167,7 @@ Quality leaderboard (`bench quality-leaderboard`) artifacts include:
 - `leaderboard.json`, `leaderboard.csv`
 - `pareto_frontier.json`, `pareto_frontier.csv`
 - `winner_run_settings.json`, `winner_dimensions.json`
+- optional (when `--by-source-extension`): `leaderboard_by_source_extension.json`, `leaderboard_by_source_extension.csv`
 - interactive profile side effect: winner run settings are also saved to `data/.history/qualitysuite_winner_run_settings.json` for `Run with quality-suite winner (...)` menu selection.
 - default output root: `<quality_run_dir>/leaderboards/<experiment_id>/<timestamp>/`
 
@@ -208,7 +212,7 @@ Primary metrics:
 
 - Prediction block text is aligned against canonical gold text.
 - Scoring is in canonical line space and is extractor/blockization independent.
-- Canonical line labels also resolve predicted/gold `HOWTO_SECTION` into structural ingredient/instruction classes before metrics.
+- Canonical line labels keep `HOWTO_SECTION` as an explicit scored label (no stage-style remap).
 - Legacy global alignment is enforced for scoring safety; fast alignment is deprecated and forced to legacy when requested.
 - Canonical reports include explicit strict metric field `strict_accuracy` (line-space accuracy alias for benchmark consumers).
 - Canonical reports now also emit `boundary` (`correct/over/under/partial`) computed in canonical line space from aligned prediction spans vs canonical gold spans (`overlap_threshold=0.5`).
@@ -1317,3 +1321,31 @@ Chronological merged source notes:
 - 2026-03-02_23.23.00-codexfarm-benchmark-prompt-category-logs: CodexFarm benchmark prompt logging now emits per-task category files plus a manifest for human review.
 - 2026-03-03_00.00.00-benchmark-cutdown-prompt-log-sampling: Benchmark cutdown keeps sampled prompt text as convenience while preserving full per-call JSONL logs.
 - 2026-03-03_00.35.00-single-offline-split-cache-reuse: Single-offline split-cache reuse wiring
+
+## 2026-03-03 docs/tasks merge digest (single-offline comparison, prompt logs, and cutdown context)
+
+Merged source task files (chronological):
+- `docs/tasks/2026-03-02_18.30.00-single-offline-benchmark-split-cache.md`
+- `docs/tasks/2026-03-02_19.59.00 - expand benchmark cutdown context.md`
+- `docs/tasks/2026-03-02_21.41.40 - benchmark-markdown-artifact-gating.md`
+- `docs/tasks/2026-03-02_21.42.47 - align single-offline comparison markdown table.md`
+- `docs/tasks/2026-03-02_21.52.38 - interactive-single-offline-one-markdown-summary.md`
+- `docs/tasks/2026-03-02_22.09.34 - resolve-default-codex-reasoning-in-single-offline-comparison.md`
+- `docs/tasks/2026-03-02_22.18.32 - single-offline-comparison-metric-names.md`
+- `docs/tasks/2026-03-02_22.21.30 - add-single-offline-per-label-breakdown-to-comparison-artifacts.md`
+- `docs/tasks/2026-03-02_22.29.20 - remove-benchmark-eval-metric-alias-fields.md`
+- `docs/tasks/2026-03-02_22.46.55 - full codexfarm prompt log export.md`
+- `docs/tasks/2026-03-02_22.54.22 - canonical-benchmark-boundary-metrics.md`
+- `docs/tasks/2026-03-02_23.20.00 - codexfarm benchmark prompt category logs.md`
+- `docs/tasks/2026-03-02_23.32.41 - qualitysuite-ogplan-audit-fixes-spec.md`
+
+Current contract additions:
+- Paired single-offline codex/vanilla runs should reuse split conversion via one shared split-cache key (cache key intentionally excludes LLM-only knobs so both variants can share conversion output).
+- `write_markdown` now governs benchmark markdown sidecars consistently: JSON artifacts remain source-of-truth, while markdown is optional.
+- Interactive single-offline markdown contract is one top-level summary (`single_offline_summary.md`) instead of per-variant markdown files.
+- Single-offline comparison artifacts now use explicit canonical metrics and `codex_vs_vanilla_comparison.v2`, with optional per-label weighted breakdown and resolved codex runtime metadata.
+- Stage/canonical eval reports emit explicit benchmark metrics only (no alias key duplication); compatibility fallback for old artifacts remains reader-side.
+- Canonical-text eval reports now emit top-level `boundary` counts so benchmark CSV/dashboard boundary diagnostics stay current.
+- CodexFarm benchmark artifacts must include full per-call JSONL logs plus category-split text logs; cutdown packaging should preserve full JSONL and use sampled text logs only as convenience.
+- Benchmark cutdown defaults should keep deterministic but richer context (more diagnostics, longer excerpts, and non-trivial deterministic sampling rather than first-N truncation).
+- QualitySuite mixed-format documentation and tests should preserve extension-aware discovery semantics: extension pre-selection under `max_targets` cap, then strata fill; capped-extension selection (`max_targets < extension_count`) needs explicit deterministic test coverage.

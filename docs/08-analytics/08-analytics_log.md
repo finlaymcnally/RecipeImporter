@@ -488,6 +488,115 @@ Summary: Dashboard Previous Runs/trend should render explicit benchmark metric n
   - Populate explicit fields in collectors from explicit eval keys first, with legacy alias fallback for historical rows/artifacts.
   - Render main `Previous Runs` and trend chart using explicit metric fields/names.
 - Compatibility:
-  - Legacy fields are still ingested for old rows.
-  - CSV rows now persist explicit metric columns alongside legacy compatibility columns.
+- Legacy fields are still ingested for old rows.
+- CSV rows now persist explicit metric columns alongside legacy compatibility columns.
 
+## 2026-03-03 docs/tasks consolidation batch (dashboard task-file merge)
+
+### 2026-03-02_22.26.36 dashboard AI runtime/source fallback
+
+Source task file:
+- `docs/tasks/2026-03-02_22.26.36 - dashboard-ai-runtime-columns-and-source-fallback.md`
+
+Durable decisions/outcomes:
+- Added latest-benchmark runtime diagnostics card and `AI Model + Effort` column in `Previous Runs`.
+- Source labels now use layered fallbacks when `source_file` is missing.
+- Runtime enrichment remains CSV-first; manifest runtime backfill is fallback-only.
+
+Evidence preserved:
+- `tests/analytics/test_stats_dashboard.py` expanded from 48 to 51 passing tests after collector/runtime fallback updates.
+
+### 2026-03-02_22.29.43 remove standalone all-method index page
+
+Source task file:
+- `docs/tasks/2026-03-02_22.29.43 - dashboard-remove-all-method-index-page.md`
+
+Durable decisions/outcomes:
+- Main index no longer renders `All-Method Benchmark Runs` section.
+- Renderer no longer writes `all-method-benchmark/index.html`.
+- Run-summary and per-book detail pages remain generated and linked from `Previous Runs`.
+
+Failure history preserved:
+- Full analytics module had an unrelated pre-existing collector expectation failure during this task (`TestCollectors::test_benchmark_collector` recall mismatch), so renderer-only verification was scoped to `TestRenderer`.
+
+### 2026-03-02_22.30.04 rules filter builder and boolean-expression support
+
+Source task files:
+- `docs/tasks/2026-03-02_22.30.04 - previous-runs-rules-filter-builder.md`
+- `docs/tasks/2026-03-02_22.30.04-dashboard-previous-runs-rules-filters.md`
+
+Durable decisions/outcomes:
+- `Previous Runs` now supports rule rows (`field/operator/value`) and expression parsing (`R1`, `R2`, `AND/OR/NOT`, parentheses).
+- Filtering is applied before all-method row bundling.
+- Trend chart consumes the same filtered record set as the table.
+- Invalid expression handling is non-destructive: status error + unfiltered fallback.
+
+ExecPlan evidence preserved:
+- Targeted analytics tests passed (`6 passed` subset), full file passed (`50 passed`), and static dashboard regeneration confirmed UI wiring.
+
+### 2026-03-02_22.35.08 Previous Runs horizontal scroll contract
+
+Source task file:
+- `docs/tasks/2026-03-02_22.35.08 - previous-runs-horizontal-scroll.md`
+
+Durable decisions/outcomes:
+- CSS-only contract: table-level minimum width with no-wrap cells and overflow scrolling so dense columns remain readable.
+- No collector/data-shape changes were required.
+
+### 2026-03-02_22.41.32 codex manifest runtime fallback (`off`-label fix)
+
+Source task file:
+- `docs/tasks/2026-03-02_22.41.32 - fix-dashboard-ai-off-fallback-from-codex-manifest-runtime.md`
+
+Durable decisions/outcomes:
+- Collector backfills `codex_farm_model` and `codex_farm_reasoning_effort` from `llm_codex_farm` manifest payload when run-config is blank.
+- Diagnostics latest-row tie-break prefers richer AI metadata at same timestamp.
+- Maintains CSV-first behavior; manifest usage stays fallback-only.
+
+Evidence preserved:
+- `tests/analytics/test_stats_dashboard.py` passed (`51 passed`), and regenerated `dashboard_data.json` showed codex row model values instead of false `off`.
+
+### 2026-03-02_22.48.48 benchmark importer CSV persistence + fallback
+
+Source task file:
+- `docs/tasks/2026-03-02_22.48.48 - benchmark-importer-csv-and-dashboard-fallback.md`
+
+Durable decisions/outcomes:
+- `append_benchmark_csv` now persists `importer_name` on benchmark rows.
+- Dashboard keeps importer inference fallback for historical blank rows (source extension/run-config derived).
+
+### 2026-03-02_23.11.05 trend selector defaults to full-history `All`
+
+Source task file:
+- `docs/tasks/2026-03-02_23.11.05 - benchmark-score-trend-default-all-range.md`
+
+Durable decisions/outcomes:
+- Highcharts range selector now has explicit buttons and defaults to `All` so first render matches long table history.
+- Filtering/table wiring remains unchanged.
+
+### 2026-03-02_23.17.11 trend timeline bounds aligned with table timestamps
+
+Source task file:
+- `docs/tasks/2026-03-02_23.17.11 - benchmark-trend-timeline-align-with-table.md`
+
+Problem captured:
+- Older rows without explicit score points caused trend chart to appear newer than `Previous Runs`.
+
+Durable decisions/outcomes:
+- Chart x-axis min/max now initializes from full filtered benchmark timestamp span.
+- Plot series still uses explicit score metrics only; no synthetic legacy points added.
+
+### 2026-03-02_23.50.00 configurable Previous Runs columns
+
+Source task files:
+- `docs/tasks/2026-03-02_23.50.00 - previous-runs-column-controls.md`
+- `docs/tasks/2026-03-02_23.50.00-dashboard-previous-runs-column-controls.md`
+
+Durable decisions/outcomes:
+- Added in-browser column editor with add/remove fields, header drag reorder, and resize handles.
+- Column model is session-local JS state (no persistence).
+- Field discovery reuses existing benchmark field-path collection so options track schema changes.
+- Rendering must support mixed `single` rows and grouped `all_method` rows.
+
+ExecPlan evidence preserved:
+- Targeted contract tests passed (`7 passed`) and full analytics dashboard test file passed (`51 passed`).

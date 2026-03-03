@@ -2905,3 +2905,158 @@ Fix applied:
 
 Result: paired variant runs can reuse split conversion artifacts, and run/comparison metadata now records cache mode/key/hit timing for observability.
 
+## 2026-03-03 docs/tasks consolidation batch (benchmark task-file merge)
+
+### 2026-03-02_18.30.00 single-offline split-cache reuse ExecPlan
+
+Source task file:
+- `docs/tasks/2026-03-02_18.30.00-single-offline-benchmark-split-cache.md`
+
+Problem captured:
+- Paired single-offline benchmark variants (`vanilla`, `codexfarm`) repeated split conversion work even when only downstream LLM settings differed.
+
+Durable decisions/outcomes:
+- Added single-offline split-cache keying/lock helpers and reuse path in prediction artifact generation.
+- Shared key intentionally excludes LLM-only knobs so codex + vanilla can share conversion payload safely.
+- Added CLI controls (`--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, force controls) and cache metadata in manifests/comparison payload.
+
+Evidence preserved:
+- `pytest --lf` focused regressions then full suite (`946 passed`) after follow-up fixes.
+
+### 2026-03-02_19.59.00 benchmark cutdown context expansion
+
+Source task file:
+- `docs/tasks/2026-03-02_19.59.00 - expand benchmark cutdown context.md`
+
+Problem captured:
+- External-AI cutdown packs were too sparse and often hid useful diagnostics.
+
+Durable decisions/outcomes:
+- Cutdown defaults now keep richer diagnostic sampling and longer excerpts while staying deterministic.
+- Sampling is deterministic but not limited to first-N rows; additional benchmark diagnostic JSONL samples are included.
+
+### 2026-03-02_21.41.40 benchmark markdown artifact gating
+
+Source task file:
+- `docs/tasks/2026-03-02_21.41.40 - benchmark-markdown-artifact-gating.md`
+
+Durable decisions/outcomes:
+- `write_markdown=False` now suppresses `eval_report.md` and single-offline comparison markdown while keeping JSON artifacts and run-manifest truth.
+- No CLI default flag changes; behavior is controlled through existing write-markdown wiring.
+
+### 2026-03-02_21.42.47 aligned single-offline comparison markdown table
+
+Source task file:
+- `docs/tasks/2026-03-02_21.42.47 - align single-offline comparison markdown table.md`
+
+Durable decisions/outcomes:
+- Comparison markdown table now uses width-aware alignment with right-aligned numeric columns for raw-file readability.
+- Rendering-only change; payload/schema fields remain unchanged.
+
+Evidence preserved:
+- Targeted tests passed (`2 passed` subset for alignment + interactive paired comparison contract).
+
+### 2026-03-02_21.52.38 single-offline one-markdown-summary contract
+
+Source task file:
+- `docs/tasks/2026-03-02_21.52.38 - interactive-single-offline-one-markdown-summary.md`
+
+Durable decisions/outcomes:
+- Interactive benchmark defaults markdown-on.
+- Single-offline writes exactly one top-level markdown summary (`single_offline_summary.md`) and suppresses per-variant markdown.
+- Comparison JSON remains regardless of markdown setting when both variants succeed.
+
+### 2026-03-02_22.09.34 resolve `<default>` codex reasoning in comparison artifacts
+
+Source task file:
+- `docs/tasks/2026-03-02_22.09.34 - resolve-default-codex-reasoning-in-single-offline-comparison.md`
+
+Durable decisions/outcomes:
+- Comparison runtime metadata resolves `<default>` to concrete codex reasoning effort using codex config defaults when available.
+- Explicit reasoning settings remain unchanged.
+
+Failure history preserved:
+- Tightened regression first failed (`1 failed`) before fallback-resolution fix; post-fix regression slice passed.
+
+### 2026-03-02_22.18.32 explicit metric naming for single-offline comparison
+
+Source task file:
+- `docs/tasks/2026-03-02_22.18.32 - single-offline-comparison-metric-names.md`
+
+Durable decisions/outcomes:
+- Comparison artifacts moved to explicit canonical metrics and removed alias-key duplication.
+- Comparison schema bumped to `codex_vs_vanilla_comparison.v2`.
+- Delta fields now center on explicit strict/macro-F1 metrics.
+
+### 2026-03-02_22.21.30 per-label breakdown in comparison artifacts
+
+Source task file:
+- `docs/tasks/2026-03-02_22.21.30 - add-single-offline-per-label-breakdown-to-comparison-artifacts.md`
+
+Durable decisions/outcomes:
+- Comparison JSON now includes additive `metadata.per_label_breakdown`.
+- Markdown renders matching per-label table with run timestamp + eval count context.
+- Aggregation uses weighted count semantics (dashboard-compatible), not naive averaging.
+
+### 2026-03-02_22.29.20 remove benchmark eval alias fields
+
+Source task file:
+- `docs/tasks/2026-03-02_22.29.20 - remove-benchmark-eval-metric-alias-fields.md`
+
+Problem captured:
+- Evaluators emitted alias metric keys (`precision/recall/f1`, `practical_*`) that duplicated explicit metrics and blurred contracts.
+
+Durable decisions/outcomes:
+- Stage/canonical new eval reports now emit explicit metric keys only.
+- Reader-side compatibility remains for legacy artifacts; alias collapsing is allowed only when explicit strict/macro metrics exist.
+
+Evidence preserved:
+- Bench, labelstudio benchmark helpers, and analytics benchmark test subsets all passed after contract update.
+
+### 2026-03-02_22.46.55 full CodexFarm prompt log export
+
+Source task file:
+- `docs/tasks/2026-03-02_22.46.55 - full codexfarm prompt log export.md`
+
+Durable decisions/outcomes:
+- Codex benchmark runs now require `codexfarm/full_prompt_log.jsonl` with one row per pass call (no sampling/truncation).
+- Manifest artifact keys (`full_prompt_log_status`, rows, path) are now stable contract fields.
+- Cutdown packs copy full JSONL unchanged; sampled text logs remain convenience-only.
+
+### 2026-03-02_22.54.22 canonical benchmark boundary metrics
+
+Source task file:
+- `docs/tasks/2026-03-02_22.54.22 - canonical-benchmark-boundary-metrics.md`
+
+Problem captured:
+- Canonical-text benchmark eval reports omitted `boundary`, leaving dashboard/CSV `boundary_*` stale/null.
+
+Durable decisions/outcomes:
+- Canonical evaluator now emits top-level `boundary` counts (`correct/over/under/partial`) using aligned canonical line spans with overlap threshold `0.5`.
+- Existing benchmark CSV append paths now carry boundary fields for canonical benchmark rows.
+
+### 2026-03-02_23.20.00 CodexFarm prompt category logs
+
+Source task file:
+- `docs/tasks/2026-03-02_23.20.00 - codexfarm benchmark prompt category logs.md`
+
+Durable decisions/outcomes:
+- Kept combined prompt log path for backward compatibility.
+- Added category-specific text logs (`task1`, `task2`, `task3`) plus `prompt_category_logs_manifest.txt`.
+- Category logs include request/response payload text and plaintext from referenced text attachments; missing pass folders are non-fatal.
+
+### 2026-03-02_23.32.41 QualitySuite OG-plan audit fix spec
+
+Source task file:
+- `docs/tasks/2026-03-02_23.32.41 - qualitysuite-ogplan-audit-fixes-spec.md`
+
+Problem captured:
+- Mixed-format QualitySuite ExecPlan context text had drifted from implementation, and discovery tests did not explicitly cover the capped-extension branch (`max_targets < extension_count`).
+
+Durable direction (spec-level task):
+- Keep completed ExecPlan narrative aligned with actual extension-aware discovery behavior (extension pre-selection first, then strata fill).
+- Add deterministic discovery test coverage for capped-extension selection invariants.
+- Keep runtime behavior unchanged unless new test demonstrates a real defect.
+
+Status/evidence:
+- Task file recorded pending verification at consolidation time; preserve as a known follow-up spec to avoid re-auditing the same gap.

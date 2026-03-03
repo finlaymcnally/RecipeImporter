@@ -413,6 +413,129 @@ def _load_total_recipes_from_report(
     return None
 
 
+def _candidate_benchmark_eval_report_paths(artifact_dir_raw: Any) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def _append(path: Path) -> None:
+        try:
+            key = str(path.resolve(strict=False))
+        except OSError:
+            key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    run_dir_text = str(artifact_dir_raw).strip() if artifact_dir_raw is not None else ""
+    if not run_dir_text:
+        return candidates
+    run_dir = Path(run_dir_text).expanduser()
+    _append(run_dir / "eval_report.json")
+    if not run_dir.is_absolute():
+        _append(Path.cwd() / run_dir / "eval_report.json")
+    return candidates
+
+
+def _parse_benchmark_per_label_json(
+    raw: Any,
+    *,
+    warnings: list[str],
+    context: str,
+) -> list[BenchmarkLabelMetrics]:
+    payload: Any
+    if isinstance(raw, (dict, list)):
+        payload = raw
+    else:
+        text = str(raw).strip() if raw is not None else ""
+        if not text:
+            return []
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            warnings.append(f"{context}: malformed per_label_json ({exc})")
+            return []
+
+    rows: list[BenchmarkLabelMetrics] = []
+    if isinstance(payload, dict):
+        iterator = sorted(payload.items())
+        for label_name, metrics in iterator:
+            if not isinstance(metrics, dict):
+                continue
+            rows.append(
+                BenchmarkLabelMetrics(
+                    label=str(label_name),
+                    precision=_safe_float(metrics.get("precision")),
+                    recall=_safe_float(metrics.get("recall")),
+                    gold_total=_safe_int(metrics.get("gold_total")),
+                    pred_total=_safe_int(metrics.get("pred_total")),
+                )
+            )
+        return rows
+
+    if not isinstance(payload, list):
+        warnings.append(f"{context}: per_label_json is not a list/object")
+        return []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        rows.append(
+            BenchmarkLabelMetrics(
+                label=label,
+                precision=_safe_float(item.get("precision")),
+                recall=_safe_float(item.get("recall")),
+                gold_total=_safe_int(item.get("gold_total")),
+                pred_total=_safe_int(item.get("pred_total")),
+            )
+        )
+    return rows
+
+
+def _load_benchmark_per_label_from_eval_report(
+    artifact_dir_raw: Any,
+    *,
+    warnings: list[str],
+    context: str,
+    cache: dict[str, list[BenchmarkLabelMetrics] | None],
+) -> list[BenchmarkLabelMetrics]:
+    cache_key = str(artifact_dir_raw).strip() if artifact_dir_raw is not None else ""
+    if not cache_key:
+        return []
+    if cache_key in cache:
+        cached = cache[cache_key]
+        return list(cached) if cached is not None else []
+
+    for candidate in _candidate_benchmark_eval_report_paths(artifact_dir_raw):
+        try:
+            if not candidate.is_file():
+                continue
+        except OSError:
+            continue
+
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            warnings.append(
+                f"{context}: failed reading eval report {candidate}: {exc}"
+            )
+            continue
+
+        per_label_raw = payload.get("per_label")
+        rows = _parse_benchmark_per_label_json(
+            per_label_raw,
+            warnings=warnings,
+            context=f"{context} eval_report {candidate}",
+        )
+        cache[cache_key] = rows
+        return list(rows)
+
+    cache[cache_key] = None
+    return []
+
+
 def _safe_div(numerator: float | None, denominator: int | float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0:
         return None
@@ -532,6 +655,7 @@ def _collect_from_csv(
         tuple[str, str], tuple[dict[str, Any] | None, str | None, str | None, bool]
     ] = {}
     benchmark_report_recipes_cache: dict[str, int | None] = {}
+    benchmark_eval_per_label_cache: dict[str, list[BenchmarkLabelMetrics] | None] = {}
     try:
         with csv_path.open("r", newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
@@ -555,6 +679,13 @@ def _collect_from_csv(
                                 warnings=warnings,
                                 context=f"CSV row {row_num}",
                                 cache=benchmark_report_recipes_cache,
+                            )
+                        if not bench_record.per_label:
+                            bench_record.per_label = _load_benchmark_per_label_from_eval_report(
+                                bench_record.artifact_dir,
+                                warnings=warnings,
+                                context=f"CSV row {row_num}",
+                                cache=benchmark_eval_per_label_cache,
                             )
                         if _is_pytest_temp_eval_artifact(bench_record.artifact_dir):
                             continue
@@ -780,6 +911,11 @@ def _benchmark_record_from_csv_row(
             run_config_hash = _stable_hash_for_run_config(run_config)
         if run_config_summary is None:
             run_config_summary = _summary_for_run_config(run_config)
+    per_label = _parse_benchmark_per_label_json(
+        row.get("per_label_json"),
+        warnings=warnings,
+        context=context,
+    )
     return BenchmarkRecord(
         run_timestamp=row.get("run_timestamp"),
         artifact_dir=normalized_run_dir,
@@ -812,6 +948,7 @@ def _benchmark_record_from_csv_row(
         ),
         pred_width_p50=_safe_float(row.get("pred_width_p50")),
         gold_width_p50=_safe_float(row.get("gold_width_p50")),
+        per_label=per_label,
         boundary_correct=_safe_int(row.get("boundary_correct")),
         boundary_over=_safe_int(row.get("boundary_over")),
         boundary_under=_safe_int(row.get("boundary_under")),
@@ -868,6 +1005,7 @@ def _merge_benchmark_record_fields(
         "granularity_mismatch_likely",
         "pred_width_p50",
         "gold_width_p50",
+        "per_label",
         "boundary_correct",
         "boundary_over",
         "boundary_under",
@@ -1440,6 +1578,7 @@ def collect_dashboard_data(
     golden_root: Path,
     since_days: int | None = None,
     scan_reports: bool = False,
+    scan_benchmark_reports: bool = False,
 ) -> DashboardData:
     """Scan metric surfaces and return a populated :class:`DashboardData`.
 
@@ -1454,6 +1593,9 @@ def collect_dashboard_data(
     scan_reports:
         If ``True``, also scan individual ``*.excel_import_report.json``
         files even when the performance history CSV is available.
+    scan_benchmark_reports:
+        If ``True``, recursively scan benchmark ``eval_report.json`` artifacts
+        in ``golden_root`` and merge them with CSV history rows.
     """
     warnings: list[str] = []
     cutoff = _compute_cutoff(since_days)
@@ -1485,9 +1627,14 @@ def collect_dashboard_data(
     # Sort stage records by parsed timestamp (un-parseable sorts last)
     stage_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
-    # -- Benchmark records from JSON + CSV --
-    benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
-    benchmark_records = _merge_benchmark_records(benchmark_records, csv_bench_records)
+    # -- Benchmark records (CSV-first; optional JSON scan) --
+    if scan_benchmark_reports:
+        benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
+        benchmark_records = _merge_benchmark_records(benchmark_records, csv_bench_records)
+    elif csv_bench_records:
+        benchmark_records = list(csv_bench_records)
+    else:
+        benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
     benchmark_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
     # -- Summary --

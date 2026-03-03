@@ -16,7 +16,7 @@ from cookimport.bench.speed_suite import match_gold_exports_to_inputs, resolve_r
 from cookimport.core.slug import slugify_name
 from cookimport.paths import REPO_ROOT
 
-_QUALITY_SELECTION_ALGORITHM_VERSION = "quality_representative_v1"
+_QUALITY_SELECTION_ALGORITHM_VERSION = "quality_representative_v2"
 _DEFAULT_CURATED_QUALITY_TARGET_IDS = (
     "saltfatacidheatcutdown",
     "thefoodlabcutdown",
@@ -24,6 +24,7 @@ _DEFAULT_CURATED_QUALITY_TARGET_IDS = (
 )
 _QUALITY_SELECTION_MODE_CURATED = "curated_target_ids"
 _QUALITY_SELECTION_MODE_REPRESENTATIVE = "representative_strata"
+_SOURCE_EXTENSION_NONE = "__none__"
 _SIZE_BUCKETS = ("small", "medium", "large")
 _LABEL_BUCKETS = ("sparse", "medium", "dense")
 
@@ -34,6 +35,7 @@ class QualityTarget(BaseModel):
     target_id: str
     source_file: str
     gold_spans_path: str
+    source_extension: str | None = None
     source_hint: str | None = None
     canonical_text_chars: int
     gold_span_rows: int
@@ -66,6 +68,7 @@ def discover_quality_suite(
     preferred_target_ids: list[str] | tuple[str, ...] | None = (
         _DEFAULT_CURATED_QUALITY_TARGET_IDS
     ),
+    formats: list[str] | tuple[str, ...] | set[str] | None = None,
 ) -> QualitySuite:
     if max_targets is not None and max_targets < 1:
         raise ValueError("max_targets must be >= 1 when provided")
@@ -83,6 +86,12 @@ def discover_quality_suite(
             gold_root=gold_root,
             importable_files=_list_input_files(input_root),
         )
+    normalized_formats = _normalize_formats_filter(formats)
+    if normalized_formats:
+        matched_targets = _filter_targets_by_formats(
+            matched_targets,
+            allowed_formats=set(normalized_formats),
+        )
     quality_targets = _annotate_quality_targets(matched_targets)
     selected_target_ids, selection_metadata = _select_quality_target_ids(
         quality_targets,
@@ -91,7 +100,24 @@ def discover_quality_suite(
         preferred_target_ids=preferred_target_ids,
     )
     strata_counts = _build_strata_counts(quality_targets)
+    format_counts = _build_format_counts(quality_targets)
+    selected_format_counts = _build_selected_format_counts(
+        quality_targets,
+        selected_target_ids=selected_target_ids,
+    )
     timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    selection_payload: dict[str, Any] = {
+        "algorithm_version": _QUALITY_SELECTION_ALGORITHM_VERSION,
+        "seed": int(seed),
+        "max_targets": max_targets,
+        "matched_count": len(quality_targets),
+        "strata_counts": strata_counts,
+        "format_counts": format_counts,
+        "selected_format_counts": selected_format_counts,
+        **selection_metadata,
+    }
+    if normalized_formats:
+        selection_payload["formats_filter"] = normalized_formats
     return QualitySuite(
         name=f"quality_{slugify_name(gold_root.name)}",
         generated_at=timestamp,
@@ -99,14 +125,7 @@ def discover_quality_suite(
         input_root=_path_for_manifest(input_root),
         seed=int(seed),
         max_targets=max_targets,
-        selection={
-            "algorithm_version": _QUALITY_SELECTION_ALGORITHM_VERSION,
-            "seed": int(seed),
-            "max_targets": max_targets,
-            "matched_count": len(quality_targets),
-            "strata_counts": strata_counts,
-            **selection_metadata,
-        },
+        selection=selection_payload,
         targets=quality_targets,
         selected_target_ids=selected_target_ids,
         unmatched=unmatched_targets,
@@ -212,6 +231,9 @@ def _annotate_quality_targets(
                 "target_id": str(target.target_id),
                 "source_file": str(target.source_file),
                 "gold_spans_path": str(target.gold_spans_path),
+                "source_extension": _normalize_source_extension(
+                    Path(str(target.source_file)).suffix
+                ),
                 "source_hint": target.source_hint,
                 "canonical_text_chars": canonical_text_chars,
                 "gold_span_rows": gold_span_rows,
@@ -242,6 +264,7 @@ def _annotate_quality_targets(
                 target_id=target_id,
                 source_file=str(row["source_file"]),
                 gold_spans_path=str(row["gold_spans_path"]),
+                source_extension=_normalize_source_extension(row.get("source_extension")),
                 source_hint=row.get("source_hint"),
                 canonical_text_chars=int(row["canonical_text_chars"]),
                 gold_span_rows=int(row["gold_span_rows"]),
@@ -262,9 +285,68 @@ def _select_representative_target_ids(
     if not targets:
         return []
 
-    sorted_target_ids = [target.target_id for target in sorted(targets, key=lambda row: row.target_id)]
+    sorted_target_ids = [
+        target.target_id for target in sorted(targets, key=lambda row: row.target_id)
+    ]
     if max_targets is None or max_targets >= len(sorted_target_ids):
         return sorted_target_ids
+
+    by_extension: dict[str, list[QualityTarget]] = defaultdict(list)
+    for target in sorted(targets, key=lambda row: row.target_id):
+        by_extension[_source_extension_key(target.source_extension)].append(target)
+
+    if len(by_extension) <= 1:
+        return _select_representative_target_ids_by_strata(
+            targets,
+            max_targets=max_targets,
+            seed=seed,
+        )
+
+    rng = random.Random(int(seed))
+    selected: list[str] = []
+    selected_ids: set[str] = set()
+
+    extension_order = sorted(by_extension)
+    rng.shuffle(extension_order)
+    extension_coverage = extension_order[: min(max_targets, len(extension_order))]
+    for extension_key in extension_coverage:
+        extension_target_ids = [
+            target.target_id
+            for target in sorted(by_extension[extension_key], key=lambda row: row.target_id)
+        ]
+        rng.shuffle(extension_target_ids)
+        for target_id in extension_target_ids:
+            if target_id in selected_ids:
+                continue
+            selected.append(target_id)
+            selected_ids.add(target_id)
+            break
+
+    remaining_capacity = max_targets - len(selected)
+    if remaining_capacity <= 0:
+        return selected[:max_targets]
+
+    remaining_targets = [
+        target for target in targets if target.target_id not in selected_ids
+    ]
+    selected.extend(
+        _select_representative_target_ids_by_strata(
+            remaining_targets,
+            max_targets=remaining_capacity,
+            seed=seed,
+        )
+    )
+    return selected[:max_targets]
+
+
+def _select_representative_target_ids_by_strata(
+    targets: list[QualityTarget],
+    *,
+    max_targets: int,
+    seed: int,
+) -> list[str]:
+    if not targets or max_targets <= 0:
+        return []
 
     rng = random.Random(int(seed))
     strata: dict[tuple[str, str], list[str]] = defaultdict(list)
@@ -291,7 +373,7 @@ def _select_representative_target_ids(
                 break
         if not progressed:
             break
-    return selected
+    return selected[:max_targets]
 
 
 def _select_quality_target_ids(
@@ -377,6 +459,71 @@ def _build_strata_counts(targets: list[QualityTarget]) -> dict[str, int]:
     for target in targets:
         counts[f"{target.size_bucket}:{target.label_bucket}"] += 1
     return dict(sorted(counts.items()))
+
+
+def _build_format_counts(targets: list[QualityTarget]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for target in targets:
+        counts[_source_extension_key(target.source_extension)] += 1
+    return dict(sorted(counts.items()))
+
+
+def _build_selected_format_counts(
+    targets: list[QualityTarget],
+    *,
+    selected_target_ids: list[str],
+) -> dict[str, int]:
+    if not targets or not selected_target_ids:
+        return {}
+    selected_set = set(selected_target_ids)
+    selected_targets = [target for target in targets if target.target_id in selected_set]
+    return _build_format_counts(selected_targets)
+
+
+def _filter_targets_by_formats(
+    matched_targets: list[Any],
+    *,
+    allowed_formats: set[str],
+) -> list[Any]:
+    if not matched_targets or not allowed_formats:
+        return matched_targets
+    filtered: list[Any] = []
+    for target in matched_targets:
+        extension = _normalize_source_extension(Path(str(target.source_file)).suffix)
+        if extension and extension in allowed_formats:
+            filtered.append(target)
+    return filtered
+
+
+def _normalize_formats_filter(
+    formats: list[str] | tuple[str, ...] | set[str] | None,
+) -> list[str]:
+    if not formats:
+        return []
+    normalized: set[str] = set()
+    for raw_item in formats:
+        tokens = str(raw_item or "").split(",")
+        for token in tokens:
+            extension = _normalize_source_extension(token)
+            if extension:
+                normalized.add(extension)
+    return sorted(normalized)
+
+
+def _source_extension_key(raw_extension: str | None) -> str:
+    extension = _normalize_source_extension(raw_extension)
+    return extension or _SOURCE_EXTENSION_NONE
+
+
+def _normalize_source_extension(raw_extension: Any) -> str | None:
+    cleaned = str(raw_extension or "").strip().lower()
+    if not cleaned:
+        return None
+    if cleaned in {"none", "null", _SOURCE_EXTENSION_NONE}:
+        return None
+    if not cleaned.startswith("."):
+        cleaned = f".{cleaned}"
+    return cleaned
 
 
 def _assign_tercile_buckets(

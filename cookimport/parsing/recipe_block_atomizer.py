@@ -1,0 +1,395 @@
+from __future__ import annotations
+
+import re
+from typing import Any, Mapping, Sequence
+
+from pydantic import BaseModel, ConfigDict, Field
+
+_WHITESPACE_RE = re.compile(r"\s+")
+_NOTE_PREFIX_RE = re.compile(r"^\s*note\s*:\s*", re.IGNORECASE)
+_YIELD_PREFIX_RE = re.compile(
+    r"^\s*(?:makes|serves?|servings?|yields?)\b",
+    re.IGNORECASE,
+)
+_NUMBERED_STEP_RE = re.compile(r"^\s*(?:step\s*)?\d{1,2}[.)]\s+", re.IGNORECASE)
+_HOWTO_PREFIX_RE = re.compile(
+    r"^\s*(?:to make|to serve|for serving|for garnish|for the)\b",
+    re.IGNORECASE,
+)
+_BOUNDARY_NOTE_RE = re.compile(r"\bnote\s*:\s*", re.IGNORECASE)
+_BOUNDARY_YIELD_RE = re.compile(
+    r"\b(?:makes|serves?|servings?|yields?)\b",
+    re.IGNORECASE,
+)
+_BOUNDARY_HOWTO_RE = re.compile(
+    r"\b(?:to make|to serve|for serving|for garnish|for the)\b",
+    re.IGNORECASE,
+)
+_BOUNDARY_NUMBERED_RE = re.compile(r"(?<!\w)(?:step\s*)?\d{1,2}[.)]\s+", re.IGNORECASE)
+_QUANTITY_START_RE = re.compile(
+    r"(?<!\w)(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?(?:\s*(?:to|-)\s*\d+(?:\.\d+)?)?)\s+(?=[A-Za-z])",
+    re.IGNORECASE,
+)
+_QUANTITY_RANGE_START_RE = re.compile(
+    r"^\s*\d+(?:\.\d+)?\s*(?:to|-)\s*\d+(?:\.\d+)?\s+",
+    re.IGNORECASE,
+)
+_INGREDIENT_UNIT_HINT_RE = re.compile(
+    r"\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|oz|ounces?|lb|lbs|pounds?|"
+    r"g|kg|ml|l|cloves?|sticks?|cans?|jars?|bunch(?:es)?|pinch)\b",
+    re.IGNORECASE,
+)
+_TIME_METADATA_RE = re.compile(
+    r"\b(?:\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)|"
+    r"prep time|cook time|total time|active time)\b",
+    re.IGNORECASE,
+)
+_INSTRUCTION_VERB_RE = re.compile(
+    r"^\s*(?:add|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|"
+    r"fold|grill|heat|mix|place|pour|reduce|remove|roast|season|serve|simmer|stir|"
+    r"transfer|whisk)\b",
+    re.IGNORECASE,
+)
+_VARIANT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
+_TITLE_CASE_WORD_RE = re.compile(r"[A-Z][A-Za-z'/-]*")
+_INGREDIENT_NOUN_HINTS = {
+    "anchovy",
+    "beef",
+    "broth",
+    "butter",
+    "cheese",
+    "chicken",
+    "cream",
+    "egg",
+    "eggs",
+    "flour",
+    "garlic",
+    "juice",
+    "lemon",
+    "milk",
+    "oil",
+    "onion",
+    "pepper",
+    "salt",
+    "stock",
+    "sugar",
+    "vinegar",
+    "water",
+    "wine",
+    "yolk",
+    "yolks",
+}
+
+
+class AtomicLineCandidate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    recipe_id: str | None = None
+    block_id: str
+    block_index: int
+    atomic_index: int
+    text: str
+    within_recipe_span: bool
+    candidate_labels: list[str] = Field(default_factory=list)
+    prev_text: str | None = None
+    next_text: str | None = None
+    rule_tags: list[str] = Field(default_factory=list)
+
+
+def atomize_blocks(
+    blocks: Sequence[Any],
+    *,
+    recipe_id: str | None,
+    within_recipe_span: bool,
+) -> list[AtomicLineCandidate]:
+    rows: list[dict[str, Any]] = []
+    for position, block in enumerate(blocks):
+        block_text, block_index, block_id = _coerce_block(block, fallback_index=position)
+        if not block_text:
+            continue
+        for segment in _split_block_text(block_text):
+            labels, rule_tags = _infer_candidate_labels(
+                segment,
+                within_recipe_span=within_recipe_span,
+            )
+            rows.append(
+                {
+                    "recipe_id": recipe_id,
+                    "block_id": block_id,
+                    "block_index": block_index,
+                    "text": segment,
+                    "within_recipe_span": within_recipe_span,
+                    "candidate_labels": labels,
+                    "rule_tags": rule_tags,
+                }
+            )
+
+    output: list[AtomicLineCandidate] = []
+    for atomic_index, row in enumerate(rows):
+        prev_text = rows[atomic_index - 1]["text"] if atomic_index > 0 else None
+        next_text = rows[atomic_index + 1]["text"] if atomic_index + 1 < len(rows) else None
+        output.append(
+            AtomicLineCandidate(
+                recipe_id=row["recipe_id"],
+                block_id=str(row["block_id"]),
+                block_index=int(row["block_index"]),
+                atomic_index=atomic_index,
+                text=str(row["text"]),
+                within_recipe_span=bool(row["within_recipe_span"]),
+                candidate_labels=list(row["candidate_labels"]),
+                prev_text=prev_text,
+                next_text=next_text,
+                rule_tags=list(row["rule_tags"]),
+            )
+        )
+    return output
+
+
+def _coerce_block(block: Any, *, fallback_index: int) -> tuple[str, int, str]:
+    if isinstance(block, Mapping):
+        text = _normalize_text(str(block.get("text") or ""))
+        raw_index = block.get("block_index", block.get("index", fallback_index))
+        block_index = _coerce_int(raw_index, fallback=fallback_index)
+        block_id = str(block.get("block_id") or block.get("id") or f"block:{block_index}")
+        return text, block_index, block_id
+
+    text = _normalize_text(str(getattr(block, "text", "") or ""))
+    raw_index = getattr(block, "block_index", getattr(block, "index", fallback_index))
+    block_index = _coerce_int(raw_index, fallback=fallback_index)
+    block_id = str(getattr(block, "block_id", f"block:{block_index}") or f"block:{block_index}")
+    return text, block_index, block_id
+
+
+def _coerce_int(value: Any, *, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _normalize_text(text: str) -> str:
+    return _WHITESPACE_RE.sub(" ", text.replace("\r", " ").replace("\n", " ")).strip()
+
+
+def _split_block_text(text: str) -> list[str]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return []
+
+    segments = [normalized]
+    for pattern in (
+        _BOUNDARY_NOTE_RE,
+        _BOUNDARY_YIELD_RE,
+        _BOUNDARY_HOWTO_RE,
+        _BOUNDARY_NUMBERED_RE,
+    ):
+        next_segments: list[str] = []
+        for segment in segments:
+            next_segments.extend(_split_before_pattern(segment, pattern))
+        segments = next_segments
+
+    output: list[str] = []
+    for segment in segments:
+        output.extend(_split_segment(segment))
+
+    final_rows: list[str] = []
+    for segment in output:
+        cleaned = _normalize_text(segment.strip(" ,;"))
+        if not cleaned:
+            continue
+        final_rows.append(cleaned.rstrip(".") if _looks_like_heading(cleaned) else cleaned)
+    return final_rows
+
+
+def _split_segment(segment: str) -> list[str]:
+    if ";" in segment:
+        semicolon_rows = [_normalize_text(part) for part in segment.split(";")]
+        rows: list[str] = []
+        for item in semicolon_rows:
+            if not item:
+                continue
+            rows.extend(_split_segment(item))
+        return rows
+
+    if _is_yield_line(segment):
+        return _split_yield_segment(segment)
+
+    return _split_quantity_runs(segment)
+
+
+def _split_yield_segment(segment: str) -> list[str]:
+    quantity_matches = list(_QUANTITY_START_RE.finditer(segment))
+    if len(quantity_matches) < 2:
+        return [segment]
+
+    first_ingredient_start = quantity_matches[1].start()
+    yield_text = _normalize_text(segment[:first_ingredient_start])
+    remainder = _normalize_text(segment[first_ingredient_start:])
+    rows: list[str] = []
+    if yield_text:
+        rows.append(yield_text)
+    if remainder:
+        rows.extend(_split_quantity_runs(remainder))
+    return rows or [segment]
+
+
+def _split_quantity_runs(segment: str) -> list[str]:
+    if _is_control_line(segment):
+        return [segment]
+
+    starts = sorted({match.start() for match in _QUANTITY_START_RE.finditer(segment)})
+    if len(starts) <= 1:
+        return [segment]
+
+    rows: list[str] = []
+    for idx, start in enumerate(starts):
+        end = starts[idx + 1] if idx + 1 < len(starts) else len(segment)
+        chunk = _normalize_text(segment[start:end].strip(" ,;"))
+        if chunk:
+            rows.append(chunk)
+
+    prefix = _normalize_text(segment[: starts[0]].strip(" ,;"))
+    if prefix:
+        rows.insert(0, prefix)
+    return rows or [segment]
+
+
+def _split_before_pattern(text: str, pattern: re.Pattern[str]) -> list[str]:
+    starts = sorted(
+        {
+            match.start()
+            for match in pattern.finditer(text)
+            if not (
+                pattern is _BOUNDARY_YIELD_RE
+                and text[max(0, match.start() - 3): match.start()].lower() == "to "
+            )
+            if match.start() > 0 and not text[max(0, match.start() - 1)].isalnum()
+        }
+    )
+    if not starts:
+        return [text]
+
+    rows: list[str] = []
+    cursor = 0
+    for start in starts:
+        chunk = _normalize_text(text[cursor:start].strip(" ,;"))
+        if chunk:
+            rows.append(chunk)
+        cursor = start
+    tail = _normalize_text(text[cursor:].strip(" ,;"))
+    if tail:
+        rows.append(tail)
+    return rows or [text]
+
+
+def _is_control_line(text: str) -> bool:
+    return (
+        _is_note_line(text)
+        or _is_yield_line(text)
+        or _is_howto_heading(text)
+        or _is_numbered_instruction(text)
+    )
+
+
+def _infer_candidate_labels(
+    text: str,
+    *,
+    within_recipe_span: bool,
+) -> tuple[list[str], list[str]]:
+    if _is_note_line(text):
+        return ["RECIPE_NOTES", "OTHER"], ["note_prefix"]
+    if _is_yield_line(text):
+        return ["YIELD_LINE", "INGREDIENT_LINE", "OTHER"], ["yield_prefix"]
+    if _is_howto_heading(text):
+        return ["HOWTO_SECTION", "RECIPE_VARIANT", "OTHER"], ["howto_heading"]
+    if _is_variant_heading(text):
+        return ["RECIPE_VARIANT", "RECIPE_TITLE", "OTHER"], ["variant_heading"]
+    if _is_ingredient_line(text):
+        return ["INGREDIENT_LINE", "YIELD_LINE", "OTHER"], ["ingredient_like"]
+    if _is_numbered_instruction(text) or _is_instruction_sentence(text):
+        if _is_time_metadata(text):
+            return ["INSTRUCTION_LINE", "TIME_LINE", "OTHER"], ["instruction_with_time"]
+        return ["INSTRUCTION_LINE", "TIME_LINE", "OTHER"], ["instruction_like"]
+    if _is_time_metadata(text):
+        return ["TIME_LINE", "INSTRUCTION_LINE", "OTHER"], ["time_metadata"]
+    if within_recipe_span:
+        return ["OTHER", "KNOWLEDGE"], ["recipe_span_fallback"]
+    return ["KNOWLEDGE", "OTHER"], ["outside_recipe_span"]
+
+
+def _is_note_line(text: str) -> bool:
+    return bool(_NOTE_PREFIX_RE.match(text))
+
+
+def _is_yield_line(text: str) -> bool:
+    return bool(_YIELD_PREFIX_RE.match(text))
+
+
+def _is_numbered_instruction(text: str) -> bool:
+    return bool(_NUMBERED_STEP_RE.match(text))
+
+
+def _is_howto_heading(text: str) -> bool:
+    return bool(_HOWTO_PREFIX_RE.match(text))
+
+
+def _looks_like_heading(text: str) -> bool:
+    words = _VARIANT_WORD_RE.findall(text)
+    if not words:
+        return False
+    if len(words) > 12:
+        return False
+    uppercase_chars = sum(1 for ch in text if ch.isupper())
+    alpha_chars = sum(1 for ch in text if ch.isalpha())
+    if alpha_chars <= 0:
+        return False
+    uppercase_ratio = uppercase_chars / alpha_chars
+    return uppercase_ratio >= 0.72 and text[-1:] not in {".", "!", "?"}
+
+
+def _is_variant_heading(text: str) -> bool:
+    words = _VARIANT_WORD_RE.findall(text)
+    if len(words) < 4:
+        return False
+    if _is_howto_heading(text) or _is_numbered_instruction(text) or _is_yield_line(text):
+        return False
+
+    all_caps = all(word.upper() == word for word in words)
+    if all_caps and "-" in text:
+        return True
+
+    title_case_words = _TITLE_CASE_WORD_RE.findall(text)
+    if len(title_case_words) >= max(3, len(words) - 2) and "-" in text:
+        return True
+    return False
+
+
+def _is_ingredient_line(text: str) -> bool:
+    normalized = text.lower().strip()
+    if not normalized:
+        return False
+    if _is_control_line(text):
+        return False
+    if _QUANTITY_RANGE_START_RE.match(text):
+        return True
+    if _QUANTITY_START_RE.match(text):
+        if _INGREDIENT_UNIT_HINT_RE.search(text):
+            return True
+        if any(hint in normalized for hint in _INGREDIENT_NOUN_HINTS):
+            return True
+    word_count = len(_VARIANT_WORD_RE.findall(text))
+    if 1 <= word_count <= 4 and any(hint in normalized for hint in _INGREDIENT_NOUN_HINTS):
+        return True
+    return False
+
+
+def _is_instruction_sentence(text: str) -> bool:
+    if _INSTRUCTION_VERB_RE.match(text):
+        return True
+    if "." in text and len(_VARIANT_WORD_RE.findall(text)) >= 8:
+        return True
+    return False
+
+
+def _is_time_metadata(text: str) -> bool:
+    return bool(_TIME_METADATA_RE.search(text))

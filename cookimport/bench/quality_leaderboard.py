@@ -125,6 +125,150 @@ class LeaderboardPaths:
     pareto_csv: Path
     winner_run_settings_json: Path
     winner_dimensions_json: Path
+    leaderboard_by_source_extension_json: Path | None = None
+    leaderboard_by_source_extension_csv: Path | None = None
+
+
+def _normalize_source_extension(value: Any) -> str:
+    cleaned = str(value or "").strip().lower()
+    if not cleaned:
+        return "__none__"
+    if not cleaned.startswith("."):
+        cleaned = f".{cleaned}"
+    return cleaned
+
+
+def _source_group_count_for_groups(groups: dict[str, dict[str, Any]]) -> int:
+    source_group_keys: set[str] = set()
+    for group in groups.values():
+        by_source_group = (
+            group.get("by_source_group")
+            if isinstance(group.get("by_source_group"), dict)
+            else {}
+        )
+        for source_group_key in by_source_group:
+            cleaned = str(source_group_key or "").strip()
+            if cleaned:
+                source_group_keys.add(cleaned)
+    return len(source_group_keys)
+
+
+def _build_ranked_rows(
+    *,
+    groups: dict[str, dict[str, Any]],
+    total_source_groups: int,
+    allow_partial_coverage: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
+    config_rows: list[dict[str, Any]] = []
+    for config_key, group in groups.items():
+        run_config_hash = str(group.get("run_config_hash") or "").strip() or None
+        run_config_summary = str(group.get("run_config_summary") or "").strip() or None
+        dimensions = group.get("dimensions") if isinstance(group.get("dimensions"), dict) else {}
+        by_source_group = (
+            group.get("by_source_group")
+            if isinstance(group.get("by_source_group"), dict)
+            else {}
+        )
+        source_group_keys = sorted(
+            str(key) for key in by_source_group.keys() if str(key).strip()
+        )
+        if not source_group_keys:
+            continue
+
+        per_source_practical: list[float] = []
+        per_source_strict: list[float] = []
+        per_source_duration: list[float] = []
+        for source_group_key in source_group_keys:
+            contrib_rows = by_source_group.get(source_group_key)
+            if not isinstance(contrib_rows, list) or not contrib_rows:
+                continue
+            practical_values = [
+                float(row.get("practical_f1"))
+                for row in contrib_rows
+                if _as_float(row.get("practical_f1")) is not None
+            ]
+            strict_values = [
+                float(row.get("strict_f1"))
+                for row in contrib_rows
+                if _as_float(row.get("strict_f1")) is not None
+            ]
+            duration_values = [
+                float(row.get("duration_seconds"))
+                for row in contrib_rows
+                if _as_float(row.get("duration_seconds")) is not None
+            ]
+            practical_mean = _mean(practical_values)
+            strict_mean = _mean(strict_values)
+            duration_median = _median(duration_values)
+            if practical_mean is None or strict_mean is None:
+                continue
+            per_source_practical.append(float(practical_mean))
+            per_source_strict.append(float(strict_mean))
+            if duration_median is not None:
+                per_source_duration.append(float(duration_median))
+
+        mean_practical = _mean(per_source_practical)
+        mean_strict = _mean(per_source_strict)
+        median_duration = _median(per_source_duration)
+        mean_duration = _mean(per_source_duration)
+        if mean_practical is None or mean_strict is None:
+            continue
+
+        coverage_count = len(source_group_keys)
+        coverage_ratio = (
+            float(coverage_count) / float(total_source_groups)
+            if total_source_groups > 0
+            else 0.0
+        )
+        config_rows.append(
+            {
+                "config_key": config_key,
+                "config_id": (
+                    _short_id_from_hash(run_config_hash)
+                    or _short_id_from_dimensions(dimensions)
+                ),
+                "run_config_hash": run_config_hash,
+                "run_config_summary": run_config_summary,
+                "dimensions": dimensions,
+                "representative_run_manifest_path": group.get(
+                    "representative_run_manifest_path"
+                ),
+                "coverage_sources": coverage_count,
+                "coverage_ratio": coverage_ratio,
+                "mean_practical_f1": float(mean_practical),
+                "mean_strict_f1": float(mean_strict),
+                "median_duration_seconds": float(median_duration)
+                if median_duration is not None
+                else None,
+                "mean_duration_seconds": float(mean_duration)
+                if mean_duration is not None
+                else None,
+            }
+        )
+
+    full_coverage_rows = [
+        row for row in config_rows if row.get("coverage_sources") == total_source_groups
+    ]
+    ranked_input = (
+        full_coverage_rows
+        if (full_coverage_rows and not allow_partial_coverage)
+        else config_rows
+    )
+    ranked = sorted(
+        ranked_input,
+        key=lambda row: (
+            -float(row.get("mean_practical_f1") or 0.0),
+            -float(row.get("mean_strict_f1") or 0.0),
+            -int(row.get("coverage_sources") or 0),
+            float(row.get("median_duration_seconds") or 0.0),
+            str(row.get("run_config_hash") or ""),
+            str(row.get("config_id") or ""),
+        ),
+    )
+    for index, row in enumerate(ranked, start=1):
+        row["rank"] = index
+    winner = ranked[0] if ranked else None
+    return config_rows, full_coverage_rows, ranked, winner
 
 
 def build_quality_leaderboard(
@@ -133,6 +277,7 @@ def build_quality_leaderboard(
     experiment_id: str,
     allow_partial_coverage: bool = False,
     ignore_dimension_keys: set[str] | None = None,
+    include_by_source_extension: bool = False,
 ) -> dict[str, Any]:
     if ignore_dimension_keys is None:
         ignore_dimension_keys = {"source_extension"}
@@ -184,9 +329,11 @@ def build_quality_leaderboard(
 
     # groups[config_key]["by_source_group"][source_group_key] -> list[contrib]
     groups: dict[str, dict[str, Any]] = {}
+    groups_by_source_extension: dict[str, dict[str, dict[str, Any]]] = {}
 
     def record_contribution(
         *,
+        group_map: dict[str, dict[str, Any]],
         config_key: str,
         run_config_hash: str | None,
         run_config_summary: str | None,
@@ -197,7 +344,7 @@ def build_quality_leaderboard(
         strict_f1: float,
         duration_seconds: float | None,
     ) -> None:
-        group = groups.setdefault(
+        group = group_map.setdefault(
             config_key,
             {
                 "run_config_hash": str(run_config_hash or "").strip() or None,
@@ -280,6 +427,7 @@ def build_quality_leaderboard(
                     if candidate_manifest.exists() and candidate_manifest.is_file():
                         run_manifest_path = str(candidate_manifest)
                 record_contribution(
+                    group_map=groups,
                     config_key=config_key,
                     run_config_hash=run_config_hash,
                     run_config_summary=run_config_summary,
@@ -292,114 +440,62 @@ def build_quality_leaderboard(
                     if duration_seconds is not None
                     else None,
                 )
+                if include_by_source_extension:
+                    source_extension = _normalize_source_extension(
+                        dimensions_raw.get("source_extension")
+                    )
+                    extension_groups = groups_by_source_extension.setdefault(
+                        source_extension,
+                        {},
+                    )
+                    record_contribution(
+                        group_map=extension_groups,
+                        config_key=config_key,
+                        run_config_hash=run_config_hash,
+                        run_config_summary=run_config_summary,
+                        dimensions=cleaned_dimensions,
+                        run_manifest_path=run_manifest_path,
+                        source_group_key=source_group_key,
+                        practical_f1=float(practical_f1),
+                        strict_f1=float(strict_f1),
+                        duration_seconds=float(duration_seconds)
+                        if duration_seconds is not None
+                        else None,
+                    )
 
-    config_rows: list[dict[str, Any]] = []
-    for config_key, group in groups.items():
-        run_config_hash = str(group.get("run_config_hash") or "").strip() or None
-        run_config_summary = str(group.get("run_config_summary") or "").strip() or None
-        dimensions = group.get("dimensions") if isinstance(group.get("dimensions"), dict) else {}
-        by_source_group = (
-            group.get("by_source_group")
-            if isinstance(group.get("by_source_group"), dict)
-            else {}
-        )
-        source_group_keys = sorted(
-            str(k) for k in by_source_group.keys() if str(k).strip()
-        )
-        if not source_group_keys:
-            continue
-
-        per_source_practical: list[float] = []
-        per_source_strict: list[float] = []
-        per_source_duration: list[float] = []
-        for source_group_key in source_group_keys:
-            contrib_rows = by_source_group.get(source_group_key)
-            if not isinstance(contrib_rows, list) or not contrib_rows:
-                continue
-            practical_values = [
-                float(row.get("practical_f1"))
-                for row in contrib_rows
-                if _as_float(row.get("practical_f1")) is not None
-            ]
-            strict_values = [
-                float(row.get("strict_f1"))
-                for row in contrib_rows
-                if _as_float(row.get("strict_f1")) is not None
-            ]
-            duration_values = [
-                float(row.get("duration_seconds"))
-                for row in contrib_rows
-                if _as_float(row.get("duration_seconds")) is not None
-            ]
-            practical_mean = _mean(practical_values)
-            strict_mean = _mean(strict_values)
-            duration_median = _median(duration_values)
-            if practical_mean is None or strict_mean is None:
-                continue
-            per_source_practical.append(float(practical_mean))
-            per_source_strict.append(float(strict_mean))
-            if duration_median is not None:
-                per_source_duration.append(float(duration_median))
-
-        mean_practical = _mean(per_source_practical)
-        mean_strict = _mean(per_source_strict)
-        median_duration = _median(per_source_duration)
-        mean_duration = _mean(per_source_duration)
-        if mean_practical is None or mean_strict is None:
-            continue
-
-        coverage_count = len(source_group_keys)
-        coverage_ratio = (
-            float(coverage_count) / float(total_source_groups)
-            if total_source_groups > 0
-            else 0.0
-        )
-        config_rows.append(
-            {
-                "config_key": config_key,
-                "config_id": (
-                    _short_id_from_hash(run_config_hash)
-                    or _short_id_from_dimensions(dimensions)
-                ),
-                "run_config_hash": run_config_hash,
-                "run_config_summary": run_config_summary,
-                "dimensions": dimensions,
-                "representative_run_manifest_path": group.get(
-                    "representative_run_manifest_path"
-                ),
-                "coverage_sources": coverage_count,
-                "coverage_ratio": coverage_ratio,
-                "mean_practical_f1": float(mean_practical),
-                "mean_strict_f1": float(mean_strict),
-                "median_duration_seconds": float(median_duration)
-                if median_duration is not None
-                else None,
-                "mean_duration_seconds": float(mean_duration)
-                if mean_duration is not None
-                else None,
-            }
-        )
-
-    full_coverage_rows = [
-        row for row in config_rows if row.get("coverage_sources") == total_source_groups
-    ]
-    ranked_input = full_coverage_rows if (full_coverage_rows and not allow_partial_coverage) else config_rows
-
-    ranked = sorted(
-        ranked_input,
-        key=lambda row: (
-            -float(row.get("mean_practical_f1") or 0.0),
-            -float(row.get("mean_strict_f1") or 0.0),
-            -int(row.get("coverage_sources") or 0),
-            float(row.get("median_duration_seconds") or 0.0),
-            str(row.get("run_config_hash") or ""),
-            str(row.get("config_id") or ""),
-        ),
+    _, full_coverage_rows, ranked, winner = _build_ranked_rows(
+        groups=groups,
+        total_source_groups=total_source_groups,
+        allow_partial_coverage=allow_partial_coverage,
     )
-    for index, row in enumerate(ranked, start=1):
-        row["rank"] = index
 
-    winner = ranked[0] if ranked else None
+    leaderboard_by_source_extension: dict[str, Any] = {}
+    if include_by_source_extension and groups_by_source_extension:
+        for source_extension in sorted(groups_by_source_extension):
+            extension_groups = groups_by_source_extension[source_extension]
+            extension_total_sources = _source_group_count_for_groups(extension_groups)
+            if extension_total_sources <= 0:
+                continue
+            (
+                _,
+                extension_full_coverage_rows,
+                extension_ranked,
+                extension_winner,
+            ) = _build_ranked_rows(
+                groups=extension_groups,
+                total_source_groups=extension_total_sources,
+                allow_partial_coverage=allow_partial_coverage,
+            )
+            leaderboard_by_source_extension[source_extension] = {
+                "source_extension": source_extension,
+                "total_source_groups": extension_total_sources,
+                "leaderboard": extension_ranked,
+                "winner": extension_winner,
+                "pareto_frontier": {
+                    "full_coverage": _pareto_frontier(extension_full_coverage_rows),
+                    "ranked_set": _pareto_frontier(extension_ranked),
+                },
+            }
 
     def compute_winner_settings() -> dict[str, Any] | None:
         if not isinstance(winner, dict):
@@ -468,6 +564,7 @@ def build_quality_leaderboard(
         "total_source_groups": total_source_groups,
         "allow_partial_coverage": bool(allow_partial_coverage),
         "dimension_ignore_keys": sorted(ignore_dimension_keys),
+        "include_by_source_extension": bool(include_by_source_extension),
         "leaderboard": ranked,
         "winner": winner,
         "winner_run_settings": compute_winner_settings(),
@@ -476,6 +573,8 @@ def build_quality_leaderboard(
             "ranked_set": _pareto_frontier(ranked),
         },
     }
+    if leaderboard_by_source_extension:
+        payload["leaderboard_by_source_extension"] = leaderboard_by_source_extension
     return payload
 
 
@@ -493,6 +592,8 @@ def write_quality_leaderboard_artifacts(
     pareto_csv = out_dir / "pareto_frontier.csv"
     winner_run_settings_json = out_dir / "winner_run_settings.json"
     winner_dimensions_json = out_dir / "winner_dimensions.json"
+    leaderboard_by_source_extension_json: Path | None = None
+    leaderboard_by_source_extension_csv: Path | None = None
 
     leaderboard_json.write_text(
         json.dumps(payload, indent=2, sort_keys=True),
@@ -587,6 +688,77 @@ def write_quality_leaderboard_artifacts(
         encoding="utf-8",
     )
 
+    by_extension_payload = (
+        payload.get("leaderboard_by_source_extension")
+        if isinstance(payload.get("leaderboard_by_source_extension"), dict)
+        else {}
+    )
+    if by_extension_payload:
+        leaderboard_by_source_extension_json = (
+            out_dir / "leaderboard_by_source_extension.json"
+        )
+        leaderboard_by_source_extension_csv = (
+            out_dir / "leaderboard_by_source_extension.csv"
+        )
+        leaderboard_by_source_extension_json.write_text(
+            json.dumps(by_extension_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        with leaderboard_by_source_extension_csv.open(
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "source_extension",
+                    "rank",
+                    "config_id",
+                    "run_config_hash",
+                    "coverage_sources",
+                    "coverage_ratio",
+                    "mean_practical_f1",
+                    "mean_strict_f1",
+                    "median_duration_seconds",
+                    "mean_duration_seconds",
+                    "dimensions_json",
+                ],
+            )
+            writer.writeheader()
+            for source_extension in sorted(by_extension_payload):
+                row_payload = by_extension_payload[source_extension]
+                if not isinstance(row_payload, dict):
+                    continue
+                leaderboard_rows = row_payload.get("leaderboard")
+                if not isinstance(leaderboard_rows, list):
+                    continue
+                for row in leaderboard_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    dimensions = (
+                        row.get("dimensions")
+                        if isinstance(row.get("dimensions"), dict)
+                        else {}
+                    )
+                    writer.writerow(
+                        {
+                            "source_extension": source_extension,
+                            "rank": row.get("rank"),
+                            "config_id": row.get("config_id"),
+                            "run_config_hash": row.get("run_config_hash"),
+                            "coverage_sources": row.get("coverage_sources"),
+                            "coverage_ratio": row.get("coverage_ratio"),
+                            "mean_practical_f1": row.get("mean_practical_f1"),
+                            "mean_strict_f1": row.get("mean_strict_f1"),
+                            "median_duration_seconds": row.get(
+                                "median_duration_seconds"
+                            ),
+                            "mean_duration_seconds": row.get("mean_duration_seconds"),
+                            "dimensions_json": _stable_json(dimensions),
+                        }
+                    )
+
     return LeaderboardPaths(
         out_dir=out_dir,
         leaderboard_json=leaderboard_json,
@@ -595,4 +767,6 @@ def write_quality_leaderboard_artifacts(
         pareto_csv=pareto_csv,
         winner_run_settings_json=winner_run_settings_json,
         winner_dimensions_json=winner_dimensions_json,
+        leaderboard_by_source_extension_json=leaderboard_by_source_extension_json,
+        leaderboard_by_source_extension_csv=leaderboard_by_source_extension_csv,
     )

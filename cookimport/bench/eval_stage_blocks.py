@@ -834,7 +834,11 @@ def load_gold_block_labels(
     }
 
 
-def load_stage_block_labels(stage_block_predictions_json_path: Path) -> dict[int, str]:
+def load_stage_block_labels(
+    stage_block_predictions_json_path: Path,
+    *,
+    resolve_howto_sections: bool = True,
+) -> dict[int, str]:
     if not stage_block_predictions_json_path.exists():
         raise FileNotFoundError(
             "Missing stage block predictions manifest: "
@@ -883,6 +887,9 @@ def load_stage_block_labels(stage_block_predictions_json_path: Path) -> dict[int
                 "Stage block predictions are incomplete: "
                 f"missing labels for {len(missing)} indices."
             )
+
+    if not resolve_howto_sections:
+        return {index: label for index, label in sorted(labels.items())}
 
     resolved_label_sets = resolve_howto_label_sets_by_index(
         {

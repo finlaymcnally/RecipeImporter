@@ -51,6 +51,8 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["p6_yield_mode"] == "legacy_v1"
     assert settings.to_run_config_dict()["p6_emit_metadata_debug"] is False
     assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
+    assert settings.to_run_config_dict()["atomic_block_splitter"] == "off"
+    assert settings.to_run_config_dict()["line_role_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
     assert settings.to_run_config_dict()["codex_farm_recipe_mode"] == "extract"
@@ -115,6 +117,18 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert by_name == expected
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
+    atomic_block_splitter_spec = next(
+        spec for spec in specs if spec.name == "atomic_block_splitter"
+    )
+    assert atomic_block_splitter_spec.choices == ("off", "atomic-v1")
+    line_role_pipeline_spec = next(
+        spec for spec in specs if spec.name == "line_role_pipeline"
+    )
+    assert line_role_pipeline_spec.choices == (
+        "off",
+        "deterministic-v1",
+        "codex-line-role-v1",
+    )
     codex_farm_recipe_mode_spec = next(
         spec for spec in specs if spec.name == "codex_farm_recipe_mode"
     )

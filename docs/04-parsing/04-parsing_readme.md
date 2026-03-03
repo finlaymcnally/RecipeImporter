@@ -50,6 +50,7 @@ Core modules:
 - `cookimport/parsing/cleaning.py`
 - `cookimport/parsing/tip_taxonomy.py`
 - `cookimport/parsing/block_roles.py`
+- `cookimport/parsing/recipe_block_atomizer.py`
 - `cookimport/parsing/markdown_blocks.py`
 - `cookimport/parsing/epub_extractors.py`
 - `cookimport/parsing/epub_html_normalize.py`
@@ -420,6 +421,23 @@ Gates include:
 
 - `tests/core/test_atoms.py`
 
+## Recipe Block Atomization (`cookimport/parsing/recipe_block_atomizer.py`)
+
+### What it does
+
+- Splits merged recipe blocks into atomic line candidates for canonical line-label benchmark work.
+- Emits serializable `AtomicLineCandidate` rows with deterministic `atomic_index`, adjacency context (`prev_text`, `next_text`), candidate labels, and rule tags.
+
+### Current rules
+
+- Boundary-first splitting for `NOTE:`, yield prefixes (`MAKES`/`SERVES`/`YIELDS`), method headings (`TO MAKE`, `FOR THE`, `FOR SERVING`), and inline numbered steps.
+- Yield-first segments are split so trailing quantity-led ingredient runs become separate candidates.
+- Quantity ranges like `4 to 6 chicken leg quarters` are treated as ingredient-like candidates, not yield.
+
+### Tests to read
+
+- `tests/parsing/test_recipe_block_atomizer.py`
+
 ## Knowledge Chunking (`cookimport/parsing/chunks.py`)
 
 ### Pipeline
@@ -759,4 +777,3 @@ Current parsing-contract additions:
 - Existing EPUB extraction-health signals (duplicate-line rates and warning keys) are diagnostics, not standalone suppression behavior.
 - Codex heads-up integration is telemetry-ready, but pass1 `pattern_hints` remains default-off and metadata-only behind `COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS`.
 - Practical workflow rule: when plan/docs claim pattern-detector work is pending, verify runtime/tests first because this feature set is already largely shipped.
-

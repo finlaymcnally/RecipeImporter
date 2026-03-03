@@ -1,0 +1,20 @@
+{
+  "recipe_id": "omelet",
+  "blocks": [
+    {
+      "block_id": "block:omelet:20",
+      "block_index": 20,
+      "text": "DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET"
+    },
+    {
+      "block_id": "block:omelet:21",
+      "block_index": 21,
+      "text": "3 tablespoons whole milk"
+    },
+    {
+      "block_id": "block:omelet:22",
+      "block_index": 22,
+      "text": "1. Whisk eggs with milk and season with salt."
+    }
+  ]
+}

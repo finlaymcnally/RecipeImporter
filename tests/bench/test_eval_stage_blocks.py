@@ -86,7 +86,7 @@ def test_load_gold_block_labels_requires_exhaustive_blocks(tmp_path: Path) -> No
     assert payload["missing_block_indices"] == [0]
 
 
-def test_build_gold_line_labels_maps_howto_section_by_neighboring_labels() -> None:
+def test_build_gold_line_labels_preserves_howto_section_labels() -> None:
     lines = canonical_eval._build_canonical_lines("a\nb\nc\nd\ne")
     gold_spans = [
         {
@@ -126,8 +126,8 @@ def test_build_gold_line_labels_maps_howto_section_by_neighboring_labels() -> No
         gold_spans=gold_spans,
         strict_empty_to_other=False,
     )
-    assert labels[1] == {"INGREDIENT_LINE"}
-    assert labels[4] == {"INSTRUCTION_LINE"}
+    assert labels[1] == {"HOWTO_SECTION"}
+    assert labels[4] == {"HOWTO_SECTION"}
 
 
 def test_load_stage_block_labels_maps_howto_section_by_neighboring_labels(
@@ -161,7 +161,7 @@ def test_load_stage_block_labels_maps_howto_section_by_neighboring_labels(
     assert labels[4] == "INSTRUCTION_LINE"
 
 
-def test_build_pred_line_labels_maps_howto_section_by_neighboring_labels() -> None:
+def test_build_pred_line_labels_preserves_howto_section_labels() -> None:
     lines = canonical_eval._build_canonical_lines("a\nb\nc\nd\ne")
 
     def _line_block_payload(line_index: int, label: str) -> dict[str, object]:
@@ -185,8 +185,93 @@ def test_build_pred_line_labels_maps_howto_section_by_neighboring_labels() -> No
         lines=lines,
         aligned_prediction_blocks=aligned_prediction_blocks,
     )
-    assert labels[1] == "INGREDIENT_LINE"
-    assert labels[4] == "INSTRUCTION_LINE"
+    assert labels[1] == "HOWTO_SECTION"
+    assert labels[4] == "HOWTO_SECTION"
+
+
+def test_evaluate_canonical_text_includes_howto_section_totals(tmp_path: Path) -> None:
+    canonical_text = "FOR THE SAUCE\n1 cup cream\nWhisk until smooth."
+    canonical_lines = canonical_eval._build_canonical_lines(canonical_text)
+
+    gold_export_root = tmp_path / "gold"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    canonical_text_path = gold_export_root / "canonical_text.txt"
+    canonical_spans_path = gold_export_root / "canonical_span_labels.jsonl"
+    canonical_text_path.write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(
+        canonical_spans_path,
+        [
+            {
+                "span_id": "s0",
+                "label": "HOWTO_SECTION",
+                "start_char": canonical_lines[0]["start_char"],
+                "end_char": canonical_lines[0]["end_char"],
+            },
+            {
+                "span_id": "s1",
+                "label": "INGREDIENT_LINE",
+                "start_char": canonical_lines[1]["start_char"],
+                "end_char": canonical_lines[1]["end_char"],
+            },
+            {
+                "span_id": "s2",
+                "label": "INSTRUCTION_LINE",
+                "start_char": canonical_lines[2]["start_char"],
+                "end_char": canonical_lines[2]["end_char"],
+            },
+        ],
+    )
+
+    stage_predictions_path = tmp_path / "stage_block_predictions.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "hash-demo",
+                "block_count": 3,
+                "block_labels": {
+                    "0": "HOWTO_SECTION",
+                    "1": "INGREDIENT_LINE",
+                    "2": "INSTRUCTION_LINE",
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_blocks_path = tmp_path / "extracted_archive.json"
+    extracted_blocks_path.write_text(
+        json.dumps(
+            [
+                {"index": 0, "text": "FOR THE SAUCE"},
+                {"index": 1, "text": "1 cup cream"},
+                {"index": 2, "text": "Whisk until smooth."},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_blocks_path,
+        out_dir=tmp_path / "eval",
+        strict_empty_gold_to_other=True,
+        canonical_paths={
+            "canonical_text_path": canonical_text_path,
+            "canonical_span_labels_path": canonical_spans_path,
+            "canonical_manifest_path": gold_export_root / "canonical_manifest.json",
+        },
+    )
+    report = result["report"]
+
+    assert report["per_label"]["HOWTO_SECTION"]["gold_total"] == 1
+    assert report["per_label"]["HOWTO_SECTION"]["pred_total"] == 1
+    assert report["per_label"]["HOWTO_SECTION"]["tp"] == 1
+    assert report["confusion"]["HOWTO_SECTION"]["HOWTO_SECTION"] == 1
 
 
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:

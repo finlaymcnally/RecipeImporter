@@ -1,0 +1,10 @@
+{
+  "recipe_id": "braised-chicken",
+  "blocks": [
+    {
+      "block_id": "block:braised-chicken:30",
+      "block_index": 30,
+      "text": "1. Brown chicken skin-side down. 2. Add onions and cook until soft. 3. Cover and braise for 45 minutes."
+    }
+  ]
+}

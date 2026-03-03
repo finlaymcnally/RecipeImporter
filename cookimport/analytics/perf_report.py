@@ -519,6 +519,7 @@ def append_benchmark_csv(
     gold_width_p50 = _safe_float_or_none((span_width_stats.get("gold") or {}).get("p50"))
 
     boundary = report.get("boundary") or {}
+    per_label_json = _serialize_per_label_metrics_json(report.get("per_label"))
     overall_block_accuracy = strict_accuracy
     if overall_block_accuracy is None:
         overall_block_accuracy = _safe_float_or_none(report.get("accuracy"))
@@ -697,6 +698,7 @@ def append_benchmark_csv(
         "boundary_over": boundary.get("over", ""),
         "boundary_under": boundary.get("under", ""),
         "boundary_partial": boundary.get("partial", ""),
+        "per_label_json": per_label_json,
         "benchmark_prediction_seconds": (
             benchmark_prediction_seconds
             if benchmark_prediction_seconds is not None
@@ -1066,6 +1068,35 @@ def _benchmark_report_metric_value(
     return _safe_float_or_none(report.get(metric_name))
 
 
+def _serialize_per_label_metrics_json(per_label_payload: Any) -> str:
+    if not isinstance(per_label_payload, dict):
+        return ""
+    serialized_rows: list[dict[str, Any]] = []
+    for label, metrics in sorted(per_label_payload.items()):
+        if not isinstance(metrics, dict):
+            continue
+        label_name = str(label or "").strip()
+        if not label_name:
+            continue
+        serialized_rows.append(
+            {
+                "label": label_name,
+                "precision": _safe_float_or_none(metrics.get("precision")),
+                "recall": _safe_float_or_none(metrics.get("recall")),
+                "gold_total": _parse_int_or_none(metrics.get("gold_total")),
+                "pred_total": _parse_int_or_none(metrics.get("pred_total")),
+            }
+        )
+    if not serialized_rows:
+        return ""
+    return json.dumps(
+        serialized_rows,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
 def _normalize_optional_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -1253,6 +1284,7 @@ _CSV_FIELDS = [
     "boundary_over",
     "boundary_under",
     "boundary_partial",
+    "per_label_json",
     "benchmark_prediction_seconds",
     "benchmark_evaluation_seconds",
     "benchmark_artifact_write_seconds",
@@ -1344,6 +1376,7 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "boundary_over": "",
         "boundary_under": "",
         "boundary_partial": "",
+        "per_label_json": "",
         "benchmark_prediction_seconds": "",
         "benchmark_evaluation_seconds": "",
         "benchmark_artifact_write_seconds": "",

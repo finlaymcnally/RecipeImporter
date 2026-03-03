@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cProfile
+import csv
 import datetime as dt
 import hashlib
 import io
@@ -558,6 +559,7 @@ def _refresh_dashboard_after_history_write(
             open_browser=False,
             since_days=None,
             scan_reports=False,
+            scan_benchmark_reports=False,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Dashboard refresh failed%s: %s", reason_suffix, exc)
@@ -6052,6 +6054,34 @@ def _normalize_codex_farm_recipe_mode(value: str) -> str:
     return CODEX_FARM_RECIPE_MODE_EXTRACT
 
 
+def _normalize_atomic_block_splitter(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "off", "none", "default"}:
+        return "off"
+    if normalized in {"atomic-v1", "atomic"}:
+        return "atomic-v1"
+    _fail(
+        f"Invalid atomic block splitter: {value!r}. "
+        "Expected one of: off, atomic-v1."
+    )
+    return "off"
+
+
+def _normalize_line_role_pipeline(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "off", "none", "default"}:
+        return "off"
+    if normalized in {"deterministic-v1", "deterministic"}:
+        return "deterministic-v1"
+    if normalized in {"codex-line-role-v1", "codex-line-role"}:
+        return "codex-line-role-v1"
+    _fail(
+        f"Invalid line role pipeline: {value!r}. "
+        "Expected one of: off, deterministic-v1, codex-line-role-v1."
+    )
+    return "off"
+
+
 def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
     return tuple(str(mode) for mode in supported_sequence_matcher_modes())
 
@@ -6078,6 +6108,31 @@ def _parse_csv_labels(value: str) -> set[str]:
     if not labels:
         _fail("At least one label is required (example: YIELD_LINE,TIME_LINE).")
     return labels
+
+
+def _parse_quality_discover_formats(value: str | None) -> list[str] | None:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw_value.split(","):
+        cleaned = str(item or "").strip().lower()
+        if not cleaned:
+            continue
+        if not cleaned.startswith("."):
+            cleaned = f".{cleaned}"
+        if cleaned == ".":
+            continue
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    if not normalized:
+        _fail(
+            "Invalid --formats value. Expected comma-separated extensions like .pdf,.epub."
+        )
+    return normalized
 
 
 @contextmanager
@@ -8522,6 +8577,113 @@ def _build_codex_farm_prompt_response_log(
                 )
         return rows
 
+    def _clean_text(value: Any) -> str | None:
+        cleaned = str(value or "").strip()
+        return cleaned or None
+
+    def _coerce_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _coerce_bool(value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        cleaned = str(value or "").strip().lower()
+        if not cleaned:
+            return None
+        if cleaned in {"1", "true", "yes", "y", "on"}:
+            return True
+        if cleaned in {"0", "false", "no", "n", "off"}:
+            return False
+        return None
+
+    def _telemetry_row_sort_key(row: dict[str, Any]) -> tuple[int, int, str, str]:
+        execution_attempt = _coerce_int(row.get("execution_attempt_index"))
+        if execution_attempt is None:
+            execution_attempt = _coerce_int(row.get("attempt_index")) or 0
+        lease_claim_index = _coerce_int(row.get("lease_claim_index")) or 0
+        finished_at = str(row.get("finished_at_utc") or row.get("logged_at_utc") or "")
+        task_id = str(row.get("task_id") or "")
+        return (execution_attempt, lease_claim_index, finished_at, task_id)
+
+    def _resolve_codex_exec_csv_paths(manifest_payload: dict[str, Any]) -> list[Path]:
+        candidates: list[Path] = []
+        process_runs = manifest_payload.get("process_runs")
+        if isinstance(process_runs, dict):
+            for pass_payload in process_runs.values():
+                if not isinstance(pass_payload, dict):
+                    continue
+                telemetry_payload = pass_payload.get("telemetry")
+                if not isinstance(telemetry_payload, dict):
+                    continue
+                csv_path_raw = telemetry_payload.get("csv_path")
+                if isinstance(csv_path_raw, str) and csv_path_raw.strip():
+                    candidates.append(Path(csv_path_raw.strip()))
+        candidates.append((REPO_ROOT / "var" / "codex_exec_activity.csv").resolve())
+
+        rows: list[Path] = []
+        seen: set[Path] = set()
+        for candidate in candidates:
+            resolved = candidate.resolve(strict=False)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if candidate.exists() and candidate.is_file():
+                rows.append(candidate)
+        return rows
+
+    def _load_codex_exec_rows_for_manifest(
+        manifest_payload: dict[str, Any],
+    ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, str]]:
+        process_runs = manifest_payload.get("process_runs")
+        if not isinstance(process_runs, dict):
+            return {}, {}
+
+        run_ids: set[str] = set()
+        for pass_payload in process_runs.values():
+            if not isinstance(pass_payload, dict):
+                continue
+            run_id = _clean_text(pass_payload.get("run_id"))
+            if run_id:
+                run_ids.add(run_id)
+        if not run_ids:
+            return {}, {}
+
+        rows_by_run_and_input: dict[str, dict[str, dict[str, Any]]] = {
+            run_id: {} for run_id in run_ids
+        }
+        csv_source_by_run_id: dict[str, str] = {}
+        for csv_path in _resolve_codex_exec_csv_paths(manifest_payload):
+            try:
+                with csv_path.open("r", encoding="utf-8", newline="") as handle:
+                    reader = csv.DictReader(handle)
+                    for raw_row in reader:
+                        run_id = _clean_text(raw_row.get("run_id"))
+                        if run_id is None or run_id not in run_ids:
+                            continue
+                        input_path = _clean_text(raw_row.get("input_path"))
+                        if input_path is None:
+                            continue
+                        input_name = Path(input_path).name
+                        if not input_name:
+                            continue
+                        row = {str(key): value for key, value in raw_row.items()}
+                        existing = rows_by_run_and_input[run_id].get(input_name)
+                        if (
+                            existing is None
+                            or _telemetry_row_sort_key(row)
+                            >= _telemetry_row_sort_key(existing)
+                        ):
+                            rows_by_run_and_input[run_id][input_name] = row
+                            csv_source_by_run_id[run_id] = str(csv_path)
+            except OSError:
+                continue
+        return rows_by_run_and_input, csv_source_by_run_id
+
     pred_run_manifest = _load_json_dict(pred_run / "run_manifest.json") or {}
     pred_run_source = (
         pred_run_manifest.get("source")
@@ -8612,6 +8774,9 @@ def _build_codex_farm_prompt_response_log(
             lines.append("")
 
             process_runs = manifest_payload.get("process_runs")
+            telemetry_rows_by_run_id, telemetry_csv_by_run_id = (
+                _load_codex_exec_rows_for_manifest(manifest_payload)
+            )
             if isinstance(process_runs, dict):
                 lines.append("--- PROCESS RUN PAYLOAD SNIPPETS ---")
                 for pass_name in ("pass1", "pass2", "pass3"):
@@ -8630,6 +8795,12 @@ def _build_codex_farm_prompt_response_log(
                 pass_assets = _load_run_assets_for_pass(
                     manifest_payload=manifest_payload,
                     pass_name=pass_name,
+                )
+                process_run_id = _clean_text(pass_assets.get("run_id"))
+                pass_telemetry_rows = (
+                    telemetry_rows_by_run_id.get(process_run_id, {})
+                    if process_run_id is not None
+                    else {}
                 )
                 paths_payload = manifest_payload.get("paths")
                 pass_paths = {}
@@ -8717,11 +8888,37 @@ def _build_codex_farm_prompt_response_log(
                     output_file = output_by_name.get(file_name)
                     input_text = _safe_read_text(input_file) if input_file is not None else ""
                     output_text = _safe_read_text(output_file) if output_file is not None else ""
+                    telemetry_row = pass_telemetry_rows.get(file_name)
+                    if telemetry_row is None and input_file is not None:
+                        telemetry_row = pass_telemetry_rows.get(input_file.name)
+                    if telemetry_row is None and output_file is not None:
+                        telemetry_row = pass_telemetry_rows.get(output_file.name)
+
+                    telemetry_prompt_text = (
+                        str(telemetry_row.get("prompt_text"))
+                        if isinstance(telemetry_row, dict)
+                        and telemetry_row.get("prompt_text") is not None
+                        else ""
+                    )
+                    telemetry_timestamp_utc = None
+                    telemetry_output_path = None
+                    if isinstance(telemetry_row, dict):
+                        telemetry_timestamp_utc = (
+                            _clean_text(telemetry_row.get("finished_at_utc"))
+                            or _clean_text(telemetry_row.get("logged_at_utc"))
+                        )
+                        output_path_text = _clean_text(telemetry_row.get("output_path"))
+                        if output_path_text is not None:
+                            telemetry_output_path = Path(output_path_text)
+                    if not output_text and telemetry_output_path is not None:
+                        output_text = _safe_read_text(telemetry_output_path)
+
                     parsed_input = _parse_json_text(input_text)
                     parsed_output = _parse_json_text(output_text)
 
                     timestamp_utc = (
-                        _timestamp_utc_for_path(output_file)
+                        telemetry_timestamp_utc
+                        or _timestamp_utc_for_path(output_file)
                         or _timestamp_utc_for_path(input_file)
                     )
                     call_stem = (
@@ -8742,6 +8939,10 @@ def _build_codex_farm_prompt_response_log(
                         input_text=input_text,
                         input_file=(input_file or (in_dir / file_name)),
                     )
+                    request_payload_source = "reconstructed_from_prompt_template"
+                    if telemetry_prompt_text:
+                        rendered_prompt_text = telemetry_prompt_text
+                        request_payload_source = "telemetry_csv"
                     request_messages = [
                         {
                             "role": "user",
@@ -8766,18 +8967,95 @@ def _build_codex_farm_prompt_response_log(
                             model_value = model_candidate
                     if model_value is None and isinstance(codex_model, str):
                         model_value = codex_model
+                    telemetry_model = (
+                        _clean_text(telemetry_row.get("model"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    if telemetry_model is not None:
+                        model_value = telemetry_model
+
+                    effective_reasoning_effort = (
+                        _clean_text(effective_pipeline_payload.get("codex_reasoning_effort"))
+                        if isinstance(effective_pipeline_payload, dict)
+                        else None
+                    )
+                    telemetry_reasoning_effort = (
+                        _clean_text(telemetry_row.get("reasoning_effort"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    reasoning_effort_value = (
+                        telemetry_reasoning_effort
+                        or codex_reasoning_effort
+                        or effective_reasoning_effort
+                    )
+
+                    telemetry_sandbox = (
+                        _clean_text(telemetry_row.get("sandbox"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    fallback_sandbox = (
+                        _clean_text(effective_pipeline_payload.get("codex_sandbox"))
+                        if isinstance(effective_pipeline_payload, dict)
+                        else None
+                    )
+                    sandbox_value = telemetry_sandbox or fallback_sandbox
+
+                    telemetry_ask_for_approval = (
+                        _coerce_bool(telemetry_row.get("ask_for_approval"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    fallback_ask_for_approval = (
+                        _coerce_bool(effective_pipeline_payload.get("codex_ask_for_approval"))
+                        if isinstance(effective_pipeline_payload, dict)
+                        else None
+                    )
+                    ask_for_approval_value = (
+                        telemetry_ask_for_approval
+                        if telemetry_ask_for_approval is not None
+                        else fallback_ask_for_approval
+                    )
+
+                    telemetry_web_search = (
+                        _coerce_bool(telemetry_row.get("web_search"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    fallback_web_search = (
+                        _coerce_bool(effective_pipeline_payload.get("codex_web_search"))
+                        if isinstance(effective_pipeline_payload, dict)
+                        else None
+                    )
+                    web_search_value = (
+                        telemetry_web_search
+                        if telemetry_web_search is not None
+                        else fallback_web_search
+                    )
+
+                    telemetry_output_schema_path = (
+                        _clean_text(telemetry_row.get("output_schema_path"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
 
                     request_payload: dict[str, Any] = {
                         "messages": request_messages,
                         "tools": [],
                         "response_format": response_format_payload,
                         "model": model_value,
-                        "reasoning_effort": codex_reasoning_effort,
+                        "reasoning_effort": reasoning_effort_value,
                         "temperature": None,
                         "top_p": None,
                         "max_output_tokens": None,
                         "seed": None,
                         "pipeline_id": pass_pipeline_map.get(pass_name),
+                        "sandbox": sandbox_value,
+                        "ask_for_approval": ask_for_approval_value,
+                        "web_search": web_search_value,
+                        "output_schema_path": telemetry_output_schema_path,
                     }
 
                     template_vars: dict[str, Any] = {
@@ -8789,6 +9067,63 @@ def _build_codex_farm_prompt_response_log(
                         "prompt_template_path": pass_assets.get("prompt_source_path"),
                     }
 
+                    request_telemetry: dict[str, Any] | None = None
+                    if isinstance(telemetry_row, dict):
+                        usage_payload = _parse_json_text(
+                            str(telemetry_row.get("usage_json") or "")
+                        )
+                        request_telemetry = {
+                            "csv_path": (
+                                telemetry_csv_by_run_id.get(process_run_id)
+                                if process_run_id is not None
+                                else None
+                            ),
+                            "task_id": _clean_text(telemetry_row.get("task_id")),
+                            "worker_id": _clean_text(telemetry_row.get("worker_id")),
+                            "thread_id": _clean_text(telemetry_row.get("thread_id")),
+                            "status": _clean_text(telemetry_row.get("status")),
+                            "duration_ms": _coerce_int(telemetry_row.get("duration_ms")),
+                            "attempt_index": _coerce_int(telemetry_row.get("attempt_index")),
+                            "execution_attempt_index": _coerce_int(
+                                telemetry_row.get("execution_attempt_index")
+                            ),
+                            "lease_claim_index": _coerce_int(
+                                telemetry_row.get("lease_claim_index")
+                            ),
+                            "input_path": _clean_text(telemetry_row.get("input_path")),
+                            "output_path": _clean_text(telemetry_row.get("output_path")),
+                            "prompt_chars": _coerce_int(telemetry_row.get("prompt_chars")),
+                            "prompt_sha256": _clean_text(telemetry_row.get("prompt_sha256")),
+                            "output_bytes": _coerce_int(telemetry_row.get("output_bytes")),
+                            "output_sha256": _clean_text(telemetry_row.get("output_sha256")),
+                            "output_payload_present": _coerce_bool(
+                                telemetry_row.get("output_payload_present")
+                            ),
+                            "output_preview_chars": _coerce_int(
+                                telemetry_row.get("output_preview_chars")
+                            ),
+                            "output_preview_truncated": _coerce_bool(
+                                telemetry_row.get("output_preview_truncated")
+                            ),
+                            "output_preview": telemetry_row.get("output_preview"),
+                            "tokens_input": _coerce_int(telemetry_row.get("tokens_input")),
+                            "tokens_cached_input": _coerce_int(
+                                telemetry_row.get("tokens_cached_input")
+                            ),
+                            "tokens_output": _coerce_int(telemetry_row.get("tokens_output")),
+                            "tokens_reasoning": _coerce_int(
+                                telemetry_row.get("tokens_reasoning")
+                            ),
+                            "tokens_total": _coerce_int(telemetry_row.get("tokens_total")),
+                            "usage_json": usage_payload,
+                            "model": telemetry_model,
+                            "reasoning_effort": telemetry_reasoning_effort,
+                            "sandbox": telemetry_sandbox,
+                            "ask_for_approval": telemetry_ask_for_approval,
+                            "web_search": telemetry_web_search,
+                            "output_schema_path": telemetry_output_schema_path,
+                        }
+
                     row_payload = {
                         "run_id": benchmark_run_id,
                         "pass": pass_name,
@@ -8797,8 +9132,9 @@ def _build_codex_farm_prompt_response_log(
                         "recipe_id": recipe_id,
                         "source_file": source_file,
                         "pipeline_id": pass_pipeline_map.get(pass_name),
-                        "process_run_id": pass_assets.get("run_id"),
+                        "process_run_id": process_run_id,
                         "model": model_value,
+                        "request_payload_source": request_payload_source,
                         "request_messages": request_messages,
                         "system_prompt": None,
                         "developer_prompt": None,
@@ -8817,14 +9153,23 @@ def _build_codex_farm_prompt_response_log(
                             "top_p": None,
                             "max_output_tokens": None,
                             "seed": None,
-                            "reasoning_effort": codex_reasoning_effort,
+                            "reasoning_effort": reasoning_effort_value,
                         },
                         "raw_response": {
                             "output_text": output_text,
-                            "output_file": str(output_file) if output_file is not None else None,
+                            "output_file": (
+                                str(output_file)
+                                if output_file is not None
+                                else (
+                                    str(telemetry_output_path)
+                                    if telemetry_output_path is not None
+                                    else None
+                                )
+                            ),
                         },
                         "parsed_response": parsed_output,
                         "request_input_file": str(input_file) if input_file is not None else None,
+                        "request_telemetry": request_telemetry,
                     }
                     full_prompt_log_handle.write(
                         json.dumps(row_payload, ensure_ascii=False) + "\n"
@@ -21720,6 +22065,11 @@ def stats_dashboard(
         "--scan-reports",
         help="Force scanning individual *.excel_import_report.json files.",
     ),
+    scan_benchmark_reports: bool = typer.Option(
+        False,
+        "--scan-benchmark-reports",
+        help="Force recursive benchmark eval_report.json scans under --golden-root.",
+    ),
 ) -> None:
     """Generate a static lifetime-stats dashboard (HTML)."""
     from cookimport.analytics.dashboard_collect import collect_dashboard_data
@@ -21730,6 +22080,7 @@ def stats_dashboard(
         golden_root=golden_root,
         since_days=since_days,
         scan_reports=scan_reports,
+        scan_benchmark_reports=scan_benchmark_reports,
     )
 
     html_path = render_dashboard(out_dir, data)
@@ -22956,6 +23307,20 @@ def labelstudio_benchmark(
             "Values: off or codex-farm-3pass-v1."
         ),
     )] = "off",
+    atomic_block_splitter: Annotated[str, typer.Option(
+        "--atomic-block-splitter",
+        help=(
+            "Optional deterministic mixed-block atomization mode for benchmark "
+            "line-role experiments: off or atomic-v1."
+        ),
+    )] = "off",
+    line_role_pipeline: Annotated[str, typer.Option(
+        "--line-role-pipeline",
+        help=(
+            "Optional canonical line-role labeling pipeline for benchmark "
+            "experiments: off, deterministic-v1, or codex-line-role-v1."
+        ),
+    )] = "off",
     codex_farm_recipe_mode: Annotated[str, typer.Option(
         "--codex-farm-recipe-mode",
         help=(
@@ -23171,6 +23536,10 @@ def labelstudio_benchmark(
         0, int(recipe_score_min_instruction_lines)
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_atomic_block_splitter = _normalize_atomic_block_splitter(
+        atomic_block_splitter
+    )
+    selected_line_role_pipeline = _normalize_line_role_pipeline(line_role_pipeline)
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
@@ -23319,6 +23688,8 @@ def labelstudio_benchmark(
                 recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
                 recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                atomic_block_splitter=selected_atomic_block_splitter,
+                line_role_pipeline=selected_line_role_pipeline,
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
@@ -23436,6 +23807,8 @@ def labelstudio_benchmark(
                                 recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
                                 recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                                atomic_block_splitter=selected_atomic_block_splitter,
+                                line_role_pipeline=selected_line_role_pipeline,
                                 codex_farm_cmd=codex_farm_cmd,
                                 codex_farm_root=codex_farm_root,
                                 codex_farm_workspace_root=codex_farm_workspace_root,
@@ -23536,6 +23909,8 @@ def labelstudio_benchmark(
                             recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
                             recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                            atomic_block_splitter=selected_atomic_block_splitter,
+                            line_role_pipeline=selected_line_role_pipeline,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_root=codex_farm_root,
                             codex_farm_workspace_root=codex_farm_workspace_root,
@@ -23808,6 +24183,8 @@ def labelstudio_benchmark(
             "epub_spine_items_per_job": epub_spine_items_per_job,
             "warm_models": warm_models,
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "atomic_block_splitter": selected_atomic_block_splitter,
+            "line_role_pipeline": selected_line_role_pipeline,
             "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
             "codex_farm_cmd": codex_farm_cmd,
             "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
@@ -24238,6 +24615,8 @@ def labelstudio_benchmark(
         "epub_spine_items_per_job": epub_spine_items_per_job,
         "warm_models": warm_models,
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+        "atomic_block_splitter": selected_atomic_block_splitter,
+        "line_role_pipeline": selected_line_role_pipeline,
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
         "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
@@ -24882,6 +25261,103 @@ def bench_speed_compare(
         raise typer.Exit(1)
 
 
+def _format_size_compact(num_bytes: int) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    value = float(num_bytes)
+    for unit in ("KB", "MB", "GB", "TB"):
+        value /= 1024.0
+        if value < 1024.0 or unit == "TB":
+            return f"{value:.1f} {unit}"
+    return f"{num_bytes} B"
+
+
+@bench_app.command("gc")
+def bench_gc(
+    golden_root: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--golden-root",
+        help="Golden root containing benchmark artifacts (default: data/golden).",
+    ),
+    output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--output-root",
+        help="Output root used to resolve benchmark history CSV (default: data/output).",
+    ),
+    keep_full_runs: int = typer.Option(
+        2,
+        "--keep-full-runs",
+        min=0,
+        help="Keep this many newest benchmark run roots in full form.",
+    ),
+    keep_full_days: int = typer.Option(
+        14,
+        "--keep-full-days",
+        min=0,
+        help="Keep full benchmark run roots newer than this many days.",
+    ),
+    drop_speed_artifacts: bool = typer.Option(
+        False,
+        "--drop-speed-artifacts/--keep-speed-artifacts",
+        help=(
+            "Prune speed run roots regardless of keep policy. "
+            "Use with caution."
+        ),
+    ),
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--apply",
+        help="Preview only by default; pass --apply to delete artifacts.",
+    ),
+) -> None:
+    """Garbage-collect old benchmark artifacts while preserving CSV history metrics."""
+    from cookimport.bench.artifact_gc import run_benchmark_gc
+
+    result = run_benchmark_gc(
+        golden_root=golden_root,
+        output_root=output_root,
+        keep_full_runs=keep_full_runs,
+        keep_full_days=keep_full_days,
+        dry_run=dry_run,
+        drop_speed_artifacts=drop_speed_artifacts,
+    )
+
+    mode = "Dry Run" if result.dry_run else "Apply"
+    typer.secho(f"Benchmark GC {mode}", fg=typer.colors.CYAN)
+    typer.echo(
+        "policy: "
+        f"keep_full_runs={result.keep_full_runs} "
+        f"keep_full_days={result.keep_full_days} "
+        f"drop_speed_artifacts={str(result.drop_speed_artifacts).lower()}"
+    )
+    typer.echo(f"candidate run roots: {result.total_run_roots}")
+    typer.echo(f"full keep: {result.kept_run_roots}")
+    typer.echo(
+        "prune: "
+        f"{result.pruned_run_roots} "
+        f"(quality={result.pruned_quality_run_roots}, speed={result.pruned_speed_run_roots})"
+    )
+    typer.echo(f"estimated reclaim: {_format_size_compact(result.reclaimed_bytes)}")
+    typer.echo(f"history rows scanned: {result.history_rows_scanned}")
+    typer.echo(f"history rows updated: {result.history_rows_updated}")
+
+    if result.history_backup_path is not None:
+        typer.echo(f"wrote backup: {result.history_backup_path}")
+
+    if result.warnings:
+        typer.secho(
+            f"Warnings ({len(result.warnings)}):",
+            fg=typer.colors.YELLOW,
+        )
+        for warning in result.warnings[:10]:
+            typer.secho(f"  - {warning}", fg=typer.colors.YELLOW)
+
+    if result.dry_run:
+        typer.secho("no files changed (dry-run)", fg=typer.colors.CYAN)
+    else:
+        typer.secho("done", fg=typer.colors.GREEN)
+
+
 @bench_app.command("quality-discover")
 def bench_quality_discover(
     gold_root: Path = typer.Option(
@@ -24913,6 +25389,14 @@ def bench_quality_discover(
         "--seed",
         help="Deterministic selection seed recorded in suite metadata.",
     ),
+    formats: str | None = typer.Option(
+        None,
+        "--formats",
+        help=(
+            "Optional comma-separated source extensions to include "
+            "(for example: .pdf,.epub)."
+        ),
+    ),
     prefer_curated: bool = typer.Option(
         True,
         "--prefer-curated/--no-prefer-curated",
@@ -24928,9 +25412,20 @@ def bench_quality_discover(
         write_quality_suite,
     )
 
+    gold_root = _unwrap_typer_option_default(gold_root)
+    input_root = _unwrap_typer_option_default(input_root)
+    out = _unwrap_typer_option_default(out)
+    max_targets = _unwrap_typer_option_default(max_targets)
+    seed = _unwrap_typer_option_default(seed)
+    formats = _unwrap_typer_option_default(formats)
+    prefer_curated = _unwrap_typer_option_default(prefer_curated)
+
     suite_kwargs: dict[str, Any] = {}
     if not prefer_curated:
         suite_kwargs["preferred_target_ids"] = None
+    parsed_formats = _parse_quality_discover_formats(formats)
+    if parsed_formats:
+        suite_kwargs["formats"] = parsed_formats
     suite = discover_quality_suite(
         gold_root=gold_root,
         input_root=input_root,
@@ -24947,6 +25442,26 @@ def bench_quality_discover(
         f"Targets selected: {len(suite.selected_target_ids)}",
         fg=typer.colors.CYAN,
     )
+    format_counts = (
+        suite.selection.get("format_counts")
+        if isinstance(suite.selection, dict)
+        else None
+    )
+    if isinstance(format_counts, dict) and format_counts:
+        rendered = ", ".join(
+            f"{key}={value}" for key, value in sorted(format_counts.items())
+        )
+        typer.secho(f"Matched formats: {rendered}", fg=typer.colors.CYAN)
+    selected_format_counts = (
+        suite.selection.get("selected_format_counts")
+        if isinstance(suite.selection, dict)
+        else None
+    )
+    if isinstance(selected_format_counts, dict) and selected_format_counts:
+        rendered = ", ".join(
+            f"{key}={value}" for key, value in sorted(selected_format_counts.items())
+        )
+        typer.secho(f"Selected formats: {rendered}", fg=typer.colors.CYAN)
     typer.secho(f"Targets unmatched: {len(suite.unmatched)}", fg=typer.colors.CYAN)
     if suite.unmatched:
         preview_rows = suite.unmatched[:5]
@@ -25479,6 +25994,14 @@ def bench_quality_leaderboard(
             "By default, the leaderboard ranks full-coverage configs when possible."
         ),
     ),
+    by_source_extension: bool = typer.Option(
+        False,
+        "--by-source-extension/--no-by-source-extension",
+        help=(
+            "Also emit per-format leaderboard artifacts "
+            "(for example .pdf vs .epub)."
+        ),
+    ),
     top_n: int = typer.Option(
         10,
         "--top-n",
@@ -25498,6 +26021,7 @@ def bench_quality_leaderboard(
     runs_root = _unwrap_typer_option_default(runs_root)
     out_dir = _unwrap_typer_option_default(out_dir)
     allow_partial_coverage = _unwrap_typer_option_default(allow_partial_coverage)
+    by_source_extension = _unwrap_typer_option_default(by_source_extension)
     top_n = _unwrap_typer_option_default(top_n)
 
     if run_dir is None:
@@ -25518,6 +26042,7 @@ def bench_quality_leaderboard(
             run_dir=run_dir,
             experiment_id=experiment_id,
             allow_partial_coverage=bool(allow_partial_coverage),
+            include_by_source_extension=bool(by_source_extension),
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
@@ -25593,6 +26118,24 @@ def bench_quality_leaderboard(
     typer.secho(f"Leaderboard CSV: {paths.leaderboard_csv}", fg=typer.colors.CYAN)
     typer.secho(f"Pareto JSON: {paths.pareto_json}", fg=typer.colors.CYAN)
     typer.secho(f"Pareto CSV: {paths.pareto_csv}", fg=typer.colors.CYAN)
+    by_extension_json = getattr(paths, "leaderboard_by_source_extension_json", None)
+    by_extension_csv = getattr(paths, "leaderboard_by_source_extension_csv", None)
+    if by_extension_json is not None:
+        typer.secho(
+            (
+                "Leaderboard by source extension JSON: "
+                f"{by_extension_json}"
+            ),
+            fg=typer.colors.CYAN,
+        )
+    if by_extension_csv is not None:
+        typer.secho(
+            (
+                "Leaderboard by source extension CSV: "
+                f"{by_extension_csv}"
+            ),
+            fg=typer.colors.CYAN,
+        )
 
 
 @bench_app.command("eval-stage")

@@ -89,6 +89,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         p6_ovenlike_mode="keywords_v1",
         p6_yield_mode="legacy_v1",
         p6_emit_metadata_debug=False,
+        atomic_block_splitter="atomic-v1",
+        line_role_pipeline="deterministic-v1",
         codex_farm_recipe_mode="benchmark",
     )
 
@@ -124,4 +126,6 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_ovenlike_mode"] == "keywords_v1"
     assert kwargs["p6_yield_mode"] == "legacy_v1"
     assert kwargs["p6_emit_metadata_debug"] is False
+    assert kwargs["atomic_block_splitter"] == "atomic-v1"
+    assert kwargs["line_role_pipeline"] == "deterministic-v1"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"

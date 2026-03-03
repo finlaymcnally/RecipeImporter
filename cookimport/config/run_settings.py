@@ -75,6 +75,8 @@ _SUMMARY_ORDER = (
     "epub_spine_items_per_job",
     "warm_models",
     "llm_recipe_pipeline",
+    "atomic_block_splitter",
+    "line_role_pipeline",
     "llm_knowledge_pipeline",
     "llm_tags_pipeline",
     "codex_farm_recipe_mode",
@@ -253,6 +255,17 @@ class P6YieldMode(str, Enum):
 class LlmRecipePipeline(str, Enum):
     off = "off"
     codex_farm_3pass_v1 = "codex-farm-3pass-v1"
+
+
+class AtomicBlockSplitter(str, Enum):
+    off = "off"
+    atomic_v1 = "atomic-v1"
+
+
+class LineRolePipeline(str, Enum):
+    off = "off"
+    deterministic_v1 = "deterministic-v1"
+    codex_line_role_v1 = "codex-line-role-v1"
 
 
 class LlmKnowledgePipeline(str, Enum):
@@ -882,6 +895,30 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    atomic_block_splitter: AtomicBlockSplitter = Field(
+        default=AtomicBlockSplitter.off,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Atomic Block Splitter",
+            order=111,
+            description=(
+                "Optional block atomization mode used by benchmark-native line-role "
+                "experiments."
+            ),
+        ),
+    )
+    line_role_pipeline: LineRolePipeline = Field(
+        default=LineRolePipeline.off,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Line Role Pipeline",
+            order=112,
+            description=(
+                "Optional canonical line-role labeling path used for benchmark-native "
+                "experiments."
+            ),
+        ),
+    )
     llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
         default=LlmKnowledgePipeline.off,
         json_schema_extra=_ui_meta(
@@ -1467,6 +1504,8 @@ def build_run_settings(
     recipe_score_min_ingredient_lines: int = 1,
     recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
+    atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
+    line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
@@ -1577,6 +1616,8 @@ def build_run_settings(
             "recipe_score_min_ingredient_lines": int(recipe_score_min_ingredient_lines),
             "recipe_score_min_instruction_lines": int(recipe_score_min_instruction_lines),
             "llm_recipe_pipeline": _normalized_value(llm_recipe_pipeline),
+            "atomic_block_splitter": _normalized_value(atomic_block_splitter),
+            "line_role_pipeline": _normalized_value(line_role_pipeline),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),

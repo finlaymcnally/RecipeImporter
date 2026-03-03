@@ -62,6 +62,7 @@ _QUALITY_EXPERIMENT_RESULT_FILENAME = "quality_experiment_result.json"
 _QUALITY_RUN_CHECKPOINT_FILENAME = "checkpoint.json"
 _QUALITY_RUN_PARTIAL_SUMMARY_FILENAME = "summary.partial.json"
 _QUALITY_RUN_PARTIAL_REPORT_FILENAME = "report.partial.md"
+_SOURCE_EXTENSION_NONE = "__none__"
 _ALL_METHOD_RUNTIME_ALLOWED_KEYS = {
     "max_parallel_sources",
     "max_inflight_pipelines",
@@ -1731,8 +1732,25 @@ def _target_difficulty_score(target: Any) -> float:
 
 
 def _target_source_extension(target: Any) -> str:
+    explicit_extension = str(getattr(target, "source_extension", "") or "").strip().lower()
+    if explicit_extension:
+        if explicit_extension in {"__none__", "none", "null"}:
+            return ""
+        if not explicit_extension.startswith("."):
+            explicit_extension = f".{explicit_extension}"
+        if explicit_extension == ".":
+            return ""
+        return explicit_extension
     source_path = Path(str(getattr(target, "source_file", "")))
     return source_path.suffix.lower()
+
+
+def _target_format_counts(targets: list[Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for target in targets:
+        extension = _target_source_extension(target) or _SOURCE_EXTENSION_NONE
+        counts[extension] = counts.get(extension, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
 
 
 def _select_probe_targets(
@@ -2683,6 +2701,9 @@ def _build_summary_payload(
     results: list[QualityExperimentResult],
 ) -> dict[str, Any]:
     result_rows = [result.model_dump(mode="json") for result in results]
+    selected_targets = _resolve_selected_targets(suite)
+    format_counts = _target_format_counts(list(suite.targets))
+    selected_format_counts = _target_format_counts(selected_targets)
     run_settings_by_id = {
         experiment.id: {
             "run_settings": experiment.run_settings.to_run_config_dict(),
@@ -2699,7 +2720,9 @@ def _build_summary_payload(
         "suite_generated_at": suite.generated_at,
         "selection_algorithm_version": str(suite.selection.get("algorithm_version") or ""),
         "target_count_total": len(suite.targets),
-        "target_count_selected": len(suite.selected_target_ids),
+        "target_count_selected": len(selected_targets),
+        "format_counts": format_counts,
+        "selected_format_counts": selected_format_counts,
         "experiment_count": len(results),
         "successful_experiments": sum(1 for row in results if row.status == "ok"),
         "incomplete_experiments": sum(1 for row in results if row.status == "incomplete"),
@@ -2710,12 +2733,22 @@ def _build_summary_payload(
 
 
 def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
+    def _render_format_counts(value: Any) -> str:
+        if not isinstance(value, dict) or not value:
+            return "n/a"
+        rendered_parts = []
+        for key in sorted(value):
+            rendered_parts.append(f"{key}={value[key]}")
+        return ", ".join(rendered_parts)
+
     lines = [
         "# Quality Suite Report",
         "",
         f"- Run timestamp: {summary_payload.get('run_timestamp')}",
         f"- Suite: {summary_payload.get('suite_name')}",
         f"- Targets selected: {summary_payload.get('target_count_selected')}",
+        f"- Selected formats: {_render_format_counts(summary_payload.get('selected_format_counts'))}",
+        f"- Matched formats: {_render_format_counts(summary_payload.get('format_counts'))}",
         f"- Experiments: {summary_payload.get('experiment_count')}",
         f"- Successful: {summary_payload.get('successful_experiments')}",
         f"- Incomplete: {summary_payload.get('incomplete_experiments')}",

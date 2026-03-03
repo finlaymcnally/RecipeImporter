@@ -113,7 +113,9 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 Both modes keep deterministic normalization and offset integrity.
 
 Freeform label set includes `HOWTO_SECTION` for in-recipe subsection headers (for example `TO SERVE` / `FOR THE SAUCE`).
-Eval/benchmark scoring resolves `HOWTO_SECTION` into `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context.
+Scoring behavior:
+- freeform eval and stage-block benchmark mode resolve `HOWTO_SECTION` into `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context.
+- canonical-text benchmark mode keeps `HOWTO_SECTION` as an explicit scored label.
 
 ### 4.2 Upload behavior
 
@@ -310,7 +312,7 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 
 ### 2026-02-28_00.16.13 howtosection label scoring paths
 - Source: `docs/understandings/2026-02-28_00.16.13-howto-section-label-scoring-paths.md`
-- Summary: `HOWTO_SECTION` is UI-visible/exported, then resolved at scoring time to ingredient vs instruction via nearby structural context.
+- Summary: `HOWTO_SECTION` is UI-visible/exported; stage/freeform scoring resolves to ingredient/instruction while canonical-text scoring now keeps explicit HOWTO totals.
 
 ### 2026-02-28_00.50.48 labelstudio export root source identity
 - Source: `docs/understandings/2026-02-28_00.50.48-labelstudio-export-root-source-identity.md`
@@ -323,7 +325,7 @@ Current-contract additions from the HOWTO section audit:
   - benchmark allowed labels: `cookimport/staging/stage_block_predictions.py:FREEFORM_LABELS`
   - benchmark scorers: `cookimport/bench/eval_stage_blocks.py`, `cookimport/bench/eval_canonical_text.py`
 - `HOWTO_SECTION` remains an explicit task/export label for annotator visibility.
-- Scoring should remap `HOWTO_SECTION` to `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context before metric computation.
+- Stage-block/freeform scoring remaps `HOWTO_SECTION` to `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context; canonical-text scoring keeps HOWTO explicit.
 - Anti-loop guard:
   - if a new label appears in Label Studio but not in benchmark/eval results, check scorer label maps before changing task generation.
 

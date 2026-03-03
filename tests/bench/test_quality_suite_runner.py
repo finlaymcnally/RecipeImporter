@@ -51,7 +51,7 @@ def _build_suite(tmp_path: Path) -> QualitySuite:
         seed=42,
         max_targets=1,
         selection={
-            "algorithm_version": "quality_representative_v1",
+            "algorithm_version": "quality_representative_v2",
             "seed": 42,
             "max_targets": 1,
             "matched_count": 1,
@@ -257,6 +257,8 @@ def test_run_quality_suite_writes_artifacts_and_continues_after_failure(
 
     assert summary["successful_experiments"] == 1
     assert summary["failed_experiments"] == 1
+    assert summary["format_counts"] == {".epub": 1}
+    assert summary["selected_format_counts"] == {".epub": 1}
     assert baseline["status"] == "ok"
     assert broken["status"] == "failed"
     assert baseline["strict_f1_macro"] == pytest.approx(0.6)
@@ -2192,7 +2194,7 @@ def _build_suite_multi(tmp_path: Path) -> QualitySuite:
         seed=42,
         max_targets=3,
         selection={
-            "algorithm_version": "quality_representative_v1",
+            "algorithm_version": "quality_representative_v2",
             "seed": 42,
             "max_targets": 3,
             "matched_count": 3,

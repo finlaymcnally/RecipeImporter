@@ -1938,6 +1938,7 @@ class TestBenchmarkCsv:
         data = collect_dashboard_data(
             output_root=tmp_path / "output",
             golden_root=tmp_path / "golden",
+            scan_benchmark_reports=True,
         )
         assert len(data.benchmark_records) == 1
         b = data.benchmark_records[0]
@@ -1946,6 +1947,62 @@ class TestBenchmarkCsv:
         assert b.recipes == 14
         assert b.gold_recipe_headers == 11
         assert len(b.per_label) == 2
+
+    def test_csv_benchmark_rows_do_not_json_merge_without_opt_in_scan(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-11_16.00.00"
+        eval_dir.mkdir(parents=True)
+        (eval_dir / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT), encoding="utf-8"
+        )
+
+        csv_path = history_dir / "performance_history.csv"
+        bench_row = _sample_csv_row(
+            {
+                "run_timestamp": "2026-02-11T16:00:00",
+                "run_dir": str(eval_dir),
+                "file_name": "my_book.pdf",
+                "run_category": "benchmark_eval",
+                "precision": "0.05",
+                "recall": "0.25",
+                "f1": "0.08333333333333333",
+            }
+        )
+        csv_path.write_text(
+            SAMPLE_CSV_HEADER + "\n" + bench_row + "\n",
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        record = data.benchmark_records[0]
+        assert record.recipes is None
+        assert record.gold_recipe_headers is None
+
+    def test_benchmark_csv_per_label_json_roundtrip(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = history_dir / "performance_history.csv"
+        append_benchmark_csv(
+            SAMPLE_EVAL_REPORT,
+            csv_path,
+            run_timestamp="2026-02-11T16:00:00",
+            run_dir=str(tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-11_16.00.00"),
+            eval_scope="freeform-spans",
+            source_file="book.epub",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        labels = {entry.label for entry in data.benchmark_records[0].per_label}
+        assert labels == {"RECIPE_TITLE", "INGREDIENT_LINE"}
 
     def test_benchmark_csv_schema_migration(self, tmp_path):
         """Existing CSV without new columns gets migrated when appending."""

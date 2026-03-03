@@ -65,6 +65,10 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
         "multi_recipe_splitter": "legacy",
         "source_extension": ".epub",
     }
+    config_a_dims_pdf = dict(config_a_dims)
+    config_a_dims_pdf["source_extension"] = ".pdf"
+    config_b_dims_pdf = dict(config_b_dims)
+    config_b_dims_pdf["source_extension"] = ".pdf"
 
     _write_json(
         report_dir / "source_a.json",
@@ -93,14 +97,14 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
             "variants": [
                 {
                     "status": "ok",
-                    "dimensions": config_a_dims,
+                    "dimensions": config_a_dims_pdf,
                     "practical_f1": 0.60,
                     "f1": 0.50,
                     "duration_seconds": 12.0,
                 },
                 {
                     "status": "ok",
-                    "dimensions": config_b_dims,
+                    "dimensions": config_b_dims_pdf,
                     "practical_f1": 0.40,
                     "f1": 0.30,
                     "duration_seconds": 4.0,
@@ -113,6 +117,7 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
         run_dir=run_dir,
         experiment_id=experiment_id,
         allow_partial_coverage=False,
+        include_by_source_extension=True,
     )
     assert payload["total_source_groups"] == 2
     winner = payload["winner"]
@@ -132,6 +137,11 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
     ranked_frontier = pareto.get("ranked_set")
     assert isinstance(ranked_frontier, list)
     assert len(ranked_frontier) == 2
+    by_extension = payload.get("leaderboard_by_source_extension")
+    assert isinstance(by_extension, dict)
+    assert sorted(by_extension) == [".epub", ".pdf"]
+    assert by_extension[".epub"]["leaderboard"][0]["config_id"] == winner["config_id"]
+    assert by_extension[".pdf"]["leaderboard"][0]["config_id"] == winner["config_id"]
 
     out_dir = tmp_path / "out"
     paths = write_quality_leaderboard_artifacts(payload, out_dir=out_dir)
@@ -140,6 +150,10 @@ def test_quality_leaderboard_ranks_by_mean_practical_then_strict(tmp_path: Path)
     assert paths.pareto_json.exists()
     assert paths.pareto_csv.exists()
     assert paths.winner_dimensions_json.exists()
+    assert paths.leaderboard_by_source_extension_json is not None
+    assert paths.leaderboard_by_source_extension_json.exists()
+    assert paths.leaderboard_by_source_extension_csv is not None
+    assert paths.leaderboard_by_source_extension_csv.exists()
 
 
 @pytest.mark.bench

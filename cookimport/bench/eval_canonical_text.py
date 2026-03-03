@@ -21,7 +21,6 @@ from cookimport.bench.sequence_matcher_select import (
     get_sequence_matcher_selection,
 )
 from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
-from cookimport.labelstudio.howto_section import resolve_howto_label_sets_by_index
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
@@ -1233,7 +1232,7 @@ def _build_gold_line_labels(
         if labels:
             gold_line_labels[line_index] = labels
 
-    return resolve_howto_label_sets_by_index(gold_line_labels)
+    return gold_line_labels
 
 
 def _build_pred_line_labels(
@@ -1289,26 +1288,10 @@ def _build_pred_line_labels(
 
         pred_line_labels[line_index] = best_label
 
-    resolved_label_sets = resolve_howto_label_sets_by_index(
-        {
-            index: {label}
-            for index, label in pred_line_labels.items()
-        }
-    )
-    resolved_line_labels: dict[int, str] = {}
-    for index, original_label in sorted(pred_line_labels.items()):
-        resolved_set = {
-            str(label)
-            for label in resolved_label_sets.get(index, {original_label})
-            if str(label) in _FREEFORM_LABEL_SET
-        }
-        if not resolved_set:
-            resolved_set = {"OTHER"}
-        resolved_line_labels[index] = _pick_primary_label(
-            resolved_set,
-            preferred_label=original_label,
-        )
-    return resolved_line_labels
+    return {
+        index: label if label in _FREEFORM_LABEL_SET else "OTHER"
+        for index, label in sorted(pred_line_labels.items())
+    }
 
 
 def _pick_primary_label(
@@ -1510,7 +1493,10 @@ def evaluate_canonical_text(
     subphase_seconds["load_gold_seconds"] = max(0.0, time.monotonic() - load_gold_started)
 
     load_prediction_started = time.monotonic()
-    stage_labels = load_stage_block_labels(stage_predictions_json)
+    stage_labels = load_stage_block_labels(
+        stage_predictions_json,
+        resolve_howto_sections=False,
+    )
     prediction_blocks = _load_prediction_blocks(
         extracted_blocks_json=extracted_blocks_json,
         stage_labels=stage_labels,

@@ -37,6 +37,8 @@ DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
 # Keep this focused on settings that are likely to explain quality deltas.
 RUN_CONFIG_KEYS_OF_INTEREST = (
     "llm_recipe_pipeline",
+    "atomic_block_splitter",
+    "line_role_pipeline",
     "eval_mode",
     "execution_mode",
     "sequence_matcher",
@@ -109,6 +111,8 @@ class RunRecord:
     source_file: str | None
     source_hash: str | None
     llm_recipe_pipeline: str
+    atomic_block_splitter: str
+    line_role_pipeline: str
     codex_enabled: bool
     metric_overall_line_accuracy: float | None
     metric_macro_f1_excluding_other: float | None
@@ -1349,6 +1353,8 @@ def _build_run_cutdown(
     if not isinstance(run_config, dict):
         run_config = {}
     llm_recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "unknown")
+    atomic_block_splitter = str(run_config.get("atomic_block_splitter") or "off")
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "off")
     codex_enabled = llm_recipe_pipeline not in {"off", "none", ""}
 
     output_run_dir.mkdir(parents=True, exist_ok=True)
@@ -1484,6 +1490,11 @@ def _build_run_cutdown(
         "run_config_snapshot": _config_snapshot(run_manifest),
         "eval_mode": eval_report.get("eval_mode"),
         "eval_type": eval_report.get("eval_type"),
+        "pipeline_knobs": {
+            "llm_recipe_pipeline": llm_recipe_pipeline,
+            "atomic_block_splitter": atomic_block_splitter,
+            "line_role_pipeline": line_role_pipeline,
+        },
         "key_metrics": {
             "overall_line_accuracy": _coerce_float(eval_report.get("overall_line_accuracy")),
             "overall_block_accuracy": _coerce_float(eval_report.get("overall_block_accuracy")),
@@ -1543,6 +1554,8 @@ def _build_run_cutdown(
         source_file=source_file,
         source_hash=source_hash if isinstance(source_hash, str) else None,
         llm_recipe_pipeline=llm_recipe_pipeline,
+        atomic_block_splitter=atomic_block_splitter,
+        line_role_pipeline=line_role_pipeline,
         codex_enabled=codex_enabled,
         metric_overall_line_accuracy=_coerce_float(eval_report.get("overall_line_accuracy")),
         metric_macro_f1_excluding_other=_coerce_float(
@@ -1629,6 +1642,8 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                             "run_id": codex_run.run_id,
                             "output_subdir": codex_run.output_subdir,
                             "llm_recipe_pipeline": codex_run.llm_recipe_pipeline,
+                            "atomic_block_splitter": codex_run.atomic_block_splitter,
+                            "line_role_pipeline": codex_run.line_role_pipeline,
                             "overall_line_accuracy": codex_run.metric_overall_line_accuracy,
                             "macro_f1_excluding_other": codex_run.metric_macro_f1_excluding_other,
                             "practical_f1": codex_run.metric_practical_f1,
@@ -1638,6 +1653,8 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                             "run_id": baseline.run_id,
                             "output_subdir": baseline.output_subdir,
                             "llm_recipe_pipeline": baseline.llm_recipe_pipeline,
+                            "atomic_block_splitter": baseline.atomic_block_splitter,
+                            "line_role_pipeline": baseline.line_role_pipeline,
                             "overall_line_accuracy": baseline.metric_overall_line_accuracy,
                             "macro_f1_excluding_other": baseline.metric_macro_f1_excluding_other,
                             "practical_f1": baseline.metric_practical_f1,
@@ -1674,6 +1691,8 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                         "run_id": codex_run.run_id,
                         "output_subdir": codex_run.output_subdir,
                         "llm_recipe_pipeline": codex_run.llm_recipe_pipeline,
+                        "atomic_block_splitter": codex_run.atomic_block_splitter,
+                        "line_role_pipeline": codex_run.line_role_pipeline,
                     }
                 )
         if baseline_runs:
@@ -1685,6 +1704,8 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                         "run_id": baseline.run_id,
                         "output_subdir": baseline.output_subdir,
                         "llm_recipe_pipeline": baseline.llm_recipe_pipeline,
+                        "atomic_block_splitter": baseline.atomic_block_splitter,
+                        "line_role_pipeline": baseline.line_role_pipeline,
                     }
                 )
 
@@ -1756,7 +1777,9 @@ def _write_readme(
         lines.append(
             "- "
             f"`{record.output_subdir}` | source={record.source_file or 'unknown'} "
-            f"| pipeline={record.llm_recipe_pipeline} "
+            f"| llm_recipe_pipeline={record.llm_recipe_pipeline} "
+            f"| atomic_block_splitter={record.atomic_block_splitter} "
+            f"| line_role_pipeline={record.line_role_pipeline} "
             f"| overall_line_accuracy={record.metric_overall_line_accuracy}"
         )
     lines.append("")
@@ -1919,6 +1942,8 @@ def main() -> int:
                 "source_file": record.source_file,
                 "source_hash": record.source_hash,
                 "llm_recipe_pipeline": record.llm_recipe_pipeline,
+                "atomic_block_splitter": record.atomic_block_splitter,
+                "line_role_pipeline": record.line_role_pipeline,
                 "codex_enabled": record.codex_enabled,
                 "overall_line_accuracy": record.metric_overall_line_accuracy,
                 "macro_f1_excluding_other": record.metric_macro_f1_excluding_other,

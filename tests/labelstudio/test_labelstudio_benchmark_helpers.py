@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import inspect
 import json
 import os
@@ -1687,7 +1688,9 @@ def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_p
 
 def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
     pass1_in = run_dir / "pass1_chunking" / "in"
@@ -1728,11 +1731,103 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         encoding="utf-8",
     )
 
+    telemetry_csv = tmp_path / "var" / "codex_exec_activity.csv"
+    telemetry_csv.parent.mkdir(parents=True, exist_ok=True)
+    with telemetry_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "run_id",
+                "input_path",
+                "prompt_text",
+                "model",
+                "reasoning_effort",
+                "sandbox",
+                "ask_for_approval",
+                "web_search",
+                "output_schema_path",
+                "task_id",
+                "worker_id",
+                "status",
+                "duration_ms",
+                "attempt_index",
+                "execution_attempt_index",
+                "lease_claim_index",
+                "prompt_chars",
+                "prompt_sha256",
+                "output_bytes",
+                "output_sha256",
+                "output_payload_present",
+                "output_preview_chars",
+                "output_preview_truncated",
+                "output_preview",
+                "tokens_input",
+                "tokens_cached_input",
+                "tokens_output",
+                "tokens_reasoning",
+                "tokens_total",
+                "usage_json",
+                "finished_at_utc",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "run_id": "run-pass1",
+                "input_path": str(pass1_in / "r0000.json"),
+                "prompt_text": "Telemetry prompt body",
+                "model": "gpt-5-test",
+                "reasoning_effort": "high",
+                "sandbox": "workspace-write",
+                "ask_for_approval": "true",
+                "web_search": "false",
+                "output_schema_path": "/tmp/schema-pass1.json",
+                "task_id": "task-pass1",
+                "worker_id": "worker-pass1",
+                "status": "ok",
+                "duration_ms": "321",
+                "attempt_index": "1",
+                "execution_attempt_index": "1",
+                "lease_claim_index": "1",
+                "prompt_chars": "20",
+                "prompt_sha256": "sha-prompt",
+                "output_bytes": "21",
+                "output_sha256": "sha-output",
+                "output_payload_present": "true",
+                "output_preview_chars": "21",
+                "output_preview_truncated": "false",
+                "output_preview": "response-preview",
+                "tokens_input": "111",
+                "tokens_cached_input": "11",
+                "tokens_output": "22",
+                "tokens_reasoning": "5",
+                "tokens_total": "133",
+                "usage_json": "{\"tokens\":123}",
+                "finished_at_utc": "2026-03-02T23:59:00Z",
+            }
+        )
+
     (run_dir / "llm_manifest.json").write_text(
         json.dumps(
             {
                 "enabled": True,
                 "pipeline": "codex-farm-3pass-v1",
+                "codex_farm_model": "manifest-model",
+                "codex_farm_reasoning_effort": "medium",
+                "process_runs": {
+                    "pass1": {
+                        "run_id": "run-pass1",
+                        "telemetry": {"csv_path": str(telemetry_csv)},
+                    },
+                    "pass2": {
+                        "run_id": "run-pass2",
+                        "telemetry": {"csv_path": str(telemetry_csv)},
+                    },
+                    "pass3": {
+                        "run_id": "run-pass3",
+                        "telemetry": {"csv_path": str(telemetry_csv)},
+                    },
+                },
                 "paths": {
                     "pass1_in": str(pass1_in),
                     "pass1_out": str(pass1_out),
@@ -1792,7 +1887,19 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     pass1_row = next(row for row in full_prompt_rows if row.get("pass") == "pass1")
     assert pass1_row["call_id"] == "r0000"
     assert pass1_row["request_messages"][0]["role"] == "user"
-    assert "pass1 prompt" in pass1_row["request_messages"][0]["content"]
+    assert pass1_row["request_payload_source"] == "telemetry_csv"
+    assert pass1_row["request_messages"][0]["content"] == "Telemetry prompt body"
+    assert pass1_row["request"]["model"] == "gpt-5-test"
+    assert pass1_row["request"]["reasoning_effort"] == "high"
+    assert pass1_row["request"]["sandbox"] == "workspace-write"
+    assert pass1_row["request"]["ask_for_approval"] is True
+    assert pass1_row["request"]["web_search"] is False
+    assert pass1_row["request"]["output_schema_path"] == "/tmp/schema-pass1.json"
+    assert pass1_row["timestamp_utc"] == "2026-03-02T23:59:00Z"
+    assert pass1_row["request_telemetry"]["task_id"] == "task-pass1"
+    assert pass1_row["request_telemetry"]["prompt_chars"] == 20
+    assert pass1_row["request_telemetry"]["tokens_total"] == 133
+    assert pass1_row["request_telemetry"]["usage_json"] == {"tokens": 123}
     assert pass1_row["parsed_response"] == {"result": "pass1 response"}
     assert pass1_row["raw_response"]["output_file"].endswith("r0000.json")
 
@@ -4030,6 +4137,8 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert captured_generate["run_manifest_kind"] == "bench_pred_run"
     assert captured_generate["write_markdown"] is False
     assert captured_generate["write_label_studio_tasks"] is False
+    assert captured_generate["atomic_block_splitter"] == "off"
+    assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
     assert run_manifest_path.exists()
     run_manifest = json.loads(run_manifest_path.read_text(encoding="utf-8"))
@@ -4037,6 +4146,8 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
+    assert run_manifest["run_config"]["atomic_block_splitter"] == "off"
+    assert run_manifest["run_config"]["line_role_pipeline"] == "off"
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
 

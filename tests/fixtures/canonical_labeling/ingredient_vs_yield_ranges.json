@@ -1,0 +1,10 @@
+{
+  "recipe_id": "braised-chicken",
+  "blocks": [
+    {
+      "block_id": "block:braised-chicken:40",
+      "block_index": 40,
+      "text": "SERVES 4; 4 to 6 chicken leg quarters; 2 tablespoons olive oil"
+    }
+  ]
+}

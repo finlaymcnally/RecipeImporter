@@ -349,3 +349,27 @@ Chronological merged source notes:
 - 2026-03-02_23.50.00-dashboard-previous-runs-dynamic-column-contract: Previous Runs now renders columns dynamically from JS state across single + all-method row shapes.
 - 2026-03-02_23.58.40-benchmark-metric-fallback-explicit-vs-legacy: Benchmark compatibility readers should only collapse aliases when explicit strict/macro metrics are present.
 - 2026-03-02_23.59.30-dashboard-explicit-metric-rendering: Dashboard Previous Runs/trend should render explicit benchmark metric names while preserving legacy ingestion fallback.
+
+## 2026-03-03 docs/tasks merge digest (dashboard Previous Runs contracts)
+
+Merged source task files (chronological):
+- `docs/tasks/2026-03-02_22.26.36 - dashboard-ai-runtime-columns-and-source-fallback.md`
+- `docs/tasks/2026-03-02_22.29.43 - dashboard-remove-all-method-index-page.md`
+- `docs/tasks/2026-03-02_22.30.04 - previous-runs-rules-filter-builder.md`
+- `docs/tasks/2026-03-02_22.30.04-dashboard-previous-runs-rules-filters.md`
+- `docs/tasks/2026-03-02_22.35.08 - previous-runs-horizontal-scroll.md`
+- `docs/tasks/2026-03-02_22.41.32 - fix-dashboard-ai-off-fallback-from-codex-manifest-runtime.md`
+- `docs/tasks/2026-03-02_22.48.48 - benchmark-importer-csv-and-dashboard-fallback.md`
+- `docs/tasks/2026-03-02_23.11.05 - benchmark-score-trend-default-all-range.md`
+- `docs/tasks/2026-03-02_23.17.11 - benchmark-trend-timeline-align-with-table.md`
+- `docs/tasks/2026-03-02_23.50.00 - previous-runs-column-controls.md`
+- `docs/tasks/2026-03-02_23.50.00-dashboard-previous-runs-column-controls.md`
+
+Current contract additions:
+- Main index no longer includes a separate all-method run index section/page; all-method deep links are reached from `Previous Runs`.
+- `Previous Runs` filter builder supports rule rows + boolean expression parsing, and invalid expressions should show status errors without blanking the page.
+- Table overflow contract requires horizontal scrolling + minimum table width so dense benchmark rows remain legible.
+- Diagnostics/latest-runtime and `AI Model + Effort` should prefer richer codex runtime metadata, with fallback backfill from benchmark manifests when run-config fields are blank.
+- Benchmark CSV writes should persist `importer_name`; dashboard still needs runtime fallback inference for historical blank rows.
+- Trend chart default window is `All` and x-axis bounds should align with filtered table timestamp span even when some older rows have no explicit score points.
+- Column controls remain session-local and must support drag reorder, resize handles, add/remove fields, and mixed row-shape rendering (`single` + grouped `all_method`).

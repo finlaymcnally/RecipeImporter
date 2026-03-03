@@ -10,6 +10,7 @@ _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_atoms.py": ("core", "parsing"),
     "test_bench.py": ("bench",),
+    "test_benchmark_gc.py": ("bench", "cli", "analytics"),
     "test_benchmark_csv_backfill_cli.py": ("analytics", "bench", "cli"),
     "test_canonical_alignment_cache.py": ("bench",),
     "test_c3imp_interactive_menu.py": ("cli",),
@@ -71,6 +72,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_quality_top_tier_tournament.py": ("bench",),
     "test_quality_suite_runner.py": ("bench",),
     "test_recipe_sections.py": ("parsing",),
+    "test_recipe_block_atomizer.py": ("parsing",),
     "test_recipe_likeness_scoring.py": ("core",),
     "test_recipesage_importer.py": ("ingestion",),
     "test_run_manifest_parity.py": ("staging", "llm"),

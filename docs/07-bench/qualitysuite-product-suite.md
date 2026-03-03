@@ -28,6 +28,7 @@ Official phase presets:
 - `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json`
 - `data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json`
 - `data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json` (optional)
+- `data/golden/bench/quality/experiments/2026-03-02_23.40.00_qualitysuite-pdf-first-small-pack.json` (small PDF-first deterministic pack)
 
 Official lightweight-series presets:
 
@@ -145,3 +146,15 @@ Primary decision criteria:
 2. Use `bench quality-leaderboard` to surface winner settings and Pareto tradeoffs.
 3. Finish with `bench quality-compare` for formal regression gating versus baseline.
 4. Use Track 1/2 command examples only to interpret legacy artifacts from older runs.
+
+## Mixed-Format Quick Loop (Active)
+
+Use this when you want lightweight EPUB+PDF coverage without tournament workflows:
+
+1. Discover with format visibility (and optional filter):
+   - `cookimport bench quality-discover --no-prefer-curated --max-targets 6`
+   - optional PDF-only: `cookimport bench quality-discover --no-prefer-curated --formats .pdf`
+2. Run a small deterministic experiments pack:
+   - `cookimport bench quality-run --suite <suite.json> --experiments-file data/golden/bench/quality/experiments/2026-03-02_23.40.00_qualitysuite-pdf-first-small-pack.json`
+3. Generate global + by-format leaderboard slices:
+   - `cookimport bench quality-leaderboard --run-dir <run_dir> --experiment-id baseline --by-source-extension`

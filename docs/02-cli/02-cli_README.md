@@ -399,7 +399,7 @@ Top-level command groups:
 - `cookimport perf-report`
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
-- `cookimport bench <speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-compare|eval-stage>`
+- `cookimport bench <speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-leaderboard|quality-compare|eval-stage>`
 - `cookimport tag-catalog export`
 - `cookimport tag-recipes <debug-signals|suggest|apply>`
 
@@ -870,7 +870,7 @@ Options:
 
 ### `cookimport bench quality-discover`
 
-Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`.
+Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`. Selection metadata now includes per-format counts (`format_counts`, `selected_format_counts`) and per-target `source_extension`.
 
 Options:
 
@@ -879,6 +879,8 @@ Options:
 - `--out PATH` (default `data/golden/bench/quality/suites/pulled_representative.json`): destination for generated quality-suite JSON.
 - `--max-targets INTEGER>=1`: optional cap for selected targets (curated focus when available, representative fallback otherwise).
 - `--seed INTEGER` (default `42`): deterministic selection seed stored in suite metadata.
+- `--formats TEXT`: optional comma-separated extension filter (for example `.pdf,.epub`) applied before suite selection.
+- `--prefer-curated/--no-prefer-curated` (default prefer curated): opt out of curated CUTDOWN-first selection behavior.
 
 ### `cookimport bench quality-run`
 
@@ -912,6 +914,20 @@ Quick tuning guide for `--max-parallel-experiments`:
 | 3-6 | omit flag (auto) or `3-4` |
 | 7-12 | omit flag (auto) or `5-8` |
 | 13+ | omit flag (auto) or `8-32` (watch thermals/background load) |
+
+### `cookimport bench quality-leaderboard`
+
+Aggregates one quality-run experiment into a global cross-source leaderboard and Pareto frontier. Optional per-format leaderboard artifacts can be emitted to inspect winners inside each source extension bucket.
+
+Options:
+
+- `--experiment-id TEXT` (default `baseline`): experiment id under `<run-dir>/experiments`.
+- `--run-dir PATH`: explicit quality run directory (defaults to latest under `--runs-root`).
+- `--runs-root PATH` (default `data/golden/bench/quality/runs`): root used when `--run-dir` is omitted.
+- `--out-dir PATH`: output directory for artifacts (defaults to `<run-dir>/leaderboards/<experiment-id>/<timestamp>`).
+- `--allow-partial-coverage/--require-full-coverage` (default require full coverage): include partial-coverage configs when full coverage is available.
+- `--by-source-extension/--no-by-source-extension` (default disabled): also write `leaderboard_by_source_extension.json/csv`.
+- `--top-n INTEGER>=1` (default `10`): number of top configs printed to stdout.
 
 ### `cookimport bench quality-compare`
 
@@ -1229,7 +1245,7 @@ Merged source notes:
 
 Current-contract additions:
 - Top-level command drift has been low; the higher-risk drift is option-level coverage inside existing commands.
-- Keep benchmark docs synchronized with active `bench` options/subcommands (`speed-discover`, `speed-run`, `speed-compare`, `quality-discover`, `quality-run`, `quality-compare`, `eval-stage`) and `labelstudio-benchmark` prediction/eval split options.
+- Keep benchmark docs synchronized with active `bench` options/subcommands (`speed-discover`, `speed-run`, `speed-compare`, `quality-discover`, `quality-run`, `quality-leaderboard`, `quality-compare`, `eval-stage`) and `labelstudio-benchmark` prediction/eval split options.
 - Keep tagging CLI option docs synchronized for codex-farm pass5 paths (`tag-recipes suggest|apply --llm ...`).
 
 Known stale surfaces that should stay retired:
@@ -1467,3 +1483,14 @@ Chronological merged source notes:
 - 2026-03-02_21.22.44-cli-live-status-with-indent-regression: Fix a CLI import crash caused by mis-indented live-status `with console.status(...)` block.
 - 2026-03-02_21.55.02-codex-farm-busy-panel-work-summary: 2026-03-02_21.55.02 spinner panel + busy worker summary
 - 2026-03-03_00.00.00-codexfarm-progress-active-workers: Track why codex-farm benchmark progress now includes active worker task labels.
+
+## 2026-03-03 docs/tasks merge digest (interactive menu wording + dashboard flow)
+
+Merged source task files:
+- `docs/tasks/2026-03-02_18.22.28 - clarify interactive menu labels.md`
+- `docs/tasks/2026-03-02_23.01.36 - remove-dashboard-open-browser-prompt.md`
+
+Current contract additions:
+- Interactive select menus should keep the `NAME: short description` label pattern so options remain scannable and consistent across flows.
+- Interactive dashboard generation should not ask open-browser confirmation; it always calls `stats_dashboard(..., open_browser=False)` and returns to main menu.
+- Browser open behavior remains explicitly opt-in for non-interactive CLI usage via `cookimport stats-dashboard --open`.

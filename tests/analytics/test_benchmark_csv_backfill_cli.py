@@ -118,6 +118,7 @@ def test_benchmark_csv_backfill_cli_writes_updates(
     assert captured_dashboard["open_browser"] is False
     assert captured_dashboard["since_days"] is None
     assert captured_dashboard["scan_reports"] is False
+    assert captured_dashboard["scan_benchmark_reports"] is False
 
     with csv_path.open("r", newline="", encoding="utf-8") as fh:
         row = next(csv.DictReader(fh))

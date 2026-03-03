@@ -1,3 +1,9 @@
+---
+summary: "ExecPlan for fixing canonical HOWTO accounting and adding benchmark line-role configuration knobs."
+read_when:
+  - "When implementing or reviewing the PRO-PROMPT benchmark line-role plan."
+---
+
 # Fix canonical line-label evaluation metrics and retarget CodexFarm to atomic line roles
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
@@ -39,10 +45,10 @@ and observing:
 - [x] (2026-03-03 00:00Z) Captured the two primary problem classes in an ExecPlan: evaluation label accounting errors and CodexFarm task mismatch for canonical line benchmarks.
 - [x] (2026-03-03 03:28Z) Reviewed the provided benchmark bundles and prompt log samples; confirmed that the current CodexFarm prompt path is schema extraction oriented, not canonical line labeling, and that merged blocks are a root cause.
 - [x] (2026-03-03 03:28Z) Merged the best ideas from `docs/plans/PRO-PROMPT.md` and `docs/plans/PRO-PROMPT2.md` into this single plan; removed the duplicate plan file.
-- [ ] Reproduce the current benchmark locally and confirm the evaluation bug (`HOWTO_SECTION` totals incorrectly reported as 0).
-- [ ] Milestone 0: Fix evaluation label accounting (union of labels, stable ordering) and add a regression test.
-- [ ] Milestone 1: Add run settings and CLI flags for `line_role_pipeline` and `atomic_block_splitter`, and record them in manifests and comparison summaries.
-- [ ] Milestone 2: Implement deterministic atomization of mixed recipe blocks into benchmark-sized atomic line candidates (fixtures + tests).
+- [ ] Reproduce the current benchmark locally and confirm the evaluation bug (`HOWTO_SECTION` totals incorrectly reported as 0). (completed: synthetic canonical fixture reproduction; remaining: full CUTDOWN benchmark replay)
+- [x] (2026-03-02 23:30Z) Milestone 0: Fixed canonical-text HOWTO label accounting and added a regression test that verifies `per_label` + confusion include `HOWTO_SECTION`.
+- [x] (2026-03-02 23:30Z) Milestone 1: Added `line_role_pipeline` and `atomic_block_splitter` run settings + CLI flags, propagated them through prediction generation/manifests, and included them in benchmark cutdown summaries.
+- [x] (2026-03-02 23:38Z) Milestone 2: Added `cookimport/parsing/recipe_block_atomizer.py` with deterministic boundary-first splitting plus fixture-backed tests for merged blocks, variant lines, inline numbered tails, and ingredient-range vs yield behavior.
 - [ ] Milestone 3: Implement deterministic-first canonical line-role classification with optional Codex fallback (strict parsing, prompt logs, tests).
 - [ ] Milestone 4: Wire benchmark export and optional draft building to consume the same labeled atomic lines (integration test).
 - [ ] Milestone 5: Add paired-run diagnostics, stable cutdown exports, and regression gates; update docs; run acceptance benchmark(s) and record results here.
@@ -70,6 +76,9 @@ and observing:
 - Observation: Prompt logging is not always present in exported packages, which slows iteration.
   Evidence: Some exports omit `codexfarm_prompt_log.dedup.txt`.
 
+- Observation: Canonical evaluator label accounting was unintentionally affected by shared stage-label loading behavior that remapped `HOWTO_SECTION` before metrics.
+  Evidence: `evaluate_canonical_text` called `load_stage_block_labels(...)` without disabling HOWTO remap, so predicted HOWTO totals collapsed even when stage predictions explicitly contained HOWTO labels.
+
 ## Decision Log
 
 - Decision: Fix evaluation label accounting before optimizing any model/pipeline behavior.
@@ -96,9 +105,19 @@ and observing:
   Rationale: Better labeling without better forensics still leaves benchmark deltas hard to trust and hard to debug.
   Date/Author: 2026-03-03 / assistant (GPT-5.2 Pro)
 
+- Decision: Keep HOWTO remap behavior for stage/freeform scoring, but preserve explicit `HOWTO_SECTION` in canonical-text scoring.
+  Rationale: Stage/freeform comparability still benefits from structural remap, but canonical line-label accounting should reflect the explicit benchmark label when it is present.
+  Date/Author: 2026-03-02 / assistant (GPT-5.2)
+
 ## Outcomes & Retrospective
 
-Initial planning state only. No code has been changed yet. The expected outcome of the completed plan is a benchmark-visible improvement that comes from direct line-role prediction and correct evaluation, plus new artifacts that make deltas explainable.
+Partial implementation complete. Milestones 0, 1, and 2 are now landed:
+
+- canonical-text evaluation keeps explicit HOWTO labels so per-label totals/confusions report them correctly;
+- benchmark run settings now expose `llm_recipe_pipeline`, `atomic_block_splitter`, and `line_role_pipeline` independently in run config/manifests/cutdown summaries.
+- deterministic block atomization now produces atomic candidates with candidate labels/rule tags and stable adjacency context.
+
+Remaining work is Milestones 3–5 (line-role prediction path, projection/draft wiring, diagnostics/gates, and acceptance benchmarks).
 
 ## Context and Orientation
 
@@ -588,3 +607,7 @@ Store prompt text in version-controlled template files (for example `cookimport/
 ## Plan change note
 
 (2026-03-03) Merged `docs/plans/PRO-PROMPT.md` and `docs/plans/PRO-PROMPT2.md` into one plan. The merged plan keeps: evaluation label-accounting fixes + regression tests; separate `line_role_pipeline`/`atomic_block_splitter` knobs (instead of overloading recipe extraction); deterministic atomization; deterministic-first line-role labeling with Codex fallback; strict parsing + prompt logging; and benchmark diagnostics/gates. The duplicate plan file was deleted.
+
+(2026-03-02 23:30 America/Toronto) Updated plan after implementation progress: Milestone 0 and Milestone 1 are completed, canonical HOWTO accounting behavior is clarified (stage/freeform remap vs canonical explicit scoring), and docs/manifests/cutdown summaries now include `atomic_block_splitter` + `line_role_pipeline` as first-class run knobs.
+
+(2026-03-02 23:38 America/Toronto) Updated plan after Milestone 2 implementation: added deterministic `recipe_block_atomizer` runtime + fixtures/tests and updated parsing docs/understandings with the boundary-first split-order contract.
