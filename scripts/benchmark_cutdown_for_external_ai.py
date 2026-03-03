@@ -572,6 +572,135 @@ def _write_prompt_log_samples(
     }
 
 
+def _write_prompt_log_samples_from_full_prompt_log(
+    *,
+    source_path: Path,
+    output_path: Path,
+    max_pairs_per_category: int,
+) -> dict[str, Any]:
+    rows = _iter_jsonl(source_path)
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        pass_name = str(row.get("pass") or "").strip().lower()
+        if not pass_name:
+            pass_name = "unknown"
+        grouped[pass_name].append(row)
+
+    if not grouped:
+        output_path.write_text(
+            "No parseable rows were found in full_prompt_log.jsonl.\n",
+            encoding="utf-8",
+        )
+        return {
+            "status": "no_rows",
+            "source_path": str(source_path),
+            "max_pairs_per_category": max_pairs_per_category,
+            "categories": [],
+            "sampled_pairs": 0,
+        }
+
+    for pass_name in grouped:
+        grouped[pass_name].sort(
+            key=lambda row: (
+                str(row.get("call_id") or ""),
+                str(row.get("timestamp_utc") or ""),
+            )
+        )
+
+    lines: list[str] = [
+        "# CodexFarm prompt input/output examples (from full_prompt_log.jsonl)",
+        "",
+        (
+            "This convenience file is derived from full_prompt_log.jsonl and keeps "
+            "full request/response payload content for sampled calls."
+            if max_pairs_per_category > 0
+            else "This convenience file is derived from full_prompt_log.jsonl and keeps all calls."
+        ),
+        "",
+        f"Source log: {source_path}",
+        "",
+    ]
+
+    category_metadata: dict[str, dict[str, Any]] = {}
+    sampled_pairs = 0
+    for category in sorted(grouped.keys(), key=_prompt_category_sort_key):
+        category_rows = grouped[category]
+        if max_pairs_per_category <= 0:
+            sampled_indices = list(range(len(category_rows)))
+        else:
+            sampled_indices = _sample_indices_evenly(
+                len(category_rows),
+                max_pairs_per_category,
+            )
+        pair_count = len(sampled_indices)
+        category_metadata[category] = {
+            "total_calls": len(category_rows),
+            "sampled_calls": pair_count,
+            "sampled_call_indices": sampled_indices,
+        }
+
+        lines.append(
+            f"--- {category.upper()} CALLS (showing {pair_count} of {len(category_rows)}) ---"
+        )
+        if pair_count == 0:
+            lines.append("No calls available for this pass category.")
+            lines.append("")
+            continue
+
+        for sample_no, source_index in enumerate(sampled_indices, start=1):
+            row = category_rows[source_index]
+            call_id = str(row.get("call_id") or "").strip()
+            recipe_id = str(row.get("recipe_id") or "").strip()
+            timestamp_utc = str(row.get("timestamp_utc") or "").strip()
+            source_file = str(row.get("source_file") or "").strip()
+            lines.extend(
+                [
+                    (
+                        f"[{category}] Sample {sample_no} (source index {source_index + 1})"
+                        f" call_id={call_id} recipe_id={recipe_id} timestamp_utc={timestamp_utc}"
+                    ),
+                    f"source_file={source_file}",
+                    "",
+                    "REQUEST_MESSAGES:",
+                    json.dumps(
+                        row.get("request_messages"),
+                        indent=2,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    "",
+                    "RAW_RESPONSE:",
+                    json.dumps(
+                        row.get("raw_response"),
+                        indent=2,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    "",
+                    "PARSED_RESPONSE:",
+                    json.dumps(
+                        row.get("parsed_response"),
+                        indent=2,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    PROMPT_LOG_SEPARATOR,
+                    "",
+                ]
+            )
+            sampled_pairs += 1
+
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return {
+        "status": "sampled_from_full_prompt_log",
+        "source_path": str(source_path),
+        "max_pairs_per_category": max_pairs_per_category,
+        "categories": sorted(grouped.keys(), key=_prompt_category_sort_key),
+        "sampled_pairs": sampled_pairs,
+        "category_metadata": category_metadata,
+    }
+
+
 def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
     cursor = 0
@@ -1255,21 +1384,6 @@ def _build_run_cutdown(
     }
 
     codex_prompt_log = _resolve_prompt_log_path(run_dir, run_manifest)
-    if codex_prompt_log is not None:
-        prompt_log_output = output_run_dir / PROMPT_LOG_FILE_NAME
-        if prompt_pairs_per_category <= 0:
-            shutil.copy2(codex_prompt_log, prompt_log_output)
-            sample_counts[PROMPT_LOG_FILE_NAME] = {
-                "status": "full_copied",
-                "source_path": str(codex_prompt_log),
-            }
-        else:
-            sample_counts[PROMPT_LOG_FILE_NAME] = _write_prompt_log_samples(
-                source_path=codex_prompt_log,
-                output_path=prompt_log_output,
-                max_pairs_per_category=prompt_pairs_per_category,
-            )
-
     full_prompt_log_source = _resolve_full_prompt_log_path(run_dir, run_manifest)
     full_prompt_log_output = output_run_dir / FULL_PROMPT_LOG_FILE_NAME
     full_prompt_log_status = "not_applicable"
@@ -1301,6 +1415,32 @@ def _build_run_cutdown(
         "rows": full_prompt_log_rows,
         "source_path": str(full_prompt_log_source) if full_prompt_log_source is not None else None,
     }
+
+    prompt_log_output = output_run_dir / PROMPT_LOG_FILE_NAME
+    if full_prompt_log_status == "complete" and full_prompt_log_output.is_file():
+        sample_counts[PROMPT_LOG_FILE_NAME] = _write_prompt_log_samples_from_full_prompt_log(
+            source_path=full_prompt_log_output,
+            output_path=prompt_log_output,
+            max_pairs_per_category=prompt_pairs_per_category,
+        )
+    elif codex_prompt_log is not None:
+        if prompt_pairs_per_category <= 0:
+            shutil.copy2(codex_prompt_log, prompt_log_output)
+            sample_counts[PROMPT_LOG_FILE_NAME] = {
+                "status": "full_copied",
+                "source_path": str(codex_prompt_log),
+            }
+        else:
+            sample_counts[PROMPT_LOG_FILE_NAME] = _write_prompt_log_samples(
+                source_path=codex_prompt_log,
+                output_path=prompt_log_output,
+                max_pairs_per_category=prompt_pairs_per_category,
+            )
+    elif codex_enabled:
+        sample_counts[PROMPT_LOG_FILE_NAME] = {
+            "status": "missing",
+            "source_path": None,
+        }
 
     top_confusions = _top_confusions(
         eval_report.get("confusion"),
@@ -1578,11 +1718,14 @@ def _write_readme(
     lines.append(f"Sample limit per JSONL artifact: {sample_limit}")
     lines.append(f"Excerpt char limit for sampled text fields: {excerpt_limit}")
     if prompt_pairs_per_category <= 0:
-        lines.append("CodexFarm sampled prompt log: convenience file copies full request/response text log.")
+        lines.append(
+            "CodexFarm sampled prompt log: convenience file keeps all calls from "
+            "`full_prompt_log.jsonl` when available (legacy text-log copy fallback)."
+        )
     else:
         lines.append(
-            "CodexFarm sampled prompt log: convenience-only sampled prompt input/output pairs per category "
-            f"(max {prompt_pairs_per_category})"
+            "CodexFarm sampled prompt log: convenience-only sampled calls per pass "
+            f"(max {prompt_pairs_per_category}, sampled from full_prompt_log.jsonl when available)"
         )
     lines.append(
         "CodexFarm full prompt log: `full_prompt_log.jsonl` copied as complete machine-readable call rows (no sampling/truncation)."

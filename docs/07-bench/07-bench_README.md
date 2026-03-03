@@ -1282,3 +1282,38 @@ Current behavior now:
 
 Known warning signals to watch:
 - "benchmark mode inferred; metadata missing" and equivalent warning list in comparison output indicate reduced certainty, not silent fallback.
+
+
+## 2026-03-03 merged understandings digest
+
+This batch consolidates benchmark behavior notes that were previously isolated in `docs/understandings/`.
+
+Key benchmark contracts to keep:
+- Interactive single-offline runs now resolve source/gold once per session and reuse it across variants; outputs are nested under a source slug.
+- Comparison artifacts use explicit metric naming/schema and preserve legacy compatibility only where needed for older consumers.
+- Markdown output controls should gate summary sidecars consistently; single-offline emits one session-root markdown summary when enabled.
+- CodexFarm prompt-debug artifacts now require full per-call JSONL logs; category-specific text logs are additive convenience views.
+- Benchmark cutdown packaging should prefer full logs for sampling and only fall back to legacy text logs.
+- Split-cache reuse and manifest-driven runtime metadata resolution are intentional performance/consistency contracts.
+
+Chronological merged source notes:
+- 2026-03-02_12.10.59-single-offline-source-selection-reuse: Single-offline benchmark source selection fix
+- 2026-03-02_19.58.15-benchmark-cutdown-sampling-flow: How benchmark_cutdown_for_external_ai currently trims diagnostics and where the biggest info loss happens.
+- 2026-03-02_20.03.20-codexfarm-benchmark-prompt-log: Benchmark run now writes codex-farm prompt/request-response text logs to the eval run folder.
+- 2026-03-02_21.41.40-benchmark-markdown-artifact-toggle-scope: `write_markdown` previously gated stage sidecars but not benchmark summary markdown outputs.
+- 2026-03-02_21.49.36-benchmark-cutdown-prompt-log-source-and-3pairs: benchmark_cutdown now resolves prompt log path via run_manifest and samples 3 full pairs per category by default.
+- 2026-03-02_21.52.38-single-offline-one-markdown-summary-contract: Interactive single-offline benchmark now consolidates markdown into one session-root summary file.
+- 2026-03-02_22.09.25-single-offline-default-reasoning-effort-resolution: Single-offline comparison resolves `<default>` Codex reasoning effort using Codex config defaults.
+- 2026-03-02_22.10.00-single-offline-comparison-codex-runtime-source: Single-offline codex-vs-vanilla comparison should derive Codex model/reasoning from run manifests with llm-manifest fallback.
+- 2026-03-02_22.11.31-canonical-comparison-metric-aliases: Single-offline canonical comparison shows duplicated precision/recall/f1 and practical_* by design.
+- 2026-03-02_22.18.48-single-offline-explicit-metric-names: Single-offline comparison markdown now reports explicit canonical metrics instead of legacy alias rows.
+- 2026-03-02_22.21.31-single-offline-comparison-per-label-aggregation: Single-offline comparison per-label breakdown should use dashboard-style weighted aggregation across variant eval reports.
+- 2026-03-02_22.24.14-single-offline-comparison-schema-v2-explicit-metrics: Single-offline comparison backend now uses schema v2 with explicit canonical metric keys only.
+- 2026-03-02_22.40.00-single-offline-session-root-source-slug: Interactive single-offline benchmark now nests session artifacts under a source-derived slug.
+- 2026-03-02_22.46.55-codexfarm-full-prompt-log-contract: CodexFarm benchmark artifacts now require a complete per-call full_prompt_log.jsonl.
+- 2026-03-02_22.54.55-canonical-benchmark-boundary-metric-source: Canonical-text benchmark runs were missing dashboard boundary metrics because eval_report.json did not emit a top-level boundary object.
+- 2026-03-02_23.02.50-cutdown-prompt-sampling-prefers-full-log: benchmark_cutdown convenience prompt samples now prefer full_prompt_log.jsonl and only fall back to legacy text logs.
+- 2026-03-02_23.12.13-qualitysuite-mixed-format-discovery-notes: Current-state notes on how QualitySuite handles (and hides) source formats like PDF vs EPUB.
+- 2026-03-02_23.23.00-codexfarm-benchmark-prompt-category-logs: CodexFarm benchmark prompt logging now emits per-task category files plus a manifest for human review.
+- 2026-03-03_00.00.00-benchmark-cutdown-prompt-log-sampling: Benchmark cutdown keeps sampled prompt text as convenience while preserving full per-call JSONL logs.
+- 2026-03-03_00.35.00-single-offline-split-cache-reuse: Single-offline split-cache reuse wiring

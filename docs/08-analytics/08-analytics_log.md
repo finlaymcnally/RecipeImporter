@@ -302,3 +302,192 @@ Durable decisions:
 Anti-loop note:
 - If chart looks blank but table rows render, inspect fallback state and timestamp parsing first before changing collector behavior.
 
+
+
+## 2026-03-03 migrated understandings ledger (docs/understandings consolidation)
+
+This section preserves detailed analytics/dashboard discoveries in timestamp order after removing standalone files from `docs/understandings/`.
+
+### 2026-03-02_22.26.36-dashboard-ai-runtime-and-source-fallback
+
+Source file: docs/understandings/2026-03-02_22.26.36-dashboard-ai-runtime-and-source-fallback.md
+Summary: Dashboard `Previous Runs` source labels should fall back to artifact-path slugs, and AI runtime should come from run-config metadata.
+
+
+- Main dashboard `Previous Runs` previously used `basename(source_file)` only; rows missing `source_file` degraded to `-` or low-signal path tails.
+- Better fallback comes from benchmark artifact path patterns already present in collected rows:
+  - `all-method-benchmark/<source_slug>/config_*`
+  - `single-profile-benchmark/<source_slug>/...`
+  - `scenario_runs/<source_slug>/...`
+  - `.../eval/<source_slug>/...`
+- AI model/thinking context can stay CSV-first by resolving from benchmark `run_config` and `run_config_summary` (`codex_farm_model`, `codex_farm_reasoning_effort`, related aliases); no new collector-only JSON metric needed.
+
+
+### 2026-03-02_22.29.43-dashboard-all-method-navigation-contract
+
+Source file: docs/understandings/2026-03-02_22.29.43-dashboard-all-method-navigation-contract.md
+Summary: All-method dashboard pages should be reached from main Previous Runs, not from a separate all-method index page.
+
+
+## Discovery
+
+- `dashboard_render.py` generated three all-method surfaces: a root run-index page plus run-summary and per-book detail pages.
+- Main dashboard also rendered an `All-Method Benchmark Runs` section linking to that root index page.
+- `Previous Runs` already computes run-summary links (`all-method-benchmark-run__<ts>.html`) for grouped all-method rows, so the root run-index page is redundant.
+
+## Applied Contract
+
+- Keep generating run-summary + per-book detail pages under `all-method-benchmark/`.
+- Remove generation of `all-method-benchmark/index.html`.
+- Route navigation through main `index.html#previous-runs-section`.
+
+
+### 2026-03-02_22.30.04-dashboard-previous-runs-rules-filter-flow
+
+Source file: docs/understandings/2026-03-02_22.30.04-dashboard-previous-runs-rules-filter-flow.md
+Summary: Previous Runs rules filtering should be applied before all-method run bundling so filtered comparisons stay meaningful.
+
+
+- `Previous Runs` all-method rows are derived by bundling raw benchmark records by run path; filtering must happen before that bundling step.
+- Applying rules first preserves comparisons like "single book + all model/effort combos" while still letting all-method summaries render from the matching subset.
+- The trend chart should consume the exact same filtered record set as the table to avoid visual/table mismatch.
+
+
+### 2026-03-02_22.35.41-dashboard-all-method-timestamp-from-path
+
+Source file: docs/understandings/2026-03-02_22.35.41-dashboard-all-method-timestamp-from-path.md
+Summary: All-method Previous Runs timestamps must be extracted from timestamp-like path tokens, not the segment immediately before all-method-benchmark.
+
+
+- Some all-method artifact paths contain `.../repeat_01/eval_output/all-method-benchmark/...`; using `idx - 1` for the timestamp picks `eval_output`.
+- The fix is to scan backward from `all-method-benchmark` and take the nearest token that matches dashboard timestamp formats (`YYYY-MM-DD_HH.MM.SS` or `YYYY-MM-DDTHH:MM:SS`).
+- This keeps grouped all-method timestamp links readable and chronologically sortable.
+
+
+### 2026-03-02_22.37.34-dashboard-boundary-fallback-to-last-non-null
+
+Source file: docs/understandings/2026-03-02_22.37.34-dashboard-boundary-fallback-to-last-non-null.md
+Summary: Boundary Classification card can show an older timestamp when newer benchmark rows have null boundary metrics.
+
+
+# Discovery
+
+The dashboard files were freshly regenerated (`data/.history/dashboard/index.html` at `2026-03-02 22:31:44 -0500`), but the Boundary card still showed `2026-02-23T15:59:03`.
+
+Root cause: frontend boundary rendering intentionally chooses the first benchmark record with any non-null boundary values:
+
+- `const latest = preferredRecords.find(r => r.boundary_correct != null || ...)`
+- source: `cookimport/analytics/dashboard_render.py` (`renderBoundary`)
+
+In current data, recent benchmark rows (including `2026-03-02_21.25.24`) have `boundary_* = null`, so UI falls back to the last record that still has boundary values (currently `2026-02-23T15:59:03`).
+
+Why recent rows are null: their eval reports (e.g. `data/golden/benchmark-vs-golden/2026-03-02_21.25.24/single-offline-benchmark/{vanilla,codexfarm}/eval_report.json`) no longer contain a `boundary` object.
+
+
+### 2026-03-02_22.40.42-dashboard-codex-runtime-llm-codex-farm-fallback
+
+Source file: docs/understandings/2026-03-02_22.40.42-dashboard-codex-runtime-llm-codex-farm-fallback.md
+Summary: Dashboard benchmark runtime model/effort may need fallback from prediction-run `llm_codex_farm` telemetry when run-config leaves defaults unset.
+
+
+- Some codex-farm benchmark rows persist `llm_recipe_pipeline=codex-farm-3pass-v1` but keep `run_config.codex_farm_model` and `run_config.codex_farm_reasoning_effort` as `null`.
+- The needed runtime values still exist in `prediction-run/manifest.json -> llm_codex_farm`:
+  - `process_runs.*.process_payload.codex_model`
+  - `process_runs.*.process_payload.codex_reasoning_effort` (or telemetry `model_reasoning_breakdown[].reasoning_effort`, often `<default>`).
+- Collector should backfill these into benchmark `run_config` only when missing, so existing frontend/runtime-card extraction can display useful model/effort without changing table contracts.
+
+
+### 2026-03-02_22.41.32-dashboard-ai-off-fallback-vs-codex-manifest-runtime
+
+Source file: docs/understandings/2026-03-02_22.41.32-dashboard-ai-off-fallback-vs-codex-manifest-runtime.md
+Summary: Dashboard AI column/runtime can incorrectly show `off` unless codex runtime is backfilled from benchmark manifest llm_codex_farm payloads.
+
+
+- Benchmark rows may have `llm_recipe_pipeline=codex-farm-3pass-v1` but no model/effort in `run_config` or `run_config_summary`.
+- The codex model is often present only in benchmark manifest `llm_codex_farm.process_runs.*.process_payload.codex_model` (with reasoning fallback in telemetry model breakdown).
+- Collector should merge that runtime data into benchmark `run_config` (`codex_farm_model`, `codex_farm_reasoning_effort`) so dashboard UI can render real AI runtime labels.
+- Diagnostics latest-row selection should tie-break identical timestamps by preferring richer AI metadata (model/effort/pipeline-on), not whichever row appears first.
+
+
+### 2026-03-02_22.48.48-benchmark-importer-missing-csv-root-cause
+
+Source file: docs/understandings/2026-03-02_22.48.48-benchmark-importer-missing-csv-root-cause.md
+Summary: Benchmark importer '-' rows were caused by blank importer_name in CSV writes, not table rendering loss.
+
+
+- Recent benchmark rows with `-` importer traced to `data/.history/performance_history.csv` rows where `importer_name` was blank at write time.
+- `append_benchmark_csv(...)` previously did not set CSV `importer_name`, so dashboard collector had nothing to display unless JSON manifests happened to contain importer metadata.
+- Practical fix is two-layered:
+  - persist importer in benchmark CSV writes going forward,
+  - dashboard fallback infers importer from `source_file` extension/run-config for historical blank rows.
+
+
+### 2026-03-02_23.11.05-dashboard-trend-range-selector-default
+
+Source file: docs/understandings/2026-03-02_23.11.05-dashboard-trend-range-selector-default.md
+Summary: Benchmark Score Trend looked shorter than Previous Runs because Highcharts Stock defaulted to a recent range selection.
+
+
+- The chart data already included older points, but `rangeSelector.selected = 1` opened on a recent time window by default.
+- The `Previous Runs` table lists filtered rows directly and is not clipped by that chart viewport, so the two sections appeared inconsistent.
+- Setting explicit range buttons with default `All` keeps initial chart history aligned with table context while preserving quick-range controls.
+
+
+### 2026-03-02_23.50.00-dashboard-previous-runs-dynamic-column-contract
+
+Source file: docs/understandings/2026-03-02_23.50.00-dashboard-previous-runs-dynamic-column-contract.md
+Summary: Previous Runs now renders columns dynamically from JS state across single + all-method row shapes.
+
+
+## Discovery
+
+`Previous Runs` is not a single record type: it renders both raw benchmark rows and grouped all-method summary rows. Dynamic columns therefore must resolve values from two row shapes.
+
+## Practical Contract
+
+- Column list comes from runtime JS state (`previousRunsVisibleColumns`), seeded from defaults + discovered benchmark fields.
+- Headers are rendered at runtime (`renderPreviousRunsTableColumns`) and use `<colgroup>` widths so drag-resize persists during rerenders.
+- Header cells are mouse-draggable for reordering (`dragstart`/`drop`), with `Left`/`Right` editor buttons as fallback controls.
+- Cell values route through `previousRunsRowFieldValue(...)`:
+  - single rows pull from raw benchmark record fields (including nested paths)
+  - all-method rows expose only summarized keys (`strict_accuracy`, `macro_f1_excluding_other`, `source`, etc.); missing fields render `-`.
+
+
+### 2026-03-02_23.58.40-benchmark-metric-fallback-explicit-vs-legacy
+
+Source file: docs/understandings/2026-03-02_23.58.40-benchmark-metric-fallback-explicit-vs-legacy.md
+Summary: Benchmark compatibility readers should only collapse aliases when explicit strict/macro metrics are present.
+
+
+# Benchmark Metric Fallback: Explicit vs Legacy
+
+- Problem: after alias removal in stage/canonical `eval_report.json`, compatibility readers started collapsing legacy reports too aggressively (`precision=recall=f1`, `practical_*` all equal), which broke dashboard CSV/collector expectations.
+- Root cause: fallback helpers treated any available alias metric as equivalent to explicit benchmark metrics.
+- Decision:
+  - Collapse to strict/practical aliases only when explicit benchmark keys exist:
+    - strict: `strict_accuracy` / `overall_line_accuracy` / `overall_block_accuracy` / `accuracy`
+    - practical: `macro_f1_excluding_other`
+  - When explicit keys are absent, preserve legacy split fields (`precision`, `recall`, `f1`, `practical_precision`, `practical_recall`, `practical_f1`).
+  - For single-offline comparison display only, keep legacy strict fallback to strict precision so old comparison artifacts still populate `strict_accuracy`.
+- Verification anchors:
+  - `tests/analytics/test_stats_dashboard.py -k benchmark`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "single_offline_comparison or interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_writes_comparison"`
+
+
+### 2026-03-02_23.59.30-dashboard-explicit-metric-rendering
+
+Source file: docs/understandings/2026-03-02_23.59.30-dashboard-explicit-metric-rendering.md
+Summary: Dashboard Previous Runs/trend should render explicit benchmark metric names while preserving legacy ingestion fallback.
+
+
+# Dashboard Explicit Metric Rendering
+
+- Problem: backend benchmark eval reports moved to explicit metrics (`strict_accuracy`, `macro_f1_excluding_other`) but dashboard UI still rendered legacy strict/practical aliases.
+- Fix shape:
+  - Add explicit metric fields to dashboard schema records.
+  - Populate explicit fields in collectors from explicit eval keys first, with legacy alias fallback for historical rows/artifacts.
+  - Render main `Previous Runs` and trend chart using explicit metric fields/names.
+- Compatibility:
+  - Legacy fields are still ingested for old rows.
+  - CSV rows now persist explicit metric columns alongside legacy compatibility columns.
+

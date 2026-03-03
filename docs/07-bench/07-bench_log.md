@@ -2597,3 +2597,311 @@ Decisions/outcomes:
 
 Anti-loop note:
 - If strict compare failures recur, verify mode resolution inputs first (`run_manifest`, artifact presence, comparison run metadata) before tuning gate thresholds.
+
+
+## 2026-03-03 migrated understandings ledger (docs/understandings consolidation)
+
+This section preserves detailed benchmark discoveries in timestamp order after removing standalone files from `docs/understandings/`.
+
+### 2026-03-02_12.10.59-single-offline-source-selection-reuse
+
+Source file: docs/understandings/2026-03-02_12.10.59-single-offline-source-selection-reuse.md
+Summary: Single-offline benchmark source selection fix
+
+# Single-offline benchmark source selection fix
+
+Observed behavior before this change: `single_offline` codex/vs-vanilla runs resolved benchmark inputs inside each variant, so selecting codex made the loop appear to switch books unexpectedly.
+
+Fix applied: `_interactive_single_offline_benchmark` now resolves `gold_spans` and `source_file` once via `_resolve_benchmark_gold_and_source(...)` and injects the same pair into each variant `labelstudio_benchmark` call.
+
+Result: both variants in a session now process the same source book with separate variant settings, preserving comparable outputs under:
+
+- `.../single-offline-benchmark/vanilla/`
+- `.../single-offline-benchmark/codexfarm/`
+
+
+### 2026-03-02_19.58.15-benchmark-cutdown-sampling-flow
+
+Source file: docs/understandings/2026-03-02_19.58.15-benchmark-cutdown-sampling-flow.md
+Summary: How benchmark_cutdown_for_external_ai currently trims diagnostics and where the biggest info loss happens.
+
+
+# Benchmark cutdown sampling flow
+
+- Run discovery treats any directory with both `eval_report.json` and `run_manifest.json` as a benchmark run.
+- Per-run output is built from sampled JSONL diagnostics plus one compact `need_to_know_summary.json`.
+- Previous sampling was `rows[:sample_limit]`, so later rows in large diagnostics never appeared in cutdown output.
+- Text trimming only clipped a few keys to 240 chars, which kept output compact but dropped useful context in long lines.
+- Core summary already includes top confusions and low-metric labels; broadening sampled diagnostics is the highest-value way to improve AI review context.
+
+
+### 2026-03-02_20.03.20-codexfarm-benchmark-prompt-log
+
+Source file: docs/understandings/2026-03-02_20.03.20-codexfarm-benchmark-prompt-log.md
+Summary: Benchmark run now writes codex-farm prompt/request-response text logs to the eval run folder.
+
+
+# CodexFarm benchmark prompt/response logging
+
+- Discovered that benchmark prediction runs move the raw import run into `prediction-run`, and CodexFarm artifacts are written under `prediction-run/raw/llm/<workbook_slug>/` with `pass*_in` and `pass*_out` JSON files.
+- Added a benchmark-side log writer that emits `codexfarm/prompt_request_response_log.txt` containing the full contents of all CodexFarm prompt files and all corresponding response files.
+- `run_manifest.json` now links this log with `artifacts.codexfarm_prompt_request_response_txt` for the benchmark variant output.
+
+
+### 2026-03-02_21.41.40-benchmark-markdown-artifact-toggle-scope
+
+Source file: docs/understandings/2026-03-02_21.41.40-benchmark-markdown-artifact-toggle-scope.md
+Summary: `write_markdown` previously gated stage sidecars but not benchmark summary markdown outputs.
+
+
+In `labelstudio-benchmark`, `write_markdown` was forwarded into prediction generation but benchmark eval/comparison markdown files were still unconditional.
+
+Impact before fix:
+- `eval_report.md` was always written.
+- `single-offline-benchmark/codex_vs_vanilla_comparison.md` was always written when both variants succeeded.
+
+Current contract:
+- With markdown disabled, benchmark still writes machine-readable JSON (`eval_report.json`, comparison JSON, run manifest) but skips those markdown summaries.
+
+
+### 2026-03-02_21.49.36-benchmark-cutdown-prompt-log-source-and-3pairs
+
+Source file: docs/understandings/2026-03-02_21.49.36-benchmark-cutdown-prompt-log-source-and-3pairs.md
+Summary: benchmark_cutdown now resolves prompt log path via run_manifest and samples 3 full pairs per category by default.
+
+
+- `scripts/benchmark_cutdown_for_external_ai.py` previously only looked for `codexfarm_prompt_log.dedup.txt` in the run root, but benchmark runs commonly write the request/response log at `codexfarm/prompt_request_response_log.txt` and link it from `run_manifest.json` under `artifacts.codexfarm_prompt_request_response_txt`.
+- The script now resolves the prompt-log source from run-manifest artifacts first, then legacy fallback paths, and always emits sampled output as `codexfarm_prompt_log.dedup.txt` so flattening consistently includes it.
+- Prompt pair sampling default is now 3 per category, and sampled indices are spread evenly across available pairs (deterministic first/middle/last style) while preserving full plaintext blocks for each sampled INPUT/OUTPUT entry.
+
+
+### 2026-03-02_21.52.38-single-offline-one-markdown-summary-contract
+
+Source file: docs/understandings/2026-03-02_21.52.38-single-offline-one-markdown-summary-contract.md
+Summary: Interactive single-offline benchmark now consolidates markdown into one session-root summary file.
+
+
+Interactive single-offline benchmark now treats markdown as a presentation layer over JSON outputs.
+
+Current contract:
+- Per-variant benchmark calls run with markdown disabled.
+- Session still writes machine-readable JSON (`eval_report.json`, `codex_vs_vanilla_comparison.json`).
+- If markdown is enabled, one consolidated file is written:
+  - `single-offline-benchmark/single_offline_summary.md`
+
+This keeps artifact review human-friendly while avoiding multiple overlapping markdown summaries.
+
+
+### 2026-03-02_22.09.25-single-offline-default-reasoning-effort-resolution
+
+Source file: docs/understandings/2026-03-02_22.09.25-single-offline-default-reasoning-effort-resolution.md
+Summary: Single-offline comparison resolves `<default>` Codex reasoning effort using Codex config defaults.
+
+
+`_load_single_offline_codex_farm_runtime(...)` now resolves `codex_reasoning_effort="<default>"` through `default_codex_reasoning_effort(cmd=codex_farm_cmd)`.
+
+This keeps `codex_vs_vanilla_comparison.{json,md}` human-meaningful (`high`/`medium`/etc.) instead of preserving placeholder telemetry text.
+
+
+### 2026-03-02_22.10.00-single-offline-comparison-codex-runtime-source
+
+Source file: docs/understandings/2026-03-02_22.10.00-single-offline-comparison-codex-runtime-source.md
+Summary: Single-offline codex-vs-vanilla comparison should derive Codex model/reasoning from run manifests with llm-manifest fallback.
+
+
+`single-offline-benchmark/codex_vs_vanilla_comparison.json` is generated from per-variant eval directories.
+
+For Codex model/reasoning:
+- First read `run_manifest.json -> run_config` (`codex_farm_model`, `codex_farm_reasoning_effort`, aliases).
+- If missing, fall back to the prediction run LLM manifest (`prediction-run/raw/llm/*/llm_manifest.json`) and use process payload / telemetry model-reasoning breakdown values.
+
+This keeps comparison artifacts informative even when run settings relied on default Codex config (no explicit model/reasoning override in run config).
+
+
+### 2026-03-02_22.11.31-canonical-comparison-metric-aliases
+
+Source file: docs/understandings/2026-03-02_22.11.31-canonical-comparison-metric-aliases.md
+Summary: Single-offline canonical comparison shows duplicated precision/recall/f1 and practical_* by design.
+
+
+`single-offline-benchmark/codex_vs_vanilla_comparison.*` reads metrics directly from each variant's `eval_report.json`.
+
+Canonical-text evaluation uses `compute_block_metrics(...)` from `cookimport/bench/eval_stage_blocks.py`, where compatibility fields are intentionally set as:
+- `precision = recall = f1 = overall_block_accuracy`
+- `practical_precision = practical_recall = practical_f1 = macro_f1_excluding_other`
+
+So six rows can collapse to two unique values without being a markdown/rendering bug.
+
+
+### 2026-03-02_22.18.48-single-offline-explicit-metric-names
+
+Source file: docs/understandings/2026-03-02_22.18.48-single-offline-explicit-metric-names.md
+Summary: Single-offline comparison markdown now reports explicit canonical metrics instead of legacy alias rows.
+
+
+`compute_block_metrics(...)` still exposes legacy compatibility fields where `precision/recall/f1` mirror strict accuracy and `practical_*` mirror `macro_f1_excluding_other`.
+
+Single-offline comparison artifacts (`codex_vs_vanilla_comparison.*`) should use explicit canonical names end-to-end:
+- `strict_accuracy`
+- `macro_f1_excluding_other`
+
+Comparison JSON schema was bumped to `codex_vs_vanilla_comparison.v2` so backend payloads no longer duplicate alias-key metrics.
+
+
+### 2026-03-02_22.21.31-single-offline-comparison-per-label-aggregation
+
+Source file: docs/understandings/2026-03-02_22.21.31-single-offline-comparison-per-label-aggregation.md
+Summary: Single-offline comparison per-label breakdown should use dashboard-style weighted aggregation across variant eval reports.
+
+
+- The comparison artifact previously had only top-line metrics (`precision/recall/f1` + practical aliases).
+- Dashboard-style per-label values are not simple per-run averages; they are recomputed from aggregated counts and TP estimates (`recall*gold_total`, `precision*pred_total`) across all evals in the run timestamp group.
+- To match dashboard interpretation, comparison JSON now stores an additive `metadata.per_label_breakdown` block and markdown renders the same label table with `(run_timestamp, eval_count)` context.
+
+
+### 2026-03-02_22.24.14-single-offline-comparison-schema-v2-explicit-metrics
+
+Source file: docs/understandings/2026-03-02_22.24.14-single-offline-comparison-schema-v2-explicit-metrics.md
+Summary: Single-offline comparison backend now uses schema v2 with explicit canonical metric keys only.
+
+
+`codex_vs_vanilla_comparison.json` moved to `codex_vs_vanilla_comparison.v2`.
+
+Metrics and deltas now use explicit canonical keys only:
+- `strict_accuracy`
+- `macro_f1_excluding_other`
+
+Legacy alias keys (`precision/recall/f1`, `practical_*`) are no longer emitted in comparison payloads.
+`_single_offline_display_metric_value(...)` still reads legacy eval-report fields as fallback input so older eval reports can be normalized into v2 output.
+
+
+### 2026-03-02_22.40.00-single-offline-session-root-source-slug
+
+Source file: docs/understandings/2026-03-02_22.40.00-single-offline-session-root-source-slug.md
+Summary: Interactive single-offline benchmark now nests session artifacts under a source-derived slug.
+
+
+# Discovery
+
+- `_interactive_single_offline_benchmark(...)` previously hard-coded `session_root = <timestamp>/single-offline-benchmark`, so all variants and summaries lived directly under that folder.
+- In TTY interactive runs, `_resolve_benchmark_gold_and_source(...)` already resolves a concrete source file before variant execution.
+- Using `slugify_name(selected_source.stem)` at session-root construction time allows stable per-book folders:
+  - `<timestamp>/single-offline-benchmark/<source_slug>/vanilla`
+  - `<timestamp>/single-offline-benchmark/<source_slug>/codexfarm`
+- Split-cache and summary/comparison sidecars follow that same per-book session root (`.../<source_slug>/.split-cache`, `.../<source_slug>/single_offline_summary.md`, etc.).
+
+
+### 2026-03-02_22.46.55-codexfarm-full-prompt-log-contract
+
+Source file: docs/understandings/2026-03-02_22.46.55-codexfarm-full-prompt-log-contract.md
+Summary: CodexFarm benchmark artifacts now require a complete per-call full_prompt_log.jsonl.
+
+
+- Benchmark codex prompt artifacts previously emphasized sampled/dedup text logs (`codexfarm_prompt_log.dedup.txt`) for readability.
+- Full debugability requires a machine-readable one-row-per-call artifact, so benchmark codex runs now emit `codexfarm/full_prompt_log.jsonl` with pass/call identity, rendered prompt payload fields, context blocks, and raw/parsed response payloads.
+- `run_manifest.json` now reports `artifacts.full_prompt_log_status`, `artifacts.full_prompt_log_rows`, and `artifacts.full_prompt_log_path` so downstream tools can assert completeness.
+- `scripts/benchmark_cutdown_for_external_ai.py` now copies `full_prompt_log.jsonl` unchanged (no sampling/truncation), and can reconstruct it from `prediction-run/raw/llm` + run assets when older runs do not already include the file.
+- `codexfarm_prompt_log.dedup.txt` remains convenience-only.
+
+
+### 2026-03-02_22.54.55-canonical-benchmark-boundary-metric-source
+
+Source file: docs/understandings/2026-03-02_22.54.55-canonical-benchmark-boundary-metric-source.md
+Summary: Canonical-text benchmark runs were missing dashboard boundary metrics because eval_report.json did not emit a top-level boundary object.
+
+
+# Discovery
+
+- `single-offline` benchmark mode forces `labelstudio-benchmark` to canonical-text evaluation.
+- Dashboard/CSV boundary fields are sourced from `report.boundary` (top-level) in benchmark eval reports.
+- Canonical evaluator previously emitted no `report.boundary`, so recent benchmark rows had null `boundary_*` CSV fields.
+
+# Resolution Pattern
+
+- Compute boundary classification directly in canonical evaluator from aligned prediction spans vs canonical gold spans in canonical line space.
+- Emit `report.boundary` with `correct/over/under/partial` and keep strict overlap threshold `0.5` for continuity with existing boundary interpretation.
+
+
+### 2026-03-02_23.02.50-cutdown-prompt-sampling-prefers-full-log
+
+Source file: docs/understandings/2026-03-02_23.02.50-cutdown-prompt-sampling-prefers-full-log.md
+Summary: benchmark_cutdown convenience prompt samples now prefer full_prompt_log.jsonl and only fall back to legacy text logs.
+
+
+- `_build_run_cutdown` now resolves/copies (or reconstructs) `full_prompt_log.jsonl` before writing `codexfarm_prompt_log.dedup.txt`.
+- When full prompt rows are available, the convenience file is generated by `_write_prompt_log_samples_from_full_prompt_log(...)` so sampled entries include exact request messages plus raw/parsed response payloads.
+- Legacy text-log parsing (`prompt_request_response_log.txt`) is now a fallback path only for runs where full JSONL is unavailable.
+
+
+### 2026-03-02_23.12.13-qualitysuite-mixed-format-discovery-notes
+
+Source file: docs/understandings/2026-03-02_23.12.13-qualitysuite-mixed-format-discovery-notes.md
+Summary: Current-state notes on how QualitySuite handles (and hides) source formats like PDF vs EPUB.
+
+
+# QualitySuite mixed-format (PDF/EPUB) current-state notes
+
+These notes capture code-verified behavior as of 2026-03-02.
+
+## What drives PDF starvation today
+
+- `cookimport/bench/quality_suite.py` discovery selection is format-blind: representative strata keys use only `size_bucket` and `label_bucket`, not file suffix/format.
+- Default suite discovery prefers three curated EPUB CUTDOWN ids (`saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`). When `--max-targets` is omitted, curated mode selects only those ids (no representative fill), which can yield an effectively EPUB-only suite even when PDF gold exists.
+
+## Where format does show up (but late)
+
+- All-method variants already carry a `dimensions["source_extension"]` value (with leading dot, e.g. `.pdf`), and `cookimport/bench/quality_runner.py` uses file suffixes for race probe target selection. This only matters after suite selection.
+- `cookimport/bench/quality_leaderboard.py` ignores `source_extension` by default when aggregating a single global winner, which further hides per-format differences.
+
+## Operational constraint: no tournaments
+
+The CLI disables `bench quality-lightweight-series` with an explicit “retired due to extreme runtime and disk usage” message. Current workflow should assume small `quality-discover` suites + `quality-run` + `quality-compare` for agile iteration.
+
+
+
+### 2026-03-02_23.23.00-codexfarm-benchmark-prompt-category-logs
+
+Source file: docs/understandings/2026-03-02_23.23.00-codexfarm-benchmark-prompt-category-logs.md
+Summary: CodexFarm benchmark prompt logging now emits per-task category files plus a manifest for human review.
+
+
+# CodexFarm benchmark prompt-category logs
+
+- Existing benchmark output already wrote a combined log at `codexfarm/prompt_request_response_log.txt`, but it was hard to scan because all pass categories were mixed together.
+- `_build_codex_farm_prompt_response_log` now also emits separate files in the same folder:
+  - `prompt_task1_pass1_chunking.txt`
+  - `prompt_task2_pass2_schemaorg.txt`
+  - `prompt_task3_pass3_final.txt`
+- Each category file includes prompt input payloads, response payloads, and plaintext for text attachments referenced in prompt payload path/file keys.
+- `prompt_category_logs_manifest.txt` lists the generated category log file paths.
+- Missing pass directories are now handled safely (no `iterdir()` crash on absent folders).
+
+
+### 2026-03-03_00.00.00-benchmark-cutdown-prompt-log-sampling
+
+Source file: docs/understandings/2026-03-03_00.00.00-benchmark-cutdown-prompt-log-sampling.md
+Summary: Benchmark cutdown keeps sampled prompt text as convenience while preserving full per-call JSONL logs.
+
+
+- I reviewed `scripts/benchmark_cutdown_for_external_ai.py` and confirmed it already includes `codexfarm_prompt_log.dedup.txt` in each run folder but used the full file.
+- I confirmed prompt logs are text sections with pass-specific input/output blocks (`--- PASS1 INPUT FILES ---`, `--- PASS1 RESPONSE FILES ---`, etc.) with per-file entries separated by 80-char `--------------------------------------------------------------------------------` lines.
+- The cutdown script parses those sections and writes a compact sampled log per run with deterministic `prompt-pairs-per-category` pairs (default 3) so each pass/task category has quick examples without log spam.
+- Complete prompt payload coverage now comes from `full_prompt_log.jsonl`, which is copied into each codex-enabled run package unchanged (no sampling/truncation).
+
+
+### 2026-03-03_00.35.00-single-offline-split-cache-reuse
+
+Source file: docs/understandings/2026-03-03_00.35.00-single-offline-split-cache-reuse.md
+Summary: Single-offline split-cache reuse wiring
+
+# Single-offline split-cache reuse wiring
+
+Observed behavior before this change: paired `single_offline` runs (`vanilla` + `codexfarm`) re-ran split conversion independently for each variant, so conversion cost doubled even when only downstream LLM settings differed.
+
+Fix applied:
+- Added single-offline split-cache key helpers in `cookimport/cli.py` that intentionally exclude LLM-only settings.
+- `_interactive_single_offline_benchmark(...)` now computes one shared cache key/root for paired runs and passes it into each `labelstudio_benchmark(...)` call.
+- `generate_pred_run_artifacts(...)` in `cookimport/labelstudio/ingest.py` now supports cache hit/miss behavior: load cached `ConversionResult` on hit, otherwise run conversion and persist cache payload.
+
+Result: paired variant runs can reuse split conversion artifacts, and run/comparison metadata now records cache mode/key/hit timing for observability.
+

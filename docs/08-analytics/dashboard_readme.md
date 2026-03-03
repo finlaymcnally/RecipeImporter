@@ -108,7 +108,7 @@ Notes:
   - Canonical-text benchmark reports now include `boundary` counts again, so boundary diagnostics can advance with current single-offline/all-method benchmark rows instead of falling back to older freeform-eval rows.
 - `Previous Runs`: scrollable table (about ~5 visible rows) with key benchmark columns only.
   - Vertical + horizontal scrolling are both enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
-  - Includes table column controls: reorder visible columns, resize via header drag handles, and add/remove fields dynamically from discovered benchmark keys.
+  - Includes table column controls: drag headers to reorder, resize via header drag handles, and add/remove fields dynamically from discovered benchmark keys.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - `AI Model + Effort` column uses run-config metadata (`run_config` / `run_config_summary`) with fallback aliases.
   - `Source` prefers `source_file` basename, then artifact-path source slug fallback (`all-method-benchmark`, `single-profile-benchmark`, `scenario_runs`, `eval/<slug>` patterns).
@@ -117,6 +117,8 @@ Notes:
   - Includes a rules filter builder: define row rules over any benchmark field (including nested keys like `run_config.*`) and combine them with a boolean expression (`AND` / `OR` / `NOT`, parentheses) using rule IDs (`R1`, `R2`, ...).
   - Rule field dropdown is grouped into `Most used (table columns)` first, then `All other fields`.
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 400px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
+  - The `Benchmark Score Trend` range selector defaults to `All`, so older benchmark history is visible on first load instead of starting on a short recent window.
+  - The trend chart x-axis is initialized from the full filtered `Previous Runs` timestamp span (including rows without explicit score points), so timeline dates stay aligned with the table.
   - Highcharts mouse-wheel zoom is disabled globally in dashboard JS (`HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false`) so page scrolling does not zoom charts by accident; toggle that constant to re-enable later.
 
 Timestamp ordering note:

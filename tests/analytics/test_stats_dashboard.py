@@ -1134,6 +1134,11 @@ class TestRenderer:
         assert "function setupPreviousRunsColumnsControls()" in js
         assert "function renderPreviousRunsTableColumns(table, columns)" in js
         assert "function renderPreviousRunsColumnEditor()" in js
+        assert "let previousRunsDraggedColumn = null;" in js
+        assert "function reorderPreviousRunsColumns(fromField, toField)" in js
+        assert "th.draggable = true;" in js
+        assert 'th.addEventListener("dragstart", event => {' in js
+        assert 'th.addEventListener("drop", event => {' in js
 
     def test_js_per_label_aggregates_latest_run_timestamp_group(self, tmp_path):
         data = DashboardData(
@@ -1233,6 +1238,16 @@ class TestRenderer:
         assert 'window.Highcharts.stockChart("benchmark-trend-chart", {' in js
         assert "chart: {" in js
         assert "height: 400," in js
+        assert "rangeSelector: {" in js
+        assert '{ type: "all", text: "All" }' in js
+        assert "selected: 5," in js
+        assert "const allRunTimestamps = sorted" in js
+        assert "const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;" in js
+        assert "const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;" in js
+        assert "const xAxisConfig = {" in js
+        assert "if (timelineMin != null) xAxisConfig.min = timelineMin;" in js
+        assert "if (timelineMax != null) xAxisConfig.max = timelineMax;" in js
+        assert "xAxis: xAxisConfig," in js
 
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -1242,6 +1257,8 @@ class TestRenderer:
         assert "min-width: 1600px;" in css
         assert "#previous-runs-table th," in css
         assert "white-space: nowrap;" in css
+        assert "#previous-runs-table th.previous-runs-draggable {" in css
+        assert "#previous-runs-table th.previous-runs-drag-target {" in css
         assert ".previous-runs-resize-handle {" in css
         assert "cursor: col-resize;" in css
 

@@ -2005,7 +2005,7 @@ _HTML = """\
     <details id="previous-runs-columns-panel" class="section-details" open>
       <summary>Table columns (reorder, resize, add/remove fields)</summary>
       <section>
-        <p class="section-note">Use move buttons to reorder columns, drag table-header edges to resize, and add/remove any benchmark field dynamically.</p>
+        <p class="section-note">Drag table headers to reorder columns, drag header edges to resize, and add/remove any benchmark field dynamically.</p>
         <div id="previous-runs-columns-editor"></div>
         <div class="previous-runs-columns-add">
           <label for="previous-runs-column-add-select">Add field</label>
@@ -2429,6 +2429,18 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   position: relative;
   padding-right: 0.9rem;
 }
+#previous-runs-table th.previous-runs-draggable {
+  cursor: grab;
+}
+#previous-runs-table th.previous-runs-draggable:active {
+  cursor: grabbing;
+}
+#previous-runs-table th.previous-runs-drag-source {
+  opacity: 0.65;
+}
+#previous-runs-table th.previous-runs-drag-target {
+  box-shadow: inset 0 -2px 0 var(--focus);
+}
 .previous-runs-resize-handle {
   position: absolute;
   top: 0;
@@ -2836,6 +2848,7 @@ _JS = """\
   let previousRunsFieldOptions = [];
   let previousRunsVisibleColumns = [];
   let previousRunsColumnWidths = Object.create(null);
+  let previousRunsDraggedColumn = null;
   let previousRunsFilterResultCache = null;
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
@@ -3359,11 +3372,7 @@ _JS = """\
       leftBtn.disabled = idx === 0;
       leftBtn.addEventListener("click", () => {
         if (idx === 0) return;
-        const next = [...previousRunsVisibleColumns];
-        const current = next[idx];
-        next[idx] = next[idx - 1];
-        next[idx - 1] = current;
-        previousRunsVisibleColumns = next;
+        reorderPreviousRunsColumns(fieldName, previousRunsVisibleColumns[idx - 1]);
         renderPreviousRunsColumnEditor();
         renderPreviousRuns();
       });
@@ -3376,11 +3385,7 @@ _JS = """\
       rightBtn.disabled = idx === previousRunsVisibleColumns.length - 1;
       rightBtn.addEventListener("click", () => {
         if (idx >= previousRunsVisibleColumns.length - 1) return;
-        const next = [...previousRunsVisibleColumns];
-        const current = next[idx];
-        next[idx] = next[idx + 1];
-        next[idx + 1] = current;
-        previousRunsVisibleColumns = next;
+        reorderPreviousRunsColumns(fieldName, previousRunsVisibleColumns[idx + 1]);
         renderPreviousRunsColumnEditor();
         renderPreviousRuns();
       });
@@ -3420,6 +3425,17 @@ _JS = """\
     if (addOptions.length > 0 && !addOptions.includes(addSelect.value)) {
       addSelect.value = addOptions[0];
     }
+  }
+
+  function reorderPreviousRunsColumns(fromField, toField) {
+    const from = previousRunsVisibleColumns.indexOf(fromField);
+    const to = previousRunsVisibleColumns.indexOf(toField);
+    if (from < 0 || to < 0 || from === to) return false;
+    const next = [...previousRunsVisibleColumns];
+    const moved = next.splice(from, 1)[0];
+    next.splice(to, 0, moved);
+    previousRunsVisibleColumns = next;
+    return true;
   }
 
   function nextPreviousRunsRuleId() {
@@ -4102,6 +4118,15 @@ _JS = """\
     );
     const strictAccuracy = benchmarkSeriesFromRecords(sorted, "strict_accuracy");
     const macroF1 = benchmarkSeriesFromRecords(sorted, "macro_f1_excluding_other");
+    const allRunTimestamps = sorted
+      .map(record => {
+        const ts = parseTs(record.run_timestamp);
+        return ts ? ts.getTime() : null;
+      })
+      .filter(value => value != null)
+      .sort((a, b) => a - b);
+    const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;
+    const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;
     const pointCount = Math.max(
       strictAccuracy.length,
       macroF1.length,
@@ -4135,6 +4160,12 @@ _JS = """\
       fallback.textContent = "";
     }
 
+    const xAxisConfig = {
+      type: "datetime",
+    };
+    if (timelineMin != null) xAxisConfig.min = timelineMin;
+    if (timelineMax != null) xAxisConfig.max = timelineMax;
+
     window.Highcharts.stockChart("benchmark-trend-chart", {
       chart: {
         height: 400,
@@ -4143,12 +4174,19 @@ _JS = """\
       title: { text: "Explicit Benchmark Score Trends" },
       legend: { enabled: true },
       rangeSelector: {
-        selected: 1,
+        // Start on full history so default chart span matches long-run table context.
+        buttons: [
+          { type: "month", count: 1, text: "1m" },
+          { type: "month", count: 3, text: "3m" },
+          { type: "month", count: 6, text: "6m" },
+          { type: "ytd", text: "YTD" },
+          { type: "year", count: 1, text: "1y" },
+          { type: "all", text: "All" },
+        ],
+        selected: 5,
         inputEnabled: false,
       },
-      xAxis: {
-        type: "datetime",
-      },
+      xAxis: xAxisConfig,
       yAxis: [
         {
           title: { text: "Score (0-1)" },
@@ -4708,13 +4746,54 @@ _JS = """\
       th.dataset.columnKey = fieldName;
       th.textContent = meta.label || fieldName;
       th.title = meta.title || fieldName;
+      th.classList.add("previous-runs-draggable");
+      th.draggable = true;
       if (meta.numeric) {
         th.classList.add("num");
       }
+      th.addEventListener("dragstart", event => {
+        previousRunsDraggedColumn = fieldName;
+        th.classList.add("previous-runs-drag-source");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", fieldName);
+        }
+      });
+      th.addEventListener("dragover", event => {
+        if (!previousRunsDraggedColumn || previousRunsDraggedColumn === fieldName) return;
+        event.preventDefault();
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = "move";
+        }
+        th.classList.add("previous-runs-drag-target");
+      });
+      th.addEventListener("dragleave", () => {
+        th.classList.remove("previous-runs-drag-target");
+      });
+      th.addEventListener("drop", event => {
+        event.preventDefault();
+        th.classList.remove("previous-runs-drag-target");
+        const sourceField = previousRunsDraggedColumn || (
+          event.dataTransfer ? event.dataTransfer.getData("text/plain") : ""
+        );
+        if (!sourceField || sourceField === fieldName) return;
+        if (reorderPreviousRunsColumns(sourceField, fieldName)) {
+          renderPreviousRunsColumnEditor();
+          renderPreviousRuns();
+        }
+      });
+      th.addEventListener("dragend", () => {
+        previousRunsDraggedColumn = null;
+        headerRow.querySelectorAll("th").forEach(candidate => {
+          candidate.classList.remove("previous-runs-drag-source");
+          candidate.classList.remove("previous-runs-drag-target");
+        });
+      });
 
       const resizeHandle = document.createElement("span");
       resizeHandle.className = "previous-runs-resize-handle";
       resizeHandle.setAttribute("aria-hidden", "true");
+      resizeHandle.draggable = false;
       resizeHandle.addEventListener("mousedown", event => {
         event.preventDefault();
         event.stopPropagation();

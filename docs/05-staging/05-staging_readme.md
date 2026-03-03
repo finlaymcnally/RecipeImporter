@@ -438,3 +438,16 @@ Validation evidence retained:
 Anti-loop notes:
 - If stage appears serial in restricted hosts, inspect worker labels and fallback mode messaging before changing merge/write code.
 - If subprocess fallback regresses, check `--stage-worker-self-test` and `.stage_worker_requests/*` request/result artifacts first.
+
+
+## 2026-03-03 merged understandings digest
+
+This batch consolidates staging run-summary behavior discovered during benchmark/stage operability work.
+
+Key staging contracts to keep:
+- Stage runs emit both `run_summary.json` and human-readable `run_summary.md` at the run root for quick triage.
+- The summary intentionally reports high-signal identity/settings/count fields first so humans and agents can inspect run health without deep artifact drilling.
+- Keep summary writing best-effort and deterministic; it is now part of fast operator feedback loops.
+
+Chronological merged source notes:
+- 2026-03-02_20.39.37-stage-run-summary-human-friendly: Stage runs now emit a quick per-folder summary artifact and terminal digest for fast human inspection.

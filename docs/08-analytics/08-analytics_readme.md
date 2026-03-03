@@ -169,7 +169,9 @@ Benchmark scan details:
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
 - `Previous Runs` now includes a rules + boolean-expression filter builder over benchmark fields (including nested `run_config.*`) and applies the same filtered dataset to the score trend chart.
 - `Previous Runs` table uses horizontal + vertical scrolling with a fixed minimum table width so benchmark columns remain readable on narrow windows.
-- `Previous Runs` table columns are configurable in-browser: move columns left/right, resize by dragging header edges, and add/remove fields from discovered benchmark keys.
+- `Previous Runs` table columns are configurable in-browser: drag headers to reorder, resize by dragging header edges, and add/remove fields from discovered benchmark keys.
+- `Benchmark Score Trend` defaults to the `All` range selector window so initial render includes full available benchmark history.
+- `Benchmark Score Trend` initializes x-axis bounds from the full filtered benchmark timestamp span, so chart timeline coverage matches `Previous Runs` dates even when older rows lack explicit score points.
 - Main page is intentionally narrow in scope:
   - `Diagnostics (Latest Benchmark)`
   - `Previous Runs`
@@ -320,3 +322,30 @@ Current dashboard interaction contract:
 - Trend series contract currently includes: `strict_accuracy`, `macro_f1_excluding_other`.
 - Timestamp parsing must continue to accept both `YYYY-MM-DD_HH.MM.SS` and ISO-style strings so historical rows sort correctly.
 - Y-axis score bounds are intentionally fixed to `0..1` for comparability across runs.
+
+
+## 2026-03-03 merged understandings digest
+
+This batch consolidates dashboard/history discoveries that were previously in `docs/understandings/`.
+
+Key analytics contracts to keep:
+- `Previous Runs` should compute/filter on raw records before all-method bundling to avoid misleading grouped rows.
+- Benchmark source/runtime display must use layered fallback logic (CSV -> run config -> manifest telemetry/path slug) so historical/partial rows stay informative.
+- Boundary diagnostics may legitimately lag when fresh rows are missing boundary fields; preserve "last non-null" semantics and surface why.
+- Trend/chart defaults should align with table context (`All` range default) to prevent false "missing history" confusion.
+- Dynamic column rendering in Previous Runs is state-driven and must handle single + all-method row shapes consistently.
+- Explicit benchmark metric names are preferred; legacy metric ingestion remains a compatibility path.
+
+Chronological merged source notes:
+- 2026-03-02_22.26.36-dashboard-ai-runtime-and-source-fallback: Dashboard `Previous Runs` source labels should fall back to artifact-path slugs, and AI runtime should come from run-config metadata.
+- 2026-03-02_22.29.43-dashboard-all-method-navigation-contract: All-method dashboard pages should be reached from main Previous Runs, not from a separate all-method index page.
+- 2026-03-02_22.30.04-dashboard-previous-runs-rules-filter-flow: Previous Runs rules filtering should be applied before all-method run bundling so filtered comparisons stay meaningful.
+- 2026-03-02_22.35.41-dashboard-all-method-timestamp-from-path: All-method Previous Runs timestamps must be extracted from timestamp-like path tokens, not the segment immediately before all-method-benchmark.
+- 2026-03-02_22.37.34-dashboard-boundary-fallback-to-last-non-null: Boundary Classification card can show an older timestamp when newer benchmark rows have null boundary metrics.
+- 2026-03-02_22.40.42-dashboard-codex-runtime-llm-codex-farm-fallback: Dashboard benchmark runtime model/effort may need fallback from prediction-run `llm_codex_farm` telemetry when run-config leaves defaults unset.
+- 2026-03-02_22.41.32-dashboard-ai-off-fallback-vs-codex-manifest-runtime: Dashboard AI column/runtime can incorrectly show `off` unless codex runtime is backfilled from benchmark manifest llm_codex_farm payloads.
+- 2026-03-02_22.48.48-benchmark-importer-missing-csv-root-cause: Benchmark importer '-' rows were caused by blank importer_name in CSV writes, not table rendering loss.
+- 2026-03-02_23.11.05-dashboard-trend-range-selector-default: Benchmark Score Trend looked shorter than Previous Runs because Highcharts Stock defaulted to a recent range selection.
+- 2026-03-02_23.50.00-dashboard-previous-runs-dynamic-column-contract: Previous Runs now renders columns dynamically from JS state across single + all-method row shapes.
+- 2026-03-02_23.58.40-benchmark-metric-fallback-explicit-vs-legacy: Benchmark compatibility readers should only collapse aliases when explicit strict/macro metrics are present.
+- 2026-03-02_23.59.30-dashboard-explicit-metric-rendering: Dashboard Previous Runs/trend should render explicit benchmark metric names while preserving legacy ingestion fallback.

@@ -2229,7 +2229,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     assert "label_studio_api_key" not in captured
 
 
-def test_interactive_generate_dashboard_prompts_and_opens_browser(
+def test_interactive_generate_dashboard_runs_without_browser_prompt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     configured_output = tmp_path / "custom-output"
@@ -2241,20 +2241,13 @@ def test_interactive_generate_dashboard_prompts_and_opens_browser(
     monkeypatch.setattr(cli, "_load_settings", lambda: {"output_dir": str(configured_output)})
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
 
-    confirm_messages: list[str] = []
-
-    class _Prompt:
-        def __init__(self, value: bool):
-            self._value = value
-
-        def ask(self):
-            return self._value
-
-    def fake_confirm(message: str, *_args, **_kwargs):
-        confirm_messages.append(message)
-        return _Prompt(True)
-
-    monkeypatch.setattr(cli.questionary, "confirm", fake_confirm)
+    monkeypatch.setattr(
+        cli.questionary,
+        "confirm",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Dashboard flow should not ask to open a browser.")
+        ),
+    )
 
     captured: dict[str, object] = {}
 
@@ -2266,11 +2259,10 @@ def test_interactive_generate_dashboard_prompts_and_opens_browser(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert confirm_messages == ["Open dashboard in your browser after generation?"]
     assert captured["output_root"] == configured_output
     assert captured["golden_root"] == golden_root
     assert captured["out_dir"] == configured_output.parent / ".history" / "dashboard"
-    assert captured["open_browser"] is True
+    assert captured["open_browser"] is False
     assert captured["since_days"] is None
     assert captured["scan_reports"] is False
 

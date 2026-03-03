@@ -495,3 +495,28 @@ Evidence preserved:
 
 Anti-loop note:
 - This path is a concurrency workaround under host restrictions, not a fix for host SemLock policy.
+
+
+## 2026-03-03 migrated understandings ledger (docs/understandings consolidation)
+
+This section preserves detailed staging discoveries in timestamp order after removing standalone files from `docs/understandings/`.
+
+### 2026-03-02_20.39.37-stage-run-summary-human-friendly
+
+Source file: docs/understandings/2026-03-02_20.39.37-stage-run-summary-human-friendly.md
+Summary: Stage runs now emit a quick per-folder summary artifact and terminal digest for fast human inspection.
+
+
+## Discovery
+
+`stage` already persisted enough data (`*.excel_import_report.json` + `run_config`) to answer "what book is this folder" and "was codex-farm on" but only through verbose report/manifest fields.
+
+## Change
+
+Added a stage-end digest built from per-file reports:
+- `run_summary.json` for machine-readable quick inspection.
+- `run_summary.md` for human-readable scan.
+- terminal `Quick run summary` lines for immediate feedback.
+
+`run_manifest.json` now includes `run_summary_json` and `run_summary_md` artifact pointers when those files exist.
+

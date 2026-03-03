@@ -4807,12 +4807,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             raise typer.Exit(0)
 
         if action == "generate_dashboard":
-            open_dashboard = _prompt_confirm(
-                "Open dashboard in your browser after generation?",
-                default=True,
-            )
-            if open_dashboard is None:
-                continue
             typer.secho(
                 f"Generating dashboard from {output_folder}...",
                 fg=typer.colors.CYAN,
@@ -4821,7 +4815,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 output_root=output_folder,
                 golden_root=DEFAULT_GOLDEN,
                 out_dir=history_root_for_output(output_folder) / "dashboard",
-                open_browser=bool(open_dashboard),
+                open_browser=False,
                 since_days=None,
                 scan_reports=False,
             )

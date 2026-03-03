@@ -219,7 +219,6 @@ Main Menu ("What would you like to do?")
 |   `-- All-method: uses global benchmark defaults, then runs offline permutations
 |
 |-- Dashboard: Build lifetime stats dashboard HTML
-|   |-- Open dashboard in your browser after generation?
 |   `-- Writes to <output_dir_parent>/.history/dashboard/
 |
 |-- Settings: Change worker/OCR/output defaults
@@ -396,8 +395,7 @@ Evaluate vs freeform gold: Generate predictions and compare to your labels
 
 This builds a static HTML dashboard of run history under `<output_dir_parent>/.history/dashboard/`.
 
-Sub-prompt you will see:
-- "Open dashboard in your browser after generation?" (Yes/No)
+No additional prompt is shown for this action, and interactive mode does not auto-open a browser.
 
 ## Step 4: Run an Import (The Common Path)
 

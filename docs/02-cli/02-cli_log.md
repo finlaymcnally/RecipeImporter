@@ -1043,3 +1043,133 @@ Failure-history that should not be repeated:
 
 Anti-loop note:
 - If progress text starts to drift, first inspect adapter payload mapping and callback ingestion, then touch spinner output formatting.
+
+
+## 2026-03-03 migrated understandings ledger (docs/understandings consolidation)
+
+This section preserves detailed CLI/interactive discoveries in timestamp order after removing standalone files from `docs/understandings/`.
+
+### 2026-03-02_00.00.00-progress-spinner-ascii-panel
+
+Source file: docs/understandings/2026-03-02_00.00.00-progress-spinner-ascii-panel.md
+Summary: Make benchmark/import status spinners render as a bordered ASCII panel.
+
+
+# Progress spinner should stay boxed and readable
+
+- Stable status rendering is now done in `cookimport.cli._run_with_progress_status(...)` by wrapping each live snapshot in an ASCII border before passing it to `console.status`.
+- The border is built from the same snapshot that already powers worker/task/ETA lines, so behavior stays in one rendering pipeline (ETA, counter parsing, worker summaries unchanged).
+- This is intentionally limited to live spinner mode (`console.status`) so plain non-ANSI snapshots keep their previous compact one-line output behavior.
+- In legacy/plain-mode runs, progress callbacks still stream one-line updates without border formatting.
+
+
+### 2026-03-02_07.10.00-c3imp-spinner-default
+
+Source file: docs/understandings/2026-03-02_07.10.00-c3imp-spinner-default.md
+Summary: Why C3imp showed plain progress and where spinner mode is overridden.
+
+
+# C3imp should keep the spinner by default
+
+- Investigation confirmed C3imp menu flows use the shared progress callback stack (`_run_with_progress_status`), but plain updates were forced by agent-env defaults (`CODEX_CI`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`).
+- `cookimport/c3imp_entrypoint.py` previously did not set `COOKIMPORT_PLAIN_PROGRESS`, so the shared spinner logic defaulted to plain mode in agent-like environments.
+- The fix is to set `COOKIMPORT_PLAIN_PROGRESS=0` in `c3imp_entrypoint.py` via `os.environ.setdefault(...)`, which lets interactive menu runs keep animated spinner behavior.
+- Also added a short README note in `cookimport/README.md` documenting C3imp’s spinner default and override behavior.
+
+
+### 2026-03-02_13.24.00-interactive-run-settings-compact-menu
+
+Source file: docs/understandings/2026-03-02_13.24.00-interactive-run-settings-compact-menu.md
+Summary: Interactive run-settings picker switched from full settings dumps to compact hash labels.
+
+
+# Interactive run-settings menu UX compacted
+
+- `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` now supports a compact menu label mode for interactive selection.
+- `C3imp` interactive `import` and `labelstudio_benchmark` flows now pass `show_summary=False`, so preset choices use short hash labels instead of full `key=value` dumps.
+- Post-selection output in interactive import/benchmark flows was reduced to `Run settings hash: ...` while preserving behavior and run settings semantics.
+
+
+### 2026-03-02_15-40-00-plain-progress-no-spam
+
+Source file: docs/understandings/2026-03-02_15-40-00-plain-progress-no-spam.md
+Summary: 2026-03-02_15.40.00: quiet plain progress output for benchmark runs
+
+## 2026-03-02_15.40.00: quiet plain progress output for benchmark runs
+
+- `_run_with_progress_status` now renders plain progress updates as a single in-place line when stdout is a TTY, instead of printing a new line for every tick/message. This keeps a stable summary visible during long codex-farm stages.
+- `SubprocessCodexFarmRunner` now filters progress-event lines out of stderr warnings and only warns on non-progress stderr content, so normal codex-farm queue/run chatter is no longer emitted as terminal spam.
+- `SubprocessCodexFarmRunner` now also parses legacy `run=<id> queued=... running=... done=...` progress lines and turns them into callback updates, plus previewing active `input_path` names from JSON progress events (`active ...`) so users can see what each worker slot is processing.
+
+
+### 2026-03-02_19.48.22-benchmark-interactive-regression-fixes
+
+Source file: docs/understandings/2026-03-02_19.48.22-benchmark-interactive-regression-fixes.md
+Summary: Regression notes for interactive benchmark routing and codex-farm progress callback formatting.
+
+
+# Benchmark interactive regression fixes (2026-03-02)
+
+- `_interactive_single_offline_benchmark` must not hard-require gold/source resolution in non-interactive contexts. Prompting there causes `EOFError` in headless/test runs and prevents benchmark dispatch.
+- Hidden `benchmark_mode="all_method"` still needs a routing branch in `_interactive_mode` even if not shown in menu choices; tests and automation rely on this direct value.
+- Progress callback messages from codex-farm should keep stable `task X/Y` formatting without volatile active-task suffixes so duplicate status events collapse correctly.
+
+
+### 2026-03-02_20.00.00-remove-all-method-benchmark-from-interactive-menu
+
+Source file: docs/understandings/2026-03-02_20.00.00-remove-all-method-benchmark-from-interactive-menu.md
+Summary: Remove all-method benchmark from interactive menu
+
+# Remove all-method benchmark from interactive menu
+
+- Interactive benchmark mode selection under `labelstudio_benchmark` now only offers:
+  - single offline eval
+  - single config against all matched sets
+- The existing all-method benchmark runtime path (`_interactive_all_method_benchmark`) remains in code but is no longer reachable from the interactive menu.
+
+
+### 2026-03-02_21.22.44-cli-live-status-with-indent-regression
+
+Source file: docs/understandings/2026-03-02_21.22.44-cli-live-status-with-indent-regression.md
+Summary: Fix a CLI import crash caused by mis-indented live-status `with console.status(...)` block.
+
+
+# CLI live-status indentation regression
+
+- `cookimport/cli.py` had `with console.status(...)` indented under `if not supports_live_status:` after an early `return`, so Python parsed a `with` statement at the wrong level and then hit `IndentationError` because its body was not nested beneath it.
+- Fix was indentation-only: dedent the `with console.status(...)` line so it runs in the live-status path while keeping its existing body unchanged.
+
+
+### 2026-03-02_21.55.02-codex-farm-busy-panel-work-summary
+
+Source file: docs/understandings/2026-03-02_21.55.02-codex-farm-busy-panel-work-summary.md
+Summary: 2026-03-02_21.55.02 spinner panel + busy worker summary
+
+### 2026-03-02_21.55.02 spinner panel + busy worker summary
+
+- I inspected `cookimport/cli.py::_run_with_progress_status(...)` and extended the live
+  render path to add a bordered ASCII panel with a static title line and a worker summary
+  section injected into the snapshot.
+- The worker summary is derived from:
+  - parsed `running N` values (used as slot count), and
+  - parsed `active [...]` task lists when present.
+- If `active [...]` is not available, the spinner now renders generic worker slot rows so operators
+  can still see the active worker count and that all workers are considered busy.
+- I updated `cookimport/llm/codex_farm_runner.py` so Codex-Farm stderr lines that are already
+  surfaced through progress callbacks are logged at debug instead of warning to avoid noisy console
+  spam during normal benchmark runs.
+
+
+### 2026-03-03_00.00.00-codexfarm-progress-active-workers
+
+Source file: docs/understandings/2026-03-03_00.00.00-codexfarm-progress-active-workers.md
+Summary: Track why codex-farm benchmark progress now includes active worker task labels.
+
+
+# Codex-farm active worker progress visibility
+
+- Added parsing for `Created run <id> with <n> tasks` so run bootstrap lines are no longer emitted as generic stderr noise and can be surfaced as progress messages.
+- Extended callback formatting to append `active [...]` labels when `__codex_farm_progress__` payloads include task metadata (`running_tasks`, `running_task_ids`, etc.).
+- Kept counter-only fallback behavior when task metadata is not available.
+- Updated tests/docs so this is now a stable one-line live summary behavior instead of per-task spinner/noise.
+

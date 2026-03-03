@@ -370,11 +370,10 @@ For re-scoring an existing prediction run directly, use `cookimport labelstudio-
 
 ### [I] Generate Dashboard Flow
 
-1. Prompts `Open dashboard in your browser after generation?`.
-2. Runs `stats-dashboard` using the interactive `output_dir` setting as `--output-root`.
+1. Runs `stats-dashboard` using the interactive `output_dir` setting as `--output-root`.
+2. Uses `open_browser=False` in interactive mode (no browser auto-open prompt).
 3. Writes dashboard files to `<output_dir_parent>/.history/dashboard`.
-4. Opens `index.html` automatically when you answer `Yes`.
-5. Returns to the main menu on completion.
+4. Returns to the main menu on completion.
 
 Note:
 - History-writing commands (`stage`, `perf-report --write-csv`, `labelstudio-eval`, `labelstudio-benchmark`, and non-dry `benchmark-csv-backfill` with updates) now auto-run the same dashboard refresh process for their target history root.
@@ -1445,3 +1444,26 @@ Where to find the current behavior:
 - Runtime wiring: `cookimport/cli.py`.
 - Adapter contracts: `ProgressDashboardCore`, `ProgressCallbackAdapter`, `_StageProgressAdapter`.
 - Current accepted command/path behavior documented in previous `2026-03-01` and `2026-03-02` merged entries in this file and `docs/02-cli/02-cli_log.md`.
+
+
+## 2026-03-03 merged understandings digest
+
+This batch consolidates CLI/interactive benchmark notes that were previously scattered in `docs/understandings/`.
+
+Key CLI contracts to keep:
+- Spinner rendering is intentionally a compact boxed panel for worker-heavy runs; plain progress is environment-aware and should stay low-noise.
+- Interactive benchmark menu and run-settings selection are intentionally compacted for operator speed (hash labels instead of full JSON dumps).
+- All-method benchmark was intentionally removed from the interactive top-level benchmark menu in this cycle.
+- Keep codex-farm progress summaries human-readable (`active` worker labels + concise status updates) without flooding the terminal.
+- `_run_with_progress_status(...)` indentation/control-flow is regression-sensitive; one bad indent can crash imports immediately.
+
+Chronological merged source notes:
+- 2026-03-02_00.00.00-progress-spinner-ascii-panel: Make benchmark/import status spinners render as a bordered ASCII panel.
+- 2026-03-02_07.10.00-c3imp-spinner-default: Why C3imp showed plain progress and where spinner mode is overridden.
+- 2026-03-02_13.24.00-interactive-run-settings-compact-menu: Interactive run-settings picker switched from full settings dumps to compact hash labels.
+- 2026-03-02_15-40-00-plain-progress-no-spam: 2026-03-02_15.40.00: quiet plain progress output for benchmark runs
+- 2026-03-02_19.48.22-benchmark-interactive-regression-fixes: Regression notes for interactive benchmark routing and codex-farm progress callback formatting.
+- 2026-03-02_20.00.00-remove-all-method-benchmark-from-interactive-menu: Remove all-method benchmark from interactive menu
+- 2026-03-02_21.22.44-cli-live-status-with-indent-regression: Fix a CLI import crash caused by mis-indented live-status `with console.status(...)` block.
+- 2026-03-02_21.55.02-codex-farm-busy-panel-work-summary: 2026-03-02_21.55.02 spinner panel + busy worker summary
+- 2026-03-03_00.00.00-codexfarm-progress-active-workers: Track why codex-farm benchmark progress now includes active worker task labels.
