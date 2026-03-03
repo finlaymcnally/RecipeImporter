@@ -479,3 +479,16 @@ Current contract:
 Known limitations:
 - Runtime proof depends on CodexFarm executable/pack versions aligned to the inline contract; recipeimport-side prompt/template changes alone are not sufficient.
 - Cross-repo edits are required; this repo documents both the contract and run-time dependency boundary.
+
+## 2026-03-03 merged understanding digest (full prompt log payload provenance)
+
+Merged source note:
+- `docs/understandings/2026-03-02_23.30.23-codexfarm-full-prompt-log-payload-source.md`
+
+Current LLM contract to keep:
+- `codexfarm/full_prompt_log.jsonl` is the source-of-truth prompt artifact for benchmark codex runs (one row per pass call, no sampling/truncation).
+- Rows include `request_payload_source` so provenance is explicit:
+  - `telemetry_csv` for exact prompt/model/runtime fields from codex telemetry,
+  - `reconstructed_from_prompt_template` as fallback reconstruction path.
+- `request_telemetry` should remain attached for per-call auditability (task/worker ids, attempt indexes, token usage fields, transport/hash context).
+- Cutdown/report tooling should treat this JSONL as canonical and sampled text logs as convenience-only views.

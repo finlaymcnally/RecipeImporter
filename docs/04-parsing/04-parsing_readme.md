@@ -803,3 +803,18 @@ Current parsing-contract additions:
 - Existing EPUB extraction-health signals (duplicate-line rates and warning keys) are diagnostics, not standalone suppression behavior.
 - Codex heads-up integration is telemetry-ready, but pass1 `pattern_hints` remains default-off and metadata-only behind `COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS`.
 - Practical workflow rule: when plan/docs claim pattern-detector work is pending, verify runtime/tests first because this feature set is already largely shipped.
+
+## 2026-03-03 merged understandings digest (atomizer split order + canonical line-role guardrail)
+
+Merged source notes:
+- `docs/understandings/2026-03-02_23.37.00-recipe-block-atomizer-split-order.md`
+- `docs/understandings/2026-03-03_00.29.00-canonical-line-role-outside-span-prose-guardrail.md`
+
+Current parsing contracts to keep:
+- Recipe-block atomization is most stable with this deterministic order:
+  1) split on explicit boundary markers (`NOTE:`, yield lines, `TO MAKE`/`FOR THE`, inline numbered step starts),
+  2) split yield-leading segments on later quantity starts,
+  3) split remaining quantity-run segments.
+- For canonical line-role labeling, evaluate outside-recipe prose before generic instruction-sentence fallback.
+- If a line is prose-like and outside recipe span, prefer `KNOWLEDGE` instead of `INSTRUCTION_LINE`.
+- This ordering preserves recipe-span precision while avoiding narrative false positives in canonical benchmark labeling.

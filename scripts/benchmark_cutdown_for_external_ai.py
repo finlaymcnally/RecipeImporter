@@ -2614,6 +2614,91 @@ def _build_comparison_summary(
     return summary, changed_line_rows, pair_breakdown_rows, targeted_prompt_case_rows
 
 
+def _select_targeted_prompt_cases(
+    *,
+    rows: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            -int(row.get("changed_lines_for_recipe") or 0),
+            -int(row.get("warning_count") or 0),
+            -int(bool(row.get("empty_ingredient_step_mapping"))),
+            str(row.get("pass") or ""),
+            str(row.get("call_id") or ""),
+        ),
+    )
+    selected: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str, str]] = set()
+    for row in sorted_rows:
+        dedupe_key = (
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+            str(row.get("pass") or ""),
+            str(row.get("call_id") or ""),
+        )
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        selected.append(row)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _write_targeted_prompt_cases_markdown(
+    *,
+    output_path: Path,
+    rows: list[dict[str, Any]],
+) -> None:
+    lines = [
+        "# Targeted Prompt Cases",
+        "",
+        "Deterministic high-signal prompt cases selected from codex runs.",
+        "Selection preference: higher changed-line impact, then warning-heavy/empty-mapping cases.",
+        "",
+    ]
+    if not rows:
+        lines.append("No targeted prompt cases were selected.")
+        lines.append("")
+        output_path.write_text("\n".join(lines), encoding="utf-8")
+        return
+
+    for index, row in enumerate(rows, start=1):
+        warnings = row.get("warnings")
+        warning_rows = warnings if isinstance(warnings, list) else []
+        warning_summary = (
+            "; ".join(_excerpt(str(item), max_len=220) for item in warning_rows[:3])
+            if warning_rows
+            else "none"
+        )
+        lines.extend(
+            [
+                f"## Case {index}",
+                f"- source_key: `{row.get('source_key')}`",
+                f"- codex_run_id: `{row.get('codex_run_id')}`",
+                f"- baseline_run_id: `{row.get('baseline_run_id')}`",
+                f"- pass/call: `{row.get('pass')}` / `{row.get('call_id')}`",
+                f"- recipe_id: `{row.get('recipe_id')}`",
+                f"- changed_lines_for_recipe: {row.get('changed_lines_for_recipe')}",
+                f"- warning_count: {row.get('warning_count')}",
+                (
+                    "- empty_ingredient_step_mapping: true"
+                    if bool(row.get("empty_ingredient_step_mapping"))
+                    else "- empty_ingredient_step_mapping: false"
+                ),
+                f"- warning_summary: {warning_summary}",
+                f"- input_excerpt: {_excerpt(str(row.get('input_excerpt') or ''), max_len=320)}",
+                "",
+            ]
+        )
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _write_readme(
     *,
     output_dir: Path,
@@ -2650,14 +2735,23 @@ def _write_readme(
     lines.append("- `need_to_know_summary.json`")
     lines.append("- `eval_report.md` (if present in source run)")
     lines.append(f"- `{FULL_PROMPT_LOG_FILE_NAME}` (required for codex-enabled runs)")
-    lines.append("- `correct_label_lines.sample.jsonl`")
-    for _, output_name in SAMPLED_JSONL_INPUTS:
+    for _, output_name in LINE_LEVEL_SAMPLED_JSONL_INPUTS:
         lines.append(f"- `{output_name}`")
     lines.append(f"- `{PROMPT_LOG_FILE_NAME}` (optional convenience-only)")
+    lines.append(f"- `{PROMPT_WARNING_AGGREGATE_FILE_NAME}` (codex runs when full log is available)")
+    lines.append(f"- `{PROJECTION_TRACE_FILE_NAME}` (codex runs when full log is available)")
+    lines.append(
+        "- `unmatched_pred_blocks.jsonl` is reported as counts-only by default; "
+        "alignment debug samples are emitted only when alignment quality is weak."
+    )
     lines.append("")
     lines.append("Root files:")
     lines.append("- `run_index.json`")
     lines.append("- `comparison_summary.json`")
+    lines.append(f"- `{CHANGED_LINES_FILE_NAME}`")
+    lines.append(f"- `{PER_RECIPE_BREAKDOWN_FILE_NAME}`")
+    lines.append(f"- `{TARGETED_PROMPT_CASES_FILE_NAME}`")
+    lines.append(f"- `{LABEL_POLICY_NOTES_FILE_NAME}`")
     lines.append("- `process_manifest.json`")
     if flattened:
         lines.append("")
@@ -2713,6 +2807,10 @@ def _write_root_summary_markdown(output_dir: Path) -> Path:
     readme_path = output_dir / "README.md"
     run_index_path = output_dir / "run_index.json"
     comparison_summary_path = output_dir / "comparison_summary.json"
+    changed_lines_path = output_dir / CHANGED_LINES_FILE_NAME
+    per_recipe_breakdown_path = output_dir / PER_RECIPE_BREAKDOWN_FILE_NAME
+    targeted_prompt_cases_path = output_dir / TARGETED_PROMPT_CASES_FILE_NAME
+    label_policy_notes_path = output_dir / LABEL_POLICY_NOTES_FILE_NAME
     process_manifest_path = output_dir / "process_manifest.json"
 
     sections: list[str] = []
@@ -2738,6 +2836,32 @@ def _write_root_summary_markdown(output_dir: Path) -> Path:
             json.dumps(_load_json(comparison_summary_path), indent=2, sort_keys=True)
         )
         sections.append("```")
+        sections.append("")
+
+    if changed_lines_path.is_file():
+        sections.append(f"## {CHANGED_LINES_FILE_NAME}")
+        sections.append(
+            f"Rows: {_jsonl_row_count(changed_lines_path)} (see file for full details)."
+        )
+        sections.append("")
+
+    if per_recipe_breakdown_path.is_file():
+        sections.append(f"## {PER_RECIPE_BREAKDOWN_FILE_NAME}")
+        sections.append("```json")
+        sections.append(
+            json.dumps(_load_json(per_recipe_breakdown_path), indent=2, sort_keys=True)
+        )
+        sections.append("```")
+        sections.append("")
+
+    if targeted_prompt_cases_path.is_file():
+        sections.append(f"## {TARGETED_PROMPT_CASES_FILE_NAME}")
+        sections.append(targeted_prompt_cases_path.read_text(encoding="utf-8").rstrip())
+        sections.append("")
+
+    if label_policy_notes_path.is_file():
+        sections.append(f"## {LABEL_POLICY_NOTES_FILE_NAME}")
+        sections.append(label_policy_notes_path.read_text(encoding="utf-8").rstrip())
         sections.append("")
 
     if process_manifest_path.is_file():
@@ -2852,10 +2976,53 @@ def main() -> int:
     }
     _write_json(output_dir / "run_index.json", run_index)
 
-    comparison_summary = _build_comparison_summary(records)
+    (
+        comparison_summary,
+        changed_line_rows,
+        pair_breakdown_rows,
+        targeted_prompt_case_rows,
+    ) = _build_comparison_summary(
+        records=records,
+        excerpt_limit=args.excerpt_limit,
+        targeted_prompt_case_limit=DEFAULT_TARGETED_PROMPT_CASES,
+    )
+    changed_line_rows.sort(
+        key=lambda row: (
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+            int(row.get("line_index") or 0),
+        )
+    )
+    _write_jsonl(output_dir / CHANGED_LINES_FILE_NAME, changed_line_rows)
+
+    per_recipe_breakdown_payload = {
+        "generated_at": _timestamp_now(),
+        "pair_count": len(pair_breakdown_rows),
+        "pairs": pair_breakdown_rows,
+    }
+    _write_json(output_dir / PER_RECIPE_BREAKDOWN_FILE_NAME, per_recipe_breakdown_payload)
+
+    selected_targeted_prompt_cases = _select_targeted_prompt_cases(
+        rows=targeted_prompt_case_rows,
+        limit=DEFAULT_TARGETED_PROMPT_CASES,
+    )
+    _write_targeted_prompt_cases_markdown(
+        output_path=output_dir / TARGETED_PROMPT_CASES_FILE_NAME,
+        rows=selected_targeted_prompt_cases,
+    )
+    (output_dir / LABEL_POLICY_NOTES_FILE_NAME).write_text(
+        _render_label_policy_notes(),
+        encoding="utf-8",
+    )
+
     comparison_summary["generated_at"] = _timestamp_now()
     comparison_summary["input_dir"] = str(input_dir)
     comparison_summary["output_dir"] = str(output_dir)
+    comparison_summary["changed_lines_total"] = len(changed_line_rows)
+    comparison_summary["changed_lines_file"] = CHANGED_LINES_FILE_NAME
+    comparison_summary["per_recipe_or_per_span_breakdown_file"] = PER_RECIPE_BREAKDOWN_FILE_NAME
+    comparison_summary["targeted_prompt_cases_file"] = TARGETED_PROMPT_CASES_FILE_NAME
+    comparison_summary["label_policy_notes_file"] = LABEL_POLICY_NOTES_FILE_NAME
     _write_json(output_dir / "comparison_summary.json", comparison_summary)
 
     codex_records = [record for record in records if record.codex_enabled]
@@ -2880,8 +3047,11 @@ def main() -> int:
         "top_confusions": args.top_confusions,
         "top_labels": args.top_labels,
         "prompt_pairs_per_category": args.prompt_pairs_per_category,
+        "targeted_prompt_cases_limit": DEFAULT_TARGETED_PROMPT_CASES,
         "flatten_enabled": not args.no_flatten,
         "flatten_script": str(args.flatten_script),
+        "changed_lines_total": len(changed_line_rows),
+        "comparison_pair_breakdown_count": len(pair_breakdown_rows),
         "full_prompt_log_status": package_full_prompt_status,
         "full_prompt_log_rows": sum(record.full_prompt_log_rows for record in records),
         "full_prompt_log_path": (

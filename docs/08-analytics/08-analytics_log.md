@@ -600,3 +600,32 @@ Durable decisions/outcomes:
 
 ExecPlan evidence preserved:
 - Targeted contract tests passed (`7 passed`) and full analytics dashboard test file passed (`51 passed`).
+
+## 2026-03-03 migrated understanding ledger (explicit-metric timeline + legacy-row cull)
+
+### 2026-03-02_23.17.11 trend null explicit metrics gap
+
+Source:
+- `docs/understandings/2026-03-02_23.17.11-benchmark-trend-null-explicit-metrics-gap.md`
+
+Problem captured:
+- Some historical benchmark rows carry legacy metrics but null explicit strict/macro values, so plotted trend looked newer than table history.
+
+Durable decision:
+- Keep explicit-metric plotting only.
+- Initialize chart timeline bounds from full filtered benchmark timestamp span so chart/date context matches table history.
+
+### 2026-03-02_23.22.43 dashboard history cull of legacy benchmark rows
+
+Source:
+- `docs/understandings/2026-03-02_23.22.43-dashboard-history-cull-legacy-benchmark-rows.md`
+
+Problem captured:
+- Old `performance_history.csv` benchmark rows from pytest tmp paths and legacy eval-vs-pipeline runs kept stale dates visible even after workflow changes.
+
+Durable decision:
+- Prune benchmark CSV rows to on-disk `data/golden` artifact paths when cleaning history.
+- Preserve stage/import history rows.
+
+Anti-loop note:
+- If stale dates remain, check both CSV rows and retained artifact folders; either side can keep old timeline entries alive.

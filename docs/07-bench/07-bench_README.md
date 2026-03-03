@@ -1358,3 +1358,74 @@ Current contract additions:
 - CodexFarm benchmark artifacts must include full per-call JSONL logs plus category-split text logs; cutdown packaging should preserve full JSONL and use sampled text logs only as convenience.
 - Benchmark cutdown defaults should keep deterministic but richer context (more diagnostics, longer excerpts, and non-trivial deterministic sampling rather than first-N truncation).
 - QualitySuite mixed-format documentation and tests should preserve extension-aware discovery semantics: extension pre-selection under `max_targets` cap, then strata fill; capped-extension selection (`max_targets < extension_count`) needs explicit deterministic test coverage.
+
+## 2026-03-03 merged understandings digest (qualitysuite format coverage, GC durability, canonical accounting)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-02_23.24.30-qualitysuite-mixed-format-selection-and-leaderboard.md`
+- `docs/understandings/2026-03-02_23.27.07-benchmark-artifact-retention-prune-rule.md`
+- `docs/understandings/2026-03-02_23.28.03-canonical-howto-accounting-vs-stage-remap.md`
+- `docs/understandings/2026-03-02_23.30.15-qualitysuite-ogplan-audit-findings.md`
+- `docs/understandings/2026-03-02_23.41.43-qualitysuite-ogplan-vs-execplan-audit.md`
+- `docs/understandings/2026-03-02_23.41.48-benchmark-gc-csv-first-retention.md`
+- `docs/understandings/2026-03-02_23.46.32-benchmark-gc-ogplan-gap-audit.md`
+- `docs/understandings/2026-03-02_23.51.31-benchmark-gc-durable-confirmation-guard.md`
+- `docs/understandings/2026-03-02_23.51.37-pdf-knobs-wiring-paths.md`
+- `docs/understandings/2026-03-02_23.59.10-qualitysuite-extension-cap-branch-selection.md`
+- `docs/understandings/2026-03-03_00.08.30-cutdown-process-manifest-full-prompt-included-files.md`
+
+Current benchmark contracts to keep:
+- QualitySuite discovery is extension-aware:
+  - persist `source_extension` per selected target,
+  - track `format_counts` and `selected_format_counts`,
+  - when `max_targets` is capped, seed extension diversity first before strata fill,
+  - `quality-leaderboard --by-source-extension` adds per-format leaderboard slices without changing global ranking.
+- Canonical HOWTO accounting must stay explicit in canonical-text eval:
+  - stage-block loader default can keep HOWTO remap behavior,
+  - canonical-text path must disable HOWTO remap so `HOWTO_SECTION` totals/confusion remain real.
+- Benchmark GC durability is CSV-first with safety guards:
+  - persist durable benchmark fields in CSV (`per_label_json`, strict/macro/boundary),
+  - hydrate missing durable fields from `eval_report.json` before prune,
+  - only delete run roots when durable-history confirmation passes,
+  - create timestamped backup `performance_history.<YYYY-MM-DD_HH.MM.SS>.gc.bak.csv` before mutating history,
+  - when pruning, keep durable benchmark rows and remove stale non-durable rows referencing deleted roots.
+- Benchmark artifact cleanup must align disk and CSV views:
+  - if old run folders remain, dashboard scanners can still surface old benchmark dates,
+  - after folder deletion, re-prune benchmark CSV paths to existing artifacts.
+- PDF benchmark knobs must be forwarded end-to-end:
+  - CLI normalization -> benchmark helper branches -> ingest import paths -> `build_run_settings(...)`,
+  - split-cache key input set must include new PDF knobs to avoid stale reuse.
+- Benchmark cutdown manifest contract:
+  - `process_manifest.included_files` must include nested codex full prompt log paths (for example `codexfarm/full_prompt_log.jsonl`), not only root-level files.
+
+### 2026-03-02_23.54.21 external-AI cutdown feedback coverage snapshot
+
+Source:
+- `docs/understandings/2026-03-02_23.54.21-external-ai-cutdown-feedback-coverage.md`
+
+Current contract reminder:
+- `scripts/benchmark_cutdown_for_external_ai.py` already includes most requested high-value coverage (full prompt JSONL inclusion, changed-line rows, per-recipe/per-span breakdowns, prompt-warning aggregates, projection trace, targeted prompt cases, label-policy notes).
+- Remaining gaps are additive diagnostics, mainly:
+  - explicit preprocess-failure tracing (`raw` vs post-preprocess for failing cases),
+  - compressed full-failure export for deeper unsampled investigation.
+
+### 2026-03-02_23.56.48 benchmark GC backup-on-history-write-only behavior
+
+Source:
+- `docs/understandings/2026-03-02_23.56.48-benchmark-gc-backup-on-history-write-only.md`
+
+Current contract reminder:
+- `bench gc` writes a timestamped history CSV backup when benchmark history rows are rewritten/pruned.
+- Artifact deletion can happen without a new backup when matching benchmark rows are already durable and no CSV mutation is required.
+- If stricter always-backup semantics are desired later, treat that as a deliberate policy change (not current behavior regression).
+
+### 2026-03-02_23.58.00 benchmark cutdown causality artifacts and span bridge
+
+Source:
+- `docs/understandings/2026-03-02_23.58.00-benchmark-cutdown-causality-artifacts-and-span-bridge.md`
+
+Current contract reminder:
+- Highest-signal codex-vs-baseline diagnosis is canonical line-level causality rows (gold + both preds + context), not aggregate deltas alone.
+- Pass1 block-index spans should be bridged into inside/outside active-recipe slicing for line-level diagnostics.
+- Prompt warning diagnostics should aggregate full prompt log rows and attach targeted prompt cases tied to dominant line flips.
+- Keep heavy alignment/block-level samples conditional on weak coverage/match signals; otherwise prefer counts-only summaries to control artifact/token size.

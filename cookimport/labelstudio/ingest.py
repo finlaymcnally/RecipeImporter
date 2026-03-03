@@ -41,6 +41,8 @@ from cookimport.core.reporting import compute_file_hash, enrich_report_with_stat
 from cookimport.core.scoring import summarize_recipe_likeness
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
+from cookimport.parsing.canonical_line_roles import label_atomic_lines
+from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.parsing.chunks import (
     chunks_from_non_recipe_blocks,
@@ -54,6 +56,11 @@ from cookimport.labelstudio.archive import (
     prepare_extracted_archive,
     prepared_archive_payload,
     prepared_archive_text,
+)
+from cookimport.labelstudio.canonical_line_projection import (
+    apply_line_role_spans_to_recipes,
+    project_line_roles_to_freeform_spans,
+    write_line_role_projection_artifacts,
 )
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
@@ -876,6 +883,159 @@ def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | No
         return str(candidate.relative_to(run_root))
     except ValueError:
         return str(candidate)
+
+
+def _line_role_recipe_ranges(
+    result: ConversionResult,
+    *,
+    archive_payload: list[dict[str, Any]],
+) -> list[tuple[int, int, int]]:
+    line_to_block: dict[int, int] = {}
+    for row in archive_payload:
+        location = row.get("location")
+        if not isinstance(location, dict):
+            continue
+        block_index = _coerce_int(row.get("index"))
+        if block_index is None:
+            continue
+        line_index = _coerce_int(
+            location.get("line_index")
+            if location.get("line_index") is not None
+            else location.get("lineIndex")
+        )
+        if line_index is not None:
+            line_to_block[line_index] = block_index
+
+    output: list[tuple[int, int, int]] = []
+    for recipe_index, recipe in enumerate(result.recipes):
+        provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
+        location = provenance.get("location")
+        if not isinstance(location, dict):
+            continue
+        start = _coerce_int(location.get("start_block"))
+        if start is None:
+            start = _coerce_int(location.get("startBlock"))
+        end = _coerce_int(location.get("end_block"))
+        if end is None:
+            end = _coerce_int(location.get("endBlock"))
+        if start is None and end is None:
+            single = _coerce_int(location.get("block_index"))
+            if single is None:
+                single = _coerce_int(location.get("blockIndex"))
+            if single is not None:
+                start, end = single, single
+        if start is None or end is None:
+            start_line = _coerce_int(location.get("start_line"))
+            if start_line is None:
+                start_line = _coerce_int(location.get("startLine"))
+            end_line = _coerce_int(location.get("end_line"))
+            if end_line is None:
+                end_line = _coerce_int(location.get("endLine"))
+            if start_line is not None or end_line is not None:
+                if start_line is None:
+                    start_line = end_line
+                if end_line is None:
+                    end_line = start_line
+                if start_line is not None and end_line is not None:
+                    if start_line > end_line:
+                        start_line, end_line = end_line, start_line
+                    matched = [
+                        block_index
+                        for line_index, block_index in line_to_block.items()
+                        if start_line <= line_index <= end_line
+                    ]
+                    if matched:
+                        start = min(matched)
+                        end = max(matched)
+        if start is None or end is None:
+            continue
+        if start > end:
+            start, end = end, start
+        output.append((recipe_index, start, end))
+    return output
+
+
+def _recipe_index_for_block(
+    block_index: int,
+    *,
+    recipe_ranges: list[tuple[int, int, int]],
+) -> int | None:
+    for recipe_index, start, end in recipe_ranges:
+        if start <= block_index <= end:
+            return recipe_index
+    return None
+
+
+def _build_line_role_candidates_from_archive(
+    *,
+    archive_payload: list[dict[str, Any]],
+    result: ConversionResult,
+) -> list[AtomicLineCandidate]:
+    recipe_ranges = _line_role_recipe_ranges(result, archive_payload=archive_payload)
+    staged: list[dict[str, Any]] = []
+    for row in sorted(
+        archive_payload,
+        key=lambda payload: _coerce_int(payload.get("index")) or 0,
+    ):
+        block_index = _coerce_int(row.get("index"))
+        if block_index is None:
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        recipe_index = _recipe_index_for_block(
+            block_index,
+            recipe_ranges=recipe_ranges,
+        )
+        within_recipe_span = recipe_index is not None
+        recipe_id = f"recipe:{recipe_index}" if recipe_index is not None else None
+        atomized = atomize_blocks(
+            [
+                {
+                    "block_id": f"block:{block_index}",
+                    "block_index": block_index,
+                    "text": text,
+                }
+            ],
+            recipe_id=recipe_id,
+            within_recipe_span=within_recipe_span,
+        )
+        for candidate in atomized:
+            staged.append(
+                {
+                    "recipe_id": candidate.recipe_id,
+                    "block_id": candidate.block_id,
+                    "block_index": candidate.block_index,
+                    "text": candidate.text,
+                    "within_recipe_span": candidate.within_recipe_span,
+                    "candidate_labels": list(candidate.candidate_labels),
+                    "rule_tags": list(candidate.rule_tags),
+                }
+            )
+
+    output: list[AtomicLineCandidate] = []
+    for atomic_index, row in enumerate(staged):
+        prev_text = staged[atomic_index - 1]["text"] if atomic_index > 0 else None
+        next_text = (
+            staged[atomic_index + 1]["text"]
+            if atomic_index + 1 < len(staged)
+            else None
+        )
+        output.append(
+            AtomicLineCandidate(
+                recipe_id=row["recipe_id"],
+                block_id=str(row["block_id"]),
+                block_index=int(row["block_index"]),
+                atomic_index=atomic_index,
+                text=str(row["text"]),
+                within_recipe_span=bool(row["within_recipe_span"]),
+                candidate_labels=list(row["candidate_labels"]),
+                prev_text=prev_text,
+                next_text=next_text,
+                rule_tags=list(row["rule_tags"]),
+            )
+        )
+    return output
 
 
 def _write_manifest_best_effort(
@@ -2103,6 +2263,41 @@ def generate_pred_run_artifacts(
     )
     archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
+    line_role_artifacts: dict[str, Path] | None = None
+    line_role_recipe_projection_summary: dict[str, Any] | None = None
+    if run_settings.line_role_pipeline.value != "off":
+        _notify("Running canonical line-role pipeline...")
+        archive_payload_rows = prepared_archive_payload(prepared_archive)
+        line_role_candidates = _build_line_role_candidates_from_archive(
+            archive_payload=archive_payload_rows,
+            result=result,
+        )
+        if line_role_candidates:
+            line_role_predictions = label_atomic_lines(
+                line_role_candidates,
+                run_settings,
+                artifact_root=run_root,
+            )
+            line_role_artifacts = write_line_role_projection_artifacts(
+                run_root=run_root,
+                source_file=path.name,
+                source_hash=file_hash,
+                workbook_slug=path.stem,
+                predictions=line_role_predictions,
+            )
+            if processed_output_root is not None:
+                line_role_spans = project_line_roles_to_freeform_spans(
+                    line_role_predictions
+                )
+                line_role_recipe_projection_summary = (
+                    apply_line_role_spans_to_recipes(
+                        conversion_result=result,
+                        spans=line_role_spans,
+                    )
+                )
+        else:
+            _notify("Canonical line-role pipeline skipped (no atomic candidates).")
+
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
     processed_stage_block_predictions_path: Path | None = None
@@ -2752,6 +2947,31 @@ def generate_pred_run_artifacts(
             if local_stage_block_predictions_path is not None
             else None
         ),
+        "line_role_pipeline_stage_block_predictions_path": (
+            str(line_role_artifacts["stage_block_predictions_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("stage_block_predictions_path") is not None
+            else None
+        ),
+        "line_role_pipeline_extracted_archive_path": (
+            str(line_role_artifacts["extracted_archive_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("extracted_archive_path") is not None
+            else None
+        ),
+        "line_role_pipeline_line_role_predictions_path": (
+            str(line_role_artifacts["line_role_predictions_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("line_role_predictions_path") is not None
+            else None
+        ),
+        "line_role_pipeline_projected_spans_path": (
+            str(line_role_artifacts["projected_spans_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("projected_spans_path") is not None
+            else None
+        ),
+        "line_role_pipeline_recipe_projection": line_role_recipe_projection_summary,
         "task_scope": "freeform-spans",
         "segment_blocks": segment_blocks,
         "segment_focus_blocks": resolved_segment_focus_blocks,
@@ -2831,6 +3051,43 @@ def generate_pred_run_artifacts(
         run_manifest_artifacts[
             "stage_block_predictions_json"
         ] = local_stage_predictions_manifest_path
+    if isinstance(line_role_artifacts, dict):
+        line_role_stage_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("stage_block_predictions_path"),
+        )
+        if line_role_stage_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_stage_block_predictions_json"
+            ] = line_role_stage_manifest_path
+        line_role_archive_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("extracted_archive_path"),
+        )
+        if line_role_archive_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_extracted_archive_json"
+            ] = line_role_archive_manifest_path
+        line_role_predictions_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("line_role_predictions_path"),
+        )
+        if line_role_predictions_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_line_role_predictions_jsonl"
+            ] = line_role_predictions_manifest_path
+        line_role_spans_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("projected_spans_path"),
+        )
+        if line_role_spans_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_projected_spans_jsonl"
+            ] = line_role_spans_manifest_path
+    if line_role_recipe_projection_summary is not None:
+        run_manifest_artifacts[
+            "line_role_pipeline_recipe_projection"
+        ] = dict(line_role_recipe_projection_summary)
     run_manifest_artifacts["timing"] = timing_payload
     llm_manifest_path = (
         run_root
@@ -2922,6 +3179,27 @@ def generate_pred_run_artifacts(
         "processed_report_path": processed_report_path,
         "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
         "stage_block_predictions_path": local_stage_block_predictions_path,
+        "line_role_pipeline_stage_block_predictions_path": (
+            line_role_artifacts.get("stage_block_predictions_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_extracted_archive_path": (
+            line_role_artifacts.get("extracted_archive_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_line_role_predictions_path": (
+            line_role_artifacts.get("line_role_predictions_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_projected_spans_path": (
+            line_role_artifacts.get("projected_spans_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_recipe_projection": line_role_recipe_projection_summary,
         "tasks_total": len(tasks),
         "tasks_jsonl_path": tasks_path,
         "tasks_jsonl_status": tasks_jsonl_status,
@@ -3406,6 +3684,42 @@ def run_labelstudio_import(
     )
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
+    line_role_stage_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_stage_block_predictions_path"),
+    )
+    if line_role_stage_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_stage_block_predictions_json"
+        ] = line_role_stage_manifest_path
+    line_role_archive_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_extracted_archive_path"),
+    )
+    if line_role_archive_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_extracted_archive_json"
+        ] = line_role_archive_manifest_path
+    line_role_predictions_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_line_role_predictions_path"),
+    )
+    if line_role_predictions_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_line_role_predictions_jsonl"
+        ] = line_role_predictions_manifest_path
+    line_role_spans_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_projected_spans_path"),
+    )
+    if line_role_spans_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_projected_spans_jsonl"
+        ] = line_role_spans_manifest_path
+    if isinstance(pred.get("line_role_pipeline_recipe_projection"), dict):
+        run_manifest_artifacts[
+            "line_role_pipeline_recipe_projection"
+        ] = dict(pred["line_role_pipeline_recipe_projection"])
     prediction_timing = pred.get("timing")
     if isinstance(prediction_timing, dict):
         run_manifest_artifacts["timing"] = dict(prediction_timing)
@@ -3433,6 +3747,21 @@ def run_labelstudio_import(
         "run_root": run_root,
         "processed_run_root": pred["processed_run_root"],
         "processed_report_path": pred["processed_report_path"],
+        "line_role_pipeline_stage_block_predictions_path": pred.get(
+            "line_role_pipeline_stage_block_predictions_path"
+        ),
+        "line_role_pipeline_extracted_archive_path": pred.get(
+            "line_role_pipeline_extracted_archive_path"
+        ),
+        "line_role_pipeline_line_role_predictions_path": pred.get(
+            "line_role_pipeline_line_role_predictions_path"
+        ),
+        "line_role_pipeline_projected_spans_path": pred.get(
+            "line_role_pipeline_projected_spans_path"
+        ),
+        "line_role_pipeline_recipe_projection": pred.get(
+            "line_role_pipeline_recipe_projection"
+        ),
         "run_config": pred.get("run_config"),
         "run_config_hash": pred.get("run_config_hash"),
         "run_config_summary": pred.get("run_config_summary"),

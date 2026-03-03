@@ -645,3 +645,33 @@ Durable decisions:
 Anti-loop note:
 - If a checklist says detector milestone missing, validate current code/tests first; do not re-implement blindly.
 
+
+## 2026-03-03 merged understanding ledger (atomizer stability + line-role precedence)
+
+### 2026-03-02_23.37.00 recipe-block atomizer split-order discovery
+
+Source:
+- `docs/understandings/2026-03-02_23.37.00-recipe-block-atomizer-split-order.md`
+
+Problem captured:
+- Merged recipe blocks containing yield + ingredients + headings were unstable when quantity-run splitting happened too early.
+
+Durable decision:
+- Keep deterministic split precedence as marker-boundary first, yield-tail second, general quantity-run third.
+
+Anti-loop note:
+- If merged blocks regress, inspect split precedence before tuning individual regex rules.
+
+### 2026-03-03_00.29.00 canonical line-role outside-span prose guardrail
+
+Source:
+- `docs/understandings/2026-03-03_00.29.00-canonical-line-role-outside-span-prose-guardrail.md`
+
+Problem captured:
+- Broad instruction-sentence heuristics can mislabel outside-recipe narrative as `INSTRUCTION_LINE`.
+
+Durable decision:
+- In deterministic line-role labeling, resolve outside-recipe prose first and prefer `KNOWLEDGE` before instruction fallback.
+
+Why retained:
+- Prevents repeated regressions where narrative paragraphs degrade canonical line-role benchmark precision.

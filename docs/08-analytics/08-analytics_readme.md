@@ -377,3 +377,15 @@ Current contract additions:
 - Benchmark CSV writes should persist `importer_name`; dashboard still needs runtime fallback inference for historical blank rows.
 - Trend chart default window is `All` and x-axis bounds should align with filtered table timestamp span even when some older rows have no explicit score points.
 - Column controls remain session-local and must support drag reorder, resize handles, add/remove fields, and mixed row-shape rendering (`single` + grouped `all_method`).
+
+## 2026-03-03 merged understandings digest (trend/table alignment + history culling)
+
+Merged source notes:
+- `docs/understandings/2026-03-02_23.17.11-benchmark-trend-null-explicit-metrics-gap.md`
+- `docs/understandings/2026-03-02_23.22.43-dashboard-history-cull-legacy-benchmark-rows.md`
+
+Current analytics contracts to keep:
+- Trend points use explicit benchmark metrics (`strict_accuracy`, `macro_f1_excluding_other`) only, but chart x-axis bounds should still be initialized from the full filtered timestamp span so timeline coverage matches `Previous Runs`.
+- Legacy benchmark rows with null explicit metrics are valid history rows and should remain visible in table/filter contexts.
+- When dashboard history is intentionally culled to current artifact paradigms, remove stale benchmark CSV rows that point to legacy pytest/tmp/eval-vs-pipeline paths.
+- CSV pruning alone is not enough if old benchmark run folders still exist on disk; collector behavior and artifact retention policy must stay aligned.

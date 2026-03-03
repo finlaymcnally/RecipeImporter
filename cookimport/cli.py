@@ -7574,6 +7574,8 @@ class PredRunContext:
     recipes: int | None
     processed_report_path: str
     stage_block_predictions_path: str
+    line_role_stage_block_predictions_path: str
+    line_role_extracted_archive_path: str
     source_file: str
     source_hash: str | None
     run_config: dict[str, Any] | None
@@ -8333,6 +8335,8 @@ def _load_pred_run_recipe_context(
             recipes=None,
             processed_report_path="",
             stage_block_predictions_path="",
+            line_role_stage_block_predictions_path="",
+            line_role_extracted_archive_path="",
             source_file="",
             source_hash=None,
             run_config=None,
@@ -8347,6 +8351,8 @@ def _load_pred_run_recipe_context(
             recipes=None,
             processed_report_path="",
             stage_block_predictions_path="",
+            line_role_stage_block_predictions_path="",
+            line_role_extracted_archive_path="",
             source_file="",
             source_hash=None,
             run_config=None,
@@ -8358,6 +8364,8 @@ def _load_pred_run_recipe_context(
             recipes=None,
             processed_report_path="",
             stage_block_predictions_path="",
+            line_role_stage_block_predictions_path="",
+            line_role_extracted_archive_path="",
             source_file="",
             source_hash=None,
             run_config=None,
@@ -8373,6 +8381,12 @@ def _load_pred_run_recipe_context(
         stage_block_predictions_path = str(
             payload.get("processed_stage_block_predictions_path") or ""
         )
+    line_role_stage_block_predictions_path = str(
+        payload.get("line_role_pipeline_stage_block_predictions_path") or ""
+    )
+    line_role_extracted_archive_path = str(
+        payload.get("line_role_pipeline_extracted_archive_path") or ""
+    )
     run_config = payload.get("run_config")
     if not isinstance(run_config, dict):
         run_config = None
@@ -8392,6 +8406,8 @@ def _load_pred_run_recipe_context(
         recipes=recipes,
         processed_report_path=processed_report_path,
         stage_block_predictions_path=stage_block_predictions_path,
+        line_role_stage_block_predictions_path=line_role_stage_block_predictions_path,
+        line_role_extracted_archive_path=line_role_extracted_archive_path,
         source_file=source_file,
         source_hash=source_hash,
         run_config=run_config,

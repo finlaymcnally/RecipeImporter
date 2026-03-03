@@ -43,7 +43,9 @@ _INSTRUCTION_VERB_RE = re.compile(
 class CanonicalLineRolePrediction(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    recipe_id: str | None = None
     block_id: str
+    block_index: int | None = None
     atomic_index: int
     text: str
     label: str
@@ -75,7 +77,9 @@ def label_atomic_lines(
             unresolved.append(candidate)
             continue
         predictions[candidate.atomic_index] = CanonicalLineRolePrediction(
+            recipe_id=candidate.recipe_id,
             block_id=str(candidate.block_id),
+            block_index=int(candidate.block_index),
             atomic_index=int(candidate.atomic_index),
             text=str(candidate.text),
             label=label,
@@ -151,7 +155,9 @@ def label_atomic_lines(
                 for row in parsed_rows:
                     candidate = by_atomic_index[row["atomic_index"]]
                     predictions[candidate.atomic_index] = CanonicalLineRolePrediction(
+                        recipe_id=candidate.recipe_id,
                         block_id=str(candidate.block_id),
+                        block_index=int(candidate.block_index),
                         atomic_index=int(candidate.atomic_index),
                         text=str(candidate.text),
                         label=row["label"],
@@ -275,7 +281,9 @@ def _fallback_prediction(
             label = option
             break
     return CanonicalLineRolePrediction(
+        recipe_id=candidate.recipe_id,
         block_id=str(candidate.block_id),
+        block_index=int(candidate.block_index),
         atomic_index=int(candidate.atomic_index),
         text=str(candidate.text),
         label=label,
@@ -310,7 +318,9 @@ def _sanitize_prediction(
         decided_by = "fallback"
         reason_tags.append("sanitized_yield_to_ingredient")
     return CanonicalLineRolePrediction(
+        recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
+        block_index=prediction.block_index,
         atomic_index=prediction.atomic_index,
         text=prediction.text,
         label=label,

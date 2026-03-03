@@ -694,3 +694,21 @@ Critical history preserved:
 
 Current rule:
 - Treat inline mode as preferred for prompt clarity and portability, but never drop path-mode support until all dependent runtime packs are migrated.
+
+## 2026-03-03 migrated understanding ledger (full prompt log payload source)
+
+### 2026-03-02_23.30.23 codexfarm full-prompt log payload provenance
+
+Source:
+- `docs/understandings/2026-03-02_23.30.23-codexfarm-full-prompt-log-payload-source.md`
+
+Problem captured:
+- Prompt-log consumers could not reliably tell whether rows were exact request captures or reconstructed text, which made benchmark/cutdown audits ambiguous.
+
+Durable decision:
+- Keep `full_prompt_log.jsonl` as per-call source-of-truth artifact.
+- Persist explicit provenance marker `request_payload_source` (`telemetry_csv` vs `reconstructed_from_prompt_template`).
+- Preserve per-call `request_telemetry` metadata for downstream audit/debug.
+
+Anti-loop note:
+- If prompt-log trust is questioned, inspect `request_payload_source` before changing cutdown sampling or prompt rendering code.

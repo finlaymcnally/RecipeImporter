@@ -3060,3 +3060,152 @@ Durable direction (spec-level task):
 
 Status/evidence:
 - Task file recorded pending verification at consolidation time; preserve as a known follow-up spec to avoid re-auditing the same gap.
+
+## 2026-03-03 migrated understanding ledger (mixed-format selection, GC durability, benchmark artifact contracts)
+
+### 2026-03-02_23.24.30 qualitysuite mixed-format selection and leaderboard
+
+Source:
+- `docs/understandings/2026-03-02_23.24.30-qualitysuite-mixed-format-selection-and-leaderboard.md`
+
+Durable findings:
+- Discovery now seeds extension coverage before strata fill under target caps.
+- Selected targets persist `source_extension` and discovery/run summaries report format counts.
+- Leaderboard gained optional `--by-source-extension` format-sliced rankings.
+
+### 2026-03-02_23.27.07 benchmark artifact retention prune rule
+
+Source:
+- `docs/understandings/2026-03-02_23.27.07-benchmark-artifact-retention-prune-rule.md`
+
+Durable findings:
+- Artifact-folder pruning is required for dashboard timeline cleanup; CSV-only cleanup does not remove disk-scanned history.
+- After deleting old run folders, benchmark CSV rows must be re-pruned to surviving artifact paths.
+
+### 2026-03-02_23.28.03 canonical HOWTO accounting vs stage remap
+
+Source:
+- `docs/understandings/2026-03-02_23.28.03-canonical-howto-accounting-vs-stage-remap.md`
+
+Problem captured:
+- Canonical evaluation reused stage label loader defaults and unintentionally remapped `HOWTO_SECTION`, zeroing explicit HOWTO totals.
+
+Durable decision:
+- Keep stage/freeform default remap behavior.
+- Canonical-text path disables HOWTO remap so explicit HOWTO metrics/confusion remain visible.
+
+Evidence retained:
+- `tests/bench/test_eval_stage_blocks.py::test_evaluate_canonical_text_includes_howto_section_totals`
+
+### 2026-03-02_23.30.15 and 2026-03-02_23.41.43 qualitysuite OG-plan audits
+
+Sources:
+- `docs/understandings/2026-03-02_23.30.15-qualitysuite-ogplan-audit-findings.md`
+- `docs/understandings/2026-03-02_23.41.43-qualitysuite-ogplan-vs-execplan-audit.md`
+
+Key retained history:
+- Implementation largely matched OG milestones in code/tests/docs.
+- Repeated residual gap was documentation/test parity around the capped-extension branch (`max_targets < extension_count`) and CLI-level forwarding assertions.
+- Optional PDF-only deterministic knobs were recorded as explicitly not-yet-built follow-up, not regression.
+
+Anti-loop note:
+- Re-check implemented behavior and tests before reopening OG-vs-current audit loops.
+
+### 2026-03-02_23.41.48 benchmark GC CSV-first retention
+
+Source:
+- `docs/understandings/2026-03-02_23.41.48-benchmark-gc-csv-first-retention.md`
+
+Durable decisions:
+- Persist `per_label_json` in benchmark CSV.
+- Collector is CSV-first for benchmark rows; recursive report scanning is opt-in (`--scan-benchmark-reports`) with fallback only when CSV benchmark rows are absent.
+- `bench gc` hydrates missing durable metrics from eval reports before pruning run roots.
+- `bench gc --apply` writes timestamped `.gc.bak.csv` backup before history mutation.
+
+### 2026-03-02_23.46.32 benchmark GC OG-plan gap audit
+
+Source:
+- `docs/understandings/2026-03-02_23.46.32-benchmark-gc-ogplan-gap-audit.md`
+
+Retained failed-path history:
+- Earlier state could prune run roots without proving durable-history retention when CSV evidence was missing/incomplete.
+- Proof gaps identified: post-prune dashboard visibility, idempotence assertions, backup timestamp-format assertions.
+
+### 2026-03-02_23.51.31 benchmark GC durable-confirmation guard
+
+Source:
+- `docs/understandings/2026-03-02_23.51.31-benchmark-gc-durable-confirmation-guard.md`
+
+Durable decisions/outcomes:
+- Prune only confirmed-durable run roots.
+- If CSV is missing or rows are non-durable, keep run roots and emit unconfirmed-history warning.
+- Preserve durable rows while pruning stale non-durable rows tied to deleted roots.
+- Regression coverage includes post-prune retention, apply idempotence, and timestamp-format backup naming.
+
+### 2026-03-02_23.51.37 PDF knobs wiring paths
+
+Source:
+- `docs/understandings/2026-03-02_23.51.37-pdf-knobs-wiring-paths.md`
+
+Problem captured:
+- `pdf_ocr_policy` and `pdf_column_gap_ratio` normalization existed but was not forwarded through all benchmark prediction-generation branches.
+
+Durable decision:
+- Wire PDF knobs across both benchmark branches into ingest/build settings.
+- Include these knobs in split-cache key fields to prevent stale conversion cache reuse.
+
+### 2026-03-02_23.59.10 qualitysuite extension-cap branch selection
+
+Source:
+- `docs/understandings/2026-03-02_23.59.10-qualitysuite-extension-cap-branch-selection.md`
+
+Durable finding:
+- When `max_targets < extension_count`, seeded extension winners consume capacity and strata fill does not run.
+- Tests should assert deterministic invariants for same seed + extension diversity instead of fixed IDs.
+
+### 2026-03-03_00.08.30 cutdown process manifest full-prompt included-files
+
+Source:
+- `docs/understandings/2026-03-03_00.08.30-cutdown-process-manifest-full-prompt-included-files.md`
+
+Problem captured:
+- Manifest `included_files` originally captured only root-level files, omitting nested codex full prompt logs.
+
+Durable decision:
+- Add each `RunRecord.full_prompt_log_path` to `process_manifest.included_files` so strict external checks can verify full prompt payload presence directly.
+
+### 2026-03-02_23.54.21 external-AI cutdown feedback coverage audit
+
+Source:
+- `docs/understandings/2026-03-02_23.54.21-external-ai-cutdown-feedback-coverage.md`
+
+Retained finding:
+- External-AI cutdown script already implemented most earlier feedback requests.
+- Main open items were additive failure-analysis artifacts (preprocess-failure trace and compressed full-failure export), not a broad contract rewrite.
+
+Anti-loop note:
+- Before reopening major cutdown redesign work, verify current script outputs against prior feedback checklist first.
+
+### 2026-03-02_23.56.48 benchmark GC backup trigger boundary
+
+Source:
+- `docs/understandings/2026-03-02_23.56.48-benchmark-gc-backup-on-history-write-only.md`
+
+Retained finding:
+- Current GC backup behavior is write-triggered, not apply-triggered.
+- If no history-row mutation occurs, GC may delete eligible artifacts without creating a new backup.
+
+Anti-loop note:
+- Do not assume every `--apply` run should generate a backup unless policy is explicitly changed.
+
+### 2026-03-02_23.58.00 benchmark cutdown causality artifact strategy
+
+Source:
+- `docs/understandings/2026-03-02_23.58.00-benchmark-cutdown-causality-artifacts-and-span-bridge.md`
+
+Retained finding:
+- Canonical line-level codex-vs-baseline diagnostics plus span-bridge context provide higher debugging value than duplicated block-level samples.
+- Heavy alignment/block sample artifacts should be gated by low-coverage/weak-match conditions.
+
+Anti-loop note:
+- Before expanding cutdown artifact volume, verify whether line-level causality + prompt-warning aggregates already answer the root-cause question.
