@@ -212,6 +212,7 @@ These settings remain part of run settings and stage execution:
 - `codex_farm_cmd`
 - `codex_farm_model` (optional override passed to codex-farm)
 - `codex_farm_reasoning_effort` (optional override passed to codex-farm as reasoning/thinking effort)
+  - when unset in benchmark prediction metadata, runtime metadata backfill resolves concrete effort from Codex config/model-cache defaults when possible so downstream benchmark CSV/dashboard rows can retain both model and effort.
 - `codex_farm_root`
 - `codex_farm_workspace_root`
 - `codex_farm_recipe_mode` (`extract` default, `benchmark` for benchmark-native line-label flow)
@@ -234,6 +235,12 @@ These settings remain part of run settings and stage execution:
 - When `llm_recipe_pipeline` is active, Codex Farm prompt payloads are persisted as:
   - `prompt_inputs_manifest.txt` (pass1/2/3 `in` payloads)
   - `prompt_outputs_manifest.txt` (pass1/2/3 `out` payloads)
+- Prompt/debug artifacts are also auto-generated when Codex Farm pass manifests exist:
+  - benchmark eval output: `<eval_root>/codexfarm/`
+  - stage run output: `<stage_run_root>/codexfarm/`
+  - labelstudio-import run output: `<labelstudio_run_root>/codexfarm/`
+  - key files: `prompt_request_response_log.txt`, `full_prompt_log.jsonl`, `prompt_type_samples_from_full_prompt_log.md`
+- The prompt sample markdown now covers pass1/pass2/pass3 and also pass4/pass5 when those manifests are present.
 - Local recipe pipeline pack prompts now run with `prompt_input_mode=inline` and embed full input JSON via `{{INPUT_TEXT}}`; recipe pass templates should not depend on file-read instructions.
 - `run_manifest.json` includes `prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt` artifact pointers for active Codex Farm runs.
 

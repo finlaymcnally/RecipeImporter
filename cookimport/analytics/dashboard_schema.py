@@ -17,6 +17,7 @@ Schema version history:
     9 – benchmark golden recipe-header count (`gold_recipe_headers`) for recipe-coverage charts
     10 – removed retired EPUB auto-score field from stage records
     11 – explicit benchmark metric fields (`strict_accuracy`, `macro_f1_excluding_other`)
+    12 – CodexFarm benchmark token usage fields (`tokens_*`)
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "11"
+SCHEMA_VERSION = "12"
 
 
 class RunCategory(str, Enum):
@@ -117,6 +118,11 @@ class BenchmarkRecord(BaseModel):
     pred_total: int | None = None
     gold_matched: int | None = None
     recipes: int | None = None
+    tokens_input: int | None = None
+    tokens_cached_input: int | None = None
+    tokens_output: int | None = None
+    tokens_reasoning: int | None = None
+    tokens_total: int | None = None
 
     # supported-labels focused metrics (relaxed overlap)
     supported_precision: float | None = None

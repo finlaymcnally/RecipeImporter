@@ -1,0 +1,245 @@
+---
+summary: "Code-aligned ExecPlan to repair CodexFarm recipe pass reliability and benchmark outcomes without breaking current runtime contracts."
+read_when:
+  - "When implementing fixes for codex-farm pass1/pass2/pass3 reliability"
+  - "When revising llm_recipe_pipeline values, pass contracts, or codex benchmark acceptance gates"
+---
+
+# Repair CodexFarm recipe correction with code-aligned milestones
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+`docs/PLANS.md` is checked into the repository root and this document must be maintained in accordance with that file.
+
+## Purpose / Big Picture
+
+After this change, we should be able to run CodexFarm recipe correction on `SeaAndSmokeCUTDOWN.epub` and distinguish pipeline transport failures from actual model failures, then improve results without regressing default deterministic behavior.
+
+The repaired path should provide machine-readable pass transport evidence, deterministic normalization for common EPUB extraction damage, and measurable benchmark gains on a small dev slice before any full-book promotion decision.
+
+## Policy and Scope Guardrails
+
+Root policy currently says not to turn on CodexFarm/LLM parsing for data import by default. This plan keeps that boundary: no global default flips, no hidden auto-enable path, and no changes that force LLM execution for regular imports.
+
+Any codex-enabled benchmarking or staging in this plan remains explicit opt-in via run settings and command flags.
+
+## Progress
+
+- [x] (2026-03-03 10:19 America/Toronto) Audited current seams: recipe orchestrator, run settings enums/normalizers, benchmark line-role pipeline, and manifest/artifact wiring.
+- [x] (2026-03-03 10:23 America/Toronto) Rewrote this ExecPlan to match current code contracts and avoid stale assumptions.
+- [ ] Implement pass1/pass2 transport audit artifacts and recipe-scoped mismatch guards.
+- [ ] Add deterministic evidence normalization as an additive pass2 input helper with provenance logs.
+- [ ] Integrate benchmark-facing evaluation through the existing line-role pipeline path (no duplicate taxonomy).
+- [ ] Prototype deterministic final-draft assembly fallback for CodexFarm outputs without breaking legacy pass3 behavior.
+- [ ] Add targeted tests and a small checked-in dev slice manifest for c0/c6/c8/c9.
+- [ ] Run dev-slice benchmark replay, then full `SeaAndSmokeCUTDOWN` replay, and record promotion decision.
+
+## Surprises & Discoveries
+
+- Observation: The exact recipe orchestration seam is already explicit and tested. Evidence: `cookimport/llm/codex_farm_orchestrator.py::run_codex_farm_recipe_pipeline(...)` plus `tests/llm/test_codex_farm_orchestrator.py`.
+
+- Observation: `llm_recipe_pipeline` currently only accepts `off|codex-farm-3pass-v1` across `RunSettings`, CLI normalizers, and Label Studio pred-run normalizers. Evidence: `cookimport/config/run_settings.py`, `cookimport/cli.py`, and `cookimport/labelstudio/ingest.py`.
+
+- Observation: Pass1-to-pass2 “selected span” is not a direct raw handoff; pass1 boundaries are clamped and can exclude block IDs before pass2 payload construction. Evidence: `_apply_pass1_midpoint_clamps(...)`, `excluded_block_ids`, and `_included_indices_for_state(...)` in `codex_farm_orchestrator.py`.
+
+- Observation: Canonical line-role infrastructure already exists and is benchmark-wired. Evidence: `cookimport/parsing/canonical_line_roles.py`, `cookimport/labelstudio/ingest.py`, and line-role projection artifacts under `prediction-run/line-role-pipeline/`.
+
+- Observation: Codex pipeline contract changes must update pipeline/output-schema assets in lockstep because subprocess runner enforces `output_schema_path` parity. Evidence: `cookimport/llm/codex_farm_runner.py` strict schema checks.
+
+## Decision Log
+
+- Decision: Keep all changes additive and opt-in until dev-slice metrics exceed baseline.
+  Rationale: Current runtime contract is deterministic-first; promotion must be data-backed.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
+- Decision: Treat transport auditing as a first-order fix before prompt/schema tuning.
+  Rationale: Without trustworthy pass handoff evidence, downstream tuning is ambiguous.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
+- Decision: Reuse existing line-role subsystem for benchmark-facing labels instead of creating a second role pipeline in `cookimport/llm/`.
+  Rationale: Existing projection/eval/report contracts already consume that subsystem.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
+- Decision: If pass contracts change, update both recipeimport contracts and `llm_pipelines` schema/prompt assets in the same milestone.
+  Rationale: Runner-level schema enforcement will otherwise fail hard.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
+## Outcomes & Retrospective
+
+This revision replaces stale assumptions with code-verified seams and narrows risky scope. No runtime code has changed yet. Next update should include first implementation evidence: transport audit artifact samples, test deltas, and benchmark deltas.
+
+## Context and Orientation
+
+Recipe CodexFarm correction runtime seam:
+
+- Orchestration: `cookimport/llm/codex_farm_orchestrator.py::run_codex_farm_recipe_pipeline(...)`
+- Contracts: `cookimport/llm/codex_farm_contracts.py` (`Pass1RecipeChunking*`, `Pass2SchemaOrg*`, `Pass3FinalDraft*`)
+- Subprocess boundary and schema parity checks: `cookimport/llm/codex_farm_runner.py`
+- Invocation points:
+  - stage split-merge path: `cookimport/cli.py` (`run_codex_farm_recipe_pipeline(...)` call)
+  - stage worker path: `cookimport/cli_worker.py`
+  - benchmark pred-run generation: `cookimport/labelstudio/ingest.py`
+
+Final output wiring:
+
+- Schema.org overrides path: `write_intermediate_outputs(..., schemaorg_overrides_by_recipe_id=...)` in `cookimport/staging/writer.py`
+- Draft overrides path: `write_draft_outputs(..., draft_overrides_by_recipe_id=...)` in `cookimport/staging/writer.py`
+- Deterministic fallback draft builder: `cookimport/staging/draft_v1.py::recipe_candidate_to_draft_v1(...)`
+
+Benchmark-facing line-role seam already in code:
+
+- Labeling: `cookimport/parsing/canonical_line_roles.py::label_atomic_lines(...)`
+- Pred-run projection artifacts and manifest pointers: `cookimport/labelstudio/ingest.py`
+- Optional draft projection helper: `cookimport/staging/draft_v1.py::apply_line_role_spans_to_recipes(...)`
+
+## Milestones
+
+### Milestone 0 - Confirm baseline and freeze contracts
+
+Record current failing CodexFarm-vs-vanilla benchmark metrics, and capture the exact current pass contracts and pipeline IDs before edits. This milestone is done when this plan includes those paths and symbol names (already captured above) and identifies one reproducible replay command for Sea/Dev slice.
+
+### Milestone 1 - Add transport audit with effective-span semantics
+
+Implement a recipe-scoped transport audit artifact in `cookimport/llm/codex_farm_orchestrator.py` that compares:
+
+- pass1 effective included indices (after midpoint clamp and excluded block IDs), and
+- pass2 payload block IDs/count.
+
+Write per-recipe audit JSON under `raw/llm/<workbook_slug>/transport_audit/` and aggregate counts into `llm_manifest.json` and `llm_report`. Add recipe-scoped guard behavior for mismatches (error row + continue/fallback according to existing failure mode), not a process-wide crash.
+
+### Milestone 2 - Add deterministic evidence normalization (additive)
+
+Add `cookimport/llm/evidence_normalizer.py` with narrow deterministic repairs (split quantity-item joins, page-marker folding/dropping, safe heading preservation) and explicit provenance logs.
+
+Pass2 should continue to receive authoritative original blocks. Normalized evidence is additive context only.
+
+If new pass2 fields are required, update in one milestone:
+
+- `cookimport/llm/codex_farm_contracts.py`
+- corresponding `llm_pipelines/pipelines/*.json`
+- corresponding `llm_pipelines/schemas/*.json`
+- corresponding prompts in `llm_pipelines/prompts/*`
+
+### Milestone 3 - Use existing line-role path for benchmark-facing measurement
+
+Do not create a second label taxonomy. Instead, ensure repaired Codex outputs can be evaluated through existing `line_role_pipeline` diagnostics and canonical-text benchmark reports.
+
+If additional bridge logic is required, place it in current projection/eval path modules (Label Studio ingest + parsing/bench helpers) rather than a parallel ad hoc path.
+
+### Milestone 4 - Prototype deterministic finalization fallback
+
+Add an additive orchestrator fallback path that can build final drafts deterministically from structured Codex outputs when pass3 output is low quality, while keeping legacy pass3 behavior intact for compatibility.
+
+This prototype must preserve existing draft contract and avoid injecting description/headnote prose into `steps[].instruction`.
+
+### Milestone 5 - Benchmark and promotion decision
+
+Run a small dev slice (c0/c6/c8/c9) first. Only run full `SeaAndSmokeCUTDOWN` replay after dev slice passes thresholds.
+
+Promotion criteria:
+
+- New path meets or beats deterministic baseline on required macro metrics.
+- No transport mismatches on dev slice.
+- No targeted regressions (c0 title-only collapse, c9 description-as-instruction, etc.).
+
+Keep old path available for rollback until two clean replays.
+
+## Plan of Work
+
+Start with transport integrity in `cookimport/llm/codex_farm_orchestrator.py` because it is lowest-risk and highest-information.
+
+Then add normalization helper with provenance sidecars. Keep it deterministic and side-effect free.
+
+Only after transport + normalization evidence is solid, adjust pass contract shape if still needed. Any contract changes must include `llm_pipelines` schema/prompt updates and tests in the same commit set.
+
+Use existing line-role pipeline for benchmark diagnostics and acceptance reporting. Avoid introducing a second role labeler path under `cookimport/llm/` unless existing path proves technically blocked.
+
+Defer default/promotion changes until benchmark gates pass.
+
+## Concrete Steps
+
+All commands run from repository root:
+
+    cd /home/mcnal/projects/recipeimport
+
+Environment and tests (project policy):
+
+    source .venv/bin/activate
+    pip install -e .[dev]
+
+Seam discovery and verification:
+
+    rg -n "run_codex_farm_recipe_pipeline|Pass2SchemaOrgInput|Pass3FinalDraftOutput" cookimport/llm tests/llm
+    rg -n "llm_recipe_pipeline|line_role_pipeline|codex_farm_recipe_mode" cookimport/config cookimport/cli.py cookimport/labelstudio/ingest.py
+    rg -n "line-role-pipeline|label_atomic_lines|apply_line_role_spans_to_recipes" cookimport/parsing cookimport/labelstudio cookimport/staging
+
+Targeted regression tests while implementing:
+
+    pytest tests/llm/test_codex_farm_orchestrator.py -q
+    pytest tests/llm/test_run_settings.py -q
+    pytest tests/labelstudio -k line_role -q
+
+Benchmark replay example (Sea path, offline canonical mode):
+
+    cookimport labelstudio-benchmark \
+      --source-file data/input/SeaAndSmokeCUTDOWN.epub \
+      --gold-spans data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl \
+      --eval-mode canonical-text \
+      --no-upload \
+      --no-write-labelstudio-tasks
+
+Update this section with exact dev-slice replay command once fixture manifest path is added.
+
+## Validation and Acceptance
+
+Transport acceptance:
+
+- Zero silent pass1/pass2 mismatches on dev slice.
+- Any mismatch is visible in transport audit artifacts and aggregate counts.
+
+Normalization acceptance:
+
+- Deterministic tests prove merge/fold/skip behavior and provenance mapping.
+- Source extracted blocks remain unchanged.
+
+Draft acceptance:
+
+- Targeted tests prove descriptions/notes are not emitted as instructions in deterministic fallback path.
+
+Benchmark acceptance:
+
+- Dev slice (c0/c6/c8/c9) beats legacy CodexFarm and meets baseline floor.
+- Full Sea replay is baseline-neutral or better on required gates before any promotion decision.
+
+## Idempotence and Recovery
+
+All new artifacts are additive under run-specific directories. Reruns should create new timestamped run roots and not mutate old runs.
+
+If a milestone fails, disable candidate path via existing run settings (`llm_recipe_pipeline=off` or legacy codex value), keep artifacts for diagnosis, and continue from last passing milestone.
+
+## Artifacts and Notes
+
+Expected new/updated artifacts for this plan:
+
+- `raw/llm/<workbook_slug>/transport_audit/<recipe_id>.json`
+- `raw/llm/<workbook_slug>/evidence_normalization/<recipe_id>.json`
+- `raw/llm/<workbook_slug>/llm_manifest.json` (with added counters)
+- benchmark run outputs under `data/golden/benchmark-vs-golden/<timestamp>/...`
+
+Add concise transcripts and before/after metrics here as milestones land.
+
+## Interfaces and Dependencies
+
+Potential new models should be additive and local to `cookimport/llm/` and use Pydantic v2 patterns already in the repo.
+
+Any new `llm_recipe_pipeline` value (for example `codex-farm-3pass-v2`) requires coordinated updates across:
+
+- `cookimport/config/run_settings.py`
+- `cookimport/cli.py` normalizers
+- `cookimport/labelstudio/ingest.py` normalizers
+- UI specs/tests (`tests/llm/test_run_settings.py`, relevant CLI tests)
+- docs (`docs/10-llm/10-llm_README.md`, CLI docs as needed)
+
+Dependencies remain within current stack (Typer, Pydantic v2, pytest, existing parsing modules). No new external OCR/LLM libraries are planned.
+
+Revision note: 2026-03-03 - Rewrote plan to match actual runtime seams and policy boundaries: concrete orchestrator symbols, existing line-role subsystem reuse, strict codex schema contract awareness, and additive opt-in rollout constraints.

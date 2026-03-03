@@ -33,7 +33,7 @@ This README intentionally documents only active behavior. Historical implementat
 - Standalone all-method pages:
   - `all-method-benchmark/all-method-benchmark-run__<run_ts>.html`
   - `all-method-benchmark/all-method-benchmark__<run_ts>__<source_slug>.html`
-- Data contract: `cookimport/analytics/dashboard_schema.py` (`SCHEMA_VERSION = "10"`)
+- Data contract: `cookimport/analytics/dashboard_schema.py` (`SCHEMA_VERSION = "12"`)
 - Collect/render path: `dashboard_collect.py` -> `dashboard_render.py`
 
 ## 2) Code map
@@ -98,6 +98,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`):
   - Canonical-text benchmark eval now emits `report.boundary` (computed from aligned canonical-line spans), so canonical benchmark rows can populate `boundary_*` columns without requiring separate freeform-eval runs.
 - Per-label durability field: `per_label_json` (compact JSON list used by CSV-first dashboard collection when eval artifacts are no longer present).
 - Recipe-level context: `recipes`, `gold_recipe_headers`
+- Codex token-usage fields: `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`, eval checkpoint timing columns
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 
@@ -125,6 +126,7 @@ Collector behavior (`collect_dashboard_data`):
 - Benchmark rows:
   - CSV-first by default
   - includes supplemental benchmark rows from nested benchmark history CSVs under `--output-root`
+  - benchmark CSV rows persist Codex token usage (`tokens_*`) when benchmark prediction manifests include `llm_codex_farm` telemetry
   - CSV benchmark rows now backfill missing codex model/effort runtime from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) when available
   - optional recursive JSON scan only when `--scan-benchmark-reports` is enabled
   - scan fallback still activates when benchmark CSV rows are unavailable
@@ -159,6 +161,8 @@ Benchmark scan details:
 ### `cookimport benchmark-csv-backfill`
 
 - Repairs missing benchmark CSV fields (`recipes`, `report_path`, `file_name`) for older rows.
+- Also backfills benchmark `run_config_json`/`run_config_hash`/`run_config_summary` runtime metadata from nearby manifests, including codex model/effort when resolvable.
+- Also backfills missing benchmark token columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) from nearby prediction-run manifests when telemetry is available.
 - Uses benchmark manifests and processed report references as backfill sources.
 - `--dry-run` reports potential changes without writing.
 - Real writes trigger dashboard refresh for matching history root.
@@ -172,18 +176,22 @@ Benchmark scan details:
 - `Per-Label Breakdown` aggregates per-label totals across the latest all-method benchmark run timestamp (fallback: latest benchmark run timestamp when no all-method rows exist), not just one eval file row.
 - `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
-- `Previous Runs` includes `AI Model + Effort`; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
-  - `AI Model + Effort` shows only model/effort-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
-  - Effort placeholders (`<default>`, `default`) are treated as missing effort in the UI label so model-only rows do not claim a specific thinking level.
+- `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
+  - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
+  - `AI Effort` shows only concrete effort values; placeholders (`<default>`, `default`) are treated as missing in the UI.
+  - `All token use` is part of the default `Previous Runs` columns and displays combined `total | input | output`.
+  - Sorting/filtering `All token use` uses the numeric `tokens_total` value.
+  - Detailed token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) remain available through the `+/-` column picker.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
-- `Previous Runs` now includes a rules + boolean-expression filter builder over benchmark fields (including nested `run_config.*`) and applies the same filtered dataset to the score trend chart.
-- `Previous Runs` table renders full filtered history by default and keeps horizontal scrolling with a fixed minimum table width so benchmark columns remain readable on narrow windows.
+- `Previous Runs` now supports per-column filters via a compact `+/-` editor toggle in the first row beneath headers; popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
+- `Previous Runs` table keeps horizontal scrolling with a fixed minimum table width, and the viewport is capped to about 10 visible rows before vertical scrolling.
 - Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).
 - Benchmark trend chart timestamps are rendered in browser-local time (`Highcharts time.useUTC=false`).
 - Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line).
 - When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
 - Benchmark trend tooltip is run-grouped: hovering any point shows one local-time card with all visible series values for that run (no raw coordinate-style x/y labels).
-- `Previous Runs` table columns are configurable in-browser: drag headers to reorder, resize by dragging header edges, and add/remove fields from discovered benchmark keys.
+- Benchmark trend chart uses a fixed 800px render/container height to preserve stable layout and provide a taller score-history viewport.
+- `Previous Runs` table columns are configurable in-browser: use the `+/-` header-row button popup to check/uncheck fields, drag headers to reorder, and resize by dragging header edges.
 - `Benchmark Score Trend` defaults to the `All` range selector window so initial render includes full available benchmark history.
 - `Benchmark Score Trend` initializes x-axis bounds from the full filtered benchmark timestamp span, so chart timeline coverage matches `Previous Runs` dates even when older rows lack explicit score points.
 - Main page is intentionally narrow in scope:
@@ -353,7 +361,7 @@ Key analytics contracts to keep:
 Chronological merged source notes:
 - 2026-03-02_22.26.36-dashboard-ai-runtime-and-source-fallback: Dashboard `Previous Runs` source labels should fall back to artifact-path slugs, and AI runtime should come from run-config metadata.
 - 2026-03-02_22.29.43-dashboard-all-method-navigation-contract: All-method dashboard pages should be reached from main Previous Runs, not from a separate all-method index page.
-- 2026-03-02_22.30.04-dashboard-previous-runs-rules-filter-flow: Previous Runs rules filtering should be applied before all-method run bundling so filtered comparisons stay meaningful.
+- 2026-03-02_22.30.04-dashboard-previous-runs-rules-filter-flow: Previous Runs filtering should be applied before all-method run bundling so filtered comparisons stay meaningful.
 - 2026-03-02_22.35.41-dashboard-all-method-timestamp-from-path: All-method Previous Runs timestamps must be extracted from timestamp-like path tokens, not the segment immediately before all-method-benchmark.
 - 2026-03-02_22.37.34-dashboard-boundary-fallback-to-last-non-null: Boundary Classification card can show an older timestamp when newer benchmark rows have null boundary metrics.
 - 2026-03-02_22.40.42-dashboard-codex-runtime-llm-codex-farm-fallback: Dashboard benchmark runtime model/effort may need fallback from prediction-run `llm_codex_farm` telemetry when run-config leaves defaults unset.
@@ -381,12 +389,12 @@ Merged source task files (chronological):
 
 Current contract additions:
 - Main index no longer includes a separate all-method run index section/page; all-method deep links are reached from `Previous Runs`.
-- `Previous Runs` filter builder supports rule rows + boolean expression parsing, and invalid expressions should show status errors without blanking the page.
+- `Previous Runs` column filters are edited via per-column `+/-` popup controls, with active filter summaries shown in the first header-adjacent row.
 - Table overflow contract requires horizontal scrolling + minimum table width so dense benchmark rows remain legible.
-- Diagnostics/latest-runtime and `AI Model + Effort` should prefer richer codex runtime metadata, with fallback backfill from benchmark manifests when run-config fields are blank.
+- Diagnostics/latest-runtime and `Previous Runs` AI runtime columns (`AI Model`, `AI Effort`) should prefer richer codex runtime metadata, with fallback backfill from benchmark manifests when run-config fields are blank.
 - Benchmark CSV writes should persist `importer_name`; dashboard still needs runtime fallback inference for historical blank rows.
 - Trend chart default window is `All` and x-axis bounds should align with filtered table timestamp span even when some older rows have no explicit score points.
-- Column controls remain session-local and must support drag reorder, resize handles, add/remove fields, and mixed row-shape rendering (`single` + grouped `all_method`).
+- Column controls remain session-local and must support checkbox show/hide, drag reorder, resize handles, and mixed row-shape rendering (`single` + grouped `all_method`).
 
 ## 2026-03-03 merged understandings digest (trend/table alignment + history culling)
 

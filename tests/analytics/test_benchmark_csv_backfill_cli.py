@@ -29,19 +29,50 @@ def _write_benchmark_row(csv_path: Path, run_dir: Path) -> None:
         writer.writerow(row)
 
 
-def _write_prediction_manifest(eval_dir: Path, processed_report: Path) -> None:
+def _write_prediction_manifest(
+    eval_dir: Path,
+    processed_report: Path,
+    *,
+    include_codex_runtime: bool = False,
+) -> None:
     pred_run = eval_dir / "prediction-run"
     pred_run.mkdir(parents=True, exist_ok=True)
     processed_report.parent.mkdir(parents=True, exist_ok=True)
     processed_report.write_text(json.dumps({"totalRecipes": 9}), encoding="utf-8")
-    (pred_run / "manifest.json").write_text(
-        json.dumps(
-            {
-                "recipe_count": 9,
-                "processed_report_path": str(processed_report),
-                "source_file": "book.epub",
+    payload: dict[str, object] = {
+        "recipe_count": 9,
+        "processed_report_path": str(processed_report),
+        "source_file": "book.epub",
+    }
+    if include_codex_runtime:
+        payload["run_config"] = {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "codex_farm_model": "gpt-5.3-codex-spark",
+            "codex_farm_reasoning_effort": "<default>",
+        }
+        payload["llm_codex_farm"] = {
+            "process_runs": {
+                "pass1": {
+                    "process_payload": {
+                        "codex_model": "gpt-5.3-codex-spark",
+                        "codex_reasoning_effort": None,
+                        "telemetry": {
+                            "rows": [
+                                {
+                                    "tokens_input": 111,
+                                    "tokens_cached_input": 22,
+                                    "tokens_output": 33,
+                                    "tokens_reasoning": 4,
+                                    "tokens_total": 148,
+                                }
+                            ]
+                        },
+                    }
+                }
             }
-        ),
+        }
+    (pred_run / "manifest.json").write_text(
+        json.dumps(payload),
         encoding="utf-8",
     )
 
@@ -125,3 +156,64 @@ def test_benchmark_csv_backfill_cli_writes_updates(
     assert row["recipes"] == "9"
     assert row["report_path"] == str(processed_report)
     assert row["file_name"] == "book.epub"
+
+
+def test_benchmark_csv_backfill_cli_backfills_codex_runtime_config(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    csv_path = tmp_path / "output" / ".history" / "performance_history.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_15.35.00"
+    processed_report = (
+        tmp_path / "output" / "2026-02-16_15.34.00" / "book.excel_import_report.json"
+    )
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    (codex_home / "models_cache.json").write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": "gpt-5.3-codex-spark",
+                        "default_reasoning_level": "high",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    _write_benchmark_row(csv_path, eval_dir)
+    _write_prediction_manifest(
+        eval_dir,
+        processed_report,
+        include_codex_runtime=True,
+    )
+    monkeypatch.setattr("cookimport.cli.stats_dashboard", lambda **_: None)
+
+    result = runner.invoke(
+        app,
+        ["benchmark-csv-backfill", "--history-csv", str(csv_path)],
+    )
+    assert result.exit_code == 0
+    assert "Run config fields filled: 1" in result.stdout
+    assert "Codex model fields filled: 1" in result.stdout
+    assert "Codex effort fields filled: 1" in result.stdout
+    assert "Token rows filled: 1" in result.stdout
+    assert "Token fields filled: 5" in result.stdout
+
+    with csv_path.open("r", newline="", encoding="utf-8") as fh:
+        row = next(csv.DictReader(fh))
+    run_config = json.loads(row["run_config_json"])
+    assert run_config["codex_farm_model"] == "gpt-5.3-codex-spark"
+    assert run_config["codex_farm_reasoning_effort"] == "high"
+    assert row["run_config_hash"] != ""
+    assert "codex_farm_model=gpt-5.3-codex-spark" in row["run_config_summary"]
+    assert "codex_farm_reasoning_effort=high" in row["run_config_summary"]
+    assert row["tokens_input"] == "111"
+    assert row["tokens_cached_input"] == "22"
+    assert row["tokens_output"] == "33"
+    assert row["tokens_reasoning"] == "4"
+    assert row["tokens_total"] == "148"

@@ -38,6 +38,13 @@ from .dashboard_schema import (
 )
 
 logger = logging.getLogger(__name__)
+_TOKEN_USAGE_KEYS = (
+    "tokens_input",
+    "tokens_cached_input",
+    "tokens_output",
+    "tokens_reasoning",
+    "tokens_total",
+)
 
 # Timestamp patterns used in run-folder names.
 # Folders use dots in the time portion: YYYY-MM-DD_HH.MM.SS
@@ -122,6 +129,138 @@ def _safe_int(value: Any) -> int | None:
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    parsed = _safe_int(value)
+    if parsed is None or parsed < 0:
+        return None
+    return parsed
+
+
+def _extract_codex_token_usage_from_process_run(
+    pass_payload: dict[str, Any],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    process_payload = (
+        pass_payload.get("process_payload")
+        if isinstance(pass_payload.get("process_payload"), dict)
+        else None
+    )
+    telemetry_payload = (
+        process_payload.get("telemetry")
+        if isinstance(process_payload, dict)
+        and isinstance(process_payload.get("telemetry"), dict)
+        else None
+    )
+    if telemetry_payload is None and isinstance(pass_payload.get("telemetry"), dict):
+        telemetry_payload = pass_payload.get("telemetry")
+    telemetry_rows = (
+        telemetry_payload.get("rows")
+        if isinstance(telemetry_payload, dict)
+        and isinstance(telemetry_payload.get("rows"), list)
+        else None
+    )
+
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    if isinstance(telemetry_rows, list):
+        for row in telemetry_rows:
+            if not isinstance(row, dict):
+                continue
+            for key in _TOKEN_USAGE_KEYS:
+                value = _nonnegative_int(row.get(key))
+                if value is None:
+                    continue
+                current = totals.get(key)
+                totals[key] = value if current is None else current + value
+
+    telemetry_report = None
+    if isinstance(process_payload, dict) and isinstance(
+        process_payload.get("telemetry_report"), dict
+    ):
+        telemetry_report = process_payload.get("telemetry_report")
+    elif isinstance(pass_payload.get("telemetry_report"), dict):
+        telemetry_report = pass_payload.get("telemetry_report")
+    summary_payload = (
+        telemetry_report.get("summary")
+        if isinstance(telemetry_report, dict)
+        and isinstance(telemetry_report.get("summary"), dict)
+        else None
+    )
+    if isinstance(summary_payload, dict):
+        summary_value_map = {
+            "tokens_input": summary_payload.get("tokens_input"),
+            "tokens_cached_input": summary_payload.get("tokens_cached_input"),
+            "tokens_output": summary_payload.get("tokens_output"),
+            "tokens_reasoning": (
+                summary_payload.get("tokens_reasoning")
+                if summary_payload.get("tokens_reasoning") is not None
+                else summary_payload.get("tokens_reasoning_total")
+            ),
+            "tokens_total": summary_payload.get("tokens_total"),
+        }
+        for key, raw_value in summary_value_map.items():
+            if totals.get(key) is not None:
+                continue
+            parsed_value = _nonnegative_int(raw_value)
+            if parsed_value is not None:
+                totals[key] = parsed_value
+
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _extract_codex_token_usage_from_manifest(
+    manifest: dict[str, Any] | None,
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    if not isinstance(manifest, dict):
+        return (None, None, None, None, None)
+
+    llm_codex_farm = manifest.get("llm_codex_farm")
+    if not isinstance(llm_codex_farm, dict):
+        if isinstance(manifest.get("process_runs"), dict):
+            llm_codex_farm = manifest
+        else:
+            return (None, None, None, None, None)
+
+    process_runs = llm_codex_farm.get("process_runs")
+    if not isinstance(process_runs, dict):
+        return _extract_codex_token_usage_from_process_run(llm_codex_farm)
+
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    for pass_name in sorted(process_runs):
+        pass_payload = process_runs.get(pass_name)
+        if not isinstance(pass_payload, dict):
+            continue
+        (
+            pass_tokens_input,
+            pass_tokens_cached_input,
+            pass_tokens_output,
+            pass_tokens_reasoning,
+            pass_tokens_total,
+        ) = _extract_codex_token_usage_from_process_run(pass_payload)
+        for key, value in (
+            ("tokens_input", pass_tokens_input),
+            ("tokens_cached_input", pass_tokens_cached_input),
+            ("tokens_output", pass_tokens_output),
+            ("tokens_reasoning", pass_tokens_reasoning),
+            ("tokens_total", pass_tokens_total),
+        ):
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
 
 
 def _safe_bool(value: Any) -> bool | None:
@@ -977,6 +1116,13 @@ def _enrich_csv_benchmark_records_from_manifests(
             codex_model, codex_reasoning_effort = _extract_codex_runtime_from_manifest(
                 manifest
             )
+            (
+                token_input,
+                token_cached_input,
+                token_output,
+                token_reasoning,
+                token_total,
+            ) = _extract_codex_token_usage_from_manifest(manifest)
             if codex_model is not None or codex_reasoning_effort is not None:
                 merged_run_config: dict[str, Any]
                 if isinstance(record.run_config, dict):
@@ -1007,6 +1153,16 @@ def _enrich_csv_benchmark_records_from_manifests(
                     )
                     config_changed = True
                 record.run_config = merged_run_config
+            if record.tokens_input is None and token_input is not None:
+                record.tokens_input = token_input
+            if record.tokens_cached_input is None and token_cached_input is not None:
+                record.tokens_cached_input = token_cached_input
+            if record.tokens_output is None and token_output is not None:
+                record.tokens_output = token_output
+            if record.tokens_reasoning is None and token_reasoning is not None:
+                record.tokens_reasoning = token_reasoning
+            if record.tokens_total is None and token_total is not None:
+                record.tokens_total = token_total
 
         if isinstance(record.run_config, dict) and (
             config_changed
@@ -1120,6 +1276,11 @@ def _benchmark_record_from_csv_row(
         pred_total=_safe_int(row.get("pred_total")),
         gold_matched=_safe_int(row.get("gold_matched")),
         recipes=_safe_int(row.get("recipes")),
+        tokens_input=_safe_int(row.get("tokens_input")),
+        tokens_cached_input=_safe_int(row.get("tokens_cached_input")),
+        tokens_output=_safe_int(row.get("tokens_output")),
+        tokens_reasoning=_safe_int(row.get("tokens_reasoning")),
+        tokens_total=_safe_int(row.get("tokens_total")),
         supported_precision=_safe_float(row.get("supported_precision")),
         supported_recall=_safe_float(row.get("supported_recall")),
         supported_practical_precision=_safe_float(
@@ -1183,6 +1344,11 @@ def _merge_benchmark_record_fields(
         "pred_total",
         "gold_matched",
         "recipes",
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
         "supported_precision",
         "supported_recall",
         "supported_practical_precision",
@@ -1622,6 +1788,13 @@ def _collect_benchmarks(
                 codex_model, codex_reasoning_effort = _extract_codex_runtime_from_manifest(
                     manifest
                 )
+                (
+                    token_input,
+                    token_cached_input,
+                    token_output,
+                    token_reasoning,
+                    token_total,
+                ) = _extract_codex_token_usage_from_manifest(manifest)
                 if codex_model is not None or codex_reasoning_effort is not None:
                     merged_run_config: dict[str, Any]
                     if isinstance(record.run_config, dict):
@@ -1662,6 +1835,16 @@ def _collect_benchmarks(
                         record.run_config_summary = _summary_for_run_config(
                             merged_run_config
                         )
+                if record.tokens_input is None and token_input is not None:
+                    record.tokens_input = token_input
+                if record.tokens_cached_input is None and token_cached_input is not None:
+                    record.tokens_cached_input = token_cached_input
+                if record.tokens_output is None and token_output is not None:
+                    record.tokens_output = token_output
+                if record.tokens_reasoning is None and token_reasoning is not None:
+                    record.tokens_reasoning = token_reasoning
+                if record.tokens_total is None and token_total is not None:
+                    record.tokens_total = token_total
                 processed_report_path = manifest.get("processed_report_path")
                 if processed_report_path:
                     record.processed_report_path = str(processed_report_path)

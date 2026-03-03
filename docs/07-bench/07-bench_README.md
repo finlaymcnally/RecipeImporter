@@ -67,6 +67,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
+- When codex benchmark runs omit explicit reasoning effort, benchmark metadata backfills a concrete effort from Codex config/model-cache defaults so benchmark CSV/runtime rows retain both model and effort when available.
 - `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=1` and
   `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown
   summaries are enabled while task JSONL artifacts stay disabled unless

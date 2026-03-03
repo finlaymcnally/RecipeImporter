@@ -36,7 +36,7 @@ This CSV is populated by:
   - `labelstudio-eval`
   - `labelstudio-benchmark`
 - optional one-off repair command for older benchmark rows:
-  - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name` from manifests)
+  - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name`, run-config runtime metadata, and `tokens_*` usage columns from manifests)
 - After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
 - All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites.
 
@@ -56,7 +56,8 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 
 Collector mode:
 - benchmark rows are CSV-first by default
-- CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model + Effort` can stay populated without full report scanning
+- benchmark CSV writes now persist Codex token usage columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) when available from prediction manifests
+- CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model` / `AI Effort` columns stay populated without full report scanning
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
 - benchmark history rows remain dashboard-visible after `bench gc --apply` because GC now refuses to prune run roots without confirmed durable CSV metrics
 
@@ -73,6 +74,7 @@ Manifest enrichment now includes benchmark run context used by the dashboard:
 - `run_config_hash`
 - `run_config_summary`
 - `recipe_count` (extracted recipes in prediction run)
+- Codex token totals from `llm_codex_farm.process_runs.*.process_payload.telemetry` (`tokens_*`)
 - `processed_report_path` when processed outputs were written during benchmark
   - benchmark `recipes` prefers `recipe_count`; collector backfills from `processed_report_path` (`totalRecipes`) when needed, then falls back to eval `recipe_counts.predicted_recipe_count`
 
@@ -114,18 +116,23 @@ Notes:
   - Speed/non-speed and all-method detection normalizes `artifact_dir` path separators first, so Windows-style `\\` paths in history data are handled the same as `/`.
   - Canonical-text benchmark reports now include `boundary` counts again, so boundary diagnostics can advance with current single-offline/all-method benchmark rows instead of falling back to older freeform-eval rows.
 - `Previous Runs`: full-history table with key benchmark columns only.
+  - The table viewport is capped to roughly 10 data rows, then scrolls vertically.
   - Horizontal scrolling is enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
   - Click any table header to toggle sort direction for that column (`A→Z` / `Z→A`), including timestamps.
-  - Includes table column controls: drag headers to reorder, resize via header drag handles, and add/remove fields dynamically from discovered benchmark keys.
+  - Includes a `+/-` button beside the table header row that opens a small checkbox menu for show/hide column selection; drag headers to reorder and drag header edges to resize.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
-  - `AI Model + Effort` column only shows model/effort-derived runtime values; pipeline profile names are not used as fallback (`off` still displays as `off`).
-  - Placeholder effort values like `<default>`/`default` are treated as unknown effort, so the label renders model-only unless a concrete effort value exists.
+  - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
+  - Placeholder effort values like `<default>`/`default` are treated as unknown effort; CSV backfill resolves model-default effort where available.
+  - `All token use` is shown by default and displays `total | input | output` in one cell.
+  - Sorting and filtering `All token use` uses numeric `tokens_total`.
+  - Other token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) can be enabled from the same `+/-` column picker.
   - `Source` prefers `source_file` basename, then artifact-path source slug fallback (`all-method-benchmark`, `single-profile-benchmark`, `scenario_runs`, `eval/<slug>` patterns).
   - `Importer` uses CSV/importer metadata first, then source-path/run-config fallback (for older benchmark rows with blank CSV importer).
   - All-method benchmark sweeps collapse to one row with summarized `Source` text (`all-method: <top source> + N more`), and timestamp links to generated run-summary HTML under `all-method-benchmark/`.
-  - Includes a rules filter builder: define row rules over any benchmark field (including nested keys like `run_config.*`) and combine them with a boolean expression (`AND` / `OR` / `NOT`, parentheses) using rule IDs (`R1`, `R2`, ...).
-  - Rule field dropdown is grouped into `Most used (table columns)` first, then `All other fields`.
-  - The `Benchmark Score Trend` Highcharts panel uses a fixed 400px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
+  - Includes per-column header-adjacent filters: use the `+/-` toggle in the first row under headers to open a small popup editor. Value inputs are typeahead fields with ranked candidate chips from that column, `Tab` accepts the top suggestion, and save/close keeps compact active-filter summaries visible in-row.
+  - Previous Runs header row order is: column names, filter summary/editor row, then one blank spacer row before data rows.
+  - Includes an `Isolate For X` panel between the trend chart and the table: pick a field+value slice to auto-filter both chart/table and show slice-vs-baseline metric deltas (quality, runtime/token fields when present).
+  - The `Benchmark Score Trend` Highcharts panel uses a fixed 800px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
   - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps).
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
@@ -146,6 +153,10 @@ Benchmark recipes note:
 - Benchmark recipe counts are persisted in CSV `recipes` for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`) whenever recipe context is available.
 - Collector prefers manifest `recipe_count`, then falls back to `processed_report_path` -> report `totalRecipes` when needed.
 - For historical rows created before CSV persistence was complete, run `cookimport benchmark-csv-backfill` once to patch missing values.
+
+Benchmark token note:
+- Codex benchmark rows can persist `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, and `tokens_total` in benchmark CSV history.
+- Backfill can patch missing `tokens_*` columns from nearby prediction manifests when telemetry rows exist.
 
 Benchmark metrics note:
 - `Previous Runs` and benchmark trend chart use explicit metric names: `strict_accuracy` and `macro_f1_excluding_other`.

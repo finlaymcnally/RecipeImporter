@@ -4,6 +4,7 @@ import csv
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import time
 from contextlib import contextmanager
@@ -16,6 +17,41 @@ from cookimport.paths import history_csv_for_output
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
 _LEGACY_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
+_RUNTIME_PLACEHOLDER_VALUES = {"none", "null", "n/a"}
+_DEFAULT_REASONING_PLACEHOLDER_VALUES = {
+    "<default>",
+    "default",
+    "(default)",
+}
+_CODEX_REASONING_EFFORT_VALUES = {
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+}
+_RUNTIME_MODEL_KEYS = (
+    "codex_farm_model",
+    "codex_model",
+    "provider_model",
+    "model",
+)
+_RUNTIME_EFFORT_KEYS = (
+    "codex_farm_reasoning_effort",
+    "codex_farm_thinking_effort",
+    "codex_reasoning_effort",
+    "model_reasoning_effort",
+    "thinking_effort",
+    "reasoning_effort",
+)
+_TOKEN_USAGE_KEYS = (
+    "tokens_input",
+    "tokens_cached_input",
+    "tokens_output",
+    "tokens_reasoning",
+    "tokens_total",
+)
 
 try:  # pragma: no cover - non-Unix fallback.
     import fcntl
@@ -138,6 +174,11 @@ class BenchmarkCsvBackfillSummary:
     recipes_filled: int
     report_paths_filled: int
     source_files_filled: int
+    run_config_rows_filled: int
+    codex_models_filled: int
+    codex_efforts_filled: int
+    token_rows_filled: int
+    token_fields_filled: int
     rows_still_missing_recipes: int
 
 
@@ -146,6 +187,14 @@ class _BenchmarkBackfillContext:
     recipes: int | None = None
     report_path: str = ""
     source_file: str = ""
+    run_config: dict[str, Any] | None = None
+    codex_model: str | None = None
+    codex_reasoning_effort: str | None = None
+    tokens_input: int | None = None
+    tokens_cached_input: int | None = None
+    tokens_output: int | None = None
+    tokens_reasoning: int | None = None
+    tokens_total: int | None = None
 
 
 def history_path(out_dir: Path) -> Path:
@@ -406,6 +455,11 @@ def append_benchmark_csv(
     run_config: dict[str, Any] | None = None,
     run_config_hash: str | None = None,
     run_config_summary: str | None = None,
+    tokens_input: int | None = None,
+    tokens_cached_input: int | None = None,
+    tokens_output: int | None = None,
+    tokens_reasoning: int | None = None,
+    tokens_total: int | None = None,
     epub_extractor_requested: str | None = None,
     epub_extractor_effective: str | None = None,
     run_category: str = "benchmark_eval",
@@ -678,6 +732,15 @@ def append_benchmark_csv(
         ),
         "gold_matched": counts.get("gold_matched", ""),
         "pred_total": counts.get("pred_total", ""),
+        "tokens_input": tokens_input if tokens_input is not None else "",
+        "tokens_cached_input": (
+            tokens_cached_input if tokens_cached_input is not None else ""
+        ),
+        "tokens_output": tokens_output if tokens_output is not None else "",
+        "tokens_reasoning": (
+            tokens_reasoning if tokens_reasoning is not None else ""
+        ),
+        "tokens_total": tokens_total if tokens_total is not None else "",
         "supported_precision": supported_precision if supported_precision is not None else "",
         "supported_recall": supported_recall if supported_recall is not None else "",
         "supported_practical_precision": (
@@ -784,6 +847,11 @@ def backfill_benchmark_history_csv(
     recipes_filled = 0
     report_paths_filled = 0
     source_files_filled = 0
+    run_config_rows_filled = 0
+    codex_models_filled = 0
+    codex_efforts_filled = 0
+    token_rows_filled = 0
+    token_fields_filled = 0
     rows_still_missing_recipes = 0
 
     for row in rows:
@@ -823,6 +891,97 @@ def backfill_benchmark_history_csv(
             row_updated = True
             source_files_filled += 1
 
+        row_token_fields_filled = 0
+        for token_key, token_value in (
+            ("tokens_input", context.tokens_input),
+            ("tokens_cached_input", context.tokens_cached_input),
+            ("tokens_output", context.tokens_output),
+            ("tokens_reasoning", context.tokens_reasoning),
+            ("tokens_total", context.tokens_total),
+        ):
+            if token_value is None:
+                continue
+            if _parse_int_or_none(row.get(token_key)) is not None:
+                continue
+            row[token_key] = str(token_value)
+            row_updated = True
+            row_token_fields_filled += 1
+        if row_token_fields_filled > 0:
+            token_rows_filled += 1
+            token_fields_filled += row_token_fields_filled
+
+        existing_run_config = _parse_run_config_json_payload(row.get("run_config_json"))
+        existing_run_config_present = existing_run_config is not None
+        row_model_before, row_effort_before = _explicit_runtime_from_run_config(
+            existing_run_config
+        )
+        merged_run_config: dict[str, Any] | None = (
+            dict(existing_run_config) if existing_run_config is not None else None
+        )
+
+        if context.run_config is not None:
+            if merged_run_config is None:
+                merged_run_config = dict(context.run_config)
+                run_config_rows_filled += 1
+                row_updated = True
+            elif _merge_missing_run_config_fields(merged_run_config, context.run_config):
+                row_updated = True
+
+        if merged_run_config is None and (
+            context.codex_model is not None or context.codex_reasoning_effort is not None
+        ):
+            merged_run_config = {}
+            run_config_rows_filled += 1
+            row_updated = True
+
+        if merged_run_config is not None:
+            model_before, _ = _explicit_runtime_from_run_config(merged_run_config)
+            if model_before is None and context.codex_model is not None:
+                merged_run_config["codex_farm_model"] = context.codex_model
+                row_updated = True
+            model_for_default, effort_after = _runtime_from_run_config(merged_run_config)
+            _, explicit_effort_after = _explicit_runtime_from_run_config(
+                merged_run_config
+            )
+            if explicit_effort_after is None:
+                next_effort = context.codex_reasoning_effort
+                if next_effort is None and model_for_default is not None:
+                    next_effort = _default_codex_reasoning_effort_for_model(
+                        model_for_default
+                    )
+                if next_effort is not None:
+                    merged_run_config["codex_farm_reasoning_effort"] = next_effort
+                    row_updated = True
+            model_after, _ = _explicit_runtime_from_run_config(merged_run_config)
+            _, effort_after = _explicit_runtime_from_run_config(merged_run_config)
+            if row_model_before is None and model_after is not None:
+                codex_models_filled += 1
+            if row_effort_before is None and effort_after is not None:
+                codex_efforts_filled += 1
+
+            normalized_run_config_json = json.dumps(merged_run_config, sort_keys=True)
+            if str(row.get("run_config_json") or "") != normalized_run_config_json:
+                row["run_config_json"] = normalized_run_config_json
+                row_updated = True
+            run_config_hash = _stable_hash_for_run_config(merged_run_config)
+            if str(row.get("run_config_hash") or "") != run_config_hash:
+                row["run_config_hash"] = run_config_hash
+                row_updated = True
+            run_config_summary = _summary_for_run_config(merged_run_config)
+            if str(row.get("run_config_summary") or "") != run_config_summary:
+                row["run_config_summary"] = run_config_summary
+                row_updated = True
+        elif (
+            not existing_run_config_present
+            and (
+                str(row.get("run_config_hash") or "").strip()
+                or str(row.get("run_config_summary") or "").strip()
+            )
+        ):
+            row["run_config_hash"] = ""
+            row["run_config_summary"] = ""
+            row_updated = True
+
         if recipes_before is None and recipes_value is None:
             rows_still_missing_recipes += 1
 
@@ -842,6 +1001,11 @@ def backfill_benchmark_history_csv(
         recipes_filled=recipes_filled,
         report_paths_filled=report_paths_filled,
         source_files_filled=source_files_filled,
+        run_config_rows_filled=run_config_rows_filled,
+        codex_models_filled=codex_models_filled,
+        codex_efforts_filled=codex_efforts_filled,
+        token_rows_filled=token_rows_filled,
+        token_fields_filled=token_fields_filled,
         rows_still_missing_recipes=rows_still_missing_recipes,
     )
 
@@ -1106,6 +1270,221 @@ def _normalize_optional_text(value: Any) -> str | None:
     return text
 
 
+def _clean_runtime_text(
+    value: Any,
+    *,
+    treat_default_missing: bool = False,
+) -> str | None:
+    text = _normalize_optional_text(value)
+    if text is None:
+        return None
+    lowered = text.lower()
+    if lowered in _RUNTIME_PLACEHOLDER_VALUES:
+        return None
+    if treat_default_missing and lowered in _DEFAULT_REASONING_PLACEHOLDER_VALUES:
+        return None
+    return text
+
+
+def _normalize_reasoning_effort(value: Any) -> str | None:
+    cleaned = _clean_runtime_text(value, treat_default_missing=True)
+    if cleaned is None:
+        return None
+    lowered = cleaned.lower()
+    if lowered in _CODEX_REASONING_EFFORT_VALUES:
+        return lowered
+    return cleaned
+
+
+def _codex_models_cache_paths() -> list[Path]:
+    roots: list[Path] = []
+    env_root = (os.environ.get("CODEX_HOME") or "").strip()
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    roots.extend([Path.home() / ".codex", Path.home() / ".codex-alt"])
+    for path in sorted(Path.home().glob(".codex*")):
+        if path.is_dir():
+            roots.append(path)
+
+    unique_roots: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        resolved = root.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_roots.append(root)
+    return [root / "models_cache.json" for root in unique_roots]
+
+
+def _default_codex_reasoning_effort_for_model(model: str | None) -> str | None:
+    target = _clean_runtime_text(model)
+    if target is None:
+        return None
+    target_lower = target.lower()
+
+    for cache_path in _codex_models_cache_paths():
+        if not cache_path.exists() or not cache_path.is_file():
+            continue
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rows = payload.get("models")
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            slug = _clean_runtime_text(row.get("slug"))
+            if slug is None or slug.lower() != target_lower:
+                continue
+            effort = _normalize_reasoning_effort(row.get("default_reasoning_level"))
+            if effort is not None:
+                return effort
+    return None
+
+
+def _extract_codex_runtime_from_manifest(
+    payload: dict[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    if not isinstance(payload, dict):
+        return (None, None)
+
+    llm_codex_farm = payload.get("llm_codex_farm")
+    if not isinstance(llm_codex_farm, dict):
+        if any(
+            key in payload for key in ("process_runs", "codex_farm_model", "codex_model")
+        ):
+            llm_codex_farm = payload
+        else:
+            return (None, None)
+
+    model_candidates: list[str] = []
+    effort_candidates: list[str] = []
+
+    def _collect(model_value: Any, effort_value: Any) -> None:
+        model = _clean_runtime_text(model_value)
+        effort = _normalize_reasoning_effort(effort_value)
+        if model is not None:
+            model_candidates.append(model)
+        if effort is not None:
+            effort_candidates.append(effort)
+
+    def _collect_from_telemetry(telemetry: Any) -> None:
+        if not isinstance(telemetry, dict):
+            return
+        insights = telemetry.get("insights")
+        if not isinstance(insights, dict):
+            return
+        breakdown = insights.get("model_reasoning_breakdown")
+        if not isinstance(breakdown, list):
+            return
+        for row in breakdown:
+            if not isinstance(row, dict):
+                continue
+            _collect(row.get("model"), row.get("reasoning_effort"))
+
+    _collect(
+        llm_codex_farm.get("codex_farm_model") or llm_codex_farm.get("codex_model"),
+        llm_codex_farm.get("codex_farm_reasoning_effort")
+        or llm_codex_farm.get("codex_reasoning_effort"),
+    )
+    _collect_from_telemetry(llm_codex_farm.get("telemetry_report"))
+
+    process_runs = llm_codex_farm.get("process_runs")
+    if isinstance(process_runs, dict):
+        for pass_name in sorted(process_runs):
+            run_entry = process_runs.get(pass_name)
+            if not isinstance(run_entry, dict):
+                continue
+            process_payload = run_entry.get("process_payload")
+            if not isinstance(process_payload, dict):
+                continue
+            _collect(
+                process_payload.get("codex_model"),
+                process_payload.get("codex_reasoning_effort"),
+            )
+            _collect_from_telemetry(process_payload.get("telemetry_report"))
+            _collect_from_telemetry(process_payload.get("llm_report"))
+
+    model = model_candidates[0] if model_candidates else None
+    effort = effort_candidates[0] if effort_candidates else None
+    if effort is None and model is not None:
+        effort = _default_codex_reasoning_effort_for_model(model)
+    return (model, effort)
+
+
+def _explicit_runtime_from_run_config(
+    run_config: dict[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    if not isinstance(run_config, dict):
+        return (None, None)
+    model = None
+    for key in _RUNTIME_MODEL_KEYS:
+        model = _clean_runtime_text(run_config.get(key))
+        if model is not None:
+            break
+    effort = None
+    for key in _RUNTIME_EFFORT_KEYS:
+        effort = _normalize_reasoning_effort(run_config.get(key))
+        if effort is not None:
+            break
+    return (model, effort)
+
+
+def _runtime_from_run_config(
+    run_config: dict[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    model, effort = _explicit_runtime_from_run_config(run_config)
+    if effort is None and model is not None:
+        effort = _default_codex_reasoning_effort_for_model(model)
+    return (model, effort)
+
+
+def _parse_run_config_json_payload(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return dict(value)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return dict(parsed)
+
+
+def _merge_missing_run_config_fields(
+    base: dict[str, Any],
+    incoming: dict[str, Any] | None,
+) -> bool:
+    if not isinstance(incoming, dict) or not incoming:
+        return False
+    changed = False
+    runtime_keys = set(_RUNTIME_MODEL_KEYS) | set(_RUNTIME_EFFORT_KEYS)
+    for key, incoming_value in incoming.items():
+        if key not in base:
+            base[key] = incoming_value
+            changed = True
+            continue
+        if key in runtime_keys:
+            existing_clean = _clean_runtime_text(
+                base.get(key),
+                treat_default_missing=True,
+            )
+            incoming_clean = _clean_runtime_text(
+                incoming_value,
+                treat_default_missing=True,
+            )
+            if existing_clean is None and incoming_clean is not None:
+                base[key] = incoming_clean
+                changed = True
+    return changed
+
+
 def _safe_int(value: Any, *, allow_none: bool = False) -> int | None:
     if value is None:
         return None if allow_none else 0
@@ -1130,6 +1509,159 @@ def _parse_int_or_none(value: Any) -> int | None:
             return int(float(text))
         except (TypeError, ValueError):
             return None
+
+
+def _nonnegative_int_or_none(value: Any) -> int | None:
+    parsed = _parse_int_or_none(value)
+    if parsed is None or parsed < 0:
+        return None
+    return parsed
+
+
+def _token_usage_has_values(
+    *,
+    tokens_input: int | None,
+    tokens_cached_input: int | None,
+    tokens_output: int | None,
+    tokens_reasoning: int | None,
+    tokens_total: int | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (
+            tokens_input,
+            tokens_cached_input,
+            tokens_output,
+            tokens_reasoning,
+            tokens_total,
+        )
+    )
+
+
+def _token_usage_from_process_payload(
+    pass_payload: dict[str, Any],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    process_payload = (
+        pass_payload.get("process_payload")
+        if isinstance(pass_payload.get("process_payload"), dict)
+        else None
+    )
+    telemetry_payload = (
+        process_payload.get("telemetry")
+        if isinstance(process_payload, dict)
+        and isinstance(process_payload.get("telemetry"), dict)
+        else None
+    )
+    if telemetry_payload is None and isinstance(pass_payload.get("telemetry"), dict):
+        telemetry_payload = pass_payload.get("telemetry")
+    telemetry_rows = (
+        telemetry_payload.get("rows")
+        if isinstance(telemetry_payload, dict)
+        and isinstance(telemetry_payload.get("rows"), list)
+        else None
+    )
+
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    if isinstance(telemetry_rows, list):
+        for raw_row in telemetry_rows:
+            if not isinstance(raw_row, dict):
+                continue
+            for key in _TOKEN_USAGE_KEYS:
+                value = _nonnegative_int_or_none(raw_row.get(key))
+                if value is None:
+                    continue
+                current = totals.get(key)
+                totals[key] = value if current is None else current + value
+
+    telemetry_report = None
+    if isinstance(process_payload, dict) and isinstance(
+        process_payload.get("telemetry_report"), dict
+    ):
+        telemetry_report = process_payload.get("telemetry_report")
+    elif isinstance(pass_payload.get("telemetry_report"), dict):
+        telemetry_report = pass_payload.get("telemetry_report")
+    summary = (
+        telemetry_report.get("summary")
+        if isinstance(telemetry_report, dict)
+        and isinstance(telemetry_report.get("summary"), dict)
+        else None
+    )
+    if isinstance(summary, dict):
+        summary_value_map = {
+            "tokens_input": summary.get("tokens_input"),
+            "tokens_cached_input": summary.get("tokens_cached_input"),
+            "tokens_output": summary.get("tokens_output"),
+            "tokens_reasoning": (
+                summary.get("tokens_reasoning")
+                if summary.get("tokens_reasoning") is not None
+                else summary.get("tokens_reasoning_total")
+            ),
+            "tokens_total": summary.get("tokens_total"),
+        }
+        for key, raw_value in summary_value_map.items():
+            if totals.get(key) is not None:
+                continue
+            parsed_value = _nonnegative_int_or_none(raw_value)
+            if parsed_value is not None:
+                totals[key] = parsed_value
+
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _extract_codex_token_usage_from_manifest(
+    payload: dict[str, Any] | None,
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    if not isinstance(payload, dict):
+        return (None, None, None, None, None)
+
+    llm_codex_farm = payload.get("llm_codex_farm")
+    if not isinstance(llm_codex_farm, dict):
+        if isinstance(payload.get("process_runs"), dict):
+            llm_codex_farm = payload
+        else:
+            return (None, None, None, None, None)
+
+    process_runs = llm_codex_farm.get("process_runs")
+    if not isinstance(process_runs, dict):
+        return _token_usage_from_process_payload(llm_codex_farm)
+
+    summed: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    for pass_name in sorted(process_runs):
+        pass_payload = process_runs.get(pass_name)
+        if not isinstance(pass_payload, dict):
+            continue
+        (
+            pass_tokens_input,
+            pass_tokens_cached_input,
+            pass_tokens_output,
+            pass_tokens_reasoning,
+            pass_tokens_total,
+        ) = _token_usage_from_process_payload(pass_payload)
+        for key, value in (
+            ("tokens_input", pass_tokens_input),
+            ("tokens_cached_input", pass_tokens_cached_input),
+            ("tokens_output", pass_tokens_output),
+            ("tokens_reasoning", pass_tokens_reasoning),
+            ("tokens_total", pass_tokens_total),
+        ):
+            if value is None:
+                continue
+            current = summed.get(key)
+            summed[key] = value if current is None else current + value
+
+    return (
+        summed.get("tokens_input"),
+        summed.get("tokens_cached_input"),
+        summed.get("tokens_output"),
+        summed.get("tokens_reasoning"),
+        summed.get("tokens_total"),
+    )
 
 
 def _load_total_recipes_from_report(report_path_value: Path | str | None) -> int | None:
@@ -1162,10 +1694,53 @@ def _load_manifest_backfill_context(
     if recipes is None and report_path:
         recipes = _load_total_recipes_from_report(report_path)
 
+    run_config_payload = (
+        payload.get("run_config") if isinstance(payload.get("run_config"), dict) else None
+    )
+    run_config = dict(run_config_payload) if run_config_payload is not None else None
+
+    config_model, config_effort = _runtime_from_run_config(run_config)
+    manifest_model, manifest_effort = _extract_codex_runtime_from_manifest(payload)
+    (
+        token_input,
+        token_cached_input,
+        token_output,
+        token_reasoning,
+        token_total,
+    ) = _extract_codex_token_usage_from_manifest(payload)
+    resolved_model = config_model or manifest_model
+    resolved_effort = config_effort or manifest_effort
+    if resolved_effort is None and resolved_model is not None:
+        resolved_effort = _default_codex_reasoning_effort_for_model(resolved_model)
+
+    if run_config is not None:
+        if (
+            _clean_runtime_text(run_config.get("codex_farm_model")) is None
+            and resolved_model is not None
+        ):
+            run_config["codex_farm_model"] = resolved_model
+        if (
+            _clean_runtime_text(
+                run_config.get("codex_farm_reasoning_effort"),
+                treat_default_missing=True,
+            )
+            is None
+            and resolved_effort is not None
+        ):
+            run_config["codex_farm_reasoning_effort"] = resolved_effort
+
     return _BenchmarkBackfillContext(
         recipes=recipes,
         report_path=report_path,
         source_file=str(payload.get("source_file") or ""),
+        run_config=run_config,
+        codex_model=resolved_model,
+        codex_reasoning_effort=resolved_effort,
+        tokens_input=token_input,
+        tokens_cached_input=token_cached_input,
+        tokens_output=token_output,
+        tokens_reasoning=token_reasoning,
+        tokens_total=token_total,
     )
 
 
@@ -1176,14 +1751,20 @@ def _collect_benchmark_backfill_context(run_dir: Path | None) -> _BenchmarkBackf
     contexts: list[_BenchmarkBackfillContext] = []
     for manifest_path in (
         run_dir / "prediction-run" / "manifest.json",
+        run_dir / "prediction-run" / "run_manifest.json",
         run_dir / "manifest.json",
+        run_dir / "run_manifest.json",
     ):
         context = _load_manifest_backfill_context(manifest_path)
         if context is not None:
             contexts.append(context)
 
     per_item_contexts: list[_BenchmarkBackfillContext] = []
-    for manifest_path in sorted(run_dir.glob("per_item/*/pred_run/manifest.json")):
+    per_item_manifest_paths = sorted(run_dir.glob("per_item/*/pred_run/manifest.json"))
+    per_item_manifest_paths.extend(
+        sorted(run_dir.glob("per_item/*/pred_run/run_manifest.json"))
+    )
+    for manifest_path in per_item_manifest_paths:
         context = _load_manifest_backfill_context(manifest_path)
         if context is not None:
             per_item_contexts.append(context)
@@ -1191,6 +1772,14 @@ def _collect_benchmark_backfill_context(run_dir: Path | None) -> _BenchmarkBackf
     recipes: int | None = None
     report_path = ""
     source_file = ""
+    run_config: dict[str, Any] | None = None
+    codex_model: str | None = None
+    codex_reasoning_effort: str | None = None
+    tokens_input: int | None = None
+    tokens_cached_input: int | None = None
+    tokens_output: int | None = None
+    tokens_reasoning: int | None = None
+    tokens_total: int | None = None
 
     for context in contexts:
         if recipes is None and context.recipes is not None:
@@ -1199,6 +1788,24 @@ def _collect_benchmark_backfill_context(run_dir: Path | None) -> _BenchmarkBackf
             report_path = context.report_path
         if not source_file and context.source_file:
             source_file = context.source_file
+        if run_config is None and context.run_config is not None:
+            run_config = dict(context.run_config)
+        elif run_config is not None and context.run_config is not None:
+            _merge_missing_run_config_fields(run_config, context.run_config)
+        if codex_model is None and context.codex_model is not None:
+            codex_model = context.codex_model
+        if codex_reasoning_effort is None and context.codex_reasoning_effort is not None:
+            codex_reasoning_effort = context.codex_reasoning_effort
+        if tokens_input is None and context.tokens_input is not None:
+            tokens_input = context.tokens_input
+        if tokens_cached_input is None and context.tokens_cached_input is not None:
+            tokens_cached_input = context.tokens_cached_input
+        if tokens_output is None and context.tokens_output is not None:
+            tokens_output = context.tokens_output
+        if tokens_reasoning is None and context.tokens_reasoning is not None:
+            tokens_reasoning = context.tokens_reasoning
+        if tokens_total is None and context.tokens_total is not None:
+            tokens_total = context.tokens_total
 
     if recipes is None and per_item_contexts:
         summed = sum(
@@ -1206,11 +1813,77 @@ def _collect_benchmark_backfill_context(run_dir: Path | None) -> _BenchmarkBackf
         )
         if summed > 0 or any(context.recipes == 0 for context in per_item_contexts):
             recipes = summed
+    for context in per_item_contexts:
+        if run_config is None and context.run_config is not None:
+            run_config = dict(context.run_config)
+        elif run_config is not None and context.run_config is not None:
+            _merge_missing_run_config_fields(run_config, context.run_config)
+        if codex_model is None and context.codex_model is not None:
+            codex_model = context.codex_model
+        if codex_reasoning_effort is None and context.codex_reasoning_effort is not None:
+            codex_reasoning_effort = context.codex_reasoning_effort
+
+    if not _token_usage_has_values(
+        tokens_input=tokens_input,
+        tokens_cached_input=tokens_cached_input,
+        tokens_output=tokens_output,
+        tokens_reasoning=tokens_reasoning,
+        tokens_total=tokens_total,
+    ):
+        per_item_token_totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+        for context in per_item_contexts:
+            for key, value in (
+                ("tokens_input", context.tokens_input),
+                ("tokens_cached_input", context.tokens_cached_input),
+                ("tokens_output", context.tokens_output),
+                ("tokens_reasoning", context.tokens_reasoning),
+                ("tokens_total", context.tokens_total),
+            ):
+                if value is None:
+                    continue
+                current = per_item_token_totals.get(key)
+                per_item_token_totals[key] = value if current is None else current + value
+        if _token_usage_has_values(
+            tokens_input=per_item_token_totals.get("tokens_input"),
+            tokens_cached_input=per_item_token_totals.get("tokens_cached_input"),
+            tokens_output=per_item_token_totals.get("tokens_output"),
+            tokens_reasoning=per_item_token_totals.get("tokens_reasoning"),
+            tokens_total=per_item_token_totals.get("tokens_total"),
+        ):
+            tokens_input = per_item_token_totals.get("tokens_input")
+            tokens_cached_input = per_item_token_totals.get("tokens_cached_input")
+            tokens_output = per_item_token_totals.get("tokens_output")
+            tokens_reasoning = per_item_token_totals.get("tokens_reasoning")
+            tokens_total = per_item_token_totals.get("tokens_total")
+
+    if run_config is not None:
+        if (
+            _clean_runtime_text(run_config.get("codex_farm_model")) is None
+            and codex_model is not None
+        ):
+            run_config["codex_farm_model"] = codex_model
+        if (
+            _clean_runtime_text(
+                run_config.get("codex_farm_reasoning_effort"),
+                treat_default_missing=True,
+            )
+            is None
+            and codex_reasoning_effort is not None
+        ):
+            run_config["codex_farm_reasoning_effort"] = codex_reasoning_effort
 
     return _BenchmarkBackfillContext(
         recipes=recipes,
         report_path=report_path,
         source_file=source_file,
+        run_config=run_config,
+        codex_model=codex_model,
+        codex_reasoning_effort=codex_reasoning_effort,
+        tokens_input=tokens_input,
+        tokens_cached_input=tokens_cached_input,
+        tokens_output=tokens_output,
+        tokens_reasoning=tokens_reasoning,
+        tokens_total=tokens_total,
     )
 
 
@@ -1272,6 +1945,11 @@ _CSV_FIELDS = [
     "gold_recipe_headers",
     "gold_matched",
     "pred_total",
+    "tokens_input",
+    "tokens_cached_input",
+    "tokens_output",
+    "tokens_reasoning",
+    "tokens_total",
     "supported_precision",
     "supported_recall",
     "supported_practical_precision",
@@ -1364,6 +2042,11 @@ def _row_to_csv(row: PerfRow) -> dict[str, Any]:
         "gold_recipe_headers": "",
         "gold_matched": "",
         "pred_total": "",
+        "tokens_input": "",
+        "tokens_cached_input": "",
+        "tokens_output": "",
+        "tokens_reasoning": "",
+        "tokens_total": "",
         "supported_precision": "",
         "supported_recall": "",
         "supported_practical_precision": "",
@@ -1425,6 +2108,13 @@ def _summary_for_run_config(run_config: dict[str, Any]) -> str:
         "pdf_pages_per_job",
         "epub_spine_items_per_job",
         "warm_models",
+        "llm_recipe_pipeline",
+        "codex_farm_model",
+        "codex_farm_reasoning_effort",
+        "codex_model",
+        "codex_reasoning_effort",
+        "model",
+        "model_reasoning_effort",
     )
     parts: list[str] = []
     for key in ordered_keys:

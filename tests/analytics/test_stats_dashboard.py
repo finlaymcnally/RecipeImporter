@@ -131,6 +131,11 @@ SAMPLE_CSV_BENCH_ROW = _sample_csv_row(
         "boundary_over": "8",
         "boundary_under": "5",
         "boundary_partial": "2",
+        "tokens_input": "1234",
+        "tokens_cached_input": "234",
+        "tokens_output": "345",
+        "tokens_reasoning": "12",
+        "tokens_total": "1591",
     }
 )
 
@@ -267,7 +272,7 @@ def _write_eval_report(tmp_path: Path) -> Path:
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "11"
+        assert d.schema_version == "12"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -1151,7 +1156,9 @@ class TestRenderer:
         html = html_path.read_text(encoding="utf-8")
         assert "Previous Runs" in html
         assert 'id="previous-runs-table"' in html
-        assert "<thead><tr></tr></thead>" in html
+        assert 'class="previous-runs-header-row"' in html
+        assert 'class="previous-runs-active-filters-row"' in html
+        assert 'class="previous-runs-filter-spacer-row"' in html
         assert "<th>Timestamp</th>" not in html
         assert "<th>Strict Precision</th>" not in html
         assert "<th>Strict Recall</th>" not in html
@@ -1166,17 +1173,25 @@ class TestRenderer:
     def test_html_includes_previous_runs_filter_controls(self, tmp_path):
         html_path = render_dashboard(tmp_path / "dash", DashboardData())
         html = html_path.read_text(encoding="utf-8")
-        assert 'id="previous-runs-filter-panel"' in html
-        assert 'id="previous-runs-filter-builder"' in html
-        assert 'id="previous-runs-add-rule"' in html
-        assert 'id="previous-runs-reset-rules"' in html
-        assert 'id="previous-runs-filter-expression"' in html
-        assert 'id="previous-runs-filter-status"' in html
-        assert 'id="previous-runs-columns-panel"' in html
-        assert 'id="previous-runs-columns-editor"' in html
-        assert 'id="previous-runs-column-add-select"' in html
-        assert 'id="previous-runs-column-add"' in html
+        assert 'id="previous-runs-filter-panel"' not in html
+        assert 'id="previous-runs-filter-status"' not in html
+        assert 'id="previous-runs-clear-filters"' in html
+        assert 'id="previous-runs-columns-toggle"' in html
+        assert 'id="previous-runs-columns-popup"' in html
+        assert 'id="previous-runs-columns-checklist"' in html
         assert 'id="previous-runs-column-reset"' in html
+        assert 'id="isolate-panel"' in html
+        assert 'id="isolate-field"' in html
+        assert 'id="isolate-value"' in html
+        assert 'id="isolate-status"' in html
+        assert 'id="isolate-insights"' in html
+
+    def test_dashboard_js_orders_columns_popup_by_visible_order(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "const checklistOrder = [...previousRunsVisibleColumns].filter(" in js
+        assert "if (!visibleSet.has(fieldName)) {" in js
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -1273,6 +1288,8 @@ class TestRenderer:
         assert "function importerLabelForRecord(record)" in js
         assert "all-method: " in js
         assert "function aiModelEffortLabelForRecord(record)" in js
+        assert "function aiModelLabelForRecord(record)" in js
+        assert "function aiEffortLabelForRecord(record)" in js
         assert 'if (pipelineText === "off") return "off";' in js
         assert "return \"-\";" in js
         assert 'lower === "<default>"' in js
@@ -1281,25 +1298,27 @@ class TestRenderer:
         assert "const latestGroup = preferred.filter(" in js
         assert "link.href = href;" in js
 
-    def test_js_supports_previous_runs_rules_and_boolean_expression_filters(
+    def test_js_supports_previous_runs_column_header_filters(
         self, tmp_path
     ):
         render_dashboard(tmp_path / "dash", DashboardData())
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert "const PREVIOUS_RUNS_RULE_OPERATORS = [" in js
-        assert "const PREVIOUS_RUNS_MOST_USED_FIELDS = [" in js
+        assert "const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [" in js
+        assert "const PREVIOUS_RUNS_UNARY_FILTER_OPERATORS = new Set(" in js
+        assert "const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;" in js
         assert '"source_label"' in js
-        assert '"ai_model_effort"' in js
+        assert '"ai_model"' in js
+        assert '"ai_effort"' in js
         assert "function setupPreviousRunsFilters()" in js
-        assert 'const expressionInput = document.getElementById("previous-runs-filter-expression");' in js
+        assert 'const clearBtn = document.getElementById("previous-runs-clear-filters");' in js
         assert "function collectBenchmarkFieldPaths()" in js
-        assert "function groupedPreviousRunsFieldOptions()" in js
-        assert '"Most used (table columns)"' in js
-        assert '"All other fields"' in js
+        assert "function activePreviousRunsColumnFilters()" in js
+        assert "function formatPreviousRunsColumnFilterSummary(fieldName, filter)" in js
+        assert "function previousRunsRecordsMatchingOtherFilters(excludedField)" in js
+        assert "function previousRunsColumnSuggestionCandidates(fieldName, typedText)" in js
+        assert "function previousRunsSuggestionScore(typedLower, candidateLower)" in js
         assert '"run_config.model"' in js
-        assert "function parseRuleBooleanExpression(expression, ruleIds)" in js
-        assert "function evaluateRuleBooleanAst(node, ruleResults)" in js
-        assert "function evaluatePreviousRunsRule(record, rule)" in js
+        assert "function evaluatePreviousRunsFilterOperator(value, operator, expected)" in js
         assert "function currentPreviousRunsFilterResult()" in js
         assert "const filterResult = currentPreviousRunsFilterResult();" in js
         assert "const PREVIOUS_RUNS_DEFAULT_COLUMNS = [" in js
@@ -1307,6 +1326,21 @@ class TestRenderer:
         assert "function setupPreviousRunsColumnsControls()" in js
         assert "function renderPreviousRunsTableColumns(table, columns)" in js
         assert "function renderPreviousRunsColumnEditor()" in js
+        assert 'const filterRow = table.querySelector("thead tr.previous-runs-active-filters-row");' in js
+        assert 'const spacerRow = table.querySelector("thead tr.previous-runs-filter-spacer-row");' in js
+        assert "let previousRunsOpenFilterField = \"\";" in js
+        assert "let previousRunsOpenFilterDraft = null;" in js
+        assert "function openPreviousRunsColumnFilterEditor(fieldName)" in js
+        assert "function closePreviousRunsColumnFilterEditor()" in js
+        assert 'toggleBtn.textContent = isEditorOpen ? "−" : "+";' in js
+        assert 'popover.className = "previous-runs-column-filter-popover";' in js
+        assert 'suggestionWrap.className = "previous-runs-column-filter-suggestions";' in js
+        assert 'suggestionList.className = "previous-runs-column-filter-suggestions-list";' in js
+        assert 'valueInput.dataset.topSuggestion = topCandidate;' in js
+        assert 'if (event.key === "Tab" && !event.shiftKey) {' in js
+        assert "Tab completes top match." in js
+        assert 'saveBtn.textContent = "Save";' in js
+        assert 'closeBtn.textContent = "Close";' in js
         assert "let previousRunsDraggedColumn = null;" in js
         assert "function reorderPreviousRunsColumns(fromField, toField)" in js
         assert "th.draggable = true;" in js
@@ -1403,14 +1437,14 @@ class TestRenderer:
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
         css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
         assert ".highcharts-host {" in css
-        assert "height: 400px;" in css
+        assert "height: 800px;" in css
         assert "const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;" in js
         assert "window.Highcharts.setOptions({" in js
         assert "mouseWheel: {" in js
         assert "enabled: HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED" in js
         assert 'window.Highcharts.stockChart("benchmark-trend-chart", {' in js
         assert "chart: {" in js
-        assert "height: 400," in js
+        assert "height: 800," in js
         assert "rangeSelector: {" in js
         assert '{ type: "all", text: "All" }' in js
         assert "selected: 5," in js
@@ -1440,6 +1474,12 @@ class TestRenderer:
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
+        assert "--previous-runs-visible-body-rows: 10;" in css
+        assert ".table-scroll {" in css
+        assert "max-height: calc(" in css
+        assert "overflow-y: auto;" in css
+        assert "--previous-runs-filter-row-height: 2.18rem;" in css
+        assert "--previous-runs-spacer-row-height: 2.18rem;" in css
         assert "#previous-runs-table {" in css
         assert "width: max-content;" in css
         assert "min-width: 1600px;" in css
@@ -1947,6 +1987,7 @@ class TestBenchmarkCsv:
         assert row["file_name"] == "my_book.pdf"
         assert row["importer_name"] == "pdf"
         assert row["report_path"] == ""
+        assert row["tokens_total"] == ""
         # Stage-only fields should be empty
         assert row["recipes"] == ""
         assert row["total_seconds"] == ""
@@ -1963,6 +2004,11 @@ class TestBenchmarkCsv:
             recipes=31,
             processed_report_path="/tmp/output/2026-02-11_15.59.00/my_book.excel_import_report.json",
             run_config={"epub_extractor": "beautifulsoup", "workers": 7},
+            tokens_input=300,
+            tokens_cached_input=50,
+            tokens_output=80,
+            tokens_reasoning=10,
+            tokens_total=390,
             timing={
                 "total_seconds": 21.5,
                 "prediction_seconds": 17.0,
@@ -2003,6 +2049,11 @@ class TestBenchmarkCsv:
         assert float(row["benchmark_prediction_load_seconds"]) == pytest.approx(0.8)
         assert float(row["benchmark_gold_load_seconds"]) == pytest.approx(0.3)
         assert float(row["benchmark_evaluate_seconds"]) == pytest.approx(2.0)
+        assert row["tokens_input"] == "300"
+        assert row["tokens_cached_input"] == "50"
+        assert row["tokens_output"] == "80"
+        assert row["tokens_reasoning"] == "10"
+        assert row["tokens_total"] == "390"
         assert row["run_config_hash"] != ""
         assert "epub_extractor=beautifulsoup" in row["run_config_summary"]
         assert row["run_config_json"] != ""
@@ -2084,6 +2135,11 @@ class TestBenchmarkCsv:
         assert b.supported_practical_recall == pytest.approx(0.88)
         assert b.granularity_mismatch_likely is True
         assert b.source_file == "my_book.pdf"
+        assert b.tokens_input == 1234
+        assert b.tokens_cached_input == 234
+        assert b.tokens_output == 345
+        assert b.tokens_reasoning == 12
+        assert b.tokens_total == 1591
         assert b.recipes is None
         assert b.gold_recipe_headers == 11
 

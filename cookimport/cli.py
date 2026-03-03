@@ -2901,6 +2901,148 @@ def _extract_codex_farm_runtime_from_llm_manifest(
     return model, reasoning_effort
 
 
+def _single_offline_nonnegative_int_or_none(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = int(float(text))
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _extract_codex_farm_token_usage_from_process_run_payload(
+    pass_payload: dict[str, Any],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    token_keys = (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    )
+    process_payload = (
+        pass_payload.get("process_payload")
+        if isinstance(pass_payload.get("process_payload"), dict)
+        else None
+    )
+    telemetry_payload = (
+        process_payload.get("telemetry")
+        if isinstance(process_payload, dict)
+        and isinstance(process_payload.get("telemetry"), dict)
+        else None
+    )
+    if telemetry_payload is None and isinstance(pass_payload.get("telemetry"), dict):
+        telemetry_payload = pass_payload.get("telemetry")
+    telemetry_rows = (
+        telemetry_payload.get("rows")
+        if isinstance(telemetry_payload, dict)
+        and isinstance(telemetry_payload.get("rows"), list)
+        else None
+    )
+
+    totals: dict[str, int | None] = {key: None for key in token_keys}
+    if isinstance(telemetry_rows, list):
+        for row in telemetry_rows:
+            if not isinstance(row, dict):
+                continue
+            for key in token_keys:
+                value = _single_offline_nonnegative_int_or_none(row.get(key))
+                if value is None:
+                    continue
+                current = totals.get(key)
+                totals[key] = value if current is None else current + value
+
+    telemetry_report = None
+    if isinstance(process_payload, dict) and isinstance(
+        process_payload.get("telemetry_report"), dict
+    ):
+        telemetry_report = process_payload.get("telemetry_report")
+    elif isinstance(pass_payload.get("telemetry_report"), dict):
+        telemetry_report = pass_payload.get("telemetry_report")
+    summary_payload = (
+        telemetry_report.get("summary")
+        if isinstance(telemetry_report, dict)
+        and isinstance(telemetry_report.get("summary"), dict)
+        else None
+    )
+    if isinstance(summary_payload, dict):
+        summary_value_map = {
+            "tokens_input": summary_payload.get("tokens_input"),
+            "tokens_cached_input": summary_payload.get("tokens_cached_input"),
+            "tokens_output": summary_payload.get("tokens_output"),
+            "tokens_reasoning": (
+                summary_payload.get("tokens_reasoning")
+                if summary_payload.get("tokens_reasoning") is not None
+                else summary_payload.get("tokens_reasoning_total")
+            ),
+            "tokens_total": summary_payload.get("tokens_total"),
+        }
+        for key, raw_value in summary_value_map.items():
+            if totals.get(key) is not None:
+                continue
+            parsed_value = _single_offline_nonnegative_int_or_none(raw_value)
+            if parsed_value is not None:
+                totals[key] = parsed_value
+
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _extract_codex_farm_token_usage_from_llm_manifest(
+    llm_manifest: dict[str, Any],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    process_runs = llm_manifest.get("process_runs")
+    if not isinstance(process_runs, dict):
+        return _extract_codex_farm_token_usage_from_process_run_payload(llm_manifest)
+
+    token_keys = (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    )
+    totals: dict[str, int | None] = {key: None for key in token_keys}
+    for pass_name in sorted(process_runs):
+        pass_payload = process_runs.get(pass_name)
+        if not isinstance(pass_payload, dict):
+            continue
+        (
+            pass_tokens_input,
+            pass_tokens_cached_input,
+            pass_tokens_output,
+            pass_tokens_reasoning,
+            pass_tokens_total,
+        ) = _extract_codex_farm_token_usage_from_process_run_payload(pass_payload)
+        for key, value in (
+            ("tokens_input", pass_tokens_input),
+            ("tokens_cached_input", pass_tokens_cached_input),
+            ("tokens_output", pass_tokens_output),
+            ("tokens_reasoning", pass_tokens_reasoning),
+            ("tokens_total", pass_tokens_total),
+        ):
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
 def _load_single_offline_codex_farm_runtime(
     eval_output_dir: Path,
 ) -> dict[str, Any] | None:
@@ -8070,6 +8212,11 @@ class PredRunContext:
     run_config: dict[str, Any] | None
     run_config_hash: str | None
     run_config_summary: str | None
+    tokens_input: int | None
+    tokens_cached_input: int | None
+    tokens_output: int | None
+    tokens_reasoning: int | None
+    tokens_total: int | None
 
 
 @dataclass(frozen=True)
@@ -8831,6 +8978,11 @@ def _load_pred_run_recipe_context(
             run_config=None,
             run_config_hash=None,
             run_config_summary=None,
+            tokens_input=None,
+            tokens_cached_input=None,
+            tokens_output=None,
+            tokens_reasoning=None,
+            tokens_total=None,
         )
 
     try:
@@ -8847,6 +8999,11 @@ def _load_pred_run_recipe_context(
             run_config=None,
             run_config_hash=None,
             run_config_summary=None,
+            tokens_input=None,
+            tokens_cached_input=None,
+            tokens_output=None,
+            tokens_reasoning=None,
+            tokens_total=None,
         )
     if not isinstance(payload, dict):
         return PredRunContext(
@@ -8860,6 +9017,11 @@ def _load_pred_run_recipe_context(
             run_config=None,
             run_config_hash=None,
             run_config_summary=None,
+            tokens_input=None,
+            tokens_cached_input=None,
+            tokens_output=None,
+            tokens_reasoning=None,
+            tokens_total=None,
         )
 
     source_file = str(payload.get("source_file") or "")
@@ -8882,6 +9044,23 @@ def _load_pred_run_recipe_context(
     run_config_hash = str(payload.get("run_config_hash") or "").strip() or None
     run_config_summary = str(payload.get("run_config_summary") or "").strip() or None
     llm_codex_farm_payload = payload.get("llm_codex_farm")
+    (
+        tokens_input,
+        tokens_cached_input,
+        tokens_output,
+        tokens_reasoning,
+        tokens_total,
+    ) = (None, None, None, None, None)
+    if isinstance(llm_codex_farm_payload, dict):
+        (
+            tokens_input,
+            tokens_cached_input,
+            tokens_output,
+            tokens_reasoning,
+            tokens_total,
+        ) = _extract_codex_farm_token_usage_from_llm_manifest(
+            llm_codex_farm_payload
+        )
     if isinstance(run_config, dict) and isinstance(llm_codex_farm_payload, dict):
         merged_run_config = dict(run_config)
         run_config_updated = False
@@ -8947,6 +9126,11 @@ def _load_pred_run_recipe_context(
         run_config=run_config,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
+        tokens_input=tokens_input,
+        tokens_cached_input=tokens_cached_input,
+        tokens_output=tokens_output,
+        tokens_reasoning=tokens_reasoning,
+        tokens_total=tokens_total,
     )
 
 
@@ -9052,11 +9236,13 @@ def _build_codex_farm_prompt_type_samples_markdown(
     if not full_prompt_log_path.exists() or not full_prompt_log_path.is_file():
         return None
 
-    pass_order = ("pass1", "pass2", "pass3")
+    pass_order = ("pass1", "pass2", "pass3", "pass4", "pass5")
     pass_labels = {
         "pass1": "Chunking",
         "pass2": "Schema.org Extraction",
         "pass3": "Final Draft",
+        "pass4": "Knowledge Harvest",
+        "pass5": "Tag Suggestions",
     }
     samples_by_pass: dict[str, list[dict[str, str]]] = {
         pass_name: [] for pass_name in pass_order
@@ -9129,7 +9315,10 @@ def _build_codex_farm_prompt_type_samples_markdown(
         "Notes:",
         "- Samples are verbatim from `request_messages[0].content` when available.",
         "- Includes full inline JSON payloads exactly as emitted.",
-        f"- Up to {examples_per_pass} examples each for `pass1`, `pass2`, and `pass3`.",
+        (
+            f"- Up to {examples_per_pass} examples each for "
+            "`pass1`, `pass2`, `pass3`, `pass4`, and `pass5`."
+        ),
         "",
     ]
 
@@ -9183,18 +9372,37 @@ def _build_codex_farm_prompt_response_log(
         "pass1": "pass1_chunking",
         "pass2": "pass2_schemaorg",
         "pass3": "pass3_final",
+        "pass4": "pass4_knowledge",
+        "pass5": "pass5_tags",
     }
     pass_task_map: dict[str, str] = {
         "pass1": "task1",
         "pass2": "task2",
         "pass3": "task3",
+        "pass4": "task4",
+        "pass5": "task5",
     }
     pass_pipeline_map: dict[str, str] = {
         "pass1": "recipe.chunking.v1",
         "pass2": "recipe.schemaorg.v1",
         "pass3": "recipe.final.v1",
+        "pass4": "recipe.knowledge.v1",
+        "pass5": "recipe.tags.v1",
     }
-    pass_sort_order: dict[str, int] = {"pass1": 1, "pass2": 2, "pass3": 3}
+    pass_sort_order: dict[str, int] = {
+        "pass1": 1,
+        "pass2": 2,
+        "pass3": 3,
+        "pass4": 4,
+        "pass5": 5,
+    }
+    pass_manifest_name_map: dict[str, str] = {
+        "pass1": "llm_manifest.json",
+        "pass2": "llm_manifest.json",
+        "pass3": "llm_manifest.json",
+        "pass4": "pass4_knowledge_manifest.json",
+        "pass5": "pass5_tags_manifest.json",
+    }
 
     def _safe_read_text(path: Path) -> str:
         try:
@@ -9247,18 +9455,13 @@ def _build_codex_farm_prompt_response_log(
         candidate_from_name = re.sub(r"^r\d+_", "", stem).strip()
         return candidate_from_name or None
 
-    def _load_run_assets_for_pass(
+    def _load_run_assets_for_process_run(
         *,
-        manifest_payload: dict[str, Any],
-        pass_name: str,
+        process_run_payload: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        process_runs = manifest_payload.get("process_runs")
-        if not isinstance(process_runs, dict):
+        if not isinstance(process_run_payload, dict):
             return {}
-        pass_payload = process_runs.get(pass_name)
-        if not isinstance(pass_payload, dict):
-            return {}
-        run_id = str(pass_payload.get("run_id") or "").strip()
+        run_id = str(process_run_payload.get("run_id") or "").strip()
         if not run_id:
             return {}
         run_assets_dir = (REPO_ROOT / "var" / "run_assets" / run_id).resolve()
@@ -9288,6 +9491,126 @@ def _build_codex_farm_prompt_response_log(
             "effective_pipeline_payload": effective_pipeline_payload,
             "pipeline_source_payload": pipeline_source_payload,
         }
+
+    def _resolve_process_run_payload(
+        *,
+        pass_name: str,
+        manifest_payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if pass_name in {"pass1", "pass2", "pass3"}:
+            process_runs = manifest_payload.get("process_runs")
+            if not isinstance(process_runs, dict):
+                return None
+            pass_payload = process_runs.get(pass_name)
+            return pass_payload if isinstance(pass_payload, dict) else None
+
+        if pass_name == "pass4":
+            process_run = manifest_payload.get("process_run")
+            if isinstance(process_run, dict):
+                return process_run
+            llm_report = manifest_payload.get("llm_report")
+            if isinstance(llm_report, dict):
+                report_process_run = llm_report.get("process_run")
+                if isinstance(report_process_run, dict):
+                    return report_process_run
+            return None
+
+        if pass_name == "pass5":
+            llm_report = manifest_payload.get("llm_report")
+            if isinstance(llm_report, dict):
+                report_process_run = llm_report.get("process_run")
+                if isinstance(report_process_run, dict):
+                    return report_process_run
+            process_run = manifest_payload.get("process_run")
+            if isinstance(process_run, dict):
+                return process_run
+            return None
+
+        return None
+
+    def _resolve_manifest_pipeline_id(
+        *,
+        pass_name: str,
+        manifest_payload: dict[str, Any],
+    ) -> str | None:
+        if pass_name in {"pass1", "pass2", "pass3"}:
+            process_run = _resolve_process_run_payload(
+                pass_name=pass_name,
+                manifest_payload=manifest_payload,
+            )
+            if isinstance(process_run, dict):
+                candidate = _clean_text(process_run.get("pipeline_id"))
+                if candidate is not None:
+                    return candidate
+            return pass_pipeline_map.get(pass_name)
+        if pass_name == "pass4":
+            candidate = _clean_text(manifest_payload.get("pipeline_id"))
+            if candidate is not None:
+                return candidate
+            llm_report = manifest_payload.get("llm_report")
+            if isinstance(llm_report, dict):
+                report_candidate = _clean_text(llm_report.get("pipeline_id"))
+                if report_candidate is not None:
+                    return report_candidate
+            return pass_pipeline_map.get(pass_name)
+        if pass_name == "pass5":
+            llm_report = manifest_payload.get("llm_report")
+            if isinstance(llm_report, dict):
+                report_candidate = _clean_text(llm_report.get("pipeline_id"))
+                if report_candidate is not None:
+                    return report_candidate
+            candidate = _clean_text(manifest_payload.get("pipeline_id"))
+            if candidate is not None:
+                return candidate
+            return pass_pipeline_map.get(pass_name)
+        return pass_pipeline_map.get(pass_name)
+
+    def _resolve_pass_in_out_dirs(
+        *,
+        pass_name: str,
+        manifest_payload: dict[str, Any],
+        run_dir: Path,
+        path_root: str,
+    ) -> tuple[Path, Path]:
+        paths_payload: dict[str, Any] = {}
+        if pass_name == "pass5":
+            llm_report = manifest_payload.get("llm_report")
+            if isinstance(llm_report, dict):
+                llm_paths = llm_report.get("paths")
+                if isinstance(llm_paths, dict):
+                    paths_payload = llm_paths
+        if not paths_payload:
+            raw_paths = manifest_payload.get("paths")
+            if isinstance(raw_paths, dict):
+                paths_payload = raw_paths
+
+        pass_input_key_map = {
+            "pass1": "pass1_in",
+            "pass2": "pass2_in",
+            "pass3": "pass3_in",
+            "pass4": "pass4_in_dir",
+            "pass5": "in_dir",
+        }
+        pass_output_key_map = {
+            "pass1": "pass1_out",
+            "pass2": "pass2_out",
+            "pass3": "pass3_out",
+            "pass4": "pass4_out_dir",
+            "pass5": "out_dir",
+        }
+
+        input_key = pass_input_key_map.get(pass_name)
+        output_key = pass_output_key_map.get(pass_name)
+        pass_in = paths_payload.get(input_key) if input_key is not None else None
+        pass_out = paths_payload.get(output_key) if output_key is not None else None
+
+        in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
+        out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
+        if in_dir is None or not in_dir.exists():
+            in_dir = run_dir / path_root / "in"
+        if out_dir is None or not out_dir.exists():
+            out_dir = run_dir / path_root / "out"
+        return in_dir, out_dir
 
     def _render_prompt_text(
         *,
@@ -9369,19 +9692,34 @@ def _build_codex_farm_prompt_response_log(
         task_id = str(row.get("task_id") or "")
         return (execution_attempt, lease_claim_index, finished_at, task_id)
 
-    def _resolve_codex_exec_csv_paths(manifest_payload: dict[str, Any]) -> list[Path]:
-        candidates: list[Path] = []
+    def _iter_process_run_payloads(
+        manifest_payload: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
         process_runs = manifest_payload.get("process_runs")
         if isinstance(process_runs, dict):
             for pass_payload in process_runs.values():
-                if not isinstance(pass_payload, dict):
-                    continue
-                telemetry_payload = pass_payload.get("telemetry")
-                if not isinstance(telemetry_payload, dict):
-                    continue
-                csv_path_raw = telemetry_payload.get("csv_path")
-                if isinstance(csv_path_raw, str) and csv_path_raw.strip():
-                    candidates.append(Path(csv_path_raw.strip()))
+                if isinstance(pass_payload, dict):
+                    rows.append(pass_payload)
+        process_run = manifest_payload.get("process_run")
+        if isinstance(process_run, dict):
+            rows.append(process_run)
+        llm_report = manifest_payload.get("llm_report")
+        if isinstance(llm_report, dict):
+            report_process_run = llm_report.get("process_run")
+            if isinstance(report_process_run, dict):
+                rows.append(report_process_run)
+        return rows
+
+    def _resolve_codex_exec_csv_paths(manifest_payload: dict[str, Any]) -> list[Path]:
+        candidates: list[Path] = []
+        for process_run_payload in _iter_process_run_payloads(manifest_payload):
+            telemetry_payload = process_run_payload.get("telemetry")
+            if not isinstance(telemetry_payload, dict):
+                continue
+            csv_path_raw = telemetry_payload.get("csv_path")
+            if isinstance(csv_path_raw, str) and csv_path_raw.strip():
+                candidates.append(Path(csv_path_raw.strip()))
         candidates.append((REPO_ROOT / "var" / "codex_exec_activity.csv").resolve())
 
         rows: list[Path] = []
@@ -9398,15 +9736,9 @@ def _build_codex_farm_prompt_response_log(
     def _load_codex_exec_rows_for_manifest(
         manifest_payload: dict[str, Any],
     ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, str]]:
-        process_runs = manifest_payload.get("process_runs")
-        if not isinstance(process_runs, dict):
-            return {}, {}
-
         run_ids: set[str] = set()
-        for pass_payload in process_runs.values():
-            if not isinstance(pass_payload, dict):
-                continue
-            run_id = _clean_text(pass_payload.get("run_id"))
+        for process_run_payload in _iter_process_run_payloads(manifest_payload):
+            run_id = _clean_text(process_run_payload.get("run_id"))
             if run_id:
                 run_ids.add(run_id)
         if not run_ids:
@@ -9510,39 +9842,83 @@ def _build_codex_farm_prompt_response_log(
     category_has_payload: dict[str, bool] = {pass_name: False for pass_name in pass_dir_map}
     try:
         for run_dir in sorted(run_dirs, key=lambda value: value.name):
-            manifest_path = run_dir / "llm_manifest.json"
-            manifest_payload = _load_json_dict(manifest_path) or {}
-            if not manifest_payload:
-                lines.append(f"=== SKIP: missing manifest at {manifest_path} ===")
+            manifest_payload_by_name: dict[str, dict[str, Any]] = {}
+            manifest_path_by_name: dict[str, Path] = {}
+            for manifest_name in sorted(set(pass_manifest_name_map.values())):
+                manifest_path = run_dir / manifest_name
+                payload = _load_json_dict(manifest_path) or {}
+                if not payload:
+                    continue
+                manifest_payload_by_name[manifest_name] = payload
+                manifest_path_by_name[manifest_name] = manifest_path
+            if not manifest_payload_by_name:
+                lines.append(f"=== SKIP: missing pass manifests in {run_dir} ===")
                 continue
 
+            primary_manifest = manifest_payload_by_name.get("llm_manifest.json", {})
             lines.append(f"=== CODexFarm run: {run_dir.name} ===")
-            lines.append(f"manifest: {manifest_path}")
-            llm_enabled = manifest_payload.get("enabled")
+            if manifest_path_by_name:
+                lines.append("manifests:")
+                for manifest_name in sorted(manifest_path_by_name):
+                    lines.append(f"- {manifest_path_by_name[manifest_name]}")
+            llm_enabled = primary_manifest.get("enabled")
             if llm_enabled is not None:
                 lines.append(f"enabled: {llm_enabled}")
-            codex_pipeline = manifest_payload.get("pipeline")
+            codex_pipeline = primary_manifest.get("pipeline")
             if isinstance(codex_pipeline, str):
                 lines.append(f"pipeline: {codex_pipeline}")
-            codex_model = manifest_payload.get("codex_farm_model")
+            codex_model = primary_manifest.get("codex_farm_model")
             if isinstance(codex_model, str):
                 lines.append(f"codex_farm_model: {codex_model}")
             codex_reasoning_effort = str(
-                manifest_payload.get("codex_farm_reasoning_effort") or ""
+                primary_manifest.get("codex_farm_reasoning_effort") or ""
             ).strip() or None
             lines.append("")
 
-            process_runs = manifest_payload.get("process_runs")
-            telemetry_rows_by_run_id, telemetry_csv_by_run_id = (
-                _load_codex_exec_rows_for_manifest(manifest_payload)
-            )
-            if isinstance(process_runs, dict):
+            telemetry_rows_by_manifest_name: dict[
+                str, dict[str, dict[str, dict[str, Any]]]
+            ] = {}
+            telemetry_csv_by_manifest_name: dict[str, dict[str, str]] = {}
+            for manifest_name, manifest_payload in manifest_payload_by_name.items():
+                rows_by_run_id, csv_by_run_id = _load_codex_exec_rows_for_manifest(
+                    manifest_payload
+                )
+                telemetry_rows_by_manifest_name[manifest_name] = rows_by_run_id
+                telemetry_csv_by_manifest_name[manifest_name] = csv_by_run_id
+
+            if any(
+                isinstance(
+                    _resolve_process_run_payload(
+                        pass_name=pass_name,
+                        manifest_payload=manifest_payload_by_name[
+                            pass_manifest_name_map[pass_name]
+                        ],
+                    ),
+                    dict,
+                )
+                for pass_name in pass_dir_map
+                if pass_manifest_name_map[pass_name] in manifest_payload_by_name
+            ):
                 lines.append("--- PROCESS RUN PAYLOAD SNIPPETS ---")
-                for pass_name in ("pass1", "pass2", "pass3"):
-                    run_payload = process_runs.get(pass_name)
+                for pass_name in sorted(
+                    pass_dir_map,
+                    key=lambda value: pass_sort_order.get(value, 999),
+                ):
+                    manifest_name = pass_manifest_name_map.get(pass_name)
+                    if manifest_name is None:
+                        continue
+                    manifest_payload = manifest_payload_by_name.get(manifest_name)
+                    if not isinstance(manifest_payload, dict):
+                        continue
+                    run_payload = _resolve_process_run_payload(
+                        pass_name=pass_name,
+                        manifest_payload=manifest_payload,
+                    )
                     if not isinstance(run_payload, dict):
                         continue
-                    lines.append(f"--- process_runs[{pass_name}] ---")
+                    lines.append(
+                        f"--- process_run[{pass_name}] ({manifest_name}) ---"
+                    )
                     try:
                         lines.append(json.dumps(run_payload, indent=2, sort_keys=True))
                     except Exception:
@@ -9550,36 +9926,50 @@ def _build_codex_farm_prompt_response_log(
                 lines.append("")
 
             for pass_name, path_root in pass_dir_map.items():
+                manifest_name = pass_manifest_name_map.get(pass_name)
+                if manifest_name is None:
+                    continue
+                manifest_payload = manifest_payload_by_name.get(manifest_name)
+                if not isinstance(manifest_payload, dict):
+                    continue
+                manifest_path = manifest_path_by_name.get(manifest_name)
                 task_name = pass_task_map.get(pass_name, pass_name)
-                pass_assets = _load_run_assets_for_pass(
-                    manifest_payload=manifest_payload,
+                process_run_payload = _resolve_process_run_payload(
                     pass_name=pass_name,
+                    manifest_payload=manifest_payload,
+                )
+                pass_assets = _load_run_assets_for_process_run(
+                    process_run_payload=process_run_payload,
                 )
                 process_run_id = _clean_text(pass_assets.get("run_id"))
+                telemetry_rows_by_run_id = telemetry_rows_by_manifest_name.get(
+                    manifest_name, {}
+                )
+                telemetry_csv_by_run_id = telemetry_csv_by_manifest_name.get(
+                    manifest_name, {}
+                )
                 pass_telemetry_rows = (
                     telemetry_rows_by_run_id.get(process_run_id, {})
                     if process_run_id is not None
                     else {}
                 )
-                paths_payload = manifest_payload.get("paths")
-                pass_paths = {}
-                if isinstance(paths_payload, dict):
-                    pass_paths = paths_payload
-                pass_in = pass_paths.get(f"{pass_name}_in")
-                pass_out = pass_paths.get(f"{pass_name}_out")
-
-                in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
-                out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
-                if in_dir is None or not in_dir.exists():
-                    in_dir = run_dir / path_root / "in"
-                if out_dir is None or not out_dir.exists():
-                    out_dir = run_dir / path_root / "out"
+                in_dir, out_dir = _resolve_pass_in_out_dirs(
+                    pass_name=pass_name,
+                    manifest_payload=manifest_payload,
+                    run_dir=run_dir,
+                    path_root=path_root,
+                )
+                pipeline_id = _resolve_manifest_pipeline_id(
+                    pass_name=pass_name,
+                    manifest_payload=manifest_payload,
+                )
 
                 category = category_lines[pass_name]
                 category.append(
                     f"=== CATEGORY {task_name} ({pass_name} / {path_root}) | run: {run_dir.name} ==="
                 )
-                category.append(f"manifest: {manifest_path}")
+                if manifest_path is not None:
+                    category.append(f"manifest: {manifest_path}")
                 category.append("")
 
                 input_files = _files_in_dir(in_dir)
@@ -9810,7 +10200,7 @@ def _build_codex_farm_prompt_response_log(
                         "top_p": None,
                         "max_output_tokens": None,
                         "seed": None,
-                        "pipeline_id": pass_pipeline_map.get(pass_name),
+                        "pipeline_id": pipeline_id,
                         "sandbox": sandbox_value,
                         "ask_for_approval": ask_for_approval_value,
                         "web_search": web_search_value,
@@ -9890,7 +10280,7 @@ def _build_codex_farm_prompt_response_log(
                         "timestamp_utc": timestamp_utc,
                         "recipe_id": recipe_id,
                         "source_file": source_file,
-                        "pipeline_id": pass_pipeline_map.get(pass_name),
+                        "pipeline_id": pipeline_id,
                         "process_run_id": process_run_id,
                         "model": model_value,
                         "request_payload_source": request_payload_source,
@@ -10260,6 +10650,11 @@ def _build_prediction_bundle_from_legacy_record(
         run_config_hash=str(predict_meta.get("run_config_hash") or "").strip() or None,
         run_config_summary=str(predict_meta.get("run_config_summary") or "").strip()
         or None,
+        tokens_input=None,
+        tokens_cached_input=None,
+        tokens_output=None,
+        tokens_reasoning=None,
+        tokens_total=None,
     )
 
     return BenchmarkPredictionBundle(
@@ -10422,6 +10817,11 @@ def _build_prediction_bundle_from_stage_records(
         run_config=run_config,
         run_config_hash=str(first_meta.get("run_config_hash") or "").strip() or None,
         run_config_summary=str(first_meta.get("run_config_summary") or "").strip() or None,
+        tokens_input=None,
+        tokens_cached_input=None,
+        tokens_output=None,
+        tokens_reasoning=None,
+        tokens_total=None,
     )
     return BenchmarkPredictionBundle(
         import_result=import_result,
@@ -19581,6 +19981,29 @@ def _write_stage_run_manifest(
         artifacts["stage_worker_resolution_json"] = str(
             stage_worker_resolution.relative_to(run_root)
         )
+    codexfarm_dir = run_root / "codexfarm"
+    if codexfarm_dir.exists() and codexfarm_dir.is_dir():
+        artifacts["codexfarm_dir"] = str(codexfarm_dir.relative_to(run_root))
+        prompt_request_response_path = codexfarm_dir / "prompt_request_response_log.txt"
+        if prompt_request_response_path.exists() and prompt_request_response_path.is_file():
+            artifacts["codexfarm_prompt_request_response_txt"] = str(
+                prompt_request_response_path.relative_to(run_root)
+            )
+        category_manifest_path = codexfarm_dir / "prompt_category_logs_manifest.txt"
+        if category_manifest_path.exists() and category_manifest_path.is_file():
+            artifacts["codexfarm_prompt_category_logs_manifest_txt"] = str(
+                category_manifest_path.relative_to(run_root)
+            )
+        full_prompt_log_path = codexfarm_dir / "full_prompt_log.jsonl"
+        if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
+            artifacts["codexfarm_full_prompt_log_jsonl"] = str(
+                full_prompt_log_path.relative_to(run_root)
+            )
+        prompt_type_samples_path = codexfarm_dir / _PROMPT_TYPE_SAMPLES_MD_NAME
+        if prompt_type_samples_path.exists() and prompt_type_samples_path.is_file():
+            artifacts["codexfarm_prompt_type_samples_from_full_prompt_log_md"] = str(
+                prompt_type_samples_path.relative_to(run_root)
+            )
     history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)
@@ -22729,6 +23152,11 @@ def stage(
                     fg=typer.colors.GREEN,
                 )
 
+    _build_codex_farm_prompt_response_log(
+        pred_run=out,
+        eval_output_dir=out,
+    )
+
     stage_run_summary = _write_stage_run_summary(
         run_root=out,
         requested_path=path,
@@ -22950,6 +23378,11 @@ def benchmark_csv_backfill(
     typer.echo(f"Recipes filled: {summary.recipes_filled}")
     typer.echo(f"Report paths filled: {summary.report_paths_filled}")
     typer.echo(f"Source file fields filled: {summary.source_files_filled}")
+    typer.echo(f"Run config fields filled: {summary.run_config_rows_filled}")
+    typer.echo(f"Codex model fields filled: {summary.codex_models_filled}")
+    typer.echo(f"Codex effort fields filled: {summary.codex_efforts_filled}")
+    typer.echo(f"Token rows filled: {summary.token_rows_filled}")
+    typer.echo(f"Token fields filled: {summary.token_fields_filled}")
     typer.echo(f"Rows still missing recipes: {summary.rows_still_missing_recipes}")
 
     if dry_run and summary.rows_updated > 0:
@@ -23333,6 +23766,14 @@ def labelstudio_import(
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))
     processing_time_seconds = max(0.0, time.monotonic() - import_started_at)
+    codexfarm_prompt_response_log_path: Path | None = None
+    run_root_value = result.get("run_root")
+    if run_root_value is not None:
+        run_root_path = Path(str(run_root_value))
+        codexfarm_prompt_response_log_path = _build_codex_farm_prompt_response_log(
+            pred_run=run_root_path,
+            eval_output_dir=run_root_path,
+        )
 
     typer.secho(
         f"Label Studio project: {result['project_name']} (id={result['project_id']})",
@@ -23357,6 +23798,11 @@ def labelstudio_import(
             inline_annotation_fallback=bool(
                 result.get("prelabel_inline_annotations_fallback")
             ),
+        )
+    if codexfarm_prompt_response_log_path is not None:
+        typer.secho(
+            f"CodexFarm prompt artifacts: {codexfarm_prompt_response_log_path.parent}",
+            fg=typer.colors.CYAN,
         )
     typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
     typer.echo("\nTo export labels:\n")
@@ -23520,6 +23966,11 @@ def labelstudio_eval(
         run_config=pred_context.run_config,
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
+        tokens_input=pred_context.tokens_input,
+        tokens_cached_input=pred_context.tokens_cached_input,
+        tokens_output=pred_context.tokens_output,
+        tokens_reasoning=pred_context.tokens_reasoning,
+        tokens_total=pred_context.tokens_total,
     )
     _refresh_dashboard_after_history_write(
         csv_path=csv_history_path,
@@ -25417,6 +25868,11 @@ def labelstudio_benchmark(
         run_config=pred_context.run_config,
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
+        tokens_input=pred_context.tokens_input,
+        tokens_cached_input=pred_context.tokens_cached_input,
+        tokens_output=pred_context.tokens_output,
+        tokens_reasoning=pred_context.tokens_reasoning,
+        tokens_total=pred_context.tokens_total,
         timing=benchmark_timing,
     )
     if not suppress_summary:

@@ -1982,49 +1982,54 @@ _HTML = """\
         </ul>
       </section>
     </details>
-    <details id="previous-runs-filter-panel" class="section-details" open>
-      <summary>Run filters (rules + boolean expression)</summary>
-      <section>
-        <p class="section-note">Create rules over any benchmark field, then combine them with an expression like <code>(R1 and R2) or not R3</code>. Field options include nested keys such as <code>run_config.*</code>.</p>
-        <div id="previous-runs-filter-builder"></div>
-        <div class="previous-runs-filter-actions">
-          <button id="previous-runs-add-rule" type="button">Add rule</button>
-          <button id="previous-runs-reset-rules" type="button">Reset rules</button>
+    <div class="previous-runs-top-grid">
+      <section id="isolate-panel" class="isolate-panel">
+        <h3>Isolate For X</h3>
+        <p class="section-note">Pick one field + value to isolate matching runs. Table and trend chart auto-filter to that slice, and stats below compare slice vs all currently visible runs.</p>
+        <div class="isolate-controls">
+          <label for="isolate-field">Field</label>
+          <select id="isolate-field"></select>
+          <label for="isolate-value">Value</label>
+          <select id="isolate-value"></select>
+          <button id="isolate-clear" type="button">Clear isolate</button>
         </div>
-        <label class="previous-runs-expression-label" for="previous-runs-filter-expression">Expression</label>
-        <input
-          id="previous-runs-filter-expression"
-          type="text"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="(R1 and R2) or not R3"
-        >
-        <p id="previous-runs-filter-status" class="section-note"></p>
+        <p id="isolate-status" class="section-note"></p>
+        <div id="isolate-insights" class="isolate-insights"></div>
       </section>
-    </details>
-    <details id="previous-runs-columns-panel" class="section-details" open>
-      <summary>Table columns (reorder, resize, add/remove fields)</summary>
-      <section>
-        <p class="section-note">Drag table headers to reorder columns, drag header edges to resize, and add/remove any benchmark field dynamically.</p>
-        <div id="previous-runs-columns-editor"></div>
-        <div class="previous-runs-columns-add">
-          <label for="previous-runs-column-add-select">Add field</label>
-          <select id="previous-runs-column-add-select"></select>
-          <button id="previous-runs-column-add" type="button">Add</button>
-          <button id="previous-runs-column-reset" type="button">Reset defaults</button>
-        </div>
-      </section>
-    </details>
-    <div class="trend-chart-wrap">
-      <h3>Benchmark Score Trend</h3>
-      <p class="section-note">Interactive time-series view of benchmark quality metrics (same chart tech as the git-stats dashboards).</p>
-      <div id="benchmark-trend-chart" class="highcharts-host" aria-label="Benchmark score trend chart"></div>
-      <p id="benchmark-trend-fallback" class="empty-note" hidden></p>
+      <div class="trend-chart-wrap">
+        <h3>Benchmark Score Trend</h3>
+        <p class="section-note">Interactive time-series view of benchmark quality metrics (same chart tech as the git-stats dashboards).</p>
+        <div id="benchmark-trend-chart" class="highcharts-host" aria-label="Benchmark score trend chart"></div>
+        <p id="benchmark-trend-fallback" class="empty-note" hidden></p>
+      </div>
     </div>
     <div class="table-wrap table-scroll">
+      <div class="previous-runs-columns-control">
+        <button
+          id="previous-runs-columns-toggle"
+          class="previous-runs-columns-toggle"
+          type="button"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="previous-runs-columns-popup"
+          title="Show or hide table columns"
+        >+/-</button>
+        <div id="previous-runs-columns-popup" class="previous-runs-columns-popup" hidden>
+          <p class="section-note">Check fields to include them in Previous Runs. Drag table headers to reorder and drag edges to resize.</p>
+          <div id="previous-runs-columns-checklist"></div>
+          <div class="previous-runs-columns-popup-actions">
+            <button id="previous-runs-clear-filters" type="button">Clear all filters</button>
+            <button id="previous-runs-column-reset" type="button">Reset defaults</button>
+          </div>
+        </div>
+      </div>
       <table id="previous-runs-table">
         <colgroup></colgroup>
-        <thead><tr></tr></thead>
+        <thead>
+          <tr class="previous-runs-header-row"></tr>
+          <tr class="previous-runs-active-filters-row"></tr>
+          <tr class="previous-runs-filter-spacer-row"></tr>
+        </thead>
         <tbody></tbody>
       </table>
     </div>
@@ -2054,6 +2059,11 @@ _CSS = """\
   --font: 'IBM Plex Sans', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
   --mono: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
   --focus: #0b72ff;
+  --previous-runs-header-row-height: 2.18rem;
+  --previous-runs-filter-row-height: 2.18rem;
+  --previous-runs-spacer-row-height: 2.18rem;
+  --previous-runs-body-row-height: 1.85rem;
+  --previous-runs-visible-body-rows: 10;
 }
 *, *::before, *::after { box-sizing: border-box; }
 body {
@@ -2216,79 +2226,7 @@ section h3 {
   font-size: 0.83rem;
 }
 .metric-help-list li { margin: 0.2rem 0; }
-.previous-runs-rule-row {
-  display: grid;
-  grid-template-columns: auto minmax(160px, 1.2fr) minmax(130px, 0.9fr) minmax(160px, 1fr) auto;
-  gap: 0.4rem;
-  align-items: center;
-  margin-bottom: 0.35rem;
-}
-.previous-runs-rule-id {
-  font-family: var(--mono);
-  font-size: 0.76rem;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.08rem 0.45rem;
-  min-width: 2.2rem;
-  text-align: center;
-}
-#previous-runs-filter-builder select,
-#previous-runs-filter-builder input,
-#previous-runs-filter-expression {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--text);
-  font-size: 0.81rem;
-  padding: 0.28rem 0.4rem;
-}
-.previous-runs-rule-remove,
-.previous-runs-filter-actions button {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: #f6f9fc;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.78rem;
-  padding: 0.18rem 0.62rem;
-}
-.previous-runs-rule-remove:hover,
-.previous-runs-filter-actions button:hover {
-  border-color: #c7d0d9;
-}
-.previous-runs-filter-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.38rem;
-  margin: 0.15rem 0 0.45rem;
-}
-.previous-runs-columns-add {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0.45rem 0 0;
-}
-.previous-runs-columns-add label {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-#previous-runs-column-add-select {
-  min-width: 220px;
-  max-width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--text);
-  font-size: 0.81rem;
-  padding: 0.28rem 0.4rem;
-}
-#previous-runs-column-add,
+#previous-runs-clear-filters,
 #previous-runs-column-reset {
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -2298,71 +2236,72 @@ section h3 {
   font-size: 0.78rem;
   padding: 0.18rem 0.62rem;
 }
-#previous-runs-column-add:hover,
+#previous-runs-clear-filters:hover,
 #previous-runs-column-reset:hover {
   border-color: #c7d0d9;
 }
-#previous-runs-column-add:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+.isolate-panel {
+  margin: 0.75rem 0 0.9rem;
+  background: #f8fbff;
 }
-#previous-runs-columns-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+.isolate-panel h3 {
+  margin-top: 0;
 }
-.previous-runs-column-row {
+.isolate-controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
+  grid-template-columns: auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.42rem;
 }
-.previous-runs-column-label {
-  font-size: 0.82rem;
-  color: var(--text);
-  min-width: 0;
-}
-.previous-runs-column-key {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 0.76rem;
-}
-.previous-runs-column-buttons {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-.previous-runs-column-btn {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: #f6f9fc;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.73rem;
-  padding: 0.14rem 0.52rem;
-}
-.previous-runs-column-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.previous-runs-column-btn:hover:not(:disabled) {
-  border-color: #c7d0d9;
-}
-.previous-runs-expression-label {
-  display: inline-block;
+.isolate-controls label {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 0.2rem;
 }
-#previous-runs-filter-status {
-  margin: 0.45rem 0 0;
+#isolate-field,
+#isolate-value {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 0.28rem 0.4rem;
 }
-#previous-runs-filter-status.filter-error {
-  color: #b45309;
-  font-weight: 600;
+#isolate-clear {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f6f9fc;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0.19rem 0.62rem;
+}
+#isolate-clear:hover {
+  border-color: #c7d0d9;
+}
+#isolate-status {
+  margin: 0.5rem 0 0.42rem;
+}
+.isolate-insights {
+  border: 1px dashed #c5d7ea;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.5rem 0.65rem;
+}
+.isolate-insights p {
+  margin: 0.2rem 0;
+  font-size: 0.82rem;
+}
+.isolate-insight-list {
+  margin: 0.35rem 0 0.1rem 1rem;
+  padding: 0;
+}
+.isolate-insight-list li {
+  margin: 0.17rem 0;
+  font-size: 0.8rem;
+  color: var(--text);
 }
 
 .chart-container { width: 100%; overflow-x: auto; min-height: 120px; }
@@ -2390,8 +2329,8 @@ section h3 {
 }
 .highcharts-host {
   width: 100%;
-  height: 400px;
-  min-height: 360px;
+  height: 800px;
+  min-height: 720px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fbfdff;
@@ -2399,20 +2338,108 @@ section h3 {
 
 .table-wrap {
   overflow-x: auto;
+  position: relative;
+}
+.previous-runs-columns-control {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.45rem;
+  z-index: 5;
+  display: inline-block;
+}
+.previous-runs-columns-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f4f8fd;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.14rem 0.5rem;
+  min-width: 2.6rem;
+}
+.previous-runs-columns-toggle:hover,
+.previous-runs-columns-toggle.open {
+  border-color: #8ab0d8;
+  background: #e7f1ff;
+  color: #174d84;
+}
+.previous-runs-columns-popup {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  width: min(310px, calc(100vw - 1.6rem));
+  max-height: min(65vh, 460px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfdff;
+  box-shadow: 0 10px 24px rgba(21, 34, 48, 0.14);
+  padding: 0.55rem 0.6rem;
+}
+#previous-runs-columns-checklist {
+  display: grid;
+  gap: 0.28rem;
+}
+.previous-runs-columns-check-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.42rem;
+  align-items: start;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+.previous-runs-columns-check-item code {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.previous-runs-columns-popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.36rem;
+  margin-top: 0.48rem;
+}
+.previous-runs-columns-popup-actions button {
+  font-size: 0.74rem;
 }
 
 .table-scroll {
-  max-height: none;
+  max-height: calc(
+    var(--previous-runs-header-row-height)
+    + var(--previous-runs-filter-row-height)
+    + var(--previous-runs-spacer-row-height)
+    + (var(--previous-runs-visible-body-rows) * var(--previous-runs-body-row-height))
+  );
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 .table-scroll thead th {
   position: sticky;
-  top: 0;
   background: var(--card);
   z-index: 1;
+}
+#previous-runs-table thead tr.previous-runs-header-row th {
+  top: 0;
+  z-index: 3;
+}
+#previous-runs-table thead tr.previous-runs-active-filters-row th {
+  top: var(--previous-runs-header-row-height);
+  background: #f7fbff;
+  z-index: 2;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+#previous-runs-table thead tr.previous-runs-filter-spacer-row th {
+  top: calc(var(--previous-runs-header-row-height) + var(--previous-runs-filter-row-height));
+  background: #f7fbff;
+  z-index: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
 }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -2429,6 +2456,166 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
 #previous-runs-table th {
   position: relative;
   padding-right: 0.9rem;
+}
+#previous-runs-table .previous-runs-header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.previous-runs-column-filter {
+  position: relative;
+}
+.previous-runs-column-filter-summary-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+.previous-runs-column-filter-summary {
+  min-height: 1rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.2;
+}
+.previous-runs-column-filter-summary.filter-active {
+  color: #174d84;
+  font-weight: 600;
+}
+.previous-runs-column-filter-toggle {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #f4f8fd;
+  color: #3b4b59;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.previous-runs-column-filter-toggle:hover {
+  border-color: #c7d0d9;
+}
+.previous-runs-column-filter-toggle.filter-active {
+  border-color: #8ab0d8;
+  background: #e7f1ff;
+  color: #174d84;
+}
+.previous-runs-column-filter-popover {
+  position: absolute;
+  top: calc(100% + 0.24rem);
+  right: 0;
+  min-width: 230px;
+  max-width: min(340px, 85vw);
+  border: 1px solid #cfd9e4;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  padding: 0.5rem;
+  z-index: 20;
+  white-space: normal;
+}
+.previous-runs-column-filter-popover-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.35rem;
+}
+.previous-runs-column-filter-popover-controls {
+  display: grid;
+  grid-template-columns: minmax(86px, 1fr) minmax(120px, 1.2fr);
+  gap: 0.3rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+.previous-runs-column-filter-popover-controls select,
+.previous-runs-column-filter-popover-controls input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.75rem;
+  padding: 0.18rem 0.32rem;
+}
+.previous-runs-column-filter-suggestions {
+  margin: 0 0 0.42rem;
+}
+.previous-runs-column-filter-suggestions-title {
+  color: var(--muted);
+  font-size: 0.68rem;
+  margin-bottom: 0.2rem;
+}
+.previous-runs-column-filter-suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+  max-height: 6.8rem;
+  overflow-y: auto;
+}
+.previous-runs-column-filter-suggestion {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f8fbff;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  padding: 0.12rem 0.42rem;
+}
+.previous-runs-column-filter-suggestion.best {
+  border-color: #8ab0d8;
+  background: #e7f1ff;
+  color: #174d84;
+}
+.previous-runs-column-filter-suggestion:hover {
+  border-color: #c7d0d9;
+}
+.previous-runs-column-filter-popover-actions {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+.previous-runs-column-filter-clear {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f6f9fc;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.68rem;
+  padding: 0.12rem 0.48rem;
+}
+.previous-runs-column-filter-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.previous-runs-column-filter-clear:hover:not(:disabled) {
+  border-color: #c7d0d9;
+}
+.previous-runs-column-filter-save,
+.previous-runs-column-filter-close {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f6f9fc;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.68rem;
+  padding: 0.12rem 0.48rem;
+}
+.previous-runs-column-filter-save {
+  border-color: #8ab0d8;
+  background: #e7f1ff;
+  color: #174d84;
+}
+.previous-runs-column-filter-save:hover,
+.previous-runs-column-filter-close:hover {
+  border-color: #c7d0d9;
 }
 #previous-runs-table th.previous-runs-draggable {
   cursor: grab;
@@ -2806,20 +2993,30 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .all-method-quick-nav {
     position: static;
   }
-  .previous-runs-rule-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .previous-runs-column-filter {
+    min-width: 120px;
   }
-  .previous-runs-rule-id {
-    justify-self: start;
+  .previous-runs-column-filter-popover {
+    right: auto;
+    left: 0;
+    min-width: 210px;
   }
-  .previous-runs-rule-row .previous-runs-rule-remove {
-    justify-self: end;
+  .previous-runs-column-filter-popover-controls {
+    grid-template-columns: 1fr;
   }
-  .previous-runs-column-row {
-    grid-template-columns: minmax(0, 1fr);
+  .previous-runs-columns-control {
+    top: 0.35rem;
+    right: 0.35rem;
   }
-  .previous-runs-column-buttons {
-    justify-content: flex-start;
+  .previous-runs-columns-popup {
+    width: min(280px, calc(100vw - 1.3rem));
+  }
+  .isolate-controls {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .isolate-controls label {
+    margin-top: 0.1rem;
   }
 }
 
@@ -2843,19 +3040,22 @@ _JS = """\
   let activeDays = 0; // 0 = all
   let selectedFileTrend = "";
   let throughputScaleMode = "clamp95";
-  let previousRunsRuleCounter = 0;
-  let previousRunsRuleState = [];
-  let previousRunsFilterExpression = "";
+  let previousRunsColumnFilters = Object.create(null);
   let previousRunsFieldOptions = [];
   let previousRunsVisibleColumns = [];
   let previousRunsColumnWidths = Object.create(null);
   let previousRunsDraggedColumn = null;
+  let previousRunsOpenFilterField = "";
+  let previousRunsOpenFilterDraft = null;
+  let previousRunsColumnsPopupOpen = false;
   let previousRunsFilterResultCache = null;
   let previousRunsSortField = "run_timestamp";
   let previousRunsSortDirection = "desc";
+  let isolateField = "";
+  let isolateValue = "";
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
-  const PREVIOUS_RUNS_RULE_OPERATORS = [
+  const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [
     ["contains", "contains"],
     ["not_contains", "does not contain"],
     ["eq", "equals"],
@@ -2870,17 +3070,11 @@ _JS = """\
     ["is_empty", "is empty"],
     ["not_empty", "is not empty"],
   ];
-  const PREVIOUS_RUNS_MOST_USED_FIELDS = [
-    "run_timestamp",
-    "strict_accuracy",
-    "macro_f1_excluding_other",
-    "gold_total",
-    "gold_matched",
-    "recipes",
-    "source_label",
-    "importer_name",
-    "ai_model_effort",
-  ];
+  const PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP = Object.fromEntries(
+    PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS
+  );
+  const PREVIOUS_RUNS_UNARY_FILTER_OPERATORS = new Set(["is_empty", "not_empty"]);
+  const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;
   const PREVIOUS_RUNS_DEFAULT_COLUMNS = [
     "run_timestamp",
     "strict_accuracy",
@@ -2888,9 +3082,11 @@ _JS = """\
     "gold_total",
     "gold_matched",
     "recipes",
+    "all_token_use",
     "source_label",
     "importer_name",
-    "ai_model_effort",
+    "ai_model",
+    "ai_effort",
   ];
   const PREVIOUS_RUNS_COLUMN_META = {
     run_timestamp: {
@@ -2923,6 +3119,36 @@ _JS = """\
       title: "Predicted recipe count (when available). Separate from span scoring.",
       numeric: true,
     },
+    all_token_use: {
+      label: "All token use",
+      title: "Combined token view (total/input/output). Sort/filter uses total tokens.",
+      numeric: true,
+    },
+    tokens_input: {
+      label: "Tokens In",
+      title: "CodexFarm input tokens summed for this benchmark run.",
+      numeric: true,
+    },
+    tokens_cached_input: {
+      label: "Tokens Cached In",
+      title: "CodexFarm cached-input tokens summed for this benchmark run.",
+      numeric: true,
+    },
+    tokens_output: {
+      label: "Tokens Out",
+      title: "CodexFarm output tokens summed for this benchmark run.",
+      numeric: true,
+    },
+    tokens_reasoning: {
+      label: "Tokens Reasoning",
+      title: "CodexFarm reasoning tokens summed for this benchmark run.",
+      numeric: true,
+    },
+    tokens_total: {
+      label: "Tokens Total",
+      title: "CodexFarm total tokens summed for this benchmark run.",
+      numeric: true,
+    },
     source_label: {
       label: "Source",
       title: "Which source file/book was evaluated.",
@@ -2933,9 +3159,14 @@ _JS = """\
       title: "Importer used to generate predictions.",
       numeric: false,
     },
-    ai_model_effort: {
-      label: "AI Model + Effort",
-      title: "Best-effort AI model and thinking effort from benchmark run config metadata.",
+    ai_model: {
+      label: "AI Model",
+      title: "Best-effort AI model from benchmark run config metadata.",
+      numeric: false,
+    },
+    ai_effort: {
+      label: "AI Effort",
+      title: "Best-effort AI thinking effort from benchmark run config metadata.",
       numeric: false,
     },
   };
@@ -2952,6 +3183,57 @@ _JS = """\
     "supported_practical_recall",
     "supported_practical_f1",
   ]);
+  const ISOLATE_FIELD_SKIP = new Set([
+    "artifact_dir",
+    "artifact_dir_basename",
+    "run_dir",
+    "report_path",
+    "run_timestamp",
+    "run_config_summary",
+    "run_config_hash",
+    "per_label_json",
+  ]);
+  const ISOLATE_FIELD_PREFERRED = [
+    "source_label",
+    "source_file_basename",
+    "importer_name",
+    "ai_model",
+    "ai_effort",
+    "run_config.llm_recipe_pipeline",
+    "run_config.epub_extractor",
+    "run_config.epub_extractor_effective",
+    "run_config.epub_unstructured_preprocess_mode",
+    "run_config.epub_unstructured_skip_headers_footers",
+    "run_config.codex_farm_reasoning_effort",
+    "run_config.codex_farm_model",
+  ];
+  const ISOLATE_METRIC_PREFERRED = [
+    "strict_accuracy",
+    "macro_f1_excluding_other",
+    "precision",
+    "recall",
+    "f1",
+    "practical_f1",
+    "supported_practical_f1",
+    "recipes",
+    "benchmark_total_seconds",
+    "benchmark_prediction_seconds",
+    "benchmark_evaluation_seconds",
+    "all_token_use",
+    "tokens_input",
+    "tokens_cached_input",
+    "tokens_output",
+    "tokens_reasoning",
+    "tokens_total",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "run_config.prompt_tokens",
+    "run_config.completion_tokens",
+    "run_config.total_tokens",
+    "run_config.input_tokens",
+    "run_config.output_tokens",
+  ];
   const TABLE_COLLAPSE_DEFAULT_ROWS = {
     "recent-runs": 8,
     "file-trend-table": 8,
@@ -3231,51 +3513,21 @@ _JS = """\
     return activeExtractors.has(extractor);
   }
 
-  // ---- Previous-runs rules filters ----
+  // ---- Previous-runs column filters ----
   function setupPreviousRunsFilters() {
     previousRunsFieldOptions = collectBenchmarkFieldPaths();
     ensurePreviousRunsColumns();
     setupPreviousRunsColumnsControls();
-    if (!previousRunsRuleState.length) {
-      resetPreviousRunsRules();
-    }
-
-    const addBtn = document.getElementById("previous-runs-add-rule");
-    if (addBtn && !addBtn.dataset.bound) {
-      addBtn.addEventListener("click", () => {
-        previousRunsRuleState.push(createPreviousRunsRule(defaultPreviousRunsField()));
-        if (!String(previousRunsFilterExpression || "").trim()) {
-          previousRunsFilterExpression = previousRunsRuleState[0].id;
-        }
-        ensurePreviousRunsExpressionInput();
-        renderPreviousRunsFilterEditor();
+    setupIsolateControls();
+    const clearBtn = document.getElementById("previous-runs-clear-filters");
+    if (clearBtn && !clearBtn.dataset.bound) {
+      clearBtn.addEventListener("click", () => {
+        previousRunsColumnFilters = Object.create(null);
+        closePreviousRunsColumnFilterEditor();
         renderAll();
       });
-      addBtn.dataset.bound = "1";
+      clearBtn.dataset.bound = "1";
     }
-
-    const resetBtn = document.getElementById("previous-runs-reset-rules");
-    if (resetBtn && !resetBtn.dataset.bound) {
-      resetBtn.addEventListener("click", () => {
-        resetPreviousRunsRules();
-        ensurePreviousRunsExpressionInput();
-        renderPreviousRunsFilterEditor();
-        renderAll();
-      });
-      resetBtn.dataset.bound = "1";
-    }
-
-    const expressionInput = document.getElementById("previous-runs-filter-expression");
-    if (expressionInput && !expressionInput.dataset.bound) {
-      expressionInput.addEventListener("input", () => {
-        previousRunsFilterExpression = expressionInput.value || "";
-        renderAll();
-      });
-      expressionInput.dataset.bound = "1";
-    }
-
-    ensurePreviousRunsExpressionInput();
-    renderPreviousRunsFilterEditor();
     renderPreviousRunsColumnEditor();
   }
 
@@ -3313,6 +3565,60 @@ _JS = """\
       next.push(fallback);
     }
     previousRunsVisibleColumns = next;
+    prunePreviousRunsColumnFilters();
+  }
+
+  function prunePreviousRunsColumnFilters() {
+    const visible = new Set(previousRunsVisibleColumns);
+    const next = Object.create(null);
+    Object.keys(previousRunsColumnFilters).forEach(fieldName => {
+      if (!visible.has(fieldName)) return;
+      const normalized = previousRunsColumnFilterState(fieldName);
+      if (normalized.active) {
+        next[fieldName] = {
+          operator: normalized.operator,
+          value: normalized.value,
+        };
+      }
+    });
+    previousRunsColumnFilters = next;
+    if (previousRunsOpenFilterField && !visible.has(previousRunsOpenFilterField)) {
+      closePreviousRunsColumnFilterEditor();
+    }
+  }
+
+  function openPreviousRunsColumnFilterEditor(fieldName) {
+    const state = previousRunsColumnFilterState(fieldName);
+    previousRunsOpenFilterField = String(fieldName || "");
+    previousRunsOpenFilterDraft = {
+      operator: state.operator,
+      value: state.value,
+    };
+  }
+
+  function closePreviousRunsColumnFilterEditor() {
+    previousRunsOpenFilterField = "";
+    previousRunsOpenFilterDraft = null;
+  }
+
+  function currentPreviousRunsColumnFilterDraft(fieldName) {
+    const fallback = previousRunsColumnFilterState(fieldName);
+    if (
+      previousRunsOpenFilterField !== fieldName ||
+      !previousRunsOpenFilterDraft ||
+      typeof previousRunsOpenFilterDraft !== "object"
+    ) {
+      return fallback;
+    }
+    const draftOperator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[previousRunsOpenFilterDraft.operator]
+      ? String(previousRunsOpenFilterDraft.operator)
+      : fallback.operator;
+    const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(draftOperator);
+    return {
+      operator: draftOperator,
+      value: unary ? "" : String(previousRunsOpenFilterDraft.value || ""),
+      active: unary ? true : String(previousRunsOpenFilterDraft.value || "").trim() !== "",
+    };
   }
 
   function previousRunsColumnMeta(fieldName) {
@@ -3325,19 +3631,576 @@ _JS = """\
     };
   }
 
-  function setupPreviousRunsColumnsControls() {
-    const addBtn = document.getElementById("previous-runs-column-add");
-    if (addBtn && !addBtn.dataset.bound) {
-      addBtn.addEventListener("click", () => {
-        const select = document.getElementById("previous-runs-column-add-select");
-        if (!select) return;
-        const fieldName = String(select.value || "").trim();
-        if (!fieldName || previousRunsVisibleColumns.includes(fieldName)) return;
-        previousRunsVisibleColumns.push(fieldName);
-        renderPreviousRunsColumnEditor();
-        renderPreviousRuns();
+  function previousRunsColumnFilterState(fieldName) {
+    const raw = previousRunsColumnFilters[fieldName] || null;
+    const fallbackOperator = "contains";
+    const operator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[raw && raw.operator]
+      ? String(raw.operator)
+      : fallbackOperator;
+    const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(operator);
+    const value = unary ? "" : String((raw && raw.value) || "");
+    const active = unary ? true : value.trim() !== "";
+    return {
+      operator,
+      value,
+      active,
+    };
+  }
+
+  function setPreviousRunsColumnFilter(fieldName, operator, value) {
+    const nextOperator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[operator]
+      ? String(operator)
+      : "contains";
+    const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(nextOperator);
+    const nextValue = unary ? "" : String(value || "");
+    if (!unary && nextValue.trim() === "") {
+      delete previousRunsColumnFilters[fieldName];
+      return false;
+    }
+    previousRunsColumnFilters[fieldName] = {
+      operator: nextOperator,
+      value: nextValue,
+    };
+    return true;
+  }
+
+  function clearPreviousRunsColumnFilter(fieldName) {
+    if (!Object.prototype.hasOwnProperty.call(previousRunsColumnFilters, fieldName)) {
+      return false;
+    }
+    delete previousRunsColumnFilters[fieldName];
+    return true;
+  }
+
+  function activePreviousRunsColumnFilters() {
+    const ordered = [];
+    previousRunsVisibleColumns.forEach(fieldName => {
+      const state = previousRunsColumnFilterState(fieldName);
+      if (!state.active) return;
+      ordered.push({
+        field: fieldName,
+        operator: state.operator,
+        value: state.value,
       });
-      addBtn.dataset.bound = "1";
+    });
+    return ordered;
+  }
+
+  function formatPreviousRunsColumnFilterSummary(fieldName, filter) {
+    const label = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[filter.operator] || filter.operator;
+    if (PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(filter.operator)) {
+      return label;
+    }
+    return label + " " + String(filter.value || "");
+  }
+
+  function setupIsolateControls() {
+    const fieldSelect = document.getElementById("isolate-field");
+    const valueSelect = document.getElementById("isolate-value");
+    const clearBtn = document.getElementById("isolate-clear");
+    if (!fieldSelect || !valueSelect || !clearBtn) return;
+
+    if (!fieldSelect.dataset.bound) {
+      fieldSelect.addEventListener("change", () => {
+        isolateField = String(fieldSelect.value || "");
+        isolateValue = "";
+        renderAll();
+      });
+      fieldSelect.dataset.bound = "1";
+    }
+
+    if (!valueSelect.dataset.bound) {
+      valueSelect.addEventListener("change", () => {
+        isolateValue = String(valueSelect.value || "");
+        renderAll();
+      });
+      valueSelect.dataset.bound = "1";
+    }
+
+    if (!clearBtn.dataset.bound) {
+      clearBtn.addEventListener("click", () => {
+        isolateField = "";
+        isolateValue = "";
+        renderAll();
+      });
+      clearBtn.dataset.bound = "1";
+    }
+  }
+
+  function isolateComparableValue(value) {
+    if (value == null) return "__EMPTY__";
+    if (typeof value === "string") {
+      const text = value.trim();
+      return text ? text : "__EMPTY__";
+    }
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return "__EMPTY__";
+      return String(value);
+    }
+    return String(value);
+  }
+
+  function isolateDisplayValue(rawValue, comparableValue) {
+    if (comparableValue === "__EMPTY__") return "(empty)";
+    if (typeof rawValue === "boolean") return rawValue ? "true" : "false";
+    if (typeof rawValue === "number") {
+      if (!Number.isFinite(rawValue)) return "(empty)";
+      return Number.isInteger(rawValue) ? String(rawValue) : rawValue.toFixed(4);
+    }
+    return String(rawValue);
+  }
+
+  function isolateFieldLabel(fieldName) {
+    const meta = previousRunsColumnMeta(fieldName);
+    if (!meta || !meta.label || meta.label === fieldName) return fieldName;
+    return meta.label + " (" + fieldName + ")";
+  }
+
+  function isolateValueCountsForField(records, fieldName) {
+    const byKey = Object.create(null);
+    records.forEach(record => {
+      const rawValue = previousRunsFieldValue(record, fieldName);
+      const key = isolateComparableValue(rawValue);
+      if (!Object.prototype.hasOwnProperty.call(byKey, key)) {
+        byKey[key] = {
+          key,
+          label: isolateDisplayValue(rawValue, key),
+          count: 0,
+        };
+      }
+      byKey[key].count += 1;
+    });
+    return Object.values(byKey).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return String(a.label).localeCompare(String(b.label), undefined, { numeric: true });
+    });
+  }
+
+  function isolateFieldCatalog(records) {
+    const seen = new Set();
+    const ordered = [];
+
+    function considerField(fieldName) {
+      const key = String(fieldName || "").trim();
+      if (!key || seen.has(key) || ISOLATE_FIELD_SKIP.has(key)) return;
+      seen.add(key);
+      const values = isolateValueCountsForField(records, key);
+      if (values.length < 2 || values.length > 80) return;
+      ordered.push({
+        field: key,
+        label: isolateFieldLabel(key),
+        values,
+      });
+    }
+
+    ISOLATE_FIELD_PREFERRED.forEach(considerField);
+    PREVIOUS_RUNS_DEFAULT_COLUMNS.forEach(considerField);
+    previousRunsFieldOptions.forEach(considerField);
+    return ordered;
+  }
+
+  function syncIsolateControls(records) {
+    const fieldSelect = document.getElementById("isolate-field");
+    const valueSelect = document.getElementById("isolate-value");
+    if (!fieldSelect || !valueSelect) {
+      return {
+        active: false,
+        available: false,
+        field: "",
+        fieldLabel: "",
+        value: "",
+        valueLabel: "",
+      };
+    }
+
+    const catalog = isolateFieldCatalog(records);
+    if (!catalog.length) {
+      isolateField = "";
+      isolateValue = "";
+      fieldSelect.innerHTML = '<option value="">No isolate fields available</option>';
+      valueSelect.innerHTML = '<option value="">No values</option>';
+      return {
+        active: false,
+        available: false,
+        field: "",
+        fieldLabel: "",
+        value: "",
+        valueLabel: "",
+      };
+    }
+
+    if (!catalog.some(entry => entry.field === isolateField)) {
+      isolateField = catalog[0].field;
+      isolateValue = "";
+    }
+
+    const fieldOptionsHtml = catalog
+      .map(entry => {
+        const selected = entry.field === isolateField ? " selected" : "";
+        return (
+          '<option value="' + esc(entry.field) + '"' + selected + ">" +
+          esc(entry.label + " (" + entry.values.length + " values)") +
+          "</option>"
+        );
+      })
+      .join("");
+    if (fieldSelect.innerHTML !== fieldOptionsHtml) {
+      fieldSelect.innerHTML = fieldOptionsHtml;
+    }
+    fieldSelect.value = isolateField;
+
+    const selectedField = catalog.find(entry => entry.field === isolateField) || catalog[0];
+    if (!selectedField.values.some(entry => entry.key === isolateValue)) {
+      isolateValue = "";
+    }
+    const valueOptionsHtml = [
+      '<option value="">Select value...</option>',
+      ...selectedField.values.map(entry => {
+        const selected = entry.key === isolateValue ? " selected" : "";
+        return (
+          '<option value="' + esc(entry.key) + '"' + selected + ">" +
+          esc(entry.label + " (" + entry.count + ")") +
+          "</option>"
+        );
+      }),
+    ].join("");
+    if (valueSelect.innerHTML !== valueOptionsHtml) {
+      valueSelect.innerHTML = valueOptionsHtml;
+    }
+    valueSelect.value = isolateValue;
+
+    const selectedValue = selectedField.values.find(entry => entry.key === isolateValue) || null;
+    const active = Boolean(selectedField.field && selectedValue);
+    return {
+      active,
+      available: true,
+      field: selectedField.field,
+      fieldLabel: selectedField.label,
+      value: selectedValue ? selectedValue.key : "",
+      valueLabel: selectedValue ? selectedValue.label : "",
+    };
+  }
+
+  function isolateRecordMatches(record, isolateState) {
+    if (!isolateState || !isolateState.active) return true;
+    const value = previousRunsFieldValue(record, isolateState.field);
+    return isolateComparableValue(value) === isolateState.value;
+  }
+
+  function isolateNumericMean(records, fieldName) {
+    const values = records
+      .map(record => maybeNumber(previousRunsFieldValue(record, fieldName)))
+      .filter(value => value != null);
+    if (!values.length) return null;
+    return mean(values);
+  }
+
+  function signedNumber(value, digits) {
+    if (value == null || !Number.isFinite(value)) return "-";
+    const rounded = Number(value).toFixed(digits);
+    if (Number(value) > 0) return "+" + rounded;
+    return rounded;
+  }
+
+  function isolateMetricComparisons(baselineRecords, isolatedRecords) {
+    const seen = new Set();
+    const orderedFields = [];
+
+    function addField(fieldName) {
+      const key = String(fieldName || "").trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      orderedFields.push(key);
+    }
+
+    ISOLATE_METRIC_PREFERRED.forEach(addField);
+    previousRunsFieldOptions.forEach(addField);
+
+    const comparisons = [];
+    orderedFields.forEach(fieldName => {
+      const baselineMean = isolateNumericMean(baselineRecords, fieldName);
+      const isolateMean = isolateNumericMean(isolatedRecords, fieldName);
+      if (baselineMean == null || isolateMean == null) return;
+
+      const deltaAbs = isolateMean - baselineMean;
+      const deltaPct = Math.abs(baselineMean) > 1e-12
+        ? (deltaAbs / Math.abs(baselineMean)) * 100
+        : null;
+      const scoreField = PREVIOUS_RUNS_SCORE_FIELDS.has(fieldName);
+      const effect = scoreField
+        ? Math.abs(deltaAbs) * 100
+        : Math.abs(deltaPct != null ? deltaPct : deltaAbs);
+      comparisons.push({
+        field: fieldName,
+        baselineMean,
+        isolateMean,
+        deltaAbs,
+        deltaPct,
+        scoreField,
+        effect,
+      });
+    });
+
+    comparisons.sort((a, b) => b.effect - a.effect);
+    return comparisons;
+  }
+
+  function renderIsolateInsightsPanel(context) {
+    const host = document.getElementById("isolate-insights");
+    const status = document.getElementById("isolate-status");
+    if (!host || !status) return;
+
+    if (!context.available) {
+      status.textContent = "No isolate candidates are available in the current run set.";
+      host.innerHTML = '<p class="empty-note">Try broadening the date/category filters, then pick a field to isolate.</p>';
+      return;
+    }
+
+    if (!context.active) {
+      status.textContent = "Pick a field and value to isolate a slice.";
+      host.innerHTML = "<p>When active, this panel compares the isolated slice with all currently visible rows.</p>";
+      return;
+    }
+
+    const isolatedRows = context.isolatedRecords || [];
+    const baselineRows = context.baselineRecords || [];
+    const ratio = baselineRows.length > 0
+      ? (isolatedRows.length / baselineRows.length) * 100
+      : 0;
+    status.textContent =
+      "Isolating " +
+      context.fieldLabel +
+      " = " +
+      context.valueLabel +
+      ". " +
+      isolatedRows.length +
+      " / " +
+      baselineRows.length +
+      " rows (" +
+      ratio.toFixed(1) +
+      "%).";
+
+    if (!isolatedRows.length) {
+      host.innerHTML = "<p>No rows match this isolate selection after current filters.</p>";
+      return;
+    }
+
+    const comparisons = isolateMetricComparisons(baselineRows, isolatedRows);
+    const quality = comparisons.find(item => item.field === "strict_accuracy")
+      || comparisons.find(item => item.field === "macro_f1_excluding_other")
+      || comparisons.find(item => item.scoreField);
+    const token = comparisons.find(item => /token/i.test(item.field));
+    const runtime = comparisons.find(item => /seconds|runtime|duration|latency/i.test(item.field));
+
+    const bullets = [];
+    if (quality) {
+      const qualityLabel = isolateFieldLabel(quality.field);
+      bullets.push(
+        qualityLabel +
+        ": isolated avg " +
+        (quality.isolateMean * 100).toFixed(2) +
+        "% vs baseline " +
+        (quality.baselineMean * 100).toFixed(2) +
+        "% (" +
+        signedNumber(quality.deltaAbs * 100, 2) +
+        " pts)."
+      );
+    }
+    if (quality && token) {
+      bullets.push(
+        "Quality vs tokens: " +
+        signedNumber(quality.deltaAbs * 100, 2) +
+        " pts on " +
+        isolateFieldLabel(quality.field) +
+        ", token usage " +
+        signedNumber(token.deltaPct, 1) +
+        "% (" +
+        isolateFieldLabel(token.field) +
+        ")."
+      );
+    } else if (quality && runtime) {
+      bullets.push(
+        "Quality vs runtime: " +
+        signedNumber(quality.deltaAbs * 100, 2) +
+        " pts on " +
+        isolateFieldLabel(quality.field) +
+        ", runtime " +
+        signedNumber(runtime.deltaPct, 1) +
+        "% (" +
+        isolateFieldLabel(runtime.field) +
+        ")."
+      );
+    }
+
+    comparisons.slice(0, 6).forEach(item => {
+      const label = isolateFieldLabel(item.field);
+      if (item.scoreField) {
+        bullets.push(
+          label +
+          ": " +
+          (item.isolateMean * 100).toFixed(2) +
+          "% vs " +
+          (item.baselineMean * 100).toFixed(2) +
+          "% (" +
+          signedNumber(item.deltaAbs * 100, 2) +
+          " pts, " +
+          signedNumber(item.deltaPct, 1) +
+          "%)."
+        );
+        return;
+      }
+      const baselineText = fmtMaybe(item.baselineMean, 3);
+      const isolateText = fmtMaybe(item.isolateMean, 3);
+      const changeText = item.deltaPct == null
+        ? signedNumber(item.deltaAbs, 3)
+        : signedNumber(item.deltaPct, 1) + "%";
+      bullets.push(label + ": " + isolateText + " vs " + baselineText + " (" + changeText + ").");
+    });
+
+    const uniqueBullets = [];
+    const seenBullets = new Set();
+    bullets.forEach(line => {
+      const key = String(line || "").trim();
+      if (!key || seenBullets.has(key)) return;
+      seenBullets.add(key);
+      uniqueBullets.push(key);
+    });
+    host.innerHTML =
+      "<p>Baseline uses all currently visible rows before isolate filtering.</p>" +
+      '<ul class="isolate-insight-list">' +
+      uniqueBullets.map(line => "<li>" + esc(line) + "</li>").join("") +
+      "</ul>";
+  }
+
+  function previousRunsRecordsMatchingOtherFilters(excludedField) {
+    const base = filteredBenchmarks();
+    const filters = activePreviousRunsColumnFilters()
+      .filter(filter => filter.field !== excludedField);
+    if (!filters.length) return base;
+    return base.filter(record => (
+      filters.every(filter => {
+        const value = previousRunsFieldValue(record, filter.field);
+        return evaluatePreviousRunsFilterOperator(value, filter.operator, filter.value);
+      })
+    ));
+  }
+
+  function previousRunsSuggestionValue(value) {
+    if (value == null) return "";
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return "";
+      return Number.isInteger(value) ? String(value) : String(value);
+    }
+    return String(value).trim();
+  }
+
+  function previousRunsSuggestionScore(typedLower, candidateLower) {
+    if (!typedLower) return 500;
+    if (!candidateLower) return -1;
+    if (candidateLower === typedLower) return 2000;
+    if (candidateLower.startsWith(typedLower)) {
+      return 1500 - Math.min(300, candidateLower.length - typedLower.length);
+    }
+    const wordStart = candidateLower.indexOf(" " + typedLower);
+    if (wordStart >= 0) {
+      return 1300 - wordStart;
+    }
+    const includes = candidateLower.indexOf(typedLower);
+    if (includes >= 0) {
+      return 1100 - includes;
+    }
+    let needleIndex = 0;
+    for (let idx = 0; idx < candidateLower.length && needleIndex < typedLower.length; idx += 1) {
+      if (candidateLower[idx] === typedLower[needleIndex]) {
+        needleIndex += 1;
+      }
+    }
+    if (needleIndex === typedLower.length) {
+      return 900;
+    }
+    return -1;
+  }
+
+  function previousRunsColumnSuggestionCandidates(fieldName, typedText) {
+    const typedLower = normalizeRuleValue(typedText || "");
+    const counts = new Map();
+    previousRunsRecordsMatchingOtherFilters(fieldName).forEach(record => {
+      const rawValue = previousRunsFieldValue(record, fieldName);
+      const candidate = previousRunsSuggestionValue(rawValue);
+      if (!candidate) return;
+      counts.set(candidate, (counts.get(candidate) || 0) + 1);
+    });
+
+    const scored = [];
+    counts.forEach((count, value) => {
+      const lower = value.toLowerCase();
+      const score = previousRunsSuggestionScore(typedLower, lower);
+      if (score < 0) return;
+      scored.push({
+        value,
+        count,
+        score,
+      });
+    });
+
+    scored.sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      if (right.count !== left.count) return right.count - left.count;
+      if (left.value.length !== right.value.length) return left.value.length - right.value.length;
+      return left.value.localeCompare(right.value);
+    });
+    return scored.slice(0, PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT);
+  }
+
+  function setPreviousRunsColumnsPopupOpen(nextOpen) {
+    previousRunsColumnsPopupOpen = Boolean(nextOpen);
+    const popup = document.getElementById("previous-runs-columns-popup");
+    const toggleBtn = document.getElementById("previous-runs-columns-toggle");
+    if (popup) {
+      popup.hidden = !previousRunsColumnsPopupOpen;
+    }
+    if (toggleBtn) {
+      toggleBtn.setAttribute("aria-expanded", previousRunsColumnsPopupOpen ? "true" : "false");
+      toggleBtn.classList.toggle("open", previousRunsColumnsPopupOpen);
+    }
+  }
+
+  function setupPreviousRunsColumnsControls() {
+    const control = document.querySelector(".previous-runs-columns-control");
+    const popup = document.getElementById("previous-runs-columns-popup");
+    const toggleBtn = document.getElementById("previous-runs-columns-toggle");
+
+    if (toggleBtn && !toggleBtn.dataset.bound) {
+      toggleBtn.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        setPreviousRunsColumnsPopupOpen(!previousRunsColumnsPopupOpen);
+      });
+      toggleBtn.dataset.bound = "1";
+    }
+
+    if (popup && !popup.dataset.bound) {
+      popup.addEventListener("click", event => {
+        event.stopPropagation();
+      });
+      popup.dataset.bound = "1";
+    }
+
+    if (document.body && !document.body.dataset.previousRunsColumnsBound) {
+      document.addEventListener("click", event => {
+        if (!previousRunsColumnsPopupOpen) return;
+        if (!(event.target instanceof Node)) return;
+        if (control && control.contains(event.target)) return;
+        setPreviousRunsColumnsPopupOpen(false);
+      });
+      document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        if (!previousRunsColumnsPopupOpen) return;
+        setPreviousRunsColumnsPopupOpen(false);
+      });
+      document.body.dataset.previousRunsColumnsBound = "1";
     }
 
     const resetBtn = document.getElementById("previous-runs-column-reset");
@@ -3352,95 +4215,70 @@ _JS = """\
       });
       resetBtn.dataset.bound = "1";
     }
+    setPreviousRunsColumnsPopupOpen(false);
   }
 
   function renderPreviousRunsColumnEditor() {
     ensurePreviousRunsColumns();
-    const host = document.getElementById("previous-runs-columns-editor");
-    const addSelect = document.getElementById("previous-runs-column-add-select");
-    const addBtn = document.getElementById("previous-runs-column-add");
-    if (!host || !addSelect || !addBtn) return;
+    const host = document.getElementById("previous-runs-columns-checklist");
+    if (!host) return;
 
     host.innerHTML = "";
-    previousRunsVisibleColumns.forEach((fieldName, idx) => {
-      const meta = previousRunsColumnMeta(fieldName);
-      const row = document.createElement("div");
-      row.className = "previous-runs-column-row";
-
-      const label = document.createElement("div");
-      label.className = "previous-runs-column-label";
-      label.textContent = meta.label;
-      if (meta.label !== fieldName) {
-        const key = document.createElement("span");
-        key.className = "previous-runs-column-key";
-        key.textContent = " " + fieldName;
-        label.appendChild(key);
+    const availableFields = previousRunsAvailableColumnFields();
+    const availableSet = new Set(availableFields);
+    const visibleSet = new Set(previousRunsVisibleColumns);
+    const disabledFieldName = previousRunsVisibleColumns.length <= 1
+      ? previousRunsVisibleColumns[0]
+      : null;
+    const checklistOrder = [...previousRunsVisibleColumns].filter(
+      fieldName => availableSet.has(fieldName)
+    );
+    availableFields.forEach(fieldName => {
+      if (!visibleSet.has(fieldName)) {
+        checklistOrder.push(fieldName);
       }
-      row.appendChild(label);
-
-      const actions = document.createElement("div");
-      actions.className = "previous-runs-column-buttons";
-
-      const leftBtn = document.createElement("button");
-      leftBtn.type = "button";
-      leftBtn.className = "previous-runs-column-btn";
-      leftBtn.textContent = "Left";
-      leftBtn.disabled = idx === 0;
-      leftBtn.addEventListener("click", () => {
-        if (idx === 0) return;
-        reorderPreviousRunsColumns(fieldName, previousRunsVisibleColumns[idx - 1]);
-        renderPreviousRunsColumnEditor();
-        renderPreviousRuns();
-      });
-      actions.appendChild(leftBtn);
-
-      const rightBtn = document.createElement("button");
-      rightBtn.type = "button";
-      rightBtn.className = "previous-runs-column-btn";
-      rightBtn.textContent = "Right";
-      rightBtn.disabled = idx === previousRunsVisibleColumns.length - 1;
-      rightBtn.addEventListener("click", () => {
-        if (idx >= previousRunsVisibleColumns.length - 1) return;
-        reorderPreviousRunsColumns(fieldName, previousRunsVisibleColumns[idx + 1]);
-        renderPreviousRunsColumnEditor();
-        renderPreviousRuns();
-      });
-      actions.appendChild(rightBtn);
-
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "previous-runs-column-btn";
-      removeBtn.textContent = "Remove";
-      removeBtn.disabled = previousRunsVisibleColumns.length <= 1;
-      removeBtn.addEventListener("click", () => {
-        if (previousRunsVisibleColumns.length <= 1) return;
-        previousRunsVisibleColumns = previousRunsVisibleColumns.filter(
-          candidate => candidate !== fieldName
-        );
+    });
+    checklistOrder.forEach(fieldName => {
+      const meta = previousRunsColumnMeta(fieldName);
+      const row = document.createElement("label");
+      row.className = "previous-runs-columns-check-item";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = fieldName;
+      checkbox.checked = visibleSet.has(fieldName);
+      checkbox.disabled = fieldName === disabledFieldName;
+      checkbox.addEventListener("change", () => {
+        const checked = checkbox.checked;
+        const currentVisible = new Set(previousRunsVisibleColumns);
+        if (checked) {
+          if (!currentVisible.has(fieldName)) {
+            previousRunsVisibleColumns.push(fieldName);
+          }
+        } else {
+          if (previousRunsVisibleColumns.length <= 1) {
+            checkbox.checked = true;
+            return;
+          }
+          previousRunsVisibleColumns = previousRunsVisibleColumns.filter(
+            candidate => candidate !== fieldName
+          );
+        }
         ensurePreviousRunsColumns();
         renderPreviousRunsColumnEditor();
         renderPreviousRuns();
       });
-      actions.appendChild(removeBtn);
+      row.appendChild(checkbox);
 
-      row.appendChild(actions);
+      const labelText = document.createElement("span");
+      labelText.textContent = meta.label || fieldName;
+      if ((meta.label || fieldName) !== fieldName) {
+        const key = document.createElement("code");
+        key.textContent = " " + fieldName;
+        labelText.appendChild(key);
+      }
+      row.appendChild(labelText);
       host.appendChild(row);
     });
-
-    const visibleSet = new Set(previousRunsVisibleColumns);
-    const addOptions = previousRunsAvailableColumnFields()
-      .filter(fieldName => !visibleSet.has(fieldName));
-    addSelect.innerHTML = "";
-    addOptions.forEach(fieldName => {
-      const option = document.createElement("option");
-      option.value = fieldName;
-      option.textContent = fieldName;
-      addSelect.appendChild(option);
-    });
-    addBtn.disabled = addOptions.length === 0;
-    if (addOptions.length > 0 && !addOptions.includes(addSelect.value)) {
-      addSelect.value = addOptions[0];
-    }
   }
 
   function reorderPreviousRunsColumns(fromField, toField) {
@@ -3451,146 +4289,8 @@ _JS = """\
     const moved = next.splice(from, 1)[0];
     next.splice(to, 0, moved);
     previousRunsVisibleColumns = next;
+    prunePreviousRunsColumnFilters();
     return true;
-  }
-
-  function nextPreviousRunsRuleId() {
-    previousRunsRuleCounter += 1;
-    return "R" + String(previousRunsRuleCounter);
-  }
-
-  function createPreviousRunsRule(fieldName) {
-    return {
-      id: nextPreviousRunsRuleId(),
-      field: fieldName || defaultPreviousRunsField(),
-      operator: "contains",
-      value: "",
-    };
-  }
-
-  function defaultPreviousRunsField() {
-    if (!previousRunsFieldOptions.length) return "run_timestamp";
-    if (previousRunsFieldOptions.includes("source_file_basename")) {
-      return "source_file_basename";
-    }
-    return previousRunsFieldOptions[0];
-  }
-
-  function resetPreviousRunsRules() {
-    previousRunsRuleCounter = 0;
-    previousRunsRuleState = [createPreviousRunsRule(defaultPreviousRunsField())];
-    previousRunsFilterExpression = previousRunsRuleState[0].id;
-  }
-
-  function ensurePreviousRunsExpressionInput() {
-    const expressionInput = document.getElementById("previous-runs-filter-expression");
-    if (!expressionInput) return;
-    expressionInput.value = previousRunsFilterExpression || "";
-  }
-
-  function renderPreviousRunsFilterEditor() {
-    const host = document.getElementById("previous-runs-filter-builder");
-    if (!host) return;
-    host.innerHTML = "";
-
-    if (!previousRunsRuleState.length) {
-      const note = document.createElement("p");
-      note.className = "empty-note";
-      note.textContent = "No rules configured.";
-      host.appendChild(note);
-      return;
-    }
-
-    previousRunsRuleState.forEach(rule => {
-      const row = document.createElement("div");
-      row.className = "previous-runs-rule-row";
-
-      const badge = document.createElement("span");
-      badge.className = "previous-runs-rule-id";
-      badge.textContent = rule.id;
-      row.appendChild(badge);
-
-      const fieldSelect = document.createElement("select");
-      fieldSelect.setAttribute("aria-label", rule.id + " field");
-      const fieldGroups = groupedPreviousRunsFieldOptions();
-      function appendFieldGroup(groupLabel, fields) {
-        if (!fields.length) return;
-        const optgroup = document.createElement("optgroup");
-        optgroup.label = groupLabel;
-        fields.forEach(fieldName => {
-          const option = document.createElement("option");
-          option.value = fieldName;
-          option.textContent = fieldName;
-          if (fieldName === rule.field) option.selected = true;
-          optgroup.appendChild(option);
-        });
-        fieldSelect.appendChild(optgroup);
-      }
-      appendFieldGroup("Most used (table columns)", fieldGroups.mostUsed);
-      appendFieldGroup("All other fields", fieldGroups.everythingElse);
-      fieldSelect.addEventListener("change", () => {
-        rule.field = fieldSelect.value;
-        renderAll();
-      });
-      row.appendChild(fieldSelect);
-
-      const operatorSelect = document.createElement("select");
-      operatorSelect.setAttribute("aria-label", rule.id + " operator");
-      PREVIOUS_RUNS_RULE_OPERATORS.forEach(([value, label]) => {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = label;
-        if (value === rule.operator) option.selected = true;
-        operatorSelect.appendChild(option);
-      });
-      operatorSelect.addEventListener("change", () => {
-        rule.operator = operatorSelect.value;
-        if (rule.operator === "is_empty" || rule.operator === "not_empty") {
-          rule.value = "";
-        }
-        renderPreviousRunsFilterEditor();
-        renderAll();
-      });
-      row.appendChild(operatorSelect);
-
-      const valueInput = document.createElement("input");
-      valueInput.type = "text";
-      valueInput.setAttribute("aria-label", rule.id + " value");
-      valueInput.value = String(rule.value || "");
-      valueInput.placeholder = rule.operator === "regex" ? "regex pattern" : "value";
-      if (rule.operator === "is_empty" || rule.operator === "not_empty") {
-        valueInput.disabled = true;
-      }
-      valueInput.addEventListener("input", () => {
-        rule.value = valueInput.value;
-        renderAll();
-      });
-      row.appendChild(valueInput);
-
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "previous-runs-rule-remove";
-      removeBtn.textContent = "Remove";
-      removeBtn.setAttribute("aria-label", "Remove " + rule.id);
-      removeBtn.addEventListener("click", () => {
-        previousRunsRuleState = previousRunsRuleState.filter(candidate => candidate.id !== rule.id);
-        if (!previousRunsRuleState.length) {
-          resetPreviousRunsRules();
-        } else {
-          const expr = String(previousRunsFilterExpression || "");
-          const idPattern = new RegExp("\\\\b" + rule.id + "\\\\b", "i");
-          if (!expr.trim() || idPattern.test(expr)) {
-            previousRunsFilterExpression = previousRunsRuleState.map(candidate => candidate.id).join(" and ");
-          }
-        }
-        ensurePreviousRunsExpressionInput();
-        renderPreviousRunsFilterEditor();
-        renderAll();
-      });
-      row.appendChild(removeBtn);
-
-      host.appendChild(row);
-    });
   }
 
   function collectBenchmarkFieldPaths() {
@@ -3599,7 +4299,8 @@ _JS = """\
       "source_label",
       "source_file",
       "importer_name",
-      "ai_model_effort",
+      "ai_model",
+      "ai_effort",
       "run_timestamp",
       "run_config_hash",
       "run_config_summary",
@@ -3616,6 +4317,12 @@ _JS = """\
       "gold_total",
       "gold_matched",
       "recipes",
+      "all_token_use",
+      "tokens_input",
+      "tokens_cached_input",
+      "tokens_output",
+      "tokens_reasoning",
+      "tokens_total",
       "all_method_record",
       "speed_suite_record",
       "artifact_dir",
@@ -3626,7 +4333,8 @@ _JS = """\
     });
     discovered.add("source_file_basename");
     discovered.add("source_label");
-    discovered.add("ai_model_effort");
+    discovered.add("ai_model");
+    discovered.add("ai_effort");
     discovered.add("artifact_dir_basename");
     discovered.add("all_method_record");
     discovered.add("speed_suite_record");
@@ -3649,20 +4357,6 @@ _JS = """\
         }
       });
     return ordered;
-  }
-
-  function groupedPreviousRunsFieldOptions() {
-    const mostUsedSet = new Set(PREVIOUS_RUNS_MOST_USED_FIELDS);
-    const mostUsed = [];
-    const everythingElse = [];
-    previousRunsFieldOptions.forEach(fieldName => {
-      if (mostUsedSet.has(fieldName)) {
-        mostUsed.push(fieldName);
-      } else {
-        everythingElse.push(fieldName);
-      }
-    });
-    return { mostUsed, everythingElse };
   }
 
   function addFlattenedFieldPaths(value, prefix, output, depth) {
@@ -3702,11 +4396,27 @@ _JS = """\
   function computePreviousRunsFilterResult() {
     const allRecords = filteredBenchmarks();
     if (!allRecords.length) {
+      const emptyIsolateState = syncIsolateControls([]);
+      const activeExpression = activePreviousRunsColumnFilters()
+        .map(filter => {
+          const meta = previousRunsColumnMeta(filter.field);
+          return meta.label + " " + formatPreviousRunsColumnFilterSummary(filter.field, filter);
+        })
+        .join("; ");
       updatePreviousRunsFilterStatus({
         total: 0,
         matched: 0,
-        expression: previousRunsFilterExpression || "",
+        expression: activeExpression || "(none)",
+        isolate_text: "",
         error: null,
+      });
+      renderIsolateInsightsPanel({
+        available: emptyIsolateState.available,
+        active: false,
+        baselineRecords: [],
+        isolatedRecords: [],
+        fieldLabel: "",
+        valueLabel: "",
       });
       return {
         records: [],
@@ -3716,237 +4426,93 @@ _JS = """\
     }
 
     const compiled = compilePreviousRunsFilterPredicate();
-    if (compiled.error) {
-      updatePreviousRunsFilterStatus({
-        total: allRecords.length,
-        matched: allRecords.length,
-        expression: compiled.expression,
-        error: compiled.error,
-      });
-      return {
-        records: allRecords,
-        total: allRecords.length,
-        error: compiled.error,
-      };
-    }
-
-    const matchedRecords = allRecords.filter(compiled.predicate);
+    const baselineRecords = compiled.error
+      ? allRecords
+      : allRecords.filter(compiled.predicate);
+    const isolateState = syncIsolateControls(baselineRecords);
+    const matchedRecords = isolateState.active
+      ? baselineRecords.filter(record => isolateRecordMatches(record, isolateState))
+      : baselineRecords;
     updatePreviousRunsFilterStatus({
       total: allRecords.length,
       matched: matchedRecords.length,
       expression: compiled.expression,
-      error: null,
+      isolate_text: isolateState.active
+        ? isolateState.fieldLabel + " = " + isolateState.valueLabel
+        : "",
+      error: compiled.error,
+    });
+    renderIsolateInsightsPanel({
+      available: isolateState.available,
+      active: isolateState.active,
+      baselineRecords,
+      isolatedRecords: matchedRecords,
+      fieldLabel: isolateState.fieldLabel,
+      valueLabel: isolateState.valueLabel,
     });
     return {
       records: matchedRecords,
       total: allRecords.length,
-      error: null,
+      error: compiled.error,
     };
   }
 
   function compilePreviousRunsFilterPredicate() {
-    const rules = previousRunsRuleState.filter(rule => String(rule.field || "").trim());
-    if (!rules.length) {
+    const filters = activePreviousRunsColumnFilters();
+    if (!filters.length) {
       return {
         predicate: () => true,
-        expression: "",
+        expression: "(none)",
         error: null,
       };
     }
 
-    const expression = String(previousRunsFilterExpression || "").trim() || rules[0].id;
-    const ruleIds = new Set(rules.map(rule => String(rule.id || "").toUpperCase()));
-    const parsed = parseRuleBooleanExpression(expression, ruleIds);
-    if (parsed.error) {
-      return {
-        predicate: () => true,
-        expression,
-        error: parsed.error,
-      };
+    for (const filter of filters) {
+      if (filter.operator !== "regex") continue;
+      try {
+        new RegExp(String(filter.value || ""), "i");
+      } catch (error) {
+        return {
+          predicate: () => true,
+          expression: formatPreviousRunsColumnFilterSummary(filter.field, filter),
+          error: "Invalid regex for " + filter.field + ".",
+        };
+      }
     }
 
     return {
-      predicate: record => {
-        const results = Object.create(null);
-        rules.forEach(rule => {
-          const ruleId = String(rule.id || "").toUpperCase();
-          results[ruleId] = evaluatePreviousRunsRule(record, rule);
-        });
-        return evaluateRuleBooleanAst(parsed.ast, results);
-      },
-      expression,
+      predicate: record => (
+        filters.every(filter => {
+          const value = previousRunsFieldValue(record, filter.field);
+          return evaluatePreviousRunsFilterOperator(value, filter.operator, filter.value);
+        })
+      ),
+      expression: filters
+        .map(filter => {
+          const meta = previousRunsColumnMeta(filter.field);
+          return meta.label + " " + formatPreviousRunsColumnFilterSummary(filter.field, filter);
+        })
+        .join("; "),
       error: null,
     };
   }
 
-  function tokenizeRuleBooleanExpression(expression) {
-    const source = String(expression || "");
-    const tokens = [];
-    let index = 0;
-    while (index < source.length) {
-      const ch = source[index];
-      if (/\\s/.test(ch)) {
-        index += 1;
-        continue;
-      }
-      if (ch === "(") {
-        tokens.push({ type: "LPAREN", raw: ch });
-        index += 1;
-        continue;
-      }
-      if (ch === ")") {
-        tokens.push({ type: "RPAREN", raw: ch });
-        index += 1;
-        continue;
-      }
-      if (ch === "&" && source[index + 1] === "&") {
-        tokens.push({ type: "AND", raw: "&&" });
-        index += 2;
-        continue;
-      }
-      if (ch === "|" && source[index + 1] === "|") {
-        tokens.push({ type: "OR", raw: "||" });
-        index += 2;
-        continue;
-      }
-      if (ch === "!") {
-        tokens.push({ type: "NOT", raw: "!" });
-        index += 1;
-        continue;
-      }
-      const remaining = source.slice(index);
-      const match = remaining.match(/^[A-Za-z][A-Za-z0-9_]*/);
-      if (!match) {
-        return {
-          tokens: [],
-          error: "Unexpected token near '" + remaining.slice(0, 10) + "'.",
-        };
-      }
-      const raw = match[0];
-      const upper = raw.toUpperCase();
-      if (upper === "AND" || upper === "OR" || upper === "NOT") {
-        tokens.push({ type: upper, raw });
-      } else {
-        tokens.push({ type: "RULE", raw, value: upper });
-      }
-      index += raw.length;
-    }
-    return { tokens, error: null };
-  }
-
-  function parseRuleBooleanExpression(expression, ruleIds) {
-    const tokenized = tokenizeRuleBooleanExpression(expression);
-    if (tokenized.error) return { ast: null, error: tokenized.error };
-    const tokens = tokenized.tokens;
-    let position = 0;
-
-    function peek() {
-      return tokens[position] || null;
-    }
-    function consume(type) {
-      const next = peek();
-      if (next && next.type === type) {
-        position += 1;
-        return next;
-      }
-      return null;
-    }
-
-    function parseOr() {
-      let node = parseAnd();
-      while (consume("OR")) {
-        node = { type: "OR", left: node, right: parseAnd() };
-      }
-      return node;
-    }
-
-    function parseAnd() {
-      let node = parseNot();
-      while (consume("AND")) {
-        node = { type: "AND", left: node, right: parseNot() };
-      }
-      return node;
-    }
-
-    function parseNot() {
-      if (consume("NOT")) {
-        return { type: "NOT", child: parseNot() };
-      }
-      return parsePrimary();
-    }
-
-    function parsePrimary() {
-      if (consume("LPAREN")) {
-        const node = parseOr();
-        if (!consume("RPAREN")) {
-          throw new Error("Missing ')' in expression.");
-        }
-        return node;
-      }
-      const token = consume("RULE");
-      if (!token) {
-        throw new Error("Expected a rule id (for example R1).");
-      }
-      if (!ruleIds.has(token.value)) {
-        throw new Error("Unknown rule id '" + token.raw + "'.");
-      }
-      return { type: "RULE", id: token.value };
-    }
-
-    try {
-      const ast = parseOr();
-      if (position < tokens.length) {
-        const token = tokens[position];
-        return {
-          ast: null,
-          error: "Unexpected token '" + token.raw + "'.",
-        };
-      }
-      return { ast, error: null };
-    } catch (error) {
-      return {
-        ast: null,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  function evaluateRuleBooleanAst(node, ruleResults) {
-    if (!node) return true;
-    if (node.type === "RULE") return Boolean(ruleResults[node.id]);
-    if (node.type === "NOT") return !evaluateRuleBooleanAst(node.child, ruleResults);
-    if (node.type === "AND") {
-      return (
-        evaluateRuleBooleanAst(node.left, ruleResults) &&
-        evaluateRuleBooleanAst(node.right, ruleResults)
-      );
-    }
-    if (node.type === "OR") {
-      return (
-        evaluateRuleBooleanAst(node.left, ruleResults) ||
-        evaluateRuleBooleanAst(node.right, ruleResults)
-      );
-    }
-    return false;
-  }
-
-  function evaluatePreviousRunsRule(record, rule) {
-    const op = String(rule.operator || "contains");
-    const expected = String(rule.value || "");
-    const value = previousRunsFieldValue(record, String(rule.field || ""));
+  function evaluatePreviousRunsFilterOperator(value, operator, expected) {
+    const op = String(operator || "contains");
+    const wanted = String(expected || "");
 
     if (op === "is_empty") return isEmptyRuleValue(value);
     if (op === "not_empty") return !isEmptyRuleValue(value);
 
     const actualText = normalizeRuleValue(value);
-    const expectedText = normalizeRuleValue(expected);
+    const expectedText = normalizeRuleValue(wanted);
     if (op === "contains") return actualText.includes(expectedText);
     if (op === "not_contains") return !actualText.includes(expectedText);
     if (op === "starts_with") return actualText.startsWith(expectedText);
     if (op === "ends_with") return actualText.endsWith(expectedText);
     if (op === "regex") {
       try {
-        const pattern = new RegExp(expected, "i");
+        const pattern = new RegExp(wanted, "i");
         return pattern.test(String(value == null ? "" : value));
       } catch (error) {
         return false;
@@ -3954,7 +4520,7 @@ _JS = """\
     }
 
     const leftNumber = maybeNumber(value);
-    const rightNumber = maybeNumber(expected);
+    const rightNumber = maybeNumber(wanted);
     if (op === "gt") return leftNumber != null && rightNumber != null && leftNumber > rightNumber;
     if (op === "gte") return leftNumber != null && rightNumber != null && leftNumber >= rightNumber;
     if (op === "lt") return leftNumber != null && rightNumber != null && leftNumber < rightNumber;
@@ -3975,7 +4541,10 @@ _JS = """\
   function previousRunsFieldValue(record, fieldPath) {
     if (fieldPath === "source_file_basename") return basename(record.source_file || "");
     if (fieldPath === "source_label") return sourceLabelForRecord(record);
+    if (fieldPath === "ai_model") return aiModelLabelForRecord(record);
+    if (fieldPath === "ai_effort") return aiEffortLabelForRecord(record);
     if (fieldPath === "ai_model_effort") return aiModelEffortLabelForRecord(record);
+    if (fieldPath === "all_token_use") return maybeNumber(record && record.tokens_total);
     if (fieldPath === "artifact_dir_basename") return basename(record.artifact_dir || "");
     if (fieldPath === "all_method_record") return isAllMethodBenchmarkRecord(record);
     if (fieldPath === "speed_suite_record") return isSpeedBenchmarkRecord(record);
@@ -4023,26 +4592,27 @@ _JS = """\
   function updatePreviousRunsFilterStatus(result) {
     const status = document.getElementById("previous-runs-filter-status");
     if (!status) return;
-    const ruleIds = previousRunsRuleState.map(rule => rule.id).join(", ");
-    const expressionText = String(result.expression || "").trim();
     const header = "Showing " + result.matched + " of " + result.total + " rows.";
-    const expressionPart = expressionText
-      ? " Expression: " + expressionText + "."
-      : " Expression: (none).";
-    const rulesPart = ruleIds ? " Rules: " + ruleIds + "." : "";
+    const activeFilters = activePreviousRunsColumnFilters();
+    const filtersPart = activeFilters.length
+      ? " Active filters: " + result.expression + "."
+      : " Active filters: none.";
+    const isolatePart = result.isolate_text
+      ? " Isolate: " + result.isolate_text + "."
+      : " Isolate: none.";
     if (result.error) {
       status.textContent = (
         header +
-        expressionPart +
-        rulesPart +
-        " Expression error: " +
+        filtersPart +
+        isolatePart +
+        " Filter error: " +
         result.error +
         " (showing unfiltered rows)."
       );
       status.classList.add("filter-error");
       return;
     }
-    status.textContent = header + expressionPart + rulesPart;
+    status.textContent = header + filtersPart + isolatePart;
     status.classList.remove("filter-error");
   }
 
@@ -4315,7 +4885,7 @@ _JS = """\
 
     window.Highcharts.stockChart("benchmark-trend-chart", {
       chart: {
-        height: 400,
+        height: 800,
       },
       credits: { enabled: false },
       title: { text: "Explicit Benchmark Score Trends" },
@@ -4906,13 +5476,20 @@ _JS = """\
 
   function renderPreviousRunsTableColumns(table, columns) {
     const colgroup = table.querySelector("colgroup");
-    const headerRow = table.querySelector("thead tr");
-    if (!colgroup || !headerRow) return;
+    const headerRow = table.querySelector("thead tr.previous-runs-header-row");
+    const filterRow = table.querySelector("thead tr.previous-runs-active-filters-row");
+    const spacerRow = table.querySelector("thead tr.previous-runs-filter-spacer-row");
+    if (!colgroup || !headerRow || !filterRow || !spacerRow) return;
 
     colgroup.innerHTML = "";
     headerRow.innerHTML = "";
+    filterRow.innerHTML = "";
+    spacerRow.innerHTML = "";
     columns.forEach(fieldName => {
       const meta = previousRunsColumnMeta(fieldName);
+      const filterState = previousRunsColumnFilterState(fieldName);
+      const isEditorOpen = previousRunsOpenFilterField === fieldName;
+      const draftState = currentPreviousRunsColumnFilterDraft(fieldName);
       const col = document.createElement("col");
       col.dataset.columnKey = fieldName;
       const width = previousRunsColumnWidths[fieldName];
@@ -4927,7 +5504,14 @@ _JS = """\
       const sortIndicator = isSorted
         ? (previousRunsSortDirection === "asc" ? " ▲" : " ▼")
         : "";
-      th.textContent = (meta.label || fieldName) + sortIndicator;
+
+      const titleWrap = document.createElement("span");
+      titleWrap.className = "previous-runs-header-title";
+      const titleText = document.createElement("span");
+      titleText.textContent = (meta.label || fieldName) + sortIndicator;
+      titleWrap.appendChild(titleText);
+      th.appendChild(titleWrap);
+
       th.title = (meta.title || fieldName) + " Click to sort A→Z / Z→A.";
       th.classList.add("previous-runs-draggable");
       th.draggable = true;
@@ -5018,7 +5602,251 @@ _JS = """\
       });
       th.appendChild(resizeHandle);
       headerRow.appendChild(th);
+
+      const filterTh = document.createElement("th");
+      filterTh.dataset.columnKey = fieldName;
+      const filterWrap = document.createElement("div");
+      filterWrap.className = "previous-runs-column-filter";
+
+      const summaryWrap = document.createElement("div");
+      summaryWrap.className = "previous-runs-column-filter-summary-wrap";
+      const summary = document.createElement("div");
+      summary.className = "previous-runs-column-filter-summary";
+      if (filterState.active) {
+        summary.classList.add("filter-active");
+        summary.textContent = formatPreviousRunsColumnFilterSummary(fieldName, filterState);
+      } else {
+        summary.textContent = "No filter";
+      }
+      summaryWrap.appendChild(summary);
+
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "previous-runs-column-filter-toggle";
+      if (filterState.active) {
+        toggleBtn.classList.add("filter-active");
+      }
+      toggleBtn.textContent = isEditorOpen ? "−" : "+";
+      toggleBtn.title = isEditorOpen ? "Close filter editor" : "Open filter editor";
+      toggleBtn.setAttribute("aria-label", (meta.label || fieldName) + " filter editor");
+      toggleBtn.setAttribute("aria-expanded", isEditorOpen ? "true" : "false");
+      toggleBtn.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (previousRunsOpenFilterField === fieldName) {
+          closePreviousRunsColumnFilterEditor();
+        } else {
+          openPreviousRunsColumnFilterEditor(fieldName);
+        }
+        renderPreviousRuns();
+      });
+      summaryWrap.appendChild(toggleBtn);
+      filterWrap.appendChild(summaryWrap);
+
+      if (isEditorOpen) {
+        const popover = document.createElement("div");
+        popover.className = "previous-runs-column-filter-popover";
+
+        const popoverTitle = document.createElement("div");
+        popoverTitle.className = "previous-runs-column-filter-popover-title";
+        popoverTitle.textContent = (meta.label || fieldName) + " filter";
+        popover.appendChild(popoverTitle);
+
+        const controls = document.createElement("div");
+        controls.className = "previous-runs-column-filter-popover-controls";
+
+        const operatorSelect = document.createElement("select");
+        operatorSelect.setAttribute("aria-label", (meta.label || fieldName) + " filter operator");
+        PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS.forEach(([operatorValue, operatorLabel]) => {
+          const option = document.createElement("option");
+          option.value = operatorValue;
+          option.textContent = operatorLabel;
+          if (operatorValue === draftState.operator) {
+            option.selected = true;
+          }
+          operatorSelect.appendChild(option);
+        });
+        controls.appendChild(operatorSelect);
+
+        const valueInput = document.createElement("input");
+        valueInput.type = "text";
+        valueInput.value = draftState.value;
+        valueInput.placeholder = meta.numeric ? "number" : "value";
+        valueInput.setAttribute("aria-label", (meta.label || fieldName) + " filter value");
+        valueInput.disabled = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(draftState.operator);
+        controls.appendChild(valueInput);
+
+        popover.appendChild(controls);
+
+        const suggestionWrap = document.createElement("div");
+        suggestionWrap.className = "previous-runs-column-filter-suggestions";
+        const suggestionTitle = document.createElement("div");
+        suggestionTitle.className = "previous-runs-column-filter-suggestions-title";
+        suggestionWrap.appendChild(suggestionTitle);
+        const suggestionList = document.createElement("div");
+        suggestionList.className = "previous-runs-column-filter-suggestions-list";
+        suggestionWrap.appendChild(suggestionList);
+        popover.appendChild(suggestionWrap);
+
+        function syncDraft(operatorValue, valueText) {
+          const nextOperator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[operatorValue]
+            ? String(operatorValue)
+            : "contains";
+          const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(nextOperator);
+          const nextValue = unary ? "" : String(valueText || "");
+          if (!previousRunsOpenFilterDraft || previousRunsOpenFilterField !== fieldName) {
+            previousRunsOpenFilterDraft = {
+              operator: nextOperator,
+              value: nextValue,
+            };
+            return;
+          }
+          previousRunsOpenFilterDraft.operator = nextOperator;
+          previousRunsOpenFilterDraft.value = nextValue;
+        }
+
+        function renderSuggestionList() {
+          const operatorValue = String(operatorSelect.value || "contains");
+          const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(operatorValue);
+          if (unary) {
+            suggestionWrap.hidden = true;
+            valueInput.dataset.topSuggestion = "";
+            suggestionList.innerHTML = "";
+            return;
+          }
+
+          const typedText = String(valueInput.value || "");
+          const candidates = previousRunsColumnSuggestionCandidates(fieldName, typedText);
+          const topCandidate = candidates.length ? candidates[0].value : "";
+          valueInput.dataset.topSuggestion = topCandidate;
+          suggestionWrap.hidden = false;
+          suggestionList.innerHTML = "";
+          if (!candidates.length) {
+            suggestionTitle.textContent = "No matching suggestions.";
+            return;
+          }
+
+          suggestionTitle.textContent = topCandidate
+            ? "Tab completes top match."
+            : "Suggestions";
+
+          candidates.forEach((candidate, candidateIndex) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "previous-runs-column-filter-suggestion";
+            if (candidateIndex === 0) {
+              button.classList.add("best");
+            }
+            button.textContent = candidate.value;
+            button.title = candidate.value + " (" + candidate.count + " rows)";
+            button.addEventListener("click", () => {
+              valueInput.value = candidate.value;
+              syncDraft(operatorSelect.value || "contains", valueInput.value || "");
+              renderSuggestionList();
+              valueInput.focus();
+            });
+            suggestionList.appendChild(button);
+          });
+        }
+
+        function applyFilterAndClose() {
+          setPreviousRunsColumnFilter(fieldName, operatorSelect.value || "contains", valueInput.value || "");
+          closePreviousRunsColumnFilterEditor();
+          renderAll();
+        }
+
+        operatorSelect.addEventListener("change", () => {
+          const nextOperator = String(operatorSelect.value || "contains");
+          const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(nextOperator);
+          if (unary) {
+            valueInput.value = "";
+          }
+          syncDraft(nextOperator, valueInput.value || "");
+          valueInput.disabled = unary;
+          renderSuggestionList();
+        });
+
+        valueInput.addEventListener("input", () => {
+          syncDraft(operatorSelect.value || "contains", valueInput.value || "");
+          renderSuggestionList();
+        });
+        valueInput.addEventListener("keydown", event => {
+          if (event.key === "Tab" && !event.shiftKey) {
+            const suggested = String(valueInput.dataset.topSuggestion || "");
+            const current = String(valueInput.value || "");
+            if (
+              suggested &&
+              normalizeRuleValue(suggested) !== normalizeRuleValue(current)
+            ) {
+              event.preventDefault();
+              valueInput.value = suggested;
+              syncDraft(operatorSelect.value || "contains", valueInput.value || "");
+              renderSuggestionList();
+              return;
+            }
+          }
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          applyFilterAndClose();
+        });
+
+        const actions = document.createElement("div");
+        actions.className = "previous-runs-column-filter-popover-actions";
+
+        const saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.className = "previous-runs-column-filter-save";
+        saveBtn.textContent = "Save";
+        saveBtn.addEventListener("click", applyFilterAndClose);
+        actions.appendChild(saveBtn);
+
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className = "previous-runs-column-filter-clear";
+        clearBtn.textContent = "Clear";
+        clearBtn.disabled = !filterState.active;
+        clearBtn.addEventListener("click", () => {
+          clearPreviousRunsColumnFilter(fieldName);
+          closePreviousRunsColumnFilterEditor();
+          renderAll();
+        });
+        actions.appendChild(clearBtn);
+
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "previous-runs-column-filter-close";
+        closeBtn.textContent = "Close";
+        closeBtn.addEventListener("click", () => {
+          closePreviousRunsColumnFilterEditor();
+          renderPreviousRuns();
+        });
+        actions.appendChild(closeBtn);
+
+        popover.appendChild(actions);
+        renderSuggestionList();
+        filterWrap.appendChild(popover);
+      }
+
+      filterTh.appendChild(filterWrap);
+      filterRow.appendChild(filterTh);
+
+      const spacerTh = document.createElement("th");
+      spacerTh.dataset.columnKey = fieldName;
+      spacerRow.appendChild(spacerTh);
     });
+
+    const headerHeight = headerRow.getBoundingClientRect().height;
+    const filterHeight = filterRow.getBoundingClientRect().height;
+    const spacerHeight = spacerRow.getBoundingClientRect().height;
+    if (headerHeight > 0) {
+      table.style.setProperty("--previous-runs-header-row-height", headerHeight + "px");
+    }
+    if (filterHeight > 0) {
+      table.style.setProperty("--previous-runs-filter-row-height", filterHeight + "px");
+    }
+    if (spacerHeight > 0) {
+      table.style.setProperty("--previous-runs-spacer-row-height", spacerHeight + "px");
+    }
   }
 
   function previousRunsRowFieldValue(row, fieldName) {
@@ -5027,7 +5855,10 @@ _JS = """\
       if (fieldName === "source_label") return row.source || "-";
       if (fieldName === "source_file_basename") return row.source || "-";
       if (fieldName === "importer_name") return row.importer_name || "-";
+      if (fieldName === "ai_model") return row.ai_model || "-";
+      if (fieldName === "ai_effort") return row.ai_effort || "-";
       if (fieldName === "ai_model_effort") return row.ai_model_effort || "-";
+      if (fieldName === "all_token_use") return maybeNumber(row.tokens_total);
       if (fieldName === "artifact_dir") return row.href || "";
       if (Object.prototype.hasOwnProperty.call(row, fieldName)) {
         return row[fieldName];
@@ -5039,9 +5870,63 @@ _JS = """\
     if (!record) return null;
     if (fieldName === "source_label") return sourceLabelForRecord(record);
     if (fieldName === "importer_name") return importerLabelForRecord(record);
+    if (fieldName === "ai_model") return aiModelLabelForRecord(record);
+    if (fieldName === "ai_effort") return aiEffortLabelForRecord(record);
     if (fieldName === "ai_model_effort") return aiModelEffortLabelForRecord(record);
+    if (fieldName === "all_token_use") return maybeNumber(record.tokens_total);
     if (fieldName === "artifact_dir") return record.artifact_dir || "";
     return previousRunsFieldValue(record, fieldName);
+  }
+
+  function previousRunsTokenPartsForRow(row) {
+    if (row.type === "all_method") {
+      return {
+        total: maybeNumber(row.tokens_total),
+        input: maybeNumber(row.tokens_input),
+        output: maybeNumber(row.tokens_output),
+      };
+    }
+    const record = row.record || null;
+    return {
+      total: maybeNumber(record && record.tokens_total),
+      input: maybeNumber(record && record.tokens_input),
+      output: maybeNumber(record && record.tokens_output),
+    };
+  }
+
+  function formatTokenCount(value) {
+    if (value == null || !Number.isFinite(value)) return "-";
+    return Math.round(value).toLocaleString("en-US");
+  }
+
+  function previousRunsAllTokenUseDisplay(row) {
+    const parts = previousRunsTokenPartsForRow(row);
+    if (parts.total == null && parts.input == null && parts.output == null) {
+      return "-";
+    }
+    return (
+      formatTokenCount(parts.total) +
+      " total | " +
+      formatTokenCount(parts.input) +
+      " in | " +
+      formatTokenCount(parts.output) +
+      " out"
+    );
+  }
+
+  function previousRunsAllTokenUseTitle(row) {
+    const parts = previousRunsTokenPartsForRow(row);
+    if (parts.total == null && parts.input == null && parts.output == null) {
+      return "";
+    }
+    return (
+      "total=" +
+      formatTokenCount(parts.total) +
+      ", input=" +
+      formatTokenCount(parts.input) +
+      ", output=" +
+      formatTokenCount(parts.output)
+    );
   }
 
   function previousRunsDisplayValue(fieldName, value) {
@@ -5059,6 +5944,9 @@ _JS = """\
   function previousRunsCellTitle(row, fieldName) {
     if (fieldName === "run_timestamp") {
       return row.href || "";
+    }
+    if (fieldName === "all_token_use") {
+      return previousRunsAllTokenUseTitle(row);
     }
     if (row.type === "single" && fieldName === "source_label" && row.record) {
       return sourceTitleForRecord(row.record);
@@ -5126,6 +6014,18 @@ _JS = """\
         td.appendChild(link);
       } else {
         td.textContent = ts || "-";
+      }
+      return td;
+    }
+    if (fieldName === "all_token_use") {
+      const value = previousRunsRowFieldValue(row, fieldName);
+      if (previousRunsValueIsNumeric(fieldName, value)) {
+        td.classList.add("num");
+      }
+      td.textContent = previousRunsAllTokenUseDisplay(row);
+      const title = previousRunsAllTokenUseTitle(row);
+      if (title) {
+        td.title = title;
       }
       return td;
     }
@@ -5325,7 +6225,8 @@ _JS = """\
       const state = Object.create(null);
       const winsByConfig = Object.create(null);
       const sourceCounts = Object.create(null);
-      const aiModelEffortCounts = Object.create(null);
+      const aiModelCounts = Object.create(null);
+      const aiEffortCounts = Object.create(null);
 
       groups.forEach(group => {
         const groupRecords = group.records.map(entry => entry.record);
@@ -5353,14 +6254,20 @@ _JS = """\
               macroF1Values: [],
               goldTotalSum: 0,
               goldTotalN: 0,
-              goldMatchedSum: 0,
-              goldMatchedN: 0,
-              recipesSum: 0,
-              recipesN: 0,
-              wins: 0,
-            };
-            state[configKey] = agg;
-          }
+                goldMatchedSum: 0,
+                goldMatchedN: 0,
+                recipesSum: 0,
+                recipesN: 0,
+                tokensInputSum: 0,
+                tokensInputN: 0,
+                tokensOutputSum: 0,
+                tokensOutputN: 0,
+                tokensTotalSum: 0,
+                tokensTotalN: 0,
+                wins: 0,
+              };
+              state[configKey] = agg;
+            }
 
           agg.groupKeys.add(group.groupKey);
           const importer = importerLabelForRecord(r);
@@ -5369,15 +6276,22 @@ _JS = """\
           if (sourceLabel && sourceLabel !== "-") {
             sourceCounts[sourceLabel] = (sourceCounts[sourceLabel] || 0) + 1;
           }
-          const aiLabel = aiModelEffortLabelForRecord(r);
-          if (aiLabel && aiLabel !== "-") {
-            aiModelEffortCounts[aiLabel] = (aiModelEffortCounts[aiLabel] || 0) + 1;
+          const aiModel = aiModelLabelForRecord(r);
+          if (aiModel && aiModel !== "-") {
+            aiModelCounts[aiModel] = (aiModelCounts[aiModel] || 0) + 1;
+          }
+          const aiEffort = aiEffortLabelForRecord(r);
+          if (aiEffort && aiEffort !== "-") {
+            aiEffortCounts[aiEffort] = (aiEffortCounts[aiEffort] || 0) + 1;
           }
           if (r.strict_accuracy != null) agg.strictAccuracyValues.push(Number(r.strict_accuracy));
           if (r.macro_f1_excluding_other != null) agg.macroF1Values.push(Number(r.macro_f1_excluding_other));
           if (r.gold_total != null) { agg.goldTotalSum += Number(r.gold_total); agg.goldTotalN += 1; }
           if (r.gold_matched != null) { agg.goldMatchedSum += Number(r.gold_matched); agg.goldMatchedN += 1; }
           if (r.recipes != null) { agg.recipesSum += Number(r.recipes); agg.recipesN += 1; }
+          if (r.tokens_input != null) { agg.tokensInputSum += Number(r.tokens_input); agg.tokensInputN += 1; }
+          if (r.tokens_output != null) { agg.tokensOutputSum += Number(r.tokens_output); agg.tokensOutputN += 1; }
+          if (r.tokens_total != null) { agg.tokensTotalSum += Number(r.tokens_total); agg.tokensTotalN += 1; }
         });
       });
 
@@ -5398,6 +6312,9 @@ _JS = """\
           gold_total: agg.goldTotalN ? agg.goldTotalSum : null,
           gold_matched: agg.goldMatchedN ? agg.goldMatchedSum : null,
           recipes: agg.recipesN ? agg.recipesSum : null,
+          tokens_input: agg.tokensInputN ? agg.tokensInputSum : null,
+          tokens_output: agg.tokensOutputN ? agg.tokensOutputSum : null,
+          tokens_total: agg.tokensTotalN ? agg.tokensTotalSum : null,
           importer_name: importer,
         };
       });
@@ -5426,7 +6343,8 @@ _JS = """\
       const fileName = "all-method-benchmark-run__" + slugToken(ts) + ".html";
       const href = "all-method-benchmark/" + fileName;
       const sourceSummary = summarizeAllMethodSource(sourceCounts);
-      const aiModelEffort = mostCommonValue(aiModelEffortCounts) || "-";
+      const aiModel = mostCommonValue(aiModelCounts) || "-";
+      const aiEffort = mostCommonValue(aiEffortCounts) || "-";
 
       return {
         type: "all_method",
@@ -5437,9 +6355,13 @@ _JS = """\
         gold_total: best ? best.gold_total : null,
         gold_matched: best ? best.gold_matched : null,
         recipes: best ? best.recipes : null,
+        tokens_input: best ? best.tokens_input : null,
+        tokens_output: best ? best.tokens_output : null,
+        tokens_total: best ? best.tokens_total : null,
         source: sourceSummary,
         importer_name: best ? best.importer_name : "-",
-        ai_model_effort: aiModelEffort,
+        ai_model: aiModel,
+        ai_effort: aiEffort,
       };
     }
 
@@ -5828,6 +6750,18 @@ _JS = """\
       if (pipelineText === "off") return "off";
       return "-";
     }
+    return "-";
+  }
+  function aiModelLabelForRecord(record) {
+    const model = aiModelForRecord(record);
+    if (model) return model;
+    const pipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
+    if (pipeline && String(pipeline).toLowerCase() === "off") return "off";
+    return "-";
+  }
+  function aiEffortLabelForRecord(record) {
+    const effort = aiEffortForRecord(record);
+    if (effort) return effort;
     return "-";
   }
   function basename(path) {

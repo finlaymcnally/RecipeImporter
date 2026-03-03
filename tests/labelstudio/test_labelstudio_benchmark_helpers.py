@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import inspect
 import json
 import os
@@ -1427,6 +1428,25 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
                     / "2026-02-16_15.00.00"
                     / "book.excel_import_report.json"
                 ),
+                "llm_codex_farm": {
+                    "process_runs": {
+                        "pass1": {
+                            "process_payload": {
+                                "telemetry": {
+                                    "rows": [
+                                        {
+                                            "tokens_input": 11,
+                                            "tokens_cached_input": 2,
+                                            "tokens_output": 3,
+                                            "tokens_reasoning": 1,
+                                            "tokens_total": 14,
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
             }
         ),
         encoding="utf-8",
@@ -1475,6 +1495,11 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
 
     assert captured_csv["recipes"] == 14
     assert captured_csv["source_file"] == str(tmp_path / "input" / "book.epub")
+    assert captured_csv["tokens_input"] == 11
+    assert captured_csv["tokens_cached_input"] == 2
+    assert captured_csv["tokens_output"] == 3
+    assert captured_csv["tokens_reasoning"] == 1
+    assert captured_csv["tokens_total"] == 14
     assert captured_dashboard["output_root"] == tmp_path / "output"
     assert captured_dashboard["out_dir"] == tmp_path / ".history" / "dashboard"
 
@@ -1699,7 +1724,22 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     pass2_out = run_dir / "pass2_schemaorg" / "out"
     pass3_in = run_dir / "pass3_final" / "in"
     pass3_out = run_dir / "pass3_final" / "out"
-    for folder in (pass1_in, pass1_out, pass2_in, pass2_out, pass3_in, pass3_out):
+    pass4_in = run_dir / "pass4_knowledge" / "in"
+    pass4_out = run_dir / "pass4_knowledge" / "out"
+    pass5_in = run_dir / "pass5_tags" / "in"
+    pass5_out = run_dir / "pass5_tags" / "out"
+    for folder in (
+        pass1_in,
+        pass1_out,
+        pass2_in,
+        pass2_out,
+        pass3_in,
+        pass3_out,
+        pass4_in,
+        pass4_out,
+        pass5_in,
+        pass5_out,
+    ):
         folder.mkdir(parents=True, exist_ok=True)
 
     attached = run_dir / "attachments" / "task1_notes.txt"
@@ -1728,6 +1768,22 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     )
     (pass3_out / "r0000.json").write_text(
         json.dumps({"result": "pass3 response"}),
+        encoding="utf-8",
+    )
+    (pass4_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "pass4 prompt"}),
+        encoding="utf-8",
+    )
+    (pass4_out / "r0000.json").write_text(
+        json.dumps({"result": "pass4 response"}),
+        encoding="utf-8",
+    )
+    (pass5_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "pass5 prompt"}),
+        encoding="utf-8",
+    )
+    (pass5_out / "r0000.json").write_text(
+        json.dumps({"result": "pass5 response"}),
         encoding="utf-8",
     )
 
@@ -1842,6 +1898,41 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         ),
         encoding="utf-8",
     )
+    (run_dir / "pass4_knowledge_manifest.json").write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.knowledge.v1",
+                "paths": {
+                    "pass4_in_dir": str(pass4_in),
+                    "pass4_out_dir": str(pass4_out),
+                },
+                "process_run": {
+                    "run_id": "run-pass4",
+                    "telemetry": {"csv_path": str(telemetry_csv)},
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "pass5_tags_manifest.json").write_text(
+        json.dumps(
+            {
+                "llm_report": {
+                    "pipeline_id": "recipe.tags.v1",
+                    "paths": {"in_dir": str(pass5_in), "out_dir": str(pass5_out)},
+                    "process_run": {
+                        "run_id": "run-pass5",
+                        "telemetry": {"csv_path": str(telemetry_csv)},
+                    },
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     eval_output_dir = tmp_path / "eval"
     log_path = cli._build_codex_farm_prompt_response_log(
@@ -1858,7 +1949,9 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     task1_path = eval_output_dir / "codexfarm" / "prompt_task1_pass1_chunking.txt"
     task2_path = eval_output_dir / "codexfarm" / "prompt_task2_pass2_schemaorg.txt"
     task3_path = eval_output_dir / "codexfarm" / "prompt_task3_pass3_final.txt"
-    for category_path in (task1_path, task2_path, task3_path):
+    task4_path = eval_output_dir / "codexfarm" / "prompt_task4_pass4_knowledge.txt"
+    task5_path = eval_output_dir / "codexfarm" / "prompt_task5_pass5_tags.txt"
+    for category_path in (task1_path, task2_path, task3_path, task4_path, task5_path):
         assert category_path.exists()
 
     task1_text = task1_path.read_text(encoding="utf-8")
@@ -1869,7 +1962,13 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     manifest_path = eval_output_dir / "codexfarm" / "prompt_category_logs_manifest.txt"
     assert manifest_path.exists()
     manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
-    assert manifest_lines == [str(task1_path), str(task2_path), str(task3_path)]
+    assert manifest_lines == [
+        str(task1_path),
+        str(task2_path),
+        str(task3_path),
+        str(task4_path),
+        str(task5_path),
+    ]
 
     full_prompt_log_path = eval_output_dir / "codexfarm" / "full_prompt_log.jsonl"
     assert full_prompt_log_path.exists()
@@ -1878,11 +1977,13 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert len(full_prompt_rows) == 3
+    assert len(full_prompt_rows) == 5
     assert {str(row.get("pass") or "") for row in full_prompt_rows} == {
         "pass1",
         "pass2",
         "pass3",
+        "pass4",
+        "pass5",
     }
     pass1_row = next(row for row in full_prompt_rows if row.get("pass") == "pass1")
     assert pass1_row["call_id"] == "r0000"
@@ -1913,6 +2014,8 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert "## pass1 (Chunking)" in prompt_samples
     assert "## pass2 (Schema.org Extraction)" in prompt_samples
     assert "## pass3 (Final Draft)" in prompt_samples
+    assert "## pass4 (Knowledge Harvest)" in prompt_samples
+    assert "## pass5 (Tag Suggestions)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
 
@@ -1952,6 +2055,8 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert (eval_output_dir / "codexfarm" / "prompt_task1_pass1_chunking.txt").exists()
     assert not (eval_output_dir / "codexfarm" / "prompt_task2_pass2_schemaorg.txt").exists()
     assert not (eval_output_dir / "codexfarm" / "prompt_task3_pass3_final.txt").exists()
+    assert not (eval_output_dir / "codexfarm" / "prompt_task4_pass4_knowledge.txt").exists()
+    assert not (eval_output_dir / "codexfarm" / "prompt_task5_pass5_tags.txt").exists()
     full_prompt_log_path = eval_output_dir / "codexfarm" / "full_prompt_log.jsonl"
     full_prompt_rows = [
         json.loads(line)
@@ -1969,7 +2074,68 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
     assert "## pass1 (Chunking)" in prompt_samples
     assert "## pass2 (Schema.org Extraction)" in prompt_samples
+    assert "## pass4 (Knowledge Harvest)" in prompt_samples
+    assert "## pass5 (Tag Suggestions)" in prompt_samples
     assert "_No rows captured for this pass._" in prompt_samples
+
+
+def test_write_stage_run_manifest_includes_codexfarm_artifacts(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    output_root = tmp_path / "output"
+    run_root.mkdir(parents=True, exist_ok=True)
+    output_root.mkdir(parents=True, exist_ok=True)
+    requested_path = tmp_path / "source.txt"
+    requested_path.write_text("hello\n", encoding="utf-8")
+    (run_root / "source.excel_import_report.json").write_text(
+        json.dumps({"importerName": "text"}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    codexfarm_dir = run_root / "codexfarm"
+    codexfarm_dir.mkdir(parents=True, exist_ok=True)
+    (codexfarm_dir / "prompt_request_response_log.txt").write_text(
+        "prompt log\n",
+        encoding="utf-8",
+    )
+    (codexfarm_dir / "prompt_category_logs_manifest.txt").write_text(
+        "prompt_task1_pass1_chunking.txt\n",
+        encoding="utf-8",
+    )
+    (codexfarm_dir / "full_prompt_log.jsonl").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    (codexfarm_dir / "prompt_type_samples_from_full_prompt_log.md").write_text(
+        "# samples\n",
+        encoding="utf-8",
+    )
+
+    cli._write_stage_run_manifest(
+        run_root=run_root,
+        output_root=output_root,
+        requested_path=requested_path,
+        run_dt=dt.datetime(2026, 3, 3, 12, 0, 0),
+        run_config={"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+    )
+
+    run_manifest_payload = json.loads(
+        (run_root / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    artifacts = run_manifest_payload.get("artifacts")
+    assert isinstance(artifacts, dict)
+    assert artifacts["codexfarm_dir"] == "codexfarm"
+    assert artifacts["codexfarm_prompt_request_response_txt"] == (
+        "codexfarm/prompt_request_response_log.txt"
+    )
+    assert artifacts["codexfarm_prompt_category_logs_manifest_txt"] == (
+        "codexfarm/prompt_category_logs_manifest.txt"
+    )
+    assert artifacts["codexfarm_full_prompt_log_jsonl"] == (
+        "codexfarm/full_prompt_log.jsonl"
+    )
+    assert artifacts["codexfarm_prompt_type_samples_from_full_prompt_log_md"] == (
+        "codexfarm/prompt_type_samples_from_full_prompt_log.md"
+    )
 
 
 def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
@@ -3143,6 +3309,17 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
                             "process_payload": {
                                 "codex_model": "gpt-5.3-codex-spark",
                                 "codex_reasoning_effort": None,
+                                "telemetry": {
+                                    "rows": [
+                                        {
+                                            "tokens_input": 101,
+                                            "tokens_cached_input": 9,
+                                            "tokens_output": 12,
+                                            "tokens_reasoning": 1,
+                                            "tokens_total": 114,
+                                        }
+                                    ]
+                                },
                             },
                             "telemetry_report": {
                                 "insights": {
@@ -3169,6 +3346,11 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
     assert context.run_config.get("codex_farm_reasoning_effort") == "high"
     assert context.run_config_hash is None
     assert context.run_config_summary is None
+    assert context.tokens_input == 101
+    assert context.tokens_cached_input == 9
+    assert context.tokens_output == 12
+    assert context.tokens_reasoning == 1
+    assert context.tokens_total == 114
 
 
 def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(

@@ -256,6 +256,10 @@ Developer note:
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 5. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
+   - When Codex Farm recipe/knowledge/tag passes run, stage now also writes prompt-debug artifacts under `<run_folder>/codexfarm/`:
+   - `prompt_request_response_log.txt`
+   - `full_prompt_log.jsonl`
+   - `prompt_type_samples_from_full_prompt_log.md`
 6. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_import.json` after a successful run.
 7. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
 8. Prints `Outputs written to: <run_folder>`.
@@ -294,6 +298,10 @@ Developer note:
    - `extracted_archive.json`
    - `extracted_text.txt`
    - `manifest.json`
+   - If Codex Farm recipe pass is enabled, this flow also writes prompt-debug artifacts under the run folder:
+   - `codexfarm/prompt_request_response_log.txt`
+   - `codexfarm/full_prompt_log.jsonl`
+   - `codexfarm/prompt_type_samples_from_full_prompt_log.md`
 7. The tool uploads tasks to Label Studio automatically.
    - No extra "are you sure?" prompt in this interactive flow.
    - Upload is batched in groups of 200 tasks.
@@ -601,8 +609,11 @@ What it does:
 - scans benchmark rows (`run_category=benchmark_eval|benchmark_prediction`)
 - fills missing `recipes` from benchmark manifests (`recipe_count`) with fallback to `processed_report_path -> totalRecipes`
 - fills missing `report_path` and `file_name` from benchmark manifests when available
+- backfills missing benchmark runtime metadata (`run_config_json/hash/summary`, codex model/effort) from nearby manifests
+- backfills missing benchmark token columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) from nearby prediction manifests when telemetry is present
 - writes updates in-place to the CSV unless `--dry-run` is used
 - when rows are written, auto-refreshes dashboard artifacts for that history root
+- command output includes token backfill counters (`Token rows filled`, `Token fields filled`)
 
 Options:
 

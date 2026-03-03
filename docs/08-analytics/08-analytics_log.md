@@ -629,3 +629,23 @@ Durable decision:
 
 Anti-loop note:
 - If stale dates remain, check both CSV rows and retained artifact folders; either side can keep old timeline entries alive.
+
+### 2026-03-03_09.53.52 benchmark trend chart fixed-height increase
+
+Problem captured:
+- The benchmark trend chart viewport was too short for dashboard review workflows.
+
+Durable decisions/outcomes:
+- Doubled fixed trend chart height from `400` to `800` in both CSS host sizing and Highcharts config.
+- Kept fixed-height contract (instead of auto-height) to preserve prior reflow-loop protection.
+
+### 2026-03-03_10.21.04 Codex token usage persisted in benchmark history
+
+Problem captured:
+- Benchmark dashboard rows needed CodexFarm token usage per run, but token fields were not part of the benchmark CSV/dashboard contract.
+
+Durable decisions/outcomes:
+- Added benchmark CSV columns: `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`.
+- `labelstudio-eval` and `labelstudio-benchmark` now append token usage from prediction-run manifest `llm_codex_farm.process_runs.*.process_payload.telemetry`.
+- `benchmark-csv-backfill` now fills missing `tokens_*` from nearby manifests and reports `Token rows filled`/`Token fields filled`.
+- Dashboard schema bumped to `SCHEMA_VERSION = "12"` and `Previous Runs` can display token columns via column picker.
