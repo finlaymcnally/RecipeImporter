@@ -2014,11 +2014,12 @@ def main() -> int:
         prompt_pairs_per_category=args.prompt_pairs_per_category,
         flattened=not args.no_flatten,
     )
-    included_root_files = {
-        path.name for path in output_dir.iterdir() if path.is_file()
-    }
-    included_root_files.add("process_manifest.json")
-    process_manifest["included_files"] = sorted(included_root_files)
+    included_files = {path.name for path in output_dir.iterdir() if path.is_file()}
+    included_files.add("process_manifest.json")
+    for record in records:
+        if record.full_prompt_log_path:
+            included_files.add(record.full_prompt_log_path)
+    process_manifest["included_files"] = sorted(included_files)
     _write_json(output_dir / "process_manifest.json", process_manifest)
 
     md_output_dir: Path | None = None

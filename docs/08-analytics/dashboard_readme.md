@@ -53,6 +53,10 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 - `data/golden/benchmark-vs-golden/*/all-method-benchmark/*/config_*/eval_report.json`
 - `data/golden/*/eval_report.json`
 
+Collector mode:
+- benchmark rows are CSV-first by default
+- recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
+
 Optional enrichment files in each eval directory:
 
 - `coverage.json`
@@ -167,6 +171,7 @@ Useful options:
 - `--open`: open generated dashboard in browser
 - `--since-days N`: include only recent runs
 - `--scan-reports`: force scan of `*.excel_import_report.json` in addition to CSV
+- `--scan-benchmark-reports`: force recursive benchmark `eval_report.json` scan and merge with CSV rows
 
 ## Known gotcha
 

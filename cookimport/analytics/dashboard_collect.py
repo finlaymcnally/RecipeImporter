@@ -5,12 +5,12 @@ All collectors are **read-only** – they never write into ``data/output`` or
 
 Primary data sources
 --------------------
-* ``data/.history/performance_history.csv`` (stage/import trends)
-* ``data/golden/benchmark-vs-golden/*/eval_report.json`` (benchmark evals)
+* ``data/.history/performance_history.csv`` (stage/import + benchmark trends)
 
 Fallback
 --------
 * ``data/output/<timestamp>/*.excel_import_report.json`` (per-file reports)
+* ``data/golden/**/eval_report.json`` (benchmark scan path for explicit opt-in/fallback)
 """
 
 from __future__ import annotations

@@ -95,6 +95,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`):
 - Score fields: explicit `strict_accuracy`, `macro_f1_excluding_other` plus legacy compatibility fields (`precision`, `recall`, `f1`, `practical_*`), supported metrics
 - Count/boundary fields: `gold_total`, `gold_matched`, `pred_total`, boundary columns
   - Canonical-text benchmark eval now emits `report.boundary` (computed from aligned canonical-line spans), so canonical benchmark rows can populate `boundary_*` columns without requiring separate freeform-eval runs.
+- Per-label durability field: `per_label_json` (compact JSON list used by CSV-first dashboard collection when eval artifacts are no longer present).
 - Recipe-level context: `recipes`, `gold_recipe_headers`
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`, eval checkpoint timing columns
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
@@ -120,8 +121,10 @@ Collector behavior (`collect_dashboard_data`):
   - report-only fallback when CSV is missing
   - run-config fallback from report JSON when stale CSV rows lack `run_config_json`
 - Benchmark rows:
-  - always scans benchmark JSON surfaces under `golden_root`
-  - merges JSON-discovered benchmark rows with benchmark CSV rows (dedupe key: normalized benchmark artifact dir path)
+  - CSV-first by default
+  - optional recursive JSON scan only when `--scan-benchmark-reports` is enabled
+  - scan fallback still activates when benchmark CSV rows are unavailable
+  - scan mode merges JSON-discovered benchmark rows with benchmark CSV rows (dedupe key: normalized benchmark artifact dir path)
 - Sorting is timestamp-parse-aware (mixed `YYYY-MM-DD_HH.MM.SS` and ISO timestamp text tolerated)
 
 Benchmark scan details:
@@ -159,7 +162,7 @@ Benchmark scan details:
 ### `cookimport stats-dashboard`
 
 - Builds static dashboard files from collected analytics data.
-- Supports `--since-days` filtering and optional report scan (`--scan-reports`).
+- Supports `--since-days` filtering, optional stage report scan (`--scan-reports`), and optional benchmark eval scan (`--scan-benchmark-reports`).
 - Supports `--open` to launch the generated `index.html` in browser.
 - Prints collector warnings (first 10) when malformed/partial inputs are detected.
 - `Per-Label Breakdown` aggregates per-label totals across the latest all-method benchmark run timestamp (fallback: latest benchmark run timestamp when no all-method rows exist), not just one eval file row.
@@ -225,7 +228,7 @@ E) Static/offline design is intentional
 3. Regenerate dashboard with explicit roots when in doubt:
 - `cookimport stats-dashboard --output-root <out_root> --golden-root <gold_root>`
 4. If stage rows appear missing, rerun with `--scan-reports` to supplement CSV.
-5. If benchmark rows look wrong, inspect `eval_report.json` + related manifests under the benchmark artifact directory.
+5. If benchmark rows look wrong, rerun with `--scan-benchmark-reports` and inspect `eval_report.json` + related manifests under the benchmark artifact directory.
 
 ## 8) If you change analytics, update together
 
