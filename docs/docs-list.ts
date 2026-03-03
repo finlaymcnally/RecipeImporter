@@ -1,11 +1,12 @@
 #!/usr/bin/env tsx
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const docsListFile = fileURLToPath(import.meta.url);
 const docsListDir = dirname(docsListFile);
 const DOCS_DIR = join(docsListDir, '..', 'docs');
+const PLANS_DIR = join(DOCS_DIR, 'plans');
 
 const EXCLUDED_DIRS = new Set(['archive', 'research']);
 
@@ -37,6 +38,25 @@ function walkMarkdownFiles(dir: string, base: string = dir): string[] {
       }
       files.push(...walkMarkdownFiles(fullPath, base));
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      files.push(relative(base, fullPath));
+    }
+  }
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+function walkNonMarkdownFiles(dir: string, base: string = dir): string[] {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) {
+      continue;
+    }
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkNonMarkdownFiles(fullPath, base));
+      continue;
+    }
+    if (entry.isFile() && !entry.name.endsWith('.md')) {
       files.push(relative(base, fullPath));
     }
   }
@@ -115,6 +135,16 @@ function extractMetadata(fullPath: string): {
 }
 
 console.log('Listing all markdown files in docs folder:');
+if (existsSync(PLANS_DIR)) {
+  const invalidPlanFiles = walkNonMarkdownFiles(PLANS_DIR);
+  if (invalidPlanFiles.length > 0) {
+    console.error('\nPolicy check failed: docs/plans may only contain .md files.');
+    for (const relativePath of invalidPlanFiles) {
+      console.error(`  - plans/${relativePath}`);
+    }
+    process.exitCode = 1;
+  }
+}
 const markdownFiles = walkMarkdownFiles(DOCS_DIR);
 for (const relativePath of markdownFiles) {
   if (relativePath.endsWith('AGENTS.md')) {

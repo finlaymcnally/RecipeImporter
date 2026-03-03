@@ -33,6 +33,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_draft_v1_priority6.py": ("staging",),
     "test_draft_v1_staging_alignment.py": ("staging",),
     "test_draft_v1_variants.py": ("staging",),
+    "test_docs_plans_policy.py": ("core",),
     "test_epub_debug_cli.py": ("cli", "ingestion"),
     "test_epub_debug_extract_cli.py": ("cli", "ingestion"),
     "test_epub_extraction_quickwins.py": ("ingestion", "parsing"),

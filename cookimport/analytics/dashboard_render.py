@@ -1966,19 +1966,30 @@ _HTML = """\
 
       <section id="per-label-section" class="diagnostic-card">
         <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
+        <div class="per-label-controls">
+          <label for="per-label-rolling-window-size">Rolling N</label>
+          <input
+            id="per-label-rolling-window-size"
+            type="number"
+            min="1"
+            max="50"
+            step="1"
+            value="10"
+          >
+        </div>
         <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores; other precision/recall cells show delta vs that same-label codexfarm baseline (dark green means better, dark red means worse). Rolling metrics use the last 10 runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
         <table id="per-label-table" class="dashboard-resizable-table"><thead><tr>
           <th title="The label name being scored (for example RECIPE_TITLE).">Label</th>
+          <th title="Gold span count for this label.">Gold</th>
+          <th title="Predicted span count for this label.">Pred</th>
           <th title="Latest-run codexfarm precision for this label (strict scoring baseline)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
           <th title="Latest-run codexfarm recall for this label (strict scoring baseline)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
           <th title="Delta from latest-run codexfarm precision for this label, using latest-run vanilla precision."><span class="per-label-col-head">Run<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
           <th title="Delta from latest-run codexfarm recall for this label, using latest-run vanilla recall."><span class="per-label-col-head">Run<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Delta from latest-run codexfarm precision for this label, using rolling n=10 codexfarm precision."><span class="per-label-col-head">Rolling n=10<br>Delta Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Delta from latest-run codexfarm recall for this label, using rolling n=10 codexfarm recall."><span class="per-label-col-head">Rolling n=10<br>Delta Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Delta from latest-run codexfarm precision for this label, using rolling n=10 vanilla precision."><span class="per-label-col-head">Rolling n=10<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Delta from latest-run codexfarm recall for this label, using rolling n=10 vanilla recall."><span class="per-label-col-head">Rolling n=10<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Gold span count for this label.">Gold</th>
-          <th title="Predicted span count for this label.">Pred</th>
+          <th title="Delta from latest-run codexfarm precision for this label, using rolling codexfarm precision over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Delta from latest-run codexfarm recall for this label, using rolling codexfarm recall over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Delta from latest-run codexfarm precision for this label, using rolling vanilla precision over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Delta from latest-run codexfarm recall for this label, using rolling vanilla recall over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
         </tr></thead><tbody></tbody></table>
       </section>
     </div>
@@ -3284,8 +3295,41 @@ td.warn-note { color: #b45309; font-weight: 600; }
   grid-column: 1 / -1;
   overflow-x: auto;
 }
+.per-label-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.45rem;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid #d5e0ea;
+  border-radius: 6px;
+  background: #f9fcff;
+}
+.per-label-controls label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.per-label-controls input {
+  width: 3.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.1rem 0.3rem;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-family: var(--mono);
+}
 #per-label-table {
   width: max-content;
+  min-width: max-content;
+}
+#per-label-table th:first-child,
+#per-label-table td:first-child {
+  width: 25.5ch;
+  min-width: 25.5ch;
 }
 #per-label-table th {
   white-space: normal;
@@ -3295,21 +3339,26 @@ td.warn-note { color: #b45309; font-weight: 600; }
 }
 #per-label-table th,
 #per-label-table td {
+  padding-left: 2px;
+  padding-right: 2px;
+}
+#per-label-table th:first-child,
+#per-label-table td:first-child {
   padding-left: 0.24rem;
   padding-right: 0.24rem;
 }
 #per-label-table td.num {
   text-align: left;
 }
-#per-label-table th:nth-child(n+2):nth-child(-n+9),
-#per-label-table td:nth-child(n+2):nth-child(-n+9) {
-  width: 11ch;
-  min-width: 11ch;
+#per-label-table th:nth-child(n+2):nth-child(-n+3),
+#per-label-table td:nth-child(n+2):nth-child(-n+3) {
+  width: calc(6ch + 10px);
+  min-width: calc(6ch + 10px);
 }
-#per-label-table th:nth-child(n+10):nth-child(-n+11),
-#per-label-table td:nth-child(n+10):nth-child(-n+11) {
-  width: 7ch;
-  min-width: 7ch;
+#per-label-table th:nth-child(n+4):nth-child(-n+11),
+#per-label-table td:nth-child(n+4):nth-child(-n+11) {
+  width: calc(10ch + 10px);
+  min-width: calc(10ch + 10px);
 }
 .per-label-col-head {
   display: block;
@@ -8525,7 +8574,7 @@ _JS = """\
     const valueNum = maybeNumber(value);
     const baselineNum = maybeNumber(baseline);
     if (valueNum == null || baselineNum == null) {
-      return '<td class="num">-</td>';
+      return '<td class="num" style="text-align:left">-</td>';
     }
     const rawDelta = valueNum - baselineNum;
     const delta = Math.abs(rawDelta) <= 1e-12 ? 0 : rawDelta;
@@ -8535,7 +8584,17 @@ _JS = """\
     } else if (delta < 0) {
       cellClass += " delta-worse";
     }
-    return '<td class="' + cellClass + '">' + signedNumber(delta, 4) + "</td>";
+    const absText = Math.abs(delta).toFixed(4);
+    let signedText = "";
+    if (delta < 0) {
+      signedText = "-" + absText;
+    } else if (delta > 0) {
+      signedText = "+" + absText;
+    } else {
+      // Reserve sign width for 0.0000 without showing a plus symbol.
+      signedText = "&nbsp;" + absText;
+    }
+    return '<td class="' + cellClass + '" style="text-align:left">' + signedText + "</td>";
   }
 
   function rollingPerLabelByVariant(records, variant, windowSize) {
@@ -8674,16 +8733,16 @@ _JS = """\
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(lbl.label) + '</td>' +
-        '<td class="num">' + fmt4(runCodexFarm.precision) + '</td>' +
-        '<td class="num">' + fmt4(runCodexFarm.recall) + '</td>' +
+        '<td class="num" style="text-align:left">' + (lbl.gold_total != null ? Math.round(lbl.gold_total) : "-") + '</td>' +
+        '<td class="num" style="text-align:left">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>' +
+        '<td class="num" style="text-align:left">' + fmt4(runCodexFarm.precision) + '</td>' +
+        '<td class="num" style="text-align:left">' + fmt4(runCodexFarm.recall) + '</td>' +
         perLabelDeltaCell(runVanilla.precision, baselinePrecision) +
         perLabelDeltaCell(runVanilla.recall, baselineRecall) +
         perLabelDeltaCell(rollingCodexFarm.precision, baselinePrecision) +
         perLabelDeltaCell(rollingCodexFarm.recall, baselineRecall) +
         perLabelDeltaCell(rollingVanilla.precision, baselinePrecision) +
-        perLabelDeltaCell(rollingVanilla.recall, baselineRecall) +
-        '<td class="num">' + (lbl.gold_total != null ? Math.round(lbl.gold_total) : "-") + '</td>' +
-        '<td class="num">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>';
+        perLabelDeltaCell(rollingVanilla.recall, baselineRecall);
       tbody.appendChild(tr);
     });
   }

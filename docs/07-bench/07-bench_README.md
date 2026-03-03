@@ -219,6 +219,7 @@ Prediction-record and telemetry artifacts:
 
 `scripts/benchmark_cutdown_for_external_ai.py` now writes additive blended first-look artifacts under `starter_pack_v1/` while preserving legacy root files.
 Interactive `labelstudio_benchmark` single-offline paired runs reuse the same starter-pack logic directly in the session root.
+Starter-pack generation is wired into the shared codex-vs-vanilla comparison artifact writer, so it runs whenever paired comparison JSON is produced.
 
 Starter-pack mandatory files:
 - `README.md`
@@ -246,6 +247,10 @@ Root `process_manifest.json` includes starter-pack pointers:
 - `starter_pack_v1_manifest_file`
 - `starter_pack_v1_heavy_artifacts_omitted_by_default`
 - `starter_pack_v1_legacy_to_starter_mapping`
+
+Single-offline `codex_vs_vanilla_comparison.json` includes additive metadata under `metadata.starter_pack_v1` with:
+- `relative_path`
+- `manifest_file`
 
 ## 4. Scoring Contracts
 
@@ -1319,6 +1324,7 @@ Current behavior now:
 - `single_offline_summary.md` appears only when markdown writes are enabled and consolidates markdown output for the session.
 - Comparison payload now includes optional `metadata.single_offline_split_cache` summary (shared key + per-variant hit/mode/conversion timing) when cache metadata is available.
 - Comparison payload also includes optional `metadata.codex_farm_runtime` with `codex_model` and `codex_reasoning_effort` (resolved from run config, with llm-manifest fallback; `<default>` now resolves through Codex config `model_reasoning_effort` when available).
+- Interactive/RunSettings-provided Codex Farm overrides (`codex_farm_model`, `codex_farm_reasoning_effort`) are now forwarded through `labelstudio-benchmark` prediction generation and persisted in benchmark run manifests; default-resolution applies only when these overrides are unset.
 - Comparator output follows `codex_vs_vanilla_comparison.v2` schema with explicit canonical metric deltas.
 - Comparison JSON and markdown now use explicit canonical metric names (`strict_accuracy`, `macro_f1_excluding_other`) rather than legacy alias keys.
 

@@ -1142,3 +1142,151 @@ def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:
     assert any("top_empty_mapping_upstream_evidence" in reason for reason in reasons)
     assert any("outside_span_contamination" in reason for reason in reasons)
     assert any("healthy_control" in reason for reason in reasons)
+
+
+def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() -> None:
+    module = _load_cutdown_module()
+    triage_rows = [
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:steady",
+            "changed_lines_codex_vs_baseline": 9,
+            "delta_codex_minus_baseline": 0.01,
+            "pass1_vs_pass2_missing_block_count": 0,
+            "pass3_empty_mapping": False,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 1,
+            "outside_span_wrong_line_count": 0,
+            "codex_accuracy": 0.90,
+        },
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:empty-high-delta",
+            "changed_lines_codex_vs_baseline": 4,
+            "delta_codex_minus_baseline": -0.40,
+            "pass1_vs_pass2_missing_block_count": 1,
+            "pass3_empty_mapping": True,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 0,
+            "outside_span_wrong_line_count": 0,
+            "codex_accuracy": 0.40,
+        },
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:empty-low-delta-high-changes",
+            "changed_lines_codex_vs_baseline": 20,
+            "delta_codex_minus_baseline": -0.05,
+            "pass1_vs_pass2_missing_block_count": 1,
+            "pass3_empty_mapping": True,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 0,
+            "outside_span_wrong_line_count": 0,
+            "codex_accuracy": 0.50,
+        },
+    ]
+
+    selected = module._select_starter_pack_recipe_cases(triage_rows)
+    selected_by_recipe = {
+        str(row.get("recipe_id")): str(row.get("selection_reason") or "")
+        for row in selected
+    }
+
+    assert "top_empty_mapping_upstream_evidence" in selected_by_recipe["recipe:empty-high-delta"]
+
+
+def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> None:
+    module = _load_cutdown_module()
+    triage_rows = [
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": f"recipe:high-change-{index}",
+            "changed_lines_codex_vs_baseline": 20 - index,
+            "delta_codex_minus_baseline": -0.10 - (index * 0.01),
+            "pass1_vs_pass2_missing_block_count": 2 + index,
+            "pass3_empty_mapping": False,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 1,
+            "outside_span_wrong_line_count": 0,
+            "codex_accuracy": 0.60 - (index * 0.01),
+        }
+        for index in range(4)
+    ]
+    triage_rows.append(
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:low-change-high-loss",
+            "changed_lines_codex_vs_baseline": 1,
+            "delta_codex_minus_baseline": -0.90,
+            "pass1_vs_pass2_missing_block_count": 99,
+            "pass3_empty_mapping": False,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 1,
+            "outside_span_wrong_line_count": 0,
+            "codex_accuracy": 0.20,
+        }
+    )
+
+    selected = module._select_starter_pack_recipe_cases(triage_rows)
+    selected_by_recipe = {
+        str(row.get("recipe_id")): str(row.get("selection_reason") or "")
+        for row in selected
+    }
+
+    assert "recipe:low-change-high-loss" in selected_by_recipe
+    assert "top_block_loss" in selected_by_recipe["recipe:low-change-high-loss"]
+
+
+def test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_floor() -> None:
+    module = _load_cutdown_module()
+    triage_rows = [
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:outside-low-change-highest",
+            "changed_lines_codex_vs_baseline": 1,
+            "delta_codex_minus_baseline": -0.80,
+            "pass1_vs_pass2_missing_block_count": 0,
+            "pass3_empty_mapping": False,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 1,
+            "outside_span_wrong_line_count": 50,
+            "codex_accuracy": 0.20,
+        },
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": "recipe:outside-higher-change-lower-outside",
+            "changed_lines_codex_vs_baseline": 8,
+            "delta_codex_minus_baseline": -0.20,
+            "pass1_vs_pass2_missing_block_count": 0,
+            "pass3_empty_mapping": False,
+            "pass1_selected_block_count": 10,
+            "pass2_warning_count": 0,
+            "pass2_extracted_instruction_count": 1,
+            "outside_span_wrong_line_count": 5,
+            "codex_accuracy": 0.30,
+        },
+    ]
+
+    selected = module._select_starter_pack_recipe_cases(triage_rows)
+    selected_by_recipe = {
+        str(row.get("recipe_id")): str(row.get("selection_reason") or "")
+        for row in selected
+    }
+
+    assert "recipe:outside-low-change-highest" in selected_by_recipe
+    assert (
+        "outside_span_contamination"
+        in selected_by_recipe["recipe:outside-low-change-highest"]
+    )

@@ -123,6 +123,7 @@ Notes:
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
   - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and show signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse), while still using rolling `n=10` variant-specific windows (no cross-variant mixing).
+  - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + delta columns.
   - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.
   - Per-label metric headers are intentionally three-line (`group`, `metric`, `(variant)`) and left-aligned to keep diagnostic columns narrower on single-screen layouts.
   - Per-label table is content-sized (no forced full-card width) with compact fixed-width metric/count columns so numeric deltas stay dense; horizontal scroll remains available for overflow.

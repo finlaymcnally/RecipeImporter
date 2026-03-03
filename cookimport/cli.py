@@ -3465,6 +3465,13 @@ def _write_single_offline_comparison_artifacts(
         metadata_payload["per_label_breakdown"] = per_label_breakdown
     if isinstance(split_cache_metadata, dict):
         metadata_payload["single_offline_split_cache"] = split_cache_metadata
+    starter_pack_dir = _write_single_offline_starter_pack(session_root=session_root)
+    if starter_pack_dir is not None:
+        metadata_payload["starter_pack_v1"] = {
+            "path": str(starter_pack_dir),
+            "relative_path": "starter_pack_v1",
+            "manifest_file": "starter_pack_v1/10_process_manifest.json",
+        }
     if metadata_payload:
         comparison_payload["metadata"] = metadata_payload
     comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
@@ -3828,12 +3835,9 @@ def _interactive_single_offline_benchmark(
                 f"Comparison JSON: {comparison_json_path}",
                 fg=typer.colors.CYAN,
             )
-            starter_pack_dir = _write_single_offline_starter_pack(session_root=session_root)
-            if starter_pack_dir is not None:
-                typer.secho(
-                    f"Starter pack: {starter_pack_dir}",
-                    fg=typer.colors.CYAN,
-                )
+            starter_pack_dir = session_root / "starter_pack_v1"
+            if starter_pack_dir.is_dir():
+                typer.secho(f"Starter pack: {starter_pack_dir}", fg=typer.colors.CYAN)
 
     if not comparison_written and isinstance(codex_result, dict):
         typer.secho(
@@ -24824,6 +24828,23 @@ def labelstudio_benchmark(
         "--codex-farm-cmd",
         help="Executable used for codex-farm calls when LLM recipe pipeline is enabled.",
     )] = "codex-farm",
+    codex_farm_model: str | None = typer.Option(
+        None,
+        "--codex-farm-model",
+        help="Optional Codex Farm model override (blank uses pipeline defaults).",
+    ),
+    codex_farm_reasoning_effort: Annotated[
+        str | None,
+        typer.Option(
+            "--codex-farm-thinking-effort",
+            "--codex-farm-reasoning-effort",
+            help=(
+                "Codex Farm thinking effort override "
+                "(none, minimal, low, medium, high, xhigh). "
+                "Blank uses pipeline defaults."
+            ),
+        ),
+    ] = None,
     codex_farm_root: Annotated[Path | None, typer.Option(
         "--codex-farm-root",
         help="Optional codex-farm pipeline-pack root. Defaults to <repo_root>/llm_pipelines.",
@@ -25044,6 +25065,17 @@ def labelstudio_benchmark(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_model = (
+        str(codex_farm_model or "").strip() or None
+    )
+    try:
+        selected_codex_farm_reasoning_effort = (
+            normalize_codex_reasoning_effort(codex_farm_reasoning_effort)
+            if codex_farm_reasoning_effort is not None
+            else None
+        )
+    except ValueError as exc:
+        _fail(f"--codex-farm-thinking-effort invalid: {exc}")
     selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
         codex_farm_pipeline_pass1,
         option="--codex-farm-pipeline-pass1",
@@ -25191,6 +25223,8 @@ def labelstudio_benchmark(
                 atomic_block_splitter=selected_atomic_block_splitter,
                 line_role_pipeline=selected_line_role_pipeline,
                 codex_farm_cmd=codex_farm_cmd,
+                codex_farm_model=selected_codex_farm_model,
+                codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
@@ -25312,6 +25346,8 @@ def labelstudio_benchmark(
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
                                 codex_farm_cmd=codex_farm_cmd,
+                                codex_farm_model=selected_codex_farm_model,
+                                codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                                 codex_farm_root=codex_farm_root,
                                 codex_farm_workspace_root=codex_farm_workspace_root,
                                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
@@ -25416,6 +25452,8 @@ def labelstudio_benchmark(
                             atomic_block_splitter=selected_atomic_block_splitter,
                             line_role_pipeline=selected_line_role_pipeline,
                             codex_farm_cmd=codex_farm_cmd,
+                            codex_farm_model=selected_codex_farm_model,
+                            codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                             codex_farm_root=codex_farm_root,
                             codex_farm_workspace_root=codex_farm_workspace_root,
                             codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
@@ -25712,6 +25750,12 @@ def labelstudio_benchmark(
             )
         if codex_farm_root is not None:
             predict_only_run_config["codex_farm_root"] = str(codex_farm_root)
+        if selected_codex_farm_model is not None:
+            predict_only_run_config["codex_farm_model"] = selected_codex_farm_model
+        if selected_codex_farm_reasoning_effort is not None:
+            predict_only_run_config["codex_farm_reasoning_effort"] = (
+                selected_codex_farm_reasoning_effort
+            )
         if codex_farm_workspace_root is not None:
             predict_only_run_config["codex_farm_workspace_root"] = str(
                 codex_farm_workspace_root
@@ -26365,6 +26409,12 @@ def labelstudio_benchmark(
         )
     if codex_farm_root is not None:
         benchmark_run_config["codex_farm_root"] = str(codex_farm_root)
+    if selected_codex_farm_model is not None:
+        benchmark_run_config["codex_farm_model"] = selected_codex_farm_model
+    if selected_codex_farm_reasoning_effort is not None:
+        benchmark_run_config["codex_farm_reasoning_effort"] = (
+            selected_codex_farm_reasoning_effort
+        )
     if codex_farm_workspace_root is not None:
         benchmark_run_config["codex_farm_workspace_root"] = str(
             codex_farm_workspace_root

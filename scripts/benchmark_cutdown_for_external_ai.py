@@ -4169,6 +4169,13 @@ def _select_starter_pack_recipe_cases(
     selected_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
     ordered_keys: list[tuple[str, str, str]] = []
 
+    def reason_count(reason: str) -> int:
+        return sum(
+            1
+            for entry in ordered_keys
+            if reason in str(selected_by_key[entry].get("selection_reason") or "")
+        )
+
     def add_rows(rows: list[dict[str, Any]], *, limit: int, reason: str) -> None:
         for row in rows:
             key = _recipe_row_key(row)
@@ -4184,20 +4191,28 @@ def _select_starter_pack_recipe_cases(
                     )
             if len(ordered_keys) >= 10:
                 return
-            if sum(1 for entry in ordered_keys if reason in str(selected_by_key[entry].get("selection_reason") or "")) >= limit:
+            if reason_count(reason) >= limit:
                 return
 
     top_changed = _sort_recipe_rows_for_metric(
         recipe_triage_rows,
         metric_key="changed_lines_codex_vs_baseline",
     )
-    add_rows(top_changed, limit=STARTER_PACK_SELECTION_POLICY["top_changed_lines"], reason="top_changed_lines")
+    add_rows(
+        top_changed,
+        limit=STARTER_PACK_SELECTION_POLICY["top_changed_lines"],
+        reason="top_changed_lines",
+    )
 
     top_block_loss = _sort_recipe_rows_for_metric(
         recipe_triage_rows,
         metric_key="pass1_vs_pass2_missing_block_count",
     )
-    add_rows(top_block_loss, limit=STARTER_PACK_SELECTION_POLICY["top_block_loss"], reason="top_block_loss")
+    add_rows(
+        top_block_loss,
+        limit=STARTER_PACK_SELECTION_POLICY["top_block_loss"],
+        reason="top_block_loss",
+    )
 
     empty_mapping_candidates = [
         row
@@ -4211,7 +4226,7 @@ def _select_starter_pack_recipe_cases(
     ]
     empty_mapping_candidates = _sort_recipe_rows_for_metric(
         empty_mapping_candidates,
-        metric_key="changed_lines_codex_vs_baseline",
+        metric_key="pass3_empty_mapping",
     )
     add_rows(
         empty_mapping_candidates,

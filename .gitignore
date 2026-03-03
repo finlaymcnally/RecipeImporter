@@ -57,3 +57,6 @@ coverage.xml
 *.swp
 *.swo
 .DS_Store
+
+# Docs plans policy
+docs/plans/**/*.json

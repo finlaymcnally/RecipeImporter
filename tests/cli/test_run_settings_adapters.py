@@ -98,6 +98,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         atomic_block_splitter="atomic-v1",
         line_role_pipeline="deterministic-v1",
         codex_farm_recipe_mode="benchmark",
+        codex_farm_model="gpt-5.3-codex-spark",
+        codex_farm_reasoning_effort="low",
     )
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -137,3 +139,5 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["atomic_block_splitter"] == "atomic-v1"
     assert kwargs["line_role_pipeline"] == "deterministic-v1"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
+    assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
+    assert kwargs["codex_farm_reasoning_effort"] == "low"

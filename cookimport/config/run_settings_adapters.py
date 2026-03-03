@@ -198,6 +198,7 @@ def build_benchmark_call_kwargs_from_run_settings(
         "line_role_pipeline": settings.line_role_pipeline.value,
         "codex_farm_recipe_mode": settings.codex_farm_recipe_mode.value,
         "codex_farm_cmd": settings.codex_farm_cmd,
+        "codex_farm_model": settings.codex_farm_model,
         "codex_farm_root": settings.codex_farm_root,
         "codex_farm_workspace_root": settings.codex_farm_workspace_root,
         "codex_farm_pipeline_pass1": settings.codex_farm_pipeline_pass1,
@@ -206,6 +207,10 @@ def build_benchmark_call_kwargs_from_run_settings(
         "codex_farm_context_blocks": settings.codex_farm_context_blocks,
         "codex_farm_failure_mode": settings.codex_farm_failure_mode.value,
     }
+    if settings.codex_farm_reasoning_effort is not None:
+        payload["codex_farm_reasoning_effort"] = (
+            settings.codex_farm_reasoning_effort.value
+        )
     if processed_output_dir is not None:
         payload["processed_output_dir"] = processed_output_dir
     return payload

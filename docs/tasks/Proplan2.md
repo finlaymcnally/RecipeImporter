@@ -31,7 +31,7 @@ Any codex-enabled benchmarking or staging in this plan remains explicit opt-in v
 - [x] (2026-03-03 10:37 America/Toronto) Added deterministic additive evidence normalization (`cookimport/llm/evidence_normalizer.py`) with per-recipe provenance sidecars and pass2 helper fields.
 - [x] (2026-03-03 10:38 America/Toronto) Kept benchmark-facing measurement on existing line-role path (no new taxonomy path added in `cookimport/llm`).
 - [x] (2026-03-03 10:39 America/Toronto) Added deterministic pass3 fallback from pass2 structured outputs for missing/invalid/low-quality pass3 bundles.
-- [x] (2026-03-03 10:40 America/Toronto) Added targeted tests and checked in Sea dev-slice manifest `docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`.
+- [x] (2026-03-03 10:40 America/Toronto) Added targeted tests and recorded Sea dev-slice focus IDs (`c0`,`c6`,`c8`,`c9`) for milestone-5 diagnostics.
 - [x] (2026-03-03 11:10 America/Toronto) Aligned transport mismatch failure-mode semantics (`fallback` marks recipe pass3 fallback) and switched transport/normalization artifacts to sanitized recipe-id keyed filenames.
 - [x] (2026-03-03 12:27 America/Toronto) Recorded milestone-5 benchmark outcomes from latest Sea paired replay artifacts (`2026-03-03_12.12.49`), generated dev-slice (c0/c6/c8/c9) breakdown diagnostics, and captured no-promotion decision.
 
@@ -90,7 +90,7 @@ Runtime implementation for milestones 1/2/4 is complete and additive:
 - `run_codex_farm_recipe_pipeline(...)` now writes recipe-level transport audits, mismatch counters, and normalization provenance artifacts.
 - pass2 input now includes additive normalized evidence helper fields while preserving authoritative source blocks/canonical text.
 - pass3 now has a deterministic fallback path from pass2 structured output when pass3 bundle is missing/invalid/low-quality.
-- targeted LLM tests and a checked-in Sea dev-slice manifest were added.
+- targeted LLM tests were added and Sea dev-slice focus IDs (`c0`,`c6`,`c8`,`c9`) were recorded in this plan.
 
 Milestone 5 benchmark/promotion outcome is now recorded (no promotion):
 
@@ -238,9 +238,9 @@ Benchmark replay example (Sea path, offline canonical mode):
       --no-upload \
       --no-write-labelstudio-tasks
 
-Dev-slice manifest for manual focus review:
+Dev-slice focus IDs for manual review:
 
-    docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json
+    c0, c6, c8, c9
 
 Milestone-5 evidence commands used in this workspace pass:
 
@@ -288,7 +288,6 @@ Expected new/updated artifacts for this plan:
 - `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)
 - `raw/llm/<workbook_slug>/evidence_normalization/*.json` (sanitized recipe-id keyed)
 - `raw/llm/<workbook_slug>/llm_manifest.json` (with added counters)
-- `docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`
 - `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codex_vs_vanilla_comparison.json`
 - `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/2026-03-03_12.12.49_cutdown_md/per_recipe_or_per_span_breakdown.json`
 - benchmark run outputs under `data/golden/benchmark-vs-golden/<timestamp>/...`
@@ -310,6 +309,6 @@ Any new `llm_recipe_pipeline` value (for example `codex-farm-3pass-v2`) requires
 Dependencies remain within current stack (Typer, Pydantic v2, pytest, existing parsing modules). No new external OCR/LLM libraries are planned.
 
 Revision note: 2026-03-03 - Rewrote plan to match actual runtime seams and policy boundaries: concrete orchestrator symbols, existing line-role subsystem reuse, strict codex schema contract awareness, and additive opt-in rollout constraints.
-Revision note: 2026-03-03 - Implemented milestones 1/2/4 in code and tests: transport audits, additive evidence normalization, deterministic pass3 fallback, and dev-slice manifest check-in; benchmark replay milestone still pending.
+Revision note: 2026-03-03 - Implemented milestones 1/2/4 in code and tests: transport audits, additive evidence normalization, deterministic pass3 fallback, and dev-slice focus capture (`c0/c6/c8/c9`); benchmark replay milestone still pending.
 Revision note: 2026-03-03 - Post-implementation alignment pass: transport mismatch now maps to recipe-level pass3 fallback in fallback mode, transport/normalization artifacts use sanitized recipe-id filenames, and eval context token fields are now backward-compatible for legacy test doubles.
 Revision note: 2026-03-03 - Completed milestone-5 evidence capture from latest Sea paired replay artifacts; dev-slice and full-run metrics remain below vanilla, so promotion decision is no-default-promotion (keep opt-in only).

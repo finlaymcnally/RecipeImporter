@@ -3277,6 +3277,56 @@ def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> 
     assert comparison_md_path_markdown.exists()
 
 
+def test_single_offline_comparison_artifacts_trigger_starter_pack(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_root = tmp_path / "session"
+    codex_eval_output_dir = session_root / "codexfarm"
+    vanilla_eval_output_dir = session_root / "vanilla"
+    codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
+    vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    (codex_eval_output_dir / "eval_report.json").write_text(
+        json.dumps({"precision": 0.50, "recall": 0.60, "f1": 0.55}),
+        encoding="utf-8",
+    )
+    (vanilla_eval_output_dir / "eval_report.json").write_text(
+        json.dumps({"precision": 0.40, "recall": 0.50, "f1": 0.45}),
+        encoding="utf-8",
+    )
+
+    starter_calls: list[Path] = []
+
+    def _fake_starter_pack_writer(*, session_root: Path) -> Path:
+        starter_calls.append(session_root)
+        starter_dir = session_root / "starter_pack_v1"
+        starter_dir.mkdir(parents=True, exist_ok=True)
+        return starter_dir
+
+    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
+
+    comparison_paths = cli._write_single_offline_comparison_artifacts(
+        run_timestamp="2026-03-02_12.34.56",
+        session_root=session_root,
+        source_file="book.epub",
+        codex_eval_output_dir=codex_eval_output_dir,
+        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        write_markdown=False,
+    )
+
+    assert comparison_paths is not None
+    comparison_json_path, _ = comparison_paths
+    payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
+    metadata = payload.get("metadata")
+    assert isinstance(metadata, dict)
+    starter_metadata = metadata.get("starter_pack_v1")
+    assert isinstance(starter_metadata, dict)
+    assert starter_metadata.get("relative_path") == "starter_pack_v1"
+    assert starter_metadata.get("manifest_file") == "starter_pack_v1/10_process_manifest.json"
+    assert starter_calls == [session_root]
+
+
 def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4594,6 +4644,9 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        codex_farm_model="gpt-5.3-codex-spark",
+        codex_farm_reasoning_effort="low",
         write_markdown=False,
         write_label_studio_tasks=False,
         pdf_ocr_policy="always",
@@ -4606,6 +4659,9 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert captured_generate["write_label_studio_tasks"] is False
     assert captured_generate["pdf_ocr_policy"] == "always"
     assert captured_generate["pdf_column_gap_ratio"] == 0.21
+    assert captured_generate["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
+    assert captured_generate["codex_farm_reasoning_effort"] == "low"
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
@@ -4617,6 +4673,9 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
     assert run_manifest["run_config"]["pdf_ocr_policy"] == "always"
     assert run_manifest["run_config"]["pdf_column_gap_ratio"] == 0.21
+    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert run_manifest["run_config"]["codex_farm_model"] == "gpt-5.3-codex-spark"
+    assert run_manifest["run_config"]["codex_farm_reasoning_effort"] == "low"
     assert run_manifest["run_config"]["atomic_block_splitter"] == "off"
     assert run_manifest["run_config"]["line_role_pipeline"] == "off"
     assert "eval_report_md" not in run_manifest["artifacts"]
