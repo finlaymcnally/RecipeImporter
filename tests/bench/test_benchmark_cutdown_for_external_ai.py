@@ -563,6 +563,10 @@ def test_build_run_cutdown_writes_new_gzip_artifacts(tmp_path: Path) -> None:
         "joined_with_archive_only",
         "joined_with_prompt_only",
         "missing_prompt_and_archive_context",
+        "outside_span_joined_with_prompt_and_archive",
+        "outside_span_archive_only",
+        "outside_span_prompt_only",
+        "outside_span_unattributed",
     }
 
 
@@ -659,6 +663,51 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         ]
         == "missing_full_prompt_log"
     )
+
+
+def test_preprocess_trace_outside_span_does_not_borrow_fallback_prompt_row(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    run_id = "2026-03-03_10.03.30"
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 99, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    run_dir = run_root / run_id
+    _write_prediction_run(run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+
+    output_run_dir = tmp_path / "cutdown" / run_id
+    module._build_run_cutdown(
+        run_dir=run_dir,
+        output_run_dir=output_run_dir,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
+    )
+
+    preprocess_rows = _read_jsonl_gzip(
+        output_run_dir / module.PREPROCESS_TRACE_FAILURES_FILE_NAME
+    )
+    outside_rows = [
+        row
+        for row in preprocess_rows
+        if int(row.get("line_index") or -1) == 99
+    ]
+    assert outside_rows
+    assert outside_rows[0]["span_region"] == "outside_active_recipe_span"
+    assert outside_rows[0]["trace_status"] == "outside_span_unattributed"
+    assert outside_rows[0]["call_id"] is None
+    assert outside_rows[0]["pass"] is None
 
 
 def test_main_process_manifest_includes_new_nested_gzip_paths(tmp_path: Path) -> None:

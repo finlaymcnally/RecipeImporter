@@ -30,6 +30,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.codex_bridge_projection_policy import (
+    resolve_trace_status,
+    select_prompt_row_for_trace,
+)
+
 
 DEFAULT_SAMPLE_LIMIT = 80
 DEFAULT_TOP_CONFUSIONS = 8
@@ -1244,8 +1249,17 @@ def _build_preprocess_trace_failure_rows(
             continue
 
         recipe_id = line_view.recipe_id_by_index.get(line_index)
+        span_region = line_view.recipe_span_by_index.get(
+            line_index,
+            "outside_active_recipe_span",
+        )
         recipe_key = str(recipe_id or "").strip()
-        prompt_row = prompt_rows_by_recipe.get(recipe_key) or fallback_prompt_row
+        prompt_row = select_prompt_row_for_trace(
+            recipe_key=recipe_key,
+            span_region=span_region,
+            prompt_rows_by_recipe=prompt_rows_by_recipe,
+            fallback_prompt_row=fallback_prompt_row,
+        )
         pass_name = str(prompt_row.get("pass") or "").strip().lower() if prompt_row else None
         call_id = str(prompt_row.get("call_id") or "").strip() if prompt_row else None
 
@@ -1276,24 +1290,18 @@ def _build_preprocess_trace_failure_rows(
         )
         features = archive_row.get("features")
         features = features if isinstance(features, dict) else {}
-        if raw_block_excerpt and prompt_candidate_block_excerpt:
-            trace_status = "joined_with_prompt_and_archive"
-        elif raw_block_excerpt:
-            trace_status = "joined_with_archive_only"
-        elif prompt_candidate_block_excerpt:
-            trace_status = "joined_with_prompt_only"
-        else:
-            trace_status = "missing_prompt_and_archive_context"
+        trace_status = resolve_trace_status(
+            span_region=span_region,
+            has_prompt_excerpt=bool(prompt_candidate_block_excerpt),
+            has_archive_excerpt=bool(raw_block_excerpt),
+        )
 
         rows.append(
             {
                 "run_id": run_id,
                 "line_index": line_index,
                 "recipe_id": recipe_id,
-                "span_region": line_view.recipe_span_by_index.get(
-                    line_index,
-                    "outside_active_recipe_span",
-                ),
+                "span_region": span_region,
                 "gold_label": str(
                     wrong_row.get("gold_label")
                     or line_view.gold_label_by_index.get(line_index)

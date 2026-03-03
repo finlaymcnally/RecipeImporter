@@ -658,7 +658,9 @@ class TestCollectors:
         assert record.run_config_summary == "epub_extractor=beautifulsoup | workers=7"
         assert record.run_config == {"epub_extractor": "beautifulsoup", "workers": 7}
 
-    def test_csv_collector_merges_nested_benchmark_history_csv_rows(self, tmp_path):
+    def test_csv_collector_merges_nested_benchmark_history_csv_rows_and_skips_gated_runs(
+        self, tmp_path
+    ):
         output_root = tmp_path / "output"
         history_dir = output_root / ".history"
         history_dir.mkdir(parents=True)
@@ -728,17 +730,14 @@ class TestCollectors:
             output_root=output_root,
             golden_root=tmp_path / "golden",
         )
-        assert len(data.benchmark_records) == 2
+        assert len(data.benchmark_records) == 1
         artifact_dirs = {str(record.artifact_dir) for record in data.benchmark_records}
-        assert any(
-            "2026-03-03_12.23.20_line-role-gated-foodlab-det-strict" in path
-            for path in artifact_dirs
-        )
         assert any(
             "2026-03-03_01.24.28/single-offline-benchmark/seaandsmokecutdown/vanilla"
             in path
             for path in artifact_dirs
         )
+        assert all("line-role-gated" not in path for path in artifact_dirs)
 
     def test_csv_collector_backfills_codex_runtime_from_prediction_run_manifest(
         self, tmp_path
@@ -821,7 +820,7 @@ class TestCollectors:
         assert "codex_farm_model=gpt-5.3-codex-spark" in str(record.run_config_summary)
         assert "codex_farm_reasoning_effort=<default>" in str(record.run_config_summary)
 
-    def test_csv_collector_suppresses_known_backfilled_ai_effort_rows(self, tmp_path):
+    def test_csv_collector_keeps_backfilled_ai_effort_rows(self, tmp_path):
         output_root = tmp_path / "output"
         history_dir = output_root / ".history"
         history_dir.mkdir(parents=True)
@@ -875,8 +874,8 @@ class TestCollectors:
         record = data.benchmark_records[0]
         assert record.run_config is not None
         assert record.run_config.get("codex_farm_model") == "gpt-5.3-codex-spark"
-        assert "codex_farm_reasoning_effort" not in record.run_config
-        assert "codex_farm_reasoning_effort=high" not in str(record.run_config_summary)
+        assert record.run_config.get("codex_farm_reasoning_effort") == "high"
+        assert "codex_farm_reasoning_effort=high" in str(record.run_config_summary)
 
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -1102,6 +1101,43 @@ class TestCollectors:
         assert len(data.benchmark_records) == 1
         assert data.benchmark_records[0].source_file == "keep.epub"
 
+    def test_benchmark_scan_rows_skip_gated_eval_artifacts(self, tmp_path):
+        keep_dir = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / "2026-03-03_01.24.28"
+            / "single-offline-benchmark"
+            / "seaandsmokecutdown"
+            / "vanilla"
+        )
+        skip_dir = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
+            / "single-offline-benchmark"
+            / "thefoodlabcutdown"
+            / "codexfarm"
+        )
+        keep_dir.mkdir(parents=True, exist_ok=True)
+        skip_dir.mkdir(parents=True, exist_ok=True)
+        (keep_dir / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT),
+            encoding="utf-8",
+        )
+        (skip_dir / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT),
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        assert "line-role-gated" not in str(data.benchmark_records[0].artifact_dir)
+
     def test_empty_roots(self, tmp_path):
         data = collect_dashboard_data(
             output_root=tmp_path / "output",
@@ -1319,11 +1355,13 @@ class TestRenderer:
         assert "All-Method Benchmark Runs" not in html
         assert "Diagnostics (Latest Benchmark)" in html
         assert 'id="runtime-section"' in html
+        assert 'id="per-label-rolling-window-size"' in html
+        assert 'class="per-label-rolling-group"' in html
         assert 'class="per-label-col-head">Run<br>Precision<br>' in html
         assert 'class="per-label-col-sub">(codexfarm)</span>' in html
         assert 'class="per-label-col-head">Run<br>Recall<br>' in html
-        assert "Rolling n=10<br>Delta Precision<br>" in html
-        assert "Rolling n=10<br>Delta Recall<br>" in html
+        assert 'class="per-label-rolling-window-value">10</span>' in html
+        assert "Rolling Delta:" in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html
         assert "Stage / Import Throughput" not in html
@@ -1632,8 +1670,11 @@ class TestRenderer:
         assert 'if (segment !== "benchmark-vs-golden") continue;' in js
         assert 'latestRunRecords.length + " evals)"' in js
         assert "function aggregatePerLabelRows(records)" in js
+        assert "function setupPerLabelControls()" in js
+        assert "function syncPerLabelRollingWindowUi()" in js
+        assert "function normalizePerLabelRollingWindowSize(value)" in js
         assert "function rollingPerLabelByVariant(records, variant, windowSize)" in js
-        assert "const rollingWindowSize = 10;" in js
+        assert "const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);" in js
         assert 'benchmarkVariantForRecord(record) === "codexfarm"' in js
         assert 'benchmarkVariantForRecord(record) === "vanilla"' in js
 

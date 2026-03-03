@@ -45,21 +45,6 @@ _TOKEN_USAGE_KEYS = (
     "tokens_reasoning",
     "tokens_total",
 )
-_AI_EFFORT_RUN_CONFIG_KEYS = (
-    "codex_farm_reasoning_effort",
-    "codex_farm_thinking_effort",
-    "codex_reasoning_effort",
-    "model_reasoning_effort",
-    "thinking_effort",
-    "reasoning_effort",
-)
-_SUPPRESSED_BACKFILLED_AI_EFFORT_TIMESTAMPS = frozenset(
-    {
-        "2026-03-03T01:28:32",
-        "2026-03-02T23:37:21",
-        "2026-03-02T23:20:13",
-    }
-)
 
 # Timestamp patterns used in run-folder names.
 # Folders use dots in the time portion: YYYY-MM-DD_HH.MM.SS
@@ -71,6 +56,12 @@ _TS_DIR_RE = re.compile(
 _JOB_PARTS = ".job_parts"
 _PREDICTION_RUN = "prediction-run"
 _PYTEST_RUN_SEGMENT_RE = re.compile(r"^pytest-\d+$")
+_BENCHMARK_ARTIFACT_EXCLUDE_TOKEN_RE = re.compile(
+    r"(^|[-_])(gate|gated|smoke|test|debug|quick|probe|sample|trial)([-_]|$)"
+)
+_TIMESTAMP_WITH_SUFFIX_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[t_]\d{2}[.:]\d{2}[.:]\d{2}_(.+)$"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -426,57 +417,6 @@ def _normalize_optional_text(value: Any) -> str | None:
     return text
 
 
-def _strip_ai_effort_from_run_config_summary(summary: str | None) -> str | None:
-    text = str(summary or "").strip()
-    if not text:
-        return None if summary is None else ""
-    kept_parts: list[str] = []
-    changed = False
-    for chunk in text.split("|"):
-        part = str(chunk).strip()
-        if not part:
-            continue
-        key, _, _ = part.partition("=")
-        if key.strip() in _AI_EFFORT_RUN_CONFIG_KEYS:
-            changed = True
-            continue
-        kept_parts.append(part)
-    if not changed:
-        return summary
-    return " | ".join(kept_parts) or None
-
-
-def _suppress_known_backfilled_ai_effort(
-    benchmark_records: list[BenchmarkRecord],
-) -> None:
-    for record in benchmark_records:
-        run_timestamp = _normalize_optional_text(record.run_timestamp)
-        if run_timestamp not in _SUPPRESSED_BACKFILLED_AI_EFFORT_TIMESTAMPS:
-            continue
-
-        config_changed = False
-        if isinstance(record.run_config, dict):
-            cleaned_run_config = dict(record.run_config)
-            for key in _AI_EFFORT_RUN_CONFIG_KEYS:
-                if key in cleaned_run_config:
-                    cleaned_run_config.pop(key, None)
-                    config_changed = True
-            if config_changed:
-                record.run_config = cleaned_run_config
-                record.run_config_hash = _stable_hash_for_run_config(cleaned_run_config)
-                record.run_config_summary = _summary_for_run_config(cleaned_run_config)
-
-        if config_changed:
-            continue
-        cleaned_summary = _strip_ai_effort_from_run_config_summary(
-            record.run_config_summary
-        )
-        if cleaned_summary != record.run_config_summary:
-            record.run_config_summary = cleaned_summary
-            if record.run_config is None:
-                record.run_config_hash = None
-
-
 def _parse_run_config_json(
     raw: Any,
     *,
@@ -830,6 +770,28 @@ def _is_pytest_temp_eval_artifact(path_value: str | Path | None) -> bool:
     return False
 
 
+def _is_excluded_benchmark_artifact(path_value: str | Path | None) -> bool:
+    """Return True when a benchmark artifact path should be hidden from dashboard data."""
+    parts = _path_parts_lower(path_value)
+    if not parts:
+        return False
+    normalized = "/" + "/".join(parts) + "/"
+    if "/bench/" in normalized:
+        return True
+    if _is_pytest_temp_eval_artifact("/".join(parts)):
+        return True
+    for segment in parts:
+        suffix_match = _TIMESTAMP_WITH_SUFFIX_RE.match(segment)
+        if suffix_match is None:
+            continue
+        suffix = str(suffix_match.group(1) or "").strip().lower()
+        if not suffix:
+            continue
+        if _BENCHMARK_ARTIFACT_EXCLUDE_TOKEN_RE.search(suffix):
+            return True
+    return False
+
+
 def _resolve_eval_run_timestamp(eval_dir: Path, golden_root: Path) -> str:
     """Resolve benchmark run timestamp from eval dir or nearest timestamped parent."""
     path = eval_dir
@@ -880,6 +842,8 @@ def _collect_from_csv(
                             warnings=warnings,
                             context=f"CSV row {row_num}",
                         )
+                        if _is_excluded_benchmark_artifact(bench_record.artifact_dir):
+                            continue
                         if bench_record.recipes is None and bench_record.report_path:
                             bench_record.recipes = _load_total_recipes_from_report(
                                 bench_record.report_path,
@@ -894,8 +858,6 @@ def _collect_from_csv(
                                 context=f"CSV row {row_num}",
                                 cache=benchmark_eval_per_label_cache,
                             )
-                        if _is_pytest_temp_eval_artifact(bench_record.artifact_dir):
-                            continue
                         bench_records.append(bench_record)
                         continue
 
@@ -1647,7 +1609,7 @@ def _collect_benchmarks(
         # Skip prediction-run directories
         if _PREDICTION_RUN in eval_dir.parts:
             continue
-        if _is_pytest_temp_eval_artifact(eval_dir):
+        if _is_excluded_benchmark_artifact(eval_dir):
             continue
 
         # Resolve timestamp from this directory or nearest timestamped parent.
@@ -2088,7 +2050,6 @@ def collect_dashboard_data(
         benchmark_records = list(csv_bench_records)
     else:
         benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
-    _suppress_known_backfilled_ai_effort(benchmark_records)
     benchmark_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
     # -- Summary --

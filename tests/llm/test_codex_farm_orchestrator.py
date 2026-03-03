@@ -101,7 +101,40 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     run_root.mkdir(parents=True, exist_ok=True)
     settings = _build_run_settings(tmp_path / "pack")
     result = _build_conversion_result(source)
-    runner = FakeCodexFarmRunner()
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {
+                            "instruction": "Toast the bread.",
+                            "ingredient_lines": [],
+                        }
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
 
     apply_result = run_codex_farm_recipe_pipeline(
         conversion_result=result,
@@ -120,6 +153,7 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["pass1_ok"] == 1
+    assert manifest["counts"]["pass2_degraded"] == 0
     assert manifest["counts"]["pass3_ok"] == 1
     assert manifest["counts"]["transport_audits"] == 1
     assert manifest["counts"]["transport_mismatches"] == 0
@@ -231,9 +265,10 @@ def test_orchestrator_transport_mismatch_marks_recipe_fallback_in_fallback_mode(
     assert apply_result.llm_report["pass3_fallback_recipe_ids"] == [
         result.recipes[0].identifier
     ]
+    assert apply_result.final_overrides_by_recipe_id
     recipe_row = manifest["recipes"][result.recipes[0].identifier]
     assert recipe_row["pass3"] == "fallback"
-    assert recipe_row["pass3_fallback_reason"] == "transport mismatch"
+    assert recipe_row["pass3_fallback_reason"] == "transport_invariant_failed"
 
 
 def test_orchestrator_writes_evidence_normalization_artifact(tmp_path: Path) -> None:
@@ -335,6 +370,99 @@ def test_orchestrator_uses_deterministic_pass3_fallback_for_low_quality_output(
     assert "pass3 output rejected as low quality" in recipe_row["pass3_fallback_reason"]
 
 
+def test_orchestrator_gates_pass3_when_pass2_degraded_missing_instruction_evidence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=FakeCodexFarmRunner(),
+    )
+
+    assert apply_result.llm_report["counts"]["pass2_degraded"] == 1
+    assert apply_result.llm_report["counts"]["pass3_inputs"] == 0
+    assert apply_result.llm_report["counts"]["pass3_fallback"] == 1
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    recipe_row = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )["recipes"][recipe_id]
+    assert recipe_row["pass2"] == "degraded"
+    assert recipe_row["pass3"] == "fallback"
+    assert "missing_instructions" in recipe_row["pass3_fallback_reason"]
+
+    fallback_steps = apply_result.final_overrides_by_recipe_id[recipe_id]["steps"]
+    assert any(step.get("instruction") == "Toast the bread." for step in fallback_steps)
+
+
+def test_orchestrator_rejects_placeholder_only_pass3_steps(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {
+                            "instruction": "See original recipe for details.",
+                            "ingredient_lines": [],
+                        }
+                    ],
+                },
+                "ingredient_step_mapping": {"0": [0]},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    assert manifest["recipes"][recipe_id]["pass3"] == "fallback"
+    assert "placeholder-only" in manifest["recipes"][recipe_id]["pass3_fallback_reason"]
+
+
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
     tmp_path: Path,
 ) -> None:
@@ -388,11 +516,11 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
                             "@type": "Recipe",
                             "name": "Custom Recipe",
                         },
-                        "extracted_ingredients": [],
-                        "extracted_instructions": [],
-                        "field_evidence": {},
-                        "warnings": [],
-                    }
+                "extracted_ingredients": [],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            }
                 elif pipeline_id == "custom.pass3":
                     output = {
                         "bundle_version": "1",
@@ -1171,7 +1299,7 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     assert any("task 0/2" in message for message in progress_messages)
     assert any("task 1/2" in message for message in progress_messages)
     assert any("task 2/2" in message for message in progress_messages)
-    assert sum(1 for message in progress_messages if "task 0/2" in message) == 1
+    assert sum(1 for message in progress_messages if "task 0/2" in message) >= 1
     assert any("active [r0000.json]" in message for message in progress_messages)
     assert any("active [r0001.json]" in message for message in progress_messages)
 

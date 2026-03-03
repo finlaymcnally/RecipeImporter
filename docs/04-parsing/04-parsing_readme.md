@@ -63,6 +63,9 @@ Core modules:
 - `cookimport/parsing/pattern_flags.py`
 - `cookimport/parsing/spacy_support.py`
 
+Unstructured adapter note:
+- `unstructured_adapter.py` now performs deterministic multiline splitting for recipe-like `Title`/`NarrativeText`/`UncategorizedText`/`Text` blocks (in addition to `ListItem` newline splits), preserving provenance with `unstructured_stable_key` suffixes (`.s0`, `.s1`, ...) and `unstructured_split_reason`.
+
 Parsing-adjacent module (not in current stage recipe-path runtime):
 
 - `cookimport/parsing/classifier.py` (heuristic line classifier used by tagging tests)

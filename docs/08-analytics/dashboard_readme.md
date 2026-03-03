@@ -97,7 +97,7 @@ Notes:
 
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
-- Benchmark rows pointing at pytest temp eval paths (for example `.../pytest-46/test_foo0/eval`) are ignored so local `pytest` runs do not appear in `Previous Runs`.
+- Benchmark rows classified as test/gate noise are ignored before rendering (`/bench/`, pytest temp eval paths, and timestamp-suffix tokens like `_...-gated-...` / `_...-smoke-...` / `_...-test-...`) so those runs never appear in `Previous Runs` or latest diagnostics.
 - All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by benchmark sweep paths:
   - `all-method-benchmark/<source_slug>/config_*`
   - `single-profile-benchmark/<source_slug>`
@@ -122,7 +122,8 @@ Notes:
   - Boundary diagnostics now aggregate all boundary-bearing rows at the latest preferred benchmark run-group key (artifact-path timestamp token fallback to record timestamp), so twinned `vanilla`/`codexfarm` evals are grouped even when eval completion timestamps differ.
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
-  - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and show signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse), while still using rolling `n=10` variant-specific windows (no cross-variant mixing).
+  - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and show signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse).
+  - Per-label diagnostics include a small `Rolling N` selector in-card; rolling codexfarm/vanilla delta columns sit under one shared dynamic group header (`<N>-run Rolling Delta:`), with per-column labels reduced to metric + variant.
   - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + delta columns.
   - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.
   - Per-label metric headers are intentionally three-line (`group`, `metric`, `(variant)`) and left-aligned to keep diagnostic columns narrower on single-screen layouts.
@@ -140,7 +141,6 @@ Notes:
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
   - Placeholder effort values like `<default>`/`default` are treated as unknown effort; CSV backfill resolves model-default effort where available.
-  - Known SeaAndSmoke historical rows at `2026-03-03T01:28:32`, `2026-03-02T23:37:21`, and `2026-03-02T23:20:13` suppress `AI Effort` so the table does not show incorrect inferred backfill values.
   - `All token use` is shown by default and displays `discounted_total | input | output` in one cell, abbreviated with `k`/`m` where large (for example `854k`, `2.27m`).
   - Discounted total applies cached-input tokens at `0.1x` weight (`(input - cached_input) + 0.1*cached_input + output`).
   - Sorting and filtering `All token use` uses that discounted numeric total (not raw `tokens_total`).
@@ -157,7 +157,7 @@ Notes:
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 800px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
   - A `Quick Filters` section sits between the trend chart and table:
     - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.
-    - `Exclude AI test/smoke benchmark runs` filters bench/pytest-style test paths plus timestamp-suffixed run folders like `<timestamp>_manual-...-smoke`.
+    - `Exclude AI test/smoke benchmark runs` remains available mainly as a legacy cleanup toggle for older saved dashboard payloads.
     - `Clear all filters` resets quick filters, per-column table filters, and isolate rules in one click.
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
   - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps).

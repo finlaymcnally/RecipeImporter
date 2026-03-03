@@ -10,7 +10,6 @@ from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
-from cookimport.parsing.schemaorg_ingest import schema_recipe_to_candidate
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 from .codex_farm_contracts import (
@@ -26,6 +25,7 @@ from .codex_farm_contracts import (
 )
 from .codex_farm_ids import bundle_filename, ensure_recipe_id, sanitize_for_filename
 from .evidence_normalizer import normalize_pass2_evidence
+from .codex_farm_transport import build_pass2_transport_selection
 from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
@@ -86,6 +86,7 @@ class _RecipeState:
     pass2_payload_indices: list[int] = field(default_factory=list)
     pass3_fallback_reason: str | None = None
     pass2_output: Pass2SchemaOrgOutput | None = None
+    pass2_degradation_reasons: list[str] = field(default_factory=list)
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -272,20 +273,23 @@ def run_codex_farm_recipe_pipeline(
             blocks_before=_block_lites_for_range(
                 full_blocks_by_index,
                 start=(state.heuristic_start or 0) - run_settings.codex_farm_context_blocks,
-                end=state.heuristic_start or 0,
+                end=(state.heuristic_start or 0) - 1,
+                end_inclusive=True,
             ),
             blocks_candidate=_block_lites_for_range(
                 full_blocks_by_index,
                 start=state.heuristic_start,
                 end=state.heuristic_end,
+                end_inclusive=True,
             ),
             blocks_after=_block_lites_for_range(
                 full_blocks_by_index,
-                start=state.heuristic_end,
+                start=(state.heuristic_end or 0) + 1,
                 end=(
                     (state.heuristic_end or 0)
                     + run_settings.codex_farm_context_blocks
                 ),
+                end_inclusive=True,
             ),
             pattern_hints=pattern_hints,
         )
@@ -322,29 +326,21 @@ def run_codex_farm_recipe_pipeline(
     pass2_states = [state for state in states if state.pass1_status == "ok"]
     for state in pass2_states:
         recipe_artifact_name = _recipe_artifact_filename(state.recipe_id)
-        block_indices = _included_indices_for_state(
-            state,
+        transport_selection = build_pass2_transport_selection(
+            recipe_id=state.recipe_id,
+            bundle_name=state.bundle_name,
+            pass1_status=state.pass1_status,
+            start_block_index=state.start_block_index,
+            end_block_index=state.end_block_index,
+            excluded_block_ids=sorted(state.excluded_block_ids),
             full_blocks_by_index=full_blocks_by_index,
         )
+        block_indices = list(transport_selection.effective_indices)
         state.pass2_effective_indices = list(block_indices)
-        effective_block_ids: list[str] = []
-        for idx in block_indices:
-            block = full_blocks_by_index.get(idx, {})
-            block_id = block.get("block_id") or block.get("id") or f"b{idx}"
-            rendered_block_id = str(block_id).strip()
-            if not rendered_block_id:
-                rendered_block_id = f"b{idx}"
-            effective_block_ids.append(rendered_block_id)
-        included_blocks = [
-            full_blocks_by_index[idx] for idx in block_indices if idx in full_blocks_by_index
-        ]
+        effective_block_ids = list(transport_selection.effective_block_ids)
+        included_blocks = list(transport_selection.included_blocks)
         state.pass2_payload_indices = [int(block.get("index")) for block in included_blocks]
-        transport_audit = _build_transport_audit(
-            state=state,
-            block_indices=block_indices,
-            effective_block_ids=effective_block_ids,
-            included_blocks=included_blocks,
-        )
+        transport_audit = dict(transport_selection.audit)
         transport_audits[state.recipe_id] = transport_audit
         _write_json(
             transport_audit,
@@ -354,14 +350,14 @@ def run_codex_farm_recipe_pipeline(
             state.pass2_status = "error"
             if run_settings.codex_farm_failure_mode.value == "fallback":
                 state.pass3_status = "fallback"
-                state.pass3_fallback_reason = "transport mismatch"
+                state.pass3_fallback_reason = "transport_invariant_failed"
             state.errors.append(
-                "pass1/pass2 transport mismatch: effective included indices and pass2 payload diverged."
+                "transport_invariant_failed: pass1/pass2 effective selection diverged from pass2 payload."
             )
             state.warnings.append(
                 _recipe_scoped_failure_mode_note(
                     mode=run_settings.codex_farm_failure_mode.value,
-                    reason="transport mismatch",
+                    reason="transport_invariant_failed",
                 )
             )
             continue
@@ -448,7 +444,28 @@ def run_codex_farm_recipe_pipeline(
         )
         state.warnings.extend(list(output.warnings))
         state.warnings.extend(guard_warnings)
-        state.pass2_status = "ok"
+        pass2_degradation_reasons = _pass2_degradation_reasons(
+            output=output,
+            guard_warnings=guard_warnings,
+        )
+        state.pass2_degradation_reasons = pass2_degradation_reasons
+        if pass2_degradation_reasons:
+            state.pass2_status = "degraded"
+            state.warnings.extend(
+                f"pass2 degraded: {reason}" for reason in pass2_degradation_reasons
+            )
+            state.pass3_status = "fallback"
+            state.pass3_fallback_reason = (
+                "pass2 degraded: " + "; ".join(pass2_degradation_reasons)
+            )
+            state.warnings.append(
+                _recipe_scoped_failure_mode_note(
+                    mode=run_settings.codex_farm_failure_mode.value,
+                    reason="pass2 degraded",
+                )
+            )
+        else:
+            state.pass2_status = "ok"
         intermediate_overrides[state.recipe_id] = dict(output.schemaorg_recipe)
 
     # Pass 3
@@ -500,6 +517,8 @@ def run_codex_farm_recipe_pipeline(
                 low_quality_reasons = _pass3_low_quality_reasons(
                     draft_payload=draft_payload,
                     pass2_output=state.pass2_output,
+                    ingredient_step_mapping=output.ingredient_step_mapping,
+                    pass2_degradation_reasons=state.pass2_degradation_reasons,
                 )
                 if low_quality_reasons:
                     pass3_error = (
@@ -526,7 +545,6 @@ def run_codex_farm_recipe_pipeline(
 
         fallback_payload = _build_pass3_deterministic_fallback_payload(
             state=state,
-            run_settings=run_settings,
         )
         if fallback_payload is not None:
             try:
@@ -558,6 +576,28 @@ def run_codex_farm_recipe_pipeline(
         state.pass3_status = "error"
         if pass3_error:
             state.errors.append(pass3_error)
+
+    for state in states:
+        if state.pass3_status != "fallback":
+            continue
+        if state.recipe_id in final_overrides:
+            continue
+        fallback_payload = _build_pass3_deterministic_fallback_payload(state=state)
+        if fallback_payload is None:
+            state.pass3_status = "error"
+            state.errors.append("pass3 fallback draft_v1 could not be generated.")
+            continue
+        try:
+            fallback_model = RecipeDraftV1.model_validate(fallback_payload)
+        except Exception as exc:  # noqa: BLE001
+            state.pass3_status = "error"
+            state.errors.append(f"pass3 fallback draft_v1 validation failed: {exc}")
+            continue
+        final_overrides[state.recipe_id] = fallback_model.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
 
     llm_manifest_path = llm_raw_dir / "llm_manifest.json"
     llm_manifest = _build_llm_manifest(
@@ -683,6 +723,8 @@ def _build_llm_manifest(
         normalization_row = evidence_normalizations.get(state.recipe_id)
         if isinstance(normalization_row, dict):
             row["evidence_normalization"] = dict(normalization_row)
+        if state.pass2_degradation_reasons:
+            row["pass2_degradation_reasons"] = list(state.pass2_degradation_reasons)
         if state.pass3_fallback_reason:
             row["pass3_fallback_reason"] = state.pass3_fallback_reason
         recipe_rows[state.recipe_id] = row
@@ -701,6 +743,7 @@ def _build_llm_manifest(
         "pass1_errors": sum(1 for state in states if state.pass1_status == "error"),
         "pass2_inputs": len(list(pass2_in_dir.glob("*.json"))),
         "pass2_ok": sum(1 for state in states if state.pass2_status == "ok"),
+        "pass2_degraded": sum(1 for state in states if state.pass2_status == "degraded"),
         "pass2_errors": sum(1 for state in states if state.pass2_status == "error"),
         "pass3_inputs": len(list(pass3_in_dir.glob("*.json"))),
         "pass3_ok": sum(1 for state in states if state.pass3_status == "ok"),
@@ -1026,6 +1069,7 @@ def _block_lites_for_range(
     *,
     start: int | None,
     end: int | None,
+    end_inclusive: bool = False,
 ) -> list[BlockLite]:
     start_value = _coerce_int(start)
     end_value = _coerce_int(end)
@@ -1033,6 +1077,8 @@ def _block_lites_for_range(
         return []
     lo = min(start_value, end_value)
     hi = max(start_value, end_value)
+    if end_inclusive:
+        hi += 1
     result: list[BlockLite] = []
     for idx in range(lo, hi):
         block = blocks_by_index.get(idx)
@@ -1071,8 +1117,11 @@ def _consume_pass1_outputs(
             state.pass1_status = "error"
             state.errors.append("pass1 returned null start/end for accepted recipe.")
             continue
-        start = max(0, min(start, max(total_blocks - 1, 0)))
-        end = max(start + 1, min(end, total_blocks))
+        max_index = max(total_blocks - 1, 0)
+        start = max(0, min(start, max_index))
+        end = max(0, min(end, max_index))
+        if end < start:
+            end = start
         state.start_block_index = start
         state.end_block_index = end
         state.excluded_block_ids = {
@@ -1097,10 +1146,12 @@ def _apply_pass1_midpoint_clamps(states: list[_RecipeState], *, total_blocks: in
         for state in active
     ]
 
-    previous_end = 0
+    previous_end_exclusive = 0
     for index, state in enumerate(active):
-        start = state.start_block_index or 0
-        end = state.end_block_index or (start + 1)
+        start_inclusive = state.start_block_index or 0
+        end_inclusive = state.end_block_index if state.end_block_index is not None else start_inclusive
+        start_exclusive = start_inclusive
+        end_exclusive = end_inclusive + 1
         left_bound = (
             0
             if index == 0
@@ -1114,17 +1165,23 @@ def _apply_pass1_midpoint_clamps(states: list[_RecipeState], *, total_blocks: in
                 (heuristic_points[index] + heuristic_points[index + 1] + 1) // 2,
             )
         )
-        adjusted_start = max(start, left_bound, previous_end)
-        adjusted_end = min(end, right_bound)
+        adjusted_start = max(start_exclusive, left_bound, previous_end_exclusive)
+        adjusted_end = min(end_exclusive, right_bound)
         if adjusted_end <= adjusted_start:
             adjusted_end = min(total_blocks, adjusted_start + 1)
-        if adjusted_start != start or adjusted_end != end:
+
+        adjusted_start_inclusive = adjusted_start
+        adjusted_end_inclusive = max(adjusted_start_inclusive, adjusted_end - 1)
+        if (
+            adjusted_start_inclusive != start_inclusive
+            or adjusted_end_inclusive != end_inclusive
+        ):
             state.warnings.append(
                 "pass1 boundaries clamped to prevent overlap/cross-midpoint drift."
             )
-        state.start_block_index = adjusted_start
-        state.end_block_index = adjusted_end
-        previous_end = adjusted_end
+        state.start_block_index = adjusted_start_inclusive
+        state.end_block_index = adjusted_end_inclusive
+        previous_end_exclusive = adjusted_end
 
 
 def _apply_pass1_to_result(result: ConversionResult, states: list[_RecipeState]) -> None:
@@ -1178,8 +1235,8 @@ def _recompute_non_recipe_blocks(
         if start is None or end is None:
             continue
         lo = max(0, min(int(start), max_index))
-        hi = max(lo + 1, min(int(end), max_index + 1))
-        for idx in range(lo, hi):
+        hi = max(lo, min(int(end), max_index))
+        for idx in range(lo, hi + 1):
             mask[idx] = True
         for block_id in state.excluded_block_ids:
             block_index = block_id_to_index.get(block_id)
@@ -1204,18 +1261,16 @@ def _included_indices_for_state(
     *,
     full_blocks_by_index: dict[int, dict[str, Any]],
 ) -> list[int]:
-    start = state.start_block_index
-    end = state.end_block_index
-    if start is None or end is None:
-        return []
-    indices: list[int] = []
-    for idx in range(int(start), int(end)):
-        block = full_blocks_by_index.get(idx, {})
-        block_id = str(block.get("block_id") or f"b{idx}")
-        if block_id in state.excluded_block_ids:
-            continue
-        indices.append(idx)
-    return indices
+    selection = build_pass2_transport_selection(
+        recipe_id=state.recipe_id,
+        bundle_name=state.bundle_name,
+        pass1_status=state.pass1_status,
+        start_block_index=state.start_block_index,
+        end_block_index=state.end_block_index,
+        excluded_block_ids=sorted(state.excluded_block_ids),
+        full_blocks_by_index=full_blocks_by_index,
+    )
+    return list(selection.effective_indices)
 
 
 def _build_transport_audit(
@@ -1245,6 +1300,9 @@ def _build_transport_audit(
         "pass1_status": state.pass1_status,
         "start_block_index": state.start_block_index,
         "end_block_index": state.end_block_index,
+        "start_block_index_inclusive": state.start_block_index,
+        "end_block_index_inclusive": state.end_block_index,
+        "end_index_semantics": "inclusive",
         "excluded_block_ids": sorted(state.excluded_block_ids),
         "effective_indices": list(block_indices),
         "effective_block_ids": effective_block_ids,
@@ -1265,6 +1323,52 @@ def _recipe_scoped_failure_mode_note(*, mode: str, reason: str) -> str:
 
 def _normalize_for_match(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+_PLACEHOLDER_STEP_TEXTS = {
+    _normalize_for_match("See original recipe for details."),
+}
+_PASS2_DEGRADING_WARNING_BUCKETS = {
+    "missing_instructions",
+    "split_line_boundary",
+    "ingredient_fragment",
+    "ocr_or_page_artifact",
+}
+
+
+def _normalized_nonempty_texts(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        normalized = _normalize_for_match(str(value))
+        if normalized:
+            result.append(normalized)
+    return result
+
+
+def _is_placeholder_instruction(value: str) -> bool:
+    normalized = _normalize_for_match(value)
+    if not normalized:
+        return True
+    return normalized in _PLACEHOLDER_STEP_TEXTS
+
+
+def _pass2_warning_bucket(text: str) -> str | None:
+    lowered = _normalize_for_match(text).replace(" ", "_")
+    if not lowered:
+        return None
+    if "missing_instruction" in lowered:
+        return "missing_instructions"
+    if "split_line_boundary" in lowered or "split_line" in lowered:
+        return "split_line_boundary"
+    if "ingredient_fragment" in lowered:
+        return "ingredient_fragment"
+    if (
+        "ocr" in lowered
+        or "page_artifact" in lowered
+        or "page_marker" in lowered
+    ):
+        return "ocr_or_page_artifact"
+    return None
 
 
 def _validate_pass2_guardrails(
@@ -1289,15 +1393,53 @@ def _validate_pass2_guardrails(
     return warnings
 
 
+def _pass2_degradation_reasons(
+    *,
+    output: Pass2SchemaOrgOutput,
+    guard_warnings: list[str],
+) -> list[str]:
+    reasons: list[str] = []
+    normalized_instructions = _normalized_nonempty_texts(output.extracted_instructions)
+    non_placeholder_instructions = [
+        text for text in normalized_instructions if not _is_placeholder_instruction(text)
+    ]
+
+    if not normalized_instructions:
+        reasons.append("missing_instructions")
+    elif not non_placeholder_instructions:
+        reasons.append("placeholder_instructions_only")
+
+    warning_buckets = {
+        bucket
+        for warning in [*output.warnings, *guard_warnings]
+        if isinstance(warning, str)
+        for bucket in [_pass2_warning_bucket(warning)]
+        if bucket is not None
+    }
+    for bucket in sorted(warning_buckets):
+        if bucket in _PASS2_DEGRADING_WARNING_BUCKETS:
+            reasons.append(f"warning_bucket:{bucket}")
+    return reasons
+
+
 def _pass3_low_quality_reasons(
     *,
     draft_payload: dict[str, Any],
     pass2_output: Pass2SchemaOrgOutput | None,
+    ingredient_step_mapping: dict[str, Any] | None,
+    pass2_degradation_reasons: list[str] | None = None,
 ) -> list[str]:
     if pass2_output is None:
         return []
 
     low_quality_reasons: list[str] = []
+    pass2_degradation_reasons = pass2_degradation_reasons or []
+    if any(
+        reason in {"missing_instructions", "placeholder_instructions_only"}
+        for reason in pass2_degradation_reasons
+    ):
+        low_quality_reasons.append("pass2 degraded due to missing instruction evidence.")
+
     blocked_snippets: set[str] = set()
 
     description = pass2_output.schemaorg_recipe.get("description")
@@ -1330,13 +1472,18 @@ def _pass3_low_quality_reasons(
 
     steps = draft_payload.get("steps")
     if not isinstance(steps, list):
-        return []
+        low_quality_reasons.append("draft_v1.steps missing or invalid.")
+        return low_quality_reasons
+
+    rendered_steps: list[str] = []
     for idx, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
-        instruction = _normalize_for_match(str(step.get("instruction") or ""))
+        raw_instruction = str(step.get("instruction") or "")
+        instruction = _normalize_for_match(raw_instruction)
         if not instruction:
             continue
+        rendered_steps.append(raw_instruction)
         for blocked in blocked_snippets:
             if blocked == instruction or blocked in instruction or instruction in blocked:
                 if instruction not in extracted_instruction_set:
@@ -1344,36 +1491,61 @@ def _pass3_low_quality_reasons(
                         f"step[{idx}] instruction matches schema description/headnote text."
                     )
                     break
+
+    if not rendered_steps:
+        low_quality_reasons.append("draft_v1 has no non-empty step instructions.")
+    elif all(_is_placeholder_instruction(step) for step in rendered_steps):
+        low_quality_reasons.append("draft_v1 step instructions are placeholder-only.")
+
+    mapping_payload = (
+        ingredient_step_mapping if isinstance(ingredient_step_mapping, dict) else {}
+    )
+    if not mapping_payload:
+        has_step_evidence = bool(rendered_steps)
+        pass2_instruction_evidence = _normalized_nonempty_texts(
+            pass2_output.extracted_instructions
+        )
+        has_instruction_evidence = bool(pass2_instruction_evidence)
+        if (not has_step_evidence) or (not has_instruction_evidence):
+            low_quality_reasons.append(
+                "ingredient_step_mapping empty while step/instruction evidence is missing."
+            )
+
     return low_quality_reasons
 
 
 def _build_pass3_deterministic_fallback_payload(
     *,
     state: _RecipeState,
-    run_settings: RunSettings,
 ) -> dict[str, Any] | None:
-    if state.pass2_output is None:
-        return None
-
-    schema_recipe = dict(state.pass2_output.schemaorg_recipe)
-    fallback_candidate = schema_recipe_to_candidate(
-        schema_recipe,
-        source=state.recipe.source,
-        confidence=state.recipe.confidence,
-        provenance=dict(state.recipe.provenance or {}),
-    )
+    fallback_candidate = state.recipe.model_copy(deep=True)
     fallback_candidate.identifier = state.recipe_id
     fallback_candidate.provenance = dict(state.recipe.provenance or {})
     fallback_candidate.provenance["@id"] = state.recipe_id
 
-    if state.pass2_output.extracted_ingredients:
-        fallback_candidate.ingredients = list(state.pass2_output.extracted_ingredients)
-    if state.pass2_output.extracted_instructions:
-        fallback_candidate.instructions = list(state.pass2_output.extracted_instructions)
-    if not fallback_candidate.name and state.recipe.name:
-        fallback_candidate.name = state.recipe.name
+    pass2_output = state.pass2_output
+    if pass2_output is not None:
+        if pass2_output.extracted_ingredients:
+            candidate_ingredients = [
+                str(item).strip() for item in pass2_output.extracted_ingredients if str(item).strip()
+            ]
+            if candidate_ingredients:
+                fallback_candidate.ingredients = candidate_ingredients
+        candidate_instructions = [
+            str(item).strip()
+            for item in pass2_output.extracted_instructions
+            if str(item).strip()
+        ]
+        if candidate_instructions and not all(
+            _is_placeholder_instruction(item) for item in candidate_instructions
+        ):
+            fallback_candidate.instructions = candidate_instructions
+        if not fallback_candidate.name:
+            schema_name = str(pass2_output.schemaorg_recipe.get("name") or "").strip()
+            if schema_name:
+                fallback_candidate.name = schema_name
 
-    run_config = run_settings.to_run_config_dict()
+    run_config = RunSettings().to_run_config_dict()
     payload = recipe_candidate_to_draft_v1(
         fallback_candidate,
         ingredient_parser_options=run_config,

@@ -217,6 +217,47 @@ class TestPartitionHtmlToBlocks:
         assert diag[0]["split_index"] == 0
         assert diag[1]["split_index"] == 1
 
+    def test_recipe_like_multiline_splitting_for_narrative_text(self, monkeypatch):
+        class FakeMetadata:
+            def to_dict(self) -> dict[str, object]:
+                return {
+                    "category_depth": 0,
+                    "parent_id": "parent-2",
+                    "emphasized_text_tags": [],
+                    "emphasized_text_contents": [],
+                }
+
+        class FakeElement:
+            category = "NarrativeText"
+            text = "Ingredients\n1 cup flour\nWhisk until smooth"
+            metadata = FakeMetadata()
+            id = "element-2"
+
+        def fake_partition_html(*, text: str, **kwargs):  # noqa: ARG001
+            return [FakeElement()]
+
+        monkeypatch.setattr(
+            "unstructured.partition.html.partition_html",
+            fake_partition_html,
+        )
+
+        blocks, diag = partition_html_to_blocks(
+            "<html><body><p>dummy</p></body></html>",
+            spine_index=5,
+            source_location_id="book",
+        )
+
+        assert [b.text for b in blocks] == [
+            "Ingredients",
+            "1 cup flour",
+            "Whisk until smooth",
+        ]
+        assert blocks[0].features["unstructured_stable_key"] == "book:spine5:e0.s0"
+        assert blocks[1].features["unstructured_stable_key"] == "book:spine5:e0.s1"
+        assert blocks[2].features["unstructured_stable_key"] == "book:spine5:e0.s2"
+        assert blocks[0].features["unstructured_split_reason"] == "recipe_like_multiline"
+        assert diag[0]["split_reason"] == "recipe_like_multiline"
+
     def test_ordering_preserved(self):
         """Block order must match HTML document order."""
         html = (

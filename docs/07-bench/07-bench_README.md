@@ -220,6 +220,7 @@ Prediction-record and telemetry artifacts:
 `scripts/benchmark_cutdown_for_external_ai.py` now writes additive blended first-look artifacts under `starter_pack_v1/` while preserving legacy root files.
 Interactive `labelstudio_benchmark` single-offline paired runs reuse the same starter-pack logic directly in the session root.
 Starter-pack generation is wired into the shared codex-vs-vanilla comparison artifact writer, so it runs whenever paired comparison JSON is produced.
+Outside-span preprocess trace joins no longer borrow fallback prompt rows from unrelated recipes; outside-span statuses now emit explicit bridge lineage (`outside_span_archive_only`, `outside_span_unattributed`, plus prompt-joined variants when same-recipe prompt context exists).
 
 Starter-pack mandatory files:
 - `README.md`

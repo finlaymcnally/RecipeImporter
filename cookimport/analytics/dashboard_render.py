@@ -1977,20 +1977,25 @@ _HTML = """\
             value="10"
           >
         </div>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores; other precision/recall cells show delta vs that same-label codexfarm baseline (dark green means better, dark red means worse). Rolling metrics use the last 10 runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
-        <table id="per-label-table" class="dashboard-resizable-table"><thead><tr>
-          <th title="The label name being scored (for example RECIPE_TITLE).">Label</th>
-          <th title="Gold span count for this label.">Gold</th>
-          <th title="Predicted span count for this label.">Pred</th>
-          <th title="Latest-run codexfarm precision for this label (strict scoring baseline)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Latest-run codexfarm recall for this label (strict scoring baseline)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Delta from latest-run codexfarm precision for this label, using latest-run vanilla precision."><span class="per-label-col-head">Run<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Delta from latest-run codexfarm recall for this label, using latest-run vanilla recall."><span class="per-label-col-head">Run<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Delta from latest-run codexfarm precision for this label, using rolling codexfarm precision over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Delta from latest-run codexfarm recall for this label, using rolling codexfarm recall over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Delta from latest-run codexfarm precision for this label, using rolling vanilla precision over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Delta from latest-run codexfarm recall for this label, using rolling vanilla recall over N runs."><span class="per-label-col-head">Rolling n=<span class="per-label-rolling-window-value">10</span><br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-        </tr></thead><tbody></tbody></table>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores; other precision/recall cells show delta vs that same-label codexfarm baseline (dark green means better, dark red means worse). Rolling metrics use the selected N runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
+        <table id="per-label-table" class="dashboard-resizable-table"><thead>
+          <tr class="per-label-header-primary">
+            <th title="The label name being scored (for example RECIPE_TITLE)." rowspan="2">Label</th>
+            <th title="Gold span count for this label." rowspan="2">Gold</th>
+            <th title="Predicted span count for this label." rowspan="2">Pred</th>
+            <th title="Latest-run codexfarm precision for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th title="Latest-run codexfarm recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th title="Delta from latest-run codexfarm precision for this label, using latest-run vanilla precision." rowspan="2"><span class="per-label-col-head">Run<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th title="Delta from latest-run codexfarm recall for this label, using latest-run vanilla recall." rowspan="2"><span class="per-label-col-head">Run<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm and vanilla columns." colspan="4"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling Delta:</span></th>
+          </tr>
+          <tr class="per-label-header-rolling">
+            <th title="Delta from latest-run codexfarm precision for this label, using rolling codexfarm precision over N runs."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th title="Delta from latest-run codexfarm recall for this label, using rolling codexfarm recall over N runs."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th title="Delta from latest-run codexfarm precision for this label, using rolling vanilla precision over N runs."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th title="Delta from latest-run codexfarm recall for this label, using rolling vanilla recall over N runs."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          </tr>
+        </thead><tbody></tbody></table>
       </section>
     </div>
   </section>
@@ -3350,15 +3355,30 @@ td.warn-note { color: #b45309; font-weight: 600; }
 #per-label-table td.num {
   text-align: left;
 }
-#per-label-table th:nth-child(n+2):nth-child(-n+3),
-#per-label-table td:nth-child(n+2):nth-child(-n+3) {
+#per-label-table td:nth-child(n+2):nth-child(-n+3),
+#per-label-table thead tr.per-label-header-primary th:nth-child(n+2):nth-child(-n+3) {
   width: calc(6ch + 10px);
   min-width: calc(6ch + 10px);
 }
-#per-label-table th:nth-child(n+4):nth-child(-n+11),
-#per-label-table td:nth-child(n+4):nth-child(-n+11) {
+#per-label-table td:nth-child(n+4):nth-child(-n+11),
+#per-label-table thead tr.per-label-header-primary th:nth-child(n+4):nth-child(-n+7),
+#per-label-table thead tr.per-label-header-rolling th {
   width: calc(10ch + 10px);
   min-width: calc(10ch + 10px);
+}
+#per-label-table thead tr.per-label-header-primary th.per-label-rolling-group {
+  text-align: center;
+  vertical-align: bottom;
+  padding-bottom: 0.04rem;
+}
+#per-label-table thead tr.per-label-header-primary th.per-label-rolling-group .per-label-col-head {
+  text-align: center;
+}
+.per-label-rolling-group-head {
+  white-space: nowrap;
+}
+#per-label-table thead tr.per-label-header-rolling th {
+  vertical-align: top;
 }
 .per-label-col-head {
   display: block;
@@ -3509,8 +3529,11 @@ _JS = """\
   let previousRunsFilterControlSource = "table";
   let isolateClauses = [];
   let isolateCombineMode = "all";
+  let perLabelRollingWindowSize = 10;
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
+  const PER_LABEL_ROLLING_WINDOW_MIN = 1;
+  const PER_LABEL_ROLLING_WINDOW_MAX = 50;
   const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [
     ["contains", "contains"],
     ["not_contains", "does not contain"],
@@ -3855,6 +3878,12 @@ _JS = """\
     return key === "any" ? "any" : "all";
   }
 
+  function normalizePerLabelRollingWindowSize(value) {
+    const parsed = Number.parseInt(String(value == null ? "" : value).trim(), 10);
+    if (!Number.isFinite(parsed)) return 10;
+    return Math.max(PER_LABEL_ROLLING_WINDOW_MIN, Math.min(PER_LABEL_ROLLING_WINDOW_MAX, parsed));
+  }
+
   function normalizeIsolateClause(rawClause) {
     if (!rawClause || typeof rawClause !== "object" || Array.isArray(rawClause)) {
       return {
@@ -4039,6 +4068,11 @@ _JS = """\
         previousRunsQuickFilters.official_full_golden_only = Boolean(rawQuickFilters.official_full_golden_only);
       }
     }
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "per_label_rolling_window_size")) {
+      perLabelRollingWindowSize = normalizePerLabelRollingWindowSize(
+        previousRuns.per_label_rolling_window_size
+      );
+    }
 
     const rawColumnWidths = previousRuns.column_widths;
     if (rawColumnWidths && typeof rawColumnWidths === "object" && !Array.isArray(rawColumnWidths)) {
@@ -4164,6 +4198,7 @@ _JS = """\
         dashboardUiStatePersistSuppressed = true;
         try {
           setupPreviousRunsQuickFilters();
+          setupPerLabelControls();
           renderPreviousRunsColumnEditor();
           renderAll();
         } finally {
@@ -4227,6 +4262,7 @@ _JS = """\
           exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
           official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
         },
+        per_label_rolling_window_size: normalizePerLabelRollingWindowSize(perLabelRollingWindowSize),
         column_widths: columnWidths,
         sort: {
           field: String(previousRunsSortField || "run_timestamp"),
@@ -4690,6 +4726,7 @@ _JS = """\
 
   function setupPreviousRunsFilters() {
     previousRunsFieldOptions = collectBenchmarkFieldPaths();
+    setupPerLabelControls();
     ensurePreviousRunsColumns();
     setupPreviousRunsColumnsControls();
     setupPreviousRunsQuickFilters();
@@ -8597,6 +8634,36 @@ _JS = """\
     return '<td class="' + cellClass + '" style="text-align:left">' + signedText + "</td>";
   }
 
+  function syncPerLabelRollingWindowUi() {
+    const value = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);
+    perLabelRollingWindowSize = value;
+    const input = document.getElementById("per-label-rolling-window-size");
+    if (input) {
+      input.value = String(value);
+    }
+    document.querySelectorAll(".per-label-rolling-window-value").forEach(node => {
+      node.textContent = String(value);
+    });
+  }
+
+  function setupPerLabelControls() {
+    syncPerLabelRollingWindowUi();
+    const input = document.getElementById("per-label-rolling-window-size");
+    if (!input || input.dataset.bound === "1") return;
+    input.addEventListener("change", () => {
+      const nextValue = normalizePerLabelRollingWindowSize(input.value);
+      if (nextValue === perLabelRollingWindowSize) {
+        syncPerLabelRollingWindowUi();
+        return;
+      }
+      perLabelRollingWindowSize = nextValue;
+      syncPerLabelRollingWindowUi();
+      persistDashboardUiState();
+      renderPerLabel();
+    });
+    input.dataset.bound = "1";
+  }
+
   function rollingPerLabelByVariant(records, variant, windowSize) {
     const byRunTimestamp = Object.create(null);
     (records || []).forEach(record => {
@@ -8671,8 +8738,13 @@ _JS = """\
     const records = filteredBenchmarks();
     const section = document.getElementById("per-label-section");
     if (!section) return;
+    const title = section.querySelector("h2");
+    const tbody = document.querySelector("#per-label-table tbody");
+    if (!tbody) return;
+    syncPerLabelRollingWindowUi();
     if (records.length === 0) {
-      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No benchmark records with per-label data.</p>';
+      if (title) title.textContent = "Per-Label Breakdown";
+      tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="11">No benchmark records with per-label data.</td></tr>';
       return;
     }
     const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
@@ -8695,14 +8767,16 @@ _JS = """\
     const latestRunRecords = latestRunGroup.records;
     const latestRunLabel = latestRunGroup.runGroupLabel;
     if (!latestRunRecords.length) {
-      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in benchmark records.</p>';
+      if (title) title.textContent = "Per-Label Breakdown";
+      tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="11">No per-label metrics available in benchmark records.</td></tr>';
       return;
     }
-    section.querySelector("h2").textContent =
-      "Per-Label Breakdown (" + esc(latestRunLabel || "latest") + ", " + latestRunRecords.length + " evals)";
-    const tbody = document.querySelector("#per-label-table tbody");
+    if (title) {
+      title.textContent =
+        "Per-Label Breakdown (" + (latestRunLabel || "latest") + ", " + latestRunRecords.length + " evals)";
+    }
     tbody.innerHTML = "";
-    const rollingWindowSize = 10;
+    const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);
     const runCodexFarmRows = aggregatePerLabelRows(
       latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "codexfarm")
     );

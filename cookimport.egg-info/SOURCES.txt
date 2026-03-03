@@ -24,6 +24,7 @@ cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
 cookimport/bench/artifact_gc.py
 cookimport/bench/canonical_alignment_cache.py
+cookimport/bench/codex_bridge_projection_policy.py
 cookimport/bench/cost.py
 cookimport/bench/cutdown_export.py
 cookimport/bench/dmp_sequence_matcher.py
@@ -99,6 +100,7 @@ cookimport/llm/codex_farm_knowledge_orchestrator.py
 cookimport/llm/codex_farm_knowledge_writer.py
 cookimport/llm/codex_farm_orchestrator.py
 cookimport/llm/codex_farm_runner.py
+cookimport/llm/codex_farm_transport.py
 cookimport/llm/evidence_normalizer.py
 cookimport/llm/fake_codex_farm_runner.py
 cookimport/llm/non_recipe_spans.py

@@ -31,6 +31,7 @@ Stage execution paths:
 Recipe codex-farm pass modules:
 
 - `cookimport/llm/codex_farm_orchestrator.py` (pass1/pass2/pass3 orchestration)
+- `cookimport/llm/codex_farm_transport.py` (authoritative pass1->pass2 inclusive span selection + audit payload builder)
 - `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts)
 - `cookimport/llm/evidence_normalizer.py` (deterministic additive pass2 evidence normalization)
 - `cookimport/llm/codex_farm_ids.py` (stable slug/id/bundle filename helpers)
@@ -96,6 +97,7 @@ Report/model plumbing:
   - `normalized_evidence_text`
   - `normalized_evidence_lines`
   - `normalization_stats`
+- Pass1->pass2 transport now uses explicit inclusive end-index semantics (`start <= idx <= end`) through `codex_farm_transport.py`, and transport audits include `end_index_semantics=\"inclusive\"`.
 - Authoritative pass2 evidence remains `canonical_text` + `blocks`; normalized evidence is helper-only.
 - Recipe-level pass1/pass2 handoff audits are persisted under:
   - `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)
@@ -106,8 +108,11 @@ Report/model plumbing:
   - `codex_farm_failure_mode=fail` keeps recipe-level error status without process-wide crash.
 - `llm_manifest.json` now records:
   - transport audit rows and mismatch counts,
+  - pass2 degradation counts/reasons (`pass2_degraded`, per-recipe `pass2_degradation_reasons`),
   - evidence-normalization row summaries/counts,
   - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output).
+- Pass3 promotion is now gated by pass2 evidence quality: degraded pass2 rows skip pass3 LLM calls and go directly through deterministic fallback.
+- Deterministic fallback now starts from the existing `state.recipe` candidate, then applies guarded pass2 enrichments when instruction/ingredient evidence is non-empty and non-placeholder.
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 

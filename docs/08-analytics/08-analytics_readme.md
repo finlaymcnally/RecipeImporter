@@ -129,6 +129,7 @@ Collector behavior (`collect_dashboard_data`):
   - includes supplemental benchmark rows from nested benchmark history CSVs under `--output-root`
   - benchmark CSV rows persist Codex token usage (`tokens_*`) when benchmark prediction manifests include `llm_codex_farm` telemetry
   - CSV benchmark rows now backfill missing codex model/effort runtime from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) when available
+  - collector hard-excludes benchmark artifacts tagged as test/gate noise (`/bench/`, pytest temp layouts, and timestamp-suffix tokens such as `_...-gated-...`, `_...-smoke-...`, `_...-test-...`)
   - optional recursive JSON scan only when `--scan-benchmark-reports` is enabled
   - scan fallback still activates when benchmark CSV rows are unavailable
   - scan mode merges JSON-discovered benchmark rows with benchmark CSV rows (dedupe key: normalized benchmark artifact dir path)
@@ -139,7 +140,7 @@ Benchmark scan details:
   - `all-method-benchmark/<source_slug>/config_*/eval_report.json`
   - `single-profile-benchmark/<source_slug>/eval_report.json`
 - For suffixed run folders (for example `2026-02-28_02.03.18_manual-top5-...`), benchmark `run_timestamp` is normalized to the timestamp prefix (`2026-02-28_02.03.18`) so sweep rows aggregate correctly.
-- Excludes `prediction-run` eval dirs and pytest temp artifacts
+- Excludes `prediction-run` eval dirs plus benchmark artifact paths classified as test/gate noise
 - Optional enrichment from `manifest.json` / `coverage.json` (eval dir and `prediction-run/`)
   - Manifest enrichment also backfills codex runtime context into benchmark `run_config` when needed:
     - `codex_farm_model`
@@ -182,12 +183,12 @@ Benchmark scan details:
 - `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
 - Diagnostics layout is fixed 2-up on desktop: `Benchmark Runtime` and `Boundary Classification` each occupy 50% width on the first row, with `Per-Label Breakdown` full-width below (mobile collapses to one column).
 - Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`) with compact `k`/`m` display for large values.
-- Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and render signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse), while rolling `n=10` windows remain variant-specific (no cross-variant averaging).
+- Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and render signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse).
+- Per-label diagnostics expose a `Rolling N` selector; rolling codexfarm/vanilla delta columns use that selected N and render under a shared `<N>-run Rolling Delta:` header with metric+variant subcolumns.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
   - `AI Effort` shows only concrete effort values; placeholders (`<default>`, `default`) are treated as missing in the UI.
-  - Known SeaAndSmoke historical rows at `2026-03-03T01:28:32`, `2026-03-02T23:37:21`, and `2026-03-02T23:20:13` have `AI Effort` intentionally suppressed to avoid displaying incorrect inferred backfill values.
   - `All token use` is part of the default `Previous Runs` columns and displays combined `total | input | output` with compact `k`/`m` formatting for large values.
   - Sorting/filtering `All token use` uses the numeric `tokens_total` value.
   - Detailed token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) remain available through the `+/-` column picker.
@@ -199,7 +200,7 @@ Benchmark scan details:
 - Diagnostic table resize now applies only to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` intentionally stay fixed-fit (no horizontal scroll/resize) for cleaner top-row readability.
 - `Quick Filters` appears between trend chart and table with:
   - a primary default-on toggle for official single-offline benchmark rows (`benchmark-vs-golden` + `single-offline-benchmark`) with `vanilla`/`codexfarm` variants,
-  - a secondary toggle for excluding AI test/smoke benchmark runs (`/bench/`, pytest-temp style paths, and `<timestamp>_manual-...-smoke` style run folders).
+  - a secondary legacy toggle for excluding AI test/smoke rows that may still exist in older saved dashboard payloads.
   - a visible `Clear all filters` button that resets quick filters, table column filters, and isolate rules together.
 - `Previous Runs` table keeps horizontal scrolling with a fixed minimum table width, and the viewport stays at about 10 visible-row height (even when filtered result count is lower) before vertical scrolling.
 - Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).

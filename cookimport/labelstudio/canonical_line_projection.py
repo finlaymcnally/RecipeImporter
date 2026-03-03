@@ -38,6 +38,7 @@ def project_line_roles_to_freeform_spans(
     for position, prediction in enumerate(ordered):
         recipe_id = str(prediction.recipe_id or "").strip() or None
         recipe_index = _recipe_index_from_recipe_id(recipe_id)
+        within_recipe_span = bool(prediction.within_recipe_span)
         label = str(prediction.label or "OTHER").strip().upper() or "OTHER"
         if label not in _FREEFORM_LABEL_SET:
             label = "OTHER"
@@ -50,7 +51,7 @@ def project_line_roles_to_freeform_spans(
                 block_index=block_index,
                 recipe_id=recipe_id,
                 recipe_index=recipe_index,
-                within_recipe_span=recipe_index is not None,
+                within_recipe_span=within_recipe_span,
                 label=label,
                 text=str(prediction.text or ""),
             )
@@ -199,5 +200,4 @@ def _recipe_index_from_recipe_id(recipe_id: str | None) -> int | None:
         except ValueError:
             return None
     return None
-
 

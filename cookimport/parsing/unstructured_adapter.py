@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import os
+import re
 from typing import Any, Literal
 
 from bs4 import BeautifulSoup, FeatureNotFound
@@ -41,6 +42,22 @@ _CATEGORY_TO_BLOCK_TYPE: dict[str, BlockType] = {
     "Address": BlockType.TEXT,
     "Formula": BlockType.TEXT,
 }
+_RECIPE_LIKE_MULTILINE_CATEGORIES = {"Title", "NarrativeText", "UncategorizedText", "Text"}
+_RECIPE_LIKE_QUANTITY_RE = re.compile(
+    r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])\b"
+)
+_RECIPE_LIKE_STEP_RE = re.compile(
+    r"^\s*(?:step\s+\d+[\.:)]?|\d+[\.)]\s+|"
+    r"add|bake|beat|blend|boil|braise|broil|combine|cook|cool|drain|"
+    r"fold|grill|heat|mix|place|pour|preheat|reduce|remove|roast|"
+    r"season|serve|simmer|stir|transfer|whisk)\b",
+    re.IGNORECASE,
+)
+_RECIPE_LIKE_HEADER_RE = re.compile(
+    r"^\s*(?:ingredients?|instructions?|directions?|method|prep|"
+    r"for the\b|to serve\b|serves?\b|makes\b|yield)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -102,6 +119,34 @@ def _split_list_item_lines(raw_text: str) -> list[str]:
         if normalized_line:
             result.append(normalized_line)
     return result
+
+
+def _looks_recipe_like_line(text: str) -> bool:
+    if not text:
+        return False
+    if _RECIPE_LIKE_QUANTITY_RE.match(text):
+        return True
+    if _RECIPE_LIKE_STEP_RE.match(text):
+        return True
+    if _RECIPE_LIKE_HEADER_RE.match(text):
+        return True
+    return False
+
+
+def _split_recipe_like_multiline_text(raw_text: str, *, category: str) -> list[str]:
+    if category not in _RECIPE_LIKE_MULTILINE_CATEGORIES:
+        return []
+    if "\n" not in raw_text and "\r" not in raw_text:
+        return []
+
+    normalized_lines = _split_list_item_lines(raw_text)
+    if len(normalized_lines) < 2:
+        return []
+
+    recipe_like_count = sum(1 for line in normalized_lines if _looks_recipe_like_line(line))
+    if recipe_like_count < 2:
+        return []
+    return normalized_lines
 
 
 def _resolve_options(options: UnstructuredHtmlOptions | None) -> UnstructuredHtmlOptions:
@@ -216,10 +261,17 @@ def partition_html_to_blocks(
         block_type = _CATEGORY_TO_BLOCK_TYPE.get(category, BlockType.TEXT)
 
         text_segments = [text]
+        split_reason: str | None = None
         if category == "ListItem" and ("\n" in raw_text or "\r" in raw_text):
             split_lines = _split_list_item_lines(raw_text)
             if split_lines:
                 text_segments = split_lines
+                split_reason = "list_item_newline"
+        elif category in _RECIPE_LIKE_MULTILINE_CATEGORIES:
+            split_lines = _split_recipe_like_multiline_text(raw_text, category=category)
+            if split_lines:
+                text_segments = split_lines
+                split_reason = "recipe_like_multiline"
 
         stable_key_base = f"{source_location_id}:spine{spine_index}:e{element_index}"
         for split_index, segment_text in enumerate(text_segments):
@@ -269,6 +321,8 @@ def partition_html_to_blocks(
             block.add_feature("unstructured_emphasis_ratio", emphasis_ratio)
             if len(text_segments) > 1:
                 block.add_feature("unstructured_split_index", split_index)
+                if split_reason is not None:
+                    block.add_feature("unstructured_split_reason", split_reason)
 
             # EPUB-specific signals expected by downstream (heading, list_item)
             if is_heading:
@@ -286,6 +340,7 @@ def partition_html_to_blocks(
                 "spine_index": spine_index,
                 "element_index": element_index,
                 "split_index": split_index if len(text_segments) > 1 else None,
+                "split_reason": split_reason if len(text_segments) > 1 else None,
                 "element_id": element_id,
                 "stable_key": stable_key,
                 "category": category,

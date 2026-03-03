@@ -16,7 +16,7 @@ Durable reporting/dashboard caveats for `cookimport/analytics/`.
 - Dashboard table collapse behavior should keep preview rows visible in reduced mode (`Show all` / `Show fewer`), not render zero-row collapsed tables.
 - Benchmark dashboard enrichment should read `manifest.json` and `coverage.json` from either eval root or `prediction-run/`; `labelstudio-benchmark` co-locates prediction artifacts under `prediction-run/`.
 - When combining benchmark rows from JSON + CSV, dedupe by eval artifact directory and merge fields; CSV timestamps can differ from eval-folder timestamps for the same run.
-- Dashboard benchmark collection should ignore pytest temp eval artifact paths (`.../pytest-<n>/test_*/eval`) so local Python test runs do not pollute benchmark history.
+- Dashboard benchmark collection should ignore test/gate noise artifacts (`.../pytest-<n>/test_*/eval`, `/bench/` paths, and timestamp-suffix names like `_...-gated-...` / `_...-smoke-...` / `_...-test-...`) so local/debug gate runs do not pollute benchmark history.
 - Dashboard benchmark collector must scan `eval_report.json` recursively under `golden_root` so nested all-method config runs (`.../all-method-benchmark/<source_slug>/config_*/eval_report.json`) appear in dashboard grouping/ranking.
 - Dashboard `Recent Benchmarks` `Gold`/`Matched` columns are freeform span-eval counts (`gold_total`/`gold_matched`), not recipe totals; benchmark `recipes` is stored in CSV when available and can be backfilled from `processed_report_path`.
 - Dashboard UX contract: every displayed metric must include a plain-English description (tooltips and/or an on-page help/glossary) that clarifies units and denominators (spans vs recipes, seconds vs ratios, etc.).
