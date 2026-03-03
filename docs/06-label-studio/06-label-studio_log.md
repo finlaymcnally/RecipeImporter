@@ -311,3 +311,36 @@ Durable findings:
 
 Anti-loop note:
 - When UI labels and code labels disagree, validate project config freshness first; do not immediately assume eval/scorer regression.
+
+
+## 2026-03-03 migrated understanding ledger (labelstudio eval normalization)
+
+
+### 2026-03-03_02.36.40 labelstudio-eval-none-default-normalization
+
+Source:
+- `docs/understandings/2026-03-03_02.36.40-labelstudio-eval-none-default-normalization.md`
+
+Summary:
+- labelstudio-eval metadata override normalization must coalesce None/empty values before pipeline validation.
+
+Preserved notes:
+
+```md
+summary: "labelstudio-eval metadata override normalization must coalesce None/empty values before pipeline validation."
+read_when:
+  - "When editing labelstudio-eval run-config metadata parity fields"
+  - "When direct Python calls to cli.labelstudio_eval fail with pipeline value 'None'"
+---
+
+# labelstudio-eval None normalization
+
+Discovery:
+- `labelstudio_eval(...)` accepted optional metadata override flags, but direct function calls with no override and missing `prediction_run` run-config values failed validation.
+- Root cause: `str(pred_run_config.get(...))` turned missing values into literal `'None'`, which failed `_normalize_*_pipeline(...)` validators.
+
+Resolution:
+- Coalesce raw values first (`value or "off"`), then stringify and normalize.
+- This preserves valid explicit values, accepts direct-call defaults, and keeps manifest parity behavior unchanged when metadata exists.
+
+```

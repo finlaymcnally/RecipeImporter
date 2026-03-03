@@ -1202,3 +1202,56 @@ Durable decisions/outcomes:
 
 Evidence preserved:
 - Fail-before then pass-after on `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k interactive_generate_dashboard_runs_without_browser_prompt`.
+
+
+## 2026-03-03 migrated understanding ledger (spinner runtime behavior)
+
+
+### 2026-03-03_12.18.43 benchmark-spinner-panel-width-clamp
+
+Source:
+- `docs/understandings/2026-03-03_12.18.43-benchmark-spinner-panel-width-clamp.md`
+
+Summary:
+- Benchmark/import live spinner panel width must clamp to terminal width to avoid long-task overflow.
+
+Preserved notes:
+
+```md
+summary: "Benchmark/import live spinner panel width must clamp to terminal width to avoid long-task overflow."
+read_when:
+  - "When benchmark/import spinner panels look too wide or wrap awkwardly in live terminals"
+  - "When changing `_run_with_progress_status` boxed-panel rendering in `cookimport/cli.py`"
+---
+
+`_run_with_progress_status` renders a boxed panel in live mode. Before this fix, `_format_boxed_progress(...)` sized the box from the longest status line (capped at 120 chars), so long worker task labels (for example codex-farm file IDs) could force an oversized panel.
+
+Current contract:
+- Cap panel content width to a terminal-aware limit (`min(92, console.width - 6)` when terminal width is known).
+- Truncate title/body text with ASCII `...` before padding so borders and content stay aligned.
+- Keep worker/task information visible, but never let one long line expand the panel past the compact target width.
+
+```
+
+### 2026-03-03_12.20.00 spinner-eta-weighted-window-bootstrap
+
+Source:
+- `docs/understandings/2026-03-03_12.20.00-spinner-eta-weighted-window-bootstrap.md`
+
+Summary:
+- Spinner ETA gaps came from first-seen counters lacking increment history; ETA now uses weighted last-5 steps with a bootstrap fallback.
+
+Preserved notes:
+
+```md
+summary: "Spinner ETA gaps came from first-seen counters lacking increment history; ETA now uses weighted last-5 steps with a bootstrap fallback."
+read_when:
+  - "When spinner status shows `task X/Y` but ETA is missing early in a phase"
+  - "When tuning `_run_with_progress_status` ETA smoothing weights/window in `cookimport/cli.py`"
+---
+
+- `_run_with_progress_status(...)` previously required at least one observed counter increment delta before ETA could be computed, so first-seen counters like `task 2/19` could show no ETA.
+- ETA smoothing now uses a weighted moving average over the most recent five completed steps (newest-first weights: `30/20/20/20/10`).
+- If increment history is still empty but progress already started (`X > 0`), ETA bootstraps from `run_elapsed / X` until step-history samples arrive.
+
+```

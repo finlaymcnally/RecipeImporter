@@ -712,3 +712,359 @@ Durable decision:
 
 Anti-loop note:
 - If prompt-log trust is questioned, inspect `request_payload_source` before changing cutdown sampling or prompt rendering code.
+
+
+## 2026-03-03 migrated understanding ledger (codexfarm transport/prompt-plan alignment)
+
+
+### 2026-03-03_09.19.33 codexfarm-prompt-log-layout
+
+Source:
+- `docs/understandings/2026-03-03_09.19.33_codexfarm_prompt_log_layout.md`
+
+Summary:
+- Where CodexFarm literal prompt text is stored and how to sample by pass
+
+Preserved notes:
+
+```md
+summary: "Where CodexFarm literal prompt text is stored and how to sample by pass"
+read_when:
+  - "When validating what exact prompt text was sent to CodexFarm"
+  - "When comparing pass1/pass2/pass3 instruction wrappers"
+---
+
+Literal prompt text is stored in:
+- `data/golden/.../codexfarm/codexfarm/full_prompt_log.jsonl`
+
+Key field:
+- `request_messages[0].content` (exact user message sent to model)
+
+Pass mapping:
+- `pass1`: chunking boundary refinement wrapper
+- `pass2`: schema.org extraction wrapper
+- `pass3`: final draft wrapper
+
+Quick extraction pattern:
+- `jq -sr --arg pass "pass1" 'first(.[] | select(.pass==$pass) | .request_messages[0].content)' full_prompt_log.jsonl`
+
+```
+
+### 2026-03-03_09.27.30 codexfarm-prompt-samples-autogen-hook
+
+Source:
+- `docs/understandings/2026-03-03_09.27.30-codexfarm-prompt-samples-autogen-hook.md`
+
+Summary:
+- Benchmark CodexFarm prompt sample markdown is best generated in the existing prompt-log builder
+
+Preserved notes:
+
+```md
+summary: "Benchmark CodexFarm prompt sample markdown is best generated in the existing prompt-log builder"
+read_when:
+  - "When adding or debugging benchmark CodexFarm prompt-debug artifacts"
+  - "When deciding where to auto-generate human-readable prompt samples"
+---
+
+Discovery:
+- The benchmark codex artifact builder already centralizes prompt reconstruction and full per-call capture in `cookimport/cli.py::_build_codex_farm_prompt_response_log`.
+- This function is where `full_prompt_log.jsonl` is written and where pass/category text artifacts are emitted, so it is the correct single hook for generating a readable sample markdown from canonical rows.
+
+Outcome:
+- Added auto-generation of `prompt_type_samples_from_full_prompt_log.md` from `full_prompt_log.jsonl` in that same builder.
+- The generated file includes up to 3 literal prompt samples per pass (`pass1`, `pass2`, `pass3`).
+
+```
+
+### 2026-03-03_09.58.02 codexfarm-nonbenchmark-prompt-log-hook
+
+Source:
+- `docs/understandings/2026-03-03_09.58.02-codexfarm-nonbenchmark-prompt-log-hook.md`
+
+Summary:
+- CodexFarm prompt logs/samples are now generated for stage and labelstudio-import, with pass-specific manifest resolution for pass1..pass5.
+
+Preserved notes:
+
+```md
+summary: "CodexFarm prompt logs/samples are now generated for stage and labelstudio-import, with pass-specific manifest resolution for pass1..pass5."
+read_when:
+  - "When adding or debugging CodexFarm prompt-debug artifacts outside benchmark flows"
+  - "When pass4/pass5 prompt logs appear missing or incomplete"
+---
+
+## What changed
+
+- Prompt-log generation now runs in non-benchmark CodexFarm flows too:
+  - `stage(...)` calls `_build_codex_farm_prompt_response_log(pred_run=run_root, eval_output_dir=run_root)` near run-finalization.
+  - `labelstudio_import(...)` calls the same helper after `run_labelstudio_import(...)` returns.
+- Stage run manifest writing now includes CodexFarm artifact pointers when `run_root/codexfarm/` exists.
+
+## Pass manifest resolution contract
+
+- pass1/pass2/pass3: `raw/llm/<workbook>/llm_manifest.json`
+- pass4: `raw/llm/<workbook>/pass4_knowledge_manifest.json`
+- pass5: `raw/llm/<workbook>/pass5_tags_manifest.json`
+
+The helper now reads whichever pass manifests exist, instead of requiring `llm_manifest.json`.
+
+## Telemetry/provenance detail
+
+- Telemetry CSV lookup now supports both legacy `process_runs[pass*]` and single `process_run` payloads (including nested `llm_report.process_run` in pass5 manifests).
+- Prompt rows preserve the same source precedence (`telemetry_csv` when prompt text exists, otherwise reconstructed from prompt templates/input JSON).
+
+```
+
+### 2026-03-03_10.19.30 proplan2-vs-runtime-surface-audit
+
+Source:
+- `docs/understandings/2026-03-03_10.19.30-proplan2-vs-runtime-surface-audit.md`
+
+Summary:
+- Audit notes for Proplan2 against current codex-farm/line-role runtime contracts.
+
+Preserved notes:
+
+```md
+summary: "Audit notes for Proplan2 against current codex-farm/line-role runtime contracts."
+read_when:
+  - "When revising docs/plans/Proplan2.md to match current code seams"
+  - "When changing codex-farm pass contracts, llm_recipe_pipeline enums, or benchmark line-role wiring"
+---
+
+Key runtime seams discovered:
+- Recipe codex-farm orchestration is implemented in `cookimport/llm/codex_farm_orchestrator.py` via `run_codex_farm_recipe_pipeline(...)`, using pass dirs `pass1_chunking`, `pass2_schemaorg`, `pass3_final`.
+- `llm_recipe_pipeline` currently accepts only `off|codex-farm-3pass-v1` in `cookimport/config/run_settings.py`; normalization hard-forces unknown values back to `off`.
+- Canonical line-role pipeline already exists and is wired separately via `line_role_pipeline` in `cookimport/parsing/canonical_line_roles.py` and `cookimport/labelstudio/ingest.py`.
+- Final draft generation already has deterministic fallback (`recipe_candidate_to_draft_v1`) and codex override path (`draft_overrides_by_recipe_id`) in `cookimport/staging/writer.py`.
+
+Important plan/code mismatches:
+- Proplan2 says orchestrator symbols are unknown, but current repo already has explicit symbol names and tests for them.
+- Proplan2 proposes new pass2/pass3 payload fields without calling out required parallel updates in `llm_pipelines` prompt/schema/definition files and `cookimport/llm/codex_farm_contracts.py`.
+- Proplan2 describes adding a new line-role shadow path under `cookimport/llm/`, but an active benchmark line-role subsystem already exists outside this module and should likely be extended instead.
+- Proplan2 suggests `run_summary.json`/`run_summary.md` updates for counters; those summaries are stage-run artifacts, while benchmark prediction runs rely on prediction manifests + `llm_manifest.json` under raw LLM artifacts.
+
+Process-policy mismatch to resolve before implementation:
+- Root AGENTS policy currently says do not turn on Codex Farm / LLM-based parsing for data import until explicitly ready; any Proplan2 implementation needs explicit user confirmation to proceed against that policy.
+
+```
+
+### 2026-03-03_10.41.10 codexfarm-transport-mismatch-and-pass3-fallback-boundary
+
+Source:
+- `docs/understandings/2026-03-03_10.41.10-codexfarm-transport-mismatch-and-pass3-fallback-boundary.md`
+
+Summary:
+- CodexFarm orchestrator now records pass1/pass2 transport drift explicitly and uses deterministic pass3 fallback for low-quality bundles.
+
+Preserved notes:
+
+```md
+summary: "CodexFarm orchestrator now records pass1/pass2 transport drift explicitly and uses deterministic pass3 fallback for low-quality bundles."
+read_when:
+  - "When debugging pass2 missing blocks or pass3 low-quality draft regressions"
+  - "When auditing llm_manifest transport/evidence/fallback counters"
+---
+
+- Transport discovery: effective pass1 indices can include missing block indices, while pass2 payload only serializes existing blocks. This can silently drift without explicit audit checks.
+- Runtime contract added: per-recipe `transport_audit/*.json` files now encode effective-vs-payload mismatch details, and `llm_manifest.json` exposes aggregate mismatch counters.
+- Fallback discovery: pass3 outputs can satisfy schema but still be low quality (description/headnote text copied into `steps[].instruction`).
+- Runtime contract added: pass3 now falls back per recipe to deterministic `recipe_candidate_to_draft_v1(...)` built from pass2 structured outputs when pass3 is missing/invalid/low-quality.
+
+```
+
+### 2026-03-03_10.54.45 execplan-audit-og-vs-implemented
+
+Source:
+- `docs/understandings/2026-03-03_10.54.45-execplan-audit-og-vs-implemented.md`
+
+Summary:
+- Audit notes comparing OG Proplan2 intent, implemented codex-farm changes, and completed execplan claims.
+
+Preserved notes:
+
+```md
+summary: "Audit notes comparing OG Proplan2 intent, implemented codex-farm changes, and completed execplan claims."
+read_when:
+  - "When validating Proplan2 completion status against code"
+  - "When checking which milestones remain unimplemented versus OG expectations"
+---
+
+- Confirmed implemented in code: transport audits + mismatch counters, additive evidence normalization sidecars, and recipe-scoped deterministic pass3 fallback.
+- Confirmed implemented in tests: targeted orchestrator and normalizer cases for mismatch detection, normalization artifacts, and low-quality pass3 fallback behavior.
+- Outstanding versus OG milestone intent: benchmark replay/promotion milestone remains incomplete (dev-slice and full Sea replay outcomes absent).
+- Minor contract/process gap: OG says pass2 contract changes should update contracts + pipeline/schema/prompt assets together; implementation updated Python input contract + prompt but not pipeline/schema JSON for pass2 (likely low runtime risk because new fields are pass2 input-only).
+- Artifact naming drift from OG wording: OG examples used `<recipe_id>.json`; implementation writes bundle-keyed filenames in `transport_audit/*.json` and `evidence_normalization/*.json`.
+
+```
+
+### 2026-03-03_11.01.27 ogplan-non-m5-alignment-pass
+
+Source:
+- `docs/understandings/2026-03-03_11.01.27-ogplan-non-m5-alignment-pass.md`
+
+Summary:
+- Non-milestone-5 OG Proplan2 alignment pass updated transport failure-mode semantics, artifact keying, and pred-run token-field compatibility.
+
+Preserved notes:
+
+```md
+summary: "Non-milestone-5 OG Proplan2 alignment pass updated transport failure-mode semantics, artifact keying, and pred-run token-field compatibility."
+read_when:
+  - "When reviewing codex-farm transport mismatch behavior under fail vs fallback"
+  - "When debugging labelstudio_eval benchmark CSV appends with legacy pred_context test doubles"
+---
+
+- Transport mismatch handling now maps to failure mode at recipe scope: in `fallback` mode the recipe is marked as pass3 fallback with reason `transport mismatch`; in `fail` mode it remains a recipe-level error without process-wide crash.
+- Transport audit and evidence normalization sidecar files now use sanitized recipe-id filenames rather than bundle filenames.
+- `labelstudio_eval` and `labelstudio_benchmark` benchmark CSV writes now access token usage fields via `getattr(..., None)`, keeping compatibility when tests monkeypatch prediction context objects without token attributes.
+
+```
+
+### 2026-03-03_11.06.42 ogplan-vs-runtime-gap-review
+
+Source:
+- `docs/understandings/2026-03-03_11.06.42-ogplan-vs-runtime-gap-review.md`
+
+Summary:
+- Review findings for Proplan2 OG intent vs implemented codex-farm runtime and completed execplan claims.
+
+Preserved notes:
+
+```md
+summary: "Review findings for Proplan2 OG intent vs implemented codex-farm runtime and completed execplan claims."
+read_when:
+  - "When validating whether Proplan2 milestones were fully implemented"
+  - "When checking transport audit semantics and benchmark-promotion completion status"
+---
+
+OG Proplan2 milestones 1/2/4 are implemented in `cookimport/llm/codex_farm_orchestrator.py`, `cookimport/llm/evidence_normalizer.py`, and related tests.
+
+Milestone 5 remains incomplete: completed plan still marks benchmark replay + promotion decision as pending.
+
+Transport audit is only partially aligned with OG wording: `_build_transport_audit` records payload/effective block-id lists but mismatch detection only compares counts for block IDs (not value equality), so “compare block IDs/count” is only fully enforced for counts and index divergence.
+
+```
+
+### 2026-03-03_11.11.55 transport-audit-block-id-value-comparison
+
+Source:
+- `docs/understandings/2026-03-03_11.11.55-transport-audit-block-id-value-comparison.md`
+
+Summary:
+- Transport audit now compares effective vs payload block-id values, not just counts and index alignment.
+
+Preserved notes:
+
+```md
+summary: "Transport audit now compares effective vs payload block-id values, not just counts and index alignment."
+read_when:
+  - "When auditing pass1/pass2 transport mismatch reasons in codex-farm recipe pipeline"
+  - "When transport_audit mismatch reports should capture block-id value drift"
+---
+
+`_build_transport_audit` previously derived `effective_block_ids` as synthetic `b{idx}` values, so mismatch checks only guaranteed index/count drift detection.
+
+Runtime now computes effective block IDs from `full_blocks_by_index` and `_build_transport_audit` adds explicit value equality comparison (`effective_block_ids_vs_payload_block_ids_values`) in addition to existing index/count checks.
+
+Regression coverage: `tests/llm/test_codex_farm_orchestrator.py::test_build_transport_audit_detects_block_id_value_mismatch`.
+
+```
+
+### 2026-03-03_11.20.30 seaandsmoke-code-packet-runtime-seams
+
+Source:
+- `docs/understandings/2026-03-03_11.20.30-seaandsmoke-code-packet-runtime-seams.md`
+
+Summary:
+- Code packet seam map for pass1->pass2 handoff, EPUB unstructured preprocessing, canonical projection/join, and pass3 mapping/override boundaries.
+
+Preserved notes:
+
+```md
+summary: "Code packet seam map for pass1->pass2 handoff, EPUB unstructured preprocessing, canonical projection/join, and pass3 mapping/override boundaries."
+read_when:
+  - "When preparing code-only exports for external review of codex recipe pipeline seams"
+  - "When clarifying whether pass3 ingredient_step_mapping directly overrides canonical line labels"
+---
+
+- Pass1->Pass2 block handoff lives in `cookimport/llm/codex_farm_orchestrator.py`: `run_codex_farm_recipe_pipeline(...)` computes pass2 input from `_included_indices_for_state(...)`, then records parity via `_build_transport_audit(...)`.
+- EPUB unstructured preprocessing/splitting spans three layers: HTML normalization (`cookimport/parsing/epub_html_normalize.py`), Unstructured partition-to-block conversion (`cookimport/parsing/unstructured_adapter.py`), and EPUB spine extraction orchestration (`cookimport/plugins/epub.py`).
+- Canonical projection/join surfaces split across benchmark eval alignment (`cookimport/bench/eval_canonical_text.py`) and cutdown join tables (`cookimport/bench/cutdown_export.py`), with line-role span projection helper in `cookimport/labelstudio/canonical_line_projection.py`.
+- `Pass3FinalDraftOutput` includes `ingredient_step_mapping` contract field (`cookimport/llm/codex_farm_contracts.py`), but this runtime path does not directly use that mapping to overwrite canonical line labels; label override policy is handled in canonical line-role logic (`cookimport/parsing/canonical_line_roles.py`).
+
+```
+
+### 2026-03-03_12.16.08 ogplan-proplan2-code-alignment-review
+
+Source:
+- `docs/understandings/2026-03-03_12.16.08-ogplan-proplan2-code-alignment-review.md`
+
+Summary:
+- Gap check between OG Proplan2 intent, current code, and completed Proplan2 claims.
+
+Preserved notes:
+
+```md
+summary: "Gap check between OG Proplan2 intent, current code, and completed Proplan2 claims."
+read_when:
+  - "When validating whether docs/plans/Proplan2.md completion claims are reflected in runtime code"
+  - "When auditing remaining OG milestone gaps for codex_farm orchestrator work"
+---
+
+- Milestones 1/2/4 are implemented in runtime code: transport audit + mismatch guards, additive evidence normalization, and deterministic pass3 fallback.
+- Claimed dev-slice manifest path in completed plan (`docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`) is missing from the repository.
+- Milestone 5 is still incomplete by plan state and repo evidence: no recorded dev-slice/full-SEA benchmark replay outcomes or promotion decision in `docs/plans/Proplan2.md`.
+- Targeted tests for implemented milestones pass; known unrelated failing test remains `tests/llm/test_codex_farm_orchestrator.py::test_subprocess_runner_emits_progress_callback_from_progress_events` (`task 0/2` dedupe assertion).
+
+```
+
+### 2026-03-03_12.43.42 pro3-execplan-codebase-fit-gaps
+
+Source:
+- `docs/understandings/2026-03-03_12.43.42-pro3-execplan-codebase-fit-gaps.md`
+
+Summary:
+- Pro3 ExecPlan aligns with active codex-farm seams but has stale milestone state and unresolved path placeholders that reduce self-contained execution reliability.
+
+Preserved notes:
+
+```md
+summary: "Pro3 ExecPlan aligns with active codex-farm seams but has stale milestone state and unresolved path placeholders that reduce self-contained execution reliability."
+read_when:
+  - "When revising docs/plans/OGplan/Pro3.md before implementation"
+  - "When checking codex-farm transport/fallback work that overlaps already-shipped Proplan2 milestones"
+---
+
+- Pro3 intent still matches real seams: pass1->pass2 transport (`cookimport/llm/codex_farm_orchestrator.py`), pass3 fallback quality gates, outside-span trace joins (`scripts/benchmark_cutdown_for_external_ai.py`), and line-role projection (`cookimport/labelstudio/canonical_line_projection.py`).
+- Several Pro3 checklist items are already implemented in runtime/tests (transport mismatch guard + per-recipe fallback + evidence normalization), so plan `Progress` should be updated to avoid duplicate implementation work.
+- Self-contained gaps: unresolved `<bridge_builder_file>` placeholder, wrong path `cookimport/parsing/canonical_line_projection.py` (actual is under `cookimport/labelstudio`), and planned `tests/debug/...` path does not match existing test tree.
+- Boundary contract remains mixed across modules: orchestrator currently treats `end_block_index` as exclusive for pass2 selection, while bridge replay logic treats `end_block_index` as inclusive for line assignment; Pro3 should explicitly reconcile this across both paths.
+
+```
+
+### 2026-03-03_13.05.30 pro3-transport-gating-outside-span-policy
+
+Source:
+- `docs/understandings/2026-03-03_13.05.30-pro3-transport-gating-outside-span-policy.md`
+
+Summary:
+- Pro3 implementation seam note: inclusive transport helper + pass2 degradation gating + outside-span prompt-join policy.
+
+Preserved notes:
+
+```md
+summary: "Pro3 implementation seam note: inclusive transport helper + pass2 degradation gating + outside-span prompt-join policy."
+read_when:
+  - "When debugging pass1/pass2 span-count mismatches after Pro3 transport helper rollout"
+  - "When a codex-farm run skips pass3 due pass2 degradation reasons"
+  - "When outside-span bridge diagnostics appear to have borrowed unrelated prompt context"
+---
+
+- `codex_farm_transport.build_pass2_transport_selection(...)` is now the authoritative pass1->pass2 selection path, and it uses explicit inclusive semantics (`start <= idx <= end`) with audit metadata (`end_index_semantics: inclusive`).
+- `run_codex_farm_recipe_pipeline(...)` now marks pass2 rows as `degraded` with explicit reasons before pass3 assembly; degraded rows skip pass3 LLM calls and resolve via deterministic fallback.
+- Deterministic fallback no longer starts from pass2 schema recipe material; it starts from `state.recipe` and only applies guarded pass2 enrichments when evidence is non-empty/non-placeholder.
+- `benchmark_cutdown_for_external_ai.py` outside-span trace joins now block fallback prompt-row borrowing and emit explicit outside statuses (`outside_span_archive_only`, `outside_span_unattributed`, etc.).
+
+```

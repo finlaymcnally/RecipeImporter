@@ -7617,6 +7617,24 @@ def _run_with_progress_status(
                 return text
             if max_chars <= 3:
                 return text[:max_chars]
+            # Preserve trailing timing details (eta/avg/elapsed suffix) when long
+            # status lines are clamped to terminal width.
+            if text.endswith(")"):
+                eta_start = text.rfind(" (eta ")
+                suffix_start = eta_start + 1 if eta_start >= 0 else -1
+                if suffix_start <= 0:
+                    generic_suffix = text.rfind(" (")
+                    if generic_suffix >= 0 and (len(text) - generic_suffix) <= 32:
+                        suffix_start = generic_suffix + 1
+                if suffix_start > 0:
+                    suffix = text[suffix_start:]
+                    suffix_budget = max_chars - 3
+                    if suffix_budget > 0 and suffix:
+                        if len(suffix) >= suffix_budget:
+                            return "..." + suffix[-suffix_budget:]
+                        prefix_budget = max_chars - len(suffix) - 3
+                        if prefix_budget > 0:
+                            return text[:prefix_budget] + "..." + suffix
             return text[: max_chars - 3] + "..."
 
         lines = [
@@ -24442,6 +24460,62 @@ def debug_epub_extract(
         )
 
 
+def _prune_transient_benchmark_outputs(
+    *,
+    eval_output_dir: Path,
+    processed_run_root: Path | None,
+    suppress_summary: bool,
+) -> None:
+    """Drop transient test/gate benchmark artifacts after CSV metrics are persisted."""
+    from cookimport.analytics.dashboard_collect import _is_excluded_benchmark_artifact
+
+    eval_root = eval_output_dir.expanduser()
+    if not _is_excluded_benchmark_artifact(eval_root):
+        return
+
+    candidate_targets: list[Path] = [eval_root]
+    if processed_run_root is not None:
+        candidate_targets.append(processed_run_root.expanduser())
+
+    targets: list[Path] = []
+    seen: set[Path] = set()
+    for path in candidate_targets:
+        if path in seen:
+            continue
+        seen.add(path)
+        if not path.exists() or not path.is_dir():
+            continue
+        targets.append(path)
+    if not targets:
+        return
+
+    removed: list[Path] = []
+    failed: list[tuple[Path, str]] = []
+    for path in targets:
+        try:
+            shutil.rmtree(path)
+            removed.append(path)
+        except OSError as exc:
+            failed.append((path, str(exc)))
+
+    if suppress_summary:
+        return
+    if removed:
+        typer.secho(
+            "Pruned transient benchmark artifacts after CSV metric append:",
+            fg=typer.colors.YELLOW,
+        )
+        for path in removed:
+            typer.secho(f"  - {path}", fg=typer.colors.YELLOW)
+    if failed:
+        typer.secho(
+            "Failed to prune some transient benchmark artifacts:",
+            fg=typer.colors.YELLOW,
+        )
+        for path, reason in failed:
+            typer.secho(f"  - {path} ({reason})", fg=typer.colors.YELLOW)
+
+
 @app.command("labelstudio-benchmark")
 def labelstudio_benchmark(
     action: Annotated[str, typer.Argument(
@@ -26561,8 +26635,13 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 prompt_type_samples_path,
             )
-    processed_run_root = import_result.get("processed_run_root")
-    if processed_run_root:
+    processed_run_root_raw = import_result.get("processed_run_root")
+    processed_run_root = (
+        Path(str(processed_run_root_raw)).expanduser()
+        if str(processed_run_root_raw or "").strip()
+        else None
+    )
+    if processed_run_root is not None:
         benchmark_artifacts["processed_output_run_dir"] = _path_for_manifest(
             eval_output_dir,
             processed_run_root,
@@ -26601,6 +26680,11 @@ def labelstudio_benchmark(
             else ""
         )
         if verdict == "FAIL":
+            _prune_transient_benchmark_outputs(
+                eval_output_dir=eval_output_dir,
+                processed_run_root=processed_run_root,
+                suppress_summary=suppress_summary,
+            )
             _fail(
                 "Line-role regression gates failed. "
                 f"See {eval_output_dir / 'line-role-pipeline' / 'regression_gates.md'}."
@@ -26610,7 +26694,7 @@ def labelstudio_benchmark(
         typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
         typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
         typer.secho(f"Prediction run: {pred_run}", fg=typer.colors.CYAN)
-        if processed_run_root:
+        if processed_run_root is not None:
             typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
         if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
             typer.secho(
@@ -26682,6 +26766,11 @@ def labelstudio_benchmark(
                     f"Predicted recipes from import: {predicted_recipe_count}",
                     fg=typer.colors.CYAN,
                 )
+    _prune_transient_benchmark_outputs(
+        eval_output_dir=eval_output_dir,
+        processed_run_root=processed_run_root,
+        suppress_summary=suppress_summary,
+    )
 
 
 @bench_app.command("speed-discover")

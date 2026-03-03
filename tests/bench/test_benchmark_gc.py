@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from cookimport.analytics.dashboard_collect import collect_dashboard_data
 from cookimport.analytics.perf_report import _CSV_FIELDS
 from cookimport.bench.artifact_gc import run_benchmark_gc
-from cookimport.cli import app
+from cookimport.cli import _prune_transient_benchmark_outputs, app
 
 
 runner = CliRunner()
@@ -265,7 +265,8 @@ def test_benchmark_gc_apply_is_idempotent_and_backup_timestamp_format(
 
 
 def test_benchmark_gc_preserves_dashboard_rows_after_prune(tmp_path: Path) -> None:
-    run_dir = tmp_path / "golden" / "bench" / "quality" / "runs" / "2026-02-01_10.00.00"
+    run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
+    run_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
     _write_eval_report(run_dir)
     output_root = tmp_path / "output"
     csv_path = tmp_path / ".history" / "performance_history.csv"
@@ -278,9 +279,10 @@ def test_benchmark_gc_preserves_dashboard_rows_after_prune(tmp_path: Path) -> No
         keep_full_days=0,
         dry_run=False,
         drop_speed_artifacts=False,
+        include_labelstudio_benchmark=True,
     )
     assert result.pruned_run_roots == 1
-    assert not run_dir.exists()
+    assert not run_root.exists()
 
     data = collect_dashboard_data(
         output_root=output_root,
@@ -472,3 +474,53 @@ def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
     assert result.pruned_processed_output_roots == 1
     assert not run_root.exists()
     assert not processed_root.exists()
+
+
+def test_prune_transient_benchmark_outputs_removes_gated_eval_and_processed_dirs(
+    tmp_path: Path,
+) -> None:
+    eval_root = (
+        tmp_path
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
+    )
+    eval_root.mkdir(parents=True, exist_ok=True)
+    (eval_root / "eval_report.json").write_text("{}", encoding="utf-8")
+    processed_root = tmp_path / "output" / eval_root.name
+    processed_root.mkdir(parents=True, exist_ok=True)
+    (processed_root / "dummy.txt").write_text("ok", encoding="utf-8")
+
+    _prune_transient_benchmark_outputs(
+        eval_output_dir=eval_root,
+        processed_run_root=processed_root,
+        suppress_summary=True,
+    )
+
+    assert not eval_root.exists()
+    assert not processed_root.exists()
+
+
+def test_prune_transient_benchmark_outputs_keeps_official_run_dirs(
+    tmp_path: Path,
+) -> None:
+    eval_root = (
+        tmp_path
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-03-03_02.10.00"
+    )
+    eval_root.mkdir(parents=True, exist_ok=True)
+    (eval_root / "eval_report.json").write_text("{}", encoding="utf-8")
+    processed_root = tmp_path / "output" / eval_root.name
+    processed_root.mkdir(parents=True, exist_ok=True)
+    (processed_root / "dummy.txt").write_text("ok", encoding="utf-8")
+
+    _prune_transient_benchmark_outputs(
+        eval_output_dir=eval_root,
+        processed_run_root=processed_root,
+        suppress_summary=True,
+    )
+
+    assert eval_root.exists()
+    assert processed_root.exists()

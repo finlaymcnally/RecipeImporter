@@ -410,3 +410,8 @@ Current contract reminder:
 
 Anti-loop guard:
 - If a label exists in code but is missing in the Label Studio UI, check project `label_config` freshness before changing scoring or task-generation logic.
+
+
+## 2026-03-03 merged understandings digest (labelstudio eval normalization)
+
+- `2026-03-03_02.36.40` `labelstudio-eval-none-default-normalization`: labelstudio-eval metadata override normalization must coalesce None/empty values before pipeline validation.

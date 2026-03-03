@@ -3471,3 +3471,716 @@ Failed/avoided paths:
 
 Evidence preserved:
 - Regression coverage for digest presence (root + flattened summary), missing-context fallback behavior, and metadata stability in `tests/bench/test_benchmark_cutdown_for_external_ai.py`.
+
+
+## 2026-03-03 migrated understanding ledger (line-role gate + starter-pack + benchmark flow)
+
+
+### 2026-03-03_01.01.30 line-role-gates-strict-after-history-seeding
+
+Source:
+- `docs/understandings/2026-03-03_01.01.30-line-role-gates-strict-after-history-seeding.md`
+
+Summary:
+- Line-role gated comparators were restored to strict mode after seeding FoodLab/Sea baseline history rows.
+
+Preserved notes:
+
+```md
+summary: "Line-role gated comparators were restored to strict mode after seeding FoodLab/Sea baseline history rows."
+read_when:
+  - "When changing `--line-role-gated` comparator semantics."
+  - "When strict gated runs fail and you need to verify baseline-history seed prerequisites."
+---
+
+# Line-role strict comparator restore (2026-03-03)
+
+- Strict comparator behavior is active again for line-role gated runs: missing comparator baselines now fail comparator gates.
+- Recall floors remain calibrated and enforced as blocking gates:
+  - `RECIPE_NOTES >= 0.20`
+  - `RECIPE_VARIANT >= 0.07`
+  - `INGREDIENT_LINE >= 0.35`
+- Seed runs used to provide baseline history rows:
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.22.10_foodlab-baseline-off`
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.22.40_sea-baseline-off`
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.22.58_sea-candidate-det`
+- Strict replay evidence:
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.23.20_line-role-gated-foodlab-det-strict/line-role-pipeline/regression_gates.md`
+  - Verdict: `FAIL` (`6/9` passed), with failures on measured metric deltas (not missing-history skips).
+
+```
+
+### 2026-03-03_01.02.23 docs-tasks-benchmark-routing-and-merge
+
+Source:
+- `docs/understandings/2026-03-03_01.02.23-docs-tasks-benchmark-routing-and-merge.md`
+
+Summary:
+- Routing note for 2026-03-03 docs/tasks triage: all remaining task docs mapped to the benchmark domain and were merged into 07-bench docs.
+
+Preserved notes:
+
+```md
+summary: "Routing note for 2026-03-03 docs/tasks triage: all remaining task docs mapped to the benchmark domain and were merged into 07-bench docs."
+read_when:
+  - "When triaging docs/tasks files and deciding destination section docs"
+  - "When validating why 2026-03-03 task files were merged into docs/07-bench"
+---
+
+# 2026-03-03 docs/tasks benchmark routing and merge
+
+Discovery summary:
+- Remaining `docs/tasks` files were all benchmark-focused (QualitySuite format coverage, benchmark retention GC, and external-AI cutdown contract hardening/context digest work).
+- No task file in this batch primarily belonged to architecture/ingestion/parsing/staging/label-studio/tagging/testing sections.
+
+Routing decision:
+- Destination section for all files: `docs/07-bench`.
+- Merge targets: `docs/07-bench/07-bench_README.md` (current contract/helpful operator guidance) and `docs/07-bench/07-bench_log.md` (chronology, decisions, anti-loop history).
+
+Anti-loop note:
+- These task docs overlap with prior understanding-ledger entries; task-file merge still records explicit source-file provenance so we do not lose what was attempted before.
+
+```
+
+### 2026-03-03_01.10.39 pro-prompt-audit-og-vs-code-vs-completed-plan
+
+Source:
+- `docs/understandings/2026-03-03_01.10.39-pro-prompt-audit-og-vs-code-vs-completed-plan.md`
+
+Summary:
+- Audit note for OG PRO-PROMPT drift points plus 2026-03-03 resolution status.
+
+Preserved notes:
+
+```md
+summary: "Audit note for OG PRO-PROMPT drift points plus 2026-03-03 resolution status."
+read_when:
+  - "When reviewing PRO-PROMPT implementation status against OG requirements"
+  - "When line-role gate thresholds or comparator behavior seem inconsistent across code/docs/plans"
+---
+
+# PRO-PROMPT audit note (OG vs code vs completed plan)
+
+Discovery summary:
+- OG Milestone 1 asked for line-role knobs to be threaded through benchmark/prediction-producing CLI surfaces (including `labelstudio-eval` when generating predictions locally and relevant bench runs).
+- ExecPlan/docs/code had briefly diverged on gated recall floors and comparator strictness wording.
+- OG Milestone 3 phrased `KNOWLEDGE`-inside-recipe allowance as requiring explicit prose marking from atomization plus neighbor support.
+
+Why this matters:
+- Reviewers can mis-read implementation status if they trust only one artifact (plan/docs/code) without cross-checking all three.
+
+Status update (2026-03-03):
+- Resolved: `labelstudio-eval` now accepts `--llm-recipe-pipeline`, `--atomic-block-splitter`, and `--line-role-pipeline` metadata overrides (with prediction-manifest inference and `off` fallback).
+- Resolved: line-role gated comparator semantics are strict in code/docs, and floor thresholds are aligned to `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`.
+- Resolved: atomizer now emits `explicit_prose` tags for prose fallback lines; in-recipe `KNOWLEDGE` now requires explicit-prose tagging with neighbor support.
+
+```
+
+### 2026-03-03_01.27.17 pro-prompt-ogplan-gap-audit
+
+Source:
+- `docs/understandings/2026-03-03_01.27.17-pro-prompt-ogplan-gap-audit.md`
+
+Summary:
+- OG PRO-PROMPT audit: atomic splitter behavior drift and line-role slice-span metadata gap.
+
+Preserved notes:
+
+```md
+summary: "OG PRO-PROMPT audit: atomic splitter behavior drift and line-role slice-span metadata gap."
+read_when:
+  - "When auditing OG PRO-PROMPT intent vs current line-role implementation"
+  - "When slice_metrics.json shows recipe slices as zero"
+---
+
+# PRO-PROMPT OG audit gaps (2026-03-03)
+
+Discovery summary:
+- `atomic_block_splitter` is wired through run settings/CLI/manifests but not used as a behavior gate in prediction generation. `generate_pred_run_artifacts(...)` always calls `_build_line_role_candidates_from_archive(...)`, which always calls `atomize_blocks(...)` per block regardless of `run_settings.atomic_block_splitter`.
+- Line-role diagnostics consume `within_recipe_span` from `line_role_predictions.jsonl`, but `CanonicalLineRolePrediction` does not include that field. As a result, `build_line_role_joined_line_rows(...)` defaults `within_recipe_span=False` and slice metrics can collapse recipe slices to zero lines.
+
+Why this matters:
+- OG Milestone 1 framed atomic splitting as an independently reported/controlled knob, but runtime behavior currently does not change when toggling it.
+- OG Milestone 5 expected informative recipe-slice diagnostics (`recipe_titles_and_variants`, `recipe_notes_and_yield`, `recipe_ingredients`, `recipe_instructions`), which depend on correct span membership metadata.
+
+Code evidence:
+- `cookimport/labelstudio/ingest.py`:
+  - `_build_line_role_candidates_from_archive(...)` always atomizes (`atomize_blocks(...)`) and has no `atomic_block_splitter` branch.
+  - line-role pipeline activation checks only `run_settings.line_role_pipeline.value != "off"`.
+- `cookimport/parsing/canonical_line_roles.py`:
+  - `CanonicalLineRolePrediction` model has no `within_recipe_span` field.
+- `cookimport/bench/cutdown_export.py`:
+  - `build_line_role_joined_line_rows(...)` expects `within_recipe_span` in line-role prediction rows and falls back to `False` when missing.
+
+Status update (2026-03-03):
+- Resolved in code:
+  - `atomize_blocks(...)` now accepts `atomic_block_splitter` and honors `off` vs `atomic-v1`.
+  - line-role ingest candidate building now threads `run_settings.atomic_block_splitter.value`.
+  - `CanonicalLineRolePrediction` now includes `within_recipe_span`, and emitted prediction rows carry that metadata for downstream slice diagnostics.
+
+```
+
+### 2026-03-03_02.14.00 line-role-gated-foodlab-fixes-status
+
+Source:
+- `docs/understandings/2026-03-03_02.14.00-line-role-gated-foodlab-fixes-status.md`
+
+Summary:
+- FoodLab line-role gated follow-up: comparator-history + notes/variant recall fixes landed; macro delta still below threshold.
+
+Preserved notes:
+
+```md
+summary: "FoodLab line-role gated follow-up: comparator-history + notes/variant recall fixes landed; macro delta still below threshold."
+read_when:
+  - "When auditing why line-role gated FoodLab runs still fail after recall/history fixes."
+  - "When tuning deterministic canonical line-role heuristics for notes/variant/title tradeoffs."
+---
+
+# Discovery
+
+- Fresh gated replay run: `data/golden/benchmark-vs-golden/2026-03-03_02.10.00_foodlab-line-role-gated-fix7`.
+- Fixed issues from the OG acceptance note:
+  - comparator history gates no longer fail for missing baseline/candidate rows,
+  - `RECIPE_NOTES` recall now `0.423729` (`> 0.40`),
+  - `RECIPE_VARIANT` recall now `0.481481` (`> 0.40`).
+- Remaining failure is `foodlab_macro_f1_delta_min`:
+  - `candidate_minus_baseline=0.003665` vs required `>= 0.05`.
+
+# Heuristic Changes Applied
+
+- Tightened variant detection to avoid broad heading over-prediction.
+- Added outside-span prose split:
+  - recipe-note prose -> `RECIPE_NOTES`,
+  - narrative front-matter prose -> `OTHER`,
+  - objective prose -> `KNOWLEDGE`.
+- Added title overrides for heading-like lines previously collapsing to ingredient/other.
+
+# Result Snapshot (latest run)
+
+- `overall_line_accuracy`: `0.452189` (line-accuracy gate passes).
+- `macro_f1_excluding_other`: `0.335802` (macro gate still fails).
+- `foodlab_other_to_knowledge_confusion_drop`: pass (`baseline=268`, `candidate=106`).
+
+
+```
+
+### 2026-03-03_09.45.57 qualitysuite-line-role-artifacts
+
+Source:
+- `docs/understandings/2026-03-03_09.45.57-qualitysuite-line-role-artifacts.md`
+
+Summary:
+- Where line-role pipeline artifacts live inside QualitySuite/all-method runs, and how the QualitySuite report/leaderboard surfaces them.
+
+Preserved notes:
+
+```md
+summary: "Where line-role pipeline artifacts live inside QualitySuite/all-method runs, and how the QualitySuite report/leaderboard surfaces them."
+read_when:
+  - "When adding new line-role diagnostics and you want them visible in QualitySuite outputs."
+  - "When a QualitySuite run used line-role settings but you cannot find line-role artifacts under some configs."
+---
+
+# QualitySuite Line-Role Artifacts
+
+QualitySuite (`cookimport bench quality-run`) executes an all-method benchmark under each experiment directory:
+
+- run root: `data/golden/bench/quality/runs/<timestamp>/`
+- experiment root: `.../experiments/<experiment_id>/`
+
+Per-source all-method reports (referenced from `all_method_benchmark_multi_source_report.json`) live under the experiment root, and each report directory contains per-config eval output folders named like `config_###_<slug>/`.
+
+When the canonical line-role pipeline is enabled (`atomic_block_splitter=atomic-v1` and `line_role_pipeline=deterministic-v1`), each eval output dir may include:
+
+- `line-role-pipeline/joined_line_table.jsonl`
+- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
+- `line-role-pipeline/slice_metrics.json`
+- `line-role-pipeline/knowledge_budget.json`
+- optionally `line-role-pipeline/regression_gates.json` (only when a gated labelstudio-benchmark mode produced it)
+
+Two places now surface these artifacts:
+
+- `bench quality-run` report: `report.md` includes a best-effort per-experiment detector that links a sample `line-role-pipeline/` directory and prints a tiny slice/knowledge summary when present.
+- `bench quality-leaderboard`: leaderboard rows include `line_role` and `line_role_gates_verdict` when the representative config has a `line-role-pipeline/` directory.
+
+Note on missing artifacts:
+
+All-method runs can reuse cached evaluation results via the eval-signature cache. When a config’s evaluation is materialized from that cache, only `eval_report.json`/`eval_report.md` are written; extra diagnostics under `line-role-pipeline/` are not recreated for the reused config directory. In those cases, look for line-role artifacts under the representative config directory that actually executed evaluation for that eval-signature group.
+
+
+```
+
+### 2026-03-03_09.51.48 benchmark-runtime-effort-default-resolution
+
+Source:
+- `docs/understandings/2026-03-03_09.51.48-benchmark-runtime-effort-default-resolution.md`
+
+Summary:
+- Benchmark prediction context now resolves codex reasoning effort defaults so model+effort persist together.
+
+Preserved notes:
+
+```md
+summary: "Benchmark prediction context now resolves codex reasoning effort defaults so model+effort persist together."
+read_when:
+  - "When benchmark rows show codex model but missing reasoning effort"
+  - "When debugging prediction-run manifest to benchmark CSV run-config propagation"
+---
+
+# Benchmark codex runtime effort default resolution
+
+Discovery:
+- Prediction-run manifests can include `llm_codex_farm.process_runs.*` with `codex_model` populated while `codex_reasoning_effort` is null and telemetry reports `<default>`.
+- `_load_pred_run_recipe_context` previously forwarded `run_config` unchanged, so benchmark CSV append could persist pipeline metadata without explicit model/effort fields.
+
+Resolution:
+- `_resolve_single_offline_reasoning_effort` now falls back to model-default effort from Codex `models_cache.json` when explicit effort is missing or `<default>`.
+- `_load_pred_run_recipe_context` now enriches `run_config` from `llm_codex_farm` runtime payloads (`codex_farm_model`, resolved `codex_farm_reasoning_effort`) before benchmark CSV append.
+- When enrichment changes `run_config`, context hash/summary are reset so append paths recompute them from the enriched payload.
+
+```
+
+### 2026-03-03_10.23.16 seaandsmoke-bridge-packet-trace-join
+
+Source:
+- `docs/understandings/2026-03-03_10.23.16-seaandsmoke-bridge-packet-trace-join.md`
+
+Summary:
+- SeaAndSmoke bridge packet joins canonical lines to codex call trace using pass1 spans + prompt-log fallback + extracted archive blocks
+
+Preserved notes:
+
+```md
+summary: "SeaAndSmoke bridge packet joins canonical lines to codex call trace using pass1 spans + prompt-log fallback + extracted archive blocks"
+read_when:
+  - "When rebuilding or auditing SeaAndSmoke bridge-debug packet fields (call_id/pass/trace_status/raw_block_stable_key)"
+  - "When line-level outside-span errors need trace_status prioritization for joined_with_archive_only"
+---
+
+Bridge packet extraction used these joins:
+- Canonical line table: rebuilt from `canonical_text.txt` + `canonical_span_labels.jsonl`; per-run wrong-line overrides from `wrong_label_lines.jsonl` set predicted labels.
+- Recipe assignment for canonical lines: pass1 span bounds (`start_block_index`/`end_block_index`) from `full_prompt_log.jsonl` pass1 parsed responses.
+- Per-line trace context: `extracted_archive.json` keyed by line index for `raw_block_excerpt` + `raw_block_stable_key`.
+- Per-line `call_id`/`pass`/`warning_buckets`: selected recipe prompt row from full prompt log (pass2 preferred for recipe packets); outside-span fallback uses pass3, producing `joined_with_archive_only` when no prompt block text exists.
+- Handoff checks: pass1 selected span indices versus pass2 payload `blocks` indices; missing/extra/order/text-hash computed directly from payloads.
+
+This is sufficient to regenerate:
+- `00_run_bridge_summary.md`
+- `01_call_inventory.jsonl` (57 rows)
+- `02_selected_recipe_packets.jsonl` (c0,c6,c8,c9,c12,c7)
+- `03_outside_span_trace.jsonl` (35 sampled rows)
+
+```
+
+### 2026-03-03_10.58.44 seaandsmoke-codex-token-audit
+
+Source:
+- `docs/understandings/2026-03-03_10.58.44-seaandsmoke-codex-token-audit.md`
+
+Summary:
+- SeaAndSmoke 2026-03-03 benchmark token row is confirmed by both benchmark telemetry and codex_exec_activity logs.
+
+Preserved notes:
+
+```md
+summary: "SeaAndSmoke 2026-03-03 benchmark token row is confirmed by both benchmark telemetry and codex_exec_activity logs."
+read_when:
+  - "When a benchmark `All token use` value looks implausibly high and needs source-of-truth verification"
+  - "When reconciling dashboard token columns with CodexFarm runtime logs"
+---
+
+# SeaAndSmoke Codex token audit (2026-03-03)
+
+Verified run:
+- Benchmark root timestamp: `2026-03-03_01.24.28`
+- Source: `SeaAndSmokeCUTDOWN.epub`
+- Variant: `llm_recipe_pipeline=codex-farm-3pass-v1`
+
+Confirmed values:
+- `tokens_input = 14,910,252`
+- `tokens_output = 339,731`
+- `tokens_total = 15,249,983`
+- `tokens_cached_input = 13,850,240`
+
+Where the same totals were found:
+- Benchmark CSV row:
+  - `data/output/2026-03-03_01.24.28/single-offline-benchmark/seaandsmokecutdown/.history/performance_history.csv`
+- Benchmark report telemetry rows (sum of pass1/pass2/pass3 `telemetry.rows`):
+  - `data/output/2026-03-03_01.24.28/single-offline-benchmark/seaandsmokecutdown/codexfarm/2026-03-03_01.25.45/seaandsmokecutdown.excel_import_report.json`
+- CodexFarm runtime CSV (`run_id` sums for pass1/pass2/pass3):
+  - `var/codex_exec_activity.csv`
+
+Pass-level totals:
+- pass1 (`recipe.chunking.v1`): `281,038`
+- pass2 (`recipe.schemaorg.v1`): `221,575`
+- pass3 (`recipe.final.v1`): `14,747,370`
+
+Key observation:
+- About `96.70%` of total token use is from pass3.
+- Largest pass3 single calls are in the ~1.0M to ~1.73M token range, which explains the 15M aggregate for 19 recipes.
+
+```
+
+### 2026-03-03_11.06.00 seaandsmoke-followup-bridge-export-seams
+
+Source:
+- `docs/understandings/2026-03-03_11.06.00-seaandsmoke-followup-bridge-export-seams.md`
+
+Summary:
+- SeaAndSmoke follow-up packet exports rely on bridge artifacts because this run lacks explicit per-block drop reasons in runtime pass2 handoff outputs.
+
+Preserved notes:
+
+```md
+summary: "SeaAndSmoke follow-up packet exports rely on bridge artifacts because this run lacks explicit per-block drop reasons in runtime pass2 handoff outputs."
+read_when:
+  - "When assembling or auditing SeaAndSmoke bridge debug follow-up packets for c0/c6/c8/c9/c12"
+  - "When you need to explain why missing pass2 blocks have no explicit drop_reason field"
+---
+
+- Runtime pass2 payload construction in `cookimport/llm/codex_farm_orchestrator.py` is driven by pass1 span bounds plus `excluded_block_ids` (`_included_indices_for_state`), then serialized into pass2 `blocks`; current runtime transport audit records mismatch flags but not per-missing-block drop reasons.
+- The 2026-03-03 SeaAndSmoke run artifacts used for packet exports do not include `raw/llm/.../evidence_normalization/*.json`; normalization traces were reconstructed from available pass2 block payloads using the current `normalize_pass2_evidence(...)` logic.
+- Outside-span wrong-line joins in this packet flow all resolve to `joined_with_archive_only` because fallback prompt context has no candidate block text for those lines, while `extracted_archive.json` has a line-index row (stable key present).
+
+```
+
+### 2026-03-03_11.21.25 benchmark-cutdown-starter-pack-gap-map
+
+Source:
+- `docs/understandings/2026-03-03_11.21.25-benchmark-cutdown-starter-pack-gap-map.md`
+
+Summary:
+- Gap map between current benchmark_cutdown exporter outputs and the blended external-AI starter-pack request.
+
+Preserved notes:
+
+```md
+summary: "Gap map between current benchmark_cutdown exporter outputs and the blended external-AI starter-pack request."
+read_when:
+  - "When implementing starter-pack-v1 outputs in scripts/benchmark_cutdown_for_external_ai.py."
+  - "When deciding which existing cutdown artifacts can be reused versus newly added."
+---
+
+# Benchmark Cutdown Starter Pack Gap Map
+
+Current `scripts/benchmark_cutdown_for_external_ai.py` already emits the core benchmark diagnosis artifacts (`changed_lines.codex_vs_vanilla.jsonl`, `per_recipe_or_per_span_breakdown.json`, `targeted_prompt_cases.md`, `label_policy_adjudication_notes.md`, `process_manifest.json`) and codex run-level trace artifacts (`prompt_warning_aggregate.json`, `projection_trace.codex_to_benchmark.json`, gzip failure exports). The largest missing piece is packaging: bridge-loss and call-level inventory signals are not emitted as one deterministic first-pass starter pack.
+
+The blended request should therefore be implemented as an additive `starter_pack_v1` surface that reuses existing pair diagnostics and adds:
+
+- all-recipes triage rows with pass1/pass2/pass3 bridge counters,
+- compact call inventory,
+- blended deterministic case selection (changed-line, handoff-loss, empty-mapping, outside-span, healthy control),
+- a short casebook + selected recipe packets,
+- explicit manifest pointers for heavy follow-up artifacts that remain excluded by default.
+
+This keeps backward compatibility while making first-pass diagnosis obvious without opening full prompt logs.
+
+```
+
+### 2026-03-03_11.35.07 execplan-starter-pack-alignment-gaps
+
+Source:
+- `docs/understandings/2026-03-03_11.35.07-execplan-starter-pack-alignment-gaps.md`
+
+Summary:
+- Starter-pack ExecPlan alignment needed explicit schemas, deterministic thresholds, and legacy artifact mapping to fully match OG intent.
+
+Preserved notes:
+
+```md
+summary: "Starter-pack ExecPlan alignment needed explicit schemas, deterministic thresholds, and legacy artifact mapping to fully match OG intent."
+read_when:
+  - "When revising docs/plans/2026-03-03_11.21.25-blended-starter-pack-v1-for-benchmark-cutdown.md"
+  - "When implementing starter_pack_v1 file contracts in scripts/benchmark_cutdown_for_external_ai.py"
+---
+
+During OG-vs-blended plan review, the main gap was not direction but specificity: the blended plan had correct artifact intent, but several files lacked required key-level schema contracts, and outside-span/case-selection logic still used subjective wording.
+
+The plan was updated to lock exact required keys/headers, deterministic thresholds (`outside_span_wrong_line_count >= 10` or accuracy gap `>= 0.05`), deterministic tie-break rules, and explicit legacy-to-starter compatibility mapping (`comparison_summary`, `per_recipe_or_per_span_breakdown`, changed-lines aliasing, label policy, process manifest).
+
+```
+
+### 2026-03-03_12.02.53 starter-pack-bridge-counter-source-keys
+
+Source:
+- `docs/understandings/2026-03-03_12.02.53-starter-pack-bridge-counter-source-keys.md`
+
+Summary:
+- Starter-pack bridge counters and deterministic selected-case logic for triage exports.
+
+Preserved notes:
+
+```md
+summary: "Starter-pack bridge counters and deterministic selected-case logic for triage exports."
+read_when:
+  - "When updating starter_pack_v1 bridge metrics in benchmark_cutdown_for_external_ai.py"
+  - "When triage rows show unexpected pass1_vs_pass2 missing/extra block counts"
+  - "When updating deterministic selected-case ranking in starter_pack_v1 outputs"
+---
+
+`full_prompt_log.jsonl` pass payloads expose enough deterministic fields to compute bridge counters without model inference:
+
+- pass1: `parsed_response.start_block_index/end_block_index`, optional `excluded_block_ids`, and request `blocks_candidate[*].block_id/index/text`
+- pass2: request `blocks[*].block_id/index/text` plus parsed `warnings`, `extracted_ingredients`, `extracted_instructions`
+- pass3: parsed `ingredient_step_mapping` and `draft_v1` (often JSON-string with `steps`)
+
+For starter-pack triage, compare pass1 selected block IDs against pass2 input block IDs when IDs exist on both sides; if IDs are missing, fall back to count deltas (`selected_count` vs `input_block_count`). This keeps missing/extra counters deterministic across mixed artifact quality.
+
+Selected-case ranking is deterministic and blended:
+
+- top 3 by `changed_lines_codex_vs_baseline`
+- top 2 by `pass1_vs_pass2_missing_block_count`
+- top 2 with `pass3_empty_mapping=true` plus upstream evidence (`pass1_selected_block_count >= 8` or `pass2_warning_count >= 2` or `pass2_extracted_instruction_count == 0`)
+- top 1 outside-span contamination case (`outside_span_wrong_line_count`)
+- top 1 healthy control (`missing_block_count==0` and `pass3_empty_mapping=false`, sorted by `codex_accuracy` desc)
+
+For each metric pool, sort by metric desc, then `abs(delta_codex_minus_baseline)` desc, then `recipe_id` asc.
+
+```
+
+### 2026-03-03_12.11.30 single-offline-starter-pack-in-place-hook
+
+Source:
+- `docs/understandings/2026-03-03_12.11.30-single-offline-starter-pack-in-place-hook.md`
+
+Summary:
+- Interactive single-offline paired runs should generate starter_pack_v1 in-place only after both variants succeed.
+
+Preserved notes:
+
+```md
+summary: "Interactive single-offline paired runs should generate starter_pack_v1 in-place only after both variants succeed."
+read_when:
+  - "When wiring new post-run artifacts into interactive single_offline benchmark flow"
+  - "When deciding where starter-pack generation should run for paired codex/vanilla sessions"
+---
+
+`_interactive_single_offline_benchmark` is the safest integration seam for starter-pack generation because it already owns the paired-run success contract and session-root layout (`single-offline-benchmark/<source_slug>/...`).
+
+Use a post-comparison hook: generate `starter_pack_v1/` only when both variants succeed (the same condition that writes `codex_vs_vanilla_comparison.json`). This preserves the existing failure-safe behavior for vanilla-only and partial-failure sessions.
+
+To avoid duplicating diagnostics logic, call the shared cutdown helper (`build_starter_pack_for_existing_runs`) against the session root and write output in-place.
+
+```
+
+### 2026-03-03_12.25.07 single-offline-dashboard-stale-first-variant-view
+
+Source:
+- `docs/understandings/2026-03-03_12.25.07-single-offline-dashboard-stale-first-variant-view.md`
+
+Summary:
+- Single-offline paired benchmarks can appear vanilla-only when viewing a dashboard page loaded before the codex variant finished.
+
+Preserved notes:
+
+```md
+summary: "Single-offline paired benchmarks can appear vanilla-only when viewing a dashboard page loaded before the codex variant finished."
+read_when:
+  - "When single-offline benchmark logs include codexfarm output but dashboard cards still show only vanilla/off runtime."
+  - "When diagnosing mismatches between benchmark terminal output and dashboard on-screen values."
+---
+
+# Single-offline dashboard stale first-variant view
+
+Discovery:
+- For run `2026-03-03_12.12.49`, both benchmark rows exist on disk (`vanilla` at `2026-03-03T12:13:18`, `codexfarm` at `2026-03-03T12:16:49`) in:
+  - `data/output/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/.history/performance_history.csv`
+  - `.../.history/dashboard/assets/dashboard_data.json`
+- Dashboard artifacts were rewritten at `2026-03-03 12:16:49` and include codex model/effort (`gpt-5.3-codex-spark`, `high`).
+
+Implication:
+- If the page was opened from the first dashboard write (after vanilla), the browser can still show that earlier in-memory render (`Benchmark Runtime 2026-03-03T12:13:18`, `1 eval`) until manually reloaded/reopened.
+
+Verification shortcut:
+- `jq '.summary.latest_benchmark_timestamp' data/output/.../.history/dashboard/assets/dashboard_data.json` should show `2026-03-03T12:16:49` for this run.
+
+```
+
+### 2026-03-03_12.29.11 proplan2-milestone5-evidence-sources
+
+Source:
+- `docs/understandings/2026-03-03_12.29.11-proplan2-milestone5-evidence-sources.md`
+
+Summary:
+- Milestone-5 benchmark evidence for Proplan2 comes from single-offline comparison JSON plus cutdown per-recipe breakdown.
+
+Preserved notes:
+
+```md
+summary: "Milestone-5 benchmark evidence for Proplan2 comes from single-offline comparison JSON plus cutdown per-recipe breakdown."
+read_when:
+  - "When validating Proplan2 milestone-5 benchmark/promotion evidence"
+  - "When deriving c0/c6/c8/c9 dev-slice metrics from Sea paired benchmark runs"
+---
+
+- `cookimport labelstudio-benchmark compare` is all-method oriented and does not resolve `single-offline-benchmark/.../vanilla` + `.../codexfarm` paths directly.
+- For single-offline paired runs, use `codex_vs_vanilla_comparison.json` under the session source root as the canonical full-run metric summary.
+- To get recipe-level dev-slice metrics (c0/c6/c8/c9) from that same run, generate/use cutdown diagnostics and read `per_recipe_or_per_span_breakdown.json`.
+- Latest Sea paired run used for Proplan2 evidence: `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown`.
+
+```
+
+### 2026-03-03_12.31.55 single-offline-dashboard-refresh-batch-final-only
+
+Source:
+- `docs/understandings/2026-03-03_12.31.55-single-offline-dashboard-refresh-batch-final-only.md`
+
+Summary:
+- Interactive single-offline benchmark now defers dashboard refresh during per-variant runs and refreshes once after the variant batch.
+
+Preserved notes:
+
+```md
+summary: "Interactive single-offline benchmark now defers dashboard refresh during per-variant runs and refreshes once after the variant batch."
+read_when:
+  - "When single-offline benchmark should avoid intermediate dashboard snapshots after vanilla."
+  - "When debugging benchmark dashboard refresh timing in cookimport/cli.py."
+---
+
+# Single-offline dashboard refresh batch-final-only
+
+Discovery:
+- `labelstudio_benchmark` appends benchmark CSV and refreshes dashboard immediately per invocation.
+- Interactive single-offline runs invoke `labelstudio_benchmark` once per variant (`vanilla`, then `codexfarm`), which produced an intermediate vanilla-only dashboard snapshot.
+
+Implementation:
+- Added a benchmark context flag to suppress dashboard refresh for wrapped runs.
+- `_interactive_single_offline_benchmark` now wraps per-variant calls with refresh suppression and triggers one `_refresh_dashboard_after_history_write(...)` at session end.
+
+Result:
+- Single-offline dashboards now snapshot once after all planned variants finish, so latest diagnostics represent the full variant batch.
+
+```
+
+### 2026-03-03_12.39.31 starter-pack-og-vs-code-gap-audit
+
+Source:
+- `docs/understandings/2026-03-03_12.39.31-starter-pack-og-vs-code-gap-audit.md`
+
+Summary:
+- OG starter-pack audit gaps were closed by fixing empty-mapping tie-break behavior and documenting deterministic selection logic.
+
+Preserved notes:
+
+```md
+summary: "OG starter-pack audit gaps were closed by fixing empty-mapping tie-break behavior and documenting deterministic selection logic."
+read_when:
+  - "When validating starter_pack_v1 case selection behavior against docs/plans/OGplan/2026-03-03_11.21.25-blended-starter-pack-v1-for-benchmark-cutdown.md"
+  - "When updating starter-pack understandings/docs after benchmark_cutdown_for_external_ai.py selection policy changes"
+---
+
+Resolved: OG Milestone 3 metric-pool ordering drift was closed by sorting the empty-mapping pool with the same metric/tie-break contract (metric desc, then `abs(delta)`, then `recipe_id`) in `scripts/benchmark_cutdown_for_external_ai.py`.
+
+Resolved: OG Milestone 4 documentation gap was closed by expanding `docs/understandings/2026-03-03_12.02.53-starter-pack-bridge-counter-source-keys.md` to include deterministic selected-case policy and tie-break details alongside bridge-counter semantics.
+
+```
+
+### 2026-03-03_12.43.40 interactive-benchmark-codex-effort-forwarding-gap
+
+Source:
+- `docs/understandings/2026-03-03_12.43.40-interactive-benchmark-codex-effort-forwarding-gap.md`
+
+Summary:
+- Interactive single-offline benchmark codex model/effort selections were dropped before labelstudio-benchmark prediction generation.
+
+Preserved notes:
+
+```md
+summary: "Interactive single-offline benchmark codex model/effort selections were dropped before labelstudio-benchmark prediction generation."
+read_when:
+  - "When interactive benchmark asks for Codex model/thinking effort but run manifests still show default-resolved effort."
+  - "When wiring RunSettings -> labelstudio-benchmark kwargs for codex-farm runtime fields."
+---
+
+Root cause: `build_benchmark_call_kwargs_from_run_settings(...)` did not forward `codex_farm_model` or `codex_farm_reasoning_effort`, and `labelstudio_benchmark(...)` / `generate_pred_run_artifacts(...)` did not accept those recipe-codex override fields either.
+
+Effect: interactive benchmark prompts could collect a thinking-effort choice, but codex-farm calls still ran with `<default>` and later reports resolved that default (often to `high`) from Codex config/model metadata.
+
+Fix contract: carry `codex_farm_model` and `codex_farm_reasoning_effort` end-to-end (interactive selection -> benchmark kwargs -> prediction generation run settings -> run manifests). Default-resolution behavior should only apply when those overrides are actually unset.
+
+```
+
+### 2026-03-03_12.51.06 starter-pack-selection-metric-pool-filter-drift
+
+Source:
+- `docs/understandings/2026-03-03_12.51.06-starter-pack-selection-metric-pool-filter-drift.md`
+
+Summary:
+- Starter-pack selected-case metric pools were corrected to metric-only ranking; low-change high-loss picks are no longer filtered out.
+
+Preserved notes:
+
+```md
+summary: "Starter-pack selected-case metric pools were corrected to metric-only ranking; low-change high-loss picks are no longer filtered out."
+read_when:
+  - "When validating starter_pack_v1 selected-case behavior against OG metric-pool ranking rules."
+  - "When low-change but high handoff-loss recipes are missing from selected starter-pack cases."
+---
+
+Resolved on 2026-03-03: `_select_starter_pack_recipe_cases` no longer applies a `changed_lines_codex_vs_baseline >= 3` prefilter to metric pools.
+
+OG plan `docs/plans/OGplan/2026-03-03_11.21.25-blended-starter-pack-v1-for-benchmark-cutdown.md` requires metric-only deterministic ranking/tie-break selection for `top_block_loss`, `top_empty_mapping_upstream_evidence`, and `outside_span_contamination` pools.
+
+Current behavior now matches OG: metric pools are ranked by metric desc, then `abs(delta_codex_minus_baseline)` desc, then `recipe_id` asc, without change-count gating.
+
+Regression coverage added in `tests/bench/test_benchmark_cutdown_for_external_ai.py`:
+- `test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss`
+- `test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_floor`
+
+```
+
+### 2026-03-03_12.57.47 starter-pack-ogplan-alignment-review
+
+Source:
+- `docs/understandings/2026-03-03_12.57.47-starter-pack-ogplan-alignment-review.md`
+
+Summary:
+- OG starter-pack alignment review found the blended contract implemented in code with matching tests.
+
+Preserved notes:
+
+```md
+summary: "OG starter-pack alignment review found the blended contract implemented in code with matching tests."
+read_when:
+  - "When validating docs/plans/OGplan/2026-03-03_11.21.25-blended-starter-pack-v1-for-benchmark-cutdown.md against current runtime code."
+---
+
+Reviewed `scripts/benchmark_cutdown_for_external_ai.py` and starter-pack tests against OG milestone requirements.
+
+Key discovery: current runtime implements the OG starter-pack contract end-to-end, including deterministic selected-case pools/tie-breaks, bridge counters with block-id set comparison fallback, outside-span threshold gating, root/starter manifest mapping, and compatibility mirrors.
+
+Focused verification passed for:
+- `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -q`
+- starter-pack single-offline integration tests in `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (paired success + skip paths)
+
+```
+
+### 2026-03-03_13.05.00 benchmark-vs-golden-gc-and-pin
+
+Source:
+- `docs/understandings/2026-03-03_13.05.00-benchmark-vs-golden-gc-and-pin.md`
+
+Summary:
+- Extend bench gc to optionally prune benchmark-vs-golden run roots (with pin sentinels) while keeping durable CSV stats.
+
+Preserved notes:
+
+```md
+summary: "Extend bench gc to optionally prune benchmark-vs-golden run roots (with pin sentinels) while keeping durable CSV stats."
+read_when:
+  - "When cleaning up `data/golden/benchmark-vs-golden` without losing dashboard/history stats."
+  - "When deciding how `cookimport bench gc` confirms durable benchmark history before deletion."
+---
+
+# Notes
+
+- `cookimport bench gc` is CSV-first: it only deletes run roots when at least one `performance_history.csv` row under that run root has durable metrics (or can be hydrated from `eval_report.json` before deletion).
+- Label Studio benchmark run roots under `data/golden/benchmark-vs-golden/<timestamp>.../` are opt-in for GC via `--include-labelstudio-benchmark`.
+- Any run root containing a keep/pin sentinel is never pruned:
+  - `.gc_keep*` (created by `cookimport bench pin <run_dir>`),
+  - `.keep`,
+  - `.pinned`.
+- Optional: `--prune-benchmark-processed-outputs` also deletes the matching processed output root `data/output/<run_id>/` when a history row confirms `processed_report_path` is under that directory.
+
+```

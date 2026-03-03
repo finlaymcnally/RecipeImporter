@@ -141,6 +141,7 @@ Notes:
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
   - Placeholder effort values like `<default>`/`default` are treated as unknown effort; CSV backfill resolves model-default effort where available.
+  - For `single-offline-benchmark/.../vanilla` rows (or `llm_recipe_pipeline=off` rows), AI model/effort cells are intentionally suppressed even if stale run-config metadata still carries codex model/effort keys.
   - `All token use` is shown by default and displays `discounted_total | input | output` in one cell, abbreviated with `k`/`m` where large (for example `854k`, `2.27m`).
   - Discounted total applies cached-input tokens at `0.1x` weight (`(input - cached_input) + 0.1*cached_input + output`).
   - Sorting and filtering `All token use` uses that discounted numeric total (not raw `tokens_total`).

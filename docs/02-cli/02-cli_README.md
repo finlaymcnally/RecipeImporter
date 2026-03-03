@@ -1235,6 +1235,7 @@ Durable rules:
 - For multi-line dashboard snapshots, ETA/elapsed suffixes decorate the top summary line (`overall ...`) instead of the trailing `task:` line.
 - Live spinner snapshots are rendered as a compact ASCII border panel so operators can see a stable, block-style status block while counts and worker lines refresh in place.
 - The bordered spinner panel is generated once from the same shared snapshot state and used for benchmark/label-studio/import progress paths so the view stays consistent across workflows.
+- When live panel width clamps a long status line, truncation keeps the trailing timing parenthetical (`eta`/`avg`/elapsed) visible via middle-ellipsis clipping.
 
 ## Merged Task Specs (2026-02-22_23 to 2026-02-23_00)
 
@@ -1520,3 +1521,9 @@ Current contract additions:
 - Interactive select menus should keep the `NAME: short description` label pattern so options remain scannable and consistent across flows.
 - Interactive dashboard generation should not ask open-browser confirmation; it always calls `stats_dashboard(..., open_browser=False)` and returns to main menu.
 - Browser open behavior remains explicitly opt-in for non-interactive CLI usage via `cookimport stats-dashboard --open`.
+
+
+## 2026-03-03 merged understandings digest (spinner runtime behavior)
+
+- `2026-03-03_12.18.43` `benchmark-spinner-panel-width-clamp`: Benchmark/import live spinner panel width must clamp to terminal width to avoid long-task overflow.
+- `2026-03-03_12.20.00` `spinner-eta-weighted-window-bootstrap`: Spinner ETA gaps came from first-seen counters lacking increment history; ETA now uses weighted last-5 steps with a bootstrap fallback.

@@ -1440,6 +1440,11 @@ class TestRenderer:
         assert "function aiModelEffortLabelForRecord(record)" in js
         assert "function aiModelLabelForRecord(record)" in js
         assert "function aiEffortLabelForRecord(record)" in js
+        assert "function benchmarkVariantFromPathOrPipeline(record)" in js
+        assert "function rawAiModelForRecord(record)" in js
+        assert "function rawAiEffortForRecord(record)" in js
+        assert 'const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
+        assert 'if (benchmarkVariantForRecord(record) === "vanilla") return null;' in js
         assert "function previousRunsAllTokenUseDisplay(row)" in js
         assert "function previousRunsAllTokenUseTitle(row)" in js
         assert "function formatTokenCountCompact(value)" in js

@@ -524,3 +524,20 @@ Current LLM contract to keep:
   - `reconstructed_from_prompt_template` as fallback reconstruction path.
 - `request_telemetry` should remain attached for per-call auditability (task/worker ids, attempt indexes, token usage fields, transport/hash context).
 - Cutdown/report tooling should treat this JSONL as canonical and sampled text logs as convenience-only views.
+
+
+## 2026-03-03 merged understandings digest (codexfarm transport/prompt-plan alignment)
+
+- `2026-03-03_09.19.33` `codexfarm-prompt-log-layout`: Where CodexFarm literal prompt text is stored and how to sample by pass
+- `2026-03-03_09.27.30` `codexfarm-prompt-samples-autogen-hook`: Benchmark CodexFarm prompt sample markdown is best generated in the existing prompt-log builder
+- `2026-03-03_09.58.02` `codexfarm-nonbenchmark-prompt-log-hook`: CodexFarm prompt logs/samples are now generated for stage and labelstudio-import, with pass-specific manifest resolution for pass1..pass5.
+- `2026-03-03_10.19.30` `proplan2-vs-runtime-surface-audit`: Audit notes for Proplan2 against current codex-farm/line-role runtime contracts.
+- `2026-03-03_10.41.10` `codexfarm-transport-mismatch-and-pass3-fallback-boundary`: CodexFarm orchestrator now records pass1/pass2 transport drift explicitly and uses deterministic pass3 fallback for low-quality bundles.
+- `2026-03-03_10.54.45` `execplan-audit-og-vs-implemented`: Audit notes comparing OG Proplan2 intent, implemented codex-farm changes, and completed execplan claims.
+- `2026-03-03_11.01.27` `ogplan-non-m5-alignment-pass`: Non-milestone-5 OG Proplan2 alignment pass updated transport failure-mode semantics, artifact keying, and pred-run token-field compatibility.
+- `2026-03-03_11.06.42` `ogplan-vs-runtime-gap-review`: Review findings for Proplan2 OG intent vs implemented codex-farm runtime and completed execplan claims.
+- `2026-03-03_11.11.55` `transport-audit-block-id-value-comparison`: Transport audit now compares effective vs payload block-id values, not just counts and index alignment.
+- `2026-03-03_11.20.30` `seaandsmoke-code-packet-runtime-seams`: Code packet seam map for pass1->pass2 handoff, EPUB unstructured preprocessing, canonical projection/join, and pass3 mapping/override boundaries.
+- `2026-03-03_12.16.08` `ogplan-proplan2-code-alignment-review`: Gap check between OG Proplan2 intent, current code, and completed Proplan2 claims.
+- `2026-03-03_12.43.42` `pro3-execplan-codebase-fit-gaps`: Pro3 ExecPlan aligns with active codex-farm seams but has stale milestone state and unresolved path placeholders that reduce self-contained execution reliability.
+- `2026-03-03_13.05.30` `pro3-transport-gating-outside-span-policy`: Pro3 implementation seam note: inclusive transport helper + pass2 degradation gating + outside-span prompt-join policy.

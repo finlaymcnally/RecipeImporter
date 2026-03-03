@@ -428,3 +428,47 @@ Current analytics contracts to keep:
 - Legacy benchmark rows with null explicit metrics are valid history rows and should remain visible in table/filter contexts.
 - When dashboard history is intentionally culled to current artifact paradigms, remove stale benchmark CSV rows that point to legacy pytest/tmp/eval-vs-pipeline paths.
 - CSV pruning alone is not enough if old benchmark run folders still exist on disk; collector behavior and artifact retention policy must stay aligned.
+
+
+## 2026-03-03 merged understandings digest (dashboard/table/filter/runtime contracts)
+
+- `2026-03-03_01.33.31` `dashboard-previous-runs-css-height-cap`: Previous Runs gaps came from nested benchmark CSV history plus a capped table viewport.
+- `2026-03-03_09.11.03` `benchmark-trend-variant-series-split`: Benchmark Score Trend now separates paired codexfarm/vanilla runs into distinct series.
+- `2026-03-03_09.39.48` `csv-benchmark-runtime-manifest-backfill-gap`: CSV-first benchmark rows could miss codex model metadata until collector backfilled from nearby manifests.
+- `2026-03-03_10.02.32` `previous-runs-header-filter-row-contract`: Previous Runs filters are column-scoped with +/- popup editors; active summaries stay visible in the first row under headers.
+- `2026-03-03_10.04.28` `benchmark-history-backfill-nested-csv-runtime-columns`: Some benchmark rows come from nested history CSVs; runtime backfill must update those files to affect Previous Runs model/effort columns.
+- `2026-03-03_10.09.14` `dashboard-isolate-slice-filter-flow`: Dashboard isolate mode should run after existing column filters so Previous Runs and Benchmark Score Trend stay aligned.
+- `2026-03-03_10.21.04` `benchmark-codexfarm-token-usage-history-backfill`: Benchmark CSV/dashboard now persist CodexFarm token usage fields and backfill them from manifests when available.
+- `2026-03-03_10.25.59` `previous-runs-filter-row-spacer-order`: Previous Runs now renders filter controls immediately under headers, with a dedicated blank spacer row after filters.
+- `2026-03-03_10.29.22` `dashboard-all-token-use-computed-column`: Previous Runs now has an `All token use` computed column that renders total/input/output while sorting/filtering on tokens_total.
+- `2026-03-03_10.39.32` `dashboard-per-label-variant-rolling-aggregation`: Per-label diagnostics should aggregate latest run at timestamp, then split run + rolling metrics by codexfarm/vanilla variant without cross-mixing.
+- `2026-03-03_10.39.46` `boundary-card-matched-only-context`: Discovery: Boundary Card Can Look Artificially Perfect
+- `2026-03-03_10.39.48` `dashboard-ui-state-persistence-localstorage`: Dashboard Previous Runs customization state was in-memory only; persistence now uses browser localStorage.
+- `2026-03-03_10.40.00` `dashboard-quick-filters-official-benchmark-scope`: Dashboard quick checkboxes should filter benchmark rows through currentPreviousRunsFilterResult so chart, table, and isolate stay aligned.
+- `2026-03-03_10.41.56` `dashboard-previous-runs-sticky-header-overlap`: Previous Runs sticky header/filter rows can visually overlap body rows when table border-collapse stays collapsed.
+- `2026-03-03_10.44.19` `boundary-table-unmatched-gold-row`: Discovery: Boundary Table Needed Gold-Denominator Context In-Table
+- `2026-03-03_10.47.01` `dashboard-sticky-header-relative-override`: Previous Runs sticky rows break when '#previous-runs-table th' sets position: relative, because row top offsets then shift relative instead of sticky.
+- `2026-03-03_10.48.38` `dashboard-table-column-resize-state-plumbing`: Dashboard column width persistence flows through localStorage UI state; Previous Runs had width plumbing while diagnostics tables needed shared resize wiring.
+- `2026-03-03_10.52.42` `boundary-card-denominator-cleanup`: Discovery: Boundary Table Needed One Denominator
+- `2026-03-03_11.00.46` `dashboard-highcharts-secondary-cdn-fallback`: Benchmark trend chart fallback text can appear from transient single-CDN Highcharts load failures; add a second CDN fallback in dashboard HTML.
+- `2026-03-03_11.16.23` `dashboard-all-token-use-cached-discount`: `All token use` now discounts cached input tokens to 10% weight and sorts/filters on that discounted total.
+- `2026-03-03_11.25.12` `top-diagnostics-fit-and-runtime-dedupe`: Discovery: Top Diagnostics Needed Fixed-Fit Tables
+- `2026-03-03_11.26.00` `runtime-token-card-discounted-vs-raw`: Benchmark Runtime token row now mirrors `All token use` discounted math and also shows raw total tokens.
+- `2026-03-03_11.29.35` `runtime-token-use-label-and-raw-row-prune`: Discovery: Runtime Token Display Should Match One Metric
+- `2026-03-03_11.30.19` `dashboard-isolate-stacked-rules-flow`: Dashboard isolate mode now supports stacked rules with AND/OR combine logic while staying aligned with existing quick/column filters.
+- `2026-03-03_11.33.58` `dashboard-previous-runs-view-presets-state-shape`: Previous Runs presets should reuse the same UI-state shape as live controls to keep save/load behavior stable.
+- `2026-03-03_11.36.11` `dashboard-program-side-ui-state-persistence`: Dashboard UI state can only be written program-side through an HTTP endpoint; static file mode remains localStorage-only.
+- `2026-03-03_11.38.01` `stats-dashboard-optioninfo-direct-call`: Direct Python calls to stats_dashboard can receive Typer OptionInfo defaults unless unwrapped first.
+- `2026-03-03_11.40.07` `dashboard-quick-filters-primary-official-advanced-ai-tests`: Quick Filters now keep official-only as the primary toggle while rendering test/smoke exclusion as a second checkbox in the same group.
+- `2026-03-03_11.41.44` `dashboard-isolate-vs-table-filter-last-edited-wins`: Previous Runs now uses last-edited-wins handoff between isolate rules and table column filters.
+- `2026-03-03_11.43.35` `dashboard-diagnostics-run-group-vs-eval-timestamp`: Per-label and boundary diagnostics must group latest benchmark rows by run-group key, not exact eval timestamp, so twinned vanilla/codexfarm rows aggregate together.
+- `2026-03-03_11.46.52` `dashboard-previous-runs-clear-all-filters-scope`: Previous Runs clear-all now resets quick filters, table column filters, and isolate rules together.
+- `2026-03-03_11.47.44` `dashboard-filter-summary-per-clause-lines`: Previous Runs filter summary row is built in renderPreviousRunsTableColumns and can remove clauses directly without opening the popup.
+- `2026-03-03_12.00.09` `dashboard-presets-popout-in-quick-filters`: Historical note: dashboard presets were temporarily moved to a Quick Filters popout before later returning to inline controls.
+- `2026-03-03_12.04.48` `dashboard-quick-filters-inline-presets-controls`: Previous Runs preset controls now render inline inside Quick Filters instead of behind a presets popup.
+- `2026-03-03_12.30.35` `dashboard-per-label-delta-baseline-flow`: Per-label diagnostics should keep latest-run codexfarm precision/recall as raw baseline columns and anchor other deltas to that same-label baseline.
+- `2026-03-03_12.56.20` `dashboard-per-label-rolling-n-selector-state`: Per-label rolling N should be UI-state-backed and update rolling column headers plus aggregation windows in sync.
+- `2026-03-03_12.56.51` `dashboard-ai-effort-suppression-reverted`: Removed hard-coded AI effort suppression for three SeaAndSmoke benchmark rows so CSV/runtime effort renders as-is.
+- `2026-03-03_13.02.02` `dashboard-collector-hard-excludes-gate-test-runs`: Stats dashboard must drop gate/test benchmark artifacts at collector time so diagnostics never pick them as latest runs.
+- `2026-03-03_15.40.00` `dashboard-previous-runs-column-popup-control`: Previous Runs column visibility is now controlled by a header-adjacent +/- popup checklist.
+- `2026-03-03_16.12.00` `dashboard-known-backfilled-ai-effort-suppression`: Historical note: dashboard once suppressed AI effort for three SeaAndSmoke benchmark rows; behavior was later reverted.

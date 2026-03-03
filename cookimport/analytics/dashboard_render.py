@@ -6624,7 +6624,7 @@ _JS = """\
     );
   }
 
-  function benchmarkVariantForRecord(record) {
+  function benchmarkVariantFromPathOrPipeline(record) {
     const path = benchmarkArtifactPath(record);
     if (path.includes("/codexfarm/") || path.endsWith("/codexfarm")) return "codexfarm";
     if (path.includes("/vanilla/") || path.endsWith("/vanilla")) return "vanilla";
@@ -6634,7 +6634,13 @@ _JS = """\
       if (pipelineText === "off") return "vanilla";
       return "codexfarm";
     }
-    if (aiModelForRecord(record) || aiEffortForRecord(record)) return "codexfarm";
+    return null;
+  }
+
+  function benchmarkVariantForRecord(record) {
+    const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);
+    if (pipelineOrPathVariant) return pipelineOrPathVariant;
+    if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "codexfarm";
     return "other";
   }
 
@@ -9168,7 +9174,7 @@ _JS = """\
     }
     return null;
   }
-  function aiModelForRecord(record) {
+  function rawAiModelForRecord(record) {
     return runConfigValue(record, [
       "codex_farm_model",
       "codex_model",
@@ -9176,7 +9182,7 @@ _JS = """\
       "model",
     ]);
   }
-  function aiEffortForRecord(record) {
+  function rawAiEffortForRecord(record) {
     return runConfigValue(record, [
       "codex_farm_reasoning_effort",
       "codex_farm_thinking_effort",
@@ -9185,6 +9191,14 @@ _JS = """\
       "thinking_effort",
       "reasoning_effort",
     ]);
+  }
+  function aiModelForRecord(record) {
+    if (benchmarkVariantForRecord(record) === "vanilla") return null;
+    return rawAiModelForRecord(record);
+  }
+  function aiEffortForRecord(record) {
+    if (benchmarkVariantForRecord(record) === "vanilla") return null;
+    return rawAiEffortForRecord(record);
   }
   function aiModelEffortLabelForRecord(record) {
     const model = aiModelForRecord(record);

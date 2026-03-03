@@ -340,15 +340,10 @@ In `cookimport/llm/codex_farm_orchestrator.py` acceptance policy helpers:
 
 In `cookimport/bench/codex_bridge_projection_policy.py` (optional extraction from script):
 
-    @dataclass(frozen=True)
-    class PromptContextChoice:
-        prompt_row: object | None
-        trace_status: str
-        recipe_id: str | None
-        call_id: str | None
-        pass_name: str | None
+    def select_prompt_row_for_trace(...):
+        ...
 
-    def choose_prompt_context_for_line(...):
+    def resolve_trace_status(...):
         ...
 
 Dependency policy:

@@ -25,4 +25,5 @@ Current scoring contract:
   - `quality_lightweight_series.py` (`bench quality-lightweight-series` main-effects-first orchestration: category screening, combined winner check, and interaction smoke variants with resume-compatible fold artifacts)
   - `scripts/quality_top_tier_tournament.py` (multi-seed confidence tournament with gate-impossibility pruning, Phase A->B auto candidate handoff from prior summaries, and thresholds-driven `max_parallel_experiments_default`; default file args now point to parser Phase A presets)
 - Benchmark retention/GC tooling lives in `artifact_gc.py` and is surfaced via `cookimport bench gc` (dry-run by default, `--apply` for destructive pruning; optional `--include-labelstudio-benchmark` adds `data/golden/benchmark-vs-golden/*` pruning; any run root containing `.gc_keep*`/`.keep`/`.pinned` is never pruned).
+- `labelstudio-benchmark` now auto-prunes transient test/gate run roots (timestamp-suffix names with tokens like `gated`/`smoke`/`test`) after CSV metrics are appended; matching processed-output run roots are pruned too.
 - Unified operator decision path is documented in `docs/07-bench/qualitysuite-product-suite.md`.

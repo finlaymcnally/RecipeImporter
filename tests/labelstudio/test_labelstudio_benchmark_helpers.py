@@ -887,6 +887,75 @@ def test_run_with_progress_status_clamps_live_box_width_to_terminal(
     assert max(len(border) for border in borders) <= capture.width - 2
 
 
+def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 72
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+
+    long_task = (
+        "r0017_urn_recipeimport_epub_"
+        "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c11.json"
+    )
+
+    def _run(update_progress):
+        update_progress(
+            "codex-farm recipe.final.v1 task 1/4 | running 3 | "
+            f"active [{long_task}]"
+        )
+        time.sleep(0.8)
+        update_progress(
+            "codex-farm recipe.final.v1 task 2/4 | running 3 | "
+            f"active [{long_task}]"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Benchmark import (SeaAndSmokeCUTDOWN.epub)",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "Benchmark import" in message and "(eta " in message and "avg " in message
+        for message in capture.messages
+    )
+
+
 def test_all_method_dashboard_current_config_tracks_active_parallel_configs() -> None:
     source = cli.AllMethodTarget(
         gold_spans_path=Path("dummy/exports/freeform_span_labels.jsonl"),
