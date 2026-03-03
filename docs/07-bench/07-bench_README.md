@@ -82,6 +82,9 @@ Interactive `single_offline` now writes into one session root:
 - optional paired codex run at `.../single-offline-benchmark/<source_slug>/codexfarm/` when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`
 - `<source_slug>` is derived from the selected source filename stem (slugified).
 - `single_offline` resolves one source/gold pair once and reuses it for all planned variants (vanilla + codexfarm) in a session.
+- paired single-offline variant normalization now enforces:
+  - `vanilla`: deterministic-only (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`)
+  - `codexfarm`: LLM-adjusted recipe + line-role path (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/codexfarm/`:
   - `prompt_request_response_log.txt` (combined full dump),
   - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
@@ -92,12 +95,16 @@ Interactive `single_offline` now writes into one session root:
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
   - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
-- dashboard refresh is deferred until the full single-offline variant batch completes, so the session dashboard snapshots once with both variant rows when available.
+- dashboard refresh is deferred until the full single-offline variant batch completes, then the lifetime dashboard is regenerated at `data/.history/dashboard` (using the configured output root) so `Previous Runs` updates without a manual dashboard rebuild.
+- all-method deferred refreshes (global queue batch, legacy multi-source batch, and source-batch refreshes) also target the lifetime dashboard path for the configured output root, rather than nested per-run `.history/dashboard` folders.
 - paired success also generates a blended first-look starter pack in-place:
   - `.../single-offline-benchmark/<source_slug>/starter_pack_v1/`
+- paired starter-pack generation also writes an in-place flattened summary:
+  - `.../single-offline-benchmark/<source_slug>/benchmark_summary.md`
 - optional consolidated markdown summary (when markdown writes are enabled):
   - `.../single-offline-benchmark/<source_slug>/single_offline_summary.md`
-- transient test/gate benchmark run roots (for example timestamp-suffix folders containing `gated` / `smoke` / `test` tokens) are auto-pruned at command end after CSV history append; matching processed-output run roots are pruned too, so metrics remain durable in history without keeping bulky artifacts.
+- transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
+- interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
@@ -222,6 +229,7 @@ Prediction-record and telemetry artifacts:
 Interactive `labelstudio_benchmark` single-offline paired runs reuse the same starter-pack logic directly in the session root.
 Starter-pack generation is wired into the shared codex-vs-vanilla comparison artifact writer, so it runs whenever paired comparison JSON is produced.
 Outside-span preprocess trace joins no longer borrow fallback prompt rows from unrelated recipes; outside-span statuses now emit explicit bridge lineage (`outside_span_archive_only`, `outside_span_unattributed`, plus prompt-joined variants when same-recipe prompt context exists).
+Recipe triage now also lifts per-recipe codex-farm `llm_manifest.json` diagnostics (pass statuses, pass1 clamped span-loss metrics, pass2 degradation reasons, pass3 fallback reasons, transport mismatch, and evidence-normalization counters) into starter-pack CSV/summary/casebook artifacts.
 
 Starter-pack mandatory files:
 - `README.md`
@@ -1324,6 +1332,7 @@ Current behavior now:
 - When CodexFarm is enabled, `vanilla` runs first and `codexfarm` second; vanilla artifacts remain even if Codex run fails.
 - `codex_vs_vanilla_comparison.json` appears only when both variant runs complete successfully.
 - `single_offline_summary.md` appears only when markdown writes are enabled and consolidates markdown output for the session.
+- `benchmark_summary.md` is written after paired starter-pack generation and flattens comparison + starter-pack diagnostics into one markdown file.
 - Comparison payload now includes optional `metadata.single_offline_split_cache` summary (shared key + per-variant hit/mode/conversion timing) when cache metadata is available.
 - Comparison payload also includes optional `metadata.codex_farm_runtime` with `codex_model` and `codex_reasoning_effort` (resolved from run config, with llm-manifest fallback; `<default>` now resolves through Codex config `model_reasoning_effort` when available).
 - Interactive/RunSettings-provided Codex Farm overrides (`codex_farm_model`, `codex_farm_reasoning_effort`) are now forwarded through `labelstudio-benchmark` prediction generation and persisted in benchmark run manifests; default-resolution applies only when these overrides are unset.
@@ -1563,3 +1572,20 @@ Known pitfalls / anti-loop reminders:
 - When invoking Typer command helpers directly in tests/internal Python calls, unwrap `OptionInfo` defaults before parsing filters (`--formats` path is sensitive to this).
 - Do not treat sampled JSONL outputs as complete failure coverage; use/additive full-failure gzip artifacts for root-cause diagnosis.
 - Missing prediction-run/archive/prompt inputs in cutdown are a status-reporting path (`missing_prediction_run`, `missing_extracted_archive`, `missing_full_prompt_log`), not a hard-stop path.
+
+## 2026-03-03 docs/tasks merge digest (PRO-PROMPT, starter-pack, transient prune, spinner ETA)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/PRO-PROMPT.md`
+- `docs/tasks/2026-03-03_11.21.25-blended-starter-pack-v1-for-benchmark-cutdown.md`
+- `docs/tasks/2026-03-03_13.09.09-auto-prune-transient-benchmark-artifacts.md`
+- `docs/tasks/2026-03-03_13.12.33-benchmark-spinner-eta-visible-under-width-clamp.md`
+
+Current contract additions/reminders:
+- `starter_pack_v1/` is a deterministic, additive first-look benchmark handoff contract (it does not replace legacy root artifacts).
+- Starter-pack selected-case ranking is metric-first with deterministic tie-breaks, and low-change/high-loss recipes must remain eligible.
+- Interactive paired `single_offline` writes starter-pack artifacts in-place only when both `vanilla` and `codexfarm` variants succeed.
+- Transient benchmark artifact pruning is post-history-append and benchmark-command scoped, so CSV metrics stay durable even when excluded run folders are deleted.
+- Cleanup must run before benchmark failure raises in gated/test runs; otherwise failed runs still accumulate artifacts.
+- Boxed benchmark progress truncation must preserve trailing ETA/avg timing suffixes; clip long middle task identifiers first.
+- Line-role gated benchmark mode remains strict on comparator-history availability plus recall floors (`RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`).

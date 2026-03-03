@@ -472,3 +472,15 @@ Current analytics contracts to keep:
 - `2026-03-03_13.02.02` `dashboard-collector-hard-excludes-gate-test-runs`: Stats dashboard must drop gate/test benchmark artifacts at collector time so diagnostics never pick them as latest runs.
 - `2026-03-03_15.40.00` `dashboard-previous-runs-column-popup-control`: Previous Runs column visibility is now controlled by a header-adjacent +/- popup checklist.
 - `2026-03-03_16.12.00` `dashboard-known-backfilled-ai-effort-suppression`: Historical note: dashboard once suppressed AI effort for three SeaAndSmoke benchmark rows; behavior was later reverted.
+
+## 2026-03-03 docs/tasks merge digest (dashboard gate/test exclusion + vanilla AI suppression)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/2026-03-03_13.02.16-dashboard-hard-exclude-gate-test-runs.md`
+- `docs/tasks/2026-03-03_13.13.06-dashboard-vanilla-ai-runtime-suppression.md`
+
+Current contract additions/reminders:
+- Gate/test/smoke benchmark artifacts are excluded at collector input time (CSV and report-scan paths), not only in JS quick filters, so diagnostics and `Previous Runs` share the same exclusion policy.
+- Exclusion policy remains deterministic/path-token based (`/bench/`, pytest temp layouts, gated/smoke/test timestamp suffix markers).
+- `Previous Runs` AI runtime display is variant-aware: rows classified as `vanilla` suppress `AI Model` and `AI Effort` display even if stale/backfilled codex keys exist in `run_config`.
+- Vanilla suppression is display-layer only; historical CSV/manifests are not rewritten.

@@ -57,7 +57,7 @@ _JOB_PARTS = ".job_parts"
 _PREDICTION_RUN = "prediction-run"
 _PYTEST_RUN_SEGMENT_RE = re.compile(r"^pytest-\d+$")
 _BENCHMARK_ARTIFACT_EXCLUDE_TOKEN_RE = re.compile(
-    r"(^|[-_])(gate|gated|smoke|test|debug|quick|probe|sample|trial)([-_]|$)"
+    r"(^|[-_])(gate|gated|smoke|test|debug|quick|probe|sample|trial|regression)([-_]|$)"
 )
 _TIMESTAMP_WITH_SUFFIX_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}[t_]\d{2}[.:]\d{2}[.:]\d{2}_(.+)$"

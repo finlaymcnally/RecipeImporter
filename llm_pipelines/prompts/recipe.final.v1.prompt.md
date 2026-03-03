@@ -17,6 +17,8 @@ A) `draft_v1`:
 - Do not rewrite ingredient or instruction text
 - Preserve ingredient order exactly
 - Preserve instruction order exactly
+- Never emit generic placeholder instructions (for example: "See original recipe for details.")
+- Every emitted step instruction must come verbatim from `extracted_instructions`
 - `draft_v1` must be returned as a **JSON string** containing the full draft object
 - The JSON payload must be valid and parseable by `json.loads`
 

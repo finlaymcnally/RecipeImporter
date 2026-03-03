@@ -956,6 +956,66 @@ def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
     )
 
 
+def test_run_with_progress_status_humanizes_codex_stage_in_live_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 86
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+
+    def _run(update_progress):
+        update_progress(
+            "codex-farm recipe.schemaorg.v1 task 2/9 | running 2 | "
+            "active [r0002.json, r0007.json]"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Benchmark import (SeaAndSmokeCUTDOWN.epub)",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("stage: pass2 schemaorg" in message for message in capture.messages)
+    assert any(
+        "codex-farm pass2 schemaorg" in message and "task" in message
+        for message in capture.messages
+    )
+
+
 def test_all_method_dashboard_current_config_tracks_active_parallel_configs() -> None:
     source = cli.AllMethodTarget(
         gold_spans_path=Path("dummy/exports/freeform_span_labels.jsonl"),
@@ -2904,6 +2964,14 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
         "off",
         "codex-farm-3pass-v1",
     ]
+    assert [call["line_role_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-line-role-v1",
+    ]
+    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
+        "off",
+        "atomic-v1",
+    ]
     expected_split_cache_dir = (
         benchmark_eval_output / "single-offline-benchmark" / ".split-cache"
     )
@@ -2985,6 +3053,11 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
         / benchmark_eval_output.name
         / "single-offline-benchmark"
         / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
+    )
+    assert refresh_calls[0]["output_root"] == processed_output_root
+    assert (
+        refresh_calls[0]["dashboard_out_dir"]
+        == cli.history_root_for_output(processed_output_root) / "dashboard"
     )
 
 
@@ -3299,6 +3372,11 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
         / "single-offline-benchmark"
         / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
     )
+    assert refresh_calls[0]["output_root"] == processed_output_root
+    assert (
+        refresh_calls[0]["dashboard_out_dir"]
+        == cli.history_root_for_output(processed_output_root) / "dashboard"
+    )
 
 
 def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> None:
@@ -3371,6 +3449,10 @@ def test_single_offline_comparison_artifacts_trigger_starter_pack(
         starter_calls.append(session_root)
         starter_dir = session_root / "starter_pack_v1"
         starter_dir.mkdir(parents=True, exist_ok=True)
+        (session_root / "benchmark_summary.md").write_text(
+            "# Flattened benchmark summary\n",
+            encoding="utf-8",
+        )
         return starter_dir
 
     monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
@@ -3393,6 +3475,9 @@ def test_single_offline_comparison_artifacts_trigger_starter_pack(
     assert isinstance(starter_metadata, dict)
     assert starter_metadata.get("relative_path") == "starter_pack_v1"
     assert starter_metadata.get("manifest_file") == "starter_pack_v1/10_process_manifest.json"
+    flattened_metadata = metadata.get("flattened_summary")
+    assert isinstance(flattened_metadata, dict)
+    assert flattened_metadata.get("relative_path") == "benchmark_summary.md"
     assert starter_calls == [session_root]
 
 
@@ -6224,6 +6309,336 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
     assert timing["checkpoints"]["evaluate_seconds"] >= 0.0
     assert isinstance(captured_csv.get("timing"), dict)
     assert captured_csv["timing"]["prediction_seconds"] == pytest.approx(9.0)
+
+
+def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "run_config": {"workers": 1},
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "boundary": {"correct": 1, "over": 0, "under": 0, "partial": 0},
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+
+    processed_run_root = tmp_path / "output" / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
+    processed_run_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": processed_run_root,
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 2.5},
+        },
+    )
+
+    call_order: list[str] = []
+    from cookimport.analytics import perf_report as _perf_report
+
+    real_append = _perf_report.append_benchmark_csv
+
+    def _append_with_order(*args, **kwargs):
+        call_order.append("append_csv")
+        return real_append(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        _append_with_order,
+    )
+
+    real_prune = cli._prune_benchmark_outputs
+
+    def _prune_with_order(*, eval_output_dir, processed_run_root, suppress_summary, suppress_output_prune):
+        call_order.append("prune")
+        return real_prune(
+            eval_output_dir=eval_output_dir,
+            processed_run_root=processed_run_root,
+            suppress_summary=suppress_summary,
+            suppress_output_prune=suppress_output_prune,
+        )
+
+    monkeypatch.setattr(cli, "_prune_benchmark_outputs", _prune_with_order)
+
+    eval_root = (
+        tmp_path
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
+    )
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=eval_root,
+        no_upload=True,
+    )
+
+    assert call_order.count("append_csv") == 1
+    assert call_order.count("prune") >= 1
+    assert call_order.index("append_csv") < call_order.index("prune")
+    assert not eval_root.exists()
+    assert not processed_run_root.exists()
+
+    csv_path = cli.history_csv_for_output(tmp_path / "output")
+    assert csv_path.exists()
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows
+    matching_row = next((row for row in rows if row.get("run_dir") == str(eval_root)), None)
+    assert matching_row is not None
+    assert float(matching_row["precision"]) == pytest.approx(1.0)
+    assert float(matching_row["recall"]) == pytest.approx(1.0)
+
+
+def test_labelstudio_benchmark_disables_prune_when_interactive_cli_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    prediction_run.mkdir(parents=True, exist_ok=True)
+    (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    (prediction_run / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 0,
+                "block_labels": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (prediction_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": str(source_file),
+                "source_hash": "hash-123",
+                "run_config": {"workers": 1},
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "workers=1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_co_locate_prediction_run_for_benchmark",
+        lambda _pred_run, _eval_dir: prediction_run,
+    )
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "boundary": {"correct": 1, "over": 0, "under": 0, "partial": 0},
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "_write_jsonl_rows", lambda *_: None)
+    monkeypatch.setattr(
+        cli,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                "counts": {
+                    "gold_total": 1,
+                    "pred_total": 1,
+                    "gold_matched": 1,
+                    "pred_matched": 1,
+                    "gold_missed": 0,
+                    "pred_false_positive": 0,
+                },
+                "overall_block_accuracy": 1.0,
+                "macro_f1_excluding_other": 1.0,
+                "worst_label_recall": {"label": "RECIPE_TITLE", "recall": 1.0},
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0,
+                "practical_precision": 1.0,
+                "practical_recall": 1.0,
+                "practical_f1": 1.0,
+                "per_label": {},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    monkeypatch.setattr(cli, "format_stage_block_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(cli, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
+
+    processed_run_root = tmp_path / "output" / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
+    processed_run_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        cli,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": processed_run_root,
+            "processed_report_path": "",
+            "timing": {"prediction_seconds": 2.5},
+        },
+    )
+
+    prune_calls: list[dict[str, object]] = []
+
+    def _capture_prune(
+        *,
+        eval_output_dir: Path,
+        processed_run_root: Path | None,
+        suppress_summary: bool,
+        suppress_output_prune: bool,
+    ) -> None:
+        prune_calls.append(
+            {
+                "eval_output_dir": eval_output_dir,
+                "processed_run_root": processed_run_root,
+                "suppress_summary": suppress_summary,
+                "suppress_output_prune": suppress_output_prune,
+            }
+        )
+
+    monkeypatch.setattr(cli, "_prune_benchmark_outputs", _capture_prune)
+
+    eval_root = (
+        tmp_path
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
+    )
+    interactive_token = cli._INTERACTIVE_CLI_ACTIVE.set(True)
+    try:
+        cli.labelstudio_benchmark(
+            gold_spans=gold_spans,
+            source_file=source_file,
+            output_dir=tmp_path / "golden",
+            processed_output_dir=tmp_path / "output",
+            eval_output_dir=eval_root,
+            no_upload=True,
+        )
+    finally:
+        cli._INTERACTIVE_CLI_ACTIVE.reset(interactive_token)
+
+    assert prune_calls
+    assert all(bool(call["suppress_output_prune"]) for call in prune_calls)
 
 
 def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
@@ -9752,6 +10167,7 @@ def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_pa
 
     per_source_refresh_values: list[bool] = []
     batch_refresh_calls: list[dict[str, object]] = []
+    dashboard_output_root = tmp_path / "dashboard-output-root"
 
     def fake_run_all_method_benchmark(**kwargs):
         per_source_refresh_values.append(bool(kwargs["refresh_dashboard_after_source"]))
@@ -9807,10 +10223,17 @@ def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_pa
         force_source_match=False,
         max_parallel_sources=2,
         scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
+        dashboard_output_root=dashboard_output_root,
     )
 
     assert per_source_refresh_values == [False, False]
     assert len(batch_refresh_calls) == 1
+    assert batch_refresh_calls[0]["reason"] == "all-method benchmark multi-source batch append"
+    assert batch_refresh_calls[0]["output_root"] == dashboard_output_root
+    assert (
+        batch_refresh_calls[0]["dashboard_out_dir"]
+        == cli.history_root_for_output(dashboard_output_root) / "dashboard"
+    )
 
 
 def test_run_all_method_benchmark_multi_source_defaults_to_global_scheduler_scope(
@@ -9865,10 +10288,12 @@ def test_run_all_method_benchmark_multi_source_defaults_to_global_scheduler_scop
         processed_output_root=tmp_path / "processed-root",
         overlap_threshold=0.5,
         force_source_match=False,
+        dashboard_output_root=tmp_path / "dashboard-root",
     )
 
     assert report_md_path == expected_report_path
     assert captured["target_variants"] == target_variants
+    assert captured["dashboard_output_root"] == tmp_path / "dashboard-root"
 
 
 def test_run_all_method_benchmark_multi_source_dispatches_legacy_scheduler_scope(
@@ -9924,10 +10349,12 @@ def test_run_all_method_benchmark_multi_source_dispatches_legacy_scheduler_scope
         overlap_threshold=0.5,
         force_source_match=False,
         scheduler_scope=cli.ALL_METHOD_SCHEDULER_SCOPE_LEGACY,
+        dashboard_output_root=tmp_path / "dashboard-root",
     )
 
     assert report_md_path == expected_report_path
     assert captured["target_variants"] == target_variants
+    assert captured["dashboard_output_root"] == tmp_path / "dashboard-root"
 
 
 def test_interactive_all_method_benchmark_uses_timestamped_output_root(
@@ -10008,6 +10435,7 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
         / "all-method-benchmark"
         / source_slug
     )
+    assert captured["dashboard_output_root"] == processed_output_root
 
 
 def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_source_runner(
@@ -10106,6 +10534,7 @@ def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_sour
         / benchmark_eval_output.name
         / "all-method-benchmark"
     )
+    assert captured["dashboard_output_root"] == processed_output_root
 
 
 def test_interactive_benchmark_all_method_mode_routes_to_runner(

@@ -1068,3 +1068,32 @@ read_when:
 - `benchmark_cutdown_for_external_ai.py` outside-span trace joins now block fallback prompt-row borrowing and emit explicit outside statuses (`outside_span_archive_only`, `outside_span_unattributed`, etc.).
 
 ```
+
+## 2026-03-03 docs/tasks consolidation batch (Proplan2 completion + milestone-5 outcome)
+
+### 2026-03-03_12.45.00 Proplan2 code-aligned CodexFarm repair plan
+
+Source task file:
+- `docs/tasks/Proplan2.md`
+
+Problem captured:
+- Codex recipe correction needed transport-level observability and deterministic fallback protections before any benchmark-promotion decision could be trusted.
+
+Durable decisions/outcomes:
+- Implemented transport audits at recipe scope with mismatch counters surfaced in `llm_manifest.json`.
+- Added additive evidence normalization (`normalized_evidence_*`) without replacing authoritative pass2 source fields (`canonical_text` + `blocks`).
+- Added recipe-scoped deterministic pass3 fallback for missing/invalid/low-quality pass3 bundles.
+- Kept benchmark taxonomy measurement on existing line-role subsystem instead of introducing a second LLM label path.
+- Preserved policy boundary: codex recipe correction remains explicit opt-in and was not promoted to default.
+
+Milestone-5 evidence preserved in task:
+- Full Sea paired replay: `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codex_vs_vanilla_comparison.json`
+  - `strict_accuracy`: codex `0.282353` vs vanilla `0.384874` (delta `-0.102521`)
+  - `macro_f1_excluding_other`: codex `0.346740` vs vanilla `0.404162` (delta `-0.057421`)
+- Dev-slice (`c0,c6,c8,c9`) cutdown aggregate:
+  - source: `.../2026-03-03_12.12.49_cutdown_md/per_recipe_or_per_span_breakdown.json`
+  - codex `0.287671` vs vanilla `0.410959` (delta `-0.123288`)
+- Transport mismatch counter on that replay: `transport_mismatches=0`.
+
+Anti-loop note:
+- A clean transport audit does not imply metric promotion readiness; keep transport-fix verification and benchmark-promotion criteria as separate gates.

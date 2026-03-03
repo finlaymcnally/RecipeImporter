@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import gzip
 import hashlib
 import importlib.util
@@ -86,6 +87,7 @@ def _write_prediction_run(
     run_dir: Path,
     *,
     with_extracted_archive: bool,
+    llm_manifest_recipes: dict[str, object] | None = None,
 ) -> Path:
     prediction_run = run_dir / "prediction-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
@@ -114,6 +116,15 @@ def _write_prediction_run(
                     },
                 },
             ],
+        )
+    if llm_manifest_recipes is not None:
+        llm_manifest_path = prediction_run / "raw" / "llm" / "fixture-slug" / "llm_manifest.json"
+        _write_json(
+            llm_manifest_path,
+            {
+                "enabled": True,
+                "recipes": llm_manifest_recipes,
+            },
         )
     return prediction_run
 
@@ -443,6 +454,91 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
     assert diagnostics.targeted_prompt_case_rows[0]["empty_ingredient_step_mapping"] is True
 
 
+def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    codex_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_12.00.00",
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    baseline_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_11.59.00",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+    )
+
+    codex_run_dir = Path(str(codex_record.run_dir))
+    _write_prediction_run(
+        codex_run_dir,
+        with_extracted_archive=True,
+        llm_manifest_recipes={
+            "recipe:c0": {
+                "pass1": "ok",
+                "pass2": "degraded",
+                "pass3": "fallback",
+                "pass1_span_loss_metrics": {
+                    "clamped_block_loss_count": 2,
+                    "clamped_block_loss_ratio": 0.5,
+                },
+                "pass2_degradation_reasons": ["missing_instructions"],
+                "pass3_fallback_reason": "pass3 output rejected as low quality",
+                "transport_audit": {
+                    "mismatch": True,
+                    "mismatch_reasons": ["missing_payload_blocks"],
+                    "effective_to_payload_coverage_ratio": 0.75,
+                },
+                "evidence_normalization": {
+                    "stats": {
+                        "split_quantity_lines": 3,
+                        "dropped_page_markers": 1,
+                        "folded_page_markers": 0,
+                    }
+                },
+            }
+        },
+    )
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    diagnostics = module._build_pair_diagnostics(
+        source_key="source-hash",
+        source_file="book.epub",
+        codex_run=codex_record,
+        baseline_run=baseline_record,
+        excerpt_limit=120,
+        targeted_case_limit=10,
+    )
+
+    triage_row = next(row for row in diagnostics.recipe_triage_rows if row["recipe_id"] == "recipe:c0")
+    assert triage_row["pass1_status"] == "ok"
+    assert triage_row["pass2_status"] == "degraded"
+    assert triage_row["pass3_status"] == "fallback"
+    assert triage_row["pass1_clamped_block_loss_count"] == 2
+    assert triage_row["pass1_clamped_block_loss_ratio"] == 0.5
+    assert triage_row["pass2_degradation_reasons"] == ["missing_instructions"]
+    assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
+    assert triage_row["transport_mismatch"] is True
+    assert triage_row["transport_mismatch_reasons"] == ["missing_payload_blocks"]
+    assert triage_row["transport_effective_to_payload_coverage_ratio"] == 0.75
+    assert triage_row["evidence_split_quantity_lines"] == 3
+    assert triage_row["evidence_dropped_page_markers"] == 1
+    assert triage_row["evidence_folded_page_markers"] == 0
+
+    summary = module._build_warning_and_trace_summary(
+        call_inventory_rows=diagnostics.call_inventory_rows,
+        recipe_triage_rows=diagnostics.recipe_triage_rows,
+        outside_span_trace_rows=diagnostics.outside_span_trace_rows,
+    )
+    assert summary["pass2_degraded_recipe_count"] == 1
+    assert summary["pass3_fallback_recipe_count"] == 1
+    assert summary["transport_mismatch_recipe_count"] == 1
+    assert summary["pass1_clamped_loss_recipe_count"] == 1
+
+
 def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> None:
     module = _load_cutdown_module()
     codex_record = _make_run_record(
@@ -769,7 +865,38 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
     )
 
     codex_run_dir = run_root / codex_run_id
-    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _write_prediction_run(
+        codex_run_dir,
+        with_extracted_archive=True,
+        llm_manifest_recipes={
+            "recipe:c0": {
+                "pass1": "ok",
+                "pass2": "degraded",
+                "pass3": "fallback",
+                "pass1_span_loss_metrics": {
+                    "clamped_block_loss_count": 3,
+                    "clamped_block_loss_ratio": 0.25,
+                },
+                "pass2_degradation_reasons": [
+                    "missing_instructions",
+                    "ocr_or_page_artifact",
+                ],
+                "pass3_fallback_reason": "pass3 output rejected as low quality",
+                "transport_audit": {
+                    "mismatch": True,
+                    "mismatch_reasons": ["missing_payload_blocks"],
+                    "effective_to_payload_coverage_ratio": 0.75,
+                },
+                "evidence_normalization": {
+                    "stats": {
+                        "split_quantity_lines": 2,
+                        "dropped_page_markers": 1,
+                        "folded_page_markers": 1,
+                    }
+                },
+            }
+        },
+    )
     _set_pred_run_artifact(codex_run_dir, "prediction-run")
 
     output_dir = tmp_path / "cutdown_out"
@@ -980,7 +1107,38 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     )
 
     codex_run_dir = run_root / codex_run_id
-    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _write_prediction_run(
+        codex_run_dir,
+        with_extracted_archive=True,
+        llm_manifest_recipes={
+            "recipe:c0": {
+                "pass1": "ok",
+                "pass2": "degraded",
+                "pass3": "fallback",
+                "pass1_span_loss_metrics": {
+                    "clamped_block_loss_count": 3,
+                    "clamped_block_loss_ratio": 0.25,
+                },
+                "pass2_degradation_reasons": [
+                    "missing_instructions",
+                    "ocr_or_page_artifact",
+                ],
+                "pass3_fallback_reason": "pass3 output rejected as low quality",
+                "transport_audit": {
+                    "mismatch": True,
+                    "mismatch_reasons": ["missing_payload_blocks"],
+                    "effective_to_payload_coverage_ratio": 0.75,
+                },
+                "evidence_normalization": {
+                    "stats": {
+                        "split_quantity_lines": 2,
+                        "dropped_page_markers": 1,
+                        "folded_page_markers": 1,
+                    }
+                },
+            }
+        },
+    )
     _set_pred_run_artifact(codex_run_dir, "prediction-run")
 
     original_preprocess = module._build_preprocess_trace_failure_rows
@@ -1039,6 +1197,23 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
 
     triage_header = (starter_dir / "01_recipe_triage.csv").read_text(encoding="utf-8").splitlines()[0]
     assert triage_header == ",".join(module.STARTER_PACK_TRIAGE_HEADER)
+    with (starter_dir / "01_recipe_triage.csv").open("r", encoding="utf-8", newline="") as handle:
+        triage_rows = list(csv.DictReader(handle))
+    assert triage_rows
+    triage_row = triage_rows[0]
+    assert triage_row["pass1_status"] == "ok"
+    assert triage_row["pass2_status"] == "degraded"
+    assert triage_row["pass3_status"] == "fallback"
+    assert triage_row["pass1_clamped_block_loss_count"] == "3"
+    assert triage_row["pass1_clamped_block_loss_ratio"] == "0.250000"
+    assert triage_row["pass2_degradation_reasons"] == "missing_instructions|ocr_or_page_artifact"
+    assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
+    assert triage_row["transport_mismatch"] == "true"
+    assert triage_row["transport_mismatch_reasons"] == "missing_payload_blocks"
+    assert triage_row["transport_effective_to_payload_coverage_ratio"] == "0.750000"
+    assert triage_row["evidence_split_quantity_lines"] == "2"
+    assert triage_row["evidence_dropped_page_markers"] == "1"
+    assert triage_row["evidence_folded_page_markers"] == "1"
 
     call_inventory_rows = _read_jsonl(starter_dir / "02_call_inventory.jsonl")
     assert call_inventory_rows
@@ -1061,6 +1236,23 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         "output_excerpt",
     }
     assert required_call_inventory_keys.issubset(call_inventory_rows[0].keys())
+
+    warning_summary = _read_json(starter_dir / "04_warning_and_trace_summary.json")
+    assert warning_summary["pass2_degraded_recipe_count"] == 1
+    assert warning_summary["pass3_fallback_recipe_count"] == 1
+    assert warning_summary["transport_mismatch_recipe_count"] == 1
+    assert warning_summary["pass1_clamped_loss_recipe_count"] == 1
+    assert "pass_status_counts" in warning_summary
+
+    selected_packets = _read_jsonl(starter_dir / "06_selected_recipe_packets.jsonl")
+    assert selected_packets
+    first_packet = selected_packets[0]
+    assert first_packet["pass2_summary"]["degradation_reasons"] == [
+        "missing_instructions",
+        "ocr_or_page_artifact",
+    ]
+    assert first_packet["pass3_summary"]["fallback_reason"] == "pass3 output rejected as low quality"
+    assert first_packet["transport_summary"]["mismatch"] is True
 
     starter_manifest = _read_json(starter_dir / "10_process_manifest.json")
     assert starter_manifest["starter_pack_version"] == "v1"
@@ -1160,6 +1352,51 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
     assert (starter_dir / "01_recipe_triage.csv").is_file()
     assert int(metadata["run_count"]) == 2
     assert int(metadata["pair_count"]) == 1
+
+
+def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enabled(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "2026-03-03_10.16.00"
+    baseline_run_id = "2026-03-03_10.15.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    (session_root / "codex_vs_vanilla_comparison.json").write_text(
+        json.dumps({"schema_version": "codex_vs_vanilla_comparison.v2"}),
+        encoding="utf-8",
+    )
+
+    metadata = module.build_starter_pack_for_existing_runs(
+        input_dir=session_root,
+        output_dir=session_root,
+        write_flattened_summary=True,
+    )
+
+    summary_path = session_root / module.AGGREGATED_ROOT_SUMMARY_MD
+    assert summary_path.is_file()
+    summary_text = summary_path.read_text(encoding="utf-8")
+    assert "# Benchmark Need-To-Know Package (Flattened)" in summary_text
+    assert "## codex_vs_vanilla_comparison.json" in summary_text
+    assert "## starter_pack_v1/10_process_manifest.json" in summary_text
+    assert metadata["flattened_summary_path"] == module.AGGREGATED_ROOT_SUMMARY_MD
 
 
 def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:

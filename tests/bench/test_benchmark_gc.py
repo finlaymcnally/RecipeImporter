@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from cookimport.analytics.dashboard_collect import collect_dashboard_data
 from cookimport.analytics.perf_report import _CSV_FIELDS
 from cookimport.bench.artifact_gc import run_benchmark_gc
-from cookimport.cli import _prune_transient_benchmark_outputs, app
+from cookimport.cli import _prune_benchmark_outputs, app
 
 
 runner = CliRunner()
@@ -476,7 +476,7 @@ def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
     assert not processed_root.exists()
 
 
-def test_prune_transient_benchmark_outputs_removes_gated_eval_and_processed_dirs(
+def test_prune_benchmark_outputs_removes_eval_and_processed_dirs(
     tmp_path: Path,
 ) -> None:
     eval_root = (
@@ -491,17 +491,18 @@ def test_prune_transient_benchmark_outputs_removes_gated_eval_and_processed_dirs
     processed_root.mkdir(parents=True, exist_ok=True)
     (processed_root / "dummy.txt").write_text("ok", encoding="utf-8")
 
-    _prune_transient_benchmark_outputs(
+    _prune_benchmark_outputs(
         eval_output_dir=eval_root,
         processed_run_root=processed_root,
         suppress_summary=True,
+        suppress_output_prune=False,
     )
 
     assert not eval_root.exists()
     assert not processed_root.exists()
 
 
-def test_prune_transient_benchmark_outputs_keeps_official_run_dirs(
+def test_prune_benchmark_outputs_keeps_official_run_dirs(
     tmp_path: Path,
 ) -> None:
     eval_root = (
@@ -516,10 +517,11 @@ def test_prune_transient_benchmark_outputs_keeps_official_run_dirs(
     processed_root.mkdir(parents=True, exist_ok=True)
     (processed_root / "dummy.txt").write_text("ok", encoding="utf-8")
 
-    _prune_transient_benchmark_outputs(
+    _prune_benchmark_outputs(
         eval_output_dir=eval_root,
         processed_run_root=processed_root,
         suppress_summary=True,
+        suppress_output_prune=False,
     )
 
     assert eval_root.exists()

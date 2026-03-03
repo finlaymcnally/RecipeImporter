@@ -98,6 +98,7 @@ Report/model plumbing:
   - `normalized_evidence_lines`
   - `normalization_stats`
 - Pass1->pass2 transport now uses explicit inclusive end-index semantics (`start <= idx <= end`) through `codex_farm_transport.py`, and transport audits include `end_index_semantics=\"inclusive\"`.
+- Pass1 clamp behavior is overlap-focused: when recipe spans overlap, boundaries are split across the overlap window midpoint to reduce evidence loss while still preventing overlap.
 - Authoritative pass2 evidence remains `canonical_text` + `blocks`; normalized evidence is helper-only.
 - Recipe-level pass1/pass2 handoff audits are persisted under:
   - `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)
@@ -108,11 +109,13 @@ Report/model plumbing:
   - `codex_farm_failure_mode=fail` keeps recipe-level error status without process-wide crash.
 - `llm_manifest.json` now records:
   - transport audit rows and mismatch counts,
+  - per-recipe `pass1_span_loss_metrics` (raw span vs midpoint-clamped span, with block-loss count/ratio),
   - pass2 degradation counts/reasons (`pass2_degraded`, per-recipe `pass2_degradation_reasons`),
   - evidence-normalization row summaries/counts,
   - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output).
 - Pass3 promotion is now gated by pass2 evidence quality: degraded pass2 rows skip pass3 LLM calls and go directly through deterministic fallback.
 - Deterministic fallback now starts from the existing `state.recipe` candidate, then applies guarded pass2 enrichments when instruction/ingredient evidence is non-empty and non-placeholder.
+- When pass3 returns placeholder-only steps but pass2 contains non-placeholder extracted instructions, orchestrator now repairs steps from pass2 evidence before low-quality rejection.
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 
@@ -541,3 +544,18 @@ Current LLM contract to keep:
 - `2026-03-03_12.16.08` `ogplan-proplan2-code-alignment-review`: Gap check between OG Proplan2 intent, current code, and completed Proplan2 claims.
 - `2026-03-03_12.43.42` `pro3-execplan-codebase-fit-gaps`: Pro3 ExecPlan aligns with active codex-farm seams but has stale milestone state and unresolved path placeholders that reduce self-contained execution reliability.
 - `2026-03-03_13.05.30` `pro3-transport-gating-outside-span-policy`: Pro3 implementation seam note: inclusive transport helper + pass2 degradation gating + outside-span prompt-join policy.
+
+## 2026-03-03 docs/tasks merge digest (Proplan2 milestone outcome)
+
+Merged source task file:
+- `docs/tasks/Proplan2.md`
+
+Current contract additions/reminders:
+- Proplan2 milestones 1/2/4 are implemented in runtime and tests: recipe-scoped pass1/pass2 transport audits, additive evidence normalization sidecars, and deterministic pass3 fallback from pass2 structured outputs when pass3 output is missing/invalid/low quality.
+- Benchmark-facing label measurement remains on the existing line-role path (`cookimport/parsing` + `cookimport/labelstudio`) rather than adding a separate taxonomy path under `cookimport/llm`.
+- Latest recorded Sea paired replay used for Proplan2 milestone-5 decision:
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codex_vs_vanilla_comparison.json`
+  - `strict_accuracy` delta: `-0.102521` (codex lower)
+  - `macro_f1_excluding_other` delta: `-0.057421` (codex lower)
+  - dev-slice (`c0,c6,c8,c9`) aggregate accuracy delta: `-0.123288`
+- Current promotion decision remains `no promotion` and no default flip to Codex recipe correction.

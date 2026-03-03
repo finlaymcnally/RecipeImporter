@@ -76,6 +76,54 @@ def _build_conversion_result(source_path: Path) -> ConversionResult:
     )
 
 
+def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
+    return ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Recipe A",
+                identifier="urn:recipe:test:r0",
+                recipeIngredient=["1 cup flour"],
+                recipeInstructions=["Mix."],
+                provenance={"location": {"start_block": 0, "end_block": 2}},
+            ),
+            RecipeCandidate(
+                name="Recipe B",
+                identifier="urn:recipe:test:r1",
+                recipeIngredient=["2 eggs"],
+                recipeInstructions=["Bake."],
+                provenance={"location": {"start_block": 3, "end_block": 5}},
+            ),
+        ],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash456",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Recipe A"},
+                        {"index": 1, "text": "1 cup flour"},
+                        {"index": 2, "text": "Mix."},
+                        {"index": 3, "text": "Recipe B"},
+                        {"index": 4, "text": "2 eggs"},
+                        {"index": 5, "text": "Bake."},
+                    ],
+                    "block_count": 6,
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook=source_path.stem,
+        workbookPath=str(source_path),
+    )
+
+
 def _build_run_settings(
     pack_root: Path,
     *,
@@ -165,6 +213,63 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert apply_result.llm_report["process_runs"] == manifest["process_runs"]
     assert apply_result.llm_report["codex_farm_recipe_mode"] == "extract"
     assert apply_result.llm_report["transport"]["mismatch_recipes"] == 0
+    recipe_metrics = manifest["recipes"][result.recipes[0].identifier]["pass1_span_loss_metrics"]
+    assert recipe_metrics["raw_span_count"] == 4
+    assert recipe_metrics["clamped_span_count"] == 4
+    assert recipe_metrics["clamped_block_loss_count"] == 0
+    assert recipe_metrics["clamped_block_loss_ratio"] == 0.0
+    assert recipe_metrics["boundaries_clamped"] is False
+
+
+def test_orchestrator_records_pass1_span_loss_metrics_when_midpoint_clamp_shrinks_span(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_multi_recipe_conversion_result(source)
+
+    def _pass1_builder(payload: dict[str, object]) -> dict[str, object]:
+        recipe_id = str(payload.get("recipe_id") or "")
+        start = 0
+        end = 4
+        if recipe_id.endswith("r1"):
+            start = 2
+            end = 5
+        return {
+            "bundle_version": "1",
+            "recipe_id": recipe_id,
+            "is_recipe": True,
+            "start_block_index": start,
+            "end_block_index": end,
+            "title": None,
+            "reasoning_tags": ["overlap-test"],
+            "excluded_block_ids": [],
+        }
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=FakeCodexFarmRunner(output_builders={PASS1_PIPELINE_ID: _pass1_builder}),
+    )
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    first_recipe_metrics = manifest["recipes"]["urn:recipe:test:r0"]["pass1_span_loss_metrics"]
+    assert first_recipe_metrics["raw_start_block_index"] == 0
+    assert first_recipe_metrics["raw_end_block_index"] == 4
+    assert first_recipe_metrics["raw_span_count"] == 5
+    assert first_recipe_metrics["clamped_start_block_index"] == 0
+    assert first_recipe_metrics["clamped_end_block_index"] == 3
+    assert first_recipe_metrics["clamped_span_count"] == 4
+    assert first_recipe_metrics["clamped_block_loss_count"] == 1
+    assert first_recipe_metrics["clamped_block_loss_ratio"] == 0.2
+    assert first_recipe_metrics["boundaries_clamped"] is True
 
 
 def test_orchestrator_transport_mismatch_is_recipe_scoped_error(tmp_path: Path) -> None:
@@ -405,7 +510,9 @@ def test_orchestrator_gates_pass3_when_pass2_degraded_missing_instruction_eviden
     assert any(step.get("instruction") == "Toast the bread." for step in fallback_steps)
 
 
-def test_orchestrator_rejects_placeholder_only_pass3_steps(tmp_path: Path) -> None:
+def test_orchestrator_repairs_placeholder_only_pass3_steps_from_pass2_instructions(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     run_root = tmp_path / "run"
@@ -459,8 +566,14 @@ def test_orchestrator_rejects_placeholder_only_pass3_steps(tmp_path: Path) -> No
     manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
     recipe_id = result.recipes[0].identifier
     assert recipe_id is not None
-    assert manifest["recipes"][recipe_id]["pass3"] == "fallback"
-    assert "placeholder-only" in manifest["recipes"][recipe_id]["pass3_fallback_reason"]
+    assert manifest["recipes"][recipe_id]["pass3"] == "ok"
+    assert "pass3_fallback_reason" not in manifest["recipes"][recipe_id]
+    warnings = manifest["recipes"][recipe_id]["warnings"]
+    assert any("placeholder-only steps repaired" in warning for warning in warnings)
+    final_draft = apply_result.final_overrides_by_recipe_id[recipe_id]
+    steps = [str(step.get("instruction") or "") for step in final_draft.get("steps", [])]
+    assert "See original recipe for details." not in steps
+    assert "Toast the bread." in steps
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(

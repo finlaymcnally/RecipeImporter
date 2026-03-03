@@ -4,6 +4,7 @@ import cProfile
 import csv
 import datetime as dt
 import hashlib
+import importlib.util
 import io
 import json
 import logging
@@ -500,6 +501,14 @@ _BENCHMARK_SUPPRESS_DASHBOARD_REFRESH: ContextVar[bool] = ContextVar(
     "_BENCHMARK_SUPPRESS_DASHBOARD_REFRESH",
     default=False,
 )
+_BENCHMARK_SUPPRESS_OUTPUT_PRUNE: ContextVar[bool] = ContextVar(
+    "_BENCHMARK_SUPPRESS_OUTPUT_PRUNE",
+    default=False,
+)
+_INTERACTIVE_CLI_ACTIVE: ContextVar[bool] = ContextVar(
+    "_INTERACTIVE_CLI_ACTIVE",
+    default=False,
+)
 _BENCHMARK_SPLIT_PHASE_SLOTS: ContextVar[int | None] = ContextVar(
     "_BENCHMARK_SPLIT_PHASE_SLOTS",
     default=None,
@@ -566,12 +575,18 @@ def _refresh_dashboard_after_history_write(
     csv_path: Path,
     output_root: Path | None = None,
     golden_root: Path = DEFAULT_GOLDEN,
+    dashboard_out_dir: Path | None = None,
     reason: str | None = None,
 ) -> None:
     resolved_csv_path = csv_path.expanduser()
     if not resolved_csv_path.exists():
         return
     resolved_output_root = output_root.expanduser() if output_root is not None else None
+    resolved_dashboard_out_dir = (
+        dashboard_out_dir.expanduser()
+        if dashboard_out_dir is not None
+        else (resolved_csv_path.parent / "dashboard")
+    )
     if resolved_output_root is None:
         resolved_output_root = _infer_output_root_from_history_csv(resolved_csv_path)
     reason_suffix = f" ({reason})" if reason else ""
@@ -586,7 +601,7 @@ def _refresh_dashboard_after_history_write(
         stats_dashboard(
             output_root=resolved_output_root,
             golden_root=golden_root,
-            out_dir=resolved_csv_path.parent / "dashboard",
+            out_dir=resolved_dashboard_out_dir,
             open_browser=False,
             since_days=None,
             scan_reports=False,
@@ -2250,6 +2265,7 @@ def _interactive_all_method_benchmark(
                 smart_scheduler=resolved_smart_scheduler,
                 scheduler_scope=resolved_scheduler_scope,
                 canonical_alignment_cache_root=all_method_canonical_cache_root,
+                dashboard_output_root=processed_output_root,
             ),
         )
         typer.secho(
@@ -2301,6 +2317,7 @@ def _interactive_all_method_benchmark(
                         all_method_canonical_cache_root
                         / slugify_name(single_target.source_file.stem)
                     ),
+                    dashboard_output_root=processed_output_root,
                 )
             except Exception:
                 dashboard.finish_source(0, failed=True)
@@ -2504,12 +2521,24 @@ def _interactive_single_offline_variants(
 
     vanilla_payload = selected_benchmark_settings.to_run_config_dict()
     vanilla_payload["llm_recipe_pipeline"] = "off"
+    vanilla_payload["llm_knowledge_pipeline"] = "off"
+    vanilla_payload["llm_tags_pipeline"] = "off"
+    vanilla_payload["line_role_pipeline"] = "off"
+    vanilla_payload["atomic_block_splitter"] = "off"
     vanilla_settings = RunSettings.from_dict(
         vanilla_payload,
         warn_context="interactive single-offline vanilla settings",
     )
+    codex_payload = selected_benchmark_settings.to_run_config_dict()
+    codex_payload["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+    codex_payload["line_role_pipeline"] = "codex-line-role-v1"
+    codex_payload["atomic_block_splitter"] = "atomic-v1"
+    codex_settings = RunSettings.from_dict(
+        codex_payload,
+        warn_context="interactive single-offline codex settings",
+    )
     # Run vanilla first so a baseline artifact exists even if codex run fails.
-    return [("vanilla", vanilla_settings), ("codexfarm", selected_benchmark_settings)]
+    return [("vanilla", vanilla_settings), ("codexfarm", codex_settings)]
 
 
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
@@ -3472,6 +3501,12 @@ def _write_single_offline_comparison_artifacts(
             "relative_path": "starter_pack_v1",
             "manifest_file": "starter_pack_v1/10_process_manifest.json",
         }
+        flattened_summary_path = session_root / "benchmark_summary.md"
+        if flattened_summary_path.is_file():
+            metadata_payload["flattened_summary"] = {
+                "path": str(flattened_summary_path),
+                "relative_path": "benchmark_summary.md",
+            }
     if metadata_payload:
         comparison_payload["metadata"] = metadata_payload
     comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
@@ -3492,18 +3527,56 @@ def _write_single_offline_comparison_artifacts(
 
 
 def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
+    build_starter_pack_for_existing_runs = None
+
     try:
         from scripts.benchmark_cutdown_for_external_ai import (
             build_starter_pack_for_existing_runs,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as import_exc:  # noqa: BLE001
+        script_path = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "benchmark_cutdown_for_external_ai.py"
+        )
+        try:
+            module_spec = importlib.util.spec_from_file_location(
+                "cookimport_benchmark_cutdown_for_external_ai",
+                script_path,
+            )
+            if module_spec is None or module_spec.loader is None:
+                raise RuntimeError(f"unable to load module spec from {script_path}")
+            module = importlib.util.module_from_spec(module_spec)
+            module_spec.loader.exec_module(module)
+            build_starter_pack_for_existing_runs = getattr(
+                module,
+                "build_starter_pack_for_existing_runs",
+            )
+        except Exception as fallback_exc:  # noqa: BLE001
+            typer.secho(
+                (
+                    "Skipped single-offline starter pack: unable to load helper "
+                    f"({import_exc}; fallback failed: {fallback_exc})."
+                ),
+                fg=typer.colors.YELLOW,
+            )
+            return None
+
+    if build_starter_pack_for_existing_runs is None:
         typer.secho(
-            f"Skipped single-offline starter pack: unable to load helper ({exc}).",
+            "Skipped single-offline starter pack: helper loader unavailable.",
             fg=typer.colors.YELLOW,
         )
         return None
 
     try:
+        build_starter_pack_for_existing_runs(
+            input_dir=session_root,
+            output_dir=session_root,
+            write_flattened_summary=True,
+        )
+    except TypeError:
+        # Backward compatibility if an older helper is loaded.
         build_starter_pack_for_existing_runs(
             input_dir=session_root,
             output_dir=session_root,
@@ -3732,7 +3805,10 @@ def _interactive_single_offline_benchmark(
                 }
             )
         try:
-            with _benchmark_progress_overrides(suppress_dashboard_refresh=True):
+            with _benchmark_progress_overrides(
+                suppress_dashboard_refresh=True,
+                suppress_output_prune=True,
+            ):
                 labelstudio_benchmark(**variant_kwargs)
             source_file = _load_single_offline_source_path(variant_eval_output)
             split_cache_metadata = _load_single_offline_split_cache_metadata(
@@ -3838,6 +3914,12 @@ def _interactive_single_offline_benchmark(
             starter_pack_dir = session_root / "starter_pack_v1"
             if starter_pack_dir.is_dir():
                 typer.secho(f"Starter pack: {starter_pack_dir}", fg=typer.colors.CYAN)
+            flattened_summary_path = session_root / "benchmark_summary.md"
+            if flattened_summary_path.is_file():
+                typer.secho(
+                    f"Flattened summary: {flattened_summary_path}",
+                    fg=typer.colors.CYAN,
+                )
 
     if not comparison_written and isinstance(codex_result, dict):
         typer.secho(
@@ -3862,6 +3944,8 @@ def _interactive_single_offline_benchmark(
     )
     _refresh_dashboard_after_history_write(
         csv_path=history_csv_path,
+        output_root=processed_output_root,
+        dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
         reason="single-offline benchmark variant batch append",
     )
 
@@ -6169,7 +6253,11 @@ def main(ctx: typer.Context) -> None:
                 limit = int(limit_value)
             except ValueError:
                 limit = None
-        _interactive_mode(limit=limit)
+        interactive_mode_token = _INTERACTIVE_CLI_ACTIVE.set(True)
+        try:
+            _interactive_mode(limit=limit)
+        finally:
+            _INTERACTIVE_CLI_ACTIVE.reset(interactive_mode_token)
 
 
 def _fail(message: str) -> None:
@@ -7472,6 +7560,7 @@ def _run_with_progress_status(
     latest_counter: tuple[int, int] | None = None
     latest_running_workers: int | None = None
     latest_active_tasks: list[str] | None = None
+    latest_codex_stage_label: str | None = None
     status_dashboard = ProgressDashboardCore()
     worker_dashboard_adapter = ProgressCallbackAdapter(status_dashboard)
     status_dashboard.set_status_line(str(initial_status).strip() or str(progress_prefix).strip())
@@ -7511,8 +7600,16 @@ def _run_with_progress_status(
         r"\bactive\s*\[([^]]*)\]",
         re.IGNORECASE,
     )
+    _CODEX_FARM_PIPELINE_PREFIX_RE = re.compile(
+        r"^codex-farm\s+(?P<pipeline>\S+)",
+        re.IGNORECASE,
+    )
     _RUNNING_WORKERS_RE = re.compile(
         r"\brunning\s+(\d+)\b",
+        re.IGNORECASE,
+    )
+    _CODEX_ERROR_COUNT_RE = re.compile(
+        r"\berrors?\s+(\d+)\b",
         re.IGNORECASE,
     )
     _CODEX_FARM_PROGRESS_LINE_RE = re.compile(
@@ -7540,18 +7637,79 @@ def _run_with_progress_status(
         except (TypeError, ValueError):
             return None
 
+    def _humanize_codex_pipeline_stage_label(pipeline_id: str) -> str:
+        normalized = str(pipeline_id or "").strip()
+        lowered = normalized.lower()
+        if not normalized:
+            return "codex stage"
+        if "chunking" in lowered:
+            return "pass1 chunking"
+        if "schemaorg" in lowered:
+            return "pass2 schemaorg"
+        if ".final." in lowered or lowered.endswith(".final") or "final" in lowered:
+            return "pass3 final"
+        if "knowledge" in lowered:
+            return "pass4 knowledge"
+        if "tags" in lowered:
+            return "pass5 tags"
+        return normalized
+
+    def _summarize_codex_progress_message(message: str) -> tuple[str, str | None]:
+        trimmed = str(message or "").strip()
+        match = _CODEX_FARM_PIPELINE_PREFIX_RE.match(trimmed)
+        if match is None:
+            return trimmed, None
+
+        raw_pipeline = str(match.group("pipeline") or "").strip()
+        pipeline_id = raw_pipeline[:-1] if raw_pipeline.endswith(":") else raw_pipeline
+        stage_label = _humanize_codex_pipeline_stage_label(pipeline_id)
+        counter = _extract_progress_counter(trimmed)
+        running = _extract_running_workers(trimmed)
+        error_match = _CODEX_ERROR_COUNT_RE.search(trimmed)
+        errors = int(error_match.group(1)) if error_match is not None else 0
+
+        if counter is not None:
+            current, total = counter
+            parts = [
+                f"codex-farm {stage_label}",
+                f"task {current}/{total}",
+            ]
+            if running is not None and running > 0:
+                parts.append(f"running {running}")
+            if errors > 0:
+                parts.append(f"errors {errors}")
+            return " | ".join(parts), stage_label
+
+        suffix = trimmed[match.end() :].strip()
+        if suffix.startswith(":"):
+            suffix = suffix[1:].strip()
+        if suffix:
+            return f"codex-farm {stage_label}: {suffix}", stage_label
+        return f"codex-farm {stage_label}", stage_label
+
     def _inject_worker_summary_lines(snapshot: str) -> str:
         with state_lock:
             running_workers = latest_running_workers
             active_tasks = (
                 None if latest_active_tasks is None else list(latest_active_tasks)
             )
-        if running_workers is None and active_tasks is None:
+            codex_stage_label = (
+                str(latest_codex_stage_label).strip()
+                if latest_codex_stage_label is not None
+                else ""
+            )
+        if running_workers is None and active_tasks is None and not codex_stage_label:
             return snapshot
 
         lines = [line.strip() for line in str(snapshot or "").splitlines() if line.strip()]
         if not lines:
             return ""
+
+        if codex_stage_label and not any(
+            line.lower().startswith("stage:")
+            for line in lines
+        ):
+            lines.insert(1, f"stage: {codex_stage_label}")
 
         if any(
             _WORKER_PANEL_LABEL_RE.search(line)
@@ -7803,7 +7961,7 @@ def _run_with_progress_status(
         nonlocal latest_counter, rate_total, rate_last_current, rate_last_progress_at
         nonlocal rate_sampled_seconds, rate_sampled_units
         nonlocal rate_recent_samples, all_method_metrics
-        nonlocal latest_running_workers, latest_active_tasks
+        nonlocal latest_running_workers, latest_active_tasks, latest_codex_stage_label
         now = time.monotonic()
         cleaned = msg.strip()
         is_worker_activity = parse_worker_activity(cleaned) is not None
@@ -7818,6 +7976,11 @@ def _run_with_progress_status(
                 latest_active_tasks = active_tasks
             else:
                 latest_active_tasks = None
+            summarized, codex_stage_label = _summarize_codex_progress_message(cleaned)
+            cleaned = summarized
+            latest_codex_stage_label = codex_stage_label
+        elif not is_worker_activity:
+            latest_codex_stage_label = None
         # Route every callback through the shared adapter so callback+worker
         # activity both update the same dashboard state machine.
         changed = worker_dashboard_adapter.ingest_callback_message(cleaned)
@@ -8004,12 +8167,16 @@ def _benchmark_progress_overrides(
     suppress_summary: bool = False,
     suppress_spinner: bool = False,
     suppress_dashboard_refresh: bool = False,
+    suppress_output_prune: bool = False,
 ) -> Iterable[None]:
     progress_token = _BENCHMARK_PROGRESS_CALLBACK.set(progress_callback)
     summary_token = _BENCHMARK_SUPPRESS_SUMMARY.set(bool(suppress_summary))
     spinner_token = _BENCHMARK_SUPPRESS_SPINNER.set(bool(suppress_spinner))
     dashboard_refresh_token = _BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.set(
         bool(suppress_dashboard_refresh)
+    )
+    output_prune_token = _BENCHMARK_SUPPRESS_OUTPUT_PRUNE.set(
+        bool(suppress_output_prune)
     )
     try:
         yield
@@ -8018,6 +8185,7 @@ def _benchmark_progress_overrides(
         _BENCHMARK_SUPPRESS_SUMMARY.reset(summary_token)
         _BENCHMARK_SUPPRESS_SPINNER.reset(spinner_token)
         _BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.reset(dashboard_refresh_token)
+        _BENCHMARK_SUPPRESS_OUTPUT_PRUNE.reset(output_prune_token)
 
 
 @contextmanager
@@ -13484,6 +13652,7 @@ def _run_all_method_prediction_once(
                     progress_callback=benchmark_progress_callback,
                     suppress_summary=True,
                     suppress_spinner=True,
+                    suppress_output_prune=True,
                 ):
                     with _benchmark_scheduler_event_overrides(
                         scheduler_event_callback=_scheduler_event_callback
@@ -13826,6 +13995,7 @@ def _run_all_method_evaluate_prediction_record_once(
             progress_callback=benchmark_progress_callback,
             suppress_summary=True,
             suppress_spinner=True,
+            suppress_output_prune=True,
         ):
             labelstudio_benchmark(
                 gold_spans=gold_spans_path,
@@ -14862,6 +15032,7 @@ def _run_all_method_benchmark_global_queue(
     smart_scheduler: bool = False,
     canonical_alignment_cache_root: Path | None = None,
     prediction_reuse_cache_root: Path | None = None,
+    dashboard_output_root: Path | None = None,
     require_process_workers: bool = False,
 ) -> Path:
     run_started = time.monotonic()
@@ -14902,6 +15073,11 @@ def _run_all_method_benchmark_global_queue(
         else _resolve_all_method_prediction_reuse_cache_dir(
             root_output_dir=root_output_dir
         )
+    )
+    resolved_dashboard_output_root = (
+        dashboard_output_root.expanduser()
+        if dashboard_output_root is not None
+        else None
     )
 
     total_targets = len(target_variants)
@@ -16639,6 +16815,12 @@ def _run_all_method_benchmark_global_queue(
     )
     _refresh_dashboard_after_history_write(
         csv_path=history_csv_path,
+        output_root=resolved_dashboard_output_root,
+        dashboard_out_dir=(
+            history_root_for_output(resolved_dashboard_output_root) / "dashboard"
+            if resolved_dashboard_output_root is not None
+            else None
+        ),
         reason="all-method benchmark global queue batch append",
     )
 
@@ -16699,6 +16881,7 @@ def _run_all_method_benchmark_multi_source(
     smart_scheduler: bool = False,
     canonical_alignment_cache_root: Path | None = None,
     prediction_reuse_cache_root: Path | None = None,
+    dashboard_output_root: Path | None = None,
     require_process_workers: bool = False,
 ) -> Path:
     resolved_scheduler_scope = _normalize_all_method_scheduler_scope(scheduler_scope)
@@ -16728,6 +16911,7 @@ def _run_all_method_benchmark_multi_source(
             smart_scheduler=smart_scheduler,
             canonical_alignment_cache_root=canonical_alignment_cache_root,
             prediction_reuse_cache_root=prediction_reuse_cache_root,
+            dashboard_output_root=dashboard_output_root,
             require_process_workers=require_process_workers,
         )
     return _run_all_method_benchmark_global_queue(
@@ -16755,6 +16939,7 @@ def _run_all_method_benchmark_multi_source(
         smart_scheduler=smart_scheduler,
         canonical_alignment_cache_root=canonical_alignment_cache_root,
         prediction_reuse_cache_root=prediction_reuse_cache_root,
+        dashboard_output_root=dashboard_output_root,
         require_process_workers=require_process_workers,
     )
 
@@ -16785,6 +16970,7 @@ def _run_all_method_benchmark_multi_source_legacy(
     smart_scheduler: bool = False,
     canonical_alignment_cache_root: Path | None = None,
     prediction_reuse_cache_root: Path | None = None,
+    dashboard_output_root: Path | None = None,
     require_process_workers: bool = False,
 ) -> Path:
     run_started = time.monotonic()
@@ -16824,6 +17010,11 @@ def _run_all_method_benchmark_multi_source_legacy(
         else _resolve_all_method_prediction_reuse_cache_dir(
             root_output_dir=root_output_dir
         )
+    )
+    resolved_dashboard_output_root = (
+        dashboard_output_root.expanduser()
+        if dashboard_output_root is not None
+        else None
     )
 
     total_targets = len(target_variants)
@@ -17068,6 +17259,7 @@ def _run_all_method_benchmark_multi_source_legacy(
                 source_parallelism_effective=source_parallelism_effective,
                 canonical_alignment_cache_dir_override=canonical_alignment_cache_dir,
                 prediction_reuse_cache_dir_override=resolved_prediction_reuse_cache_root,
+                dashboard_output_root=resolved_dashboard_output_root,
                 require_process_workers=require_process_workers,
             )
             report_json_path = report_md_path.with_suffix(".json")
@@ -18184,6 +18376,12 @@ def _run_all_method_benchmark_multi_source_legacy(
         )
         _refresh_dashboard_after_history_write(
             csv_path=history_csv_path,
+            output_root=resolved_dashboard_output_root,
+            dashboard_out_dir=(
+                history_root_for_output(resolved_dashboard_output_root) / "dashboard"
+                if resolved_dashboard_output_root is not None
+                else None
+            ),
             reason="all-method benchmark multi-source batch append",
         )
 
@@ -18242,6 +18440,7 @@ def _run_all_method_benchmark(
     source_parallelism_effective: int | None = 1,
     canonical_alignment_cache_dir_override: Path | None = None,
     prediction_reuse_cache_dir_override: Path | None = None,
+    dashboard_output_root: Path | None = None,
     require_process_workers: bool = False,
 ) -> Path:
     source_started = time.monotonic()
@@ -19981,8 +20180,19 @@ def _run_all_method_benchmark(
         history_csv_path = history_csv_for_output(
             processed_output_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
         )
+        resolved_dashboard_output_root = (
+            dashboard_output_root.expanduser()
+            if dashboard_output_root is not None
+            else None
+        )
         _refresh_dashboard_after_history_write(
             csv_path=history_csv_path,
+            output_root=resolved_dashboard_output_root,
+            dashboard_out_dir=(
+                history_root_for_output(resolved_dashboard_output_root) / "dashboard"
+                if resolved_dashboard_output_root is not None
+                else None
+            ),
             reason="all-method benchmark source batch append",
         )
 
@@ -24460,15 +24670,18 @@ def debug_epub_extract(
         )
 
 
-def _prune_transient_benchmark_outputs(
+def _prune_benchmark_outputs(
     *,
     eval_output_dir: Path,
     processed_run_root: Path | None,
     suppress_summary: bool,
+    suppress_output_prune: bool,
 ) -> None:
-    """Drop transient test/gate benchmark artifacts after CSV metrics are persisted."""
+    """Drop transient benchmark artifacts after CSV metrics are persisted."""
     from cookimport.analytics.dashboard_collect import _is_excluded_benchmark_artifact
 
+    if suppress_output_prune:
+        return
     eval_root = eval_output_dir.expanduser()
     if not _is_excluded_benchmark_artifact(eval_root):
         return
@@ -24985,6 +25198,9 @@ def labelstudio_benchmark(
     suppress_summary = bool(_BENCHMARK_SUPPRESS_SUMMARY.get())
     suppress_spinner = bool(_BENCHMARK_SUPPRESS_SPINNER.get())
     suppress_dashboard_refresh = bool(_BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.get())
+    suppress_output_prune = bool(_BENCHMARK_SUPPRESS_OUTPUT_PRUNE.get()) or bool(
+        _INTERACTIVE_CLI_ACTIVE.get()
+    )
     split_phase_slots = _BENCHMARK_SPLIT_PHASE_SLOTS.get()
     split_phase_gate_dir_raw = _BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
     split_phase_gate_dir = (
@@ -25872,8 +26088,13 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 processed_report_path,
             )
-        processed_run_root = import_result.get("processed_run_root")
-        if processed_run_root:
+        processed_run_root_raw = import_result.get("processed_run_root")
+        processed_run_root = (
+            Path(str(processed_run_root_raw)).expanduser()
+            if str(processed_run_root_raw or "").strip()
+            else None
+        )
+        if processed_run_root is not None:
             predict_only_artifacts["processed_output_run_dir"] = _path_for_manifest(
                 eval_output_dir,
                 processed_run_root,
@@ -25911,6 +26132,12 @@ def labelstudio_benchmark(
                     f"Prediction record: {predictions_out_path}",
                     fg=typer.colors.BRIGHT_BLACK,
                 )
+        _prune_benchmark_outputs(
+            eval_output_dir=eval_output_dir,
+            processed_run_root=processed_run_root,
+            suppress_summary=suppress_summary,
+            suppress_output_prune=suppress_output_prune,
+        )
         return
 
     prediction_load_seconds: float | None = None
@@ -26680,10 +26907,11 @@ def labelstudio_benchmark(
             else ""
         )
         if verdict == "FAIL":
-            _prune_transient_benchmark_outputs(
+            _prune_benchmark_outputs(
                 eval_output_dir=eval_output_dir,
                 processed_run_root=processed_run_root,
                 suppress_summary=suppress_summary,
+                suppress_output_prune=suppress_output_prune,
             )
             _fail(
                 "Line-role regression gates failed. "
@@ -26766,10 +26994,11 @@ def labelstudio_benchmark(
                     f"Predicted recipes from import: {predicted_recipe_count}",
                     fg=typer.colors.CYAN,
                 )
-    _prune_transient_benchmark_outputs(
+    _prune_benchmark_outputs(
         eval_output_dir=eval_output_dir,
         processed_run_root=processed_run_root,
         suppress_summary=suppress_summary,
+        suppress_output_prune=suppress_output_prune,
     )
 
 

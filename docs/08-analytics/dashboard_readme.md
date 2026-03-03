@@ -38,8 +38,8 @@ This CSV is populated by:
 - optional one-off repair command for older benchmark rows:
   - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name`, run-config runtime metadata, and `tokens_*` usage columns from manifests)
 - After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
-- All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites.
-- Interactive single-offline benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes.
+- All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites; deferred all-method refreshes now target `history_root_for_output(output_root)/dashboard` (usually `data/.history/dashboard`) instead of nested run-local dashboard snapshots.
+- Interactive single-offline benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes, targeting the lifetime dashboard path (`history_root_for_output(output_root)/dashboard`, usually `data/.history/dashboard`).
 
 ### Stage-report fallback/supplement
 

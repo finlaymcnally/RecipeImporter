@@ -1741,3 +1741,39 @@ Current state:
 - See `docs/understandings/2026-03-03_12.56.51-dashboard-ai-effort-suppression-reverted.md`.
 
 ```
+
+## 2026-03-03 docs/tasks consolidation batch (dashboard benchmark filtering/runtime display)
+
+### 2026-03-03_13.02.16 dashboard hard exclude gate/test runs
+
+Source task file:
+- `docs/tasks/2026-03-03_13.02.16-dashboard-hard-exclude-gate-test-runs.md`
+
+Problem captured:
+- UI quick filters alone could not stop gated/test artifacts from being selected as the latest diagnostics run.
+
+Durable decisions/outcomes:
+- Keep exclusion in collector input paths (`_collect_from_csv` + benchmark scan collection), not only in renderer filters.
+- Keep exclusion deterministic and path-based (`/bench/`, pytest temp layouts, gated/smoke/test suffix tokens).
+- Ensure exclusion applies before diagnostics and `Previous Runs` datasets are built.
+
+Evidence preserved in task:
+- `pytest tests/analytics/test_stats_dashboard.py -k "gated or pytest_temp_eval_artifacts"`
+- `pytest tests/analytics/test_stats_dashboard.py`
+
+### 2026-03-03_13.13.06 dashboard vanilla AI runtime suppression
+
+Source task file:
+- `docs/tasks/2026-03-03_13.13.06-dashboard-vanilla-ai-runtime-suppression.md`
+
+Problem captured:
+- Paired `single-offline-benchmark` vanilla rows could show codex model/effort values when historical metadata backfill left codex keys in row run-config.
+
+Durable decisions/outcomes:
+- Apply suppression in dashboard JS display helpers: when row variant resolves to `vanilla`, show `AI Model` and `AI Effort` as absent.
+- Keep variant detection path/pipeline-first so trend/per-label aggregation and official benchmark filters remain consistent.
+- Treat this as display-semantics repair; do not rewrite historical CSV/runtime metadata.
+
+Evidence preserved in task:
+- `pytest tests/analytics/test_stats_dashboard.py -k "renders_previous_runs_table_and_links_timestamp_to_artifact"`
+- `pytest tests/analytics/test_stats_dashboard.py`

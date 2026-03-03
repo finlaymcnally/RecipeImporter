@@ -815,6 +815,7 @@ def _run_benchmark_sample(
             progress_callback=None,
             suppress_summary=True,
             suppress_spinner=True,
+            suppress_output_prune=True,
         ):
             cli.labelstudio_benchmark(
                 gold_spans=gold_spans_path,
@@ -887,6 +888,7 @@ def _run_all_method_multi_source_sample(
             progress_callback=None,
             suppress_summary=True,
             suppress_spinner=True,
+            suppress_output_prune=True,
         ):
             report_md_path = cli._run_all_method_benchmark_multi_source(
                 target_variants=target_variants,

@@ -78,6 +78,9 @@ class _RecipeState:
     pass3_status: str = "pending"
     start_block_index: int | None = None
     end_block_index: int | None = None
+    pass1_raw_start_block_index: int | None = None
+    pass1_raw_end_block_index: int | None = None
+    pass1_span_loss_metrics: dict[str, Any] | None = None
     excluded_block_ids: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -514,6 +517,13 @@ def run_codex_farm_recipe_pipeline(
             else:
                 pass3_warnings.extend(list(output.warnings))
                 draft_payload = _normalize_draft_payload(dict(output.draft_v1))
+                if _repair_placeholder_only_steps_from_pass2(
+                    draft_payload=draft_payload,
+                    pass2_output=state.pass2_output,
+                ):
+                    pass3_warnings.append(
+                        "pass3 placeholder-only steps repaired from pass2 extracted instructions."
+                    )
                 low_quality_reasons = _pass3_low_quality_reasons(
                     draft_payload=draft_payload,
                     pass2_output=state.pass2_output,
@@ -727,6 +737,8 @@ def _build_llm_manifest(
             row["pass2_degradation_reasons"] = list(state.pass2_degradation_reasons)
         if state.pass3_fallback_reason:
             row["pass3_fallback_reason"] = state.pass3_fallback_reason
+        if isinstance(state.pass1_span_loss_metrics, dict):
+            row["pass1_span_loss_metrics"] = dict(state.pass1_span_loss_metrics)
         recipe_rows[state.recipe_id] = row
         if state.errors:
             failures.append({"recipe_id": state.recipe_id, "errors": list(state.errors)})
@@ -1122,6 +1134,8 @@ def _consume_pass1_outputs(
         end = max(0, min(end, max_index))
         if end < start:
             end = start
+        state.pass1_raw_start_block_index = start
+        state.pass1_raw_end_block_index = end
         state.start_block_index = start
         state.end_block_index = end
         state.excluded_block_ids = {
@@ -1138,50 +1152,78 @@ def _apply_pass1_midpoint_clamps(states: list[_RecipeState], *, total_blocks: in
     active = [state for state in states if state.pass1_status == "ok"]
     if not active:
         return
-    active.sort(key=lambda state: state.heuristic_start if state.heuristic_start is not None else 0)
-    heuristic_points = [
-        state.heuristic_start
-        if state.heuristic_start is not None
-        else (state.start_block_index or 0)
-        for state in active
-    ]
-
-    previous_end_exclusive = 0
-    for index, state in enumerate(active):
-        start_inclusive = state.start_block_index or 0
-        end_inclusive = state.end_block_index if state.end_block_index is not None else start_inclusive
-        start_exclusive = start_inclusive
-        end_exclusive = end_inclusive + 1
-        left_bound = (
-            0
-            if index == 0
-            else (heuristic_points[index - 1] + heuristic_points[index]) // 2
-        )
-        right_bound = (
-            total_blocks
-            if index == (len(active) - 1)
-            else max(
-                left_bound + 1,
-                (heuristic_points[index] + heuristic_points[index + 1] + 1) // 2,
+    active.sort(
+        key=lambda state: (
+            state.start_block_index
+            if state.start_block_index is not None
+            else (
+                state.heuristic_start
+                if state.heuristic_start is not None
+                else 0
             )
         )
-        adjusted_start = max(start_exclusive, left_bound, previous_end_exclusive)
-        adjusted_end = min(end_exclusive, right_bound)
-        if adjusted_end <= adjusted_start:
-            adjusted_end = min(total_blocks, adjusted_start + 1)
+    )
+    max_index = max(total_blocks - 1, 0)
 
-        adjusted_start_inclusive = adjusted_start
-        adjusted_end_inclusive = max(adjusted_start_inclusive, adjusted_end - 1)
+    adjusted_bounds: list[list[int]] = []
+    raw_bounds: list[tuple[int, int]] = []
+    for state in active:
+        raw_start = (
+            state.start_block_index
+            if state.start_block_index is not None
+            else 0
+        )
+        raw_end = (
+            state.end_block_index
+            if state.end_block_index is not None
+            else raw_start
+        )
+        clamped_start = max(0, min(int(raw_start), max_index))
+        clamped_end = max(clamped_start, min(int(raw_end), max_index))
+        adjusted_bounds.append([clamped_start, clamped_end])
+        raw_bounds.append((clamped_start, clamped_end))
+
+    # Resolve pairwise overlap by splitting the overlap window midpoint.
+    for index in range(len(adjusted_bounds) - 1):
+        current_start, current_end = adjusted_bounds[index]
+        next_start, next_end = adjusted_bounds[index + 1]
+        if current_end < next_start:
+            continue
+        overlap_start = next_start
+        overlap_end = current_end
+        split = (overlap_start + overlap_end) // 2
+        new_current_end = max(current_start, split)
+        new_next_start = min(next_end, split + 1)
+        if new_next_start <= new_current_end:
+            new_next_start = min(next_end, new_current_end + 1)
+        if new_next_start > next_end:
+            new_next_start = next_end
+            if new_current_end >= new_next_start:
+                new_current_end = max(current_start, new_next_start - 1)
+        adjusted_bounds[index][1] = new_current_end
+        adjusted_bounds[index + 1][0] = new_next_start
+
+    for state, (adjusted_start_inclusive, adjusted_end_inclusive), (
+        raw_start_inclusive,
+        raw_end_inclusive,
+    ) in zip(active, adjusted_bounds, raw_bounds, strict=False):
+        if adjusted_end_inclusive < adjusted_start_inclusive:
+            adjusted_end_inclusive = adjusted_start_inclusive
         if (
-            adjusted_start_inclusive != start_inclusive
-            or adjusted_end_inclusive != end_inclusive
+            adjusted_start_inclusive != raw_start_inclusive
+            or adjusted_end_inclusive != raw_end_inclusive
         ):
             state.warnings.append(
-                "pass1 boundaries clamped to prevent overlap/cross-midpoint drift."
+                "pass1 boundaries clamped to resolve overlap while preserving pass1 evidence."
             )
         state.start_block_index = adjusted_start_inclusive
         state.end_block_index = adjusted_end_inclusive
-        previous_end_exclusive = adjusted_end
+        state.pass1_span_loss_metrics = _compute_span_loss_metrics(
+            raw_start_block_index=state.pass1_raw_start_block_index,
+            raw_end_block_index=state.pass1_raw_end_block_index,
+            clamped_start_block_index=adjusted_start_inclusive,
+            clamped_end_block_index=adjusted_end_inclusive,
+        )
 
 
 def _apply_pass1_to_result(result: ConversionResult, states: list[_RecipeState]) -> None:
@@ -1313,6 +1355,45 @@ def _build_transport_audit(
         "mismatch": bool(mismatch_reasons),
         "mismatch_reasons": mismatch_reasons,
     }
+
+
+def _compute_span_loss_metrics(
+    *,
+    raw_start_block_index: int | None,
+    raw_end_block_index: int | None,
+    clamped_start_block_index: int | None,
+    clamped_end_block_index: int | None,
+) -> dict[str, Any]:
+    raw_span_count = _inclusive_span_count(raw_start_block_index, raw_end_block_index)
+    clamped_span_count = _inclusive_span_count(
+        clamped_start_block_index,
+        clamped_end_block_index,
+    )
+    clamped_block_loss_count = max(0, raw_span_count - clamped_span_count)
+    clamped_block_loss_ratio = (
+        float(clamped_block_loss_count) / float(raw_span_count)
+        if raw_span_count > 0
+        else 0.0
+    )
+    return {
+        "raw_start_block_index": raw_start_block_index,
+        "raw_end_block_index": raw_end_block_index,
+        "raw_span_count": raw_span_count,
+        "clamped_start_block_index": clamped_start_block_index,
+        "clamped_end_block_index": clamped_end_block_index,
+        "clamped_span_count": clamped_span_count,
+        "clamped_block_loss_count": clamped_block_loss_count,
+        "clamped_block_loss_ratio": round(clamped_block_loss_ratio, 6),
+        "boundaries_clamped": bool(clamped_block_loss_count > 0),
+    }
+
+
+def _inclusive_span_count(start: int | None, end: int | None) -> int:
+    if start is None or end is None:
+        return 0
+    lo = min(int(start), int(end))
+    hi = max(int(start), int(end))
+    return (hi - lo) + 1
 
 
 def _recipe_scoped_failure_mode_note(*, mode: str, reason: str) -> str:
@@ -1512,6 +1593,54 @@ def _pass3_low_quality_reasons(
             )
 
     return low_quality_reasons
+
+
+def _repair_placeholder_only_steps_from_pass2(
+    *,
+    draft_payload: dict[str, Any],
+    pass2_output: Pass2SchemaOrgOutput | None,
+) -> bool:
+    if pass2_output is None:
+        return False
+    steps = draft_payload.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return False
+
+    rendered_steps: list[str] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        instruction = str(step.get("instruction") or "").strip()
+        if instruction:
+            rendered_steps.append(instruction)
+    if not rendered_steps:
+        return False
+    if not all(_is_placeholder_instruction(text) for text in rendered_steps):
+        return False
+
+    replacement_instructions = [
+        str(text).strip()
+        for text in pass2_output.extracted_instructions
+        if str(text).strip() and not _is_placeholder_instruction(str(text))
+    ]
+    if not replacement_instructions:
+        return False
+
+    repaired_steps: list[dict[str, Any]] = []
+    for index, instruction in enumerate(replacement_instructions):
+        ingredient_lines: list[Any] = []
+        if index < len(steps) and isinstance(steps[index], dict):
+            existing_lines = steps[index].get("ingredient_lines")
+            if isinstance(existing_lines, list):
+                ingredient_lines = list(existing_lines)
+        repaired_steps.append(
+            {
+                "instruction": instruction,
+                "ingredient_lines": ingredient_lines,
+            }
+        )
+    draft_payload["steps"] = repaired_steps
+    return True
 
 
 def _build_pass3_deterministic_fallback_payload(

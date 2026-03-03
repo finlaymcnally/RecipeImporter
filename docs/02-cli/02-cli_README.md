@@ -355,6 +355,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
      - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
      - also writes `single-offline-benchmark/<source_slug>/starter_pack_v1/` by running the benchmark cutdown starter-pack builder in-place against the paired variant run dirs
+     - paired starter-pack generation also writes `single-offline-benchmark/<source_slug>/benchmark_summary.md` (flattened comparison + starter-pack summary)
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
@@ -1236,6 +1237,7 @@ Durable rules:
 - Live spinner snapshots are rendered as a compact ASCII border panel so operators can see a stable, block-style status block while counts and worker lines refresh in place.
 - The bordered spinner panel is generated once from the same shared snapshot state and used for benchmark/label-studio/import progress paths so the view stays consistent across workflows.
 - When live panel width clamps a long status line, truncation keeps the trailing timing parenthetical (`eta`/`avg`/elapsed) visible via middle-ellipsis clipping.
+- Codex-farm live status lines are summarized to human-readable pass labels (for example `pass2 schemaorg`) and emit a dedicated `stage:` line so current pass remains visible even with long worker IDs.
 
 ## Merged Task Specs (2026-02-22_23 to 2026-02-23_00)
 

@@ -4184,3 +4184,73 @@ read_when:
 - Optional: `--prune-benchmark-processed-outputs` also deletes the matching processed output root `data/output/<run_id>/` when a history row confirms `processed_report_path` is under that directory.
 
 ```
+
+## 2026-03-03 docs/tasks consolidation batch (PRO-PROMPT + starter-pack + transient prune + spinner ETA)
+
+### 2026-03-03_01.34.00 PRO-PROMPT canonical line-role benchmark plan
+
+Source task file:
+- `docs/tasks/PRO-PROMPT.md`
+
+Problem captured:
+- Canonical benchmark label accounting and CodexFarm recipe extraction prompts were solving different problems, which made benchmark deltas noisy and hard to trust.
+
+Durable decisions/outcomes:
+- Keep canonical HOWTO accounting explicit in canonical-text scoring while preserving stage/freeform remap behavior where needed.
+- Keep line-role benchmark path deterministic-first with optional Codex fallback and strict output validation.
+- Keep line-role gated checks strict when history baselines exist; preserve recall floors for `RECIPE_NOTES`, `RECIPE_VARIANT`, and `INGREDIENT_LINE`.
+- Preserve anti-loop evidence paths (`line-role-pipeline/joined_line_table.jsonl`, flips, slice metrics, gate artifacts) as the source of truth for regression forensics.
+
+Evidence preserved in task:
+- FoodLab gated strict replay artifacts under `data/golden/benchmark-vs-golden/2026-03-03_12.23.20_line-role-gated-foodlab-det-strict`.
+- Follow-up replay status at `data/golden/benchmark-vs-golden/2026-03-03_02.10.00_foodlab-line-role-gated-fix7` (`foodlab_macro_f1_delta_min` still below threshold).
+
+### 2026-03-03_11.21.25 blended starter-pack v1 for benchmark cutdown
+
+Source task file:
+- `docs/tasks/2026-03-03_11.21.25-blended-starter-pack-v1-for-benchmark-cutdown.md`
+
+Problem captured:
+- Benchmark diagnosis artifacts existed but were fragmented, so bridge-loss triage required too many manual joins.
+
+Durable decisions/outcomes:
+- Add deterministic additive `starter_pack_v1/` with fixed file names/schemas while keeping root legacy artifacts.
+- Include all-recipes triage rows with pass1/pass2/pass3 bridge counters and deterministic selected-case packets.
+- Keep starter-pack generation attached to paired codex-vs-vanilla comparison artifact generation for single-offline sessions.
+- Preserve explicit root-to-starter manifest mapping so existing consumers do not break.
+
+Evidence preserved in task:
+- `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -q`
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -q -k "single_offline_comparison_artifacts_trigger_starter_pack or interactive_single_offline_markdown_enabled_writes_one_top_level_summary or vanilla_only_single_offline or codex_variant_failure"`
+
+### 2026-03-03_13.09.09 auto-prune transient benchmark artifacts
+
+Source task file:
+- `docs/tasks/2026-03-03_13.09.09-auto-prune-transient-benchmark-artifacts.md`
+
+Problem captured:
+- Gate/test/smoke benchmark runs left heavy benchmark-vs-golden and processed-output folders even when metrics were already durable in CSV.
+
+Durable decisions/outcomes:
+- Prune transient benchmark run folders only after benchmark CSV append succeeds.
+- Apply matching processed-output prune in the same operation when configured.
+- Reuse the same transient classifier policy used by dashboard collector exclusions to avoid policy drift.
+
+Evidence preserved in task:
+- `pytest tests/bench/test_benchmark_gc.py -k "prune_transient_benchmark_outputs"`
+- `pytest tests/bench/test_benchmark_gc.py`
+
+### 2026-03-03_13.12.33 benchmark spinner ETA visible under width clamp
+
+Source task file:
+- `docs/tasks/2026-03-03_13.12.33-benchmark-spinner-eta-visible-under-width-clamp.md`
+
+Problem captured:
+- Right-side truncation in boxed live benchmark status could clip the ETA/avg suffix whenever active task labels were long.
+
+Durable decisions/outcomes:
+- Keep width clamping, but preserve timing suffixes by middle-ellipsis truncation before fallback right-truncation.
+- Keep panel compact/ascii and avoid widening layout just to retain long active task names.
+
+Evidence preserved in task:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "truncated or clamps_live_box_width_to_terminal or shows_eta_for_xy_progress or bootstraps_eta_when_first_counter_starts_above_one"`
