@@ -16,6 +16,7 @@ folders that contain both `eval_report.json` and `run_manifest.json`.
 from __future__ import annotations
 
 import argparse
+import csv
 import gzip
 import hashlib
 import re
@@ -79,6 +80,64 @@ ROOT_METADATA_FILES = (
     "per_recipe_or_per_span_breakdown.json",
     "targeted_prompt_cases.md",
     "label_policy_adjudication_notes.md",
+)
+STARTER_PACK_DIR_NAME = "starter_pack_v1"
+STARTER_PACK_README_FILE_NAME = "README.md"
+STARTER_PACK_TRIAGE_FILE_NAME = "01_recipe_triage.csv"
+STARTER_PACK_CALL_INVENTORY_FILE_NAME = "02_call_inventory.jsonl"
+STARTER_PACK_CHANGED_LINES_FILE_NAME = "03_changed_lines.codex_vs_baseline.jsonl"
+STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME = "04_warning_and_trace_summary.json"
+STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME = "05_bridge_summary.jsonl"
+STARTER_PACK_SELECTED_PACKETS_FILE_NAME = "06_selected_recipe_packets.jsonl"
+STARTER_PACK_CASEBOOK_FILE_NAME = "07_casebook.md"
+STARTER_PACK_OUTSIDE_TRACE_FILE_NAME = "08_outside_span_trace.sample.jsonl"
+STARTER_PACK_LABEL_POLICY_FILE_NAME = "09_label_policy.md"
+STARTER_PACK_MANIFEST_FILE_NAME = "10_process_manifest.json"
+STARTER_PACK_COMPARISON_MIRROR_FILE_NAME = "11_comparison_summary.json"
+STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME = "12_per_recipe_or_per_span_breakdown.json"
+STARTER_PACK_SELECTION_POLICY = {
+    "top_changed_lines": 3,
+    "top_block_loss": 2,
+    "top_empty_mapping": 2,
+    "outside_span_case": 1,
+    "healthy_control": 1,
+}
+STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD = 10
+STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD = 0.05
+STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT = [
+    "full_prompt_log.jsonl",
+    "wrong_label_lines.with_context.full.jsonl.gz",
+    "preprocess_trace_failures.jsonl.gz",
+    "flattened_run_markdown_summaries",
+]
+STARTER_PACK_TRIAGE_HEADER = (
+    "recipe_id",
+    "short_title",
+    "line_total",
+    "changed_lines_codex_vs_baseline",
+    "codex_accuracy",
+    "baseline_accuracy",
+    "delta_codex_minus_baseline",
+    "pass1_call_id",
+    "pass2_call_id",
+    "pass3_call_id",
+    "pass1_start_block_index",
+    "pass1_end_block_index",
+    "pass1_selected_block_count",
+    "pass2_input_block_count",
+    "pass1_vs_pass2_missing_block_count",
+    "pass1_vs_pass2_extra_block_count",
+    "pass2_warning_count",
+    "pass2_warning_buckets",
+    "pass2_extracted_ingredient_count",
+    "pass2_extracted_instruction_count",
+    "pass3_step_count",
+    "pass3_mapping_count",
+    "pass3_empty_mapping",
+    "pass3_warning_count",
+    "pass3_warning_buckets",
+    "outside_span_wrong_line_count",
+    "outside_span_trace_status_top",
 )
 AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
@@ -171,6 +230,9 @@ class PairDiagnostics:
     confusion_matrix_baseline: dict[str, dict[str, int]]
     confusion_delta_codex_minus_baseline: dict[str, dict[str, int]]
     targeted_prompt_case_rows: list[dict[str, Any]]
+    recipe_triage_rows: list[dict[str, Any]]
+    call_inventory_rows: list[dict[str, Any]]
+    outside_span_trace_rows: list[dict[str, Any]]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -1891,8 +1953,9 @@ def _build_project_context_digest(
         (
             "- artifact_legend: root diagnosis artifacts are `changed_lines.codex_vs_vanilla.jsonl`, "
             "`per_recipe_or_per_span_breakdown.json`, `targeted_prompt_cases.md`, and "
-            "`label_policy_adjudication_notes.md`; run folders retain `need_to_know_summary.json` "
-            "plus codex trace artifacts when available."
+            "`label_policy_adjudication_notes.md`; blended starter-pack artifacts live under "
+            "`starter_pack_v1/`; run folders retain `need_to_know_summary.json` plus codex trace "
+            "artifacts when available."
         ),
         (
             "- sampling_caveat: sampled line-level JSONL artifacts are bounded by `--sample-limit`; "
@@ -2750,6 +2813,83 @@ def _build_run_cutdown(
     )
 
 
+def _build_run_record_from_existing_run(
+    *,
+    run_dir: Path,
+    top_confusions_limit: int = DEFAULT_TOP_CONFUSIONS,
+) -> RunRecord:
+    run_manifest = _load_json(run_dir / "run_manifest.json")
+    eval_report = _load_json(run_dir / "eval_report.json")
+
+    run_id = str(run_manifest.get("run_id") or run_dir.name)
+    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+    source_path = source.get("path") if isinstance(source, dict) else None
+    source_hash = source.get("source_hash") if isinstance(source, dict) else None
+    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+
+    run_config = run_manifest.get("run_config")
+    if not isinstance(run_config, dict):
+        run_config = {}
+    llm_recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "unknown")
+    atomic_block_splitter = str(run_config.get("atomic_block_splitter") or "off")
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "off")
+    codex_enabled = llm_recipe_pipeline not in {"off", "none", ""}
+
+    worst_label_recall = eval_report.get("worst_label_recall")
+    if not isinstance(worst_label_recall, dict):
+        worst_label_recall = {}
+
+    full_prompt_log_source = _resolve_full_prompt_log_path(run_dir, run_manifest)
+    full_prompt_log_status = "not_applicable"
+    full_prompt_log_rows = 0
+    full_prompt_log_path: str | None = None
+    if full_prompt_log_source is not None and full_prompt_log_source.is_file():
+        full_prompt_log_rows = len(_iter_jsonl(full_prompt_log_source))
+        full_prompt_log_status = "complete"
+        try:
+            full_prompt_log_path = str(full_prompt_log_source.relative_to(run_dir))
+        except ValueError:
+            full_prompt_log_path = str(full_prompt_log_source)
+    elif codex_enabled:
+        full_prompt_log_status = "missing"
+
+    return RunRecord(
+        run_id=run_id,
+        source_key=_source_key(
+            source_hash if isinstance(source_hash, str) else None,
+            source_file,
+        ),
+        source_file=source_file,
+        source_hash=source_hash if isinstance(source_hash, str) else None,
+        llm_recipe_pipeline=llm_recipe_pipeline,
+        atomic_block_splitter=atomic_block_splitter,
+        line_role_pipeline=line_role_pipeline,
+        codex_enabled=codex_enabled,
+        metric_overall_line_accuracy=_coerce_float(eval_report.get("overall_line_accuracy")),
+        metric_macro_f1_excluding_other=_coerce_float(
+            eval_report.get("macro_f1_excluding_other")
+        ),
+        metric_practical_f1=_coerce_float(eval_report.get("practical_f1")),
+        worst_label_recall={
+            "label": worst_label_recall.get("label"),
+            "recall": _coerce_float(worst_label_recall.get("recall")),
+            "gold_total": _coerce_int(worst_label_recall.get("gold_total")),
+        },
+        run_timestamp=_parse_run_timestamp(run_id),
+        output_subdir=run_dir.name,
+        config_snapshot=_config_snapshot(run_manifest),
+        top_confusions=_top_confusions(
+            eval_report.get("confusion"),
+            top_k=top_confusions_limit,
+        ),
+        summary_path=str(run_dir / "need_to_know_summary.json"),
+        run_dir=str(run_dir),
+        full_prompt_log_status=full_prompt_log_status,
+        full_prompt_log_rows=full_prompt_log_rows,
+        full_prompt_log_path=full_prompt_log_path,
+    )
+
+
 def _delta(a: float | None, b: float | None) -> float | None:
     if a is None or b is None:
         return None
@@ -2826,6 +2966,285 @@ def _prompt_case_score(
         + (8 if empty_mapping else 0)
         + changed_lines_for_recipe * 5
     )
+
+
+def _prompt_row_identity_key(row: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("timestamp_utc") or ""),
+        str(row.get("call_id") or ""),
+        str(row.get("pass") or ""),
+    )
+
+
+def _prompt_row_pass_name(row: dict[str, Any]) -> str:
+    return str(row.get("pass") or "").strip().lower()
+
+
+def _prompt_row_recipe_id(row: dict[str, Any]) -> str:
+    direct = str(row.get("recipe_id") or "").strip()
+    if direct:
+        return direct
+    parsed_response = _parse_json_like(row.get("parsed_response"))
+    if isinstance(parsed_response, dict):
+        parsed_recipe_id = str(parsed_response.get("recipe_id") or "").strip()
+        if parsed_recipe_id:
+            return parsed_recipe_id
+    return ""
+
+
+def _warning_buckets(warnings: list[str]) -> list[str]:
+    buckets = {
+        _prompt_warning_bucket(_normalize_whitespace(message))
+        for message in warnings
+        if message.strip()
+    }
+    return sorted(buckets)
+
+
+def _count_list_entries(value: Any) -> int:
+    parsed = _parse_json_like(value)
+    if isinstance(parsed, list):
+        return len(parsed)
+    return 0
+
+
+def _blocks_from_request_payload(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    rows = payload.get(key)
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _block_id_from_row(block: dict[str, Any]) -> str | None:
+    for key in ("block_id", "stable_key"):
+        value = block.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    index_value = _coerce_int(block.get("index"))
+    if index_value is not None:
+        return f"index:{index_value}"
+    return None
+
+
+def _pass1_selected_blocks(row: dict[str, Any]) -> tuple[list[dict[str, Any]], int | None, int | None]:
+    request_payload = _parse_json_like(row.get("request_input_payload"))
+    request_payload = request_payload if isinstance(request_payload, dict) else {}
+    parsed_response = _parse_json_like(row.get("parsed_response"))
+    parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+    blocks_candidate = _blocks_from_request_payload(request_payload, "blocks_candidate")
+    if not blocks_candidate:
+        return [], None, None
+
+    start = _coerce_int(parsed_response.get("start_block_index"))
+    end = _coerce_int(parsed_response.get("end_block_index"))
+    excluded_ids = {
+        str(value).strip()
+        for value in _coerce_str_list(parsed_response.get("excluded_block_ids"))
+        if str(value).strip()
+    }
+
+    selected: list[dict[str, Any]] = []
+    for fallback_index, block in enumerate(blocks_candidate):
+        block_index = _coerce_int(block.get("index"))
+        if block_index is None:
+            block_index = fallback_index
+        if start is not None and end is not None and not (start <= block_index <= end):
+            continue
+        block_id = _block_id_from_row(block)
+        if block_id and block_id in excluded_ids:
+            continue
+        selected.append(block)
+
+    if start is not None and end is not None and end >= start and not selected:
+        selected_count = end - start + 1
+    else:
+        selected_count = len(selected)
+    return selected, start, end
+
+
+def _pass2_input_blocks(row: dict[str, Any]) -> list[dict[str, Any]]:
+    request_payload = _parse_json_like(row.get("request_input_payload"))
+    request_payload = request_payload if isinstance(request_payload, dict) else {}
+    return _blocks_from_request_payload(request_payload, "blocks")
+
+
+def _pass3_step_count(parsed_response: dict[str, Any]) -> int:
+    draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
+    if isinstance(draft_payload, dict):
+        steps = draft_payload.get("steps")
+        if isinstance(steps, list):
+            return len(steps)
+    steps = parsed_response.get("steps")
+    if isinstance(steps, list):
+        return len(steps)
+    return 0
+
+
+def _mapping_count(value: Any) -> int:
+    parsed = _parse_json_like(value)
+    if isinstance(parsed, dict):
+        return len(parsed)
+    if isinstance(parsed, list):
+        return len(parsed)
+    return 0
+
+
+def _to_json_excerpt(value: Any, *, excerpt_limit: int) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return _excerpt(_normalize_whitespace(value), max_len=excerpt_limit)
+    return _excerpt(
+        _normalize_whitespace(json.dumps(value, ensure_ascii=False, sort_keys=True)),
+        max_len=excerpt_limit,
+    )
+
+
+def _input_excerpt_for_prompt_row(row: dict[str, Any], *, excerpt_limit: int) -> str:
+    primary = _first_prompt_block_excerpt(row, excerpt_limit=excerpt_limit)
+    if primary:
+        return primary
+    request_payload = _parse_json_like(row.get("request_input_payload"))
+    request_payload = request_payload if isinstance(request_payload, dict) else {}
+    canonical_text = request_payload.get("canonical_text")
+    if isinstance(canonical_text, str) and canonical_text.strip():
+        return _excerpt(_normalize_whitespace(canonical_text), max_len=excerpt_limit)
+    for key in ("extracted_instructions", "extracted_ingredients"):
+        rows = request_payload.get(key)
+        if not isinstance(rows, list):
+            continue
+        if rows and isinstance(rows[0], dict):
+            text = str(rows[0].get("text") or rows[0].get("name") or "").strip()
+            if text:
+                return _excerpt(_normalize_whitespace(text), max_len=excerpt_limit)
+        if rows and isinstance(rows[0], str):
+            return _excerpt(_normalize_whitespace(str(rows[0])), max_len=excerpt_limit)
+    return ""
+
+
+def _output_excerpt_for_prompt_row(row: dict[str, Any], *, excerpt_limit: int) -> str:
+    parsed_response = _parse_json_like(row.get("parsed_response"))
+    parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+    warnings = _coerce_str_list(parsed_response.get("warnings"))
+    if warnings:
+        return _excerpt(_normalize_whitespace(warnings[0]), max_len=excerpt_limit)
+
+    pass_name = _prompt_row_pass_name(row)
+    if pass_name == "pass1":
+        title = str(parsed_response.get("title") or "").strip()
+        if title:
+            return _excerpt(_normalize_whitespace(title), max_len=excerpt_limit)
+    if pass_name == "pass2":
+        schemaorg_recipe = parsed_response.get("schemaorg_recipe")
+        if schemaorg_recipe is not None:
+            return _to_json_excerpt(schemaorg_recipe, excerpt_limit=excerpt_limit)
+    if pass_name == "pass3":
+        draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
+        if isinstance(draft_payload, dict):
+            recipe_payload = draft_payload.get("recipe")
+            title = (
+                str(recipe_payload.get("title") or "").strip()
+                if isinstance(recipe_payload, dict)
+                else ""
+            )
+            steps = draft_payload.get("steps")
+            if title:
+                return _excerpt(
+                    _normalize_whitespace(f"{title} | steps={len(steps) if isinstance(steps, list) else 0}"),
+                    max_len=excerpt_limit,
+                )
+            return _to_json_excerpt(draft_payload, excerpt_limit=excerpt_limit)
+    if parsed_response:
+        return _to_json_excerpt(parsed_response, excerpt_limit=excerpt_limit)
+    return ""
+
+
+def _recipe_short_title(
+    *,
+    recipe_id: str,
+    recipe_spans: list[dict[str, Any]],
+    pass1_row: dict[str, Any] | None,
+) -> str:
+    parsed_response = (
+        _parse_json_like(pass1_row.get("parsed_response"))
+        if isinstance(pass1_row, dict)
+        else None
+    )
+    if isinstance(parsed_response, dict):
+        title = str(parsed_response.get("title") or "").strip()
+        if title:
+            return title
+    for span in recipe_spans:
+        if str(span.get("recipe_id") or "") != recipe_id:
+            continue
+        title = str(span.get("title") or "").strip()
+        if title:
+            return title
+    if ":" in recipe_id:
+        return recipe_id.rsplit(":", 1)[-1]
+    return recipe_id
+
+
+def _nearest_recipe_id_for_line_index(
+    *,
+    line_index: int,
+    recipe_spans: list[dict[str, Any]],
+) -> str | None:
+    if not recipe_spans:
+        return None
+    ranked: list[tuple[int, int, int, str]] = []
+    for span in recipe_spans:
+        recipe_id = str(span.get("recipe_id") or "").strip()
+        if not recipe_id:
+            continue
+        start = _coerce_int(span.get("start_block_index"))
+        end = _coerce_int(span.get("end_block_index"))
+        if start is None or end is None:
+            continue
+        if start <= line_index <= end:
+            distance = 0
+        else:
+            distance = min(abs(line_index - start), abs(line_index - end))
+        ranked.append((distance, start, recipe_id.count(":"), recipe_id))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda row: (row[0], row[1], row[2], row[3]))
+    return ranked[0][3]
+
+
+def _counter_to_sorted_dict(counter: Counter[str]) -> dict[str, int]:
+    return {
+        key: count
+        for key, count in sorted(counter.items(), key=lambda item: (-item[1], item[0]))
+    }
+
+
+def _float_or_zero(value: Any) -> float:
+    parsed = _coerce_float(value)
+    if parsed is None:
+        return 0.0
+    return parsed
+
+
+def _average_float(values: list[float | None]) -> float | None:
+    clean = [value for value in values if value is not None]
+    if not clean:
+        return None
+    return sum(clean) / len(clean)
+
+
+def _serialize_float(value: float | None) -> str:
+    if value is None:
+        return ""
+    return f"{value:.6f}"
+
+
+def _serialize_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _serialize_pipe_list(values: list[str]) -> str:
+    return "|".join(sorted({value for value in values if value}))
 
 
 def _build_pair_diagnostics(
@@ -3061,6 +3480,287 @@ def _build_pair_diagnostics(
         if len(targeted_prompt_case_rows) >= targeted_case_limit:
             break
 
+    pass_rows_by_recipe: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
+        pass_name = _prompt_row_pass_name(row)
+        if pass_name not in {"pass1", "pass2", "pass3"}:
+            continue
+        recipe_id = _prompt_row_recipe_id(row)
+        if not recipe_id:
+            continue
+        if pass_name not in pass_rows_by_recipe[recipe_id]:
+            pass_rows_by_recipe[recipe_id][pass_name] = row
+
+    run_manifest_path = Path(codex_run.run_dir) / "run_manifest.json"
+    run_manifest = _load_json(run_manifest_path) if run_manifest_path.is_file() else {}
+    preprocess_rows, preprocess_status = _build_preprocess_trace_failure_rows(
+        run_dir=Path(codex_run.run_dir),
+        run_manifest=run_manifest,
+        full_prompt_rows=codex_prompt_rows,
+        excerpt_limit=excerpt_limit,
+    )
+    outside_span_trace_rows: list[dict[str, Any]] = []
+    outside_span_wrong_counts: Counter[str] = Counter()
+    outside_span_trace_statuses_by_recipe: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in preprocess_rows:
+        if str(row.get("span_region") or "") != "outside_active_recipe_span":
+            continue
+        line_index = _coerce_int(row.get("line_index"))
+        if line_index is None:
+            continue
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        if not recipe_id:
+            inferred_recipe_id = _nearest_recipe_id_for_line_index(
+                line_index=line_index,
+                recipe_spans=recipe_spans,
+            )
+            recipe_id = inferred_recipe_id or "unknown_recipe"
+        trace_status = str(row.get("trace_status") or "")
+        warning_buckets = _coerce_str_list(row.get("warning_buckets"))
+        outside_span_trace_rows.append(
+            {
+                "source_key": source_key,
+                "source_file": source_file,
+                "codex_run_id": codex_run.run_id,
+                "baseline_run_id": baseline_run.run_id,
+                "call_id": row.get("call_id"),
+                "recipe_id": recipe_id,
+                "line_index": line_index,
+                "gold_label": row.get("gold_label"),
+                "pred_label": row.get("pred_label"),
+                "trace_status": trace_status,
+                "warning_buckets": warning_buckets,
+                "raw_block_stable_key": row.get("raw_block_stable_key"),
+                "raw_block_excerpt": row.get("raw_block_excerpt"),
+                "prompt_candidate_block_excerpt": row.get("prompt_candidate_block_excerpt"),
+            }
+        )
+        outside_span_wrong_counts[recipe_id] += 1
+        if trace_status:
+            outside_span_trace_statuses_by_recipe[recipe_id][trace_status] += 1
+
+    recipe_ids: set[str] = set(per_recipe_metrics.keys())
+    recipe_ids.update(pass_rows_by_recipe.keys())
+    recipe_ids.update(str(span.get("recipe_id") or "") for span in recipe_spans if span.get("recipe_id"))
+    recipe_ids.update(outside_span_wrong_counts.keys())
+    recipe_ids.discard("")
+    recipe_triage_rows: list[dict[str, Any]] = []
+    for recipe_id in sorted(recipe_ids):
+        metrics = per_recipe_metrics.get(
+            recipe_id,
+            {"line_total": 0, "codex_correct": 0, "baseline_correct": 0},
+        )
+        line_total = int(metrics.get("line_total") or 0)
+        codex_correct = int(metrics.get("codex_correct") or 0)
+        baseline_correct = int(metrics.get("baseline_correct") or 0)
+        codex_accuracy = _rate(codex_correct, line_total)
+        baseline_accuracy = _rate(baseline_correct, line_total)
+        delta_codex_minus_baseline = _delta(codex_accuracy, baseline_accuracy)
+
+        pass1_row = pass_rows_by_recipe.get(recipe_id, {}).get("pass1")
+        pass2_row = pass_rows_by_recipe.get(recipe_id, {}).get("pass2")
+        pass3_row = pass_rows_by_recipe.get(recipe_id, {}).get("pass3")
+
+        pass1_blocks: list[dict[str, Any]] = []
+        pass1_start_block_index: int | None = None
+        pass1_end_block_index: int | None = None
+        pass1_selected_block_count = 0
+        if isinstance(pass1_row, dict):
+            pass1_blocks, pass1_start_block_index, pass1_end_block_index = _pass1_selected_blocks(
+                pass1_row
+            )
+            pass1_selected_block_count = len(pass1_blocks)
+            if (
+                pass1_selected_block_count <= 0
+                and pass1_start_block_index is not None
+                and pass1_end_block_index is not None
+                and pass1_end_block_index >= pass1_start_block_index
+            ):
+                pass1_selected_block_count = pass1_end_block_index - pass1_start_block_index + 1
+        pass1_block_ids = {
+            block_id
+            for block_id in (_block_id_from_row(block) for block in pass1_blocks)
+            if block_id
+        }
+
+        pass2_blocks: list[dict[str, Any]] = []
+        pass2_warning_count = 0
+        pass2_warning_buckets: list[str] = []
+        pass2_extracted_ingredient_count = 0
+        pass2_extracted_instruction_count = 0
+        pass2_input_block_count = 0
+        if isinstance(pass2_row, dict):
+            pass2_blocks = _pass2_input_blocks(pass2_row)
+            pass2_input_block_count = len(pass2_blocks)
+            parsed_pass2 = _parse_json_like(pass2_row.get("parsed_response"))
+            parsed_pass2 = parsed_pass2 if isinstance(parsed_pass2, dict) else {}
+            pass2_warnings = _coerce_str_list(parsed_pass2.get("warnings"))
+            pass2_warning_count = len(pass2_warnings)
+            pass2_warning_buckets = _warning_buckets(pass2_warnings)
+            pass2_extracted_ingredient_count = _count_list_entries(
+                parsed_pass2.get("extracted_ingredients")
+            )
+            pass2_extracted_instruction_count = _count_list_entries(
+                parsed_pass2.get("extracted_instructions")
+            )
+        pass2_block_ids = {
+            block_id
+            for block_id in (_block_id_from_row(block) for block in pass2_blocks)
+            if block_id
+        }
+        if pass1_block_ids and pass2_block_ids:
+            pass1_vs_pass2_missing_block_count = len(pass1_block_ids - pass2_block_ids)
+            pass1_vs_pass2_extra_block_count = len(pass2_block_ids - pass1_block_ids)
+        else:
+            pass1_vs_pass2_missing_block_count = max(
+                pass1_selected_block_count - pass2_input_block_count,
+                0,
+            )
+            pass1_vs_pass2_extra_block_count = max(
+                pass2_input_block_count - pass1_selected_block_count,
+                0,
+            )
+
+        pass3_step_count = 0
+        pass3_mapping_count = 0
+        pass3_empty_mapping = False
+        pass3_warning_count = 0
+        pass3_warning_buckets: list[str] = []
+        if isinstance(pass3_row, dict):
+            parsed_pass3 = _parse_json_like(pass3_row.get("parsed_response"))
+            parsed_pass3 = parsed_pass3 if isinstance(parsed_pass3, dict) else {}
+            pass3_step_count = _pass3_step_count(parsed_pass3)
+            pass3_mapping_count = _mapping_count(parsed_pass3.get("ingredient_step_mapping"))
+            pass3_empty_mapping = _is_empty_mapping_value(parsed_pass3.get("ingredient_step_mapping"))
+            pass3_warnings = _coerce_str_list(parsed_pass3.get("warnings"))
+            pass3_warning_count = len(pass3_warnings)
+            pass3_warning_buckets = _warning_buckets(pass3_warnings)
+
+        outside_span_status_counter = outside_span_trace_statuses_by_recipe.get(recipe_id, Counter())
+        outside_span_trace_status_top = ""
+        if outside_span_status_counter:
+            outside_span_trace_status_top = sorted(
+                outside_span_status_counter.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[0][0]
+
+        line_total_effective = line_total if line_total > 0 else pass1_selected_block_count
+        short_title = _recipe_short_title(
+            recipe_id=recipe_id,
+            recipe_spans=recipe_spans,
+            pass1_row=pass1_row,
+        )
+        recipe_triage_rows.append(
+            {
+                "source_key": source_key,
+                "source_file": source_file,
+                "codex_run_id": codex_run.run_id,
+                "baseline_run_id": baseline_run.run_id,
+                "selection_hint_preprocess_status": preprocess_status,
+                "recipe_id": recipe_id,
+                "short_title": short_title,
+                "line_total": line_total_effective,
+                "changed_lines_codex_vs_baseline": int(recipe_flip_counts.get(recipe_id, 0)),
+                "codex_accuracy": codex_accuracy,
+                "baseline_accuracy": baseline_accuracy,
+                "delta_codex_minus_baseline": delta_codex_minus_baseline,
+                "pass1_call_id": str(pass1_row.get("call_id") or "") if isinstance(pass1_row, dict) else "",
+                "pass2_call_id": str(pass2_row.get("call_id") or "") if isinstance(pass2_row, dict) else "",
+                "pass3_call_id": str(pass3_row.get("call_id") or "") if isinstance(pass3_row, dict) else "",
+                "pass1_start_block_index": pass1_start_block_index,
+                "pass1_end_block_index": pass1_end_block_index,
+                "pass1_selected_block_count": pass1_selected_block_count,
+                "pass2_input_block_count": pass2_input_block_count,
+                "pass1_vs_pass2_missing_block_count": pass1_vs_pass2_missing_block_count,
+                "pass1_vs_pass2_extra_block_count": pass1_vs_pass2_extra_block_count,
+                "pass2_warning_count": pass2_warning_count,
+                "pass2_warning_buckets": pass2_warning_buckets,
+                "pass2_extracted_ingredient_count": pass2_extracted_ingredient_count,
+                "pass2_extracted_instruction_count": pass2_extracted_instruction_count,
+                "pass3_step_count": pass3_step_count,
+                "pass3_mapping_count": pass3_mapping_count,
+                "pass3_empty_mapping": pass3_empty_mapping,
+                "pass3_warning_count": pass3_warning_count,
+                "pass3_warning_buckets": pass3_warning_buckets,
+                "outside_span_wrong_line_count": int(outside_span_wrong_counts.get(recipe_id, 0)),
+                "outside_span_trace_status_top": outside_span_trace_status_top,
+                "raw_block_window_excerpt": _input_excerpt_for_prompt_row(
+                    pass1_row,
+                    excerpt_limit=excerpt_limit,
+                )
+                if isinstance(pass1_row, dict)
+                else "",
+            }
+        )
+
+    call_inventory_rows: list[dict[str, Any]] = []
+    pass_rank = {"pass1": 1, "pass2": 2, "pass3": 3}
+    for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
+        pass_name = _prompt_row_pass_name(row)
+        if pass_name not in {"pass1", "pass2", "pass3"}:
+            continue
+        parsed_response = _parse_json_like(row.get("parsed_response"))
+        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+        warnings = _coerce_str_list(parsed_response.get("warnings"))
+        warning_buckets = _warning_buckets(warnings)
+
+        input_block_count = 0
+        extracted_ingredient_count = 0
+        extracted_instruction_count = 0
+        step_count = 0
+        mapping_count = 0
+        if pass_name == "pass1":
+            pass1_blocks, start_block_index, end_block_index = _pass1_selected_blocks(row)
+            input_block_count = len(pass1_blocks)
+            if (
+                input_block_count <= 0
+                and start_block_index is not None
+                and end_block_index is not None
+                and end_block_index >= start_block_index
+            ):
+                input_block_count = end_block_index - start_block_index + 1
+        elif pass_name == "pass2":
+            input_block_count = len(_pass2_input_blocks(row))
+            extracted_ingredient_count = _count_list_entries(parsed_response.get("extracted_ingredients"))
+            extracted_instruction_count = _count_list_entries(
+                parsed_response.get("extracted_instructions")
+            )
+        elif pass_name == "pass3":
+            step_count = _pass3_step_count(parsed_response)
+            mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
+
+        call_inventory_rows.append(
+            {
+                "run_id": codex_run.run_id,
+                "source_key": source_key,
+                "recipe_id": _prompt_row_recipe_id(row),
+                "pass": pass_name,
+                "call_id": str(row.get("call_id") or ""),
+                "timestamp_utc": str(row.get("timestamp_utc") or ""),
+                "model": str(row.get("model") or ""),
+                "input_block_count": input_block_count,
+                "warning_count": len(warnings),
+                "warning_buckets": warning_buckets,
+                "extracted_ingredient_count": extracted_ingredient_count,
+                "extracted_instruction_count": extracted_instruction_count,
+                "step_count": step_count,
+                "mapping_count": mapping_count,
+                "input_excerpt": _input_excerpt_for_prompt_row(row, excerpt_limit=excerpt_limit),
+                "output_excerpt": _output_excerpt_for_prompt_row(row, excerpt_limit=excerpt_limit),
+                "_pass_rank": pass_rank.get(pass_name, 99),
+            }
+        )
+    call_inventory_rows.sort(
+        key=lambda row: (
+            str(row.get("recipe_id") or ""),
+            int(row.get("_pass_rank") or 99),
+            str(row.get("call_id") or ""),
+            str(row.get("timestamp_utc") or ""),
+        )
+    )
+    for row in call_inventory_rows:
+        row.pop("_pass_rank", None)
+
     pair_breakdown = {
         "source_key": source_key,
         "source_file": source_file,
@@ -3079,6 +3779,9 @@ def _build_pair_diagnostics(
         confusion_matrix_baseline=baseline_confusion,
         confusion_delta_codex_minus_baseline=confusion_delta,
         targeted_prompt_case_rows=targeted_prompt_case_rows,
+        recipe_triage_rows=recipe_triage_rows,
+        call_inventory_rows=call_inventory_rows,
+        outside_span_trace_rows=outside_span_trace_rows,
     )
 
 
@@ -3087,7 +3790,15 @@ def _build_comparison_summary(
     records: list[RunRecord],
     excerpt_limit: int,
     targeted_prompt_case_limit: int,
-) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     by_source: dict[str, list[RunRecord]] = defaultdict(list)
     for record in records:
         by_source[record.source_key].append(record)
@@ -3098,6 +3809,9 @@ def _build_comparison_summary(
     changed_line_rows: list[dict[str, Any]] = []
     pair_breakdown_rows: list[dict[str, Any]] = []
     targeted_prompt_case_rows: list[dict[str, Any]] = []
+    recipe_triage_rows: list[dict[str, Any]] = []
+    call_inventory_rows: list[dict[str, Any]] = []
+    outside_span_trace_rows: list[dict[str, Any]] = []
 
     for source_key in sorted(by_source.keys()):
         runs = by_source[source_key]
@@ -3122,6 +3836,9 @@ def _build_comparison_summary(
                 changed_line_rows.extend(pair_diagnostics.changed_line_rows)
                 pair_breakdown_rows.append(pair_diagnostics.pair_breakdown)
                 targeted_prompt_case_rows.extend(pair_diagnostics.targeted_prompt_case_rows)
+                recipe_triage_rows.extend(pair_diagnostics.recipe_triage_rows)
+                call_inventory_rows.extend(pair_diagnostics.call_inventory_rows)
+                outside_span_trace_rows.extend(pair_diagnostics.outside_span_trace_rows)
                 pairs.append(
                     {
                         "source_key": source_key,
@@ -3212,7 +3929,15 @@ def _build_comparison_summary(
         "unpaired_codex_runs": unpaired_codex,
         "unpaired_baseline_runs": unpaired_baseline,
     }
-    return summary, changed_line_rows, pair_breakdown_rows, targeted_prompt_case_rows
+    return (
+        summary,
+        changed_line_rows,
+        pair_breakdown_rows,
+        targeted_prompt_case_rows,
+        recipe_triage_rows,
+        call_inventory_rows,
+        outside_span_trace_rows,
+    )
 
 
 def _select_targeted_prompt_cases(
@@ -3300,6 +4025,910 @@ def _write_targeted_prompt_cases_markdown(
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _aggregate_region_accuracy(
+    pair_breakdown_rows: list[dict[str, Any]],
+) -> tuple[float | None, float | None, float | None]:
+    totals: dict[str, dict[str, int]] = {
+        "inside_active_recipe_span": {"line_total": 0, "codex_correct": 0},
+        "outside_active_recipe_span": {"line_total": 0, "codex_correct": 0},
+    }
+    for pair_row in pair_breakdown_rows:
+        region_rows = pair_row.get("region_breakdown")
+        if not isinstance(region_rows, list):
+            continue
+        for region_row in region_rows:
+            if not isinstance(region_row, dict):
+                continue
+            region = str(region_row.get("region") or "")
+            if region not in totals:
+                continue
+            totals[region]["line_total"] += int(_coerce_int(region_row.get("line_total")) or 0)
+            totals[region]["codex_correct"] += int(_coerce_int(region_row.get("codex_correct")) or 0)
+
+    inside_accuracy = _rate(
+        totals["inside_active_recipe_span"]["codex_correct"],
+        totals["inside_active_recipe_span"]["line_total"],
+    )
+    outside_accuracy = _rate(
+        totals["outside_active_recipe_span"]["codex_correct"],
+        totals["outside_active_recipe_span"]["line_total"],
+    )
+    if inside_accuracy is None or outside_accuracy is None:
+        gap = None
+    else:
+        gap = inside_accuracy - outside_accuracy
+    return inside_accuracy, outside_accuracy, gap
+
+
+def _aggregate_confusion_deltas(
+    comparison_summary: dict[str, Any],
+    *,
+    top_k: int = 8,
+) -> list[dict[str, Any]]:
+    pairs = comparison_summary.get("pairs")
+    if not isinstance(pairs, list):
+        return []
+    counter: Counter[tuple[str, str]] = Counter()
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+        confusion = pair.get("confusion_matrix")
+        if not isinstance(confusion, dict):
+            continue
+        delta_matrix = confusion.get("delta_codex_minus_baseline")
+        if not isinstance(delta_matrix, dict):
+            continue
+        for gold_label, pred_counts in delta_matrix.items():
+            if not isinstance(gold_label, str) or not isinstance(pred_counts, dict):
+                continue
+            for pred_label, count_raw in pred_counts.items():
+                if not isinstance(pred_label, str):
+                    continue
+                count = _coerce_int(count_raw)
+                if count is None or count == 0:
+                    continue
+                counter[(gold_label, pred_label)] += count
+    rows = [
+        {"gold_label": gold_label, "pred_label": pred_label, "delta_count": count}
+        for (gold_label, pred_label), count in counter.items()
+    ]
+    rows.sort(
+        key=lambda row: (
+            -abs(int(row.get("delta_count") or 0)),
+            str(row.get("gold_label") or ""),
+            str(row.get("pred_label") or ""),
+        )
+    )
+    return rows[:top_k]
+
+
+def _build_warning_and_trace_summary(
+    *,
+    call_inventory_rows: list[dict[str, Any]],
+    recipe_triage_rows: list[dict[str, Any]],
+    outside_span_trace_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    warnings_by_pass: Counter[str] = Counter()
+    warning_buckets: Counter[str] = Counter()
+    for row in call_inventory_rows:
+        pass_name = str(row.get("pass") or "")
+        warnings_by_pass[pass_name] += int(_coerce_int(row.get("warning_count")) or 0)
+        for bucket in _coerce_str_list(row.get("warning_buckets")):
+            warning_buckets[bucket] += 1
+
+    outside_span_trace_status_counts: Counter[str] = Counter()
+    outside_span_warning_bucket_counts: Counter[str] = Counter()
+    for row in outside_span_trace_rows:
+        trace_status = str(row.get("trace_status") or "")
+        if trace_status:
+            outside_span_trace_status_counts[trace_status] += 1
+        for bucket in _coerce_str_list(row.get("warning_buckets")):
+            outside_span_warning_bucket_counts[bucket] += 1
+
+    pass3_empty_mapping_count = sum(
+        1 for row in recipe_triage_rows if bool(row.get("pass3_empty_mapping"))
+    )
+    return {
+        "warnings_by_pass": _counter_to_sorted_dict(warnings_by_pass),
+        "warning_buckets": _counter_to_sorted_dict(warning_buckets),
+        "pass3_empty_mapping_count": pass3_empty_mapping_count,
+        "outside_span_wrong_line_count": len(outside_span_trace_rows),
+        "outside_span_trace_status_counts": _counter_to_sorted_dict(outside_span_trace_status_counts),
+        "outside_span_warning_bucket_counts": _counter_to_sorted_dict(
+            outside_span_warning_bucket_counts
+        ),
+    }
+
+
+def _recipe_row_key(row: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("source_key") or ""),
+        str(row.get("codex_run_id") or ""),
+        str(row.get("recipe_id") or ""),
+    )
+
+
+def _sort_recipe_rows_for_metric(
+    rows: list[dict[str, Any]],
+    *,
+    metric_key: str,
+) -> list[dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            -int(_coerce_int(row.get(metric_key)) or 0),
+            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
+            str(row.get("recipe_id") or ""),
+        ),
+    )
+
+
+def _select_starter_pack_recipe_cases(
+    recipe_triage_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    selected_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    ordered_keys: list[tuple[str, str, str]] = []
+
+    def add_rows(rows: list[dict[str, Any]], *, limit: int, reason: str) -> None:
+        for row in rows:
+            key = _recipe_row_key(row)
+            if key not in selected_by_key:
+                selected_by_key[key] = dict(row)
+                selected_by_key[key]["selection_reason"] = reason
+                ordered_keys.append(key)
+            else:
+                existing = str(selected_by_key[key].get("selection_reason") or "")
+                if reason not in existing.split(", "):
+                    selected_by_key[key]["selection_reason"] = (
+                        f"{existing}, {reason}" if existing else reason
+                    )
+            if len(ordered_keys) >= 10:
+                return
+            if sum(1 for entry in ordered_keys if reason in str(selected_by_key[entry].get("selection_reason") or "")) >= limit:
+                return
+
+    top_changed = _sort_recipe_rows_for_metric(
+        recipe_triage_rows,
+        metric_key="changed_lines_codex_vs_baseline",
+    )
+    add_rows(top_changed, limit=STARTER_PACK_SELECTION_POLICY["top_changed_lines"], reason="top_changed_lines")
+
+    top_block_loss = _sort_recipe_rows_for_metric(
+        recipe_triage_rows,
+        metric_key="pass1_vs_pass2_missing_block_count",
+    )
+    add_rows(top_block_loss, limit=STARTER_PACK_SELECTION_POLICY["top_block_loss"], reason="top_block_loss")
+
+    empty_mapping_candidates = [
+        row
+        for row in recipe_triage_rows
+        if bool(row.get("pass3_empty_mapping"))
+        and (
+            int(_coerce_int(row.get("pass1_selected_block_count")) or 0) >= 8
+            or int(_coerce_int(row.get("pass2_warning_count")) or 0) >= 2
+            or int(_coerce_int(row.get("pass2_extracted_instruction_count")) or 0) == 0
+        )
+    ]
+    empty_mapping_candidates = _sort_recipe_rows_for_metric(
+        empty_mapping_candidates,
+        metric_key="changed_lines_codex_vs_baseline",
+    )
+    add_rows(
+        empty_mapping_candidates,
+        limit=STARTER_PACK_SELECTION_POLICY["top_empty_mapping"],
+        reason="top_empty_mapping_upstream_evidence",
+    )
+
+    outside_candidates = _sort_recipe_rows_for_metric(
+        recipe_triage_rows,
+        metric_key="outside_span_wrong_line_count",
+    )
+    outside_candidates = [
+        row for row in outside_candidates if int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0) > 0
+    ]
+    add_rows(
+        outside_candidates,
+        limit=STARTER_PACK_SELECTION_POLICY["outside_span_case"],
+        reason="outside_span_contamination",
+    )
+
+    healthy_controls = [
+        row
+        for row in recipe_triage_rows
+        if int(_coerce_int(row.get("pass1_vs_pass2_missing_block_count")) or 0) == 0
+        and not bool(row.get("pass3_empty_mapping"))
+    ]
+    healthy_controls.sort(
+        key=lambda row: (
+            -_float_or_zero(row.get("codex_accuracy")),
+            str(row.get("recipe_id") or ""),
+        )
+    )
+    add_rows(
+        healthy_controls,
+        limit=STARTER_PACK_SELECTION_POLICY["healthy_control"],
+        reason="healthy_control",
+    )
+
+    if len(ordered_keys) < 6:
+        for row in top_changed:
+            key = _recipe_row_key(row)
+            if key in selected_by_key:
+                continue
+            selected_by_key[key] = dict(row)
+            selected_by_key[key]["selection_reason"] = "highest_remaining_signal"
+            ordered_keys.append(key)
+            if len(ordered_keys) >= min(10, len(recipe_triage_rows)):
+                break
+            if len(ordered_keys) >= 6:
+                break
+
+    return [selected_by_key[key] for key in ordered_keys[:10]]
+
+
+def _group_changed_lines_by_recipe(
+    changed_line_rows: list[dict[str, Any]],
+) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in changed_line_rows:
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        if not recipe_id:
+            continue
+        key = (
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+            recipe_id,
+        )
+        grouped[key].append(row)
+    for key in grouped:
+        grouped[key].sort(
+            key=lambda row: (
+                int(_coerce_int(row.get("line_index")) or 0),
+                str(row.get("gold_label") or ""),
+            )
+        )
+    return grouped
+
+
+def _bridge_anomaly_summary(row: dict[str, Any]) -> str:
+    chunks = [
+        f"missing_blocks={int(_coerce_int(row.get('pass1_vs_pass2_missing_block_count')) or 0)}",
+        f"extra_blocks={int(_coerce_int(row.get('pass1_vs_pass2_extra_block_count')) or 0)}",
+        f"pass2_warnings={int(_coerce_int(row.get('pass2_warning_count')) or 0)}",
+        f"pass3_empty_mapping={_serialize_bool(bool(row.get('pass3_empty_mapping')))}",
+    ]
+    outside_count = int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0)
+    if outside_count > 0:
+        chunks.append(f"outside_span_wrong_lines={outside_count}")
+    return ", ".join(chunks)
+
+
+def _warning_summary_for_recipe(row: dict[str, Any]) -> str:
+    chunks: list[str] = []
+    pass2_warning_count = int(_coerce_int(row.get("pass2_warning_count")) or 0)
+    if pass2_warning_count > 0:
+        chunks.append(
+            f"pass2({pass2_warning_count}): {_serialize_pipe_list(_coerce_str_list(row.get('pass2_warning_buckets')))}"
+        )
+    pass3_warning_count = int(_coerce_int(row.get("pass3_warning_count")) or 0)
+    if pass3_warning_count > 0:
+        chunks.append(
+            f"pass3({pass3_warning_count}): {_serialize_pipe_list(_coerce_str_list(row.get('pass3_warning_buckets')))}"
+        )
+    return "; ".join(chunks) if chunks else "none"
+
+
+def _build_selected_recipe_packets(
+    *,
+    selected_recipe_rows: list[dict[str, Any]],
+    changed_line_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped_changed_lines = _group_changed_lines_by_recipe(changed_line_rows)
+    packets: list[dict[str, Any]] = []
+    for row in selected_recipe_rows:
+        key = _recipe_row_key(row)
+        changed_rows = grouped_changed_lines.get(key, [])
+        changed_examples = []
+        for changed_row in changed_rows[:8]:
+            changed_examples.append(
+                {
+                    "line_index": int(_coerce_int(changed_row.get("line_index")) or 0),
+                    "gold_label": str(changed_row.get("gold_label") or ""),
+                    "baseline_pred": str(changed_row.get("vanilla_pred") or ""),
+                    "codex_pred": str(changed_row.get("codex_pred") or ""),
+                    "current_line": str(changed_row.get("current_line") or ""),
+                    "previous_line": str(changed_row.get("previous_line") or ""),
+                    "next_line": str(changed_row.get("next_line") or ""),
+                }
+            )
+
+        pass1_summary = {
+            "call_id": str(row.get("pass1_call_id") or ""),
+            "start_block_index": _coerce_int(row.get("pass1_start_block_index")),
+            "end_block_index": _coerce_int(row.get("pass1_end_block_index")),
+            "selected_block_count": int(_coerce_int(row.get("pass1_selected_block_count")) or 0),
+            "missing_block_count_vs_pass2": int(
+                _coerce_int(row.get("pass1_vs_pass2_missing_block_count")) or 0
+            ),
+            "extra_block_count_vs_pass2": int(
+                _coerce_int(row.get("pass1_vs_pass2_extra_block_count")) or 0
+            ),
+        }
+        pass2_summary = {
+            "call_id": str(row.get("pass2_call_id") or ""),
+            "input_block_count": int(_coerce_int(row.get("pass2_input_block_count")) or 0),
+            "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+            "warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
+            "extracted_ingredient_count": int(
+                _coerce_int(row.get("pass2_extracted_ingredient_count")) or 0
+            ),
+            "extracted_instruction_count": int(
+                _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+            ),
+        }
+        pass3_summary = {
+            "call_id": str(row.get("pass3_call_id") or ""),
+            "step_count": int(_coerce_int(row.get("pass3_step_count")) or 0),
+            "mapping_count": int(_coerce_int(row.get("pass3_mapping_count")) or 0),
+            "empty_mapping": bool(row.get("pass3_empty_mapping")),
+            "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+            "warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
+        }
+
+        packets.append(
+            {
+                "selection_reason": str(row.get("selection_reason") or ""),
+                "recipe_id": str(row.get("recipe_id") or ""),
+                "short_title": str(row.get("short_title") or ""),
+                "changed_lines_codex_vs_baseline": int(
+                    _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
+                ),
+                "bridge_anomaly_summary": _bridge_anomaly_summary(row),
+                "warning_summary": _warning_summary_for_recipe(row),
+                "pass1_summary": pass1_summary,
+                "pass2_summary": pass2_summary,
+                "pass3_summary": pass3_summary,
+                "changed_line_examples": changed_examples,
+                "raw_block_window_excerpt": str(row.get("raw_block_window_excerpt") or ""),
+            }
+        )
+    return packets
+
+
+def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
+    lines = [
+        "# Starter Pack Casebook",
+        "",
+        "Deterministic selected cases for first-pass benchmark and bridge diagnosis.",
+        "",
+    ]
+    if not packets:
+        lines.append("No recipe cases were selected.")
+        lines.append("")
+        return "\n".join(lines)
+
+    for index, packet in enumerate(packets, start=1):
+        lines.extend(
+            [
+                f"## Case {index}: {packet.get('recipe_id')}",
+                f"- selection_reason: {packet.get('selection_reason')}",
+                f"- short_title: {packet.get('short_title')}",
+                (
+                    "- changed_lines_codex_vs_baseline: "
+                    f"{packet.get('changed_lines_codex_vs_baseline')}"
+                ),
+                f"- bridge_anomaly_summary: {packet.get('bridge_anomaly_summary')}",
+                f"- warning_summary: {packet.get('warning_summary')}",
+                "",
+                "### Pass Excerpts",
+                (
+                    "- pass1: "
+                    f"call_id={packet.get('pass1_summary', {}).get('call_id')} "
+                    f"selected_block_count={packet.get('pass1_summary', {}).get('selected_block_count')}"
+                ),
+                (
+                    "- pass2: "
+                    f"call_id={packet.get('pass2_summary', {}).get('call_id')} "
+                    f"input_block_count={packet.get('pass2_summary', {}).get('input_block_count')} "
+                    f"warning_count={packet.get('pass2_summary', {}).get('warning_count')}"
+                ),
+                (
+                    "- pass3: "
+                    f"call_id={packet.get('pass3_summary', {}).get('call_id')} "
+                    f"mapping_count={packet.get('pass3_summary', {}).get('mapping_count')} "
+                    f"empty_mapping={packet.get('pass3_summary', {}).get('empty_mapping')}"
+                ),
+                "",
+            ]
+        )
+        raw_excerpt = str(packet.get("raw_block_window_excerpt") or "").strip()
+        if raw_excerpt:
+            lines.extend(
+                [
+                    "### Raw Block Window Excerpt",
+                    "",
+                    raw_excerpt,
+                    "",
+                ]
+            )
+
+        changed_examples = packet.get("changed_line_examples")
+        changed_rows = changed_examples if isinstance(changed_examples, list) else []
+        lines.append("### Changed Canonical Lines")
+        lines.append("")
+        if not changed_rows:
+            lines.append("No changed canonical lines recorded for this recipe in this pair.")
+            lines.append("")
+            continue
+        for changed_row in changed_rows[:8]:
+            if not isinstance(changed_row, dict):
+                continue
+            lines.append(
+                (
+                    f"- line {int(_coerce_int(changed_row.get('line_index')) or 0)} | "
+                    f"gold={changed_row.get('gold_label')} | "
+                    f"baseline={changed_row.get('baseline_pred')} | "
+                    f"codex={changed_row.get('codex_pred')} | "
+                    f"text={_excerpt(str(changed_row.get('current_line') or ''), max_len=260)}"
+                )
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _render_starter_pack_label_policy() -> str:
+    lines = [
+        "# Label Policy",
+        "",
+        "## Policy Notes",
+        "",
+        "- Treat labels as canonical line-space classes from benchmark evaluation artifacts.",
+        "- Prefer recipe-local interpretations (`RECIPE_NOTES`) over broad `KNOWLEDGE` when context is inside an active recipe.",
+        "- Keep benchmark adjudication deterministic: compare codex vs baseline using the same canonical text and line indices.",
+        "",
+        "## Known Structural Label Conventions",
+        "",
+        "- `RECIPE_TITLE`: canonical recipe name line.",
+        "- `RECIPE_VARIANT`: explicit variant/alternative version wording.",
+        "- `INGREDIENT_LINE`: ingredient inventory line.",
+        "- `INSTRUCTION_LINE`: imperative cooking action line.",
+        "- `HOWTO_SECTION`: section header-style line that introduces grouped instructions or ingredients.",
+        "",
+        "## How to Read False Positives/False Negatives",
+        "",
+        "- False positive: prediction label is present but does not match the gold line label.",
+        "- False negative: gold label line was not predicted as that label.",
+        "- Use changed-line context (`previous_line`, `current_line`, `next_line`) before escalating to full prompt/archive artifacts.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _write_starter_pack_readme(
+    *,
+    output_path: Path,
+    comparison_summary: dict[str, Any],
+) -> None:
+    pair_count = len(comparison_summary.get("pairs") or [])
+    lines = [
+        "# Starter Pack v1",
+        "",
+        "## Source and Pairing",
+        "",
+        (
+            "Codex runs are paired against nearest-timestamp baseline runs within each source key. "
+            f"Pair count: {pair_count}."
+        ),
+        "",
+        "## Benchmark Contract",
+        "",
+        "Canonical line-space scoring compares codex and baseline labels against the same gold canonical lines.",
+        "",
+        "## Label Ontology Cheat Sheet",
+        "",
+        "Common labels: `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `RECIPE_NOTES`, `OTHER`.",
+        "",
+        "## Starter Pack Inventory",
+        "",
+        "- `00_run_overview.md`",
+        f"- `{STARTER_PACK_TRIAGE_FILE_NAME}`",
+        f"- `{STARTER_PACK_CALL_INVENTORY_FILE_NAME}`",
+        f"- `{STARTER_PACK_CHANGED_LINES_FILE_NAME}`",
+        f"- `{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}`",
+        f"- `{STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME}`",
+        f"- `{STARTER_PACK_SELECTED_PACKETS_FILE_NAME}`",
+        f"- `{STARTER_PACK_CASEBOOK_FILE_NAME}`",
+        f"- `{STARTER_PACK_OUTSIDE_TRACE_FILE_NAME}` (conditional)",
+        f"- `{STARTER_PACK_LABEL_POLICY_FILE_NAME}`",
+        f"- `{STARTER_PACK_MANIFEST_FILE_NAME}`",
+        f"- `{STARTER_PACK_COMPARISON_MIRROR_FILE_NAME}`",
+        f"- `{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}`",
+        "",
+        "## Follow-up Packet Rules",
+        "",
+        "Use this starter pack for first-pass triage. Request heavy artifacts only for selected cases.",
+        "",
+        "## Generated At",
+        "",
+        _timestamp_now(),
+        "",
+    ]
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_starter_pack_v1(
+    *,
+    output_dir: Path,
+    comparison_summary: dict[str, Any],
+    changed_line_rows: list[dict[str, Any]],
+    pair_breakdown_rows: list[dict[str, Any]],
+    per_recipe_breakdown_payload: dict[str, Any],
+    recipe_triage_rows: list[dict[str, Any]],
+    call_inventory_rows: list[dict[str, Any]],
+    outside_span_trace_rows: list[dict[str, Any]],
+    sample_limit: int,
+) -> dict[str, Any]:
+    starter_pack_dir = output_dir / STARTER_PACK_DIR_NAME
+    starter_pack_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_starter_pack_readme(
+        output_path=starter_pack_dir / STARTER_PACK_README_FILE_NAME,
+        comparison_summary=comparison_summary,
+    )
+
+    sorted_recipe_triage_rows = sorted(
+        recipe_triage_rows,
+        key=lambda row: (
+            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
+            str(row.get("recipe_id") or ""),
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+        ),
+    )
+
+    triage_csv_path = starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME
+    with triage_csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(STARTER_PACK_TRIAGE_HEADER))
+        writer.writeheader()
+        for row in sorted_recipe_triage_rows:
+            writer.writerow(
+                {
+                    "recipe_id": str(row.get("recipe_id") or ""),
+                    "short_title": str(row.get("short_title") or ""),
+                    "line_total": int(_coerce_int(row.get("line_total")) or 0),
+                    "changed_lines_codex_vs_baseline": int(
+                        _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
+                    ),
+                    "codex_accuracy": _serialize_float(_coerce_float(row.get("codex_accuracy"))),
+                    "baseline_accuracy": _serialize_float(
+                        _coerce_float(row.get("baseline_accuracy"))
+                    ),
+                    "delta_codex_minus_baseline": _serialize_float(
+                        _coerce_float(row.get("delta_codex_minus_baseline"))
+                    ),
+                    "pass1_call_id": str(row.get("pass1_call_id") or ""),
+                    "pass2_call_id": str(row.get("pass2_call_id") or ""),
+                    "pass3_call_id": str(row.get("pass3_call_id") or ""),
+                    "pass1_start_block_index": (
+                        ""
+                        if _coerce_int(row.get("pass1_start_block_index")) is None
+                        else int(_coerce_int(row.get("pass1_start_block_index")) or 0)
+                    ),
+                    "pass1_end_block_index": (
+                        ""
+                        if _coerce_int(row.get("pass1_end_block_index")) is None
+                        else int(_coerce_int(row.get("pass1_end_block_index")) or 0)
+                    ),
+                    "pass1_selected_block_count": int(
+                        _coerce_int(row.get("pass1_selected_block_count")) or 0
+                    ),
+                    "pass2_input_block_count": int(
+                        _coerce_int(row.get("pass2_input_block_count")) or 0
+                    ),
+                    "pass1_vs_pass2_missing_block_count": int(
+                        _coerce_int(row.get("pass1_vs_pass2_missing_block_count")) or 0
+                    ),
+                    "pass1_vs_pass2_extra_block_count": int(
+                        _coerce_int(row.get("pass1_vs_pass2_extra_block_count")) or 0
+                    ),
+                    "pass2_warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+                    "pass2_warning_buckets": _serialize_pipe_list(
+                        _coerce_str_list(row.get("pass2_warning_buckets"))
+                    ),
+                    "pass2_extracted_ingredient_count": int(
+                        _coerce_int(row.get("pass2_extracted_ingredient_count")) or 0
+                    ),
+                    "pass2_extracted_instruction_count": int(
+                        _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+                    ),
+                    "pass3_step_count": int(_coerce_int(row.get("pass3_step_count")) or 0),
+                    "pass3_mapping_count": int(_coerce_int(row.get("pass3_mapping_count")) or 0),
+                    "pass3_empty_mapping": _serialize_bool(bool(row.get("pass3_empty_mapping"))),
+                    "pass3_warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+                    "pass3_warning_buckets": _serialize_pipe_list(
+                        _coerce_str_list(row.get("pass3_warning_buckets"))
+                    ),
+                    "outside_span_wrong_line_count": int(
+                        _coerce_int(row.get("outside_span_wrong_line_count")) or 0
+                    ),
+                    "outside_span_trace_status_top": str(
+                        row.get("outside_span_trace_status_top") or ""
+                    ),
+                }
+            )
+
+    sorted_call_inventory_rows = sorted(
+        call_inventory_rows,
+        key=lambda row: (
+            str(row.get("run_id") or ""),
+            str(row.get("recipe_id") or ""),
+            str(row.get("pass") or ""),
+            str(row.get("call_id") or ""),
+        ),
+    )
+    _write_jsonl(starter_pack_dir / STARTER_PACK_CALL_INVENTORY_FILE_NAME, sorted_call_inventory_rows)
+
+    starter_changed_rows: list[dict[str, Any]] = []
+    for row in changed_line_rows:
+        starter_changed_rows.append(
+            {
+                "recipe_id": str(row.get("recipe_id") or ""),
+                "span_region": str(row.get("span_region") or ""),
+                "line_index": int(_coerce_int(row.get("line_index")) or 0),
+                "gold_label": str(row.get("gold_label") or ""),
+                "baseline_pred": str(row.get("vanilla_pred") or ""),
+                "codex_pred": str(row.get("codex_pred") or ""),
+                "previous_line": str(row.get("previous_line") or ""),
+                "current_line": str(row.get("current_line") or ""),
+                "next_line": str(row.get("next_line") or ""),
+            }
+        )
+    _write_jsonl(starter_pack_dir / STARTER_PACK_CHANGED_LINES_FILE_NAME, starter_changed_rows)
+
+    warning_trace_summary = _build_warning_and_trace_summary(
+        call_inventory_rows=sorted_call_inventory_rows,
+        recipe_triage_rows=sorted_recipe_triage_rows,
+        outside_span_trace_rows=outside_span_trace_rows,
+    )
+    _write_json(starter_pack_dir / STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME, warning_trace_summary)
+
+    bridge_summary_rows = [
+        {
+            "source_key": str(row.get("source_key") or ""),
+            "source_file": str(row.get("source_file") or ""),
+            "codex_run_id": str(row.get("codex_run_id") or ""),
+            "baseline_run_id": str(row.get("baseline_run_id") or ""),
+            "recipe_id": str(row.get("recipe_id") or ""),
+            "pass1_call_id": str(row.get("pass1_call_id") or ""),
+            "pass2_call_id": str(row.get("pass2_call_id") or ""),
+            "pass3_call_id": str(row.get("pass3_call_id") or ""),
+            "pass1_start_block_index": _coerce_int(row.get("pass1_start_block_index")),
+            "pass1_end_block_index": _coerce_int(row.get("pass1_end_block_index")),
+            "pass1_selected_block_count": int(_coerce_int(row.get("pass1_selected_block_count")) or 0),
+            "pass2_input_block_count": int(_coerce_int(row.get("pass2_input_block_count")) or 0),
+            "pass1_vs_pass2_missing_block_count": int(
+                _coerce_int(row.get("pass1_vs_pass2_missing_block_count")) or 0
+            ),
+            "pass1_vs_pass2_extra_block_count": int(
+                _coerce_int(row.get("pass1_vs_pass2_extra_block_count")) or 0
+            ),
+            "pass2_warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+            "pass2_warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
+            "pass2_extracted_ingredient_count": int(
+                _coerce_int(row.get("pass2_extracted_ingredient_count")) or 0
+            ),
+            "pass2_extracted_instruction_count": int(
+                _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+            ),
+            "pass3_step_count": int(_coerce_int(row.get("pass3_step_count")) or 0),
+            "pass3_mapping_count": int(_coerce_int(row.get("pass3_mapping_count")) or 0),
+            "pass3_empty_mapping": bool(row.get("pass3_empty_mapping")),
+            "pass3_warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+            "pass3_warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
+            "outside_span_wrong_line_count": int(
+                _coerce_int(row.get("outside_span_wrong_line_count")) or 0
+            ),
+            "outside_span_trace_status_top": str(row.get("outside_span_trace_status_top") or ""),
+        }
+        for row in sorted_recipe_triage_rows
+    ]
+    _write_jsonl(starter_pack_dir / STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME, bridge_summary_rows)
+
+    selected_recipe_rows = _select_starter_pack_recipe_cases(sorted_recipe_triage_rows)
+    selected_packets = _build_selected_recipe_packets(
+        selected_recipe_rows=selected_recipe_rows,
+        changed_line_rows=changed_line_rows,
+    )
+    _write_jsonl(starter_pack_dir / STARTER_PACK_SELECTED_PACKETS_FILE_NAME, selected_packets)
+    (starter_pack_dir / STARTER_PACK_CASEBOOK_FILE_NAME).write_text(
+        _render_starter_pack_casebook(selected_packets),
+        encoding="utf-8",
+    )
+
+    inside_accuracy, outside_accuracy, outside_span_accuracy_gap = _aggregate_region_accuracy(
+        pair_breakdown_rows
+    )
+    outside_span_wrong_line_count = len(outside_span_trace_rows)
+    include_outside_span_trace = (
+        outside_span_wrong_line_count >= STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD
+        or (
+            outside_span_accuracy_gap is not None
+            and outside_span_accuracy_gap >= STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD
+        )
+    )
+    outside_span_manifest: dict[str, Any]
+    if include_outside_span_trace:
+        sorted_outside_rows = sorted(
+            outside_span_trace_rows,
+            key=lambda row: (
+                str(row.get("recipe_id") or ""),
+                int(_coerce_int(row.get("line_index")) or 0),
+                str(row.get("call_id") or ""),
+            ),
+        )
+        sampled_outside_rows = (
+            _sample_rows_evenly(sorted_outside_rows, sample_limit)
+            if sample_limit > 0
+            else sorted_outside_rows
+        )
+        outside_rows_out = [
+            {
+                "call_id": str(row.get("call_id") or ""),
+                "recipe_id": str(row.get("recipe_id") or ""),
+                "line_index": int(_coerce_int(row.get("line_index")) or 0),
+                "gold_label": str(row.get("gold_label") or ""),
+                "pred_label": str(row.get("pred_label") or ""),
+                "trace_status": str(row.get("trace_status") or ""),
+                "warning_buckets": _coerce_str_list(row.get("warning_buckets")),
+                "raw_block_stable_key": row.get("raw_block_stable_key"),
+                "raw_block_excerpt": str(row.get("raw_block_excerpt") or ""),
+                "prompt_candidate_block_excerpt": str(
+                    row.get("prompt_candidate_block_excerpt") or ""
+                ),
+            }
+            for row in sampled_outside_rows
+        ]
+        _write_jsonl(starter_pack_dir / STARTER_PACK_OUTSIDE_TRACE_FILE_NAME, outside_rows_out)
+        outside_span_manifest = {
+            "included": True,
+            "path": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_OUTSIDE_TRACE_FILE_NAME}",
+            "rows": len(outside_rows_out),
+            "source_rows": outside_span_wrong_line_count,
+        }
+    else:
+        outside_span_manifest = {
+            "included": False,
+            "path": None,
+            "rows": 0,
+            "source_rows": outside_span_wrong_line_count,
+            "omitted_reason": (
+                "outside_span thresholds not met: "
+                f"outside_span_wrong_line_count={outside_span_wrong_line_count} "
+                f"(threshold={STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD}), "
+                f"outside_span_accuracy_gap="
+                f"{_serialize_float(outside_span_accuracy_gap) if outside_span_accuracy_gap is not None else 'n/a'} "
+                f"(threshold={STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD:.2f})."
+            ),
+        }
+
+    top_confusion_deltas = _aggregate_confusion_deltas(comparison_summary)
+    warning_lines = warning_trace_summary["warnings_by_pass"]
+    bucket_lines = warning_trace_summary["warning_buckets"]
+    pairs = [
+        pair
+        for pair in (comparison_summary.get("pairs") or [])
+        if isinstance(pair, dict)
+    ]
+    codex_overall_accuracy_avg = _average_float(
+        [
+            _coerce_float(pair.get("codex_run", {}).get("overall_line_accuracy"))
+            for pair in pairs
+            if isinstance(pair.get("codex_run"), dict)
+        ]
+    )
+    codex_macro_f1_avg = _average_float(
+        [
+            _coerce_float(pair.get("codex_run", {}).get("macro_f1_excluding_other"))
+            for pair in pairs
+            if isinstance(pair.get("codex_run"), dict)
+        ]
+    )
+    run_overview_lines = [
+        "# Starter Pack Run Overview",
+        "",
+        f"- pair_count: {len(pairs)}",
+        f"- codex_overall_line_accuracy_avg: {_serialize_float(codex_overall_accuracy_avg)}",
+        f"- codex_macro_f1_excluding_other_avg: {_serialize_float(codex_macro_f1_avg)}",
+        f"- inside_span_accuracy: {_serialize_float(inside_accuracy)}",
+        f"- outside_span_accuracy: {_serialize_float(outside_accuracy)}",
+        f"- inside_vs_outside_accuracy_gap: {_serialize_float(outside_span_accuracy_gap)}",
+        (
+            "- warning_counts_by_pass: "
+            + ", ".join(f"{key}={value}" for key, value in warning_lines.items())
+            if warning_lines
+            else "- warning_counts_by_pass: none"
+        ),
+        (
+            "- warning_bucket_counts: "
+            + ", ".join(f"{key}={value}" for key, value in bucket_lines.items())
+            if bucket_lines
+            else "- warning_bucket_counts: none"
+        ),
+        (
+            "- pass3_empty_mapping_count: "
+            f"{warning_trace_summary.get('pass3_empty_mapping_count')}"
+        ),
+        (
+            "- top_confusion_deltas: "
+            + (
+                ", ".join(
+                    f"{row['gold_label']}->{row['pred_label']} ({row['delta_count']:+d})"
+                    for row in top_confusion_deltas
+                )
+                if top_confusion_deltas
+                else "none"
+            )
+        ),
+        "",
+    ]
+    (starter_pack_dir / "00_run_overview.md").write_text(
+        "\n".join(run_overview_lines),
+        encoding="utf-8",
+    )
+
+    (starter_pack_dir / STARTER_PACK_LABEL_POLICY_FILE_NAME).write_text(
+        _render_starter_pack_label_policy(),
+        encoding="utf-8",
+    )
+
+    _write_json(starter_pack_dir / STARTER_PACK_COMPARISON_MIRROR_FILE_NAME, comparison_summary)
+    _write_json(
+        starter_pack_dir / STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
+        per_recipe_breakdown_payload,
+    )
+
+    legacy_to_starter_mapping = {
+        "comparison_summary.json": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_COMPARISON_MIRROR_FILE_NAME}",
+        "per_recipe_or_per_span_breakdown.json": (
+            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}"
+        ),
+        "changed_lines.codex_vs_vanilla.jsonl": (
+            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}"
+        ),
+        "label_policy_adjudication_notes.md": (
+            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LABEL_POLICY_FILE_NAME}"
+        ),
+        "process_manifest.json": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}",
+    }
+    starter_pack_manifest = {
+        "starter_pack_version": "v1",
+        "selection_policy": dict(STARTER_PACK_SELECTION_POLICY),
+        "outside_span_inclusion_policy": {
+            "wrong_line_count_threshold": STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD,
+            "accuracy_gap_threshold": STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD,
+        },
+        "heavy_artifacts_omitted_by_default": list(
+            STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT
+        ),
+        "legacy_to_starter_mapping": legacy_to_starter_mapping,
+        "outside_span_trace_sample": outside_span_manifest,
+        "generated_at": _timestamp_now(),
+    }
+    _write_json(starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME, starter_pack_manifest)
+
+    included_files = sorted(
+        f"{STARTER_PACK_DIR_NAME}/{path.name}"
+        for path in starter_pack_dir.iterdir()
+        if path.is_file()
+    )
+    return {
+        "path": STARTER_PACK_DIR_NAME,
+        "included_files": included_files,
+        "manifest": starter_pack_manifest,
+    }
+
+
 def _write_readme(
     *,
     output_dir: Path,
@@ -3360,6 +4989,7 @@ def _write_readme(
     lines.append(f"- `{TARGETED_PROMPT_CASES_FILE_NAME}`")
     lines.append(f"- `{LABEL_POLICY_NOTES_FILE_NAME}`")
     lines.append("- `process_manifest.json`")
+    lines.append(f"- `{STARTER_PACK_DIR_NAME}/` (deterministic blended first-look starter pack)")
     if flattened:
         lines.append("")
         lines.append(
@@ -3409,6 +5039,13 @@ def _flatten_output(
         source = output_dir / file_name
         if source.is_file():
             shutil.copy2(source, md_output_dir / file_name)
+    starter_pack_source = output_dir / STARTER_PACK_DIR_NAME
+    if starter_pack_source.is_dir():
+        shutil.copytree(
+            starter_pack_source,
+            md_output_dir / STARTER_PACK_DIR_NAME,
+            dirs_exist_ok=True,
+        )
 
     _write_root_summary_markdown(md_output_dir)
     return md_output_dir
@@ -3492,6 +5129,108 @@ def _write_root_summary_markdown(output_dir: Path) -> Path:
             source_path.unlink()
 
     return output_path
+
+
+def build_starter_pack_for_existing_runs(
+    *,
+    input_dir: Path,
+    output_dir: Path | None = None,
+    sample_limit: int = DEFAULT_SAMPLE_LIMIT,
+    excerpt_limit: int = DEFAULT_EXCERPT_LIMIT,
+    top_confusions_limit: int = DEFAULT_TOP_CONFUSIONS,
+) -> dict[str, Any]:
+    """Build starter-pack artifacts from existing benchmark run dirs.
+
+    This helper is used by interactive single-offline benchmark flows to emit
+    `starter_pack_v1/` directly into the session folder without building a full
+    cutdown package.
+    """
+
+    input_root = input_dir.resolve()
+    if not input_root.is_dir():
+        raise ValueError(f"input directory does not exist: {input_root}")
+    if sample_limit <= 0:
+        raise ValueError("sample_limit must be > 0")
+    if excerpt_limit <= 0:
+        raise ValueError("excerpt_limit must be > 0")
+
+    run_dirs = _discover_run_dirs(input_root)
+    if not run_dirs:
+        raise ValueError(
+            "no benchmark run directories found (need both eval_report.json and run_manifest.json)"
+        )
+
+    output_root = output_dir.resolve() if output_dir is not None else input_root
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    records = [
+        _build_run_record_from_existing_run(
+            run_dir=run_dir,
+            top_confusions_limit=top_confusions_limit,
+        )
+        for run_dir in run_dirs
+    ]
+
+    (
+        comparison_summary,
+        changed_line_rows,
+        pair_breakdown_rows,
+        _targeted_prompt_case_rows,
+        recipe_triage_rows,
+        call_inventory_rows,
+        outside_span_trace_rows,
+    ) = _build_comparison_summary(
+        records=records,
+        excerpt_limit=excerpt_limit,
+        targeted_prompt_case_limit=DEFAULT_TARGETED_PROMPT_CASES,
+    )
+    changed_line_rows.sort(
+        key=lambda row: (
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+            int(row.get("line_index") or 0),
+        )
+    )
+
+    per_recipe_breakdown_payload = {
+        "generated_at": _timestamp_now(),
+        "pair_count": len(pair_breakdown_rows),
+        "pairs": pair_breakdown_rows,
+    }
+
+    comparison_summary["generated_at"] = _timestamp_now()
+    comparison_summary["input_dir"] = str(input_root)
+    comparison_summary["output_dir"] = str(output_root)
+    comparison_summary["changed_lines_total"] = len(changed_line_rows)
+    comparison_summary["changed_lines_file"] = CHANGED_LINES_FILE_NAME
+    comparison_summary["per_recipe_or_per_span_breakdown_file"] = PER_RECIPE_BREAKDOWN_FILE_NAME
+    comparison_summary["targeted_prompt_cases_file"] = TARGETED_PROMPT_CASES_FILE_NAME
+    comparison_summary["label_policy_notes_file"] = LABEL_POLICY_NOTES_FILE_NAME
+    comparison_summary["starter_pack_v1_dir"] = STARTER_PACK_DIR_NAME
+    comparison_summary["starter_pack_v1_manifest_file"] = (
+        f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}"
+    )
+
+    starter_pack_metadata = _write_starter_pack_v1(
+        output_dir=output_root,
+        comparison_summary=comparison_summary,
+        changed_line_rows=changed_line_rows,
+        pair_breakdown_rows=pair_breakdown_rows,
+        per_recipe_breakdown_payload=per_recipe_breakdown_payload,
+        recipe_triage_rows=recipe_triage_rows,
+        call_inventory_rows=call_inventory_rows,
+        outside_span_trace_rows=outside_span_trace_rows,
+        sample_limit=sample_limit,
+    )
+
+    return {
+        "generated_at": _timestamp_now(),
+        "input_dir": str(input_root),
+        "output_dir": str(output_root),
+        "run_count": len(records),
+        "pair_count": len(comparison_summary.get("pairs") or []),
+        "starter_pack": starter_pack_metadata,
+    }
 
 
 def main() -> int:
@@ -3597,6 +5336,9 @@ def main() -> int:
         changed_line_rows,
         pair_breakdown_rows,
         targeted_prompt_case_rows,
+        recipe_triage_rows,
+        call_inventory_rows,
+        outside_span_trace_rows,
     ) = _build_comparison_summary(
         records=records,
         excerpt_limit=args.excerpt_limit,
@@ -3649,6 +5391,10 @@ def main() -> int:
     comparison_summary["per_recipe_or_per_span_breakdown_file"] = PER_RECIPE_BREAKDOWN_FILE_NAME
     comparison_summary["targeted_prompt_cases_file"] = TARGETED_PROMPT_CASES_FILE_NAME
     comparison_summary["label_policy_notes_file"] = LABEL_POLICY_NOTES_FILE_NAME
+    comparison_summary["starter_pack_v1_dir"] = STARTER_PACK_DIR_NAME
+    comparison_summary["starter_pack_v1_manifest_file"] = (
+        f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}"
+    )
     comparison_summary["project_context"] = dict(project_context_pointer)
 
     project_context_digest_lines = _build_project_context_digest(
@@ -3658,6 +5404,19 @@ def main() -> int:
         prompt_pairs_per_category=args.prompt_pairs_per_category,
     )
     _write_json(output_dir / "comparison_summary.json", comparison_summary)
+    starter_pack_metadata = _write_starter_pack_v1(
+        output_dir=output_dir,
+        comparison_summary=comparison_summary,
+        changed_line_rows=changed_line_rows,
+        pair_breakdown_rows=pair_breakdown_rows,
+        per_recipe_breakdown_payload=per_recipe_breakdown_payload,
+        recipe_triage_rows=recipe_triage_rows,
+        call_inventory_rows=call_inventory_rows,
+        outside_span_trace_rows=outside_span_trace_rows,
+        sample_limit=args.sample_limit,
+    )
+    starter_pack_manifest = starter_pack_metadata.get("manifest")
+    starter_pack_manifest = starter_pack_manifest if isinstance(starter_pack_manifest, dict) else {}
 
     codex_records = [record for record in records if record.codex_enabled]
     missing_codex_full_prompt_logs = [
@@ -3708,6 +5467,16 @@ def main() -> int:
             }
             for record in sorted(records, key=lambda row: row.run_id)
         ],
+        "starter_pack_v1_path": STARTER_PACK_DIR_NAME,
+        "starter_pack_v1_manifest_file": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}",
+        "starter_pack_v1_heavy_artifacts_omitted_by_default": starter_pack_manifest.get(
+            "heavy_artifacts_omitted_by_default",
+            list(STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT),
+        ),
+        "starter_pack_v1_legacy_to_starter_mapping": starter_pack_manifest.get(
+            "legacy_to_starter_mapping",
+            {},
+        ),
     }
 
     _write_readme(
@@ -3722,6 +5491,9 @@ def main() -> int:
     )
     included_files = {path.name for path in output_dir.iterdir() if path.is_file()}
     included_files.add("process_manifest.json")
+    for relative_path in starter_pack_metadata.get("included_files", []):
+        if isinstance(relative_path, str) and relative_path:
+            included_files.add(relative_path)
     for record in records:
         if record.full_prompt_log_path:
             included_files.add(record.full_prompt_log_path)

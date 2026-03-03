@@ -1966,17 +1966,17 @@ _HTML = """\
 
       <section id="per-label-section" class="diagnostic-card">
         <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Run metrics use the latest timestamp group; rolling metrics use the last 10 runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores; other precision/recall cells show delta vs that same-label codexfarm baseline (dark green means better, dark red means worse). Rolling metrics use the last 10 runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
         <table id="per-label-table" class="dashboard-resizable-table"><thead><tr>
           <th title="The label name being scored (for example RECIPE_TITLE).">Label</th>
-          <th title="Latest run precision for codexfarm rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Latest run recall for codexfarm rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Latest run precision for vanilla rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Latest run recall for vanilla rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Rolling average precision across the most recent 10 codexfarm runs for this label."><span class="per-label-col-head">Rolling n=10<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Rolling average recall across the most recent 10 codexfarm runs for this label."><span class="per-label-col-head">Rolling n=10<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-          <th title="Rolling average precision across the most recent 10 vanilla runs for this label."><span class="per-label-col-head">Rolling n=10<br>Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-          <th title="Rolling average recall across the most recent 10 vanilla runs for this label."><span class="per-label-col-head">Rolling n=10<br>Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Latest-run codexfarm precision for this label (strict scoring baseline)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Latest-run codexfarm recall for this label (strict scoring baseline)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Delta from latest-run codexfarm precision for this label, using latest-run vanilla precision."><span class="per-label-col-head">Run<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Delta from latest-run codexfarm recall for this label, using latest-run vanilla recall."><span class="per-label-col-head">Run<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Delta from latest-run codexfarm precision for this label, using rolling n=10 codexfarm precision."><span class="per-label-col-head">Rolling n=10<br>Delta Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Delta from latest-run codexfarm recall for this label, using rolling n=10 codexfarm recall."><span class="per-label-col-head">Rolling n=10<br>Delta Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Delta from latest-run codexfarm precision for this label, using rolling n=10 vanilla precision."><span class="per-label-col-head">Rolling n=10<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Delta from latest-run codexfarm recall for this label, using rolling n=10 vanilla recall."><span class="per-label-col-head">Rolling n=10<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
           <th title="Gold span count for this label.">Gold</th>
           <th title="Predicted span count for this label.">Pred</th>
         </tr></thead><tbody></tbody></table>
@@ -2033,6 +2033,22 @@ _HTML = """\
         </label>
       </div>
       <div class="quick-filters-actions">
+        <section class="previous-runs-presets-panel">
+          <h4>View presets</h4>
+          <p class="section-note">Save/load column + filter views. <strong>Save current view</strong> captures what you currently have applied.</p>
+          <div class="previous-runs-presets-controls">
+            <label for="previous-runs-preset-select">Preset</label>
+            <select id="previous-runs-preset-select">
+              <option value="">(none)</option>
+            </select>
+          </div>
+          <div class="previous-runs-presets-actions">
+            <button id="previous-runs-preset-load" type="button">Load</button>
+            <button id="previous-runs-preset-save-current" type="button">Save current view</button>
+            <button id="previous-runs-preset-delete" type="button">Delete</button>
+          </div>
+          <p id="previous-runs-preset-status" class="section-note"></p>
+        </section>
         <button id="previous-runs-clear-all-filters" type="button">Clear all filters</button>
       </div>
       <p id="quick-filters-status" class="section-note"></p>
@@ -2051,22 +2067,6 @@ _HTML = """\
         <div id="previous-runs-columns-popup" class="previous-runs-columns-popup" hidden>
           <p class="section-note">Check fields to include them in Previous Runs. Drag table headers to reorder and drag edges to resize.</p>
           <div id="previous-runs-columns-checklist"></div>
-          <section class="previous-runs-presets-panel">
-            <h4>View presets</h4>
-            <p class="section-note">Save/load column + filter views. <strong>Save current view</strong> captures what you currently have applied.</p>
-            <div class="previous-runs-presets-controls">
-              <label for="previous-runs-preset-select">Preset</label>
-              <select id="previous-runs-preset-select">
-                <option value="">(none)</option>
-              </select>
-            </div>
-            <div class="previous-runs-presets-actions">
-              <button id="previous-runs-preset-load" type="button">Load</button>
-              <button id="previous-runs-preset-save-current" type="button">Save current view</button>
-              <button id="previous-runs-preset-delete" type="button">Delete</button>
-            </div>
-            <p id="previous-runs-preset-status" class="section-note"></p>
-          </section>
           <div class="previous-runs-columns-popup-actions">
             <button id="previous-runs-clear-filters" type="button">Clear column filters</button>
             <button id="previous-runs-column-reset" type="button">Reset defaults</button>
@@ -2458,10 +2458,15 @@ section h3 {
   accent-color: var(--accent2);
 }
 .quick-filters-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  align-items: flex-start;
   margin-top: 0.45rem;
 }
 #previous-runs-clear-all-filters {
   font-size: 0.78rem;
+  align-self: flex-start;
 }
 #quick-filters-status {
   margin: 0.52rem 0 0.05rem;
@@ -2534,9 +2539,15 @@ section h3 {
   font-size: 0.72rem;
 }
 .previous-runs-presets-panel {
-  margin-top: 0.5rem;
-  padding-top: 0.45rem;
-  border-top: 1px dashed #d4e0ec;
+  margin: 0;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid #c7d9bf;
+  border-radius: 8px;
+  background: #fbfef9;
+  box-shadow: 0 10px 24px rgba(21, 34, 48, 0.08);
+  width: min(420px, calc(100vw - 2.2rem));
+  max-width: 100%;
+  flex: 0 1 420px;
 }
 .previous-runs-presets-panel h4 {
   margin: 0 0 0.2rem;
@@ -2582,6 +2593,12 @@ section h3 {
 }
 
 .table-scroll {
+  min-height: calc(
+    var(--previous-runs-header-row-height)
+    + var(--previous-runs-filter-row-height)
+    + var(--previous-runs-spacer-row-height)
+    + (var(--previous-runs-visible-body-rows) * var(--previous-runs-body-row-height))
+  );
   max-height: calc(
     var(--previous-runs-header-row-height)
     + var(--previous-runs-filter-row-height)
@@ -2609,14 +2626,19 @@ section h3 {
   text-transform: none;
   letter-spacing: 0;
   font-weight: 500;
+  padding-top: 0.46rem;
+  padding-bottom: 0.46rem;
 }
 #previous-runs-table thead tr.previous-runs-filter-spacer-row th {
   top: calc(var(--previous-runs-header-row-height) + var(--previous-runs-filter-row-height));
-  background: #f7fbff;
+  background: #fcfdff;
   z-index: 1;
   text-transform: none;
   letter-spacing: 0;
   font-weight: 500;
+  padding-top: 0.06rem;
+  padding-bottom: 0.06rem;
+  border-bottom: 0;
 }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -2662,16 +2684,16 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.35rem;
-  align-items: flex-start;
+  align-items: center;
 }
 .previous-runs-column-filter-summary {
-  min-height: 1.1rem;
+  min-height: 1.22rem;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.24rem;
   color: var(--muted);
-  font-size: 0.74rem;
-  line-height: 1.2;
+  font-size: 0.77rem;
+  line-height: 1.28;
 }
 .previous-runs-column-filter-summary.filter-active {
   color: #174d84;
@@ -2681,7 +2703,7 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.24rem;
+  gap: 0.34rem;
 }
 .previous-runs-column-filter-summary-item span {
   min-width: 0;
@@ -2690,45 +2712,52 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   white-space: nowrap;
 }
 .previous-runs-column-filter-summary-remove {
-  border: 1px solid #d7e0ea;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #4a5b6b;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #6f8091;
   cursor: pointer;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: auto;
+  height: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
   line-height: 1;
-  padding: 0;
+  padding: 0.02rem;
+  min-width: 13px;
+  min-height: 13px;
 }
 .previous-runs-column-filter-summary-remove:hover {
-  border-color: #c6d0dc;
+  color: #556778;
 }
 .previous-runs-column-filter-toggle {
-  width: 1.1rem;
-  height: 1.1rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: #f4f8fd;
-  color: #3b4b59;
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #174d84;
   cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 0.08rem 0.16rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  min-width: 1rem;
+  min-height: 1rem;
+  align-self: center;
+}
+.previous-runs-icon-svg {
+  display: block;
+  width: 12px;
+  height: 12px;
 }
 .previous-runs-column-filter-toggle:hover {
-  border-color: #c7d0d9;
+  color: #123a63;
 }
 .previous-runs-column-filter-toggle.filter-active {
-  border-color: #8ab0d8;
-  background: #e7f1ff;
   color: #174d84;
 }
 .previous-runs-column-filter-popover {
@@ -2960,6 +2989,8 @@ th {
   letter-spacing: 0.045em;
 }
 td.num { text-align: right; font-family: var(--mono); }
+td.delta-better { color: #0d5b37; font-weight: 600; }
+td.delta-worse { color: #8a261f; font-weight: 600; }
 td a { color: var(--accent); text-decoration: none; word-break: break-all; }
 td a:hover { text-decoration: underline; }
 td.warn-note { color: #b45309; font-weight: 600; }
@@ -3255,21 +3286,33 @@ td.warn-note { color: #b45309; font-weight: 600; }
 }
 #per-label-table {
   width: max-content;
-  min-width: 100%;
 }
 #per-label-table th {
-  white-space: nowrap;
+  white-space: normal;
   text-align: left;
   padding-top: 0.16rem;
   padding-bottom: 0.16rem;
 }
 #per-label-table th,
 #per-label-table td {
-  padding-left: 0.38rem;
-  padding-right: 0.38rem;
+  padding-left: 0.24rem;
+  padding-right: 0.24rem;
+}
+#per-label-table td.num {
+  text-align: left;
+}
+#per-label-table th:nth-child(n+2):nth-child(-n+9),
+#per-label-table td:nth-child(n+2):nth-child(-n+9) {
+  width: 11ch;
+  min-width: 11ch;
+}
+#per-label-table th:nth-child(n+10):nth-child(-n+11),
+#per-label-table td:nth-child(n+10):nth-child(-n+11) {
+  width: 7ch;
+  min-width: 7ch;
 }
 .per-label-col-head {
-  display: inline-block;
+  display: block;
   line-height: 1.06;
   text-align: left;
   font-size: 0.92em;
@@ -3634,11 +3677,16 @@ _JS = """\
   const DASHBOARD_UI_STATE_VERSION = 1;
   const DASHBOARD_UI_STATE_STORAGE_KEY = "cookimport.stats_dashboard.ui_state.v1";
   const DASHBOARD_UI_STATE_SERVER_PATH = "assets/dashboard_ui_state.json";
+  const DASHBOARD_UI_STATE_SYNC_INTERVAL_MS = 3000;
   let dashboardUiStateLoadAttempted = false;
   let dashboardUiProgramStateLoadAttempted = false;
+  let dashboardUiProgramStoreAvailable = false;
+  let dashboardUiProgramSyncInFlight = false;
+  let dashboardUiProgramSyncTimer = null;
   let dashboardUiStorageResolved = false;
   let dashboardUiStorage = null;
   let dashboardUiStateSavedAtMs = -1;
+  let dashboardUiStatePersistSuppressed = false;
 
   function dashboardUiStorageHandle() {
     if (dashboardUiStorageResolved) return dashboardUiStorage;
@@ -3655,6 +3703,18 @@ _JS = """\
     } catch (error) {
       dashboardUiStorage = null;
       return null;
+    }
+  }
+
+  function persistDashboardUiStateToBrowserStorage(payload) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
+    try {
+      const storage = dashboardUiStorageHandle();
+      if (storage) {
+        storage.setItem(DASHBOARD_UI_STATE_STORAGE_KEY, JSON.stringify(payload));
+      }
+    } catch (error) {
+      // Ignore storage failures (private mode, quota, sandboxed contexts).
     }
   }
 
@@ -3767,7 +3827,7 @@ _JS = """\
   }
 
   function sanitizePreviousRunsPresetName(rawName) {
-    const text = String(rawName || "").trim().replace(/\s+/g, " ");
+    const text = String(rawName || "").trim().replace(/\\s+/g, " ");
     if (!text) return "";
     return text.slice(0, PREVIOUS_RUNS_PRESET_NAME_MAX);
   }
@@ -3877,14 +3937,17 @@ _JS = """\
   function applyDashboardUiStatePayload(parsed, savedAtMs) {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
     const nextSavedAtMs = Number.isFinite(savedAtMs) ? savedAtMs : -1;
-    if (nextSavedAtMs < dashboardUiStateSavedAtMs) return false;
+    if (dashboardUiStateSavedAtMs >= 0 && nextSavedAtMs >= 0 && nextSavedAtMs <= dashboardUiStateSavedAtMs) {
+      return false;
+    }
+    if (dashboardUiStateSavedAtMs >= 0 && nextSavedAtMs < 0) return false;
     const version = Number(parsed.version || 0);
     if (version && version !== DASHBOARD_UI_STATE_VERSION) return false;
     dashboardTableColumnWidths = sanitizeDashboardTableColumnWidths(parsed.table_column_widths);
     previousRunsViewPresets = sanitizePreviousRunsPresetMap(parsed.previous_runs_presets);
     const previousRuns = parsed.previous_runs;
     if (!previousRuns || typeof previousRuns !== "object") {
-      dashboardUiStateSavedAtMs = nextSavedAtMs;
+      dashboardUiStateSavedAtMs = nextSavedAtMs >= 0 ? nextSavedAtMs : 0;
       return true;
     }
 
@@ -3988,7 +4051,7 @@ _JS = """\
     previousRunsSelectedPreset = Object.prototype.hasOwnProperty.call(previousRunsViewPresets, selectedPreset)
       ? selectedPreset
       : "";
-    dashboardUiStateSavedAtMs = nextSavedAtMs;
+    dashboardUiStateSavedAtMs = nextSavedAtMs >= 0 ? nextSavedAtMs : 0;
     return true;
   }
 
@@ -4011,19 +4074,54 @@ _JS = """\
   }
 
   function loadDashboardUiStateFromProgramStore() {
-    if (dashboardUiProgramStateLoadAttempted) return Promise.resolve(false);
-    dashboardUiProgramStateLoadAttempted = true;
+    const options = arguments.length > 0 ? arguments[0] : null;
+    const force = Boolean(options && options.force);
+    if (!force && dashboardUiProgramStateLoadAttempted) return Promise.resolve(false);
+    if (!force) {
+      dashboardUiProgramStateLoadAttempted = true;
+    }
+    if (dashboardUiProgramSyncInFlight) return Promise.resolve(false);
     if (typeof fetch !== "function") return Promise.resolve(false);
+    dashboardUiProgramSyncInFlight = true;
     return fetch(DASHBOARD_UI_STATE_SERVER_PATH, { cache: "no-store" })
       .then(response => {
         if (!response.ok) throw new Error("HTTP " + response.status);
         return response.json();
       })
-      .then(parsed => applyDashboardUiStatePayload(
-        parsed,
-        dashboardUiStateSavedAtMsFromValue(parsed && parsed.saved_at)
-      ))
-      .catch(() => false);
+      .then(parsed => {
+        dashboardUiProgramStoreAvailable = true;
+        const applied = applyDashboardUiStatePayload(
+          parsed,
+          dashboardUiStateSavedAtMsFromValue(parsed && parsed.saved_at)
+        );
+        if (applied) {
+          persistDashboardUiStateToBrowserStorage(parsed);
+        }
+        return applied;
+      })
+      .catch(() => false)
+      .finally(() => {
+        dashboardUiProgramSyncInFlight = false;
+      });
+  }
+
+  function startDashboardUiProgramSyncLoop() {
+    if (typeof window === "undefined") return;
+    if (dashboardUiProgramSyncTimer != null) return;
+    dashboardUiProgramSyncTimer = window.setInterval(() => {
+      loadDashboardUiStateFromProgramStore({ force: true }).then(applied => {
+        if (!applied) return;
+        const previous = dashboardUiStatePersistSuppressed;
+        dashboardUiStatePersistSuppressed = true;
+        try {
+          setupPreviousRunsQuickFilters();
+          renderPreviousRunsColumnEditor();
+          renderAll();
+        } finally {
+          dashboardUiStatePersistSuppressed = previous;
+        }
+      });
+    }, DASHBOARD_UI_STATE_SYNC_INTERVAL_MS);
   }
 
   function buildDashboardUiStatePayload() {
@@ -4124,15 +4222,9 @@ _JS = """\
   }
 
   function persistDashboardUiState() {
+    if (dashboardUiStatePersistSuppressed) return;
     const payload = buildDashboardUiStatePayload();
-    try {
-      const storage = dashboardUiStorageHandle();
-      if (storage) {
-        storage.setItem(DASHBOARD_UI_STATE_STORAGE_KEY, JSON.stringify(payload));
-      }
-    } catch (error) {
-      // Ignore persistence failures (storage unavailable/full/private mode restrictions).
-    }
+    persistDashboardUiStateToBrowserStorage(payload);
     persistDashboardUiStateToProgramStore(payload);
   }
 
@@ -4182,10 +4274,11 @@ _JS = """\
     applyHighchartsGlobalDefaults();
     loadDashboardUiState();
     loadDashboardUiStateFromProgramStore()
-      .finally(() => {
+      .then(() => {
         renderHeader();
         setupPreviousRunsFilters();
         renderAll();
+        startDashboardUiProgramSyncLoop();
       });
   }
 
@@ -4551,6 +4644,7 @@ _JS = """\
     ensurePreviousRunsColumns();
     setupPreviousRunsColumnsControls();
     setupPreviousRunsQuickFilters();
+    setupPreviousRunsPresetControls();
     setupIsolateControls();
     const clearBtn = document.getElementById("previous-runs-clear-filters");
     if (clearBtn && !clearBtn.dataset.bound) {
@@ -4863,6 +4957,31 @@ _JS = """\
       });
     });
     return ordered;
+  }
+
+  function previousRunsIconSvgPath(iconName) {
+    if (iconName === "plus") return "M8 3.25v9.5M3.25 8h9.5";
+    if (iconName === "minus") return "M3.25 8h9.5";
+    return "M4.3 4.3l7.4 7.4M11.7 4.3l-7.4 7.4";
+  }
+
+  function setPreviousRunsIcon(button, iconName) {
+    if (!(button instanceof HTMLElement)) return;
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.classList.add("previous-runs-icon-svg");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", previousRunsIconSvgPath(iconName));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "1.8");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(path);
+    button.replaceChildren(svg);
   }
 
   function formatPreviousRunsColumnFilterSummary(fieldName, filter) {
@@ -5717,8 +5836,7 @@ _JS = """\
     return true;
   }
 
-  function setPreviousRunsColumnsPopupOpen(nextOpen) {
-    previousRunsColumnsPopupOpen = Boolean(nextOpen);
+  function syncPreviousRunsPopupVisibility() {
     const popup = document.getElementById("previous-runs-columns-popup");
     const toggleBtn = document.getElementById("previous-runs-columns-toggle");
     if (popup) {
@@ -5728,6 +5846,11 @@ _JS = """\
       toggleBtn.setAttribute("aria-expanded", previousRunsColumnsPopupOpen ? "true" : "false");
       toggleBtn.classList.toggle("open", previousRunsColumnsPopupOpen);
     }
+  }
+
+  function setPreviousRunsColumnsPopupOpen(nextOpen) {
+    previousRunsColumnsPopupOpen = Boolean(nextOpen);
+    syncPreviousRunsPopupVisibility();
   }
 
   function setupPreviousRunsColumnsControls() {
@@ -5779,7 +5902,10 @@ _JS = """\
       });
       resetBtn.dataset.bound = "1";
     }
+    setPreviousRunsColumnsPopupOpen(false);
+  }
 
+  function setupPreviousRunsPresetControls() {
     const presetSelect = document.getElementById("previous-runs-preset-select");
     if (presetSelect && !presetSelect.dataset.bound) {
       presetSelect.addEventListener("change", () => {
@@ -5824,7 +5950,6 @@ _JS = """\
     }
 
     renderPreviousRunsPresetEditor();
-    setPreviousRunsColumnsPopupOpen(false);
   }
 
   function renderPreviousRunsColumnEditor() {
@@ -6434,6 +6559,17 @@ _JS = """\
       .replace(/\\\\/g, "/");
     let runToken = "";
     if (rawPath) {
+      const parts = rawPath.split("/").filter(Boolean);
+      for (let i = 0; i < parts.length - 1; i++) {
+        const segment = String(parts[i] || "").toLowerCase();
+        if (segment !== "benchmark-vs-golden") continue;
+        const candidate = String(parts[i + 1] || "");
+        if (!isTimestampTokenText(candidate)) continue;
+        runToken = candidate;
+        break;
+      }
+    }
+    if (!runToken && rawPath) {
       const parts = rawPath.split("/").filter(Boolean);
       for (let i = parts.length - 1; i >= 0; i--) {
         const candidate = String(parts[i] || "");
@@ -7371,7 +7507,7 @@ _JS = """\
           const summaryRemoveBtn = document.createElement("button");
           summaryRemoveBtn.type = "button";
           summaryRemoveBtn.className = "previous-runs-column-filter-summary-remove";
-          summaryRemoveBtn.textContent = "×";
+          setPreviousRunsIcon(summaryRemoveBtn, "close");
           summaryRemoveBtn.setAttribute("aria-label", "Remove filter " + String(clauseIndex + 1));
           summaryRemoveBtn.addEventListener("click", event => {
             event.preventDefault();
@@ -7394,7 +7530,7 @@ _JS = """\
       if (hasActiveFilters) {
         toggleBtn.classList.add("filter-active");
       }
-      toggleBtn.textContent = isEditorOpen ? "−" : "+";
+      setPreviousRunsIcon(toggleBtn, isEditorOpen ? "minus" : "plus");
       toggleBtn.title = isEditorOpen ? "Close filter editor" : "Open filter editor";
       toggleBtn.setAttribute("aria-label", (meta.label || fieldName) + " filter editor");
       toggleBtn.setAttribute("aria-expanded", isEditorOpen ? "true" : "false");
@@ -7461,7 +7597,7 @@ _JS = """\
             const removeBtn = document.createElement("button");
             removeBtn.type = "button";
             removeBtn.className = "previous-runs-column-filter-active-remove";
-            removeBtn.textContent = "×";
+            setPreviousRunsIcon(removeBtn, "close");
             removeBtn.setAttribute("aria-label", "Remove filter " + String(clauseIndex + 1));
             removeBtn.addEventListener("click", () => {
               removePreviousRunsColumnFilterAt(fieldName, clauseIndex);
@@ -7784,17 +7920,32 @@ _JS = """\
     });
   }
 
+  function formatTokenCountCompact(value) {
+    if (value == null || !Number.isFinite(value)) return "-";
+    const absValue = Math.abs(value);
+    const sign = value < 0 ? "-" : "";
+    if (absValue >= 1000000) {
+      const millionsText = Number((absValue / 1000000).toFixed(2)).toString();
+      return sign + millionsText + "m";
+    }
+    if (absValue >= 1000) {
+      const thousands = Math.floor(absValue / 1000);
+      return sign + String(thousands) + "k";
+    }
+    return formatTokenCount(value);
+  }
+
   function previousRunsAllTokenUseDisplay(row) {
     const parts = previousRunsTokenPartsForRow(row);
     if (parts.total == null && parts.input == null && parts.output == null) {
       return "-";
     }
     return (
-      formatTokenCount(parts.total) +
+      formatTokenCountCompact(parts.total) +
       " total | " +
-      formatTokenCount(parts.input) +
+      formatTokenCountCompact(parts.input) +
       " in | " +
-      formatTokenCount(parts.output) +
+      formatTokenCountCompact(parts.output) +
       " out"
     );
   }
@@ -8370,6 +8521,23 @@ _JS = """\
     return mapping;
   }
 
+  function perLabelDeltaCell(value, baseline) {
+    const valueNum = maybeNumber(value);
+    const baselineNum = maybeNumber(baseline);
+    if (valueNum == null || baselineNum == null) {
+      return '<td class="num">-</td>';
+    }
+    const rawDelta = valueNum - baselineNum;
+    const delta = Math.abs(rawDelta) <= 1e-12 ? 0 : rawDelta;
+    let cellClass = "num";
+    if (delta > 0) {
+      cellClass += " delta-better";
+    } else if (delta < 0) {
+      cellClass += " delta-worse";
+    }
+    return '<td class="' + cellClass + '">' + signedNumber(delta, 4) + "</td>";
+  }
+
   function rollingPerLabelByVariant(records, variant, windowSize) {
     const byRunTimestamp = Object.create(null);
     (records || []).forEach(record => {
@@ -8501,17 +8669,19 @@ _JS = """\
       const runVanilla = runVanillaByLabel[lbl.label] || {};
       const rollingCodexFarm = rollingCodexFarmByLabel[lbl.label] || {};
       const rollingVanilla = rollingVanillaByLabel[lbl.label] || {};
+      const baselinePrecision = runCodexFarm.precision;
+      const baselineRecall = runCodexFarm.recall;
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(lbl.label) + '</td>' +
         '<td class="num">' + fmt4(runCodexFarm.precision) + '</td>' +
         '<td class="num">' + fmt4(runCodexFarm.recall) + '</td>' +
-        '<td class="num">' + fmt4(runVanilla.precision) + '</td>' +
-        '<td class="num">' + fmt4(runVanilla.recall) + '</td>' +
-        '<td class="num">' + fmt4(rollingCodexFarm.precision) + '</td>' +
-        '<td class="num">' + fmt4(rollingCodexFarm.recall) + '</td>' +
-        '<td class="num">' + fmt4(rollingVanilla.precision) + '</td>' +
-        '<td class="num">' + fmt4(rollingVanilla.recall) + '</td>' +
+        perLabelDeltaCell(runVanilla.precision, baselinePrecision) +
+        perLabelDeltaCell(runVanilla.recall, baselineRecall) +
+        perLabelDeltaCell(rollingCodexFarm.precision, baselinePrecision) +
+        perLabelDeltaCell(rollingCodexFarm.recall, baselineRecall) +
+        perLabelDeltaCell(rollingVanilla.precision, baselinePrecision) +
+        perLabelDeltaCell(rollingVanilla.recall, baselineRecall) +
         '<td class="num">' + (lbl.gold_total != null ? Math.round(lbl.gold_total) : "-") + '</td>' +
         '<td class="num">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>';
       tbody.appendChild(tr);
@@ -8703,7 +8873,7 @@ _JS = """\
     const pipelineMode = runConfigValue(latest, ["llm_recipe_pipeline", "llm_pipeline"]);
     const model = aiModelForRecord(latest);
     const effort = aiEffortForRecord(latest);
-    const totalTokenUse = formatTokenCount(
+    const totalTokenUse = formatTokenCountCompact(
       previousRunsDiscountedTokenTotal(
         maybeNumber(latest.tokens_input),
         maybeNumber(latest.tokens_cached_input),

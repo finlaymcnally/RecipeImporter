@@ -92,6 +92,9 @@ Interactive `single_offline` now writes into one session root:
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
   - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
+- dashboard refresh is deferred until the full single-offline variant batch completes, so the session dashboard snapshots once with both variant rows when available.
+- paired success also generates a blended first-look starter pack in-place:
+  - `.../single-offline-benchmark/<source_slug>/starter_pack_v1/`
 - optional consolidated markdown summary (when markdown writes are enabled):
   - `.../single-offline-benchmark/<source_slug>/single_offline_summary.md`
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
@@ -211,6 +214,38 @@ Prediction-record and telemetry artifacts:
 - compare action writes `comparison.json` and `comparison.md` under the configured comparison output root.
 - compare action prints the gate pass/fail table directly in CLI output.
 - comparison.md and comparison.json include source-level debug artifact diagnostics for candidate runs, including mode resolution and warning messages when benchmark mode must be inferred or cannot be confirmed.
+
+### 3.5 `benchmark_cutdown_for_external_ai.py` starter-pack contract
+
+`scripts/benchmark_cutdown_for_external_ai.py` now writes additive blended first-look artifacts under `starter_pack_v1/` while preserving legacy root files.
+Interactive `labelstudio_benchmark` single-offline paired runs reuse the same starter-pack logic directly in the session root.
+
+Starter-pack mandatory files:
+- `README.md`
+- `00_run_overview.md`
+- `01_recipe_triage.csv` (fixed header order)
+- `02_call_inventory.jsonl`
+- `03_changed_lines.codex_vs_baseline.jsonl`
+- `04_warning_and_trace_summary.json`
+- `05_bridge_summary.jsonl`
+- `06_selected_recipe_packets.jsonl`
+- `07_casebook.md`
+- `09_label_policy.md`
+- `10_process_manifest.json`
+- `11_comparison_summary.json` (root mirror)
+- `12_per_recipe_or_per_span_breakdown.json` (root mirror)
+
+Conditional starter-pack file:
+- `08_outside_span_trace.sample.jsonl` is emitted only when
+  `outside_span_wrong_line_count >= 10` or
+  `inside_span_accuracy - outside_span_accuracy >= 0.05`.
+  When omitted, `starter_pack_v1/10_process_manifest.json` records `outside_span_trace_sample.omitted_reason`.
+
+Root `process_manifest.json` includes starter-pack pointers:
+- `starter_pack_v1_path`
+- `starter_pack_v1_manifest_file`
+- `starter_pack_v1_heavy_artifacts_omitted_by_default`
+- `starter_pack_v1_legacy_to_starter_mapping`
 
 ## 4. Scoring Contracts
 

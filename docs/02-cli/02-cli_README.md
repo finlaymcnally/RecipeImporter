@@ -354,6 +354,7 @@ Interactive benchmark now has a mode submenu before execution:
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
      - `single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
      - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
+     - also writes `single-offline-benchmark/<source_slug>/starter_pack_v1/` by running the benchmark cutdown starter-pack builder in-place against the paired variant run dirs
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
@@ -1225,9 +1226,10 @@ Durable rules:
 Merged sources:
 - `docs/understandings/2026-02-22_23.13.34-spinner-xy-eta-flow.md`
 - `docs/understandings/2026-02-23_00.17.44-spinner-worker-activity-telemetry.md`
+- `docs/understandings/2026-03-03_12.20.00-spinner-eta-weighted-window-bootstrap.md`
 
 Durable rules:
-- Callback spinner ETA is derived from the active `X/Y` counter and should only accumulate timing over real counter increments (`X` increase). For all-method dashboard snapshots, use top-line `overall ... | config X/Y`.
+- Callback spinner ETA is derived from the active `X/Y` counter and should prioritize recent throughput via a weighted last-5-step average (`30/20/20/20/10`, newest first). For all-method dashboard snapshots, use top-line `overall ... | config X/Y`.
 - `task/item/config/phase` loops should emit counters from runtime loop boundaries; CLI renderer should format and decorate them, not invent totals.
 - Worker telemetry stays a side-channel payload parsed/rendered by shared spinner code so per-worker status lines do not overwrite the primary phase/task line.
 - For multi-line dashboard snapshots, ETA/elapsed suffixes decorate the top summary line (`overall ...`) instead of the trailing `task:` line.
@@ -1241,8 +1243,8 @@ Durable rules:
 Current CLI spinner contract for callback-driven phases:
 
 - Parse the active `X/Y` counter in status text (all-method dashboard snapshots use top-line `overall ... | config X/Y`; other flows use right-most).
-- Compute average seconds per completed unit from observed `X` increments.
-- Render ETA only after at least one increment; keep stale-phase elapsed-seconds ticker behavior unchanged.
+- Compute average seconds per completed unit from recent observed `X` increments using the weighted last-5 step window.
+- If the first observed counter already starts above `1`, bootstrap ETA from run-elapsed/current until increment history is available; keep stale-phase elapsed-seconds ticker behavior unchanged.
 - Keep this logic centralized in `_run_with_progress_status(...)` so import/benchmark/Label Studio wrappers stay consistent.
 
 Durable gotcha:

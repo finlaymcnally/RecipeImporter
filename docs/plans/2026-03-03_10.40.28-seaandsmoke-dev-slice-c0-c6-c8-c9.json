@@ -1,12 +1,22 @@
 {
-  "schema_version": "codexfarm_dev_slice.v1",
+  "schema_version": "seaandsmoke_dev_slice_manifest.v1",
   "source_file": "data/input/SeaAndSmokeCUTDOWN.epub",
-  "gold_spans_file": "data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl",
-  "notes": "Manual diagnosis focus set for CodexFarm transport/fallback checks.",
-  "recipe_ids": [
+  "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+  "book_slug": "seaandsmokecutdown",
+  "selected_short_ids": [
+    "c0",
+    "c6",
+    "c8",
+    "c9"
+  ],
+  "selected_recipe_ids": [
     "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c0",
     "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c6",
     "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c8",
     "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c9"
+  ],
+  "notes": [
+    "Intended dev-slice for Proplan2 milestone-5 gating.",
+    "Use with SeaAndSmoke canonical-text codex-vs-vanilla benchmark diagnostics."
   ]
 }

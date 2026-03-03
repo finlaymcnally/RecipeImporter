@@ -1269,6 +1269,8 @@ class TestRenderer:
         assert 'id="isolate-insights"' in html
         assert 'id="quick-filters-panel"' in html
         assert 'id="quick-filters-advanced"' not in html
+        assert 'id="previous-runs-presets-toggle"' not in html
+        assert 'id="previous-runs-presets-popup"' not in html
         assert 'id="quick-filter-exclude-ai-tests"' in html
         assert 'id="quick-filter-official-only"' in html
         assert 'id="previous-runs-clear-all-filters"' in html
@@ -1320,8 +1322,8 @@ class TestRenderer:
         assert 'class="per-label-col-head">Run<br>Precision<br>' in html
         assert 'class="per-label-col-sub">(codexfarm)</span>' in html
         assert 'class="per-label-col-head">Run<br>Recall<br>' in html
-        assert "Rolling n=10<br>Precision<br>" in html
-        assert "Rolling n=10<br>Recall<br>" in html
+        assert "Rolling n=10<br>Delta Precision<br>" in html
+        assert "Rolling n=10<br>Delta Recall<br>" in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html
         assert "Stage / Import Throughput" not in html
@@ -1402,13 +1404,17 @@ class TestRenderer:
         assert "function aiEffortLabelForRecord(record)" in js
         assert "function previousRunsAllTokenUseDisplay(row)" in js
         assert "function previousRunsAllTokenUseTitle(row)" in js
+        assert "function formatTokenCountCompact(value)" in js
+        assert "formatTokenCountCompact(parts.total)" in js
+        assert "formatTokenCountCompact(parts.input)" in js
+        assert "formatTokenCountCompact(parts.output)" in js
         assert 'if (pipelineText === "off") return "off";' in js
         assert "return \"-\";" in js
         assert 'lower === "<default>"' in js
         assert "function renderLatestRuntime()" in js
         assert 'const latestTs = String(preferred[0].run_timestamp || "");' in js
         assert "const latestGroup = preferred.filter(" in js
-        assert "const totalTokenUse = formatTokenCount(" in js
+        assert "const totalTokenUse = formatTokenCountCompact(" in js
         assert "previousRunsDiscountedTokenTotal(" in js
         assert "rawTotalTokenUse" not in js
         assert "AI Runtime" not in js
@@ -1439,10 +1445,13 @@ class TestRenderer:
         assert "const PREVIOUS_RUNS_PRESET_MAX_COUNT = 40;" in js
         assert 'const DASHBOARD_UI_STATE_STORAGE_KEY = "cookimport.stats_dashboard.ui_state.v1";' in js
         assert 'const DASHBOARD_UI_STATE_SERVER_PATH = "assets/dashboard_ui_state.json";' in js
+        assert "const DASHBOARD_UI_STATE_SYNC_INTERVAL_MS = 3000;" in js
         assert "function loadDashboardUiState()" in js
         assert "function loadDashboardUiStateFromProgramStore()" in js
+        assert "function startDashboardUiProgramSyncLoop()" in js
         assert "function persistDashboardUiState()" in js
         assert "function persistDashboardUiStateToProgramStore(payload)" in js
+        assert "function persistDashboardUiStateToBrowserStorage(payload)" in js
         assert "function sanitizePreviousRunsPresetName(rawName)" in js
         assert "function sanitizePreviousRunsPresetState(rawPreset)" in js
         assert "function sanitizePreviousRunsPresetMap(rawPresets)" in js
@@ -1468,12 +1477,16 @@ class TestRenderer:
         assert "window.localStorage" in js
         assert "loadDashboardUiState();" in js
         assert "loadDashboardUiStateFromProgramStore()" in js
+        assert "loadDashboardUiStateFromProgramStore({ force: true })" in js
         assert 'fetch(DASHBOARD_UI_STATE_SERVER_PATH, { cache: "no-store" })' in js
         assert "storage.setItem(DASHBOARD_UI_STATE_STORAGE_KEY, JSON.stringify(payload));" in js
         assert 'method: "PUT"' in js
+        assert "if (dashboardUiStatePersistSuppressed) return;" in js
         assert "persistDashboardUiState();" in js
         assert "function setupPreviousRunsFilters()" in js
         assert "function setupPreviousRunsQuickFilters()" in js
+        assert "function setupPreviousRunsPresetControls()" in js
+        assert "function setPreviousRunsPresetsPopupOpen(nextOpen)" not in js
         assert "function applyPreviousRunsQuickFilters(records, options)" in js
         assert "function isLikelyAiTestBenchmarkRecord(record)" in js
         assert "timestampSuffix = segment.match(" in js
@@ -1493,6 +1506,8 @@ class TestRenderer:
         assert "function addPreviousRunsColumnFilter(fieldName, operator, value)" in js
         assert "function removePreviousRunsColumnFilterAt(fieldName, index)" in js
         assert "function activePreviousRunsColumnFilters()" in js
+        assert "function previousRunsIconSvgPath(iconName)" in js
+        assert "function setPreviousRunsIcon(button, iconName)" in js
         assert "function formatPreviousRunsColumnFilterSummary(fieldName, filter)" in js
         assert "function formatPreviousRunsColumnFiltersSummary(fieldName, clauses)" in js
         assert "function groupPreviousRunsFiltersByField(filters)" in js
@@ -1509,6 +1524,8 @@ class TestRenderer:
         assert "function setupPreviousRunsColumnsControls()" in js
         assert "function renderPreviousRunsTableColumns(table, columns)" in js
         assert "function renderPreviousRunsColumnEditor()" in js
+        assert 'const toggleBtn = document.getElementById("previous-runs-presets-toggle");' not in js
+        assert 'const popup = document.getElementById("previous-runs-presets-popup");' not in js
         assert 'const presetSelect = document.getElementById("previous-runs-preset-select");' in js
         assert 'const presetLoadBtn = document.getElementById("previous-runs-preset-load");' in js
         assert 'const presetSaveCurrentBtn = document.getElementById("previous-runs-preset-save-current");' in js
@@ -1519,16 +1536,16 @@ class TestRenderer:
         assert "let previousRunsOpenFilterDraft = null;" in js
         assert "function openPreviousRunsColumnFilterEditor(fieldName)" in js
         assert "function closePreviousRunsColumnFilterEditor()" in js
-        assert 'toggleBtn.textContent = isEditorOpen ? "−" : "+";' in js
+        assert 'setPreviousRunsIcon(toggleBtn, isEditorOpen ? "minus" : "plus");' in js
         assert 'summaryItem.className = "previous-runs-column-filter-summary-item";' in js
         assert 'summaryRemoveBtn.className = "previous-runs-column-filter-summary-remove";' in js
-        assert 'summaryRemoveBtn.textContent = "×";' in js
+        assert 'setPreviousRunsIcon(summaryRemoveBtn, "close");' in js
         assert 'popover.className = "previous-runs-column-filter-popover";' in js
         assert 'modeWrap.className = "previous-runs-column-filter-mode";' in js
         assert 'modeButtons.className = "previous-runs-column-filter-mode-buttons";' in js
         assert "setPreviousRunsColumnFilterMode(fieldName, modeValue);" in js
         assert 'activeList.className = "previous-runs-column-filter-active-list";' in js
-        assert 'removeBtn.textContent = "×";' in js
+        assert 'setPreviousRunsIcon(removeBtn, "close");' in js
         assert "removePreviousRunsColumnFilterAt(fieldName, clauseIndex);" in js
         assert "addPreviousRunsColumnFilter(fieldName, operatorSelect.value || \"contains\", valueInput.value || \"\");" in js
         assert 'suggestionWrap.className = "previous-runs-column-filter-suggestions";' in js
@@ -1612,6 +1629,7 @@ class TestRenderer:
         assert "const latestRunGroupKey = String((latestRunGroup && latestRunGroup.runGroupKey) || \"\").trim();" in js
         assert "const latestRunRecords = (records || []).filter(record => {" in js
         assert "const recordRunGroup = benchmarkRunGroupInfo(record);" in js
+        assert 'if (segment !== "benchmark-vs-golden") continue;' in js
         assert 'latestRunRecords.length + " evals)"' in js
         assert "function aggregatePerLabelRows(records)" in js
         assert "function rollingPerLabelByVariant(records, variant, windowSize)" in js
@@ -1695,12 +1713,16 @@ class TestRenderer:
         assert ".quick-filters-advanced {" not in css
         assert ".quick-filters-advanced-body {" not in css
         assert ".quick-filters-actions {" in css
+        assert ".quick-filters-presets-control {" not in css
+        assert ".previous-runs-presets-toggle {" not in css
+        assert ".previous-runs-presets-popup {" not in css
         assert "#previous-runs-clear-all-filters {" in css
         assert "#quick-filters-status {" in css
         assert ".previous-runs-presets-panel {" in css
         assert "#previous-runs-preset-select {" in css
         assert ".previous-runs-presets-actions {" in css
         assert ".table-scroll {" in css
+        assert "min-height: calc(" in css
         assert "max-height: calc(" in css
         assert "overflow-y: auto;" in css
         assert "--previous-runs-filter-row-height: 2.18rem;" in css

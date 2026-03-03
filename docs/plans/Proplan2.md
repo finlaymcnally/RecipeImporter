@@ -33,7 +33,7 @@ Any codex-enabled benchmarking or staging in this plan remains explicit opt-in v
 - [x] (2026-03-03 10:39 America/Toronto) Added deterministic pass3 fallback from pass2 structured outputs for missing/invalid/low-quality pass3 bundles.
 - [x] (2026-03-03 10:40 America/Toronto) Added targeted tests and checked in Sea dev-slice manifest `docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`.
 - [x] (2026-03-03 11:10 America/Toronto) Aligned transport mismatch failure-mode semantics (`fallback` marks recipe pass3 fallback) and switched transport/normalization artifacts to sanitized recipe-id keyed filenames.
-- [ ] Run dev-slice benchmark replay, then full `SeaAndSmokeCUTDOWN` replay, and record promotion decision.
+- [x] (2026-03-03 12:27 America/Toronto) Recorded milestone-5 benchmark outcomes from latest Sea paired replay artifacts (`2026-03-03_12.12.49`), generated dev-slice (c0/c6/c8/c9) breakdown diagnostics, and captured no-promotion decision.
 
 ## Surprises & Discoveries
 
@@ -79,6 +79,10 @@ Any codex-enabled benchmarking or staging in this plan remains explicit opt-in v
   Rationale: Keeps compatibility with existing recipe-scoped failure handling and preserves deterministic writer path.
   Date/Author: 2026-03-03 / OpenAI assistant
 
+- Decision: Do not promote CodexFarm recipe correction as default based on current Sea milestone-5 evidence.
+  Rationale: Latest full replay and dev-slice diagnostics both underperform vanilla baseline on required macro metrics.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
 ## Outcomes & Retrospective
 
 Runtime implementation for milestones 1/2/4 is complete and additive:
@@ -88,7 +92,18 @@ Runtime implementation for milestones 1/2/4 is complete and additive:
 - pass3 now has a deterministic fallback path from pass2 structured output when pass3 bundle is missing/invalid/low-quality.
 - targeted LLM tests and a checked-in Sea dev-slice manifest were added.
 
-Benchmark replay/promotion decision (milestone 5) is still pending in this workspace run.
+Milestone 5 benchmark/promotion outcome is now recorded (no promotion):
+
+- Full Sea paired replay artifact: `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codex_vs_vanilla_comparison.json`
+  - `strict_accuracy`: codex `0.282353` vs vanilla `0.384874` (delta `-0.102521`)
+  - `macro_f1_excluding_other`: codex `0.346740` vs vanilla `0.404162` (delta `-0.057421`)
+- Dev-slice diagnostics (c0/c6/c8/c9) from latest paired replay:
+  - source: `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/2026-03-03_12.12.49_cutdown_md/per_recipe_or_per_span_breakdown.json`
+  - aggregate line accuracy: codex `0.287671` vs vanilla `0.410959` (delta `-0.123288`)
+  - targeted regressions remain on c6/c8/c9 (c0 neutral).
+- Transport mismatches are zero on latest full replay:
+  - source: `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codexfarm/prediction-run/raw/llm/seaandsmokecutdown/llm_manifest.json`
+  - `transport_mismatches=0`
 
 ## Context and Orientation
 
@@ -227,26 +242,38 @@ Dev-slice manifest for manual focus review:
 
     docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json
 
+Milestone-5 evidence commands used in this workspace pass:
+
+    python scripts/benchmark_cutdown_for_external_ai.py \
+      data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown \
+      --output-dir data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/2026-03-03_12.12.49_cutdown_md \
+      --overwrite
+    jq '{metrics,metadata}' \
+      data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codex_vs_vanilla_comparison.json
+    jq '.pairs[0].per_recipe_breakdown[] | select(.recipe_id|test(":c0$|:c6$|:c8$|:c9$"))' \
+      data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/2026-03-03_12.12.49_cutdown_md/per_recipe_or_per_span_breakdown.json
+
 ## Validation and Acceptance
 
 Transport acceptance:
 
-- Zero silent pass1/pass2 mismatches on dev slice.
-- Any mismatch is visible in transport audit artifacts and aggregate counts.
+- Met: zero pass1/pass2 transport mismatches on latest Sea paired replay (`transport_mismatches=0`).
+- Met: mismatch visibility path is wired (`transport_audit/*.json` + manifest counters).
 
 Normalization acceptance:
 
-- Deterministic tests prove merge/fold/skip behavior and provenance mapping.
-- Source extracted blocks remain unchanged.
+- Met: deterministic tests cover merge/fold/skip behavior and provenance mapping (`tests/llm/test_evidence_normalizer.py`).
+- Met: normalization remains additive (authoritative `canonical_text` + `blocks` are unchanged in pass2 input contract).
 
 Draft acceptance:
 
-- Targeted tests prove descriptions/notes are not emitted as instructions in deterministic fallback path.
+- Met: targeted test proves pass3 low-quality description/headnote text is rejected and deterministic fallback avoids it.
 
 Benchmark acceptance:
 
-- Dev slice (c0/c6/c8/c9) beats legacy CodexFarm and meets baseline floor.
-- Full Sea replay is baseline-neutral or better on required gates before any promotion decision.
+- Not met: Dev slice (c0/c6/c8/c9) does not beat vanilla baseline (`delta_codex_minus_baseline=-0.123288` aggregate).
+- Not met: Full Sea replay is below vanilla on both tracked macro metrics (`strict_accuracy`, `macro_f1_excluding_other`).
+- Promotion decision: keep CodexFarm recipe correction opt-in only; no default promotion.
 
 ## Idempotence and Recovery
 
@@ -262,6 +289,8 @@ Expected new/updated artifacts for this plan:
 - `raw/llm/<workbook_slug>/evidence_normalization/*.json` (sanitized recipe-id keyed)
 - `raw/llm/<workbook_slug>/llm_manifest.json` (with added counters)
 - `docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`
+- `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/codex_vs_vanilla_comparison.json`
+- `data/golden/benchmark-vs-golden/2026-03-03_12.12.49/single-offline-benchmark/seaandsmokecutdown/2026-03-03_12.12.49_cutdown_md/per_recipe_or_per_span_breakdown.json`
 - benchmark run outputs under `data/golden/benchmark-vs-golden/<timestamp>/...`
 
 Add concise transcripts and before/after metrics here as milestones land.
@@ -283,3 +312,4 @@ Dependencies remain within current stack (Typer, Pydantic v2, pytest, existing p
 Revision note: 2026-03-03 - Rewrote plan to match actual runtime seams and policy boundaries: concrete orchestrator symbols, existing line-role subsystem reuse, strict codex schema contract awareness, and additive opt-in rollout constraints.
 Revision note: 2026-03-03 - Implemented milestones 1/2/4 in code and tests: transport audits, additive evidence normalization, deterministic pass3 fallback, and dev-slice manifest check-in; benchmark replay milestone still pending.
 Revision note: 2026-03-03 - Post-implementation alignment pass: transport mismatch now maps to recipe-level pass3 fallback in fallback mode, transport/normalization artifacts use sanitized recipe-id filenames, and eval context token fields are now backward-compatible for legacy test doubles.
+Revision note: 2026-03-03 - Completed milestone-5 evidence capture from latest Sea paired replay artifacts; dev-slice and full-run metrics remain below vanilla, so promotion decision is no-default-promotion (keep opt-in only).

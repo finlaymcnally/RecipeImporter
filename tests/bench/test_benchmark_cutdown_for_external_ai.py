@@ -32,6 +32,17 @@ def _read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_jsonl(path: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -130,6 +141,77 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
                 "ingredient_step_mapping": "{}",
             },
             "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+        },
+    ]
+
+
+def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
+    return [
+        {
+            "pass": "pass1",
+            "call_id": "starter-pass1",
+            "recipe_id": "recipe:c0",
+            "timestamp_utc": "2026-03-03T10:00:00Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "is_recipe": True,
+                "recipe_id": "recipe:c0",
+                "start_block_index": 0,
+                "end_block_index": 2,
+                "title": "Dish Title",
+                "excluded_block_ids": [],
+            },
+            "request_input_payload": {
+                "blocks_candidate": [
+                    {"index": 0, "block_id": "b0", "text": "Dish Title"},
+                    {"index": 1, "block_id": "b1", "text": "1 cup flour"},
+                    {"index": 2, "block_id": "b2", "text": "Mix gently"},
+                    {"index": 3, "block_id": "b3", "text": "Chef note"},
+                ],
+                "blocks_after": [],
+                "blocks_before": [],
+            },
+        },
+        {
+            "pass": "pass2",
+            "call_id": "starter-pass2",
+            "recipe_id": "recipe:c0",
+            "timestamp_utc": "2026-03-03T10:00:05Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "warnings": ["No explicit cooking instructions were provided."],
+                "extracted_ingredients": [{"text": "1 cup flour"}],
+                "extracted_instructions": [],
+            },
+            "request_input_payload": {
+                "blocks": [
+                    {"index": 0, "block_id": "b0", "text": "Dish Title"},
+                    {"index": 1, "block_id": "b1", "text": "1 cup flour"},
+                ],
+                "canonical_text": "Dish Title\n1 cup flour\nMix gently\nChef note\n",
+            },
+        },
+        {
+            "pass": "pass3",
+            "call_id": "starter-pass3",
+            "recipe_id": "recipe:c0",
+            "timestamp_utc": "2026-03-03T10:00:10Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "warnings": ["No extracted instructions were provided."],
+                "ingredient_step_mapping": "{}",
+                "draft_v1": json.dumps(
+                    {
+                        "schema_v": 1,
+                        "recipe": {"title": "Dish Title"},
+                        "steps": [],
+                    }
+                ),
+            },
+            "request_input_payload": {
+                "extracted_ingredients": [{"text": "1 cup flour"}],
+                "extracted_instructions": [],
+            },
         },
     ]
 
@@ -404,7 +486,15 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
         wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
     )
 
-    summary, changed_lines, pair_breakdowns, targeted_cases = module._build_comparison_summary(
+    (
+        summary,
+        changed_lines,
+        pair_breakdowns,
+        targeted_cases,
+        recipe_triage_rows,
+        call_inventory_rows,
+        outside_span_trace_rows,
+    ) = module._build_comparison_summary(
         records=[codex_record, baseline_record],
         excerpt_limit=140,
         targeted_prompt_case_limit=10,
@@ -417,6 +507,9 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
     assert len(changed_lines) == 2
     assert len(pair_breakdowns) == 1
     assert targeted_cases
+    assert recipe_triage_rows
+    assert call_inventory_rows
+    assert isinstance(outside_span_trace_rows, list)
 
 
 def test_build_run_cutdown_writes_new_gzip_artifacts(tmp_path: Path) -> None:
@@ -447,6 +540,7 @@ def test_build_run_cutdown_writes_new_gzip_artifacts(tmp_path: Path) -> None:
         top_confusions_limit=8,
         top_labels_limit=6,
         prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
     )
 
     summary = _read_json(output_run_dir / "need_to_know_summary.json")
@@ -494,6 +588,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         top_confusions_limit=8,
         top_labels_limit=6,
         prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
     )
     missing_pred_summary = _read_json(missing_pred_output / "need_to_know_summary.json")
     assert (
@@ -522,6 +617,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         top_confusions_limit=8,
         top_labels_limit=6,
         prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
     )
     missing_archive_summary = _read_json(missing_archive_output / "need_to_know_summary.json")
     assert (
@@ -552,6 +648,7 @@ def test_build_run_cutdown_preprocess_trace_status_fallbacks(tmp_path: Path) -> 
         top_confusions_limit=8,
         top_labels_limit=6,
         prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
     )
     missing_full_prompt_summary = _read_json(
         missing_full_prompt_output / "need_to_know_summary.json"
@@ -805,3 +902,243 @@ def test_main_gzip_exports_are_byte_stable_across_repeated_runs(tmp_path: Path) 
     comparison_a = _read_json(out_a / "comparison_summary.json")
     comparison_b = _read_json(out_b / "comparison_summary.json")
     assert comparison_a["project_context"] == comparison_b["project_context"]
+
+
+def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    codex_run_id = "2026-03-03_10.10.00"
+    baseline_run_id = "2026-03-03_10.09.00"
+
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[
+            {"line_index": 1, "pred_label": "RECIPE_NOTES"},
+            {"line_index": 3, "pred_label": "KNOWLEDGE"},
+        ],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    codex_run_dir = run_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    original_preprocess = module._build_preprocess_trace_failure_rows
+
+    def _fake_preprocess_rows(**kwargs):
+        rows = []
+        for index in range(10):
+            rows.append(
+                {
+                    "span_region": "outside_active_recipe_span",
+                    "line_index": index + 100,
+                    "recipe_id": "recipe:c0",
+                    "gold_label": "RECIPE_NOTES",
+                    "pred_label": "KNOWLEDGE",
+                    "trace_status": "joined_with_archive_only",
+                    "warning_buckets": ["ocr_or_page_artifact"],
+                    "raw_block_stable_key": f"block-{index}",
+                    "raw_block_excerpt": f"raw excerpt {index}",
+                    "prompt_candidate_block_excerpt": f"prompt excerpt {index}",
+                    "call_id": "starter-pass2",
+                }
+            )
+        return rows, "ready"
+
+    module._build_preprocess_trace_failure_rows = _fake_preprocess_rows
+    try:
+        output_dir = tmp_path / "cutdown_out"
+        assert (
+            _run_main(
+                module,
+                [str(run_root), "--output-dir", str(output_dir), "--overwrite", "--no-flatten"],
+            )
+            == 0
+        )
+    finally:
+        module._build_preprocess_trace_failure_rows = original_preprocess
+
+    starter_dir = output_dir / "starter_pack_v1"
+    required_files = {
+        "README.md",
+        "00_run_overview.md",
+        "01_recipe_triage.csv",
+        "02_call_inventory.jsonl",
+        "03_changed_lines.codex_vs_baseline.jsonl",
+        "04_warning_and_trace_summary.json",
+        "05_bridge_summary.jsonl",
+        "06_selected_recipe_packets.jsonl",
+        "07_casebook.md",
+        "08_outside_span_trace.sample.jsonl",
+        "09_label_policy.md",
+        "10_process_manifest.json",
+        "11_comparison_summary.json",
+        "12_per_recipe_or_per_span_breakdown.json",
+    }
+    assert required_files.issubset({path.name for path in starter_dir.iterdir() if path.is_file()})
+
+    triage_header = (starter_dir / "01_recipe_triage.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert triage_header == ",".join(module.STARTER_PACK_TRIAGE_HEADER)
+
+    call_inventory_rows = _read_jsonl(starter_dir / "02_call_inventory.jsonl")
+    assert call_inventory_rows
+    required_call_inventory_keys = {
+        "run_id",
+        "source_key",
+        "recipe_id",
+        "pass",
+        "call_id",
+        "timestamp_utc",
+        "model",
+        "input_block_count",
+        "warning_count",
+        "warning_buckets",
+        "extracted_ingredient_count",
+        "extracted_instruction_count",
+        "step_count",
+        "mapping_count",
+        "input_excerpt",
+        "output_excerpt",
+    }
+    assert required_call_inventory_keys.issubset(call_inventory_rows[0].keys())
+
+    starter_manifest = _read_json(starter_dir / "10_process_manifest.json")
+    assert starter_manifest["starter_pack_version"] == "v1"
+    assert "selection_policy" in starter_manifest
+    assert "outside_span_inclusion_policy" in starter_manifest
+    assert "heavy_artifacts_omitted_by_default" in starter_manifest
+    assert "legacy_to_starter_mapping" in starter_manifest
+    assert starter_manifest["outside_span_trace_sample"]["included"] is True
+
+    root_manifest = _read_json(output_dir / "process_manifest.json")
+    assert root_manifest["starter_pack_v1_path"] == "starter_pack_v1"
+    assert root_manifest["starter_pack_v1_manifest_file"] == "starter_pack_v1/10_process_manifest.json"
+    assert "starter_pack_v1/01_recipe_triage.csv" in set(root_manifest["included_files"])
+
+    root_comparison = _read_json(output_dir / "comparison_summary.json")
+    starter_comparison = _read_json(starter_dir / "11_comparison_summary.json")
+    assert starter_comparison == root_comparison
+
+
+def test_main_starter_pack_omits_outside_trace_when_threshold_not_met(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    codex_run_id = "2026-03-03_10.12.00"
+    baseline_run_id = "2026-03-03_10.11.00"
+
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    codex_run_dir = run_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    output_dir = tmp_path / "cutdown_out"
+    assert (
+        _run_main(
+            module,
+            [str(run_root), "--output-dir", str(output_dir), "--overwrite", "--no-flatten"],
+        )
+        == 0
+    )
+
+    starter_dir = output_dir / "starter_pack_v1"
+    outside_trace_path = starter_dir / "08_outside_span_trace.sample.jsonl"
+    assert not outside_trace_path.is_file()
+
+    starter_manifest = _read_json(starter_dir / "10_process_manifest.json")
+    outside_trace_manifest = starter_manifest["outside_span_trace_sample"]
+    assert outside_trace_manifest["included"] is False
+    assert "omitted_reason" in outside_trace_manifest
+
+
+def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "2026-03-03_10.14.00"
+    baseline_run_id = "2026-03-03_10.13.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    metadata = module.build_starter_pack_for_existing_runs(
+        input_dir=session_root,
+        output_dir=session_root,
+    )
+
+    starter_dir = session_root / "starter_pack_v1"
+    assert starter_dir.is_dir()
+    assert (starter_dir / "00_run_overview.md").is_file()
+    assert (starter_dir / "01_recipe_triage.csv").is_file()
+    assert int(metadata["run_count"]) == 2
+    assert int(metadata["pair_count"]) == 1
+
+
+def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:
+    module = _load_cutdown_module()
+    triage_rows = [
+        {
+            "source_key": "s",
+            "codex_run_id": "c",
+            "recipe_id": f"recipe:{index}",
+            "changed_lines_codex_vs_baseline": 20 - index,
+            "delta_codex_minus_baseline": 0.1 - (index * 0.01),
+            "pass1_vs_pass2_missing_block_count": index % 5,
+            "pass3_empty_mapping": index in {2, 5, 7},
+            "pass1_selected_block_count": 10 if index in {2, 5} else 2,
+            "pass2_warning_count": 3 if index == 7 else 0,
+            "pass2_extracted_instruction_count": 0 if index in {2, 7} else 1,
+            "outside_span_wrong_line_count": 3 if index == 4 else 0,
+            "codex_accuracy": 0.8 - (index * 0.01),
+        }
+        for index in range(10)
+    ]
+
+    selected = module._select_starter_pack_recipe_cases(triage_rows)
+
+    assert 1 <= len(selected) <= 10
+    reasons = [str(row.get("selection_reason") or "") for row in selected]
+    assert any("top_changed_lines" in reason for reason in reasons)
+    assert any("top_block_loss" in reason for reason in reasons)
+    assert any("top_empty_mapping_upstream_evidence" in reason for reason in reasons)
+    assert any("outside_span_contamination" in reason for reason in reasons)
+    assert any("healthy_control" in reason for reason in reasons)

@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -388,6 +389,19 @@ def test_extract_all_method_dashboard_metrics_from_task_line() -> None:
     }
 
 
+def test_recent_rate_average_seconds_per_task_uses_weighted_last_five_steps() -> None:
+    samples: deque[tuple[float, int]] = deque(
+        [
+            (8.0, 2),  # older: 4s/task, 4s/task
+            (6.0, 1),  # older: 6s/task
+            (9.0, 3),  # newest: 3s/task x3
+        ]
+    )
+    # Most recent five steps: 3,3,3,6,4 with weights 30/20/20/20/10.
+    expected = (3.0 * 0.30 + 3.0 * 0.20 + 3.0 * 0.20 + 6.0 * 0.20 + 4.0 * 0.10) / 1.0
+    assert cli._recent_rate_average_seconds_per_task(samples) == pytest.approx(expected)
+
+
 def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -650,6 +664,51 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
     )
 
 
+def test_run_with_progress_status_bootstraps_eta_when_first_counter_starts_above_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Benchmark import task 2/4")
+        time.sleep(1.2)
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("Benchmark: Benchmark import task 2/4 (eta " in message for message in capture.messages)
+
+
 def test_run_with_progress_status_writes_processing_timeseries(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -761,6 +820,71 @@ def test_run_with_progress_status_renders_worker_activity_summary(
         for message in capture.messages
     )
     assert "worker 01:" not in capture.messages[-1]
+
+
+def test_run_with_progress_status_clamps_live_box_width_to_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 72
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+
+    long_task = (
+        "r0011_urn_recipeimport_epub_"
+        "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c11.json"
+    )
+
+    def _run(update_progress):
+        update_progress(
+            "codex-farm recipe.final.v1 task 4/19 | running 8 | "
+            f"active [{long_task}]"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Benchmark import (SeaAndSmokeCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    borders = [
+        border
+        for message in capture.messages
+        for border in re.findall(r"\+[+-]+\+", message)
+    ]
+    assert borders
+    assert max(len(border) for border in borders) <= capture.width - 2
 
 
 def test_all_method_dashboard_current_config_tracks_active_parallel_configs() -> None:
@@ -2643,6 +2767,8 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     source_path = str(tmp_path / "book.epub")
 
     benchmark_calls: list[dict[str, object]] = []
+    starter_pack_calls: list[Path] = []
+    refresh_calls: list[dict[str, object]] = []
 
     def fake_labelstudio_benchmark(**kwargs):
         benchmark_calls.append(kwargs)
@@ -2683,6 +2809,19 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **kwargs: refresh_calls.append(kwargs),
+    )
+
+    def _fake_starter_pack_writer(*, session_root: Path) -> Path:
+        starter_pack_calls.append(session_root)
+        starter_dir = session_root / "starter_pack_v1"
+        starter_dir.mkdir(parents=True, exist_ok=True)
+        return starter_dir
+
+    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -2744,6 +2883,10 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     )
     assert comparison_json.exists()
     assert not comparison_md.exists()
+    assert starter_pack_calls == [benchmark_eval_output / "single-offline-benchmark"]
+    assert (
+        benchmark_eval_output / "single-offline-benchmark" / "starter_pack_v1"
+    ).is_dir()
 
     payload = json.loads(comparison_json.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "codex_vs_vanilla_comparison.v2"
@@ -2765,6 +2908,14 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     assert payload["metadata"]["codex_farm_runtime"]["codex_model"] == "gpt-5.3-codex-spark"
     assert (
         payload["metadata"]["codex_farm_runtime"]["codex_reasoning_effort"] == "low"
+    )
+    assert len(refresh_calls) == 1
+    assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
+    assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
     )
 
 
@@ -3019,6 +3170,7 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
     processed_output_root = tmp_path / "output"
 
     benchmark_calls: list[dict[str, object]] = []
+    refresh_calls: list[dict[str, object]] = []
 
     def fake_labelstudio_benchmark(**kwargs):
         benchmark_calls.append(kwargs)
@@ -3035,6 +3187,18 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **kwargs: refresh_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_write_single_offline_starter_pack",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("starter pack should not run for vanilla-only single-offline")
+        ),
+    )
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -3058,6 +3222,14 @@ def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_c
         / "single-offline-benchmark"
         / "codex_vs_vanilla_comparison.md"
     ).exists()
+    assert len(refresh_calls) == 1
+    assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
+    assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
+    )
 
 
 def test_single_offline_comparison_artifacts_markdown_toggle(tmp_path: Path) -> None:
@@ -3120,6 +3292,7 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     source_path = str(tmp_path / "book.epub")
 
     benchmark_calls: list[dict[str, object]] = []
+    starter_pack_calls: list[Path] = []
 
     def fake_labelstudio_benchmark(**kwargs):
         benchmark_calls.append(kwargs)
@@ -3150,6 +3323,14 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
+    def _fake_starter_pack_writer(*, session_root: Path) -> Path:
+        starter_pack_calls.append(session_root)
+        starter_dir = session_root / "starter_pack_v1"
+        starter_dir.mkdir(parents=True, exist_ok=True)
+        return starter_dir
+
+    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
+
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
@@ -3161,6 +3342,7 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     assert len(benchmark_calls) == 2
     assert all(call["write_markdown"] is False for call in benchmark_calls)
     session_root = benchmark_eval_output / "single-offline-benchmark"
+    assert starter_pack_calls == [session_root]
     summary_path = session_root / "single_offline_summary.md"
     assert summary_path.exists()
     md_files = sorted(session_root.rglob("*.md"))
@@ -3386,6 +3568,13 @@ def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_co
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_write_single_offline_starter_pack",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("starter pack should not run when codex variant fails")
+        ),
+    )
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,

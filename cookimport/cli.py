@@ -467,7 +467,9 @@ _MENU_SHORTCUT_KEYS = (
 
 _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
-_STATUS_RATE_RECENT_WINDOW = 12
+_STATUS_ETA_RECENT_STEP_WEIGHTS: tuple[float, ...] = (0.30, 0.20, 0.20, 0.20, 0.10)
+_STATUS_RATE_RECENT_WINDOW = max(12, len(_STATUS_ETA_RECENT_STEP_WEIGHTS))
+_STATUS_ETA_BOOTSTRAP_MIN_SECONDS = 1.0
 _STATUS_ALL_METHOD_STALL_MIN_SECONDS = 1.0
 _STATUS_ALL_METHOD_STALL_MULTIPLIER = 2.0
 _STATUS_PLAIN_PROGRESS_ENV = "COOKIMPORT_PLAIN_PROGRESS"
@@ -492,6 +494,10 @@ _BENCHMARK_SUPPRESS_SUMMARY: ContextVar[bool] = ContextVar(
 )
 _BENCHMARK_SUPPRESS_SPINNER: ContextVar[bool] = ContextVar(
     "_BENCHMARK_SUPPRESS_SPINNER",
+    default=False,
+)
+_BENCHMARK_SUPPRESS_DASHBOARD_REFRESH: ContextVar[bool] = ContextVar(
+    "_BENCHMARK_SUPPRESS_DASHBOARD_REFRESH",
     default=False,
 )
 _BENCHMARK_SPLIT_PHASE_SLOTS: ContextVar[int | None] = ContextVar(
@@ -3478,6 +3484,40 @@ def _write_single_offline_comparison_artifacts(
     return comparison_json_path, comparison_md_path
 
 
+def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
+    try:
+        from scripts.benchmark_cutdown_for_external_ai import (
+            build_starter_pack_for_existing_runs,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Skipped single-offline starter pack: unable to load helper ({exc}).",
+            fg=typer.colors.YELLOW,
+        )
+        return None
+
+    try:
+        build_starter_pack_for_existing_runs(
+            input_dir=session_root,
+            output_dir=session_root,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Skipped single-offline starter pack generation: {exc}",
+            fg=typer.colors.YELLOW,
+        )
+        return None
+
+    starter_pack_dir = session_root / "starter_pack_v1"
+    if not starter_pack_dir.is_dir():
+        typer.secho(
+            "Skipped single-offline starter pack generation: starter_pack_v1 missing after export.",
+            fg=typer.colors.YELLOW,
+        )
+        return None
+    return starter_pack_dir
+
+
 def _write_single_offline_summary_markdown(
     *,
     run_timestamp: str,
@@ -3685,7 +3725,8 @@ def _interactive_single_offline_benchmark(
                 }
             )
         try:
-            labelstudio_benchmark(**variant_kwargs)
+            with _benchmark_progress_overrides(suppress_dashboard_refresh=True):
+                labelstudio_benchmark(**variant_kwargs)
             source_file = _load_single_offline_source_path(variant_eval_output)
             split_cache_metadata = _load_single_offline_split_cache_metadata(
                 variant_eval_output
@@ -3787,6 +3828,12 @@ def _interactive_single_offline_benchmark(
                 f"Comparison JSON: {comparison_json_path}",
                 fg=typer.colors.CYAN,
             )
+            starter_pack_dir = _write_single_offline_starter_pack(session_root=session_root)
+            if starter_pack_dir is not None:
+                typer.secho(
+                    f"Starter pack: {starter_pack_dir}",
+                    fg=typer.colors.CYAN,
+                )
 
     if not comparison_written and isinstance(codex_result, dict):
         typer.secho(
@@ -3805,6 +3852,14 @@ def _interactive_single_offline_benchmark(
             comparison_json_path=comparison_json_path,
         )
         typer.secho(f"Summary report: {summary_md_path}", fg=typer.colors.CYAN)
+
+    history_csv_path = history_csv_for_output(
+        session_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+    )
+    _refresh_dashboard_after_history_write(
+        csv_path=history_csv_path,
+        reason="single-offline benchmark variant batch append",
+    )
 
     if len(variants) == 1:
         return succeeded == 1
@@ -7126,16 +7181,37 @@ def _recent_rate_average_seconds_per_task(
 ) -> float | None:
     if not samples:
         return None
-    total_seconds = 0.0
-    total_units = 0
-    for elapsed_seconds, completed_units in samples:
-        if elapsed_seconds <= 0 or completed_units <= 0:
+
+    max_steps = max(1, len(_STATUS_ETA_RECENT_STEP_WEIGHTS))
+    # Build a most-recent-first list of per-step durations from sampled deltas.
+    recent_step_seconds: list[float] = []
+    for elapsed_seconds, completed_units in reversed(samples):
+        elapsed_value = float(elapsed_seconds)
+        units_value = int(completed_units)
+        if elapsed_value <= 0 or units_value <= 0:
             continue
-        total_seconds += float(elapsed_seconds)
-        total_units += int(completed_units)
-    if total_seconds <= 0 or total_units <= 0:
+        per_step_seconds = elapsed_value / float(units_value)
+        if per_step_seconds <= 0:
+            continue
+        remaining_slots = max_steps - len(recent_step_seconds)
+        if remaining_slots <= 0:
+            break
+        recent_step_seconds.extend([per_step_seconds] * min(remaining_slots, units_value))
+
+    if not recent_step_seconds:
         return None
-    return total_seconds / float(total_units)
+
+    weighted_total = 0.0
+    weight_sum = 0.0
+    for index, per_step_seconds in enumerate(recent_step_seconds):
+        weight = float(_STATUS_ETA_RECENT_STEP_WEIGHTS[index])
+        if weight <= 0:
+            continue
+        weighted_total += per_step_seconds * weight
+        weight_sum += weight
+    if weight_sum <= 0:
+        return sum(recent_step_seconds) / float(len(recent_step_seconds))
+    return weighted_total / weight_sum
 
 
 def _format_status_progress_message(
@@ -7375,6 +7451,7 @@ def _run_with_progress_status(
     telemetry_heartbeat_seconds: float = PROCESSING_TIMESERIES_HEARTBEAT_SECONDS,
     force_live_status: bool | None = None,
 ) -> _StatusReturn:
+    status_started_at = time.monotonic()
     supports_live_status = (
         bool(force_live_status)
         if force_live_status is not None
@@ -7528,6 +7605,16 @@ def _run_with_progress_status(
         return "\n".join(merged)
 
     def _format_boxed_progress(snapshot: str) -> str:
+        def _truncate_panel_text(value: str, max_chars: int) -> str:
+            text = str(value or "")
+            if max_chars <= 0:
+                return ""
+            if len(text) <= max_chars:
+                return text
+            if max_chars <= 3:
+                return text[:max_chars]
+            return text[: max_chars - 3] + "..."
+
         lines = [
             line.rstrip()
             for line in str(snapshot or "").splitlines()
@@ -7535,14 +7622,24 @@ def _run_with_progress_status(
         ]
         if not lines:
             return ""
+
+        max_panel_width = 92
+        terminal_width = getattr(console, "width", None)
+        if isinstance(terminal_width, int) and terminal_width > 0:
+            # Keep room for the spinner glyph + padding prefix Rich adds.
+            max_panel_width = min(max_panel_width, max(24, terminal_width - 6))
+
         width = max(len(line) for line in lines)
         title = (progress_prefix or initial_status).strip() or "Progress"
         width = max(width, len(title))
-        width = min(width, 120)
-        header = f"| {title.center(width)} |"
+        width = max(1, min(width, max_panel_width))
+        header = f"| {_truncate_panel_text(title, width).center(width)} |"
         top_bottom = "+" + "-" * (width + 2) + "+"
         divider = "+" + "-" * (width + 2) + "+"
-        body_lines = [f"| {line[:width].ljust(width)} |" for line in lines]
+        body_lines = [
+            f"| {_truncate_panel_text(line, width).ljust(width)} |"
+            for line in lines
+        ]
         return "\n".join([top_bottom, header, divider, *body_lines, top_bottom])
 
     def _build_status_line(now: float | None = None) -> str:
@@ -7574,6 +7671,10 @@ def _run_with_progress_status(
                     avg_seconds_per_task = recent_avg
                 elif sampled_units > 0 and sampled_seconds > 0:
                     avg_seconds_per_task = sampled_seconds / sampled_units
+                elif counter_current > 0:
+                    bootstrap_elapsed = max(0.0, current - status_started_at)
+                    if bootstrap_elapsed >= _STATUS_ETA_BOOTSTRAP_MIN_SECONDS:
+                        avg_seconds_per_task = bootstrap_elapsed / float(counter_current)
                 if (
                     remaining > 0
                     and avg_seconds_per_task is not None
@@ -7880,16 +7981,21 @@ def _benchmark_progress_overrides(
     progress_callback: Callable[[str], None] | None = None,
     suppress_summary: bool = False,
     suppress_spinner: bool = False,
+    suppress_dashboard_refresh: bool = False,
 ) -> Iterable[None]:
     progress_token = _BENCHMARK_PROGRESS_CALLBACK.set(progress_callback)
     summary_token = _BENCHMARK_SUPPRESS_SUMMARY.set(bool(suppress_summary))
     spinner_token = _BENCHMARK_SUPPRESS_SPINNER.set(bool(suppress_spinner))
+    dashboard_refresh_token = _BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.set(
+        bool(suppress_dashboard_refresh)
+    )
     try:
         yield
     finally:
         _BENCHMARK_PROGRESS_CALLBACK.reset(progress_token)
         _BENCHMARK_SUPPRESS_SUMMARY.reset(summary_token)
         _BENCHMARK_SUPPRESS_SPINNER.reset(spinner_token)
+        _BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.reset(dashboard_refresh_token)
 
 
 @contextmanager
@@ -24783,6 +24889,7 @@ def labelstudio_benchmark(
     external_progress_callback = _BENCHMARK_PROGRESS_CALLBACK.get()
     suppress_summary = bool(_BENCHMARK_SUPPRESS_SUMMARY.get())
     suppress_spinner = bool(_BENCHMARK_SUPPRESS_SPINNER.get())
+    suppress_dashboard_refresh = bool(_BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.get())
     split_phase_slots = _BENCHMARK_SPLIT_PHASE_SLOTS.get()
     split_phase_gate_dir_raw = _BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
     split_phase_gate_dir = (
@@ -25933,7 +26040,7 @@ def labelstudio_benchmark(
         tokens_total=getattr(pred_context, "tokens_total", None),
         timing=benchmark_timing,
     )
-    if not suppress_summary:
+    if not suppress_summary and not suppress_dashboard_refresh:
         _refresh_dashboard_after_history_write(
             csv_path=csv_history_path,
             output_root=processed_output_dir,

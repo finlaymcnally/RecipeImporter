@@ -30,6 +30,8 @@ run/sweep) now append elapsed seconds after about 10 seconds on the same phase
 message so long-running steps remain visibly active. When callback messages
 include `X/Y` counters, these spinners also show ETA using average
 seconds-per-item throughput.
+Live boxed spinner panels now clamp to a terminal-aware max width so long
+worker task labels do not stretch the panel across the full terminal.
 When stdout is not a real terminal (for example, when output is captured), the
 status spinner falls back to plain progress prints on change to avoid log
 floods; multi-line dashboard statuses also throttle tick refreshes. Agent-run

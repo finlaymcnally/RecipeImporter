@@ -39,6 +39,7 @@ This CSV is populated by:
   - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name`, run-config runtime metadata, and `tokens_*` usage columns from manifests)
 - After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
 - All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites.
+- Interactive single-offline benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes.
 
 ### Stage-report fallback/supplement
 
@@ -111,7 +112,7 @@ Notes:
 - `Diagnostics (Latest Benchmark)`: runtime + per-label + boundary breakdown for the most recent benchmark record.
   - Layout: on desktop, `Benchmark Runtime` and `Boundary Classification` each take one half-width column on the top row; `Per-Label Breakdown` renders below as a full-width card (mobile collapses to one column).
   - Runtime card surfaces best-effort AI context from benchmark run-config metadata (`model`, `thinking effort`, pipeline mode), preferring latest non-speed rows when both speed/non-speed exist.
-  - Runtime card surfaces `Token use` using the same cached-adjusted discounted token formula as `All token use`.
+  - Runtime card surfaces `Token use` using the same cached-adjusted discounted token formula as `All token use`, with compact `k`/`m` display for large values.
   - When multiple latest rows share one timestamp (for example single-offline `codexfarm` + `vanilla`), diagnostics prefers the row with richer AI metadata (model/effort/pipeline-on) instead of defaulting to `off`.
   - If benchmark run-config is missing codex model/effort, collector backfills from benchmark manifest `llm_codex_farm.process_runs.*.process_payload` (and telemetry reasoning breakdown fallback) so codex rows do not show false `off` labels.
   - When run-config omits explicit model/effort (for example defaults), collector backfills from prediction-run manifest `llm_codex_farm` runtime payload when available.
@@ -121,31 +122,32 @@ Notes:
   - Boundary diagnostics now aggregate all boundary-bearing rows at the latest preferred benchmark run-group key (artifact-path timestamp token fallback to record timestamp), so twinned `vanilla`/`codexfarm` evals are grouped even when eval completion timestamps differ.
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
-  - Per-label diagnostics now split latest-run precision/recall into `codexfarm` vs `vanilla`, and add rolling `n=10` precision/recall averages per variant (no cross-variant mixing).
+  - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and show signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse), while still using rolling `n=10` variant-specific windows (no cross-variant mixing).
   - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.
   - Per-label metric headers are intentionally three-line (`group`, `metric`, `(variant)`) and left-aligned to keep diagnostic columns narrower on single-screen layouts.
-  - Per-label table uses `max(content width, container width)`: it fills available card width by default, and once columns hit their compact floor it stops shrinking and switches to horizontal scrolling.
+  - Per-label table is content-sized (no forced full-card width) with compact fixed-width metric/count columns so numeric deltas stay dense; horizontal scroll remains available for overflow.
 - `Previous Runs`: full-history table with key benchmark columns only.
-  - The table viewport is capped to roughly 10 data rows, then scrolls vertically.
+  - The table viewport is fixed to roughly 10 data rows of height (even when current filters show fewer rows), then scrolls vertically.
   - Horizontal scrolling is enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
   - Click any table header to toggle sort direction for that column (`A→Z` / `Z→A`), including timestamps.
   - Includes a `+/-` button beside the table header row that opens a small checkbox menu for show/hide column selection; drag headers to reorder and drag header edges to resize.
-  - The same `+/-` popup now also has a `View presets` mini-panel with `Load`, `Save current view`, and `Delete` actions.
+  - `Quick Filters` includes inline `View presets` controls (`Load`, `Save current view`, `Delete`) so preset actions are available without opening a second popup.
   - Previous Runs UI preferences persist in browser local storage (`localStorage`): column visibility/order/widths, column filters, quick-filter toggles, isolate combine mode + stacked isolate rules, current sort, and named view presets are restored across page reloads and dashboard regenerations at the same dashboard URL/path.
   - When opened via `cookimport stats-dashboard --serve`, the same UI state is also synced to `assets/dashboard_ui_state.json` so settings carry across browsers on the same machine.
+  - While the page stays open, program-side state is polled every few seconds and newer remote state is applied live without a page refresh.
   - Diagnostic table resize is limited to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` are fixed-fit cards (no horizontal scroll/resize) to keep the top row stable.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
   - Placeholder effort values like `<default>`/`default` are treated as unknown effort; CSV backfill resolves model-default effort where available.
   - Known SeaAndSmoke historical rows at `2026-03-03T01:28:32`, `2026-03-02T23:37:21`, and `2026-03-02T23:20:13` suppress `AI Effort` so the table does not show incorrect inferred backfill values.
-  - `All token use` is shown by default and displays `discounted_total | input | output` in one cell.
+  - `All token use` is shown by default and displays `discounted_total | input | output` in one cell, abbreviated with `k`/`m` where large (for example `854k`, `2.27m`).
   - Discounted total applies cached-input tokens at `0.1x` weight (`(input - cached_input) + 0.1*cached_input + output`).
   - Sorting and filtering `All token use` uses that discounted numeric total (not raw `tokens_total`).
   - Other token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) can be enabled from the same `+/-` column picker.
   - `Source` prefers `source_file` basename, then artifact-path source slug fallback (`all-method-benchmark`, `single-profile-benchmark`, `scenario_runs`, `eval/<slug>` patterns).
   - `Importer` uses CSV/importer metadata first, then source-path/run-config fallback (for older benchmark rows with blank CSV importer).
   - All-method benchmark sweeps collapse to one row with summarized `Source` text (`all-method: <top source> + N more`), and timestamp links to generated run-summary HTML under `all-method-benchmark/`.
-  - Includes per-column header-adjacent stacked filters: use the `+/-` toggle in the first row under headers to open a small popup editor. Saving appends a new clause for that column, active clauses can be removed via `×`, and each column stack supports an `AND/OR` mode toggle. Active summaries in the filter row now render one clause per line with its own `×` remove button. Save/close keeps compact active-filter summaries visible in-row. Non-numeric value inputs are typeahead fields with ranked candidate chips from that column, and `Tab` accepts the top suggestion.
+  - Includes per-column header-adjacent stacked filters: use the `+/-` toggle in the first row under headers to open a small popup editor. Saving appends a new clause for that column, active clauses can be removed via `×`, and each column stack supports an `AND/OR` mode toggle. Active summaries in the filter row now render one clause per line with its own `X` remove button. Save/close keeps compact active-filter summaries visible in-row. Non-numeric value inputs are typeahead fields with ranked candidate chips from that column, and `Tab` accepts the top suggestion.
   - Previous Runs header row order is: column names, filter summary/editor row, then one blank spacer row before data rows.
   - Multi-row sticky headers rely on `#previous-runs-table { border-collapse: separate; border-spacing: 0; }` to avoid browser overlap/bleed artifacts.
   - Do not set `position: relative` on `#previous-runs-table th`; that overrides sticky header positioning and causes row-offset overlap artifacts.
@@ -224,5 +226,7 @@ Useful options:
 ## Known gotcha
 
 `cookimport stats-dashboard` reads stage/import history primarily from `<output_root parent>/.history/performance_history.csv`.
+
+`dashboard_render.py` embeds JS/CSS as Python string templates; regex escapes in JS literals must stay double-escaped in Python (for example `\\s`) to avoid `SyntaxWarning` and preserve valid emitted JS.
 
 If you stage into a non-default output root (for example `cookimport stage --out /tmp/out`), build the dashboard with the matching root (for example `cookimport stats-dashboard --output-root /tmp/out`) so the collector reads the same history CSV and report folders you just produced.
