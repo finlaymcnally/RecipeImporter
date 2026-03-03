@@ -652,6 +652,88 @@ class TestCollectors:
         assert record.run_config_summary == "epub_extractor=beautifulsoup | workers=7"
         assert record.run_config == {"epub_extractor": "beautifulsoup", "workers": 7}
 
+    def test_csv_collector_merges_nested_benchmark_history_csv_rows(self, tmp_path):
+        output_root = tmp_path / "output"
+        history_dir = output_root / ".history"
+        history_dir.mkdir(parents=True)
+        primary_csv_path = history_dir / "performance_history.csv"
+
+        primary_row = {field: "" for field in _CSV_FIELDS}
+        primary_row.update(
+            {
+                "run_timestamp": "2026-03-03T01:00:40",
+                "run_dir": str(
+                    tmp_path
+                    / "golden"
+                    / "benchmark-vs-golden"
+                    / "2026-03-03_12.23.20_line-role-gated-foodlab-det-strict"
+                ),
+                "file_name": "thefoodlabCUTDOWN.epub",
+                "run_category": "benchmark_eval",
+                "eval_scope": "canonical-text",
+                "strict_accuracy": "0.3298",
+                "macro_f1_excluding_other": "0.2575",
+                "gold_total": "2353",
+                "gold_matched": "776",
+            }
+        )
+        with primary_csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(primary_row)
+
+        nested_history_dir = (
+            output_root
+            / "2026-03-03_01.24.28"
+            / "single-offline-benchmark"
+            / "seaandsmokecutdown"
+            / ".history"
+        )
+        nested_history_dir.mkdir(parents=True)
+        nested_csv_path = nested_history_dir / "performance_history.csv"
+        nested_row = {field: "" for field in _CSV_FIELDS}
+        nested_row.update(
+            {
+                "run_timestamp": "2026-03-03T01:25:45",
+                "run_dir": str(
+                    tmp_path
+                    / "golden"
+                    / "benchmark-vs-golden"
+                    / "2026-03-03_01.24.28"
+                    / "single-offline-benchmark"
+                    / "seaandsmokecutdown"
+                    / "vanilla"
+                ),
+                "file_name": "SeaAndSmokeCUTDOWN.epub",
+                "run_category": "benchmark_eval",
+                "eval_scope": "canonical-text",
+                "strict_accuracy": "0.3849",
+                "macro_f1_excluding_other": "0.4042",
+                "gold_total": "595",
+                "gold_matched": "229",
+            }
+        )
+        with nested_csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(nested_row)
+
+        data = collect_dashboard_data(
+            output_root=output_root,
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 2
+        artifact_dirs = {str(record.artifact_dir) for record in data.benchmark_records}
+        assert any(
+            "2026-03-03_12.23.20_line-role-gated-foodlab-det-strict" in path
+            for path in artifact_dirs
+        )
+        assert any(
+            "2026-03-03_01.24.28/single-offline-benchmark/seaandsmokecutdown/vanilla"
+            in path
+            for path in artifact_dirs
+        )
+
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
         history_dir.mkdir(parents=True)
@@ -1078,7 +1160,8 @@ class TestRenderer:
         )
         render_dashboard(tmp_path / "dash", data)
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert "const m = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})[T_](\\d{2})[.:](\\d{2})[.:](\\d{2})$/);" in js
+        assert "const m = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})[T_](\\d{2})[.:](\\d{2})[.:](\\d{2})(?:_.+)?$/);" in js
+        assert "useUTC: false" in js
         assert "const d = new Date(" in js
         assert "Number(m[1])" in js
         assert "function compareRunTimestampAsc(aTs, bTs)" in js
@@ -1096,6 +1179,13 @@ class TestRenderer:
         assert "function renderPreviousRunsCell(row, fieldName)" in js
         assert 'const href = row.href || "";' in js
         assert 'const ALL_METHOD_SEGMENT = "all-method-benchmark";' in js
+        assert 'let previousRunsSortField = "run_timestamp";' in js
+        assert 'let previousRunsSortDirection = "desc";' in js
+        assert "function comparePreviousRunsRows(leftRow, rightRow)" in js
+        assert "th.addEventListener(\"click\", event => {" in js
+        assert "Click to sort A→Z / Z→A." in js
+        assert "(?:_.+)?$/.test(text);" in js
+        assert "runDirTimestamp: runDirTimestamp || fallbackTimestamp || null," in js
         assert '"all-method-benchmark-run__" + slugToken(ts) + ".html"' in js
         assert "function sourceLabelForRecord(record)" in js
         assert "function sourceSlugFromArtifactPath(pathValue)" in js
@@ -1248,6 +1338,21 @@ class TestRenderer:
         assert "if (timelineMin != null) xAxisConfig.min = timelineMin;" in js
         assert "if (timelineMax != null) xAxisConfig.max = timelineMax;" in js
         assert "xAxis: xAxisConfig," in js
+        assert "function benchmarkVariantForRecord(record)" in js
+        assert "function benchmarkRunGroupInfo(record)" in js
+        assert "function trendSeriesPointForRunGroup(series, runGroupKey, hoveredX)" in js
+        assert "function buildBenchmarkTrendSeries(records)" in js
+        assert "const hasPairedVariants =" in js
+        assert 'name: metric.key + " (" + variant + ")"' in js
+        assert "series: trendSeries," in js
+        assert 'type: "scatter"' in js
+        assert "lineWidth: 0," in js
+        assert "shared: false," in js
+        assert "formatter: function()" in js
+        assert "trendSeriesPointForRunGroup(series, runGroupKey, hoveredX)" in js
+        assert "runGroupKey" in js
+        assert "runGroupLabel" in js
+        assert "&#9679;" in js
 
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())

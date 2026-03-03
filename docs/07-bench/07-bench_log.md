@@ -3209,3 +3209,265 @@ Retained finding:
 
 Anti-loop note:
 - Before expanding cutdown artifact volume, verify whether line-level causality + prompt-warning aggregates already answer the root-cause question.
+
+## 2026-03-03 migrated understanding ledger (external-AI cutdown + line-role gate chronology)
+
+### 2026-03-03_00.02.14 external-AI cutdown artifact source chain
+
+Source:
+- `docs/understandings/2026-03-03_00.02.14-external-ai-cutdown-artifact-source-chain.md`
+
+Durable findings:
+- Existing cutdown already covered core causality artifacts; remaining gaps were unsampled full-failure export and preprocess-aware trace joins.
+- Reliable join chain is `benchmark run_manifest -> pred_run_dir -> prediction-run run_manifest/extracted archive -> wrong_label_lines/full_prompt_log`.
+- Missing prediction-run dependencies should report status and continue packaging, not fail the entire cutdown.
+
+### 2026-03-03_00.11.28 cutdown contract hardening baseline
+
+Source:
+- `docs/understandings/2026-03-03_00.11.28-benchmark-cutdown-contract-hardening-baseline.md`
+
+Durable findings:
+- Deterministic gzip writer and additive gzip artifacts were already implemented.
+- Main risk shifted from missing runtime features to future drift without direct contract tests.
+
+### 2026-03-03_00.15.06 external-AI OGplan vs implementation audit
+
+Source:
+- `docs/understandings/2026-03-03_00.15.06-external-ai-ogplan-execplan-code-audit.md`
+
+Audit result retained:
+- OG expectations were implemented across runtime/tests/docs; no open contract gaps were found in that audit pass.
+- Recorded evidence included deterministic gzip stability tests, fallback status coverage, manifest path inclusion, and targeted bench-domain test runs.
+
+### 2026-03-03_00.26.11 line-role diagnostics and gate source-of-truth
+
+Source:
+- `docs/understandings/2026-03-03_00.26.11-line-role-diagnostics-and-gate-source-of-truth.md`
+
+Durable findings:
+- One joined canonical line table (`sample_id=line:<line_index>`) should feed all sampled line artifacts to keep IDs/text consistent.
+- Gate payloads should be grounded in three sources: candidate eval report, vanilla canonical baseline history, and codex canonical baseline history.
+- SeaAndSmoke-style non-regression checks can be history-backed rather than requiring one mega combined benchmark invocation.
+
+### 2026-03-03_00.28.49 cutdown project-context digest wiring
+
+Source:
+- `docs/understandings/2026-03-03_00.28.49-benchmark-cutdown-project-context-digest-wiring.md`
+
+Durable decisions:
+- `_write_readme(...)` is the single narrative source; flattened summary should inherit rather than duplicate context rendering logic.
+- `main()` is the right wiring point for context pointer/hash metadata because both root JSON outputs are assembled there.
+- Metadata extraction contract: deterministic hash from `docs/AI_Context.md` bytes plus title/date parsing with mtime fallback.
+
+### 2026-03-03_00.32.18 AI-script-context OG gap check
+
+Source:
+- `docs/understandings/2026-03-03_00.32.18-ai-script-context-ogplan-gap-check.md`
+
+Gap history retained:
+- Runtime digest/metadata wiring existed, but coverage initially missed flattened-summary assertions and missing-file fallback assertions.
+- Digest composition was deterministic but initially shorter than OG interpretation-layer intent.
+
+### 2026-03-03_00.34.28 PRO-PROMPT OG vs code audit
+
+Source:
+- `docs/understandings/2026-03-03_00.34.28-pro-prompt-og-vs-code-audit.md`
+
+Retained findings:
+- Most milestones were implemented, but acceptance replay evidence and some contract-shape details were still open at audit time.
+- Known semantic weakness at that point: baseline flips were inferred from decision metadata when paired baseline rows were unavailable.
+- Known fallback weakness at that point: codex parse fallback selected first allowed label rather than explicit deterministic recovery / `OTHER`.
+
+### 2026-03-03_00.35.20 AI-script-context gap fixes
+
+Source:
+- `docs/understandings/2026-03-03_00.35.20-ai-script-context-gap-fixes.md`
+
+Durable outcomes:
+- Flattened summary inheritance of project-context digest became test-locked.
+- Missing `docs/AI_Context.md` fallback behavior (`missing` metadata values) became test-locked.
+- Digest gained explicit `label_ontology_cheat_sheet` line.
+
+### 2026-03-03_00.38.02 AI-script-context OG audit closure
+
+Source:
+- `docs/understandings/2026-03-03_00.38.02-ai-script-context-ogplan-audit.md`
+
+Audit result retained:
+- OG milestones were implemented with no open deltas in that audit pass.
+- Acceptance expectations retained: root README digest, flattened inheritance, metadata pointers/hash fields, deterministic non-AI helper behavior, and explicit missing-file fallback.
+
+### 2026-03-03_00.39.10 line-role gated acceptance replay findings
+
+Source:
+- `docs/understandings/2026-03-03_00.39.10-line-role-gated-acceptance-replay-findings.md`
+
+Replay findings retained:
+- Two foodlab CUTDOWN gated replays (deterministic and codex-line-role) both failed with similar top-line metrics and low gate pass counts.
+- Gate failures included missing history comparator metrics, low `RECIPE_NOTES` and `RECIPE_VARIANT` recall floors, and missing Sea benchmark-history rows.
+- Additional signal at the time: slice metrics showed all lines under `outside_recipe`; codex fallback changed only a small sampled set.
+
+### 2026-03-03_00.42.27 PRO-PROMPT gap fixes and replay capture
+
+Source:
+- `docs/understandings/2026-03-03_00.42.27-pro-prompt-gap-fixes-and-foodlab-replay.md`
+
+Durable outcomes:
+- `line_role_flips_vs_baseline` now prefers paired history baseline rows and falls back to inferred-mode only when history baseline rows are absent.
+- Codex parse/allowlist fallback now attempts deterministic recovery and otherwise emits `OTHER`.
+- Eval manifest writing shared under `cookimport/runs/eval_manifest.py`.
+- Recorded replay preserved expected fail reasons (missing comparator history + low notes/variant recall) and confirmed diagnostic artifact writing under `line-role-pipeline/`.
+
+### 2026-03-03_00.47.20 line-role gate contract hardening
+
+Source:
+- `docs/understandings/2026-03-03_00.47.20-line-role-gate-contract-hardening.md`
+
+Historical decision retained:
+- Missing history comparators were hardened to gate failures and OG threshold values were restored.
+- Regression tests were added to lock strict-fail behavior for missing comparators and recall-floor misses.
+
+Anti-loop note:
+- This strict-fail comparator policy was later superseded (next entry); keep both records to explain why gate semantics changed across nearby runs.
+
+### 2026-03-03_00.54.40 line-role gate skip policy + recall-floor calibration
+
+Source:
+- `docs/understandings/2026-03-03_00.54.40-line-role-gate-skip-policy-and-recall-floor-calibration.md`
+
+Superseding decision:
+- Comparator gates were changed to skip-pass with explicit reasons when required history baselines are missing.
+- Candidate recall floors remained blocking and were calibrated to observed CUTDOWN operational levels:
+  - `RECIPE_NOTES >= 0.20`
+  - `RECIPE_VARIANT >= 0.07`
+  - `INGREDIENT_LINE >= 0.35`
+- Recorded deterministic/codex foodlab gated replays after calibration both passed.
+
+### 2026-03-03_01.25.00 line-role projection benchmark/draft wiring
+
+Source:
+- `docs/understandings/2026-03-03_01.25.00-line-role-projection-benchmark-draft-wiring.md`
+
+Durable outcomes:
+- Prediction generation writes projection artifacts under `prediction-run/line-role-pipeline/`.
+- Canonical benchmark bundle loading prefers projected stage/archive files when available and falls back to legacy artifacts when missing.
+- Optional processed-output projection updates `ConversionResult.recipes` so benchmark predictions and draft fields can align on one line-role source.
+- Integration coverage was added in benchmark-helper and labelstudio-ingest tests for projection preference and draft projection behavior.
+
+### 2026-03-03_10.40.00 external-AI preprocess trace join contract
+
+Source:
+- `docs/understandings/2026-03-03_10.40.00-external-ai-preprocess-trace-join-contract.md`
+
+Durable findings:
+- Wrong-line indices are the stable join anchor for enriching canonical context, prediction-run archive features, and prompt-call context.
+- Missing upstream join surfaces must be captured as explicit `sample_counts` status values (`missing_prediction_run`, `missing_extracted_archive`, `missing_full_prompt_log`) with output generation continuing.
+
+### 2026-03-03_11.59.30 cutdown README -> flattened summary inheritance
+
+Source:
+- `docs/understandings/2026-03-03_11.59.30-benchmark-cutdown-readme-feeds-flattened-summary.md`
+
+Durable decision:
+- Root cutdown `README.md` is the single narrative authoring point; `_flatten_output(...)` embeds it into `benchmark_summary.md`.
+- New explanatory context should be added in `_write_readme(...)` first to avoid duplicate logic drift.
+
+## 2026-03-03 docs/tasks consolidation batch (mixed-format qualitysuite, benchmark GC, external-AI cutdown hardening)
+
+The following task files were merged into this log/README batch and then removed from `docs/tasks`:
+- `docs/tasks/2026-03-02_23.12.13-qualitysuite-pdf-mixed-format-megaplan.md`
+- `docs/tasks/2026-03-02_23.30.28-benchmark-metrics-retention-and-gc.md`
+- `docs/tasks/external-AI-script-feedback.md`
+- `docs/tasks/2026-03-03_00.11.27-benchmark-cutdown-external-ai-contract.md`
+- `docs/tasks/AI-script-context.md`
+
+### 2026-03-02_23.12.13 qualitysuite mixed-format discovery/reporting hardening
+
+Problem captured:
+- Small `--max-targets` suites could silently starve PDF coverage, and operators had weak visibility into selected format mix.
+
+Durable decisions:
+- Treat `source_extension` (including leading dot, e.g. `.pdf`) as canonical format key.
+- Persist `format_counts` and `selected_format_counts` in suite metadata.
+- Keep curated-default fast path intact; provide mixed-format control via `--formats`, `--no-prefer-curated`, and representative selection improvements.
+- Keep per-format leaderboard outputs opt-in (`--by-source-extension`) to avoid default artifact churn.
+
+Failed/avoided paths:
+- Reintroducing tournament/lightweight-series workflows for format coverage was rejected; those flows remain intentionally disabled due runtime/disk amplification.
+- Hand-editing suite manifests was treated as brittle (validation checks all `targets[]` file paths), so discovery emission correctness stays the primary fix surface.
+- Direct-helper Typer `OptionInfo` defaults caused format-filter misparsing when helper defaults were not unwrapped; this is now an explicit anti-loop guard for CLI/helper tests.
+
+Evidence preserved:
+- Discovery and leaderboard regression coverage in `tests/bench/test_quality_suite_discovery.py` and `tests/bench/test_bench.py`.
+
+### 2026-03-02_23.30.28 benchmark metrics retention + GC workflow
+
+Problem captured:
+- Benchmark trend history depended too heavily on recursive artifact scans, making old heavy run directories effectively load-bearing and driving unbounded disk growth.
+
+Durable decisions:
+- Productize retention as `cookimport bench gc` (dry-run default, explicit `--apply` for mutations).
+- Make benchmark dashboard collection CSV-first; keep benchmark report scanning opt-in and fallback-only for missing benchmark CSV rows.
+- Persist/hydrate durable benchmark metrics (`per_label_json`, strict/macro/boundary fields) before pruning.
+- Delete run roots only when durable-history confirmation passes; otherwise keep roots conservatively.
+- Write timestamped history backup before apply-time mutation using `YYYY-MM-DD_HH.MM.SS`.
+
+Failed/avoided paths:
+- Ad-hoc manual deletion without CSV durability checks was rejected as too risky for dashboard continuity.
+- Aggressive deletion when history durability is unknown was rejected; conservative keep-on-uncertainty is intentional.
+
+Evidence preserved:
+- GC and durability tests in `tests/bench/test_benchmark_gc.py` and dashboard collector tests.
+
+### 2026-03-02_23.54.21 to 2026-03-03_10.40.00 external-AI cutdown diagnostic contract finalization
+
+Problem captured:
+- Earlier cutdown outputs were high-signal but still left root-cause gaps when only sampled line-level failures were exported.
+
+Durable decisions:
+- Keep existing core causality artifacts stable (`changed_lines.codex_vs_vanilla.jsonl`, `per_recipe_or_per_span_breakdown.json`, `targeted_prompt_cases.md`, `full_prompt_log.jsonl`).
+- Add deterministic full-failure gzip exports:
+  - `wrong_label_lines.with_context.full.jsonl.gz`
+  - `preprocess_trace_failures.jsonl.gz`
+- Represent missing upstream dependencies as explicit `sample_counts` statuses (`missing_prediction_run`, `missing_extracted_archive`, `missing_full_prompt_log`) instead of hard failures.
+- Include nested per-run artifact paths in root `process_manifest.json` `included_files`.
+
+Failed/avoided paths:
+- Replacing canonical full prompt logs with sampled text-only logs was rejected; sampled logs remain convenience-only.
+- Nondeterministic gzip output was rejected; deterministic writes (`mtime=0`) are contract-locked.
+
+Evidence preserved:
+- Regression coverage in `tests/bench/test_benchmark_cutdown_for_external_ai.py` for artifact emission, fallback statuses, nested manifest paths, and byte-stable gzip outputs.
+
+### 2026-03-03_00.11.27 cutdown contract hardening (tests/docs/evidence-first phase)
+
+Problem captured:
+- Main remaining risk shifted from missing functionality to silent contract drift.
+
+Durable decisions:
+- Treat this phase as hardening work (tests + docs + acceptance evidence) rather than additive artifact expansion.
+- Keep script behavior deterministic/non-AI for parsing/cleaning paths.
+
+Anti-loop note:
+- Before adding new cutdown artifacts, verify whether current contract + tests already covers the requested diagnosis surface.
+
+### 2026-03-03_00.26.00 to 2026-03-03_00.35.12 project-context digest + metadata pointers
+
+Problem captured:
+- External reviewers needed compact benchmark-context framing and stable linkage back to project onboarding context without reading full repo docs first.
+
+Durable decisions:
+- Author one deterministic `## Project Context Digest` at cutdown root README and let flattened summary inherit it.
+- Emit stable context pointer/hash metadata on root outputs:
+  - `process_manifest.json`: `project_context_path/title/version_or_date/hash` + `project_context_digest_included`
+  - `comparison_summary.json`: `project_context` object with matching metadata
+- Use deterministic metadata extraction from markdown title/date markers with mtime fallback only when date markers are absent.
+- When `docs/AI_Context.md` is missing, emit explicit `missing` metadata values and continue packaging.
+
+Failed/avoided paths:
+- Per-run duplicate context digests were rejected as unnecessary token/artifact bloat and higher drift risk.
+- Stateful "emit digest only once across runs" behavior was rejected; script remains stateless and deterministic per invocation.
+
+Evidence preserved:
+- Regression coverage for digest presence (root + flattened summary), missing-context fallback behavior, and metadata stability in `tests/bench/test_benchmark_cutdown_for_external_ai.py`.

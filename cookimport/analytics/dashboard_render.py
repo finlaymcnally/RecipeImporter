@@ -1970,7 +1970,7 @@ _HTML = """\
 
   <section id="previous-runs-section">
     <h2>Previous Runs</h2>
-    <p class="section-note">Timestamp links to the run artifact folder. Scroll for full history.</p>
+    <p class="section-note">Timestamp links to the run artifact folder. Full history is rendered; use horizontal scroll for wide columns.</p>
     <details class="section-details">
       <summary>Metric help (table)</summary>
       <section>
@@ -2402,8 +2402,9 @@ section h3 {
 }
 
 .table-scroll {
-  max-height: 12.5rem; /* ~5 visible rows */
-  overflow: auto;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -2850,6 +2851,8 @@ _JS = """\
   let previousRunsColumnWidths = Object.create(null);
   let previousRunsDraggedColumn = null;
   let previousRunsFilterResultCache = null;
+  let previousRunsSortField = "run_timestamp";
+  let previousRunsSortDirection = "desc";
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
   const PREVIOUS_RUNS_RULE_OPERATORS = [
@@ -3019,6 +3022,9 @@ _JS = """\
       return;
     }
     window.Highcharts.setOptions({
+      time: {
+        useUTC: false,
+      },
       chart: {
         zooming: {
           mouseWheel: {
@@ -3142,7 +3148,7 @@ _JS = """\
 
     // Parse canonical timestamp forms explicitly to avoid browser Date.parse quirks:
     // YYYY-MM-DD_HH.MM.SS and YYYY-MM-DDTHH:MM:SS
-    const m = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})[T_](\\d{2})[.:](\\d{2})[.:](\\d{2})$/);
+    const m = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})[T_](\\d{2})[.:](\\d{2})[.:](\\d{2})(?:_.+)?$/);
     if (m) {
       const d = new Date(
         Number(m[1]),
@@ -3159,6 +3165,12 @@ _JS = """\
     const normalized = text.replace(/_(\\d{2})[.:](\\d{2})[.:](\\d{2})$/, "T$1:$2:$3");
     const d = new Date(normalized);
     return isNaN(d.getTime()) ? null : d;
+  }
+
+  function isTimestampTokenText(value) {
+    const text = String(value || "").trim();
+    if (!text) return false;
+    return /^\\d{4}-\\d{2}-\\d{2}[T_]\\d{2}[.:]\\d{2}[.:]\\d{2}(?:_.+)?$/.test(text);
   }
 
   function compareRunTimestampAsc(aTs, bTs) {
@@ -3281,6 +3293,10 @@ _JS = """\
 
   function ensurePreviousRunsColumns() {
     const available = new Set(previousRunsAvailableColumnFields());
+    if (!available.has(previousRunsSortField)) {
+      previousRunsSortField = "run_timestamp";
+      previousRunsSortDirection = "desc";
+    }
     const seed = previousRunsVisibleColumns.length
       ? previousRunsVisibleColumns
       : PREVIOUS_RUNS_DEFAULT_COLUMNS;
@@ -4091,20 +4107,152 @@ _JS = """\
     );
   }
 
-  function benchmarkSeriesFromRecords(records, metricKey) {
+  function benchmarkVariantForRecord(record) {
+    const path = benchmarkArtifactPath(record);
+    if (path.includes("/codexfarm/") || path.endsWith("/codexfarm")) return "codexfarm";
+    if (path.includes("/vanilla/") || path.endsWith("/vanilla")) return "vanilla";
+    const pipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
+    if (pipeline) {
+      const pipelineText = String(pipeline).toLowerCase();
+      if (pipelineText === "off") return "vanilla";
+      return "codexfarm";
+    }
+    if (aiModelForRecord(record) || aiEffortForRecord(record)) return "codexfarm";
+    return "other";
+  }
+
+  function benchmarkRunGroupInfo(record) {
+    const fallbackTimestamp = String((record && record.run_timestamp) || "").trim();
+    const rawPath = String((record && record.artifact_dir) || "")
+      .trim()
+      .replace(/\\\\/g, "/");
+    let runToken = "";
+    if (rawPath) {
+      const parts = rawPath.split("/").filter(Boolean);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const candidate = String(parts[i] || "");
+        if (!isTimestampTokenText(candidate)) continue;
+        runToken = candidate;
+        break;
+      }
+    }
+    const runGroupLabel = runToken || fallbackTimestamp || "-";
+    const runGroupKey = runToken || fallbackTimestamp || rawPath || "-";
+    return { runGroupKey, runGroupLabel };
+  }
+
+  function benchmarkSeriesFromRecords(records, metricKey, variantKey) {
     return records
       .map(record => {
         if (!record) return null;
+        if (variantKey && benchmarkVariantForRecord(record) !== variantKey) return null;
         const value = record[metricKey];
         if (value == null) return null;
         const parsedValue = Number(value);
         if (!Number.isFinite(parsedValue)) return null;
         const ts = parseTs(record.run_timestamp);
         if (!ts) return null;
-        return [ts.getTime(), parsedValue];
+        const runGroup = benchmarkRunGroupInfo(record);
+        return {
+          x: ts.getTime(),
+          y: parsedValue,
+          custom: {
+            runGroupKey: runGroup.runGroupKey,
+            runGroupLabel: runGroup.runGroupLabel,
+          },
+        };
       })
       .filter(point => point !== null)
-      .sort((a, b) => a[0] - b[0]);
+      .sort((a, b) => a.x - b.x);
+  }
+
+  function trendSeriesPointForRunGroup(series, runGroupKey, hoveredX) {
+    if (!series || !Array.isArray(series.points)) return null;
+    let best = null;
+    const target = Number(hoveredX || 0);
+    series.points.forEach(point => {
+      if (!point) return;
+      const custom = (point.options && point.options.custom) || point.custom || {};
+      if (String(custom.runGroupKey || "") !== runGroupKey) return;
+      if (!best) {
+        best = point;
+        return;
+      }
+      const pointDelta = Math.abs(Number(point.x || 0) - target);
+      const bestDelta = Math.abs(Number(best.x || 0) - target);
+      if (pointDelta < bestDelta) {
+        best = point;
+      }
+    });
+    return best;
+  }
+
+  function buildBenchmarkTrendSeries(records) {
+    const metricDefs = [
+      {
+        key: "strict_accuracy",
+        colors: {
+          default: "#1f5ea8",
+          vanilla: "#7daee8",
+          codexfarm: "#1f5ea8",
+          other: "#7f96b3",
+        },
+      },
+      {
+        key: "macro_f1_excluding_other",
+        colors: {
+          default: "#127a52",
+          vanilla: "#55b895",
+          codexfarm: "#127a52",
+          other: "#6ea08c",
+        },
+      },
+    ];
+    const variantOrder = ["vanilla", "codexfarm", "other"];
+    const presentVariants = new Set(
+      records.map(record => benchmarkVariantForRecord(record))
+    );
+    const hasPairedVariants =
+      presentVariants.has("vanilla") || presentVariants.has("codexfarm");
+
+    if (!hasPairedVariants) {
+      return metricDefs
+        .map(metric => ({
+          name: metric.key,
+          type: "scatter",
+          lineWidth: 0,
+          marker: {
+            enabled: true,
+            radius: 3,
+          },
+          color: metric.colors.default,
+          data: benchmarkSeriesFromRecords(records, metric.key),
+          turboThreshold: 0,
+        }))
+        .filter(series => series.data.length > 0);
+    }
+
+    const series = [];
+    metricDefs.forEach(metric => {
+      variantOrder.forEach(variant => {
+        if (!presentVariants.has(variant)) return;
+        const points = benchmarkSeriesFromRecords(records, metric.key, variant);
+        if (!points.length) return;
+        series.push({
+          name: metric.key + " (" + variant + ")",
+          type: "scatter",
+          lineWidth: 0,
+          marker: {
+            enabled: true,
+            radius: 3,
+          },
+          color: metric.colors[variant] || metric.colors.default,
+          data: points,
+          turboThreshold: 0,
+        });
+      });
+    });
+    return series;
   }
 
   function renderBenchmarkTrendChart() {
@@ -4116,8 +4264,7 @@ _JS = """\
     const sorted = [...records].sort((a, b) =>
       compareRunTimestampAsc(a.run_timestamp, b.run_timestamp)
     );
-    const strictAccuracy = benchmarkSeriesFromRecords(sorted, "strict_accuracy");
-    const macroF1 = benchmarkSeriesFromRecords(sorted, "macro_f1_excluding_other");
+    const trendSeries = buildBenchmarkTrendSeries(sorted);
     const allRunTimestamps = sorted
       .map(record => {
         const ts = parseTs(record.run_timestamp);
@@ -4127,9 +4274,9 @@ _JS = """\
       .sort((a, b) => a - b);
     const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;
     const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;
-    const pointCount = Math.max(
-      strictAccuracy.length,
-      macroF1.length,
+    const pointCount = trendSeries.reduce(
+      (total, series) => total + (series.data ? series.data.length : 0),
+      0,
     );
 
     if (pointCount === 0) {
@@ -4195,23 +4342,55 @@ _JS = """\
         },
       ],
       tooltip: {
-        shared: true,
-        valueDecimals: 4,
+        shared: false,
+        useHTML: true,
+        formatter: function() {
+          const hoveredPoint =
+            this.point ||
+            (Array.isArray(this.points) && this.points.length ? this.points[0].point : null);
+          if (!hoveredPoint) return false;
+          const hoveredCustom =
+            (hoveredPoint.options && hoveredPoint.options.custom) || hoveredPoint.custom || {};
+          const runGroupKey = String(hoveredCustom.runGroupKey || "").trim();
+          if (!runGroupKey) return false;
+
+          const hoveredX = Number(hoveredPoint.x || 0);
+          const chart = hoveredPoint.series && hoveredPoint.series.chart;
+          if (!chart) return false;
+
+          const rows = [];
+          chart.series.forEach(series => {
+            if (!series || series.visible === false) return;
+            const match = trendSeriesPointForRunGroup(series, runGroupKey, hoveredX);
+            if (!match) return;
+            const score = Number(match.y);
+            if (!Number.isFinite(score)) return;
+            rows.push({
+              name: String(series.name || ""),
+              color: String(series.color || "#2f2f2f"),
+              score,
+            });
+          });
+          if (!rows.length) return false;
+          rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+          const label = String(hoveredCustom.runGroupLabel || "").trim();
+          const header = label && label !== "-"
+            ? label
+            : window.Highcharts.dateFormat("%A, %b %e, %Y, %I:%M:%S %p", hoveredX);
+          let html = '<span style="font-size: 0.85rem"><b>' + esc(header) + "</b></span><br/>";
+          rows.forEach(row => {
+            html +=
+              '<span style="color:' + row.color + '">&#9679;</span> ' +
+              esc(row.name) +
+              ': <b>' +
+              row.score.toFixed(4) +
+              "</b><br/>";
+          });
+          return html;
+        },
       },
-      series: [
-        {
-          name: "strict_accuracy",
-          type: "line",
-          data: strictAccuracy,
-          turboThreshold: 0,
-        },
-        {
-          name: "macro_f1_excluding_other",
-          type: "line",
-          data: macroF1,
-          turboThreshold: 0,
-        },
-      ],
+      series: trendSeries,
     });
   }
 
@@ -4744,13 +4923,32 @@ _JS = """\
 
       const th = document.createElement("th");
       th.dataset.columnKey = fieldName;
-      th.textContent = meta.label || fieldName;
-      th.title = meta.title || fieldName;
+      const isSorted = previousRunsSortField === fieldName;
+      const sortIndicator = isSorted
+        ? (previousRunsSortDirection === "asc" ? " ▲" : " ▼")
+        : "";
+      th.textContent = (meta.label || fieldName) + sortIndicator;
+      th.title = (meta.title || fieldName) + " Click to sort A→Z / Z→A.";
       th.classList.add("previous-runs-draggable");
       th.draggable = true;
       if (meta.numeric) {
         th.classList.add("num");
       }
+      th.addEventListener("click", event => {
+        if (
+          event.target instanceof HTMLElement
+          && event.target.classList.contains("previous-runs-resize-handle")
+        ) {
+          return;
+        }
+        if (previousRunsSortField === fieldName) {
+          previousRunsSortDirection = previousRunsSortDirection === "asc" ? "desc" : "asc";
+        } else {
+          previousRunsSortField = fieldName;
+          previousRunsSortDirection = fieldName === "run_timestamp" ? "desc" : "asc";
+        }
+        renderPreviousRuns();
+      });
       th.addEventListener("dragstart", event => {
         previousRunsDraggedColumn = fieldName;
         th.classList.add("previous-runs-drag-source");
@@ -4876,6 +5074,45 @@ _JS = """\
     return typeof value === "number" && Number.isFinite(value);
   }
 
+  function comparePreviousRunsFieldValues(fieldName, left, right) {
+    if (fieldName === "run_timestamp") {
+      return compareRunTimestampAsc(left, right);
+    }
+
+    const leftEmpty = left == null || left === "";
+    const rightEmpty = right == null || right === "";
+    if (leftEmpty && rightEmpty) return 0;
+    if (leftEmpty) return 1;
+    if (rightEmpty) return -1;
+
+    const leftNumber = maybeNumber(left);
+    const rightNumber = maybeNumber(right);
+    if (leftNumber != null && rightNumber != null) {
+      if (leftNumber < rightNumber) return -1;
+      if (leftNumber > rightNumber) return 1;
+      return 0;
+    }
+
+    const leftText = String(left).toLowerCase();
+    const rightText = String(right).toLowerCase();
+    return leftText.localeCompare(rightText, undefined, { numeric: true });
+  }
+
+  function comparePreviousRunsRows(leftRow, rightRow) {
+    const fieldName = String(previousRunsSortField || "run_timestamp");
+    const direction = previousRunsSortDirection === "asc" ? 1 : -1;
+    const leftValue = previousRunsRowFieldValue(leftRow, fieldName);
+    const rightValue = previousRunsRowFieldValue(rightRow, fieldName);
+    const primary = comparePreviousRunsFieldValues(fieldName, leftValue, rightValue);
+    if (primary !== 0) return primary * direction;
+
+    const tieBreak = compareRunTimestampDesc(leftRow.run_timestamp, rightRow.run_timestamp);
+    if (tieBreak !== 0) return tieBreak;
+    const leftHref = String(leftRow.href || "");
+    const rightHref = String(rightRow.href || "");
+    return leftHref.localeCompare(rightHref);
+  }
+
   function renderPreviousRunsCell(row, fieldName) {
     const td = document.createElement("td");
     if (fieldName === "run_timestamp") {
@@ -4943,7 +5180,7 @@ _JS = """\
     function isTimestampToken(token) {
       const text = String(token || "").trim();
       if (!text) return false;
-      return /^\\d{4}-\\d{2}-\\d{2}[T_]\\d{2}[.:]\\d{2}[.:]\\d{2}$/.test(text);
+      return /^\\d{4}-\\d{2}-\\d{2}[T_]\\d{2}[.:]\\d{2}[.:]\\d{2}(?:_.+)?$/.test(text);
     }
 
     function nearestRunTimestamp(parts, beforeIndex) {
@@ -4967,12 +5204,13 @@ _JS = """\
         const configDir = info.parts[idx + 2];
         if (!String(configDir).startsWith(ALL_METHOD_CONFIG_PREFIX)) continue;
         const runDirTimestamp = nearestRunTimestamp(info.parts, idx);
+        const fallbackTimestamp = String((record && record.run_timestamp) || "").trim();
         const runRootDir = info.prefix + info.parts.slice(0, idx + 1).join("/");
         const groupDir = info.prefix + info.parts.slice(0, idx + 2).join("/");
         return {
           runKey: runRootDir || groupDir,
           groupKey: groupDir,
-          runDirTimestamp,
+          runDirTimestamp: runDirTimestamp || fallbackTimestamp || null,
           configDir: String(configDir),
           sourceSlug: String(sourceSlug),
         };
@@ -5215,7 +5453,7 @@ _JS = """\
       record: item.record,
     })));
 
-    rows.sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
+    rows.sort((a, b) => comparePreviousRunsRows(a, b));
     tbody.innerHTML = "";
     rows.forEach(row => {
       const tr = document.createElement("tr");

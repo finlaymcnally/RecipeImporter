@@ -703,6 +703,9 @@ Options:
 - `--output-dir PATH` (required): eval artifact directory.
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): Jaccard match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching spans.
+- `--llm-recipe-pipeline TEXT` (optional): eval-manifest metadata override; defaults to prediction-run run-config value (fallback `off`).
+- `--atomic-block-splitter TEXT` (optional): eval-manifest metadata override; defaults to prediction-run run-config value (fallback `off`).
+- `--line-role-pipeline TEXT` (optional): eval-manifest metadata override; defaults to prediction-run run-config value (fallback `off`).
 - On successful benchmark CSV append, auto-refreshes dashboard artifacts for that history root.
 
 ### `cookimport labelstudio-benchmark`
@@ -875,7 +878,7 @@ Options:
 
 ### `cookimport bench quality-discover`
 
-Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `roastchickenandotherstoriescutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`. Selection metadata now includes per-format counts (`format_counts`, `selected_format_counts`) and per-target `source_extension`.
+Builds a deterministic quality-suite manifest by matching pulled freeform gold exports to source files in `data/input`. Discovery now prefers this curated target-id order when matched: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; otherwise it falls back to representative stratified selection. If importer-scored discovery returns zero files, it retries against non-hidden filenames in `--input-root`. Selection metadata now includes per-format counts (`format_counts`, `selected_format_counts`) and per-target `source_extension`.
 
 Options:
 
@@ -1116,7 +1119,7 @@ When introducing a new processing option, complete all four surfaces together:
 4. Both execution lanes:
 - Import lane (`cookimport stage`).
 - Prediction-generation lane for benchmark/freeform eval (`labelstudio-benchmark` prediction run creation).
-- Reminder: `labelstudio-eval` is eval-only and does not rerun pipeline options.
+- Reminder: `labelstudio-eval` is eval-only and does not rerun pipeline options; pipeline flags on eval only affect run-manifest metadata parity.
 
 ## Merged Task Specs (2026-02-16 to 2026-02-22)
 

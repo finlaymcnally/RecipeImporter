@@ -106,3 +106,57 @@ def test_atomize_inline_numbered_steps_into_multiple_instruction_candidates() ->
         "3. Cover and braise for 45 minutes.",
     ]
     assert all(candidate.candidate_labels[0] == "INSTRUCTION_LINE" for candidate in candidates)
+
+
+def test_atomize_marks_explicit_prose_tag_for_fallback_paragraphs() -> None:
+    outside_candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:outside:1",
+                "block_index": 1,
+                "text": (
+                    "Copper pans conduct heat quickly and evenly, so even small burner "
+                    "changes show up immediately across the pan"
+                ),
+            }
+        ],
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    assert len(outside_candidates) == 1
+    assert outside_candidates[0].candidate_labels[0] == "KNOWLEDGE"
+    assert "explicit_prose" in outside_candidates[0].rule_tags
+
+    inside_candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:inside:1",
+                "block_index": 1,
+                "text": (
+                    "A long explanatory paragraph appears here, with narrative context "
+                    "about texture and flavor choices rather than direct action"
+                ),
+            }
+        ],
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    assert len(inside_candidates) == 1
+    assert inside_candidates[0].candidate_labels[0] == "OTHER"
+    assert "explicit_prose" in inside_candidates[0].rule_tags
+
+
+def test_atomize_blocks_respects_off_splitter_mode() -> None:
+    payload = _load_fixture("hollandaise_merged_block.json")
+    blocks = payload.get("blocks")
+    assert isinstance(blocks, list)
+
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=str(payload.get("recipe_id") or ""),
+        within_recipe_span=True,
+        atomic_block_splitter="off",
+    )
+
+    assert len(candidates) == len(blocks)
+    assert "TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER" in candidates[0].text

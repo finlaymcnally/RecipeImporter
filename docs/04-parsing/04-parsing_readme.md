@@ -428,6 +428,7 @@ Gates include:
 
 - Splits merged recipe blocks into atomic line candidates for canonical line-label benchmark work.
 - Emits serializable `AtomicLineCandidate` rows with deterministic `atomic_index`, adjacency context (`prev_text`, `next_text`), candidate labels, and rule tags.
+- `atomic_block_splitter=atomic-v1` enables boundary-first splitting; `atomic_block_splitter=off` keeps one candidate per source block (no sub-line splitting).
 
 ### Current rules
 
@@ -444,7 +445,7 @@ Gates include:
 ### What it does
 
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
-- Supports optional Codex fallback for unresolved candidates when `line_role_pipeline=codex-line-role-v1`.
+- Supports optional Codex fallback for unresolved or low-confidence candidates when `line_role_pipeline=codex-line-role-v1`.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`) and reason tags.
 - Prediction rows also carry `within_recipe_span` context (from atomized candidates), which benchmark Milestone-5 diagnostics reuse for slice metrics and knowledge-budget reporting.
 

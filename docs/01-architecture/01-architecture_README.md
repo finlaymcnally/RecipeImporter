@@ -412,3 +412,14 @@ Current architecture additions:
 - Executor-resolution telemetry is part of architecture observability now (stage worker resolution artifacts and all-method/bench executor metadata).
 - OG-plan closure rule: keep implementation claims tied to runtime/test evidence and recorded speed compare artifacts, not checklist state alone.
 
+## 2026-03-03 merged understanding (AI context staleness refresh)
+
+Source:
+- `docs/understandings/2026-03-03_00.01.32-ai-context-staleness-refresh.md`
+
+Current architecture-doc maintenance reminders:
+- Keep onboarding/AI-context docs anchored to stable runtime contracts, not volatile snapshots.
+- `bench` command framing should reflect current command surface (`speed`, `quality`, `gc`, `eval-stage`) instead of older `validate/run/sweep/knobs` phrasing.
+- Importer inventory should include active `webschema` coverage when documenting supported source types.
+- LLM boundary wording should stay accurate: stage includes optional pass1-5 codex-farm paths via run settings; it is no longer only a prelabel-adjacent concern.
+- Prefer linking to section READMEs for live operational details instead of embedding brittle health snapshots in top-level onboarding docs.

@@ -4521,22 +4521,30 @@ def _build_line_role_regression_gate_payload(
         gold_label="OTHER",
         pred_label="KNOWLEDGE",
     )
+    confusion_baseline_report = None
+    confusion_baseline_source = "missing"
+    if isinstance(codex_foodlab_report, dict):
+        confusion_baseline_report = codex_foodlab_report
+        confusion_baseline_source = "codex-farm-3pass-v1"
+    elif isinstance(vanilla_foodlab_report, dict):
+        confusion_baseline_report = vanilla_foodlab_report
+        confusion_baseline_source = "vanilla-off-fallback"
     baseline_ingredient_yield = (
         _confusion_count(
-            report=codex_foodlab_report,
+            report=confusion_baseline_report,
             gold_label="INGREDIENT_LINE",
             pred_label="YIELD_LINE",
         )
-        if isinstance(codex_foodlab_report, dict)
+        if isinstance(confusion_baseline_report, dict)
         else None
     )
     baseline_other_knowledge = (
         _confusion_count(
-            report=codex_foodlab_report,
+            report=confusion_baseline_report,
             gold_label="OTHER",
             pred_label="KNOWLEDGE",
         )
-        if isinstance(codex_foodlab_report, dict)
+        if isinstance(confusion_baseline_report, dict)
         else None
     )
 
@@ -4546,6 +4554,7 @@ def _build_line_role_regression_gate_payload(
         baseline_value: int | None,
         candidate_value: int | None,
         min_drop_ratio: float,
+        baseline_source: str,
     ) -> None:
         if baseline_value is None or candidate_value is None:
             _add_gate(gate_name, False, "Missing baseline/candidate confusion counts.")
@@ -4556,7 +4565,7 @@ def _build_line_role_regression_gate_payload(
                 gate_name,
                 passed,
                 (
-                    "Baseline confusion count is 0; "
+                    f"Baseline confusion count is 0 ({baseline_source}); "
                     f"candidate={candidate_value}."
                 ),
             )
@@ -4566,6 +4575,7 @@ def _build_line_role_regression_gate_payload(
             gate_name,
             drop_ratio >= min_drop_ratio,
             (
+                f"baseline_source={baseline_source}, "
                 f"baseline={baseline_value}, candidate={candidate_value}, "
                 f"drop_ratio={drop_ratio:.6f}, threshold={min_drop_ratio:.2f}."
             ),
@@ -4576,12 +4586,14 @@ def _build_line_role_regression_gate_payload(
         baseline_value=baseline_ingredient_yield,
         candidate_value=candidate_ingredient_yield,
         min_drop_ratio=LINE_ROLE_GATED_INGREDIENT_YIELD_DROP_MIN,
+        baseline_source=confusion_baseline_source,
     )
     _confusion_drop_gate(
         gate_name="foodlab_other_to_knowledge_confusion_drop",
         baseline_value=baseline_other_knowledge,
         candidate_value=candidate_other_knowledge,
         min_drop_ratio=LINE_ROLE_GATED_OTHER_KNOWLEDGE_DROP_MIN,
+        baseline_source=confusion_baseline_source,
     )
 
     candidate_notes_recall = _label_recall_from_eval_report(
@@ -23233,6 +23245,27 @@ def labelstudio_eval(
             ),
         ),
     ] = False,
+    llm_recipe_pipeline: Annotated[str | None, typer.Option(
+        "--llm-recipe-pipeline",
+        help=(
+            "Optional run-config override for eval metadata parity. "
+            "When omitted, value is inferred from prediction-run metadata."
+        ),
+    )] = None,
+    atomic_block_splitter: Annotated[str | None, typer.Option(
+        "--atomic-block-splitter",
+        help=(
+            "Optional run-config override for eval metadata parity. "
+            "When omitted, value is inferred from prediction-run metadata."
+        ),
+    )] = None,
+    line_role_pipeline: Annotated[str | None, typer.Option(
+        "--line-role-pipeline",
+        help=(
+            "Optional run-config override for eval metadata parity. "
+            "When omitted, value is inferred from prediction-run metadata."
+        ),
+    )] = None,
 ) -> None:
     """Evaluate freeform predictions against freeform gold sets."""
     scope = "freeform-spans"
@@ -23313,6 +23346,36 @@ def labelstudio_eval(
         "overlap_threshold": overlap_threshold,
         "force_source_match": force_source_match,
     }
+    pred_run_config = (
+        pred_context.run_config if isinstance(pred_context.run_config, dict) else {}
+    )
+    llm_recipe_pipeline_value = (
+        pred_run_config.get("llm_recipe_pipeline")
+        if llm_recipe_pipeline is None
+        else llm_recipe_pipeline
+    )
+    atomic_block_splitter_value = (
+        pred_run_config.get("atomic_block_splitter")
+        if atomic_block_splitter is None
+        else atomic_block_splitter
+    )
+    line_role_pipeline_value = (
+        pred_run_config.get("line_role_pipeline")
+        if line_role_pipeline is None
+        else line_role_pipeline
+    )
+    resolved_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(
+        str(llm_recipe_pipeline_value or "off")
+    )
+    resolved_atomic_block_splitter = _normalize_atomic_block_splitter(
+        str(atomic_block_splitter_value or "off")
+    )
+    resolved_line_role_pipeline = _normalize_line_role_pipeline(
+        str(line_role_pipeline_value or "off")
+    )
+    eval_run_config["llm_recipe_pipeline"] = resolved_llm_recipe_pipeline
+    eval_run_config["atomic_block_splitter"] = resolved_atomic_block_splitter
+    eval_run_config["line_role_pipeline"] = resolved_line_role_pipeline
     if pred_context.run_config is not None:
         eval_run_config["prediction_run_config"] = pred_context.run_config
     if pred_context.run_config_hash:
@@ -26199,6 +26262,22 @@ def bench_gc(
             "Use with caution."
         ),
     ),
+    include_labelstudio_benchmark: bool = typer.Option(
+        False,
+        "--include-labelstudio-benchmark/--no-include-labelstudio-benchmark",
+        help=(
+            "Also consider pruning timestamped Label Studio benchmark roots under "
+            "`data/golden/benchmark-vs-golden/*` (requires durable CSV history confirmation)."
+        ),
+    ),
+    prune_benchmark_processed_outputs: bool = typer.Option(
+        False,
+        "--prune-benchmark-processed-outputs/--keep-benchmark-processed-outputs",
+        help=(
+            "When pruning Label Studio benchmark roots, also prune matching processed output "
+            "roots under `--output-root/<run_id>/` when confirmed by CSV history."
+        ),
+    ),
     dry_run: bool = typer.Option(
         True,
         "--dry-run/--apply",
@@ -26215,6 +26294,8 @@ def bench_gc(
         keep_full_days=keep_full_days,
         dry_run=dry_run,
         drop_speed_artifacts=drop_speed_artifacts,
+        include_labelstudio_benchmark=include_labelstudio_benchmark,
+        prune_benchmark_processed_outputs=prune_benchmark_processed_outputs,
     )
 
     mode = "Dry Run" if result.dry_run else "Apply"
@@ -26223,17 +26304,28 @@ def bench_gc(
         "policy: "
         f"keep_full_runs={result.keep_full_runs} "
         f"keep_full_days={result.keep_full_days} "
-        f"drop_speed_artifacts={str(result.drop_speed_artifacts).lower()}"
+        f"drop_speed_artifacts={str(result.drop_speed_artifacts).lower()} "
+        f"include_labelstudio_benchmark={str(result.include_labelstudio_benchmark).lower()} "
+        f"prune_benchmark_processed_outputs={str(result.prune_benchmark_processed_outputs).lower()}"
     )
     typer.echo(f"candidate run roots: {result.total_run_roots}")
     typer.echo(f"full keep (policy): {result.policy_kept_run_roots}")
+    if result.pinned_kept_run_roots:
+        typer.echo(f"pinned keep (sentinel): {result.pinned_kept_run_roots}")
     typer.echo(f"kept (unconfirmed durable history): {result.skipped_unconfirmed_run_roots}")
     typer.echo(
         "prune: "
         f"{result.pruned_run_roots} "
-        f"(quality={result.pruned_quality_run_roots}, speed={result.pruned_speed_run_roots})"
+        f"(quality={result.pruned_quality_run_roots}, "
+        f"speed={result.pruned_speed_run_roots}, "
+        f"labelstudio={result.pruned_labelstudio_run_roots})"
     )
-    typer.echo(f"estimated reclaim: {_format_size_compact(result.reclaimed_bytes)}")
+    reclaim_parts = [_format_size_compact(result.reclaimed_bytes)]
+    if result.reclaimed_processed_output_bytes:
+        reclaim_parts.append(
+            f"+ processed_outputs={_format_size_compact(result.reclaimed_processed_output_bytes)}"
+        )
+    typer.echo(f"estimated reclaim: {' '.join(reclaim_parts)}")
     typer.echo(f"history rows scanned: {result.history_rows_scanned}")
     typer.echo(f"history rows updated: {result.history_rows_updated}")
     typer.echo(f"history rows pruned: {result.history_rows_pruned}")
@@ -26253,6 +26345,53 @@ def bench_gc(
         typer.secho("no files changed (dry-run)", fg=typer.colors.CYAN)
     else:
         typer.secho("done", fg=typer.colors.GREEN)
+
+
+@bench_app.command("pin")
+def bench_pin(
+    path: Annotated[Path, typer.Argument(help="Run root to pin (kept from bench gc).")],
+    note: Annotated[str | None, typer.Option("--note", help="Optional note written to the pin file.")] = None,
+) -> None:
+    """Pin a run root by writing a `.gc_keep.*.txt` sentinel file."""
+    resolved = path.expanduser()
+    if not resolved.exists() or not resolved.is_dir():
+        _fail(f"Pin target must be an existing directory: {resolved}")
+
+    timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    sentinel_path = resolved / f".gc_keep.{timestamp}.txt"
+    body = (note or "").strip()
+    if not body:
+        body = "Pinned by cookimport bench pin."
+    sentinel_path.write_text(body.rstrip() + "\n", encoding="utf-8")
+    typer.secho(f"Pinned: {resolved}", fg=typer.colors.GREEN)
+    typer.secho(f"Sentinel: {sentinel_path}", fg=typer.colors.CYAN)
+
+
+@bench_app.command("unpin")
+def bench_unpin(
+    path: Annotated[Path, typer.Argument(help="Run root to unpin (removes `.gc_keep*` sentinels).")],
+) -> None:
+    """Unpin a run root by removing `.gc_keep*` sentinel files."""
+    resolved = path.expanduser()
+    if not resolved.exists() or not resolved.is_dir():
+        _fail(f"Unpin target must be an existing directory: {resolved}")
+
+    removed = 0
+    try:
+        for child in resolved.iterdir():
+            if child.name.startswith(".gc_keep"):
+                try:
+                    child.unlink()
+                    removed += 1
+                except OSError as exc:
+                    typer.secho(f"Failed to remove {child}: {exc}", fg=typer.colors.YELLOW)
+    except OSError as exc:
+        _fail(f"Unable to scan directory for sentinels: {resolved} ({exc})")
+
+    if removed:
+        typer.secho(f"Unpinned: {resolved} (removed {removed} sentinel file(s))", fg=typer.colors.GREEN)
+    else:
+        typer.secho(f"No `.gc_keep*` sentinels found in: {resolved}", fg=typer.colors.YELLOW)
 
 
 @bench_app.command("quality-discover")

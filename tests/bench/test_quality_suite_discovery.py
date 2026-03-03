@@ -127,6 +127,7 @@ def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
         "saltfatacidheat.epub",
         "thefoodlab.epub",
         "seaandsmoke.epub",
+        "dinnerfor2.epub",
         "roastchickenandotherstories.epub",
         "fallback.epub",
     ):
@@ -156,6 +157,13 @@ def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
     )
     _write_target(
         gold_root,
+        target_name="dinnerfor2cutdown",
+        source_file="dinnerfor2.epub",
+        labels=["INGREDIENT_LINE", "INSTRUCTION_LINE"],
+        canonical_chars=260,
+    )
+    _write_target(
+        gold_root,
         target_name="roastchickenandotherstoriescutdown",
         source_file="roastchickenandotherstories.epub",
         labels=["RECIPE_TITLE"],
@@ -175,6 +183,7 @@ def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
             input_root / "saltfatacidheat.epub",
             input_root / "thefoodlab.epub",
             input_root / "seaandsmoke.epub",
+            input_root / "dinnerfor2.epub",
             input_root / "roastchickenandotherstories.epub",
             input_root / "fallback.epub",
         ],
@@ -190,6 +199,7 @@ def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
         "saltfatacidheatcutdown",
         "thefoodlabcutdown",
         "seaandsmokecutdown",
+        "dinnerfor2cutdown",
         "roastchickenandotherstoriescutdown",
     ]
     assert suite.selection["selection_mode"] == "curated_target_ids"
@@ -206,6 +216,7 @@ def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_cap
         "saltfatacidheat.epub",
         "thefoodlab.epub",
         "seaandsmoke.epub",
+        "dinnerfor2.epub",
         "roastchickenandotherstories.epub",
         "fallback_a.epub",
         "fallback_b.epub",
@@ -234,6 +245,13 @@ def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_cap
         source_file="seaandsmoke.epub",
         labels=["INSTRUCTION_LINE"],
         canonical_chars=200,
+    )
+    _write_target(
+        gold_root,
+        target_name="dinnerfor2cutdown",
+        source_file="dinnerfor2.epub",
+        labels=["RECIPE_TITLE", "OTHER"],
+        canonical_chars=220,
     )
     _write_target(
         gold_root,
@@ -270,6 +288,7 @@ def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_cap
             input_root / "saltfatacidheat.epub",
             input_root / "thefoodlab.epub",
             input_root / "seaandsmoke.epub",
+            input_root / "dinnerfor2.epub",
             input_root / "roastchickenandotherstories.epub",
             input_root / "fallback_a.epub",
             input_root / "fallback_b.epub",
@@ -280,25 +299,26 @@ def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_cap
     suite_a = discover_quality_suite(
         gold_root=gold_root,
         input_root=input_root,
-        max_targets=5,
+        max_targets=6,
         seed=42,
     )
     suite_b = discover_quality_suite(
         gold_root=gold_root,
         input_root=input_root,
-        max_targets=5,
+        max_targets=6,
         seed=42,
     )
 
     assert suite_a.selected_target_ids == suite_b.selected_target_ids
-    assert suite_a.selected_target_ids[:4] == [
+    assert suite_a.selected_target_ids[:5] == [
         "saltfatacidheatcutdown",
         "thefoodlabcutdown",
         "seaandsmokecutdown",
+        "dinnerfor2cutdown",
         "roastchickenandotherstoriescutdown",
     ]
-    assert len(suite_a.selected_target_ids) == 5
-    assert set(suite_a.selected_target_ids[4:]).issubset(
+    assert len(suite_a.selected_target_ids) == 6
+    assert set(suite_a.selected_target_ids[5:]).issubset(
         {"fallback_a", "fallback_b", "fallback_c"}
     )
     assert len(suite_a.selection["representative_fill_target_ids"]) == 1

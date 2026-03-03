@@ -374,3 +374,101 @@ def test_bench_gc_cli_dry_run_outputs_summary(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Benchmark GC Dry Run" in result.stdout
     assert "no files changed (dry-run)" in result.stdout
+
+
+def test_benchmark_gc_can_prune_labelstudio_benchmark_roots_when_enabled(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
+    eval_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    _write_eval_report(eval_dir)
+
+    csv_path = tmp_path / ".history" / "performance_history.csv"
+    _write_history_row(csv_path, eval_dir)
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=tmp_path / "output",
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+        include_labelstudio_benchmark=True,
+    )
+
+    assert result.pruned_labelstudio_run_roots == 1
+    assert not run_root.exists()
+
+
+def test_benchmark_gc_keep_sentinel_skips_labelstudio_prune(tmp_path: Path) -> None:
+    run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
+    eval_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    _write_eval_report(eval_dir)
+    (run_root / ".gc_keep.2026-02-20_10.00.00.txt").write_text(
+        "Pinned.\n",
+        encoding="utf-8",
+    )
+
+    csv_path = tmp_path / ".history" / "performance_history.csv"
+    _write_history_row(csv_path, eval_dir)
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=tmp_path / "output",
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+        include_labelstudio_benchmark=True,
+    )
+
+    assert result.pruned_labelstudio_run_roots == 0
+    assert result.pinned_kept_run_roots == 1
+    assert run_root.exists()
+
+
+def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "golden" / "benchmark-vs-golden" / "2026-02-01_10.00.00"
+    eval_dir = run_root / "single-offline-benchmark" / "book" / "vanilla"
+    _write_eval_report(eval_dir)
+
+    output_root = tmp_path / "output"
+    processed_root = output_root / run_root.name
+    processed_report = processed_root / "report.json"
+    processed_report.parent.mkdir(parents=True, exist_ok=True)
+    processed_report.write_text("{}", encoding="utf-8")
+
+    csv_path = tmp_path / ".history" / "performance_history.csv"
+    _write_history_rows(
+        csv_path,
+        [
+            {
+                "run_timestamp": "2026-02-16T15:00:00",
+                "run_dir": str(eval_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "file_name": "book.epub",
+                "precision": "0.1",
+                "recall": "0.2",
+                "report_path": str(processed_report),
+            }
+        ],
+    )
+
+    result = run_benchmark_gc(
+        golden_root=tmp_path / "golden",
+        output_root=output_root,
+        keep_full_runs=0,
+        keep_full_days=0,
+        dry_run=False,
+        drop_speed_artifacts=False,
+        include_labelstudio_benchmark=True,
+        prune_benchmark_processed_outputs=True,
+    )
+
+    assert result.pruned_labelstudio_run_roots == 1
+    assert result.pruned_processed_output_roots == 1
+    assert not run_root.exists()
+    assert not processed_root.exists()

@@ -149,6 +149,7 @@ cookimport/plugins/registry.py
 cookimport/plugins/text.py
 cookimport/plugins/webschema.py
 cookimport/runs/__init__.py
+cookimport/runs/eval_manifest.py
 cookimport/runs/manifest.py
 cookimport/staging/__init__.py
 cookimport/staging/draft_v1.py

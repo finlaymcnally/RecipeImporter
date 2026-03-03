@@ -26,6 +26,7 @@ Main entry point: `data/.history/dashboard/index.html`.
 
 Collector compatibility fallback:
 - If canonical history CSV is missing, collector also probes legacy `<output_root>/.history/performance_history.csv`.
+- Benchmark rows can also be supplemented from nested benchmark history CSV files under `<output_root>/**/.history/performance_history.csv` (used by nested benchmark processed-output layouts).
 
 This CSV is populated by:
 
@@ -111,8 +112,9 @@ Notes:
   - When both speed-suite benchmark rows (`.../bench/speed/runs/...`) and regular benchmark rows exist, diagnostics prefer the latest non-speed rows to avoid one-target speed samples overriding multi-book benchmark diagnostics.
   - Speed/non-speed and all-method detection normalizes `artifact_dir` path separators first, so Windows-style `\\` paths in history data are handled the same as `/`.
   - Canonical-text benchmark reports now include `boundary` counts again, so boundary diagnostics can advance with current single-offline/all-method benchmark rows instead of falling back to older freeform-eval rows.
-- `Previous Runs`: scrollable table (about ~5 visible rows) with key benchmark columns only.
-  - Vertical + horizontal scrolling are both enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
+- `Previous Runs`: full-history table with key benchmark columns only.
+  - Horizontal scrolling is enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
+  - Click any table header to toggle sort direction for that column (`A→Z` / `Z→A`), including timestamps.
   - Includes table column controls: drag headers to reorder, resize via header drag handles, and add/remove fields dynamically from discovered benchmark keys.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - `AI Model + Effort` column uses run-config metadata (`run_config` / `run_config_summary`) with fallback aliases.
@@ -122,6 +124,10 @@ Notes:
   - Includes a rules filter builder: define row rules over any benchmark field (including nested keys like `run_config.*`) and combine them with a boolean expression (`AND` / `OR` / `NOT`, parentheses) using rule IDs (`R1`, `R2`, ...).
   - Rule field dropdown is grouped into `Most used (table columns)` first, then `All other fields`.
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 400px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
+  - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
+  - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps).
+  - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
+  - Hovering any trend point shows one run-level tooltip card with local run timestamp and all visible series values for that run group (instead of per-point coordinate tooltips).
   - The `Benchmark Score Trend` range selector defaults to `All`, so older benchmark history is visible on first load instead of starting on a short recent window.
   - The trend chart x-axis is initialized from the full filtered `Previous Runs` timestamp span (including rows without explicit score points), so timeline dates stay aligned with the table.
   - Highcharts mouse-wheel zoom is disabled globally in dashboard JS (`HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false`) so page scrolling does not zoom charts by accident; toggle that constant to re-enable later.
@@ -131,6 +137,7 @@ Timestamp ordering note:
 - Frontend timestamp parsing should use explicit component parsing for these two forms (with `Date` fallback for timezone-bearing ISO values) rather than relying only on `Date.parse`.
 - Benchmark collector normalizes suffixed sweep folder names like `2026-02-28_02.03.18_manual-top5-...` to `2026-02-28_02.03.18` for dashboard run-grouping.
 - For grouped all-method rows, frontend timestamp extraction now scans backward in `artifact_dir` for the nearest timestamp token, so paths containing segments like `.../repeat_01/eval_output/all-method-benchmark/...` do not show `eval_output` as the timestamp label.
+- Grouped all-method timestamp extraction accepts timestamp tokens with suffixes (for example `2026-02-28_00.42.13_manual-all-matched-global-smoke`) and falls back to benchmark `run_timestamp` when no path token is found.
 
 Benchmark recipes note:
 - `Previous Runs` includes a `Recipes` column.

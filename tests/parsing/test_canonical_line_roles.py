@@ -35,6 +35,7 @@ def test_label_atomic_lines_hollandaise_note_and_howto_rules() -> None:
         == "HOWTO_SECTION"
     )
     assert by_text["NOTE: Keep blender cup warm."].decided_by == "rule"
+    assert all(prediction.within_recipe_span is True for prediction in predictions)
 
 
 def test_label_atomic_lines_ingredient_range_never_yield() -> None:
@@ -104,6 +105,121 @@ def test_label_atomic_lines_outside_recipe_can_be_knowledge() -> None:
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].within_recipe_span is False
+
+
+def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:note:1",
+            "block_index": 1,
+            "text": "NOTE: Keep the soup warm while you prep garnish.",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_outside_recipe_variant_heading_is_recipe_variant() -> None:
+    blocks = [
+        {
+            "block_id": "block:variant:1",
+            "block_index": 1,
+            "text": "FOR A CROWD",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_VARIANT"
+
+
+def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:preface:1",
+            "block_index": 1,
+            "text": (
+                "I spent years testing this in my home kitchen, but this paragraph "
+                "is narrative preface prose and not an inline recipe note."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label != "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_outside_recipe_food_note_prose_is_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:tip:1",
+            "block_index": 1,
+            "text": (
+                "I like mine extra peppery, and you can spoon it over biscuits "
+                "while the gravy is still hot."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+
+
+def test_label_atomic_lines_outside_recipe_contents_heading_is_not_recipe_variant() -> None:
+    blocks = [
+        {
+            "block_id": "block:heading:1",
+            "block_index": 1,
+            "text": "CONTENTS",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label != "RECIPE_VARIANT"
+
+
+def test_label_atomic_lines_heading_like_ingredient_promotes_recipe_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:1",
+            "block_index": 1,
+            "text": "POACHED EGGS",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_TITLE"
 
 
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
@@ -175,3 +291,206 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert '"atomic_index": 0' in prompt
     assert '"candidate_labels": ["YIELD_LINE", "OTHER"]' in prompt
+
+
+def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text=(
+                "This paragraph gives narrative context about pan construction, and "
+                "it includes multiple clauses to remain prose-like."
+            ),
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text="middle",
+            rule_tags=["recipe_span_fallback", "explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:1",
+            block_index=1,
+            atomic_index=1,
+            text=(
+                "Another prose paragraph discusses heat retention, moisture movement, "
+                "and texture outcomes in complete sentences."
+            ),
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text="prev",
+            next_text="next",
+            rule_tags=["recipe_span_fallback", "explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=2,
+            text=(
+                "A final prose paragraph closes the section, with punctuation and "
+                "long-form explanation rather than imperative action."
+            ),
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text="middle",
+            next_text=None,
+            rule_tags=["recipe_span_fallback", "explicit_prose"],
+        ),
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps(
+                [
+                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 1, "label": "KNOWLEDGE"},
+                    {"atomic_index": 2, "label": "OTHER"},
+                ]
+            ),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
+    )
+    by_index = {row.atomic_index: row for row in predictions}
+    assert by_index[1].label == "KNOWLEDGE"
+    assert by_index[1].decided_by == "codex"
+
+
+def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text=(
+                "This paragraph gives narrative context about pan construction, and "
+                "it includes multiple clauses to remain prose-like."
+            ),
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text="middle",
+            rule_tags=["recipe_span_fallback", "explicit_prose"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:1",
+            block_index=1,
+            atomic_index=1,
+            text=(
+                "Another prose paragraph discusses heat retention, moisture movement, "
+                "and texture outcomes in complete sentences."
+            ),
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text="prev",
+            next_text="next",
+            rule_tags=["recipe_span_fallback"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=2,
+            text=(
+                "A final prose paragraph closes the section, with punctuation and "
+                "long-form explanation rather than imperative action."
+            ),
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text="middle",
+            next_text=None,
+            rule_tags=["recipe_span_fallback", "explicit_prose"],
+        ),
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps(
+                [
+                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 1, "label": "KNOWLEDGE"},
+                    {"atomic_index": 2, "label": "OTHER"},
+                ]
+            ),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
+    )
+    by_index = {row.atomic_index: row for row in predictions}
+    assert by_index[1].label == "OTHER"
+    assert by_index[1].decided_by == "fallback"
+
+
+def test_codex_mode_escalates_low_confidence_deterministic_candidates(monkeypatch) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1",
+            block_index=1,
+            atomic_index=0,
+            text="CONTENTS",
+            within_recipe_span=False,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["outside_recipe_span"],
+        )
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "KNOWLEDGE"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+    )
+    assert len(predictions) == 1
+    assert predictions[0].label == "KNOWLEDGE"
+    assert predictions[0].decided_by == "codex"

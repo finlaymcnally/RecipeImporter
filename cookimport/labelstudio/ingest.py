@@ -970,6 +970,7 @@ def _build_line_role_candidates_from_archive(
     *,
     archive_payload: list[dict[str, Any]],
     result: ConversionResult,
+    atomic_block_splitter: str,
 ) -> list[AtomicLineCandidate]:
     recipe_ranges = _line_role_recipe_ranges(result, archive_payload=archive_payload)
     staged: list[dict[str, Any]] = []
@@ -999,6 +1000,7 @@ def _build_line_role_candidates_from_archive(
             ],
             recipe_id=recipe_id,
             within_recipe_span=within_recipe_span,
+            atomic_block_splitter=atomic_block_splitter,
         )
         for candidate in atomized:
             staged.append(
@@ -2271,6 +2273,7 @@ def generate_pred_run_artifacts(
         line_role_candidates = _build_line_role_candidates_from_archive(
             archive_payload=archive_payload_rows,
             result=result,
+            atomic_block_splitter=run_settings.atomic_block_splitter.value,
         )
         if line_role_candidates:
             line_role_predictions = label_atomic_lines(

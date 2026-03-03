@@ -293,3 +293,21 @@ Durable outcomes:
 
 Anti-loop note:
 - If a run appears compliant but gates fail, inspect manifest `*_manifest_txt` file entries for missing raw artifacts before changing codex intent heuristics.
+
+## 2026-03-03 migrated understanding ledger (project label-config drift backfill)
+
+### 2026-03-03_00.17.58 Label Studio project config HOWTO_SECTION backfill
+
+Source:
+- `docs/understandings/2026-03-03_00.17.58-labelstudio-project-config-howto-section-backfill.md`
+
+Problem captured:
+- Existing projects created before new freeform labels were introduced can retain stale UI `label_config` even when runtime label constants are updated.
+
+Durable findings:
+- Existing import flow updated label config on project creation path, but reusing an existing project could preserve stale labels.
+- Explicit API patch to `/api/projects/<id>` with `build_freeform_label_config()` updated the project label list in place.
+- Recorded validation example: project `53` moved from 9 labels to 10 and included `HOWTO_SECTION` after patch.
+
+Anti-loop note:
+- When UI labels and code labels disagree, validate project config freshness first; do not immediately assume eval/scorer regression.

@@ -83,6 +83,7 @@ History root rule (important):
 - Path is `output_root.parent / ".history" / "performance_history.csv"`.
 - Example: output root `/tmp/out` writes history at `/tmp/.history/performance_history.csv`.
 - Collector compatibility read path: if canonical history CSV is missing, collector also probes legacy `<output_root>/.history/performance_history.csv`.
+- Collector also scans nested `<output_root>/**/.history/performance_history.csv` files for supplemental benchmark rows (used by nested benchmark processed-output layouts).
 
 Stage/import rows (`run_category=stage_import` or `labelstudio_import`):
 - Runtime fields: `total_seconds`, `parsing_seconds`, `writing_seconds`, `ocr_seconds`
@@ -123,6 +124,7 @@ Collector behavior (`collect_dashboard_data`):
   - run-config fallback from report JSON when stale CSV rows lack `run_config_json`
 - Benchmark rows:
   - CSV-first by default
+  - includes supplemental benchmark rows from nested benchmark history CSVs under `--output-root`
   - optional recursive JSON scan only when `--scan-benchmark-reports` is enabled
   - scan fallback still activates when benchmark CSV rows are unavailable
   - scan mode merges JSON-discovered benchmark rows with benchmark CSV rows (dedupe key: normalized benchmark artifact dir path)
@@ -172,7 +174,12 @@ Benchmark scan details:
 - `Previous Runs` includes `AI Model + Effort`; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
 - `Previous Runs` now includes a rules + boolean-expression filter builder over benchmark fields (including nested `run_config.*`) and applies the same filtered dataset to the score trend chart.
-- `Previous Runs` table uses horizontal + vertical scrolling with a fixed minimum table width so benchmark columns remain readable on narrow windows.
+- `Previous Runs` table renders full filtered history by default and keeps horizontal scrolling with a fixed minimum table width so benchmark columns remain readable on narrow windows.
+- Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).
+- Benchmark trend chart timestamps are rendered in browser-local time (`Highcharts time.useUTC=false`).
+- Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line).
+- When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
+- Benchmark trend tooltip is run-grouped: hovering any point shows one local-time card with all visible series values for that run (no raw coordinate-style x/y labels).
 - `Previous Runs` table columns are configurable in-browser: drag headers to reorder, resize by dragging header edges, and add/remove fields from discovered benchmark keys.
 - `Benchmark Score Trend` defaults to the `All` range selector window so initial render includes full available benchmark history.
 - `Benchmark Score Trend` initializes x-axis bounds from the full filtered benchmark timestamp span, so chart timeline coverage matches `Previous Runs` dates even when older rows lack explicit score points.

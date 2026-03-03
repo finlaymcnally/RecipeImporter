@@ -357,3 +357,195 @@ def test_line_role_regression_gate_payload_uses_history_baselines(
     overall = payload.get("overall")
     assert isinstance(overall, dict)
     assert overall.get("verdict") == "PASS"
+
+
+def test_line_role_regression_gate_payload_uses_vanilla_fallback_for_confusion_drop(
+    tmp_path: Path,
+) -> None:
+    history_csv = tmp_path / "performance_history.csv"
+    with history_csv.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "run_category",
+                "run_timestamp",
+                "run_dir",
+                "file_name",
+                "eval_scope",
+                "run_config_json",
+            ],
+        )
+        writer.writeheader()
+        foodlab_vanilla = tmp_path / "foodlab-vanilla"
+        _write_eval_report(
+            foodlab_vanilla / "eval_report.json",
+            {
+                "macro_f1_excluding_other": 0.60,
+                "overall_line_accuracy": 0.61,
+                "confusion": {
+                    "INGREDIENT_LINE": {"YIELD_LINE": 10},
+                    "OTHER": {"KNOWLEDGE": 10},
+                },
+            },
+        )
+        writer.writerow(
+            {
+                "run_category": "benchmark_eval",
+                "run_timestamp": "2026-03-03T00:00:01",
+                "run_dir": str(foodlab_vanilla),
+                "file_name": "thefoodlabCUTDOWN.epub",
+                "eval_scope": "canonical-text",
+                "run_config_json": json.dumps(
+                    {
+                        "llm_recipe_pipeline": "off",
+                        "line_role_pipeline": "off",
+                    }
+                ),
+            }
+        )
+
+    candidate_report = {
+        "macro_f1_excluding_other": 0.68,
+        "overall_line_accuracy": 0.69,
+        "confusion": {
+            "INGREDIENT_LINE": {"YIELD_LINE": 5},
+            "OTHER": {"KNOWLEDGE": 4},
+        },
+        "per_label": {
+            "RECIPE_NOTES": {"recall": 0.5},
+            "RECIPE_VARIANT": {"recall": 0.5},
+            "INGREDIENT_LINE": {"recall": 0.5},
+        },
+    }
+    payload = cli._build_line_role_regression_gate_payload(
+        candidate_report=candidate_report,
+        candidate_source_key="thefoodlabcutdown",
+        history_csv_path=history_csv,
+    )
+    gates = payload.get("gates")
+    assert isinstance(gates, list)
+    by_name = {
+        str(gate.get("name")): gate
+        for gate in gates
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    ingredient_drop_gate = by_name.get("foodlab_ingredient_to_yield_confusion_drop")
+    assert isinstance(ingredient_drop_gate, dict)
+    assert ingredient_drop_gate.get("passed") is True
+    assert "baseline_source=vanilla-off-fallback" in str(ingredient_drop_gate.get("reason"))
+    other_drop_gate = by_name.get("foodlab_other_to_knowledge_confusion_drop")
+    assert isinstance(other_drop_gate, dict)
+    assert other_drop_gate.get("passed") is True
+    assert "baseline_source=vanilla-off-fallback" in str(other_drop_gate.get("reason"))
+
+
+def test_line_role_regression_gate_payload_fails_missing_history_comparators(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    (input_root / "seaandsmokeCUTDOWN.epub").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_INPUT", input_root)
+
+    history_csv = tmp_path / "performance_history.csv"
+    with history_csv.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "run_category",
+                "run_timestamp",
+                "run_dir",
+                "file_name",
+                "eval_scope",
+                "run_config_json",
+            ],
+        )
+        writer.writeheader()
+
+    candidate_report = {
+        "macro_f1_excluding_other": 0.31,
+        "overall_line_accuracy": 0.47,
+        "per_label": {
+            "RECIPE_NOTES": {"recall": 0.22},
+            "RECIPE_VARIANT": {"recall": 0.08},
+            "INGREDIENT_LINE": {"recall": 0.74},
+        },
+    }
+    payload = cli._build_line_role_regression_gate_payload(
+        candidate_report=candidate_report,
+        candidate_source_key="thefoodlabcutdown",
+        history_csv_path=history_csv,
+    )
+
+    gates = payload.get("gates")
+    assert isinstance(gates, list)
+    by_name = {
+        str(gate.get("name")): gate
+        for gate in gates
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    for gate_name in (
+        "foodlab_macro_f1_delta_min",
+        "foodlab_line_accuracy_delta_min",
+        "foodlab_ingredient_to_yield_confusion_drop",
+        "foodlab_other_to_knowledge_confusion_drop",
+        "sea_macro_f1_no_regression",
+        "sea_line_accuracy_no_regression",
+    ):
+        gate = by_name.get(gate_name)
+        assert isinstance(gate, dict)
+        assert gate.get("passed") is False
+    overall = payload.get("overall")
+    assert isinstance(overall, dict)
+    assert overall.get("verdict") == "FAIL"
+
+
+def test_line_role_regression_gate_payload_fails_when_recall_floors_not_met(
+    tmp_path: Path,
+) -> None:
+    history_csv = tmp_path / "performance_history.csv"
+    with history_csv.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "run_category",
+                "run_timestamp",
+                "run_dir",
+                "file_name",
+                "eval_scope",
+                "run_config_json",
+            ],
+        )
+        writer.writeheader()
+
+    candidate_report = {
+        "macro_f1_excluding_other": 0.31,
+        "overall_line_accuracy": 0.47,
+        "per_label": {
+            "RECIPE_NOTES": {"recall": 0.19},
+            "RECIPE_VARIANT": {"recall": 0.06},
+            "INGREDIENT_LINE": {"recall": 0.74},
+        },
+    }
+    payload = cli._build_line_role_regression_gate_payload(
+        candidate_report=candidate_report,
+        candidate_source_key="thefoodlabcutdown",
+        history_csv_path=history_csv,
+    )
+    gates = payload.get("gates")
+    assert isinstance(gates, list)
+    by_name = {
+        str(gate.get("name")): gate
+        for gate in gates
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    notes_gate = by_name.get("foodlab_recipe_notes_recall_min")
+    assert isinstance(notes_gate, dict)
+    assert notes_gate.get("passed") is False
+    variant_gate = by_name.get("foodlab_recipe_variant_recall_min")
+    assert isinstance(variant_gate, dict)
+    assert variant_gate.get("passed") is False
+    overall = payload.get("overall")
+    assert isinstance(overall, dict)
+    assert overall.get("verdict") == "FAIL"

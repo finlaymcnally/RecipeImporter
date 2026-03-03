@@ -7,6 +7,14 @@
 # If no immediate subfolders exist, all files in that folder are flattened into
 # a single .md file.
 #
+# By default, this script avoids exploding output size by:
+# - truncating large files to a preview (see FLATTEN_MAX_BYTES)
+# - not inlining raw binary blobs (e.g. .png, .zip)
+# - previewing .gz files by showing a decompressed excerpt (not raw gzip bytes)
+#
+# Environment variables:
+#   FLATTEN_MAX_BYTES   Max bytes to inline per file (default: 120000).
+#
 # Output examples:
 #   docs/codexfarm_bench_cutdown -> docs/codexfarm_bench_cutdown_md
 
@@ -30,6 +38,12 @@ parent_dir="$(dirname "$input_dir")"
 output_dir="${parent_dir}/${input_name}_md"
 
 mkdir -p "$output_dir"
+
+max_bytes="${FLATTEN_MAX_BYTES:-120000}"
+if [[ ! "$max_bytes" =~ ^[0-9]+$ ]] || [[ "$max_bytes" -le 0 ]]; then
+  echo "Error: FLATTEN_MAX_BYTES must be a positive integer (got: '$max_bytes')." >&2
+  exit 1
+fi
 
 code_fence_for_file() {
   local file_name="$1"
@@ -56,6 +70,65 @@ code_fence_for_file() {
   fi
 
   printf '%s' "$ext"
+}
+
+is_binary_extension() {
+  local file_name="$1"
+  if [[ "$file_name" != *.* ]]; then
+    return 1
+  fi
+  case "${file_name##*.}" in
+    # Treat gzip separately (we preview decompressed content).
+    gz|GZ) return 1 ;;
+    # Common binary / archive formats: do not inline raw bytes.
+    zip|ZIP|tar|TAR|tgz|TGZ|bz2|BZ2|xz|XZ|7z|7Z|rar|RAR) return 0 ;;
+    png|PNG|jpg|JPG|jpeg|JPEG|gif|GIF|webp|WEBP|bmp|BMP|ico|ICO|icns|ICNS) return 0 ;;
+    pdf|PDF) return 0 ;;
+    mp3|MP3|mp4|MP4|m4a|M4A|mov|MOV|avi|AVI|wav|WAV|flac|FLAC|ogg|OGG) return 0 ;;
+    parquet|PARQUET|arrow|ARROW|feather|FEATHER|avro|AVRO) return 0 ;;
+    sqlite|SQLITE|db|DB) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+write_file_preview() {
+  local file_path="$1"
+  local file_name
+  file_name="$(basename "$file_path")"
+
+  if is_binary_extension "$file_name"; then
+    local size_bytes
+    size_bytes="$(wc -c <"$file_path" | tr -d ' ')"
+    echo "_Omitted: binary file (${size_bytes} bytes)._"
+    return 0
+  fi
+
+  if [[ "$file_name" == *.gz || "$file_name" == *.GZ ]]; then
+    local size_bytes
+    size_bytes="$(wc -c <"$file_path" | tr -d ' ')"
+    echo "_gzip file (${size_bytes} bytes). Showing up to ${max_bytes} bytes of decompressed preview._"
+    echo
+    # Do not inline raw gzip bytes; preview the decompressed content.
+    gzip -dc "$file_path" 2>/dev/null | head -c "$max_bytes" || true
+    echo
+    echo
+    echo "_(End of decompressed preview.)_"
+    return 0
+  fi
+
+  local size_bytes
+  size_bytes="$(wc -c <"$file_path" | tr -d ' ')"
+  if [[ "$size_bytes" -le "$max_bytes" ]]; then
+    cat "$file_path"
+    return 0
+  fi
+
+  echo "_Truncated: ${size_bytes} bytes total. Showing first ${max_bytes} bytes._"
+  echo
+  head -c "$max_bytes" "$file_path"
+  echo
+  echo
+  echo "_(End of preview.)_"
 }
 
 flatten_one() {
@@ -97,7 +170,7 @@ flatten_one() {
         echo "## ${file_name}"
         echo
         printf '```%s\n' "$fence"
-        cat "$file"
+        write_file_preview "$file"
         printf '\n```\n\n'
       done
     fi

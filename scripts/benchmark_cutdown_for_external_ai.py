@@ -34,6 +34,7 @@ DEFAULT_SAMPLE_LIMIT = 80
 DEFAULT_TOP_CONFUSIONS = 8
 DEFAULT_TOP_LABELS = 6
 DEFAULT_EXCERPT_LIMIT = 440
+DEFAULT_PROMPT_EXCERPT_LIMIT = 2000
 DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
 DEFAULT_TARGETED_PROMPT_CASES = 10
 ALIGNMENT_HEALTHY_COVERAGE_MIN = 0.98
@@ -221,6 +222,15 @@ def _parse_args() -> argparse.Namespace:
         help=f"Max chars kept in sampled text fields (default: {DEFAULT_EXCERPT_LIMIT}).",
     )
     parser.add_argument(
+        "--prompt-excerpt-limit",
+        type=int,
+        default=DEFAULT_PROMPT_EXCERPT_LIMIT,
+        help=(
+            "Max chars kept per string when dumping sampled prompt request/response payloads "
+            f"(default: {DEFAULT_PROMPT_EXCERPT_LIMIT})."
+        ),
+    )
+    parser.add_argument(
         "--prompt-pairs-per-category",
         type=int,
         default=DEFAULT_PROMPT_PAIRS_PER_CATEGORY,
@@ -395,6 +405,28 @@ def _excerpt(text: str, max_len: int) -> str:
     if max_len <= 3:
         return text[:max_len]
     return text[: max_len - 3] + "..."
+
+
+def _clip_strings_deep(value: Any, *, excerpt_limit: int, max_depth: int = 8) -> Any:
+    if max_depth <= 0:
+        return "<clipped: max depth>"
+    if isinstance(value, str):
+        return _excerpt(value, max_len=excerpt_limit)
+    if isinstance(value, list):
+        return [
+            _clip_strings_deep(item, excerpt_limit=excerpt_limit, max_depth=max_depth - 1)
+            for item in value
+        ]
+    if isinstance(value, dict):
+        clipped: dict[str, Any] = {}
+        for key, item in value.items():
+            clipped[str(key)] = _clip_strings_deep(
+                item,
+                excerpt_limit=excerpt_limit,
+                max_depth=max_depth - 1,
+            )
+        return clipped
+    return value
 
 
 def _clip_large_text_fields(row: dict[str, Any], *, excerpt_limit: int) -> dict[str, Any]:
@@ -625,6 +657,7 @@ def _write_prompt_log_samples_from_full_prompt_log(
     source_path: Path,
     output_path: Path,
     max_pairs_per_category: int,
+    excerpt_limit: int,
 ) -> dict[str, Any]:
     rows = _iter_jsonl(source_path)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -660,12 +693,16 @@ def _write_prompt_log_samples_from_full_prompt_log(
         "",
         (
             "This convenience file is derived from full_prompt_log.jsonl and keeps "
-            "full request/response payload content for sampled calls."
+            "request/response payload content for sampled calls (with long strings clipped)."
             if max_pairs_per_category > 0
-            else "This convenience file is derived from full_prompt_log.jsonl and keeps all calls."
+            else (
+                "This convenience file is derived from full_prompt_log.jsonl and keeps all calls "
+                "(with long strings clipped)."
+            )
         ),
         "",
         f"Source log: {source_path}",
+        f"String clip limit: {excerpt_limit} chars",
         "",
     ]
 
@@ -711,7 +748,10 @@ def _write_prompt_log_samples_from_full_prompt_log(
                     "",
                     "REQUEST_MESSAGES:",
                     json.dumps(
-                        row.get("request_messages"),
+                        _clip_strings_deep(
+                            row.get("request_messages"),
+                            excerpt_limit=excerpt_limit,
+                        ),
                         indent=2,
                         ensure_ascii=False,
                         sort_keys=True,
@@ -719,7 +759,10 @@ def _write_prompt_log_samples_from_full_prompt_log(
                     "",
                     "RAW_RESPONSE:",
                     json.dumps(
-                        row.get("raw_response"),
+                        _clip_strings_deep(
+                            row.get("raw_response"),
+                            excerpt_limit=excerpt_limit,
+                        ),
                         indent=2,
                         ensure_ascii=False,
                         sort_keys=True,
@@ -727,7 +770,10 @@ def _write_prompt_log_samples_from_full_prompt_log(
                     "",
                     "PARSED_RESPONSE:",
                     json.dumps(
-                        row.get("parsed_response"),
+                        _clip_strings_deep(
+                            row.get("parsed_response"),
+                            excerpt_limit=excerpt_limit,
+                        ),
                         indent=2,
                         ensure_ascii=False,
                         sort_keys=True,
@@ -743,6 +789,7 @@ def _write_prompt_log_samples_from_full_prompt_log(
         "status": "sampled_from_full_prompt_log",
         "source_path": str(source_path),
         "max_pairs_per_category": max_pairs_per_category,
+        "excerpt_limit": excerpt_limit,
         "categories": sorted(grouped.keys(), key=_prompt_category_sort_key),
         "sampled_pairs": sampled_pairs,
         "category_metadata": category_metadata,
@@ -2325,6 +2372,7 @@ def _build_run_cutdown(
     top_confusions_limit: int,
     top_labels_limit: int,
     prompt_pairs_per_category: int,
+    prompt_excerpt_limit: int,
 ) -> RunRecord:
     run_manifest = _load_json(run_dir / "run_manifest.json")
     eval_report = _load_json(run_dir / "eval_report.json")
@@ -2457,6 +2505,7 @@ def _build_run_cutdown(
             source_path=full_prompt_log_output,
             output_path=prompt_log_output,
             max_pairs_per_category=prompt_pairs_per_category,
+            excerpt_limit=prompt_excerpt_limit,
         )
     elif codex_prompt_log is not None:
         if prompt_pairs_per_category <= 0:
@@ -3458,6 +3507,9 @@ def main() -> int:
     if args.excerpt_limit <= 0:
         print("error: --excerpt-limit must be > 0", file=sys.stderr)
         return 1
+    if args.prompt_excerpt_limit <= 0:
+        print("error: --prompt-excerpt-limit must be > 0", file=sys.stderr)
+        return 1
     if args.prompt_pairs_per_category < 0:
         print(
             "error: --prompt-pairs-per-category must be >= 0",
@@ -3507,6 +3559,7 @@ def main() -> int:
             top_confusions_limit=args.top_confusions,
             top_labels_limit=args.top_labels,
             prompt_pairs_per_category=args.prompt_pairs_per_category,
+            prompt_excerpt_limit=args.prompt_excerpt_limit,
         )
         records.append(record)
 

@@ -264,3 +264,25 @@ Durable decisions:
 Anti-loop note:
 - If strict mode exits early, treat that as expected contract enforcement unless resolver telemetry shows false-negative probing.
 
+## 2026-03-03 migrated understanding ledger (AI context staleness refresh)
+
+### 2026-03-03_00.01.32 AI context staleness refresh
+
+Source:
+- `docs/understandings/2026-03-03_00.01.32-ai-context-staleness-refresh.md`
+
+Problem captured:
+- Top-level AI onboarding context drifted from active runtime surfaces and mixed stable architecture with quickly stale snapshots.
+
+Durable findings:
+- Bench command narrative had stale naming (`validate/run/sweep/knobs`) versus current `speed/quality/gc/eval-stage` surface.
+- Importer inventory needed explicit `webschema` inclusion.
+- LLM boundary text needed correction because stage now has optional pass1-5 codex-farm flows via run settings.
+- Static test-health snapshots in onboarding docs were identified as high-churn and likely to rot quickly.
+
+Durable documentation direction:
+- Keep `docs/AI_Context.md` contract-focused and stable.
+- Route volatile behavior details to domain READMEs (`docs/07-bench`, `docs/03-ingestion`, `docs/10-llm`) and reference them from onboarding docs.
+
+Anti-loop note:
+- If AI-context onboarding feels stale, verify command/importer/runtime surfaces from section READMEs before rewriting the onboarding doc narrative.

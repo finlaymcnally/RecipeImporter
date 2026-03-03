@@ -101,13 +101,19 @@ def atomize_blocks(
     *,
     recipe_id: str | None,
     within_recipe_span: bool,
+    atomic_block_splitter: str = "atomic-v1",
 ) -> list[AtomicLineCandidate]:
+    splitter_mode = _normalize_atomic_block_splitter(atomic_block_splitter)
     rows: list[dict[str, Any]] = []
     for position, block in enumerate(blocks):
         block_text, block_index, block_id = _coerce_block(block, fallback_index=position)
         if not block_text:
             continue
-        for segment in _split_block_text(block_text):
+        if splitter_mode == "atomic-v1":
+            segments = _split_block_text(block_text)
+        else:
+            segments = [block_text]
+        for segment in segments:
             labels, rule_tags = _infer_candidate_labels(
                 segment,
                 within_recipe_span=within_recipe_span,
@@ -165,6 +171,17 @@ def _coerce_int(value: Any, *, fallback: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def _normalize_atomic_block_splitter(value: str) -> str:
+    normalized = str(value or "off").strip().lower()
+    if normalized in {"atomic-v1", "atomic", "on", "true"}:
+        return "atomic-v1"
+    if normalized in {"off", "none", "false"}:
+        return "off"
+    raise ValueError(
+        "Invalid atomic_block_splitter value. Expected one of: off, atomic-v1."
+    )
 
 
 def _normalize_text(text: str) -> str:
@@ -313,8 +330,14 @@ def _infer_candidate_labels(
     if _is_time_metadata(text):
         return ["TIME_LINE", "INSTRUCTION_LINE", "OTHER"], ["time_metadata"]
     if within_recipe_span:
-        return ["OTHER", "KNOWLEDGE"], ["recipe_span_fallback"]
-    return ["KNOWLEDGE", "OTHER"], ["outside_recipe_span"]
+        rule_tags = ["recipe_span_fallback"]
+        if _looks_explicit_prose(text):
+            rule_tags.append("explicit_prose")
+        return ["OTHER", "KNOWLEDGE"], rule_tags
+    rule_tags = ["outside_recipe_span"]
+    if _looks_explicit_prose(text):
+        rule_tags.append("explicit_prose")
+    return ["KNOWLEDGE", "OTHER"], rule_tags
 
 
 def _is_note_line(text: str) -> bool:
@@ -393,3 +416,11 @@ def _is_instruction_sentence(text: str) -> bool:
 
 def _is_time_metadata(text: str) -> bool:
     return bool(_TIME_METADATA_RE.search(text))
+
+
+def _looks_explicit_prose(text: str) -> bool:
+    words = _VARIANT_WORD_RE.findall(text)
+    if len(words) < 10:
+        return False
+    punctuation_hits = sum(ch in {".", ",", ";", ":"} for ch in text)
+    return punctuation_hits >= 1

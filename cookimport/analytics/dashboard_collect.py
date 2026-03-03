@@ -6,6 +6,8 @@ All collectors are **read-only** – they never write into ``data/output`` or
 Primary data sources
 --------------------
 * ``data/.history/performance_history.csv`` (stage/import + benchmark trends)
+* nested ``<output_root>/**/.history/performance_history.csv`` benchmark rows
+  (supplemental benchmark history written by nested benchmark workflows)
 
 Fallback
 --------
@@ -831,6 +833,47 @@ def _collect_from_csv(
     return stage_records, bench_records
 
 
+def _collect_nested_benchmark_csv_rows(
+    output_root: Path,
+    *,
+    primary_csv_path: Path,
+    cutoff: datetime | None,
+    warnings: list[str],
+) -> list[BenchmarkRecord]:
+    """Collect supplemental benchmark rows from nested history CSV files."""
+    records: list[BenchmarkRecord] = []
+    if not output_root.exists() or not output_root.is_dir():
+        return records
+
+    try:
+        nested_csv_paths = sorted(
+            path
+            for path in output_root.rglob("performance_history.csv")
+            if path.parent.name == ".history"
+        )
+    except OSError as exc:
+        warnings.append(
+            f"Failed to scan nested benchmark history CSVs under {output_root}: {exc}"
+        )
+        return records
+
+    for nested_csv_path in nested_csv_paths:
+        if not nested_csv_path.is_file():
+            continue
+        if nested_csv_path == primary_csv_path:
+            continue
+        _, nested_benchmark_records = _collect_from_csv(
+            nested_csv_path,
+            cutoff,
+            warnings,
+        )
+        if not nested_benchmark_records:
+            continue
+        records = _merge_benchmark_records(records, nested_benchmark_records)
+
+    return records
+
+
 def _benchmark_record_from_csv_row(
     row: dict[str, str],
     row_category: str,
@@ -1623,6 +1666,19 @@ def collect_dashboard_data(
             if (r.run_timestamp, r.file_name) not in seen:
                 stage_records.append(r)
                 seen.add((r.run_timestamp, r.file_name))
+
+    if csv_path.is_file():
+        nested_csv_bench_records = _collect_nested_benchmark_csv_rows(
+            output_root,
+            primary_csv_path=csv_path,
+            cutoff=cutoff,
+            warnings=warnings,
+        )
+        if nested_csv_bench_records:
+            csv_bench_records = _merge_benchmark_records(
+                list(csv_bench_records),
+                nested_csv_bench_records,
+            )
 
     # Sort stage records by parsed timestamp (un-parseable sorts last)
     stage_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))

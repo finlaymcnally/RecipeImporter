@@ -31,8 +31,8 @@ Current scoring surfaces:
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
-- `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Run roots are pruned only when benchmark history durability is confirmed from CSV rows.
-- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
+- `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is confirmed from CSV rows.
+- `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
 - `scripts/quality_top_tier_tournament.py`: disabled/retired runtime entrypoint; `main()` exits immediately with a disabled message to prevent accidental tournament fanout.
@@ -96,6 +96,7 @@ Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-bl
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
+`--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
 - `line_role_predictions.jsonl` (copied from prediction-run artifact)
 - `joined_line_table.jsonl`
@@ -106,6 +107,8 @@ When `--line-role-pipeline != off`, eval runs also write diagnostics under `line
 - `prompt_eval_alignment.md`
 - stable sampled cutdowns (`wrong_label_lines.sample.jsonl`, `correct_label_lines.sample.jsonl`, `aligned_prediction_blocks.sample.jsonl`, `line_role_flips_vs_baseline.sample.jsonl`)
 - if `--line-role-gated`: `regression_gates.json` + `regression_gates.md`
+  - comparator gates (`*_delta_min`, confusion-drop gates, sea non-regression gates) are strict and fail when required benchmark-history baselines are unavailable.
+  - candidate recall floors remain enforced in gated mode: `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`.
 
 ## 3. Artifact Contracts
 
@@ -169,6 +172,7 @@ Benchmark GC (`bench gc`) artifacts/side effects include:
 - optional CSV hydration for benchmark rows (`per_label_json` plus strict/macro/boundary fallback fields) before deletion
 - conditional stale-row prune for deleted run roots when benchmark rows have no durable metrics
 - policy summary in CLI output (`kept/pruned counts`, `estimated reclaim`, `history rows updated/pruned`)
+- keep/pin sentinels: any run root containing `.gc_keep*`, `.keep`, or `.pinned` is never pruned by `bench gc` (use `cookimport bench pin <run_dir>` to create `.gc_keep.<timestamp>.txt`)
 
 Quality suite (`bench quality-run`) artifacts include:
 - `suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`
@@ -1449,3 +1453,68 @@ Current contract reminder:
 - Pass1 block-index spans should be bridged into inside/outside active-recipe slicing for line-level diagnostics.
 - Prompt warning diagnostics should aggregate full prompt log rows and attach targeted prompt cases tied to dominant line flips.
 - Keep heavy alignment/block-level samples conditional on weak coverage/match signals; otherwise prefer counts-only summaries to control artifact/token size.
+
+## 2026-03-03 merged understandings digest (line-role gates and external-AI cutdown hardening)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-03_00.02.14-external-ai-cutdown-artifact-source-chain.md`
+- `docs/understandings/2026-03-03_00.11.28-benchmark-cutdown-contract-hardening-baseline.md`
+- `docs/understandings/2026-03-03_00.15.06-external-ai-ogplan-execplan-code-audit.md`
+- `docs/understandings/2026-03-03_00.26.11-line-role-diagnostics-and-gate-source-of-truth.md`
+- `docs/understandings/2026-03-03_00.28.49-benchmark-cutdown-project-context-digest-wiring.md`
+- `docs/understandings/2026-03-03_00.32.18-ai-script-context-ogplan-gap-check.md`
+- `docs/understandings/2026-03-03_00.34.28-pro-prompt-og-vs-code-audit.md`
+- `docs/understandings/2026-03-03_00.35.20-ai-script-context-gap-fixes.md`
+- `docs/understandings/2026-03-03_00.38.02-ai-script-context-ogplan-audit.md`
+- `docs/understandings/2026-03-03_00.39.10-line-role-gated-acceptance-replay-findings.md`
+- `docs/understandings/2026-03-03_00.42.27-pro-prompt-gap-fixes-and-foodlab-replay.md`
+- `docs/understandings/2026-03-03_00.47.20-line-role-gate-contract-hardening.md`
+- `docs/understandings/2026-03-03_00.54.40-line-role-gate-skip-policy-and-recall-floor-calibration.md`
+- `docs/understandings/2026-03-03_01.25.00-line-role-projection-benchmark-draft-wiring.md`
+- `docs/understandings/2026-03-03_11.59.30-benchmark-cutdown-readme-feeds-flattened-summary.md`
+
+Current benchmark contract reminders:
+- External-AI cutdown source chain should anchor on `run_manifest.json` -> `artifacts.pred_run_dir` (or `prediction-run` fallback), then extract archive + prompt log joiners from canonical wrong-line indices.
+- Cutdown remains resilient to missing upstream artifacts; missing prediction/archive/prompt inputs must be emitted as explicit status values instead of failing package generation.
+- Additive failure diagnostics (`wrong_label_lines.with_context.full.jsonl.gz`, `preprocess_trace_failures.jsonl.gz`) are already implemented; current risk is contract drift, so test/docs hardening is the priority.
+- Project-context digest should be authored once in root `_write_readme(...)`; flattened `benchmark_summary.md` inherits README content via `_write_root_summary_markdown(...)`.
+- Project-context metadata remains a root-output contract:
+  - `comparison_summary.json` includes `project_context`.
+  - `process_manifest.json` includes `project_context_*` fields and `project_context_digest_included`.
+- Line-role diagnostics should use one canonical joined line table so sampled rows (`wrong/correct/aligned/flips`) remain ID- and text-stable across artifacts.
+- `line_role_flips_vs_baseline` semantics:
+  - prefer paired history baseline rows (`line_role_pipeline=off`, same source/canonical mode, matching llm pipeline first),
+  - fallback to inferred-mode when paired rows are unavailable.
+- Current gated acceptance behavior:
+  - comparator gates fail when required history baselines are missing,
+  - candidate recall floors stay blocking at `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`.
+- Historical anti-loop note:
+  - comparator-gate semantics changed during iteration; keep run-level `regression_gates.md` artifacts when debugging "why did this gate change?".
+- Line-role projection remains the benchmark/prediction bridge:
+  - prediction generation writes `prediction-run/line-role-pipeline/*` projection artifacts,
+  - canonical benchmark bundle loading prefers projected stage/archive files when available,
+  - optional draft updates can project predicted line roles back into recipe fields to align draft and benchmark views.
+
+## 2026-03-03 docs/tasks merge digest (mixed-format qualitysuite, benchmark GC, and external-AI cutdown contracts)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/2026-03-02_23.12.13-qualitysuite-pdf-mixed-format-megaplan.md`
+- `docs/tasks/2026-03-02_23.30.28-benchmark-metrics-retention-and-gc.md`
+- `docs/tasks/external-AI-script-feedback.md`
+- `docs/tasks/2026-03-03_00.11.27-benchmark-cutdown-external-ai-contract.md`
+- `docs/tasks/AI-script-context.md`
+
+Current contract additions/reminders:
+- QualitySuite mixed-format behavior is extension-keyed (`source_extension`, including the leading dot), reports `format_counts` and `selected_format_counts`, and supports explicit format filtering via `bench quality-discover --formats .pdf,.epub`.
+- Representative suite selection is extension-aware under caps; `quality_representative_v2` seeds extension diversity before strata fill when `--max-targets` is constrained.
+- Quality leaderboard keeps global outputs as default and emits per-format artifacts only when `--by-source-extension` is requested.
+- `bench gc` is the supported retention workflow: dry-run by default, apply mode with timestamped backups, CSV hydration (`per_label_json` and strict/macro/boundary fallbacks), and confirmed-durable-history guardrails before deleting run roots.
+- Dashboard benchmark history is CSV-first; report scanning is opt-in (`--scan-benchmark-reports`) with fallback scan only when benchmark CSV rows are absent.
+- External-AI cutdown contract includes deterministic additive failure diagnostics (`wrong_label_lines.with_context.full.jsonl.gz`, `preprocess_trace_failures.jsonl.gz`) and explicit fallback statuses instead of package failure when upstream trace artifacts are missing.
+- Root cutdown outputs carry project-context pointers/hash fields in `process_manifest.json` and `comparison_summary.json`, and root `README.md` includes one deterministic `## Project Context Digest` section inherited into flattened summary output.
+
+Known pitfalls / anti-loop reminders:
+- Curated QualitySuite discovery can still be effectively EPUB-first when `--max-targets` is omitted; use `--formats` and/or `--no-prefer-curated` for mixed-format runs.
+- When invoking Typer command helpers directly in tests/internal Python calls, unwrap `OptionInfo` defaults before parsing filters (`--formats` path is sensitive to this).
+- Do not treat sampled JSONL outputs as complete failure coverage; use/additive full-failure gzip artifacts for root-cause diagnosis.
+- Missing prediction-run/archive/prompt inputs in cutdown are a status-reporting path (`missing_prediction_run`, `missing_extracted_archive`, `missing_full_prompt_log`), not a hard-stop path.

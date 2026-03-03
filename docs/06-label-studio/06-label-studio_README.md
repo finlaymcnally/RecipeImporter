@@ -197,6 +197,9 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 
 `--force-source-match` bypasses strict source identity checks when intentionally comparing renamed/cutdown variants.
 `labelstudio-eval` also appends benchmark-style history CSV rows and refreshes dashboard artifacts.
+For metadata parity with benchmark/prediction manifests, `labelstudio-eval` now accepts optional
+`--llm-recipe-pipeline`, `--atomic-block-splitter`, and `--line-role-pipeline` overrides; when omitted,
+values are inferred from prediction-run metadata.
 
 ### 5.3 Benchmark behavior
 
@@ -251,6 +254,7 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/freeform_span_predictions.jsonl`
 - `line-role-pipeline/stage_block_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
+`atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write:
 - `line-role-pipeline/joined_line_table.jsonl`
 - `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
@@ -391,3 +395,18 @@ Current Label Studio split-convert fallback contract:
 - Missing explicit benchmark intent metadata is now an explicit hard-fail signal for strict debug-gate mode instead of a silent pass path.
 - Raw prompt manifest payloads (`prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt`) are now treated as required source files for pass-level debug checks.
 - Missing llm manifest metadata is surfaced in warning + gate output to prevent false confidence in incomplete candidate evaluations.
+
+## 2026-03-03 merged understanding (project label-config drift backfill)
+
+Source:
+- `docs/understandings/2026-03-03_00.17.58-labelstudio-project-config-howto-section-backfill.md`
+
+Current contract reminder:
+- Existing Label Studio projects can drift from current `FREEFORM_LABELS` when new labels are added later.
+- Reusing an older project can keep stale UI labels unless label config is explicitly patched or the project is recreated.
+- Verified drift example recorded in this note:
+  - project `53` (`RoastChickenAndOtherStoriesCUTDOWN`) was created before `HOWTO_SECTION` and showed 9 labels,
+  - API patching `/api/projects/<id>` with `build_freeform_label_config()` updated it to 10 labels including `HOWTO_SECTION`.
+
+Anti-loop guard:
+- If a label exists in code but is missing in the Label Studio UI, check project `label_config` freshness before changing scoring or task-generation logic.

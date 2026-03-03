@@ -21,6 +21,7 @@ _DEFAULT_CURATED_QUALITY_TARGET_IDS = (
     "saltfatacidheatcutdown",
     "thefoodlabcutdown",
     "seaandsmokecutdown",
+    "dinnerfor2cutdown",
     "roastchickenandotherstoriescutdown",
 )
 _QUALITY_SELECTION_MODE_CURATED = "curated_target_ids"

@@ -53,6 +53,11 @@ and observing:
 - [x] (2026-03-03 01:20 America/Toronto) Milestone 4: Added line-role projection module (`cookimport/labelstudio/canonical_line_projection.py`), wired prediction manifests/artifacts (`line-role-pipeline/*`), switched canonical benchmark bundle loading to prefer line-role projection artifacts when enabled (with legacy fallback), and wired optional draft-field application from projected spans; landed integration tests in `tests/labelstudio/test_labelstudio_ingest_parallel.py` and `tests/labelstudio/test_labelstudio_benchmark_helpers.py`.
 - [x] (2026-03-03 00:26 America/Toronto) Milestone 5 implementation: added line-role diagnostics artifacts (`joined_line_table`, flips, slices, knowledge budget, prompt/eval alignment), stable sampled cutdowns keyed from one line table, and optional `--line-role-gated` regression-gate enforcement with benchmark-history baselines.
 - [x] (2026-03-03 00:37 America/Toronto) Milestone 5 acceptance replay: ran real `--line-role-gated` CUTDOWN benchmarks for both `deterministic-v1` and `codex-line-role-v1`, recorded run dirs + gate outcomes in this ExecPlan; both runs currently fail regression gates.
+- [x] (2026-03-03 00:53 America/Toronto) Milestone 5 gate follow-up (temporary): tested comparator skip-pass behavior for no-history environments and explored lower recall floors before strict restore.
+- [x] (2026-03-03 01:00 America/Toronto) Milestone 5 strict-restore follow-up: reseeded required FoodLab/Sea canonical baseline rows in benchmark history, restored strict comparator gating, and replayed deterministic gated acceptance (`data/golden/benchmark-vs-golden/2026-03-03_12.23.20_line-role-gated-foodlab-det-strict`) with strict gate evaluation (`FAIL`, `6/9` passed).
+- [x] (2026-03-03 02:14 America/Toronto) FoodLab gated follow-up: fixed missing comparator-history failures and restored `RECIPE_NOTES`/`RECIPE_VARIANT` recalls above `0.40` in latest replay (`2026-03-03_02.10.00_foodlab-line-role-gated-fix7`), but `foodlab_macro_f1_delta_min` remains below threshold (`candidate_minus_baseline=0.003665`, required `>=0.05`).
+- [x] (2026-03-03 02:36 America/Toronto) OG-vs-code drift cleanup: aligned `labelstudio-eval` metadata-parity knobs with Milestone 1 intent (`--llm-recipe-pipeline`, `--atomic-block-splitter`, `--line-role-pipeline`), fixed direct-call `None` normalization fallback to `off`, and closed Milestone-3 prose-tag parity by requiring explicit atomizer prose tags for in-recipe `KNOWLEDGE`.
+- [x] (2026-03-03 01:33 America/Toronto) OG-vs-code drift cleanup (follow-up): `atomic_block_splitter` now controls candidate generation behavior (`off` keeps one candidate per extracted block; `atomic-v1` atomizes), line-role predictions now emit `within_recipe_span` for slice diagnostics, and codex-mode escalation now includes low-confidence deterministic candidates in addition to unresolved lines.
 
 ## Surprises & Discoveries
 
@@ -91,6 +96,12 @@ and observing:
 
 - Observation: Codex line-role fallback changed very few lines in this replay.
   Evidence: `line_role_flips_vs_baseline.sample.jsonl` for codex run shows only 3 sampled flips (`OTHER -> INSTRUCTION_LINE`), with aggregate accuracy/macro-F1 effectively unchanged vs deterministic.
+
+- Observation: Initial `--line-role-gated` policy was brittle for first-pass environments with no historical baseline rows.
+  Evidence: comparator gates failed with “Missing baseline/candidate ...” even when candidate metrics were present and run execution succeeded.
+
+- Observation: After seeding baseline history rows and restoring strict comparator semantics, gate failures moved from missing-data failures to metric-regression failures.
+  Evidence: `2026-03-03_12.23.20_line-role-gated-foodlab-det-strict/line-role-pipeline/regression_gates.md` shows comparator gates evaluated with concrete baselines and failing on deltas (`foodlab_macro_f1_delta_min`, `foodlab_line_accuracy_delta_min`, `sea_macro_f1_no_regression`).
 
 ## Decision Log
 
@@ -138,6 +149,18 @@ and observing:
   Rationale: Capturing both outcomes now establishes a concrete acceptance baseline and prevents overfitting fixes to one pipeline mode.
   Date/Author: 2026-03-03 / assistant (GPT-5.2)
 
+- Decision: Make comparator-style line-role gates non-blocking when history baselines are unavailable, while keeping candidate recall floors as blocking gates.
+  Rationale: first-pass/local environments often lack paired history rows; failing hard on missing comparators blocks acceptance without providing additional quality signal.
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
+- Decision: Keep gated recall floors at `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, and `INGREDIENT_LINE > 0.35` in strict mode.
+  Rationale: these are the original Milestone-5 quality bars and remain the enforced runtime contract after strict restore.
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
+- Decision: Restore strict comparator gates once baseline history rows are available and remove temporary skip-pass behavior.
+  Rationale: comparator skips hide true regressions after history seeding; strict mode should fail on missing comparators and evaluate real deltas when baselines exist.
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
 ## Outcomes & Retrospective
 
 Implementation is complete through Milestone 5, with initial acceptance replay evidence recorded:
@@ -157,6 +180,16 @@ Acceptance replay evidence captured in-run:
 - `data/golden/benchmark-vs-golden/2026-03-03_00.35.03_line-role-gated-foodlab-codex` (`line_role_pipeline=codex-line-role-v1`): overall line accuracy `0.468`, macro-F1 excluding OTHER `0.309`, gate verdict `FAIL` (`1/9` passed).
 
 Remaining work is now focused on gate follow-up: benchmark-history comparison wiring/data availability and the low-recall floors for `RECIPE_NOTES` and `RECIPE_VARIANT`.
+
+Follow-up completed after baseline-history seeding and strict restore:
+
+- Seeded canonical benchmark-history rows used by strict comparators:
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.22.10_foodlab-baseline-off` (`thefoodlabCUTDOWN`, `llm_recipe_pipeline=off`, `line_role_pipeline=off`)
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.22.40_sea-baseline-off` (`SeaAndSmokeCUTDOWN`, `llm_recipe_pipeline=off`, `line_role_pipeline=off`)
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.22.58_sea-candidate-det` (`SeaAndSmokeCUTDOWN`, `llm_recipe_pipeline=off`, `line_role_pipeline=deterministic-v1`)
+- Strict replay evidence:
+  - `data/golden/benchmark-vs-golden/2026-03-03_12.23.20_line-role-gated-foodlab-det-strict` reports gate verdict `FAIL` (`6/9` passed), with comparator failures now driven by measured metric deltas instead of missing-history skips.
+  - `data/golden/benchmark-vs-golden/2026-03-03_02.10.00_foodlab-line-role-gated-fix7` reports gate verdict `FAIL` (`8/9` passed): comparator-history and note/variant recall gates pass, line-accuracy passes, but macro delta gate still fails.
 
 ## Context and Orientation
 
@@ -688,3 +721,9 @@ Store prompt text in version-controlled template files (for example `cookimport/
 (2026-03-03 00:26 America/Toronto) Updated plan after Milestone 5 implementation pass: benchmark eval runs with `line_role_pipeline` now emit joined-line diagnostics, stable sampled cutdowns, and prompt/eval alignment docs under `line-role-pipeline/`; optional `--line-role-gated` now evaluates regression gates against benchmark-history baselines and fails the run on gate failure. Acceptance replay runs remain open.
 
 (2026-03-03 00:37 America/Toronto) Updated plan after Milestone 5 acceptance replay execution: ran real `--line-role-gated` CUTDOWN benchmarks for both `deterministic-v1` and `codex-line-role-v1` and recorded run evidence in this plan. Both runs fail gates (`1/9` passed), with dominant failures from missing benchmark-history comparison metrics and low `RECIPE_NOTES`/`RECIPE_VARIANT` recall floors.
+
+(2026-03-03 00:53 America/Toronto) Updated plan after gate follow-up experiment: tested comparator skip-pass behavior and alternative recall floors to assess first-run environments before returning to strict comparator semantics.
+
+(2026-03-03 01:00 America/Toronto) Updated plan after strict-restore follow-up: comparator gates were switched back to strict behavior, baseline history rows were explicitly seeded for FoodLab/Sea canonical runs, and a fresh deterministic gated replay (`2026-03-03_12.23.20_line-role-gated-foodlab-det-strict`) recorded strict comparator outcomes with concrete baseline deltas (verdict `FAIL`, `6/9` passed).
+
+(2026-03-03 01:33 America/Toronto) Updated plan after OG drift-fix follow-up: `atomic_block_splitter` is now behaviorally wired in line-role candidate generation, `CanonicalLineRolePrediction` now carries `within_recipe_span` metadata used by line-role slice diagnostics, and codex-mode escalation now includes low-confidence deterministic candidates (not only unresolved lines).
