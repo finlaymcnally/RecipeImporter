@@ -30,6 +30,8 @@ class BenchmarkGcResult:
     keep_full_days: int
     drop_speed_artifacts: bool
     total_run_roots: int
+    policy_kept_run_roots: int
+    skipped_unconfirmed_run_roots: int
     kept_run_roots: int
     pruned_run_roots: int
     pruned_quality_run_roots: int
@@ -37,6 +39,7 @@ class BenchmarkGcResult:
     reclaimed_bytes: int
     history_rows_scanned: int
     history_rows_updated: int
+    history_rows_pruned: int
     history_backup_path: str | None
     warnings: tuple[str, ...]
 
@@ -72,35 +75,66 @@ def run_benchmark_gc(
         now=dt.datetime.now(),
     )
 
-    pruned: list[_BenchmarkRunRoot] = []
-    kept: list[_BenchmarkRunRoot] = []
+    pruned_by_policy: list[_BenchmarkRunRoot] = []
+    kept_by_policy: list[_BenchmarkRunRoot] = []
     for run in runs:
         keep = run.path in keep_paths
         if drop_speed_artifacts and run.category == "speed":
             keep = False
         if keep:
-            kept.append(run)
+            kept_by_policy.append(run)
         else:
-            pruned.append(run)
+            pruned_by_policy.append(run)
 
     warnings: list[str] = []
     history_rows_scanned = 0
     history_rows_updated = 0
+    history_rows_pruned = 0
     history_backup_path: str | None = None
+    rows: list[dict[str, str]] = []
+    history_rows_available = False
 
     csv_path = history_csv_for_output(output_root)
     if csv_path.is_file():
         rows = _load_history_rows(csv_path)
         history_rows_scanned = len(rows)
         history_rows_updated = _hydrate_benchmark_history_rows(rows, warnings=warnings)
-        if not dry_run and history_rows_updated > 0:
+        history_rows_available = True
+    else:
+        if not pruned_by_policy:
+            history_rows_available = False
+        else:
+            warnings.append(
+                "History CSV not found; keeping all prune candidates because durable "
+                f"benchmark retention cannot be confirmed: {csv_path}"
+            )
+            history_rows_available = False
+
+    confirmed_pruned: list[_BenchmarkRunRoot] = []
+    skipped_unconfirmed: list[_BenchmarkRunRoot] = []
+    for run in pruned_by_policy:
+        if history_rows_available and _run_root_has_durable_history(rows, run.path):
+            confirmed_pruned.append(run)
+            continue
+        skipped_unconfirmed.append(run)
+        warnings.append(
+            "Skipped pruning run with unconfirmed durable history: "
+            f"{run.path}"
+        )
+
+    if history_rows_available and rows:
+        history_rows_pruned, rows = _prune_stale_deleted_run_rows(
+            rows,
+            deleted_roots=tuple(run.path for run in confirmed_pruned),
+        )
+        if not dry_run and (history_rows_updated > 0 or history_rows_pruned > 0):
             history_backup = _write_backup(csv_path)
             history_backup_path = str(history_backup)
             _write_history_rows(csv_path, rows)
 
-    reclaimed_bytes = sum(run.size_bytes for run in pruned)
+    reclaimed_bytes = sum(run.size_bytes for run in confirmed_pruned)
     if not dry_run:
-        for run in pruned:
+        for run in confirmed_pruned:
             try:
                 shutil.rmtree(run.path)
             except OSError as exc:
@@ -112,13 +146,20 @@ def run_benchmark_gc(
         keep_full_days=keep_full_days,
         drop_speed_artifacts=drop_speed_artifacts,
         total_run_roots=len(runs),
-        kept_run_roots=len(kept),
-        pruned_run_roots=len(pruned),
-        pruned_quality_run_roots=sum(1 for run in pruned if run.category == "quality"),
-        pruned_speed_run_roots=sum(1 for run in pruned if run.category == "speed"),
+        policy_kept_run_roots=len(kept_by_policy),
+        skipped_unconfirmed_run_roots=len(skipped_unconfirmed),
+        kept_run_roots=len(kept_by_policy) + len(skipped_unconfirmed),
+        pruned_run_roots=len(confirmed_pruned),
+        pruned_quality_run_roots=sum(
+            1 for run in confirmed_pruned if run.category == "quality"
+        ),
+        pruned_speed_run_roots=sum(
+            1 for run in confirmed_pruned if run.category == "speed"
+        ),
         reclaimed_bytes=reclaimed_bytes,
         history_rows_scanned=history_rows_scanned,
         history_rows_updated=history_rows_updated,
+        history_rows_pruned=history_rows_pruned,
         history_backup_path=history_backup_path,
         warnings=tuple(warnings),
     )
@@ -223,6 +264,87 @@ def _write_backup(csv_path: Path) -> Path:
     backup_path = csv_path.with_name(backup_name)
     shutil.copy2(csv_path, backup_path)
     return backup_path
+
+
+def _normalize_run_path_candidates(path_text: str) -> list[Path]:
+    run_dir = Path(path_text).expanduser()
+    candidates = [run_dir]
+    if not run_dir.is_absolute():
+        candidates.append(Path.cwd() / run_dir)
+    return candidates
+
+
+def _is_under_root(path_value: Path, root: Path) -> bool:
+    try:
+        path_value.resolve(strict=False).relative_to(root.resolve(strict=False))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _row_has_durable_metrics(row: dict[str, str]) -> bool:
+    if str(row.get("per_label_json") or "").strip():
+        return True
+    for metric_key in (
+        "strict_accuracy",
+        "macro_f1_excluding_other",
+        "boundary_correct",
+        "boundary_over",
+        "boundary_under",
+        "boundary_partial",
+    ):
+        if str(row.get(metric_key) or "").strip():
+            return True
+    return False
+
+
+def _run_root_has_durable_history(rows: list[dict[str, str]], run_root: Path) -> bool:
+    for row in rows:
+        if str(row.get("run_category") or "") not in _BENCHMARK_CATEGORIES:
+            continue
+        if not _row_has_durable_metrics(row):
+            continue
+        run_dir_text = str(row.get("run_dir") or "").strip()
+        if not run_dir_text:
+            continue
+        for candidate in _normalize_run_path_candidates(run_dir_text):
+            if _is_under_root(candidate, run_root):
+                return True
+    return False
+
+
+def _prune_stale_deleted_run_rows(
+    rows: list[dict[str, str]],
+    *,
+    deleted_roots: tuple[Path, ...],
+) -> tuple[int, list[dict[str, str]]]:
+    if not deleted_roots:
+        return (0, rows)
+    kept_rows: list[dict[str, str]] = []
+    pruned_count = 0
+    for row in rows:
+        if str(row.get("run_category") or "") not in _BENCHMARK_CATEGORIES:
+            kept_rows.append(row)
+            continue
+
+        run_dir_text = str(row.get("run_dir") or "").strip()
+        if not run_dir_text:
+            kept_rows.append(row)
+            continue
+
+        references_deleted_root = False
+        for candidate in _normalize_run_path_candidates(run_dir_text):
+            if any(_is_under_root(candidate, root) for root in deleted_roots):
+                references_deleted_root = True
+                break
+        if not references_deleted_root:
+            kept_rows.append(row)
+            continue
+        if _row_has_durable_metrics(row):
+            kept_rows.append(row)
+            continue
+        pruned_count += 1
+    return (pruned_count, kept_rows)
 
 
 def _hydrate_benchmark_history_rows(

@@ -343,7 +343,9 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
     "ocr_device",
+    "pdf_ocr_policy",
     "ocr_batch_size",
+    "pdf_column_gap_ratio",
     "workers",
     "pdf_split_workers",
     "epub_split_workers",
@@ -5678,6 +5680,32 @@ def _normalize_ocr_device(value: str) -> str:
     return normalized
 
 
+def _normalize_pdf_ocr_policy(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"off", "auto", "always"}:
+        return normalized
+    _fail(
+        f"Invalid PDF OCR policy: {value!r}. "
+        "Expected one of: off, auto, always."
+    )
+    return "auto"
+
+
+def _normalize_pdf_column_gap_ratio(value: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        _fail(
+            f"Invalid PDF column gap ratio: {value!r}. Expected a numeric value."
+        )
+        return 0.12
+    if numeric < 0.01 or numeric > 0.95:
+        _fail(
+            "Invalid PDF column gap ratio. Expected a value between 0.01 and 0.95."
+        )
+    return numeric
+
+
 def _normalize_table_extraction(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in {"off", "on"}:
@@ -10330,6 +10358,8 @@ def _build_all_method_variants(
                 payload.get("p6_temperature_unit_backend", "builtin_v1")
             ),
             "p6_yield_mode": str(payload.get("p6_yield_mode", "legacy_v1")),
+            "pdf_ocr_policy": str(payload.get("pdf_ocr_policy", "auto")),
+            "pdf_column_gap_ratio": float(payload.get("pdf_column_gap_ratio", 0.12)),
         }
 
     if source_ext != ".epub" and not webschema_source:
@@ -20093,11 +20123,23 @@ def stage(
         "--ocr-device",
         help="OCR device to use (auto, cpu, cuda, mps).",
     ),
+    pdf_ocr_policy: str = typer.Option(
+        "auto",
+        "--pdf-ocr-policy",
+        help="PDF OCR policy: off, auto, or always.",
+    ),
     ocr_batch_size: int = typer.Option(
         1,
         "--ocr-batch-size",
         min=1,
         help="Number of pages to process per OCR model call.",
+    ),
+    pdf_column_gap_ratio: float = typer.Option(
+        0.12,
+        "--pdf-column-gap-ratio",
+        min=0.01,
+        max=0.95,
+        help="Minimum horizontal gap ratio used for PDF column-boundary detection.",
     ),
     pdf_pages_per_job: int = typer.Option(
         50,
@@ -20474,7 +20516,9 @@ def stage(
     overrides = _unwrap_typer_option_default(overrides)
     limit = _unwrap_typer_option_default(limit)
     ocr_device = _unwrap_typer_option_default(ocr_device)
+    pdf_ocr_policy = _unwrap_typer_option_default(pdf_ocr_policy)
     ocr_batch_size = _unwrap_typer_option_default(ocr_batch_size)
+    pdf_column_gap_ratio = _unwrap_typer_option_default(pdf_column_gap_ratio)
     pdf_pages_per_job = _unwrap_typer_option_default(pdf_pages_per_job)
     epub_spine_items_per_job = _unwrap_typer_option_default(epub_spine_items_per_job)
     warm_models = _unwrap_typer_option_default(warm_models)
@@ -20589,6 +20633,10 @@ def stage(
     )
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
+    selected_pdf_ocr_policy = _normalize_pdf_ocr_policy(pdf_ocr_policy)
+    selected_pdf_column_gap_ratio = _normalize_pdf_column_gap_ratio(
+        pdf_column_gap_ratio
+    )
     selected_table_extraction = _normalize_table_extraction(table_extraction)
     selected_section_detector_backend = _normalize_section_detector_backend(
         section_detector_backend
@@ -20784,7 +20832,9 @@ def stage(
         epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
         epub_unstructured_preprocess_mode=selected_preprocess_mode,
         ocr_device=selected_ocr_device,
+        pdf_ocr_policy=selected_pdf_ocr_policy,
         ocr_batch_size=ocr_batch_size,
+        pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
         warm_models=warm_models,
         table_extraction=selected_table_extraction,
         section_detector_backend=selected_section_detector_backend,
@@ -23105,11 +23155,21 @@ def labelstudio_benchmark(
         "--ocr-device",
         help="OCR device to use (auto, cpu, cuda, mps).",
     )] = "auto",
+    pdf_ocr_policy: Annotated[str, typer.Option(
+        "--pdf-ocr-policy",
+        help="PDF OCR policy: off, auto, or always.",
+    )] = "auto",
     ocr_batch_size: Annotated[int, typer.Option(
         "--ocr-batch-size",
         min=1,
         help="Number of pages to process per OCR model call.",
     )] = 1,
+    pdf_column_gap_ratio: Annotated[float, typer.Option(
+        "--pdf-column-gap-ratio",
+        min=0.01,
+        max=0.95,
+        help="Minimum horizontal gap ratio used for PDF column-boundary detection.",
+    )] = 0.12,
     warm_models: Annotated[bool, typer.Option(
         "--warm-models",
         help="Proactively load heavy models before prediction import.",
@@ -23445,6 +23505,10 @@ def labelstudio_benchmark(
     )
     selected_skip_headers_footers = bool(epub_unstructured_skip_headers_footers)
     selected_ocr_device = _normalize_ocr_device(ocr_device)
+    selected_pdf_ocr_policy = _normalize_pdf_ocr_policy(pdf_ocr_policy)
+    selected_pdf_column_gap_ratio = _normalize_pdf_column_gap_ratio(
+        pdf_column_gap_ratio
+    )
     selected_section_detector_backend = _normalize_section_detector_backend(
         section_detector_backend
     )
@@ -23651,7 +23715,9 @@ def labelstudio_benchmark(
                 epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
                 epub_unstructured_preprocess_mode=selected_preprocess_mode,
                 ocr_device=selected_ocr_device,
+                pdf_ocr_policy=selected_pdf_ocr_policy,
                 ocr_batch_size=ocr_batch_size,
+                pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
                 warm_models=warm_models,
                 section_detector_backend=selected_section_detector_backend,
                 multi_recipe_splitter=selected_multi_recipe_splitter,
@@ -23762,7 +23828,9 @@ def labelstudio_benchmark(
                                 epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
                                 epub_unstructured_preprocess_mode=selected_preprocess_mode,
                                 ocr_device=selected_ocr_device,
+                                pdf_ocr_policy=selected_pdf_ocr_policy,
                                 ocr_batch_size=ocr_batch_size,
+                                pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
                                 warm_models=warm_models,
                                 section_detector_backend=selected_section_detector_backend,
                                 multi_recipe_splitter=selected_multi_recipe_splitter,
@@ -23864,7 +23932,9 @@ def labelstudio_benchmark(
                             epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
                             epub_unstructured_preprocess_mode=selected_preprocess_mode,
                             ocr_device=selected_ocr_device,
+                            pdf_ocr_policy=selected_pdf_ocr_policy,
                             ocr_batch_size=ocr_batch_size,
+                            pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
                             warm_models=warm_models,
                             section_detector_backend=selected_section_detector_backend,
                             multi_recipe_splitter=selected_multi_recipe_splitter,
@@ -24139,7 +24209,9 @@ def labelstudio_benchmark(
             "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,
             "epub_unstructured_preprocess_mode": selected_preprocess_mode,
             "ocr_device": selected_ocr_device,
+            "pdf_ocr_policy": selected_pdf_ocr_policy,
             "ocr_batch_size": ocr_batch_size,
+            "pdf_column_gap_ratio": selected_pdf_column_gap_ratio,
             "section_detector_backend": selected_section_detector_backend,
             "multi_recipe_splitter": selected_multi_recipe_splitter,
             "multi_recipe_trace": selected_multi_recipe_trace,
@@ -24571,7 +24643,9 @@ def labelstudio_benchmark(
         "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,
         "epub_unstructured_preprocess_mode": selected_preprocess_mode,
         "ocr_device": selected_ocr_device,
+        "pdf_ocr_policy": selected_pdf_ocr_policy,
         "ocr_batch_size": ocr_batch_size,
+        "pdf_column_gap_ratio": selected_pdf_column_gap_ratio,
         "section_detector_backend": selected_section_detector_backend,
         "multi_recipe_splitter": selected_multi_recipe_splitter,
         "multi_recipe_trace": selected_multi_recipe_trace,
@@ -25331,7 +25405,8 @@ def bench_gc(
         f"drop_speed_artifacts={str(result.drop_speed_artifacts).lower()}"
     )
     typer.echo(f"candidate run roots: {result.total_run_roots}")
-    typer.echo(f"full keep: {result.kept_run_roots}")
+    typer.echo(f"full keep (policy): {result.policy_kept_run_roots}")
+    typer.echo(f"kept (unconfirmed durable history): {result.skipped_unconfirmed_run_roots}")
     typer.echo(
         "prune: "
         f"{result.pruned_run_roots} "
@@ -25340,6 +25415,7 @@ def bench_gc(
     typer.echo(f"estimated reclaim: {_format_size_compact(result.reclaimed_bytes)}")
     typer.echo(f"history rows scanned: {result.history_rows_scanned}")
     typer.echo(f"history rows updated: {result.history_rows_updated}")
+    typer.echo(f"history rows pruned: {result.history_rows_pruned}")
 
     if result.history_backup_path is not None:
         typer.echo(f"wrote backup: {result.history_backup_path}")

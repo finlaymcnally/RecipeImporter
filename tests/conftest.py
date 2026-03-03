@@ -13,6 +13,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_benchmark_gc.py": ("bench", "cli", "analytics"),
     "test_benchmark_csv_backfill_cli.py": ("analytics", "bench", "cli"),
     "test_canonical_alignment_cache.py": ("bench",),
+    "test_canonical_line_roles.py": ("parsing", "llm"),
     "test_c3imp_interactive_menu.py": ("cli",),
     "test_chunks.py": ("parsing",),
     "test_classifier.py": ("tagging",),

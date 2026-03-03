@@ -23,5 +23,5 @@ Current scoring contract:
   - `quality_compare.py` (`bench quality-compare` baseline-vs-candidate quality gating)
   - `quality_lightweight_series.py` (`bench quality-lightweight-series` main-effects-first orchestration: category screening, combined winner check, and interaction smoke variants with resume-compatible fold artifacts)
   - `scripts/quality_top_tier_tournament.py` (multi-seed confidence tournament with gate-impossibility pruning, Phase A->B auto candidate handoff from prior summaries, and thresholds-driven `max_parallel_experiments_default`; default file args now point to parser Phase A presets)
-- Benchmark retention/GC tooling lives in `artifact_gc.py` and is surfaced via `cookimport bench gc` (dry-run by default, `--apply` for destructive pruning).
+- Benchmark retention/GC tooling lives in `artifact_gc.py` and is surfaced via `cookimport bench gc` (dry-run by default, `--apply` for destructive pruning; run roots are pruned only when durable benchmark history is confirmed).
 - Unified operator decision path is documented in `docs/07-bench/qualitysuite-product-suite.md`.

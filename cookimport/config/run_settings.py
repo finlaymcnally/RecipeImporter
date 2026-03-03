@@ -65,6 +65,8 @@ _SUMMARY_ORDER = (
     "recipe_score_bronze_min",
     "recipe_score_min_ingredient_lines",
     "recipe_score_min_instruction_lines",
+    "pdf_column_gap_ratio",
+    "pdf_ocr_policy",
     "ocr_device",
     "ocr_batch_size",
     "workers",
@@ -130,6 +132,12 @@ class OcrDevice(str, Enum):
     cpu = "cpu"
     cuda = "cuda"
     mps = "mps"
+
+
+class PdfOcrPolicy(str, Enum):
+    auto = "auto"
+    off = "off"
+    always = "always"
 
 
 class TableExtraction(str, Enum):
@@ -861,6 +869,18 @@ class RunSettings(BaseModel):
             description="OCR device selection for PDF processing.",
         ),
     )
+    pdf_ocr_policy: PdfOcrPolicy = Field(
+        default=PdfOcrPolicy.auto,
+        json_schema_extra=_ui_meta(
+            group="OCR",
+            label="PDF OCR Policy",
+            order=85,
+            description=(
+                "PDF OCR policy: auto (detect scanned pages), "
+                "off (never OCR), always (force OCR when available)."
+            ),
+        ),
+    )
     ocr_batch_size: int = Field(
         default=1,
         ge=1,
@@ -873,6 +893,20 @@ class RunSettings(BaseModel):
             step=1,
             minimum=1,
             maximum=256,
+        ),
+    )
+    pdf_column_gap_ratio: float = Field(
+        default=0.12,
+        ge=0.01,
+        le=0.95,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="PDF Column Gap Ratio",
+            order=72,
+            description=(
+                "Minimum horizontal gap ratio used for PDF column-boundary detection. "
+                "Higher values reduce multi-column splits."
+            ),
         ),
     )
     warm_models: bool = Field(
@@ -1441,7 +1475,9 @@ def build_run_settings(
         str | UnstructuredPreprocessMode
     ) = UnstructuredPreprocessMode.br_split_v1,
     ocr_device: str | OcrDevice,
+    pdf_ocr_policy: str | PdfOcrPolicy = PdfOcrPolicy.auto,
     ocr_batch_size: int,
+    pdf_column_gap_ratio: float = 0.12,
     warm_models: bool,
     table_extraction: str | TableExtraction = TableExtraction.off,
     section_detector_backend: (
@@ -1556,7 +1592,9 @@ def build_run_settings(
                 epub_unstructured_preprocess_mode
             ),
             "ocr_device": _normalized_value(ocr_device),
+            "pdf_ocr_policy": _normalized_value(pdf_ocr_policy),
             "ocr_batch_size": ocr_batch_size,
+            "pdf_column_gap_ratio": float(pdf_column_gap_ratio),
             "warm_models": bool(warm_models),
             "table_extraction": _normalized_value(table_extraction),
             "section_detector_backend": _normalized_value(section_detector_backend),

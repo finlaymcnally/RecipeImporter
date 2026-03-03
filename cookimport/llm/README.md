@@ -14,4 +14,6 @@ Runner process metadata now surfaces CodexFarm `process --json.telemetry_report`
 
 When a caller provides a progress callback, `SubprocessCodexFarmRunner` now executes `codex-farm process --progress-events --json`, parses `__codex_farm_progress__` stderr JSON events, and forwards spinner-friendly `task X/Y` status messages through the existing callback channel used by stage + benchmark flows.
 
+Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` (prompt construction) and `codex_exec.py` (shared `codex exec -` invocation helper reused by prelabel + line-role paths).
+
 Default behavior remains deterministic unless `llm_recipe_pipeline=codex-farm-3pass-v1` is explicitly enabled.

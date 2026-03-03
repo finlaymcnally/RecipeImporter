@@ -35,6 +35,12 @@ Recipe codex-farm pass modules:
 - `cookimport/llm/codex_farm_ids.py` (stable slug/id/bundle filename helpers)
 - `cookimport/llm/codex_farm_runner.py` (subprocess runner + shared error type)
 
+Canonical line-role helper modules:
+
+- `cookimport/llm/codex_exec.py` (shared `codex exec -` invocation helper with json-event parsing and non-interactive fallback)
+- `cookimport/llm/canonical_line_role_prompt.py` (structured prompt builder for line-role-only Codex fallback batches)
+- `llm_pipelines/prompts/canonical-line-role-v1.prompt.md` (versioned prompt template for canonical line-role fallback)
+
 Pass4 knowledge modules:
 
 - `cookimport/llm/codex_farm_knowledge_orchestrator.py` (pass4 run/manifest/write orchestration)
@@ -74,6 +80,7 @@ Report/model plumbing:
 - Global defaults remain deterministic with `llm_recipe_pipeline=off`.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
+- Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
 
 ## Pass1 Pattern Hints Boundary
 

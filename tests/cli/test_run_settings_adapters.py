@@ -32,6 +32,8 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
         p6_ovenlike_mode="off",
         p6_yield_mode="scored_v1",
         p6_emit_metadata_debug=True,
+        pdf_ocr_policy="always",
+        pdf_column_gap_ratio=0.2,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -64,6 +66,8 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_ovenlike_mode"] == "off"
     assert kwargs["p6_yield_mode"] == "scored_v1"
     assert kwargs["p6_emit_metadata_debug"] is True
+    assert kwargs["pdf_ocr_policy"] == "always"
+    assert kwargs["pdf_column_gap_ratio"] == 0.2
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
@@ -89,6 +93,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         p6_ovenlike_mode="keywords_v1",
         p6_yield_mode="legacy_v1",
         p6_emit_metadata_debug=False,
+        pdf_ocr_policy="off",
+        pdf_column_gap_ratio=0.09,
         atomic_block_splitter="atomic-v1",
         line_role_pipeline="deterministic-v1",
         codex_farm_recipe_mode="benchmark",
@@ -126,6 +132,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_ovenlike_mode"] == "keywords_v1"
     assert kwargs["p6_yield_mode"] == "legacy_v1"
     assert kwargs["p6_emit_metadata_debug"] is False
+    assert kwargs["pdf_ocr_policy"] == "off"
+    assert kwargs["pdf_column_gap_ratio"] == 0.09
     assert kwargs["atomic_block_splitter"] == "atomic-v1"
     assert kwargs["line_role_pipeline"] == "deterministic-v1"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"

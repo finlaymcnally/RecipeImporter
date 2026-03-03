@@ -49,7 +49,7 @@ and observing:
 - [x] (2026-03-02 23:30Z) Milestone 0: Fixed canonical-text HOWTO label accounting and added a regression test that verifies `per_label` + confusion include `HOWTO_SECTION`.
 - [x] (2026-03-02 23:30Z) Milestone 1: Added `line_role_pipeline` and `atomic_block_splitter` run settings + CLI flags, propagated them through prediction generation/manifests, and included them in benchmark cutdown summaries.
 - [x] (2026-03-02 23:38Z) Milestone 2: Added `cookimport/parsing/recipe_block_atomizer.py` with deterministic boundary-first splitting plus fixture-backed tests for merged blocks, variant lines, inline numbered tails, and ingredient-range vs yield behavior.
-- [ ] Milestone 3: Implement deterministic-first canonical line-role classification with optional Codex fallback (strict parsing, prompt logs, tests).
+- [x] (2026-03-03 00:31 America/Toronto) Milestone 3: Added deterministic-first canonical line-role labeling (`cookimport/parsing/canonical_line_roles.py`), shared Codex exec helper extraction (`cookimport/llm/codex_exec.py`), structured line-role prompt builder/template, strict parse+allowlist fallback behavior, prompt-log artifacts (`prompt_<N>`, `response_<N>`, `parsed_<N>`, dedup log, parse-error summary), and fixture-backed parsing tests.
 - [ ] Milestone 4: Wire benchmark export and optional draft building to consume the same labeled atomic lines (integration test).
 - [ ] Milestone 5: Add paired-run diagnostics, stable cutdown exports, and regression gates; update docs; run acceptance benchmark(s) and record results here.
 
@@ -78,6 +78,9 @@ and observing:
 
 - Observation: Canonical evaluator label accounting was unintentionally affected by shared stage-label loading behavior that remapped `HOWTO_SECTION` before metrics.
   Evidence: `evaluate_canonical_text` called `load_stage_block_labels(...)` without disabling HOWTO remap, so predicted HOWTO totals collapsed even when stage predictions explicitly contained HOWTO labels.
+
+- Observation: Outside-recipe prose can be misclassified as instruction-like when sentence-length heuristics fire before span context is considered.
+  Evidence: A narrative paragraph outside recipe span initially labeled `INSTRUCTION_LINE`; fixed by prioritizing outside-span prose handling before instruction fallback in deterministic line-role rules.
 
 ## Decision Log
 
@@ -109,15 +112,24 @@ and observing:
   Rationale: Stage/freeform comparability still benefits from structural remap, but canonical line-label accounting should reflect the explicit benchmark label when it is present.
   Date/Author: 2026-03-02 / assistant (GPT-5.2)
 
+- Decision: Centralize `codex exec -` invocation behavior in `cookimport/llm/codex_exec.py` and reuse it from both prelabel and canonical line-role fallback paths.
+  Rationale: Shared CLI invocation + json-event parsing avoids drift between call sites and keeps retry/usage parsing behavior consistent.
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
+- Decision: Keep canonical line-role as deterministic-first with strict Codex fallback validation and sanitizer guards.
+  Rationale: The benchmark failures are dominated by low-ambiguity lines that rules can cover safely; Codex should only resolve ambiguity, never override impossible labels (e.g., ingredient as yield, knowledge inside recipe span without prose support).
+  Date/Author: 2026-03-03 / assistant (GPT-5.2)
+
 ## Outcomes & Retrospective
 
-Partial implementation complete. Milestones 0, 1, and 2 are now landed:
+Partial implementation complete. Milestones 0, 1, 2, and 3 are now landed:
 
 - canonical-text evaluation keeps explicit HOWTO labels so per-label totals/confusions report them correctly;
 - benchmark run settings now expose `llm_recipe_pipeline`, `atomic_block_splitter`, and `line_role_pipeline` independently in run config/manifests/cutdown summaries.
 - deterministic block atomization now produces atomic candidates with candidate labels/rule tags and stable adjacency context.
+- deterministic-first canonical line-role predictions now exist with optional Codex fallback, strict parse/allowlist fallback behavior, prompt logs, and regression tests for the known canonical-line failure cases.
 
-Remaining work is Milestones 3–5 (line-role prediction path, projection/draft wiring, diagnostics/gates, and acceptance benchmarks).
+Remaining work is Milestones 4–5 (projection/draft wiring, diagnostics/gates, and acceptance benchmarks).
 
 ## Context and Orientation
 
@@ -611,3 +623,5 @@ Store prompt text in version-controlled template files (for example `cookimport/
 (2026-03-02 23:30 America/Toronto) Updated plan after implementation progress: Milestone 0 and Milestone 1 are completed, canonical HOWTO accounting behavior is clarified (stage/freeform remap vs canonical explicit scoring), and docs/manifests/cutdown summaries now include `atomic_block_splitter` + `line_role_pipeline` as first-class run knobs.
 
 (2026-03-02 23:38 America/Toronto) Updated plan after Milestone 2 implementation: added deterministic `recipe_block_atomizer` runtime + fixtures/tests and updated parsing docs/understandings with the boundary-first split-order contract.
+
+(2026-03-03 00:31 America/Toronto) Updated plan after Milestone 3 implementation: added deterministic-first canonical line-role labeling with optional Codex fallback, extracted shared `codex exec` helper, added line-role prompt template/builder, introduced strict parse/allowlist fallback + sanitizer behavior, and landed fixture-backed parsing tests.

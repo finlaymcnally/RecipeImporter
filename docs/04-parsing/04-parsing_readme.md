@@ -51,6 +51,7 @@ Core modules:
 - `cookimport/parsing/tip_taxonomy.py`
 - `cookimport/parsing/block_roles.py`
 - `cookimport/parsing/recipe_block_atomizer.py`
+- `cookimport/parsing/canonical_line_roles.py`
 - `cookimport/parsing/markdown_blocks.py`
 - `cookimport/parsing/epub_extractors.py`
 - `cookimport/parsing/epub_html_normalize.py`
@@ -437,6 +438,31 @@ Gates include:
 ### Tests to read
 
 - `tests/parsing/test_recipe_block_atomizer.py`
+
+## Canonical Line Roles (`cookimport/parsing/canonical_line_roles.py`)
+
+### What it does
+
+- Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
+- Supports optional Codex fallback for unresolved candidates when `line_role_pipeline=codex-line-role-v1`.
+- Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`) and reason tags.
+
+### Current safeguards
+
+- Rule-first path handles low-ambiguity cases (`NOTE`, yield, ingredient-like, method headers, variants, and instruction lines).
+- `TIME_LINE` is only used for primary time metadata; instruction lines that mention duration stay `INSTRUCTION_LINE`.
+- Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
+- Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures fall back deterministically and write parse-error artifacts.
+
+### Related modules
+
+- `cookimport/llm/canonical_line_role_prompt.py`
+- `cookimport/llm/codex_exec.py`
+- `llm_pipelines/prompts/canonical-line-role-v1.prompt.md`
+
+### Tests to read
+
+- `tests/parsing/test_canonical_line_roles.py`
 
 ## Knowledge Chunking (`cookimport/parsing/chunks.py`)
 

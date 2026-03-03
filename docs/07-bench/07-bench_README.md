@@ -31,7 +31,7 @@ Current scoring surfaces:
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
-- `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`.
+- `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Run roots are pruned only when benchmark history durability is confirmed from CSV rows.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
@@ -50,6 +50,8 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--baseline <run_or_report_path>` / `--candidate <run_or_report_path>` (compare action)
 - `--compare-out <dir>` / `--fail-on-regression`
 - `--sequence-matcher dmp`
+- `--pdf-ocr-policy off|auto|always`
+- `--pdf-column-gap-ratio <float>`
 - `--section-detector-backend legacy|shared_v1`
 - `--multi-recipe-splitter legacy|off|rules_v1`
 - `--multi-recipe-trace/--no-multi-recipe-trace`
@@ -152,7 +154,8 @@ Speed comparison (`bench speed-compare`) artifacts include:
 Benchmark GC (`bench gc`) artifacts/side effects include:
 - optional history backup before mutation: `performance_history.<YYYY-MM-DD_HH.MM.SS>.gc.bak.csv`
 - optional CSV hydration for benchmark rows (`per_label_json` plus strict/macro/boundary fallback fields) before deletion
-- policy summary in CLI output (`kept/pruned counts`, `estimated reclaim`, `history rows updated`)
+- conditional stale-row prune for deleted run roots when benchmark rows have no durable metrics
+- policy summary in CLI output (`kept/pruned counts`, `estimated reclaim`, `history rows updated/pruned`)
 
 Quality suite (`bench quality-run`) artifacts include:
 - `suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`

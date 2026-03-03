@@ -64,6 +64,7 @@ from cookimport.plugins import registry
 logger = logging.getLogger(__name__)
 _STANDALONE_ANALYSIS_WORKERS_DEFAULT = 4
 _STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
+_PDF_COLUMN_GAP_RATIO_DEFAULT = 0.12
 
 if TYPE_CHECKING:
     from cookimport.config.run_settings import RunSettings
@@ -130,6 +131,7 @@ class PdfImporter:
     def __init__(self) -> None:
         self._section_detector_backend = "legacy"
         self._overrides = None
+        self._pdf_column_gap_ratio = _PDF_COLUMN_GAP_RATIO_DEFAULT
 
     def detect(self, path: Path) -> float:
         if path.suffix.lower() == ".pdf":
@@ -227,6 +229,7 @@ class PdfImporter:
         self._section_detector_backend = str(
             getattr(getattr(run_settings, "section_detector_backend", None), "value", "legacy")
         )
+        self._pdf_column_gap_ratio = self._resolve_pdf_column_gap_ratio(run_settings)
         ocr_used = False
 
         def _notify(message: str) -> None:
@@ -258,8 +261,8 @@ class PdfImporter:
                     workbookPath=str(path),
                 )
 
-            # Check if PDF needs OCR
-            needs_ocr = self._needs_ocr(doc)
+            # Check if PDF needs OCR (policy can force/disable OCR).
+            needs_ocr = self._resolve_pdf_needs_ocr(doc, run_settings=run_settings)
 
             # 1. Extract Blocks (Linear Stream)
             all_blocks: List[Block] = []
@@ -756,6 +759,7 @@ class PdfImporter:
         finally:
             self._overrides = None
             self._section_detector_backend = "legacy"
+            self._pdf_column_gap_ratio = _PDF_COLUMN_GAP_RATIO_DEFAULT
 
     def _extract_standalone_tips(
         self,
@@ -1212,13 +1216,38 @@ class PdfImporter:
         for idx in range(len(x0s) - 1):
             gaps.append((x0s[idx + 1] - x0s[idx], idx))
 
-        threshold = page_width * 0.12
+        threshold = page_width * self._pdf_column_gap_ratio
         boundaries = [
             (x0s[idx] + x0s[idx + 1]) / 2
             for gap, idx in gaps
             if gap >= threshold
         ]
         return sorted(boundaries)
+
+    def _resolve_pdf_column_gap_ratio(
+        self,
+        run_settings: RunSettings | None,
+    ) -> float:
+        raw_value = getattr(run_settings, "pdf_column_gap_ratio", _PDF_COLUMN_GAP_RATIO_DEFAULT)
+        try:
+            ratio = float(raw_value)
+        except (TypeError, ValueError):
+            return _PDF_COLUMN_GAP_RATIO_DEFAULT
+        return min(0.95, max(0.01, ratio))
+
+    def _resolve_pdf_needs_ocr(
+        self,
+        doc: fitz.Document,
+        *,
+        run_settings: RunSettings | None,
+    ) -> bool:
+        raw_policy = getattr(run_settings, "pdf_ocr_policy", "auto")
+        policy = str(getattr(raw_policy, "value", raw_policy) or "auto").strip().lower()
+        if policy == "off":
+            return False
+        if policy == "always":
+            return True
+        return self._needs_ocr(doc)
 
     def _detect_candidates(self, blocks: List[Block]) -> List[Tuple[int, int, float]]:
         """

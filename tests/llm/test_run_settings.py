@@ -50,6 +50,8 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["p6_ovenlike_mode"] == "keywords_v1"
     assert settings.to_run_config_dict()["p6_yield_mode"] == "legacy_v1"
     assert settings.to_run_config_dict()["p6_emit_metadata_debug"] is False
+    assert settings.to_run_config_dict()["pdf_ocr_policy"] == "auto"
+    assert settings.to_run_config_dict()["pdf_column_gap_ratio"] == 0.12
     assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
     assert settings.to_run_config_dict()["atomic_block_splitter"] == "off"
     assert settings.to_run_config_dict()["line_role_pipeline"] == "off"

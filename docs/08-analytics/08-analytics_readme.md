@@ -104,6 +104,7 @@ Compatibility behavior:
 - Appenders auto-expand older CSV headers to current schema before writing.
 - CSV append operations use inter-process file locking to reduce concurrent write corruption.
 - Benchmark readers collapse strict/practical aliases only when explicit benchmark metrics exist (`strict_accuracy`, `macro_f1_excluding_other`); legacy split precision/recall/practical fields are preserved when explicit metrics are absent.
+- `bench gc` hydrates missing benchmark durability fields before deletion and skips run-root pruning when matching durable benchmark history rows cannot be confirmed.
 
 ### 3.3 Dashboard artifacts and data sources
 

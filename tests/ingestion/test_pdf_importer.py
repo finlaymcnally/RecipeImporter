@@ -50,6 +50,169 @@ def test_convert_pdf():
     assert "Mix it all." in recipe.instructions
 
 
+def test_convert_pdf_pdf_ocr_policy_off_skips_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "policy-off.pdf"
+    source.write_bytes(b"%PDF-1.4 dummy")
+    importer = PdfImporter()
+    blocks = [
+        Block(text="PDF Pancakes", page=0),
+        Block(text="Ingredients", page=0),
+        Block(text="1 cup flour", page=0),
+        Block(text="Instructions", page=0),
+        Block(text="Mix it all.", page=0),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setattr(
+        importer,
+        "_extract_blocks_from_page",
+        lambda _page, _abs_page: list(blocks),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_blocks_via_ocr",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OCR should be disabled when pdf_ocr_policy=off.")
+        ),
+    )
+    monkeypatch.setattr(importer, "_needs_ocr", lambda _doc: True)
+    monkeypatch.setattr("cookimport.plugins.pdf._ocr_available", lambda: True)
+    monkeypatch.setattr(
+        importer,
+        "_detect_candidates",
+        lambda _blocks: [(0, len(blocks), 0.9)],
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda _candidate_blocks: RecipeCandidate(
+            name="PDF Pancakes",
+            ingredients=["1 cup flour"],
+            instructions=["Mix it all."],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    class _FakeDoc:
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, _index: int) -> object:
+            return object()
+
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr("cookimport.plugins.pdf.fitz.open", lambda _path: _FakeDoc())
+
+    result = importer.convert(
+        source,
+        None,
+        run_settings=RunSettings(pdf_ocr_policy="off"),
+    )
+
+    full_text = next(artifact for artifact in result.raw_artifacts if artifact.location_id == "full_text")
+    assert full_text.content["ocr_used"] is False
+
+
+def test_convert_pdf_pdf_ocr_policy_always_forces_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "policy-always.pdf"
+    source.write_bytes(b"%PDF-1.4 dummy")
+    importer = PdfImporter()
+    blocks = [
+        Block(text="PDF Pancakes", page=0),
+        Block(text="Ingredients", page=0),
+        Block(text="1 cup flour", page=0),
+        Block(text="Instructions", page=0),
+        Block(text="Mix it all.", page=0),
+    ]
+    for block in blocks:
+        signals.enrich_block(block)
+
+    monkeypatch.setattr(
+        importer,
+        "_extract_blocks_from_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Text extraction should be bypassed when pdf_ocr_policy=always.")
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_blocks_via_ocr",
+        lambda *_args, **_kwargs: list(blocks),
+    )
+    monkeypatch.setattr(importer, "_needs_ocr", lambda _doc: False)
+    monkeypatch.setattr("cookimport.plugins.pdf._ocr_available", lambda: True)
+    monkeypatch.setattr(
+        importer,
+        "_detect_candidates",
+        lambda _blocks: [(0, len(blocks), 0.9)],
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_fields",
+        lambda _candidate_blocks: RecipeCandidate(
+            name="PDF Pancakes",
+            ingredients=["1 cup flour"],
+            instructions=["Mix it all."],
+        ),
+    )
+    monkeypatch.setattr(
+        importer,
+        "_extract_standalone_tips",
+        lambda *_args, **_kwargs: ([], [], 0, 0),
+    )
+
+    class _FakeDoc:
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, _index: int) -> object:
+            return object()
+
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr("cookimport.plugins.pdf.fitz.open", lambda _path: _FakeDoc())
+
+    result = importer.convert(
+        source,
+        None,
+        run_settings=RunSettings(pdf_ocr_policy="always"),
+    )
+
+    full_text = next(artifact for artifact in result.raw_artifacts if artifact.location_id == "full_text")
+    assert full_text.content["ocr_used"] is True
+
+
+def test_derive_column_boundaries_respects_pdf_column_gap_ratio() -> None:
+    importer = PdfImporter()
+    blocks = [
+        Block(text="A", bbox=[100.0, 0.0, 160.0, 10.0]),
+        Block(text="B", bbox=[190.0, 0.0, 250.0, 10.0]),
+        Block(text="C", bbox=[280.0, 0.0, 340.0, 10.0]),
+        Block(text="D", bbox=[370.0, 0.0, 430.0, 10.0]),
+    ]
+
+    importer._pdf_column_gap_ratio = 0.12
+    assert importer._derive_column_boundaries(blocks, page_width=1000.0) == []
+
+    importer._pdf_column_gap_ratio = 0.08
+    boundaries = importer._derive_column_boundaries(blocks, page_width=1000.0)
+    assert boundaries == [145.0, 235.0, 325.0]
+
+
 def test_convert_pdf_emits_post_candidate_progress(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "book.pdf"
     source.write_bytes(b"%PDF-1.4 dummy")

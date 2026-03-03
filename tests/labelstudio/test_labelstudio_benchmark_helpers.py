@@ -4131,12 +4131,16 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,
+        pdf_ocr_policy="always",
+        pdf_column_gap_ratio=0.21,
     )
 
     assert captured_generate["path"] == source_file
     assert captured_generate["run_manifest_kind"] == "bench_pred_run"
     assert captured_generate["write_markdown"] is False
     assert captured_generate["write_label_studio_tasks"] is False
+    assert captured_generate["pdf_ocr_policy"] == "always"
+    assert captured_generate["pdf_column_gap_ratio"] == 0.21
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
@@ -4146,6 +4150,8 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
+    assert run_manifest["run_config"]["pdf_ocr_policy"] == "always"
+    assert run_manifest["run_config"]["pdf_column_gap_ratio"] == 0.21
     assert run_manifest["run_config"]["atomic_block_splitter"] == "off"
     assert run_manifest["run_config"]["line_role_pipeline"] == "off"
     assert "eval_report_md" not in run_manifest["artifacts"]
@@ -5648,6 +5654,8 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
         eval_output_dir=tmp_path / "eval",
         allow_labelstudio_write=True,
         epub_extractor="beautifulsoup",
+        pdf_ocr_policy="off",
+        pdf_column_gap_ratio=0.14,
         section_detector_backend="shared_v1",
         multi_recipe_splitter="rules_v1",
         multi_recipe_trace=True,
@@ -5663,6 +5671,8 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     assert captured["multi_recipe_min_ingredient_lines"] == 2
     assert captured["multi_recipe_min_instruction_lines"] == 2
     assert captured["multi_recipe_for_the_guardrail"] is False
+    assert captured["pdf_ocr_policy"] == "off"
+    assert captured["pdf_column_gap_ratio"] == 0.14
     assert os.environ.get("C3IMP_EPUB_EXTRACTOR") == "unstructured"
 
 

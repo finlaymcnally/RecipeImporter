@@ -21,7 +21,7 @@ import json
 import shutil
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +33,9 @@ DEFAULT_TOP_CONFUSIONS = 8
 DEFAULT_TOP_LABELS = 6
 DEFAULT_EXCERPT_LIMIT = 440
 DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
+DEFAULT_TARGETED_PROMPT_CASES = 10
+ALIGNMENT_HEALTHY_COVERAGE_MIN = 0.98
+ALIGNMENT_HEALTHY_MATCH_RATIO_MIN = 0.98
 
 # Keep this focused on settings that are likely to explain quality deltas.
 RUN_CONFIG_KEYS_OF_INTEREST = (
@@ -65,10 +68,20 @@ ROOT_METADATA_FILES = (
     "run_index.json",
     "comparison_summary.json",
     "process_manifest.json",
+    "changed_lines.codex_vs_vanilla.jsonl",
+    "per_recipe_or_per_span_breakdown.json",
+    "targeted_prompt_cases.md",
+    "label_policy_adjudication_notes.md",
 )
 AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
+PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
+PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
+CHANGED_LINES_FILE_NAME = "changed_lines.codex_vs_vanilla.jsonl"
+PER_RECIPE_BREAKDOWN_FILE_NAME = "per_recipe_or_per_span_breakdown.json"
+TARGETED_PROMPT_CASES_FILE_NAME = "targeted_prompt_cases.md"
+LABEL_POLICY_NOTES_FILE_NAME = "label_policy_adjudication_notes.md"
 PROMPT_REQUEST_RESPONSE_LOG_NAME = "prompt_request_response_log.txt"
 PROMPT_LOG_MANIFEST_ARTIFACT_KEY = "codexfarm_prompt_request_response_txt"
 FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS = (
@@ -92,13 +105,15 @@ PASS_PIPELINE_MAP = {
     "pass3": "recipe.final.v1",
 }
 
-SAMPLED_JSONL_INPUTS = (
+LINE_LEVEL_SAMPLED_JSONL_INPUTS = (
     ("wrong_label_lines.jsonl", "wrong_label_lines.sample.jsonl"),
     ("missed_gold_lines.jsonl", "missed_gold_lines.sample.jsonl"),
+)
+
+UNMATCHED_PRED_BLOCKS_INPUT = "unmatched_pred_blocks.jsonl"
+
+ALIGNMENT_SAMPLED_JSONL_INPUTS = (
     ("unmatched_pred_blocks.jsonl", "unmatched_pred_blocks.sample.jsonl"),
-    ("wrong_label_blocks.jsonl", "wrong_label_blocks.sample.jsonl"),
-    ("missed_gold_blocks.jsonl", "missed_gold_blocks.sample.jsonl"),
-    ("false_positive_preds.jsonl", "false_positive_preds.sample.jsonl"),
     ("aligned_prediction_blocks.jsonl", "aligned_prediction_blocks.sample.jsonl"),
     ("alignment_gaps.jsonl", "alignment_gaps.sample.jsonl"),
 )
@@ -123,9 +138,30 @@ class RunRecord:
     config_snapshot: dict[str, Any]
     top_confusions: list[dict[str, Any]]
     summary_path: str
+    run_dir: str
     full_prompt_log_status: str
     full_prompt_log_rows: int
     full_prompt_log_path: str | None
+
+
+@dataclass
+class LinePredictionView:
+    line_text_by_index: dict[int, str]
+    gold_label_by_index: dict[int, str]
+    pred_label_by_index: dict[int, str]
+    recipe_id_by_index: dict[int, str | None]
+    recipe_span_by_index: dict[int, str]
+    recipe_spans: list[dict[str, Any]]
+
+
+@dataclass
+class PairDiagnostics:
+    changed_line_rows: list[dict[str, Any]]
+    pair_breakdown: dict[str, Any]
+    confusion_matrix_codex: dict[str, dict[str, int]]
+    confusion_matrix_baseline: dict[str, dict[str, int]]
+    confusion_delta_codex_minus_baseline: dict[str, dict[str, int]]
+    targeted_prompt_case_rows: list[dict[str, Any]]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -885,6 +921,363 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write("\n")
 
 
+def _jsonl_row_count(path: Path) -> int:
+    if not path.is_file():
+        return 0
+    count = 0
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            if raw_line.strip():
+                count += 1
+    return count
+
+
+def _parse_json_like(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        if text.startswith("{") or text.startswith("["):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return value
+    return value
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    parsed = _parse_json_like(value)
+    if isinstance(parsed, list):
+        rows: list[str] = []
+        for entry in parsed:
+            if isinstance(entry, str):
+                text = entry.strip()
+                if text:
+                    rows.append(text)
+        return rows
+    if isinstance(parsed, str):
+        text = parsed.strip()
+        if text:
+            return [text]
+    return []
+
+
+def _is_empty_mapping_value(value: Any) -> bool:
+    parsed = _parse_json_like(value)
+    if isinstance(parsed, dict):
+        return len(parsed) == 0
+    if isinstance(parsed, str):
+        return parsed.strip() in {"{}", "null", ""}
+    return value is None
+
+
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _prompt_warning_bucket(message: str) -> str:
+    lowered = message.lower()
+    if "split" in lowered and "line" in lowered:
+        return "split_line_boundary"
+    if "serving" in lowered and "split" in lowered:
+        return "serving_boundary_split"
+    if "ingredient" in lowered and ("fragment" in lowered or "incomplete" in lowered):
+        return "ingredient_fragment"
+    if "no " in lowered and "instruction" in lowered:
+        return "missing_instructions"
+    if "page" in lowered or "ocr" in lowered or "artifact" in lowered:
+        return "ocr_or_page_artifact"
+    if "yield" in lowered:
+        return "yield_detection"
+    return "other"
+
+
+def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str, Any]:
+    rows = _iter_jsonl(full_prompt_log_path)
+    by_pass_calls: Counter[str] = Counter()
+    by_pass_calls_with_warnings: Counter[str] = Counter()
+    warning_message_counts: Counter[str] = Counter()
+    warning_bucket_counts: Counter[str] = Counter()
+    pass3_empty_mapping_calls = 0
+    pass3_empty_mapping_recipe_ids: Counter[str] = Counter()
+
+    calls_with_warnings = 0
+    warning_total = 0
+
+    for row in rows:
+        pass_name = str(row.get("pass") or "unknown").strip().lower() or "unknown"
+        by_pass_calls[pass_name] += 1
+
+        parsed_response = _parse_json_like(row.get("parsed_response"))
+        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+        warnings = _coerce_str_list(parsed_response.get("warnings"))
+        if warnings:
+            calls_with_warnings += 1
+            by_pass_calls_with_warnings[pass_name] += 1
+        for warning in warnings:
+            normalized = _normalize_whitespace(warning)
+            warning_message_counts[normalized] += 1
+            warning_bucket_counts[_prompt_warning_bucket(normalized)] += 1
+            warning_total += 1
+
+        if pass_name == "pass3":
+            ingredient_step_mapping = parsed_response.get("ingredient_step_mapping")
+            if _is_empty_mapping_value(ingredient_step_mapping):
+                pass3_empty_mapping_calls += 1
+                recipe_id = str(row.get("recipe_id") or "").strip()
+                if recipe_id:
+                    pass3_empty_mapping_recipe_ids[recipe_id] += 1
+
+    return {
+        "source_full_prompt_log": str(full_prompt_log_path),
+        "total_calls": len(rows),
+        "calls_with_warnings": calls_with_warnings,
+        "warnings_total": warning_total,
+        "calls_by_pass": dict(sorted(by_pass_calls.items())),
+        "calls_with_warnings_by_pass": dict(sorted(by_pass_calls_with_warnings.items())),
+        "warning_buckets": dict(
+            sorted(warning_bucket_counts.items(), key=lambda item: (-item[1], item[0]))
+        ),
+        "top_warning_messages": [
+            {"warning": message, "count": count}
+            for message, count in warning_message_counts.most_common(20)
+        ],
+        "pass3_empty_ingredient_step_mapping_calls": pass3_empty_mapping_calls,
+        "pass3_empty_ingredient_step_mapping_recipe_ids": [
+            {"recipe_id": recipe_id, "count": count}
+            for recipe_id, count in pass3_empty_mapping_recipe_ids.most_common()
+        ],
+    }
+
+
+def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    for row in rows:
+        pass_name = str(row.get("pass") or "").strip().lower()
+        if pass_name != "pass1":
+            continue
+        parsed_response = _parse_json_like(row.get("parsed_response"))
+        if not isinstance(parsed_response, dict):
+            continue
+        is_recipe = parsed_response.get("is_recipe")
+        if is_recipe is False:
+            continue
+        start = _coerce_int(parsed_response.get("start_block_index"))
+        end = _coerce_int(parsed_response.get("end_block_index"))
+        if start is None or end is None or end < start:
+            continue
+        recipe_id = str(parsed_response.get("recipe_id") or row.get("recipe_id") or "").strip()
+        if not recipe_id:
+            continue
+        dedupe_key = (recipe_id, start, end)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        spans.append(
+            {
+                "recipe_id": recipe_id,
+                "start_block_index": start,
+                "end_block_index": end,
+                "title": parsed_response.get("title"),
+                "call_id": row.get("call_id"),
+            }
+        )
+    spans.sort(
+        key=lambda row: (
+            int(row["start_block_index"]),
+            int(row["end_block_index"]) - int(row["start_block_index"]),
+            str(row["recipe_id"]),
+        )
+    )
+    return spans
+
+
+def _resolve_recipe_for_line(
+    *,
+    line_index: int,
+    recipe_spans: list[dict[str, Any]],
+) -> tuple[str | None, str]:
+    matches: list[dict[str, Any]] = []
+    for span in recipe_spans:
+        start = int(span["start_block_index"])
+        end = int(span["end_block_index"])
+        if start <= line_index <= end:
+            matches.append(span)
+    if not matches:
+        return None, "outside_active_recipe_span"
+    best = sorted(
+        matches,
+        key=lambda span: (
+            int(span["end_block_index"]) - int(span["start_block_index"]),
+            int(span["start_block_index"]),
+            str(span["recipe_id"]),
+        ),
+    )[0]
+    return str(best["recipe_id"]), "inside_active_recipe_span"
+
+
+def _build_line_prediction_view(
+    *,
+    run_dir: Path,
+    recipe_spans: list[dict[str, Any]],
+) -> LinePredictionView:
+    eval_report_path = run_dir / "eval_report.json"
+    eval_report = _load_json(eval_report_path) if eval_report_path.is_file() else {}
+    canonical = eval_report.get("canonical")
+    if not isinstance(canonical, dict):
+        return LinePredictionView({}, {}, {}, {}, {}, recipe_spans)
+
+    canonical_text_path_raw = canonical.get("canonical_text_path")
+    canonical_spans_path_raw = canonical.get("canonical_span_labels_path")
+    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
+        return LinePredictionView({}, {}, {}, {}, {}, recipe_spans)
+
+    canonical_text_path = Path(canonical_text_path_raw)
+    canonical_spans_path = Path(canonical_spans_path_raw)
+    if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
+        return LinePredictionView({}, {}, {}, {}, {}, recipe_spans)
+
+    canonical_text = canonical_text_path.read_text(encoding="utf-8")
+    lines = _build_canonical_lines(canonical_text)
+    gold_spans = _load_gold_spans(canonical_spans_path)
+    gold_labels_by_line = _line_gold_labels(lines=lines, spans=gold_spans)
+
+    wrong_label_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
+    predicted_overrides: dict[int, str] = {}
+    for row in wrong_label_rows:
+        line_index = _coerce_int(row.get("line_index"))
+        if line_index is None:
+            continue
+        pred_label = str(row.get("pred_label") or "").strip()
+        if not pred_label:
+            continue
+        predicted_overrides[line_index] = pred_label
+
+    line_text_by_index: dict[int, str] = {}
+    gold_label_by_index: dict[int, str] = {}
+    pred_label_by_index: dict[int, str] = {}
+    recipe_id_by_index: dict[int, str | None] = {}
+    recipe_span_by_index: dict[int, str] = {}
+
+    for line in lines:
+        line_index = int(line["line_index"])
+        line_text = str(line.get("text") or "")
+        gold_labels = gold_labels_by_line.get(line_index, ["OTHER"])
+        gold_label = gold_labels[0] if gold_labels else "OTHER"
+        pred_label = predicted_overrides.get(line_index, gold_label)
+        recipe_id, span_region = _resolve_recipe_for_line(
+            line_index=line_index,
+            recipe_spans=recipe_spans,
+        )
+
+        line_text_by_index[line_index] = line_text
+        gold_label_by_index[line_index] = gold_label
+        pred_label_by_index[line_index] = pred_label
+        recipe_id_by_index[line_index] = recipe_id
+        recipe_span_by_index[line_index] = span_region
+
+    return LinePredictionView(
+        line_text_by_index=line_text_by_index,
+        gold_label_by_index=gold_label_by_index,
+        pred_label_by_index=pred_label_by_index,
+        recipe_id_by_index=recipe_id_by_index,
+        recipe_span_by_index=recipe_span_by_index,
+        recipe_spans=recipe_spans,
+    )
+
+
+def _confusion_matrix_from_view(view: LinePredictionView) -> dict[str, dict[str, int]]:
+    matrix: dict[str, Counter[str]] = defaultdict(Counter)
+    for line_index in sorted(view.gold_label_by_index.keys()):
+        gold = str(view.gold_label_by_index.get(line_index) or "OTHER")
+        pred = str(view.pred_label_by_index.get(line_index) or "OTHER")
+        matrix[gold][pred] += 1
+    return {
+        gold: dict(
+            sorted(pred_counts.items(), key=lambda item: item[0])
+        )
+        for gold, pred_counts in sorted(matrix.items(), key=lambda item: item[0])
+    }
+
+
+def _delta_confusion_matrix(
+    *,
+    codex_confusion: dict[str, dict[str, int]],
+    baseline_confusion: dict[str, dict[str, int]],
+) -> dict[str, dict[str, int]]:
+    gold_labels = sorted(set(codex_confusion) | set(baseline_confusion))
+    delta: dict[str, dict[str, int]] = {}
+    for gold in gold_labels:
+        codex_row = codex_confusion.get(gold, {})
+        baseline_row = baseline_confusion.get(gold, {})
+        pred_labels = sorted(set(codex_row) | set(baseline_row))
+        row_delta: dict[str, int] = {}
+        for pred in pred_labels:
+            value = int(codex_row.get(pred, 0)) - int(baseline_row.get(pred, 0))
+            if value != 0:
+                row_delta[pred] = value
+        if row_delta:
+            delta[gold] = row_delta
+    return delta
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _line_context(
+    *,
+    line_text_by_index: dict[int, str],
+    line_index: int,
+    excerpt_limit: int,
+) -> dict[str, str]:
+    previous = line_text_by_index.get(line_index - 1, "")
+    current = line_text_by_index.get(line_index, "")
+    following = line_text_by_index.get(line_index + 1, "")
+    return {
+        "previous_line": _excerpt(previous, max_len=excerpt_limit),
+        "current_line": _excerpt(current, max_len=excerpt_limit),
+        "next_line": _excerpt(following, max_len=excerpt_limit),
+    }
+
+
+def _render_label_policy_notes() -> str:
+    lines = [
+        "# Label Policy / Adjudication Notes",
+        "",
+        "These notes summarize the active freeform labeling policy used by this benchmark surface.",
+        "They are intended for resolving common edge-case disagreements in this cutdown.",
+        "",
+        "## RECIPE_TITLE vs RECIPE_VARIANT",
+        "",
+        "- `RECIPE_TITLE`: the canonical name/title line of a specific dish/recipe.",
+        "- `RECIPE_VARIANT`: an explicit alternate version (for example, \"Variation:\" or \"For a vegan version...\").",
+        "- If text is only a small tip and not a distinct alternate formulation, prefer `RECIPE_NOTES`.",
+        "",
+        "## RECIPE_NOTES vs KNOWLEDGE",
+        "",
+        "- Prefer `RECIPE_NOTES` for recipe-local notes/tips/warnings/substitutions inside an active recipe.",
+        "- Use `KNOWLEDGE` for general technique/reference prose that is not tied to a specific current recipe.",
+        "- If inside a recipe and uncertain, prefer `RECIPE_NOTES` unless clearly standalone general background.",
+        "",
+        "## Heading-Like Instruction Lines",
+        "",
+        "- Heading lines such as `FOR THE ...` or `TO MAKE ...` are typically `HOWTO_SECTION` at annotation time.",
+        "- In canonical benchmark scoring, `HOWTO_SECTION` is structurally resolved to ingredient/instruction context.",
+        "- Practical adjudication: keep true imperative action sentences as `INSTRUCTION_LINE`; keep pure section headers as `HOWTO_SECTION`.",
+        "",
+        "Source policy references:",
+        "- `cookimport/labelstudio/prelabel.py` (label definitions and tie-break guidance)",
+        "- `cookimport/labelstudio/CONVENTIONS.md` (canonical freeform label set and HOWTO scoring behavior)",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _top_confusions(confusion: Any, top_k: int) -> list[dict[str, Any]]:
     if not isinstance(confusion, dict):
         return []
@@ -1330,6 +1723,122 @@ def _reconstruct_full_prompt_log(
     return rows_written
 
 
+def _alignment_is_healthy(alignment: dict[str, Any]) -> bool:
+    canonical_coverage = _coerce_float(alignment.get("canonical_char_coverage"))
+    prediction_match_ratio = _coerce_float(alignment.get("prediction_block_match_ratio"))
+    if canonical_coverage is None or prediction_match_ratio is None:
+        return False
+    return (
+        canonical_coverage >= ALIGNMENT_HEALTHY_COVERAGE_MIN
+        and prediction_match_ratio >= ALIGNMENT_HEALTHY_MATCH_RATIO_MIN
+    )
+
+
+def _build_projection_trace(
+    *,
+    line_view: LinePredictionView,
+    full_prompt_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    wrong_line_indices = [
+        line_index
+        for line_index, gold_label in line_view.gold_label_by_index.items()
+        if line_view.pred_label_by_index.get(line_index, gold_label) != gold_label
+    ]
+    wrong_line_set = set(wrong_line_indices)
+
+    pass_call_counts: Counter[str] = Counter()
+    pass_warning_counts: Counter[str] = Counter()
+    pass_recipe_ids: dict[str, set[str]] = defaultdict(set)
+    pass3_empty_mapping_calls = 0
+    pass3_empty_mapping_recipe_ids: Counter[str] = Counter()
+
+    for row in full_prompt_rows:
+        pass_name = str(row.get("pass") or "unknown").strip().lower() or "unknown"
+        pass_call_counts[pass_name] += 1
+
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        if recipe_id:
+            pass_recipe_ids[pass_name].add(recipe_id)
+
+        parsed_response = _parse_json_like(row.get("parsed_response"))
+        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+        warnings = _coerce_str_list(parsed_response.get("warnings"))
+        if warnings:
+            pass_warning_counts[pass_name] += len(warnings)
+
+        if pass_name == "pass3" and _is_empty_mapping_value(
+            parsed_response.get("ingredient_step_mapping")
+        ):
+            pass3_empty_mapping_calls += 1
+            if recipe_id:
+                pass3_empty_mapping_recipe_ids[recipe_id] += 1
+
+    region_counts = {
+        "inside_active_recipe_span": {"line_total": 0, "wrong_total": 0},
+        "outside_active_recipe_span": {"line_total": 0, "wrong_total": 0},
+    }
+    recipe_counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"line_total": 0, "wrong_total": 0}
+    )
+    for line_index in sorted(line_view.gold_label_by_index.keys()):
+        recipe_id = line_view.recipe_id_by_index.get(line_index)
+        region_key = "inside_active_recipe_span" if recipe_id else "outside_active_recipe_span"
+        region_counts[region_key]["line_total"] += 1
+        if line_index in wrong_line_set:
+            region_counts[region_key]["wrong_total"] += 1
+
+        if recipe_id:
+            recipe_counts[recipe_id]["line_total"] += 1
+            if line_index in wrong_line_set:
+                recipe_counts[recipe_id]["wrong_total"] += 1
+
+    return {
+        "summary": {
+            "canonical_line_total": len(line_view.gold_label_by_index),
+            "wrong_line_total": len(wrong_line_indices),
+            "pass_call_counts": dict(sorted(pass_call_counts.items())),
+            "pass_warning_counts": dict(sorted(pass_warning_counts.items())),
+            "pass3_empty_ingredient_step_mapping_calls": pass3_empty_mapping_calls,
+        },
+        "regions": {
+            region: {
+                **payload,
+                "wrong_rate": _rate(payload["wrong_total"], payload["line_total"]),
+            }
+            for region, payload in region_counts.items()
+        },
+        "per_recipe": [
+            {
+                "recipe_id": recipe_id,
+                "line_total": payload["line_total"],
+                "wrong_total": payload["wrong_total"],
+                "wrong_rate": _rate(payload["wrong_total"], payload["line_total"]),
+            }
+            for recipe_id, payload in sorted(
+                recipe_counts.items(),
+                key=lambda item: (
+                    -item[1]["wrong_total"],
+                    -item[1]["line_total"],
+                    item[0],
+                ),
+            )
+        ],
+        "recipe_ids_seen_by_pass": {
+            pass_name: sorted(recipe_ids)
+            for pass_name, recipe_ids in sorted(pass_recipe_ids.items())
+        },
+        "pass3_empty_mapping_recipe_ids": [
+            {"recipe_id": recipe_id, "count": count}
+            for recipe_id, count in pass3_empty_mapping_recipe_ids.most_common()
+        ],
+        "bridge_note": (
+            "Recipe span assignment for per-line diagnostics uses pass1 start/end block indices. "
+            "Canonical line indices that do not fall inside an active pass1 span are treated as "
+            "outside_active_recipe_span."
+        ),
+    }
+
+
 def _build_run_cutdown(
     *,
     run_dir: Path,
@@ -1357,6 +1866,16 @@ def _build_run_cutdown(
     line_role_pipeline = str(run_config.get("line_role_pipeline") or "off")
     codex_enabled = llm_recipe_pipeline not in {"off", "none", ""}
 
+    counts = eval_report.get("counts")
+    if not isinstance(counts, dict):
+        counts = {}
+    alignment = eval_report.get("alignment")
+    if not isinstance(alignment, dict):
+        alignment = {}
+    worst_label_recall = eval_report.get("worst_label_recall")
+    if not isinstance(worst_label_recall, dict):
+        worst_label_recall = {}
+
     output_run_dir.mkdir(parents=True, exist_ok=True)
 
     eval_report_md_path = run_dir / "eval_report.md"
@@ -1364,7 +1883,7 @@ def _build_run_cutdown(
         shutil.copy2(eval_report_md_path, output_run_dir / "eval_report.md")
 
     sample_counts: dict[str, Any] = {}
-    for source_name, output_name in SAMPLED_JSONL_INPUTS:
+    for source_name, output_name in LINE_LEVEL_SAMPLED_JSONL_INPUTS:
         source_path_jsonl = run_dir / source_name
         output_path_jsonl = output_run_dir / output_name
         counts = _write_jsonl_sample(
@@ -1375,19 +1894,45 @@ def _build_run_cutdown(
         )
         sample_counts[output_name] = counts
 
-    wrong_rows_for_correct = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
-    correct_rows, correct_metadata = _build_correct_label_sample(
-        eval_report=eval_report,
-        wrong_label_rows=wrong_rows_for_correct,
-        sample_limit=sample_limit,
-        excerpt_limit=excerpt_limit,
-    )
-    correct_path = output_run_dir / "correct_label_lines.sample.jsonl"
-    _write_jsonl(correct_path, correct_rows)
-    sample_counts["correct_label_lines.sample.jsonl"] = {
-        "total_rows": int(correct_metadata.get("candidate_rows_total") or 0),
-        "sample_rows": len(correct_rows),
+    unmatched_total_rows = _jsonl_row_count(run_dir / UNMATCHED_PRED_BLOCKS_INPUT)
+    sample_counts[UNMATCHED_PRED_BLOCKS_INPUT] = {
+        "total_rows": unmatched_total_rows,
+        "sample_rows": 0,
+        "mode": "counts_only_default",
     }
+
+    alignment_total_counts = {
+        source_name: _jsonl_row_count(run_dir / source_name)
+        for source_name, _ in ALIGNMENT_SAMPLED_JSONL_INPUTS
+    }
+    alignment_healthy = _alignment_is_healthy(alignment)
+    sample_counts["alignment_debug_sampling"] = {
+        "mode": "counts_only_healthy_alignment"
+        if alignment_healthy
+        else "sampled_alignment_debug",
+        "counts": alignment_total_counts,
+        "thresholds": {
+            "canonical_char_coverage_min": ALIGNMENT_HEALTHY_COVERAGE_MIN,
+            "prediction_block_match_ratio_min": ALIGNMENT_HEALTHY_MATCH_RATIO_MIN,
+        },
+        "actual": {
+            "canonical_char_coverage": _coerce_float(alignment.get("canonical_char_coverage")),
+            "prediction_block_match_ratio": _coerce_float(
+                alignment.get("prediction_block_match_ratio")
+            ),
+        },
+    }
+    if not alignment_healthy:
+        for source_name, output_name in ALIGNMENT_SAMPLED_JSONL_INPUTS:
+            source_path_jsonl = run_dir / source_name
+            output_path_jsonl = output_run_dir / output_name
+            counts = _write_jsonl_sample(
+                source_path=source_path_jsonl,
+                output_path=output_path_jsonl,
+                sample_limit=sample_limit,
+                excerpt_limit=excerpt_limit,
+            )
+            sample_counts[output_name] = counts
 
     codex_prompt_log = _resolve_prompt_log_path(run_dir, run_manifest)
     full_prompt_log_source = _resolve_full_prompt_log_path(run_dir, run_manifest)
@@ -1395,12 +1940,11 @@ def _build_run_cutdown(
     full_prompt_log_status = "not_applicable"
     full_prompt_log_rows = 0
     full_prompt_log_output_path: str | None = None
+    full_prompt_rows: list[dict[str, Any]] = []
     if full_prompt_log_source is not None:
         shutil.copy2(full_prompt_log_source, full_prompt_log_output)
-        with full_prompt_log_output.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if line.strip():
-                    full_prompt_log_rows += 1
+        full_prompt_rows = _iter_jsonl(full_prompt_log_output)
+        full_prompt_log_rows = len(full_prompt_rows)
         full_prompt_log_status = "complete"
         full_prompt_log_output_path = FULL_PROMPT_LOG_FILE_NAME
     elif codex_enabled:
@@ -1413,6 +1957,9 @@ def _build_run_cutdown(
             full_prompt_log_status = "complete"
             full_prompt_log_rows = reconstructed_rows
             full_prompt_log_output_path = FULL_PROMPT_LOG_FILE_NAME
+            full_prompt_rows = _iter_jsonl(full_prompt_log_output)
+            if len(full_prompt_rows) != reconstructed_rows:
+                full_prompt_log_rows = len(full_prompt_rows)
         else:
             full_prompt_log_status = "missing"
 
@@ -1448,6 +1995,36 @@ def _build_run_cutdown(
             "source_path": None,
         }
 
+    if codex_enabled and full_prompt_log_status == "complete" and full_prompt_log_output.is_file():
+        prompt_warning_aggregate = _summarize_prompt_warning_aggregate(full_prompt_log_output)
+        _write_json(output_run_dir / PROMPT_WARNING_AGGREGATE_FILE_NAME, prompt_warning_aggregate)
+        sample_counts[PROMPT_WARNING_AGGREGATE_FILE_NAME] = {
+            "status": "written",
+            "total_calls": int(prompt_warning_aggregate.get("total_calls") or 0),
+            "calls_with_warnings": int(prompt_warning_aggregate.get("calls_with_warnings") or 0),
+            "warnings_total": int(prompt_warning_aggregate.get("warnings_total") or 0),
+        }
+
+        recipe_spans = _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
+        line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
+        projection_trace = _build_projection_trace(
+            line_view=line_view,
+            full_prompt_rows=full_prompt_rows,
+        )
+        projection_trace["recipe_span_count"] = len(recipe_spans)
+        projection_trace["recipe_spans"] = recipe_spans
+        _write_json(output_run_dir / PROJECTION_TRACE_FILE_NAME, projection_trace)
+        sample_counts[PROJECTION_TRACE_FILE_NAME] = {
+            "status": "written",
+            "recipe_span_count": len(recipe_spans),
+            "canonical_line_total": int(
+                projection_trace.get("summary", {}).get("canonical_line_total") or 0
+            ),
+        }
+    elif codex_enabled:
+        sample_counts[PROMPT_WARNING_AGGREGATE_FILE_NAME] = {"status": "missing_full_prompt_log"}
+        sample_counts[PROJECTION_TRACE_FILE_NAME] = {"status": "missing_full_prompt_log"}
+
     top_confusions = _top_confusions(
         eval_report.get("confusion"),
         top_k=top_confusions_limit,
@@ -1465,16 +2042,6 @@ def _build_run_cutdown(
         total_key="pred_total",
         limit=top_labels_limit,
     )
-
-    counts = eval_report.get("counts")
-    if not isinstance(counts, dict):
-        counts = {}
-    alignment = eval_report.get("alignment")
-    if not isinstance(alignment, dict):
-        alignment = {}
-    worst_label_recall = eval_report.get("worst_label_recall")
-    if not isinstance(worst_label_recall, dict):
-        worst_label_recall = {}
 
     summary = {
         "run_id": run_id,
@@ -1533,7 +2100,6 @@ def _build_run_cutdown(
         "lowest_recall_labels": low_recall_labels,
         "lowest_precision_labels": low_precision_labels,
         "sample_counts": sample_counts,
-        "correct_sample_metadata": correct_metadata,
         "full_prompt_log_status": full_prompt_log_status,
         "full_prompt_log_rows": full_prompt_log_rows,
         "full_prompt_log_path": full_prompt_log_output_path,
@@ -1572,6 +2138,7 @@ def _build_run_cutdown(
         config_snapshot=_config_snapshot(run_manifest),
         top_confusions=top_confusions,
         summary_path=str(summary_path),
+        run_dir=str(run_dir),
         full_prompt_log_status=full_prompt_log_status,
         full_prompt_log_rows=full_prompt_log_rows,
         full_prompt_log_path=(
@@ -1613,7 +2180,313 @@ def _config_differences(a: dict[str, Any], b: dict[str, Any]) -> dict[str, dict[
     return diffs
 
 
-def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
+def _load_full_prompt_rows_for_run(record: RunRecord) -> list[dict[str, Any]]:
+    run_dir = Path(record.run_dir)
+    if not run_dir.is_dir():
+        return []
+    run_manifest_path = run_dir / "run_manifest.json"
+    if not run_manifest_path.is_file():
+        return []
+    run_manifest = _load_json(run_manifest_path)
+    full_prompt_log_path = _resolve_full_prompt_log_path(run_dir, run_manifest)
+    if full_prompt_log_path is None or not full_prompt_log_path.is_file():
+        return []
+    return _iter_jsonl(full_prompt_log_path)
+
+
+def _first_prompt_block_excerpt(row: dict[str, Any], *, excerpt_limit: int) -> str:
+    request_input_payload = _parse_json_like(row.get("request_input_payload"))
+    if not isinstance(request_input_payload, dict):
+        return ""
+    for key in ("blocks_candidate", "blocks_before", "blocks_after", "blocks"):
+        blocks = request_input_payload.get(key)
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            text = block.get("text")
+            if isinstance(text, str) and text.strip():
+                return _excerpt(_normalize_whitespace(text), max_len=excerpt_limit)
+    return ""
+
+
+def _prompt_case_score(
+    *,
+    pass_name: str,
+    warnings_count: int,
+    empty_mapping: bool,
+    changed_lines_for_recipe: int,
+) -> int:
+    pass_weights = {"pass3": 9, "pass2": 6, "pass1": 3}
+    return (
+        pass_weights.get(pass_name, 1)
+        + warnings_count * 4
+        + (8 if empty_mapping else 0)
+        + changed_lines_for_recipe * 5
+    )
+
+
+def _build_pair_diagnostics(
+    *,
+    source_key: str,
+    source_file: str | None,
+    codex_run: RunRecord,
+    baseline_run: RunRecord,
+    excerpt_limit: int,
+    targeted_case_limit: int,
+) -> PairDiagnostics:
+    codex_prompt_rows = _load_full_prompt_rows_for_run(codex_run)
+    recipe_spans = _build_recipe_spans_from_full_prompt_rows(codex_prompt_rows)
+
+    codex_view = _build_line_prediction_view(
+        run_dir=Path(codex_run.run_dir),
+        recipe_spans=recipe_spans,
+    )
+    baseline_view = _build_line_prediction_view(
+        run_dir=Path(baseline_run.run_dir),
+        recipe_spans=recipe_spans,
+    )
+
+    all_line_indices = sorted(
+        set(codex_view.gold_label_by_index.keys()) | set(baseline_view.gold_label_by_index.keys())
+    )
+    line_text_by_index = (
+        codex_view.line_text_by_index
+        if codex_view.line_text_by_index
+        else baseline_view.line_text_by_index
+    )
+
+    changed_line_rows: list[dict[str, Any]] = []
+    recipe_flip_counts: Counter[str] = Counter()
+
+    region_metrics: dict[str, dict[str, int]] = {
+        "inside_active_recipe_span": {
+            "line_total": 0,
+            "codex_correct": 0,
+            "baseline_correct": 0,
+        },
+        "outside_active_recipe_span": {
+            "line_total": 0,
+            "codex_correct": 0,
+            "baseline_correct": 0,
+        },
+    }
+    per_recipe_metrics: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"line_total": 0, "codex_correct": 0, "baseline_correct": 0}
+    )
+
+    for line_index in all_line_indices:
+        gold_label = str(
+            codex_view.gold_label_by_index.get(
+                line_index,
+                baseline_view.gold_label_by_index.get(line_index, "OTHER"),
+            )
+        )
+        codex_pred = str(
+            codex_view.pred_label_by_index.get(
+                line_index,
+                codex_view.gold_label_by_index.get(line_index, gold_label),
+            )
+        )
+        baseline_pred = str(
+            baseline_view.pred_label_by_index.get(
+                line_index,
+                baseline_view.gold_label_by_index.get(line_index, gold_label),
+            )
+        )
+
+        recipe_id = codex_view.recipe_id_by_index.get(line_index)
+        span_region = codex_view.recipe_span_by_index.get(
+            line_index, "outside_active_recipe_span"
+        )
+        if span_region not in region_metrics:
+            span_region = "outside_active_recipe_span"
+        region_metrics[span_region]["line_total"] += 1
+        if codex_pred == gold_label:
+            region_metrics[span_region]["codex_correct"] += 1
+        if baseline_pred == gold_label:
+            region_metrics[span_region]["baseline_correct"] += 1
+
+        if recipe_id:
+            per_recipe_metrics[recipe_id]["line_total"] += 1
+            if codex_pred == gold_label:
+                per_recipe_metrics[recipe_id]["codex_correct"] += 1
+            if baseline_pred == gold_label:
+                per_recipe_metrics[recipe_id]["baseline_correct"] += 1
+
+        if codex_pred == baseline_pred:
+            continue
+
+        if recipe_id:
+            recipe_flip_counts[recipe_id] += 1
+
+        changed_line_rows.append(
+            {
+                "source_key": source_key,
+                "source_file": source_file,
+                "codex_run_id": codex_run.run_id,
+                "baseline_run_id": baseline_run.run_id,
+                "line_index": line_index,
+                "recipe_id": recipe_id,
+                "span_region": span_region,
+                "gold_label": gold_label,
+                "vanilla_pred": baseline_pred,
+                "codex_pred": codex_pred,
+                **_line_context(
+                    line_text_by_index=line_text_by_index,
+                    line_index=line_index,
+                    excerpt_limit=excerpt_limit,
+                ),
+            }
+        )
+
+    region_breakdown: list[dict[str, Any]] = []
+    for region_name, payload in region_metrics.items():
+        line_total = int(payload["line_total"])
+        codex_accuracy = _rate(int(payload["codex_correct"]), line_total)
+        baseline_accuracy = _rate(int(payload["baseline_correct"]), line_total)
+        region_breakdown.append(
+            {
+                "region": region_name,
+                "line_total": line_total,
+                "codex_correct": int(payload["codex_correct"]),
+                "baseline_correct": int(payload["baseline_correct"]),
+                "codex_accuracy": codex_accuracy,
+                "baseline_accuracy": baseline_accuracy,
+                "delta_codex_minus_baseline": _delta(codex_accuracy, baseline_accuracy),
+            }
+        )
+
+    per_recipe_breakdown = [
+        {
+            "recipe_id": recipe_id,
+            "line_total": int(payload["line_total"]),
+            "codex_correct": int(payload["codex_correct"]),
+            "baseline_correct": int(payload["baseline_correct"]),
+            "codex_accuracy": _rate(int(payload["codex_correct"]), int(payload["line_total"])),
+            "baseline_accuracy": _rate(
+                int(payload["baseline_correct"]), int(payload["line_total"])
+            ),
+            "delta_codex_minus_baseline": _delta(
+                _rate(int(payload["codex_correct"]), int(payload["line_total"])),
+                _rate(int(payload["baseline_correct"]), int(payload["line_total"])),
+            ),
+            "changed_lines_codex_vs_vanilla": int(recipe_flip_counts.get(recipe_id, 0)),
+        }
+        for recipe_id, payload in sorted(
+            per_recipe_metrics.items(),
+            key=lambda item: (
+                -int(recipe_flip_counts.get(item[0], 0)),
+                -int(item[1]["line_total"]),
+                item[0],
+            ),
+        )
+    ]
+
+    codex_confusion = _confusion_matrix_from_view(codex_view)
+    baseline_confusion = _confusion_matrix_from_view(baseline_view)
+    confusion_delta = _delta_confusion_matrix(
+        codex_confusion=codex_confusion,
+        baseline_confusion=baseline_confusion,
+    )
+
+    targeted_prompt_candidates: list[dict[str, Any]] = []
+    for row in codex_prompt_rows:
+        pass_name = str(row.get("pass") or "unknown").strip().lower() or "unknown"
+        parsed_response = _parse_json_like(row.get("parsed_response"))
+        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
+        warnings = _coerce_str_list(parsed_response.get("warnings"))
+        empty_mapping = (
+            pass_name == "pass3"
+            and _is_empty_mapping_value(parsed_response.get("ingredient_step_mapping"))
+        )
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        changed_lines_for_recipe = int(recipe_flip_counts.get(recipe_id, 0))
+        if not warnings and not empty_mapping and changed_lines_for_recipe <= 0:
+            continue
+
+        call_id = str(row.get("call_id") or "").strip()
+        targeted_prompt_candidates.append(
+            {
+                "source_key": source_key,
+                "source_file": source_file,
+                "codex_run_id": codex_run.run_id,
+                "baseline_run_id": baseline_run.run_id,
+                "pass": pass_name,
+                "call_id": call_id,
+                "recipe_id": recipe_id or None,
+                "changed_lines_for_recipe": changed_lines_for_recipe,
+                "warning_count": len(warnings),
+                "warnings": warnings,
+                "empty_ingredient_step_mapping": empty_mapping,
+                "input_excerpt": _first_prompt_block_excerpt(
+                    row,
+                    excerpt_limit=excerpt_limit,
+                ),
+                "score": _prompt_case_score(
+                    pass_name=pass_name,
+                    warnings_count=len(warnings),
+                    empty_mapping=empty_mapping,
+                    changed_lines_for_recipe=changed_lines_for_recipe,
+                ),
+            }
+        )
+
+    targeted_prompt_candidates.sort(
+        key=lambda row: (
+            -int(row.get("score") or 0),
+            -int(row.get("changed_lines_for_recipe") or 0),
+            -int(row.get("warning_count") or 0),
+            str(row.get("pass") or ""),
+            str(row.get("call_id") or ""),
+        )
+    )
+
+    targeted_prompt_case_rows: list[dict[str, Any]] = []
+    seen_prompt_case_keys: set[tuple[str, str]] = set()
+    for row in targeted_prompt_candidates:
+        dedupe_key = (str(row.get("pass") or ""), str(row.get("call_id") or ""))
+        if dedupe_key in seen_prompt_case_keys:
+            continue
+        seen_prompt_case_keys.add(dedupe_key)
+        targeted_prompt_case_rows.append(
+            {
+                key: value
+                for key, value in row.items()
+                if key != "score"
+            }
+        )
+        if len(targeted_prompt_case_rows) >= targeted_case_limit:
+            break
+
+    pair_breakdown = {
+        "source_key": source_key,
+        "source_file": source_file,
+        "codex_run_id": codex_run.run_id,
+        "baseline_run_id": baseline_run.run_id,
+        "recipe_span_count": len(recipe_spans),
+        "changed_lines_total": len(changed_line_rows),
+        "region_breakdown": region_breakdown,
+        "per_recipe_breakdown": per_recipe_breakdown,
+    }
+
+    return PairDiagnostics(
+        changed_line_rows=changed_line_rows,
+        pair_breakdown=pair_breakdown,
+        confusion_matrix_codex=codex_confusion,
+        confusion_matrix_baseline=baseline_confusion,
+        confusion_delta_codex_minus_baseline=confusion_delta,
+        targeted_prompt_case_rows=targeted_prompt_case_rows,
+    )
+
+
+def _build_comparison_summary(
+    *,
+    records: list[RunRecord],
+    excerpt_limit: int,
+    targeted_prompt_case_limit: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     by_source: dict[str, list[RunRecord]] = defaultdict(list)
     for record in records:
         by_source[record.source_key].append(record)
@@ -1621,6 +2494,9 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
     pairs: list[dict[str, Any]] = []
     unpaired_codex: list[dict[str, Any]] = []
     unpaired_baseline: list[dict[str, Any]] = []
+    changed_line_rows: list[dict[str, Any]] = []
+    pair_breakdown_rows: list[dict[str, Any]] = []
+    targeted_prompt_case_rows: list[dict[str, Any]] = []
 
     for source_key in sorted(by_source.keys()):
         runs = by_source[source_key]
@@ -1634,6 +2510,17 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                 reverse=True,
             ):
                 baseline = _nearest_baseline(codex_run, baseline_runs)
+                pair_diagnostics = _build_pair_diagnostics(
+                    source_key=source_key,
+                    source_file=codex_run.source_file or baseline.source_file,
+                    codex_run=codex_run,
+                    baseline_run=baseline,
+                    excerpt_limit=excerpt_limit,
+                    targeted_case_limit=targeted_prompt_case_limit,
+                )
+                changed_line_rows.extend(pair_diagnostics.changed_line_rows)
+                pair_breakdown_rows.append(pair_diagnostics.pair_breakdown)
+                targeted_prompt_case_rows.extend(pair_diagnostics.targeted_prompt_case_rows)
                 pairs.append(
                     {
                         "source_key": source_key,
@@ -1678,6 +2565,12 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                             codex_run.config_snapshot,
                             baseline.config_snapshot,
                         ),
+                        "changed_line_count": len(pair_diagnostics.changed_line_rows),
+                        "confusion_matrix": {
+                            "codex": pair_diagnostics.confusion_matrix_codex,
+                            "baseline": pair_diagnostics.confusion_matrix_baseline,
+                            "delta_codex_minus_baseline": pair_diagnostics.confusion_delta_codex_minus_baseline,
+                        },
                     }
                 )
             continue
@@ -1709,7 +2602,7 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
                     }
                 )
 
-    return {
+    summary = {
         "pairing_rule": (
             "Within each source_key group, each codex-enabled run is paired with the "
             "nearest baseline (llm_recipe_pipeline=off/none/empty) by timestamp."
@@ -1718,6 +2611,7 @@ def _build_comparison_summary(records: list[RunRecord]) -> dict[str, Any]:
         "unpaired_codex_runs": unpaired_codex,
         "unpaired_baseline_runs": unpaired_baseline,
     }
+    return summary, changed_line_rows, pair_breakdown_rows, targeted_prompt_case_rows
 
 
 def _write_readme(

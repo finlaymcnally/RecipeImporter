@@ -353,7 +353,7 @@ Range support:
 
 Extraction path:
 - PyMuPDF text extraction with layout features and column reconstruction
-- OCR fallback via docTR when PDF appears scanned and OCR available
+- OCR fallback via docTR when PDF appears scanned and OCR available (or when `pdf_ocr_policy=always`)
 - OCR run respects page range and returns absolute page numbering in blocks
 
 Candidate and provenance behavior:
@@ -367,7 +367,7 @@ Candidate and provenance behavior:
   - `pattern_diagnostics` (`pattern_diagnostics.json`)
 
 Column ordering details:
-- Column boundaries inferred from x-gap threshold (`page_width * 0.12`)
+- Column boundaries inferred from x-gap threshold (`page_width * pdf_column_gap_ratio`, default `0.12`)
 - Full-width blocks forced into column 0
 - Ordering key: `(page_num, column_id, y0, x0)`
 
@@ -487,7 +487,9 @@ Stage CLI options (key ones):
 - `--epub-spine-items-per-job`
 - `--write-markdown/--no-write-markdown`
 - `--ocr-device`
+- `--pdf-ocr-policy`
 - `--ocr-batch-size`
+- `--pdf-column-gap-ratio`
 - `--mapping`
 - `--overrides`
 - `--epub-extractor`

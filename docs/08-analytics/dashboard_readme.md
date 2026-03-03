@@ -56,6 +56,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 Collector mode:
 - benchmark rows are CSV-first by default
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
+- benchmark history rows remain dashboard-visible after `bench gc --apply` because GC now refuses to prune run roots without confirmed durable CSV metrics
 
 Optional enrichment files in each eval directory:
 

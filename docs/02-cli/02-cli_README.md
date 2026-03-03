@@ -167,7 +167,9 @@ Config keys and defaults:
 - `recipe_score_min_ingredient_lines` (default `1`)
 - `recipe_score_min_instruction_lines` (default `1`)
 - `ocr_device` (default `auto`)
+- `pdf_ocr_policy` (default `auto`)
 - `ocr_batch_size` (default `1`)
+- `pdf_column_gap_ratio` (default `0.12`)
 - `output_dir` (default `data/output`)
 - `label_studio_url` (default unset; populated after first interactive Label Studio prompt)
 - `label_studio_api_key` (default unset; populated after first interactive Label Studio prompt)
@@ -213,7 +215,8 @@ What each setting affects:
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`: ingredient parser normalization/backend/unit-policy controls used by stage and benchmark prediction-generation imports.
 - `p6_time_backend`, `p6_time_total_strategy`, `p6_temperature_backend`, `p6_temperature_unit_backend`, `p6_ovenlike_mode`, `p6_yield_mode`, `p6_emit_metadata_debug`: Priority 6 deterministic instruction/yield controls for stage and benchmark prediction generation (time extraction backend and rollup strategy, temperature extraction/unit conversion backend, oven-like classifier mode, yield parser mode, and optional p6 debug sidecar emission).
 - `recipe_scorer_backend`, `recipe_score_*`: deterministic recipe-likeness scoring and tier gating thresholds/minimum line hints used by all importer families.
-- `ocr_device`, `ocr_batch_size`: OCR path for PDFs.
+- `ocr_device`, `pdf_ocr_policy`, `ocr_batch_size`: OCR path/policy for PDFs.
+- `pdf_column_gap_ratio`: PDF column-boundary sensitivity (`page_width * ratio` threshold).
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
@@ -749,6 +752,8 @@ Options:
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
 - `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
+- `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
+- `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
 - `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
 - `--single-offline-split-cache-dir PATH`: optional root for single-offline split-cache entries.

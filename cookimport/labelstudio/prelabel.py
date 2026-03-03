@@ -12,6 +12,10 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from cookimport.llm.codex_exec import (
+    argv_with_json_events as _shared_argv_with_json_events,
+    run_codex_json_prompt,
+)
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
     FREEFORM_LABELS,
@@ -79,34 +83,27 @@ class CodexCliProvider:
             except (json.JSONDecodeError, OSError):
                 pass
 
-        argv = shlex.split(self.cmd)
-        if not argv:
-            raise RuntimeError(f"Unable to parse codex command: {self.cmd!r}")
-
-        run_argv = self._argv_with_json_events(argv)
-        completed = self._run(run_argv, prompt)
-        if (
-            completed.returncode != 0
-            and self._is_stdin_tty_error(completed)
-            and self._is_plain_codex_command(argv)
-        ):
-            completed = self._run(
-                self._argv_with_json_events([argv[0], "exec", "-"]),
-                prompt,
-            )
-
-        turn_failed_message = self._extract_turn_failed_message(completed)
+        payload = run_codex_json_prompt(
+            prompt=prompt,
+            timeout_seconds=self.timeout_s,
+            cmd=self.cmd,
+            track_usage=self.track_usage,
+            runner=subprocess.run,
+        )
+        turn_failed_message = str(payload.get("turn_failed_message") or "").strip()
         if turn_failed_message:
             raise RuntimeError(f"Codex command failed: {turn_failed_message}")
-        response, usage = self._response_and_usage(completed)
-        if completed.returncode != 0:
+        response = str(payload.get("response") or "")
+        usage = payload.get("usage")
+        returncode = int(payload.get("returncode") or 0)
+        if returncode != 0:
             allow_nonzero_with_response = self.track_usage and bool(response)
             if not allow_nonzero_with_response:
-                stderr = (completed.stderr or "").strip()
-                stdout = (completed.stdout or "").strip()
+                stderr = str(payload.get("stderr") or "").strip()
+                stdout = str(payload.get("stdout") or "").strip()
                 detail = _normalize_codex_error_detail(stderr or stdout or "unknown error")
                 raise RuntimeError(
-                    f"Codex command failed (exit={completed.returncode}): {detail}"
+                    f"Codex command failed (exit={returncode}): {detail}"
                 )
 
         if not response:
@@ -396,13 +393,7 @@ def is_rate_limit_message(value: str | None) -> bool:
 
 
 def _argv_with_json_events(argv: list[str], *, track_usage: bool) -> list[str]:
-    if not track_usage:
-        return list(argv)
-    if "--json" in argv:
-        return list(argv)
-    if len(argv) >= 2 and argv[1].lower() in {"exec", "e"}:
-        return [argv[0], argv[1], "--json", *argv[2:]]
-    return [argv[0], "--json", *argv[1:]]
+    return _shared_argv_with_json_events(argv, track_usage=track_usage)
 
 _FULL_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
 
