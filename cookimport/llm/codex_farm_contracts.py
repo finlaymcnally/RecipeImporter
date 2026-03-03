@@ -81,6 +81,9 @@ class Pass2SchemaOrgInput(BaseModel):
     source_hash: str
     canonical_text: str
     blocks: list[BlockLite] = Field(default_factory=list)
+    normalized_evidence_text: str | None = None
+    normalized_evidence_lines: list[str] = Field(default_factory=list)
+    normalization_stats: dict[str, int] = Field(default_factory=dict)
 
 
 class Pass2SchemaOrgOutput(BaseModel):

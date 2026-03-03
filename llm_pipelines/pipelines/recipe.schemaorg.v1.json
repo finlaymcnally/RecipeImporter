@@ -1,6 +1,6 @@
 {
   "pipeline_id": "recipe.schemaorg.v1",
-  "description": "Extract authoritative schema.org Recipe JSON plus extractive lines from canonical recipe text.",
+  "description": "Extract authoritative schema.org Recipe JSON plus extractive lines from canonical recipe text, using normalized evidence helper fields as non-authoritative hints.",
   "prompt_template_path": "prompts/recipe.schemaorg.v1.prompt.md",
   "output_schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
   "input_glob_default": "**/*.json",

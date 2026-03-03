@@ -10,6 +10,8 @@ from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
+from cookimport.parsing.schemaorg_ingest import schema_recipe_to_candidate
+from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 from .codex_farm_contracts import (
     BlockLite,
@@ -23,6 +25,7 @@ from .codex_farm_contracts import (
     load_contract_json,
 )
 from .codex_farm_ids import bundle_filename, ensure_recipe_id, sanitize_for_filename
+from .evidence_normalizer import normalize_pass2_evidence
 from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
@@ -79,7 +82,17 @@ class _RecipeState:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     canonical_text: str = ""
+    pass2_effective_indices: list[int] = field(default_factory=list)
+    pass2_payload_indices: list[int] = field(default_factory=list)
+    pass3_fallback_reason: str | None = None
     pass2_output: Pass2SchemaOrgOutput | None = None
+
+
+def _recipe_artifact_filename(recipe_id: str) -> str:
+    rendered = sanitize_for_filename(str(recipe_id).strip())
+    if not rendered:
+        rendered = "recipe"
+    return f"{rendered}.json"
 
 
 def run_codex_farm_recipe_pipeline(
@@ -108,6 +121,8 @@ def run_codex_farm_recipe_pipeline(
     pass2_out_dir = llm_raw_dir / "pass2_schemaorg" / "out"
     pass3_in_dir = llm_raw_dir / "pass3_final" / "in"
     pass3_out_dir = llm_raw_dir / "pass3_final" / "out"
+    transport_audit_dir = llm_raw_dir / "transport_audit"
+    evidence_normalization_dir = llm_raw_dir / "evidence_normalization"
     for path in (
         pass1_in_dir,
         pass1_out_dir,
@@ -115,6 +130,8 @@ def run_codex_farm_recipe_pipeline(
         pass2_out_dir,
         pass3_in_dir,
         pass3_out_dir,
+        transport_audit_dir,
+        evidence_normalization_dir,
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -134,6 +151,8 @@ def run_codex_farm_recipe_pipeline(
     pipelines = _resolve_pipeline_ids(run_settings)
     pass1_pattern_hints_enabled = _pass1_pattern_hints_enabled()
     output_schema_paths: dict[str, str] = {}
+    transport_audits: dict[str, dict[str, Any]] = {}
+    evidence_normalizations: dict[str, dict[str, Any]] = {}
     if not states:
         llm_manifest = {
             "enabled": True,
@@ -156,6 +175,10 @@ def run_codex_farm_recipe_pipeline(
                 "pass1_inputs": 0,
                 "pass2_inputs": 0,
                 "pass3_inputs": 0,
+                "transport_audits": 0,
+                "transport_mismatches": 0,
+                "evidence_normalization_logs": 0,
+                "pass3_fallback": 0,
             },
             "timing": {"pass1_seconds": 0.0, "pass2_seconds": 0.0, "pass3_seconds": 0.0},
             "paths": _paths_payload(
@@ -166,9 +189,13 @@ def run_codex_farm_recipe_pipeline(
                 pass3_in_dir=pass3_in_dir,
                 pass3_out_dir=pass3_out_dir,
                 llm_manifest_path=llm_raw_dir / "llm_manifest.json",
+                transport_audit_dir=transport_audit_dir,
+                evidence_normalization_dir=evidence_normalization_dir,
             ),
             "process_runs": {},
             "recipes": {},
+            "transport": {"audits": {}, "mismatches": []},
+            "evidence_normalization": {"recipes": {}},
         }
         _write_json(llm_manifest, llm_raw_dir / "llm_manifest.json")
         return CodexFarmApplyResult(
@@ -184,6 +211,9 @@ def run_codex_farm_recipe_pipeline(
                 "process_runs": {},
                 "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
+                "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
+                "evidence_normalization": {"recipes_logged": 0},
+                "pass3_fallback_recipe_ids": [],
             },
             llm_raw_dir=llm_raw_dir,
         )
@@ -291,13 +321,50 @@ def run_codex_farm_recipe_pipeline(
     # Pass 2
     pass2_states = [state for state in states if state.pass1_status == "ok"]
     for state in pass2_states:
+        recipe_artifact_name = _recipe_artifact_filename(state.recipe_id)
         block_indices = _included_indices_for_state(
             state,
             full_blocks_by_index=full_blocks_by_index,
         )
+        state.pass2_effective_indices = list(block_indices)
+        effective_block_ids: list[str] = []
+        for idx in block_indices:
+            block = full_blocks_by_index.get(idx, {})
+            block_id = block.get("block_id") or block.get("id") or f"b{idx}"
+            rendered_block_id = str(block_id).strip()
+            if not rendered_block_id:
+                rendered_block_id = f"b{idx}"
+            effective_block_ids.append(rendered_block_id)
         included_blocks = [
             full_blocks_by_index[idx] for idx in block_indices if idx in full_blocks_by_index
         ]
+        state.pass2_payload_indices = [int(block.get("index")) for block in included_blocks]
+        transport_audit = _build_transport_audit(
+            state=state,
+            block_indices=block_indices,
+            effective_block_ids=effective_block_ids,
+            included_blocks=included_blocks,
+        )
+        transport_audits[state.recipe_id] = transport_audit
+        _write_json(
+            transport_audit,
+            transport_audit_dir / recipe_artifact_name,
+        )
+        if transport_audit["mismatch"]:
+            state.pass2_status = "error"
+            if run_settings.codex_farm_failure_mode.value == "fallback":
+                state.pass3_status = "fallback"
+                state.pass3_fallback_reason = "transport mismatch"
+            state.errors.append(
+                "pass1/pass2 transport mismatch: effective included indices and pass2 payload diverged."
+            )
+            state.warnings.append(
+                _recipe_scoped_failure_mode_note(
+                    mode=run_settings.codex_farm_failure_mode.value,
+                    reason="transport mismatch",
+                )
+            )
+            continue
         canonical_text = "\n".join(
             str(block.get("text") or "").strip() for block in included_blocks
         ).strip()
@@ -306,12 +373,39 @@ def run_codex_farm_recipe_pipeline(
             state.pass2_status = "error"
             state.errors.append("pass2 input empty after pass1 boundary/exclusion application.")
             continue
+        normalization_payload = normalize_pass2_evidence(included_blocks)
+        evidence_normalizations[state.recipe_id] = {
+            "path": str(evidence_normalization_dir / recipe_artifact_name),
+            "stats": dict(normalization_payload.get("stats") or {}),
+        }
+        _write_json(
+            {
+                "recipe_id": state.recipe_id,
+                "bundle_name": state.bundle_name,
+                "stats": dict(normalization_payload.get("stats") or {}),
+                "events": list(normalization_payload.get("events") or []),
+                "line_rows": list(normalization_payload.get("line_rows") or []),
+            },
+            evidence_normalization_dir / recipe_artifact_name,
+        )
         pass2_input = Pass2SchemaOrgInput(
             recipe_id=state.recipe_id,
             workbook_slug=workbook_slug,
             source_hash=source_hash,
             canonical_text=canonical_text,
             blocks=[_to_block_lite(block) for block in included_blocks],
+            normalized_evidence_text=str(
+                normalization_payload.get("normalized_evidence_text") or ""
+            ),
+            normalized_evidence_lines=[
+                str(line)
+                for line in list(normalization_payload.get("normalized_evidence_lines") or [])
+            ],
+            normalization_stats={
+                str(key): int(value)
+                for key, value in dict(normalization_payload.get("stats") or {}).items()
+                if isinstance(value, (int, float))
+            },
         )
         _write_json(
             pass2_input.model_dump(mode="json", by_alias=True),
@@ -391,32 +485,79 @@ def run_codex_farm_recipe_pipeline(
         pass_timing["pass3_seconds"] = round(time.perf_counter() - pass3_started, 3)
     for state in pass3_states:
         out_path = pass3_out_dir / state.bundle_name
+        pass3_error: str | None = None
+        pass3_warnings: list[str] = []
         if not out_path.exists():
-            state.pass3_status = "error"
-            state.errors.append("missing pass3 output bundle.")
-            continue
-        try:
-            output = load_contract_json(out_path, Pass3FinalDraftOutput)
-        except Exception as exc:  # noqa: BLE001
-            state.pass3_status = "error"
-            state.errors.append(f"invalid pass3 output: {exc}")
-            continue
-        draft_payload = _normalize_draft_payload(dict(output.draft_v1))
-        if _patch_recipe_id(draft_payload, recipe_id=state.recipe_id):
-            state.warnings.append("pass3 draft id patched to expected recipe_id.")
-        try:
-            draft_model = RecipeDraftV1.model_validate(draft_payload)
-        except Exception as exc:  # noqa: BLE001
-            state.pass3_status = "error"
-            state.errors.append(f"pass3 draft_v1 validation failed: {exc}")
-            continue
-        state.warnings.extend(list(output.warnings))
-        state.pass3_status = "ok"
-        final_overrides[state.recipe_id] = draft_model.model_dump(
-            mode="json",
-            by_alias=True,
-            exclude_none=True,
+            pass3_error = "missing pass3 output bundle."
+        else:
+            try:
+                output = load_contract_json(out_path, Pass3FinalDraftOutput)
+            except Exception as exc:  # noqa: BLE001
+                pass3_error = f"invalid pass3 output: {exc}"
+            else:
+                pass3_warnings.extend(list(output.warnings))
+                draft_payload = _normalize_draft_payload(dict(output.draft_v1))
+                low_quality_reasons = _pass3_low_quality_reasons(
+                    draft_payload=draft_payload,
+                    pass2_output=state.pass2_output,
+                )
+                if low_quality_reasons:
+                    pass3_error = (
+                        "pass3 output rejected as low quality: "
+                        + "; ".join(low_quality_reasons)
+                    )
+                    pass3_warnings.extend(low_quality_reasons)
+                else:
+                    if _patch_recipe_id(draft_payload, recipe_id=state.recipe_id):
+                        pass3_warnings.append("pass3 draft id patched to expected recipe_id.")
+                    try:
+                        draft_model = RecipeDraftV1.model_validate(draft_payload)
+                    except Exception as exc:  # noqa: BLE001
+                        pass3_error = f"pass3 draft_v1 validation failed: {exc}"
+                    else:
+                        state.warnings.extend(pass3_warnings)
+                        state.pass3_status = "ok"
+                        final_overrides[state.recipe_id] = draft_model.model_dump(
+                            mode="json",
+                            by_alias=True,
+                            exclude_none=True,
+                        )
+                        continue
+
+        fallback_payload = _build_pass3_deterministic_fallback_payload(
+            state=state,
+            run_settings=run_settings,
         )
+        if fallback_payload is not None:
+            try:
+                fallback_model = RecipeDraftV1.model_validate(fallback_payload)
+            except Exception as exc:  # noqa: BLE001
+                if pass3_error:
+                    state.errors.append(pass3_error)
+                state.pass3_status = "error"
+                state.errors.append(f"pass3 fallback draft_v1 validation failed: {exc}")
+                continue
+            if pass3_error:
+                state.errors.append(pass3_error)
+            state.pass3_status = "fallback"
+            state.pass3_fallback_reason = pass3_error
+            state.warnings.extend(pass3_warnings)
+            state.warnings.append(
+                _recipe_scoped_failure_mode_note(
+                    mode=run_settings.codex_farm_failure_mode.value,
+                    reason="pass3 fallback",
+                )
+            )
+            final_overrides[state.recipe_id] = fallback_model.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            )
+            continue
+
+        state.pass3_status = "error"
+        if pass3_error:
+            state.errors.append(pass3_error)
 
     llm_manifest_path = llm_raw_dir / "llm_manifest.json"
     llm_manifest = _build_llm_manifest(
@@ -431,10 +572,14 @@ def run_codex_farm_recipe_pipeline(
         pass3_in_dir=pass3_in_dir,
         pass3_out_dir=pass3_out_dir,
         llm_manifest_path=llm_manifest_path,
+        transport_audit_dir=transport_audit_dir,
+        evidence_normalization_dir=evidence_normalization_dir,
         pipelines=pipelines,
         output_schema_paths=output_schema_paths,
         process_runs=process_runs,
         pass1_pattern_hints_enabled=pass1_pattern_hints_enabled,
+        transport_audits=transport_audits,
+        evidence_normalizations=evidence_normalizations,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
@@ -450,6 +595,17 @@ def run_codex_farm_recipe_pipeline(
         "process_runs": llm_manifest.get("process_runs", {}),
         "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
         "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
+        "transport": {
+            "recipes_audited": llm_manifest["counts"].get("transport_audits", 0),
+            "mismatch_recipes": llm_manifest["counts"].get("transport_mismatches", 0),
+            "mismatch_recipe_ids": list(llm_manifest.get("transport", {}).get("mismatches", [])),
+        },
+        "evidence_normalization": {
+            "recipes_logged": llm_manifest["counts"].get("evidence_normalization_logs", 0),
+        },
+        "pass3_fallback_recipe_ids": [
+            state.recipe_id for state in states if state.pass3_status == "fallback"
+        ],
     }
 
     return CodexFarmApplyResult(
@@ -470,8 +626,10 @@ def _paths_payload(
     pass3_in_dir: Path,
     pass3_out_dir: Path,
     llm_manifest_path: Path,
+    transport_audit_dir: Path | None = None,
+    evidence_normalization_dir: Path | None = None,
 ) -> dict[str, str]:
-    return {
+    payload = {
         "pass1_in": str(pass1_in_dir),
         "pass1_out": str(pass1_out_dir),
         "pass2_in": str(pass2_in_dir),
@@ -480,6 +638,11 @@ def _paths_payload(
         "pass3_out": str(pass3_out_dir),
         "llm_manifest": str(llm_manifest_path),
     }
+    if transport_audit_dir is not None:
+        payload["transport_audit_dir"] = str(transport_audit_dir)
+    if evidence_normalization_dir is not None:
+        payload["evidence_normalization_dir"] = str(evidence_normalization_dir)
+    return payload
 
 
 def _build_llm_manifest(
@@ -495,10 +658,14 @@ def _build_llm_manifest(
     pass3_in_dir: Path,
     pass3_out_dir: Path,
     llm_manifest_path: Path,
+    transport_audit_dir: Path,
+    evidence_normalization_dir: Path,
     pipelines: dict[str, str],
     output_schema_paths: dict[str, str],
     process_runs: dict[str, dict[str, Any]],
     pass1_pattern_hints_enabled: bool,
+    transport_audits: dict[str, dict[str, Any]],
+    evidence_normalizations: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -510,9 +677,22 @@ def _build_llm_manifest(
             "warnings": list(state.warnings),
             "errors": list(state.errors),
         }
+        transport_row = transport_audits.get(state.recipe_id)
+        if isinstance(transport_row, dict):
+            row["transport_audit"] = dict(transport_row)
+        normalization_row = evidence_normalizations.get(state.recipe_id)
+        if isinstance(normalization_row, dict):
+            row["evidence_normalization"] = dict(normalization_row)
+        if state.pass3_fallback_reason:
+            row["pass3_fallback_reason"] = state.pass3_fallback_reason
         recipe_rows[state.recipe_id] = row
         if state.errors:
             failures.append({"recipe_id": state.recipe_id, "errors": list(state.errors)})
+    mismatch_recipe_ids = sorted(
+        recipe_id
+        for recipe_id, audit in transport_audits.items()
+        if isinstance(audit, dict) and bool(audit.get("mismatch"))
+    )
     counts = {
         "recipes_total": len(states),
         "pass1_inputs": len(list(pass1_in_dir.glob("*.json"))),
@@ -524,7 +704,11 @@ def _build_llm_manifest(
         "pass2_errors": sum(1 for state in states if state.pass2_status == "error"),
         "pass3_inputs": len(list(pass3_in_dir.glob("*.json"))),
         "pass3_ok": sum(1 for state in states if state.pass3_status == "ok"),
+        "pass3_fallback": sum(1 for state in states if state.pass3_status == "fallback"),
         "pass3_errors": sum(1 for state in states if state.pass3_status == "error"),
+        "transport_audits": len(transport_audits),
+        "transport_mismatches": len(mismatch_recipe_ids),
+        "evidence_normalization_logs": len(evidence_normalizations),
     }
     return {
         "enabled": True,
@@ -552,11 +736,18 @@ def _build_llm_manifest(
             pass3_in_dir=pass3_in_dir,
             pass3_out_dir=pass3_out_dir,
             llm_manifest_path=llm_manifest_path,
+            transport_audit_dir=transport_audit_dir,
+            evidence_normalization_dir=evidence_normalization_dir,
         ),
         "process_runs": dict(process_runs),
         "failures": failures,
         "recipes": recipe_rows,
         "llm_raw_dir": str(llm_raw_dir),
+        "transport": {
+            "mismatches": mismatch_recipe_ids,
+            "audits": dict(transport_audits),
+        },
+        "evidence_normalization": {"recipes": dict(evidence_normalizations)},
     }
 
 
@@ -1027,6 +1218,51 @@ def _included_indices_for_state(
     return indices
 
 
+def _build_transport_audit(
+    *,
+    state: _RecipeState,
+    block_indices: list[int],
+    effective_block_ids: list[str],
+    included_blocks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    payload_indices = [int(block.get("index")) for block in included_blocks]
+    payload_block_ids = [
+        str(block.get("block_id") or f"b{int(block.get('index') or 0)}")
+        for block in included_blocks
+    ]
+    mismatch_reasons: list[str] = []
+    if payload_indices != block_indices:
+        mismatch_reasons.append("effective_indices_vs_payload_indices")
+    if payload_block_ids != effective_block_ids:
+        mismatch_reasons.append("effective_block_ids_vs_payload_block_ids_values")
+    if len(payload_indices) != len(block_indices):
+        mismatch_reasons.append("effective_count_vs_payload_count")
+    if len(payload_block_ids) != len(effective_block_ids):
+        mismatch_reasons.append("effective_block_ids_vs_payload_block_ids")
+    return {
+        "recipe_id": state.recipe_id,
+        "bundle_name": state.bundle_name,
+        "pass1_status": state.pass1_status,
+        "start_block_index": state.start_block_index,
+        "end_block_index": state.end_block_index,
+        "excluded_block_ids": sorted(state.excluded_block_ids),
+        "effective_indices": list(block_indices),
+        "effective_block_ids": effective_block_ids,
+        "payload_indices": payload_indices,
+        "payload_block_ids": payload_block_ids,
+        "effective_count": len(block_indices),
+        "payload_count": len(payload_indices),
+        "mismatch": bool(mismatch_reasons),
+        "mismatch_reasons": mismatch_reasons,
+    }
+
+
+def _recipe_scoped_failure_mode_note(*, mode: str, reason: str) -> str:
+    if mode == "fallback":
+        return f"{reason}: recipe-level fallback engaged; deterministic writer path remains active."
+    return f"{reason}: recorded as recipe-level error; run-level fail mode remains strict."
+
+
 def _normalize_for_match(value: str) -> str:
     return " ".join(value.casefold().split())
 
@@ -1051,6 +1287,101 @@ def _validate_pass2_guardrails(
                 f"pass2 instruction[{index}] not found in canonical_text: {instruction!r}"
             )
     return warnings
+
+
+def _pass3_low_quality_reasons(
+    *,
+    draft_payload: dict[str, Any],
+    pass2_output: Pass2SchemaOrgOutput | None,
+) -> list[str]:
+    if pass2_output is None:
+        return []
+
+    low_quality_reasons: list[str] = []
+    blocked_snippets: set[str] = set()
+
+    description = pass2_output.schemaorg_recipe.get("description")
+    if isinstance(description, str):
+        normalized = _normalize_for_match(description)
+        if len(normalized) >= 20:
+            blocked_snippets.add(normalized)
+
+    comment_payload = pass2_output.schemaorg_recipe.get("comment")
+    if isinstance(comment_payload, str):
+        normalized = _normalize_for_match(comment_payload)
+        if len(normalized) >= 20:
+            blocked_snippets.add(normalized)
+    elif isinstance(comment_payload, list):
+        for item in comment_payload:
+            if isinstance(item, str):
+                normalized = _normalize_for_match(item)
+            elif isinstance(item, dict):
+                normalized = _normalize_for_match(str(item.get("text") or ""))
+            else:
+                normalized = ""
+            if len(normalized) >= 20:
+                blocked_snippets.add(normalized)
+
+    extracted_instruction_set = {
+        _normalize_for_match(str(item))
+        for item in pass2_output.extracted_instructions
+        if _normalize_for_match(str(item))
+    }
+
+    steps = draft_payload.get("steps")
+    if not isinstance(steps, list):
+        return []
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        instruction = _normalize_for_match(str(step.get("instruction") or ""))
+        if not instruction:
+            continue
+        for blocked in blocked_snippets:
+            if blocked == instruction or blocked in instruction or instruction in blocked:
+                if instruction not in extracted_instruction_set:
+                    low_quality_reasons.append(
+                        f"step[{idx}] instruction matches schema description/headnote text."
+                    )
+                    break
+    return low_quality_reasons
+
+
+def _build_pass3_deterministic_fallback_payload(
+    *,
+    state: _RecipeState,
+    run_settings: RunSettings,
+) -> dict[str, Any] | None:
+    if state.pass2_output is None:
+        return None
+
+    schema_recipe = dict(state.pass2_output.schemaorg_recipe)
+    fallback_candidate = schema_recipe_to_candidate(
+        schema_recipe,
+        source=state.recipe.source,
+        confidence=state.recipe.confidence,
+        provenance=dict(state.recipe.provenance or {}),
+    )
+    fallback_candidate.identifier = state.recipe_id
+    fallback_candidate.provenance = dict(state.recipe.provenance or {})
+    fallback_candidate.provenance["@id"] = state.recipe_id
+
+    if state.pass2_output.extracted_ingredients:
+        fallback_candidate.ingredients = list(state.pass2_output.extracted_ingredients)
+    if state.pass2_output.extracted_instructions:
+        fallback_candidate.instructions = list(state.pass2_output.extracted_instructions)
+    if not fallback_candidate.name and state.recipe.name:
+        fallback_candidate.name = state.recipe.name
+
+    run_config = run_settings.to_run_config_dict()
+    payload = recipe_candidate_to_draft_v1(
+        fallback_candidate,
+        ingredient_parser_options=run_config,
+        instruction_step_options=run_config,
+    )
+    payload = _normalize_draft_payload(dict(payload))
+    _patch_recipe_id(payload, recipe_id=state.recipe_id)
+    return payload
 
 
 def _normalize_draft_payload(payload: dict[str, Any]) -> dict[str, Any]:

@@ -45,6 +45,21 @@ _TOKEN_USAGE_KEYS = (
     "tokens_reasoning",
     "tokens_total",
 )
+_AI_EFFORT_RUN_CONFIG_KEYS = (
+    "codex_farm_reasoning_effort",
+    "codex_farm_thinking_effort",
+    "codex_reasoning_effort",
+    "model_reasoning_effort",
+    "thinking_effort",
+    "reasoning_effort",
+)
+_SUPPRESSED_BACKFILLED_AI_EFFORT_TIMESTAMPS = frozenset(
+    {
+        "2026-03-03T01:28:32",
+        "2026-03-02T23:37:21",
+        "2026-03-02T23:20:13",
+    }
+)
 
 # Timestamp patterns used in run-folder names.
 # Folders use dots in the time portion: YYYY-MM-DD_HH.MM.SS
@@ -409,6 +424,57 @@ def _normalize_optional_text(value: Any) -> str | None:
     if not text:
         return None
     return text
+
+
+def _strip_ai_effort_from_run_config_summary(summary: str | None) -> str | None:
+    text = str(summary or "").strip()
+    if not text:
+        return None if summary is None else ""
+    kept_parts: list[str] = []
+    changed = False
+    for chunk in text.split("|"):
+        part = str(chunk).strip()
+        if not part:
+            continue
+        key, _, _ = part.partition("=")
+        if key.strip() in _AI_EFFORT_RUN_CONFIG_KEYS:
+            changed = True
+            continue
+        kept_parts.append(part)
+    if not changed:
+        return summary
+    return " | ".join(kept_parts) or None
+
+
+def _suppress_known_backfilled_ai_effort(
+    benchmark_records: list[BenchmarkRecord],
+) -> None:
+    for record in benchmark_records:
+        run_timestamp = _normalize_optional_text(record.run_timestamp)
+        if run_timestamp not in _SUPPRESSED_BACKFILLED_AI_EFFORT_TIMESTAMPS:
+            continue
+
+        config_changed = False
+        if isinstance(record.run_config, dict):
+            cleaned_run_config = dict(record.run_config)
+            for key in _AI_EFFORT_RUN_CONFIG_KEYS:
+                if key in cleaned_run_config:
+                    cleaned_run_config.pop(key, None)
+                    config_changed = True
+            if config_changed:
+                record.run_config = cleaned_run_config
+                record.run_config_hash = _stable_hash_for_run_config(cleaned_run_config)
+                record.run_config_summary = _summary_for_run_config(cleaned_run_config)
+
+        if config_changed:
+            continue
+        cleaned_summary = _strip_ai_effort_from_run_config_summary(
+            record.run_config_summary
+        )
+        if cleaned_summary != record.run_config_summary:
+            record.run_config_summary = cleaned_summary
+            if record.run_config is None:
+                record.run_config_hash = None
 
 
 def _parse_run_config_json(
@@ -2022,6 +2088,7 @@ def collect_dashboard_data(
         benchmark_records = list(csv_bench_records)
     else:
         benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
+    _suppress_known_backfilled_ai_effort(benchmark_records)
     benchmark_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
     # -- Summary --

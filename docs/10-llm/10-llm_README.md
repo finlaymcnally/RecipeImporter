@@ -32,6 +32,7 @@ Recipe codex-farm pass modules:
 
 - `cookimport/llm/codex_farm_orchestrator.py` (pass1/pass2/pass3 orchestration)
 - `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts)
+- `cookimport/llm/evidence_normalizer.py` (deterministic additive pass2 evidence normalization)
 - `cookimport/llm/codex_farm_ids.py` (stable slug/id/bundle filename helpers)
 - `cookimport/llm/codex_farm_runner.py` (subprocess runner + shared error type)
 
@@ -88,6 +89,25 @@ Report/model plumbing:
 - Prompt contract marks `pattern_hints` as advisory only and never a replacement for block evidence (`llm_pipelines/prompts/recipe.chunking.v1.prompt.md`).
 - Runtime wiring is default-off and explicitly gated by env var `COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS` in `cookimport/llm/codex_farm_orchestrator.py`.
 - This handoff is metadata-only; it does not enable AI parsing/cleaning in EPUB/PDF ingestion.
+
+## Pass2 Transport Audit + Evidence Normalization
+
+- Pass2 input now carries additive normalized evidence fields:
+  - `normalized_evidence_text`
+  - `normalized_evidence_lines`
+  - `normalization_stats`
+- Authoritative pass2 evidence remains `canonical_text` + `blocks`; normalized evidence is helper-only.
+- Recipe-level pass1/pass2 handoff audits are persisted under:
+  - `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)
+- Recipe-level evidence normalization provenance is persisted under:
+  - `raw/llm/<workbook_slug>/evidence_normalization/*.json` (sanitized recipe-id keyed)
+- Transport mismatches now set recipe-level status according to failure mode:
+  - `codex_farm_failure_mode=fallback` marks the recipe as pass3 fallback with reason `transport mismatch`,
+  - `codex_farm_failure_mode=fail` keeps recipe-level error status without process-wide crash.
+- `llm_manifest.json` now records:
+  - transport audit rows and mismatch counts,
+  - evidence-normalization row summaries/counts,
+  - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output).
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 

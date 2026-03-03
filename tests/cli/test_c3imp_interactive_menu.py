@@ -55,6 +55,48 @@ def test_interactive_main_menu_includes_generate_dashboard(monkeypatch):
     assert "generate_dashboard" in captured_choice_values
 
 
+def test_stats_dashboard_direct_call_unwraps_typer_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    captured_collect_kwargs: dict[str, object] = {}
+    out_dir = tmp_path / "dashboard"
+
+    def _fake_collect_dashboard_data(**kwargs):
+        captured_collect_kwargs.update(kwargs)
+        return SimpleNamespace(collector_warnings=[])
+
+    def _fake_render_dashboard(render_out_dir, _data):
+        assert render_out_dir == out_dir
+        return render_out_dir / "index.html"
+
+    def _unexpected_server_start(**_kwargs):
+        pytest.fail("start_dashboard_server should not be called when --serve is omitted")
+
+    monkeypatch.setattr(
+        "cookimport.analytics.dashboard_collect.collect_dashboard_data",
+        _fake_collect_dashboard_data,
+    )
+    monkeypatch.setattr(
+        "cookimport.analytics.dashboard_render.render_dashboard",
+        _fake_render_dashboard,
+    )
+    monkeypatch.setattr(
+        "cookimport.analytics.dashboard_state_server.start_dashboard_server",
+        _unexpected_server_start,
+    )
+
+    cli.stats_dashboard(
+        output_root=tmp_path / "output",
+        golden_root=tmp_path / "golden",
+        out_dir=out_dir,
+    )
+
+    assert captured_collect_kwargs["since_days"] is None
+    assert captured_collect_kwargs["scan_reports"] is False
+    assert captured_collect_kwargs["scan_benchmark_reports"] is False
+
+
 def test_interactive_main_menu_does_not_include_epub_race_when_epub_available(
     monkeypatch,
     tmp_path,

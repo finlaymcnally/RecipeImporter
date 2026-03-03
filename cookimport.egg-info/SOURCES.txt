@@ -19,6 +19,7 @@ cookimport/analytics/benchmark_timing.py
 cookimport/analytics/dashboard_collect.py
 cookimport/analytics/dashboard_render.py
 cookimport/analytics/dashboard_schema.py
+cookimport/analytics/dashboard_state_server.py
 cookimport/analytics/perf_report.py
 cookimport/bench/__init__.py
 cookimport/bench/artifact_gc.py
@@ -98,6 +99,7 @@ cookimport/llm/codex_farm_knowledge_orchestrator.py
 cookimport/llm/codex_farm_knowledge_writer.py
 cookimport/llm/codex_farm_orchestrator.py
 cookimport/llm/codex_farm_runner.py
+cookimport/llm/evidence_normalizer.py
 cookimport/llm/fake_codex_farm_runner.py
 cookimport/llm/non_recipe_spans.py
 cookimport/llm/prompts.py

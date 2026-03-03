@@ -113,6 +113,7 @@ Compatibility behavior:
 `cookimport stats-dashboard` writes:
 - `index.html`
 - `assets/dashboard_data.json`
+- `assets/dashboard_ui_state.json` (program-side Previous Runs UI state, used by `--serve`)
 - `assets/dashboard.js`
 - `assets/style.css`
 - all-method pages under `all-method-benchmark/`
@@ -172,18 +173,33 @@ Benchmark scan details:
 - Builds static dashboard files from collected analytics data.
 - Supports `--since-days` filtering, optional stage report scan (`--scan-reports`), and optional benchmark eval scan (`--scan-benchmark-reports`).
 - Supports `--open` to launch the generated `index.html` in browser.
+- Supports `--serve` (`--host`, `--port`) to run a local HTTP server for the generated dashboard and enable program-side UI-state sync to `assets/dashboard_ui_state.json`.
 - Prints collector warnings (first 10) when malformed/partial inputs are detected.
-- `Per-Label Breakdown` aggregates per-label totals across the latest all-method benchmark run timestamp (fallback: latest benchmark run timestamp when no all-method rows exist), not just one eval file row.
+- `Per-Label Breakdown` aggregates per-label totals across the latest preferred benchmark run-group key (all-method preferred, non-speed preferred), where the group key comes from benchmark artifact-path timestamp token and falls back to record timestamp when needed.
+- `Boundary Classification` aggregates boundary counts across all boundary-bearing rows at that same latest preferred benchmark run-group key, and surfaces matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so boundary percentages are interpreted as matched-boundary-only.
+- Boundary table now uses `% of gold` as the only percentage denominator, and adds `Matched (boundary unclassified)` + `Unmatched gold spans` rows so coverage gaps are explicit in-table.
 - `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
+- Diagnostics layout is fixed 2-up on desktop: `Benchmark Runtime` and `Boundary Classification` each occupy 50% width on the first row, with `Per-Label Breakdown` full-width below (mobile collapses to one column).
+- Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`).
+- Per-label diagnostics now render latest-run precision/recall split by variant (`codexfarm` vs `vanilla`) plus rolling `n=10` precision/recall averages per variant (no cross-variant averaging).
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
   - `AI Effort` shows only concrete effort values; placeholders (`<default>`, `default`) are treated as missing in the UI.
+  - Known SeaAndSmoke historical rows at `2026-03-03T01:28:32`, `2026-03-02T23:37:21`, and `2026-03-02T23:20:13` have `AI Effort` intentionally suppressed to avoid displaying incorrect inferred backfill values.
   - `All token use` is part of the default `Previous Runs` columns and displays combined `total | input | output`.
   - Sorting/filtering `All token use` uses the numeric `tokens_total` value.
   - Detailed token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) remain available through the `+/-` column picker.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
-- `Previous Runs` now supports per-column filters via a compact `+/-` editor toggle in the first row beneath headers; popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
+- `Previous Runs` now supports per-column stacked filters via a compact `+/-` editor toggle in the first row beneath headers; each save appends a clause for that column (instead of replacing), active clauses can be removed individually via `×` in the popup, and each column stack has an `AND/OR` mode toggle. Active filter summaries in that row render one clause per line with a per-clause `×` remove button. Non-numeric popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
+- Previous Runs table UI state is now browser-persistent (`localStorage`) for column visibility/order/width, column filters, quick-filter checkboxes, isolate combine mode + stacked isolate rules, sort order, and named view presets, so these customizations survive dashboard HTML rebuilds at the same dashboard path.
+- Previous Runs filter control between Isolate For X and table column filters now follows `last edited wins`: isolate edits override table filters, table-filter edits pause isolate until isolate is edited again.
+- The `+/-` popup now includes `View presets` controls (`Load`, `Save current view`, `Delete`) for reusable table setups (columns + filters + quick filters + sort + isolate + column widths).
+- Diagnostic table resize now applies only to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` intentionally stay fixed-fit (no horizontal scroll/resize) for cleaner top-row readability.
+- `Quick Filters` appears between trend chart and table with:
+  - a primary default-on toggle for official single-offline benchmark rows (`benchmark-vs-golden` + `single-offline-benchmark`) with `vanilla`/`codexfarm` variants,
+  - a secondary toggle for excluding AI test/smoke benchmark runs (`/bench/`, pytest-temp style paths, and `<timestamp>_manual-...-smoke` style run folders).
+  - a visible `Clear all filters` button that resets quick filters, table column filters, and isolate rules together.
 - `Previous Runs` table keeps horizontal scrolling with a fixed minimum table width, and the viewport is capped to about 10 visible rows before vertical scrolling.
 - Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).
 - Benchmark trend chart timestamps are rendered in browser-local time (`Highcharts time.useUTC=false`).
@@ -191,6 +207,7 @@ Benchmark scan details:
 - When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
 - Benchmark trend tooltip is run-grouped: hovering any point shows one local-time card with all visible series values for that run (no raw coordinate-style x/y labels).
 - Benchmark trend chart uses a fixed 800px render/container height to preserve stable layout and provide a taller score-history viewport.
+- Dashboard HTML now loads Highcharts Stock with a secondary CDN fallback (`code.highcharts.com` primary, `cdn.jsdelivr.net` fallback) before dashboard JS initialization.
 - `Previous Runs` table columns are configurable in-browser: use the `+/-` header-row button popup to check/uncheck fields, drag headers to reorder, and resize by dragging header edges.
 - `Benchmark Score Trend` defaults to the `All` range selector window so initial render includes full available benchmark history.
 - `Benchmark Score Trend` initializes x-axis bounds from the full filtered benchmark timestamp span, so chart timeline coverage matches `Previous Runs` dates even when older rows lack explicit score points.
@@ -237,8 +254,9 @@ D) Auto-refresh output-root inference is path-sensitive
 - Automatic refresh inference expects a canonical CSV path shape (`.../.history/performance_history.csv`).
 - Non-canonical custom CSV paths may skip refresh with a warning.
 
-E) Static/offline design is intentional
-- No server-side persistence, no auth, no multi-user semantics.
+E) Static/offline default plus optional local state server
+- Opening `index.html` directly still works offline and uses browser-local `localStorage`.
+- Program-side UI-state persistence across browsers requires `cookimport stats-dashboard --serve`.
 
 ## 7) Debugging checklist
 
@@ -284,7 +302,7 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 
 ### 2026-02-27_20.24.21 dashboard per label latest run aggregation
 - Source: `docs/understandings/2026-02-27_20.24.21-dashboard-per-label-latest-run-aggregation.md`
-- Summary: Stats dashboard per-label card now aggregates per-label totals across all records in the latest all-method run timestamp (fallback to latest benchmark timestamp if no all-method rows exist).
+- Summary: Stats dashboard per-label card aggregates across all records in the latest selected benchmark run group (artifact-path timestamp token fallback to record timestamp), avoiding split twin-run eval timestamps.
 
 ## 2026-02-28 migrated understandings batch (03:42-04:02)
 

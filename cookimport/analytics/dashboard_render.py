@@ -4,6 +4,7 @@ Writes four files into ``out_dir``:
 
 * ``index.html``
 * ``assets/dashboard_data.json``
+* ``assets/dashboard_ui_state.json``
 * ``assets/dashboard.js``
 * ``assets/style.css``
 
@@ -107,6 +108,15 @@ def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
         data_json,
         encoding="utf-8",
     )
+
+    # Keep a program-side UI-state file so browser settings can sync across devices
+    # when the dashboard is served via the local state API endpoint.
+    ui_state_path = assets_dir / "dashboard_ui_state.json"
+    if not ui_state_path.exists():
+        ui_state_path.write_text(
+            json.dumps({"version": 1}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     # Write CSS
     css_path = assets_dir / "style.css"
@@ -1948,22 +1958,28 @@ _HTML = """\
         <div id="runtime-summary"></div>
       </section>
 
+      <section id="boundary-section" class="diagnostic-card">
+        <h2>Boundary Classification (Latest Benchmark)</h2>
+        <p class="section-note">How predictions align to gold span boundaries across the latest benchmark run group.</p>
+        <div id="boundary-summary"></div>
+      </section>
+
       <section id="per-label-section" class="diagnostic-card">
         <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Values aggregate all benchmark records with the latest run timestamp.</p>
-        <table id="per-label-table"><thead><tr>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Run metrics use the latest timestamp group; rolling metrics use the last 10 runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
+        <table id="per-label-table" class="dashboard-resizable-table"><thead><tr>
           <th title="The label name being scored (for example RECIPE_TITLE).">Label</th>
-          <th title="Of predicted spans for this label, fraction that matched gold (strict scoring).">Precision</th>
-          <th title="Of gold spans for this label, fraction found by predictions (strict scoring).">Recall</th>
+          <th title="Latest run precision for codexfarm rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Latest run recall for codexfarm rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Latest run precision for vanilla rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Latest run recall for vanilla rows at this run timestamp (strict scoring)."><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Rolling average precision across the most recent 10 codexfarm runs for this label."><span class="per-label-col-head">Rolling n=10<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Rolling average recall across the most recent 10 codexfarm runs for this label."><span class="per-label-col-head">Rolling n=10<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+          <th title="Rolling average precision across the most recent 10 vanilla runs for this label."><span class="per-label-col-head">Rolling n=10<br>Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+          <th title="Rolling average recall across the most recent 10 vanilla runs for this label."><span class="per-label-col-head">Rolling n=10<br>Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
           <th title="Gold span count for this label.">Gold</th>
           <th title="Predicted span count for this label.">Pred</th>
         </tr></thead><tbody></tbody></table>
-      </section>
-
-      <section id="boundary-section" class="diagnostic-card">
-        <h2>Boundary Classification (Latest Benchmark)</h2>
-        <p class="section-note">How matched spans compare to gold boundaries: correct, too wide (over), too narrow (under), or misaligned (partial).</p>
-        <div id="boundary-summary"></div>
       </section>
     </div>
   </section>
@@ -1985,14 +2001,14 @@ _HTML = """\
     <div class="previous-runs-top-grid">
       <section id="isolate-panel" class="isolate-panel">
         <h3>Isolate For X</h3>
-        <p class="section-note">Pick one field + value to isolate matching runs. Table and trend chart auto-filter to that slice, and stats below compare slice vs all currently visible runs.</p>
+        <p class="section-note">Stack one or more field + logic + value rules to isolate matching runs. Last edited wins: update Isolate For X to override table column filters, or edit table filters to take control until isolate is updated again.</p>
         <div class="isolate-controls">
-          <label for="isolate-field">Field</label>
-          <select id="isolate-field"></select>
-          <label for="isolate-value">Value</label>
-          <select id="isolate-value"></select>
-          <button id="isolate-clear" type="button">Clear isolate</button>
+          <label for="isolate-combine">Match</label>
+          <select id="isolate-combine"></select>
+          <button id="isolate-add" type="button">Add rule</button>
+          <button id="isolate-clear" type="button">Clear all</button>
         </div>
+        <div id="isolate-rules" class="isolate-rules"></div>
         <p id="isolate-status" class="section-note"></p>
         <div id="isolate-insights" class="isolate-insights"></div>
       </section>
@@ -2003,6 +2019,24 @@ _HTML = """\
         <p id="benchmark-trend-fallback" class="empty-note" hidden></p>
       </div>
     </div>
+    <section id="quick-filters-panel" class="quick-filters-panel">
+      <h3>Quick Filters</h3>
+      <p class="section-note">Fast toggles for benchmark focus.</p>
+      <div class="quick-filters-list">
+        <label for="quick-filter-official-only">
+          <input id="quick-filter-official-only" type="checkbox" checked>
+          Official benchmarks only (single-offline vanilla/codexfarm)
+        </label>
+        <label for="quick-filter-exclude-ai-tests">
+          <input id="quick-filter-exclude-ai-tests" type="checkbox">
+          Exclude AI test/smoke benchmark runs
+        </label>
+      </div>
+      <div class="quick-filters-actions">
+        <button id="previous-runs-clear-all-filters" type="button">Clear all filters</button>
+      </div>
+      <p id="quick-filters-status" class="section-note"></p>
+    </section>
     <div class="table-wrap table-scroll">
       <div class="previous-runs-columns-control">
         <button
@@ -2017,8 +2051,24 @@ _HTML = """\
         <div id="previous-runs-columns-popup" class="previous-runs-columns-popup" hidden>
           <p class="section-note">Check fields to include them in Previous Runs. Drag table headers to reorder and drag edges to resize.</p>
           <div id="previous-runs-columns-checklist"></div>
+          <section class="previous-runs-presets-panel">
+            <h4>View presets</h4>
+            <p class="section-note">Save/load column + filter views. <strong>Save current view</strong> captures what you currently have applied.</p>
+            <div class="previous-runs-presets-controls">
+              <label for="previous-runs-preset-select">Preset</label>
+              <select id="previous-runs-preset-select">
+                <option value="">(none)</option>
+              </select>
+            </div>
+            <div class="previous-runs-presets-actions">
+              <button id="previous-runs-preset-load" type="button">Load</button>
+              <button id="previous-runs-preset-save-current" type="button">Save current view</button>
+              <button id="previous-runs-preset-delete" type="button">Delete</button>
+            </div>
+            <p id="previous-runs-preset-status" class="section-note"></p>
+          </section>
           <div class="previous-runs-columns-popup-actions">
-            <button id="previous-runs-clear-filters" type="button">Clear all filters</button>
+            <button id="previous-runs-clear-filters" type="button">Clear column filters</button>
             <button id="previous-runs-column-reset" type="button">Reset defaults</button>
           </div>
         </div>
@@ -2040,6 +2090,11 @@ _HTML = """\
 
 <script id="dashboard-data-inline" type="application/json">__DASHBOARD_DATA_INLINE__</script>
 <script src="https://code.highcharts.com/stock/highstock.js"></script>
+<script>
+if (!window.Highcharts || typeof window.Highcharts.stockChart !== 'function') {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/highcharts/highstock.js"><\\/script>');
+}
+</script>
 <script src="assets/dashboard.js"></script>
 </body>
 </html>
@@ -2227,6 +2282,7 @@ section h3 {
 }
 .metric-help-list li { margin: 0.2rem 0; }
 #previous-runs-clear-filters,
+#previous-runs-clear-all-filters,
 #previous-runs-column-reset {
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -2237,6 +2293,7 @@ section h3 {
   padding: 0.18rem 0.62rem;
 }
 #previous-runs-clear-filters:hover,
+#previous-runs-clear-all-filters:hover,
 #previous-runs-column-reset:hover {
   border-color: #c7d0d9;
 }
@@ -2244,12 +2301,23 @@ section h3 {
   margin: 0.75rem 0 0.9rem;
   background: #f8fbff;
 }
+.previous-runs-top-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0.5rem 0 0.9rem;
+}
+.previous-runs-top-grid .isolate-panel,
+.previous-runs-top-grid .trend-chart-wrap {
+  margin: 0;
+}
 .isolate-panel h3 {
   margin-top: 0;
 }
 .isolate-controls {
-  display: grid;
-  grid-template-columns: auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.42rem;
 }
@@ -2260,8 +2328,10 @@ section h3 {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-#isolate-field,
-#isolate-value {
+#isolate-combine,
+.isolate-rule-field,
+.isolate-rule-operator,
+.isolate-rule-value {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
@@ -2269,6 +2339,10 @@ section h3 {
   font-size: 0.8rem;
   padding: 0.28rem 0.4rem;
 }
+#isolate-combine {
+  min-width: 120px;
+}
+#isolate-add,
 #isolate-clear {
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -2278,8 +2352,37 @@ section h3 {
   font-size: 0.78rem;
   padding: 0.19rem 0.62rem;
 }
+#isolate-add:hover,
 #isolate-clear:hover {
   border-color: #c7d0d9;
+}
+.isolate-rules {
+  display: grid;
+  gap: 0.38rem;
+  margin-top: 0.42rem;
+}
+.isolate-rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(94px, 0.75fr) minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+.isolate-rule-remove {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f6f9fc;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.16rem 0.55rem;
+}
+.isolate-rule-remove:hover {
+  border-color: #c7d0d9;
+}
+.isolate-rule-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 #isolate-status {
   margin: 0.5rem 0 0.42rem;
@@ -2326,6 +2429,42 @@ section h3 {
 }
 .trend-chart-wrap {
   margin: 0.5rem 0 0.85rem;
+}
+.quick-filters-panel {
+  margin: 0.55rem 0 0.85rem;
+  background: #f8fbf6;
+  border: 1px solid #d7e3cf;
+}
+.quick-filters-panel h3 {
+  margin-top: 0;
+  color: #435c3b;
+}
+.quick-filters-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.52rem 1.1rem;
+}
+.quick-filters-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  font-size: 0.82rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.quick-filters-list input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: var(--accent2);
+}
+.quick-filters-actions {
+  margin-top: 0.45rem;
+}
+#previous-runs-clear-all-filters {
+  font-size: 0.78rem;
+}
+#quick-filters-status {
+  margin: 0.52rem 0 0.05rem;
 }
 .highcharts-host {
   width: 100%;
@@ -2394,6 +2533,44 @@ section h3 {
   color: var(--muted);
   font-size: 0.72rem;
 }
+.previous-runs-presets-panel {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed #d4e0ec;
+}
+.previous-runs-presets-panel h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.79rem;
+  color: #1a466f;
+}
+.previous-runs-presets-controls {
+  display: grid;
+  gap: 0.22rem;
+}
+.previous-runs-presets-controls label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+#previous-runs-preset-select {
+  width: 100%;
+  min-height: 1.9rem;
+}
+.previous-runs-presets-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  margin-top: 0.36rem;
+}
+.previous-runs-presets-actions button {
+  font-size: 0.74rem;
+}
+#previous-runs-preset-status {
+  margin: 0.38rem 0 0;
+  font-size: 0.72rem;
+}
+#previous-runs-preset-status.error {
+  color: #ad2e24;
+}
 .previous-runs-columns-popup-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2443,24 +2620,40 @@ section h3 {
 }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.dashboard-resizable-table {
+  width: max-content;
+  min-width: 100%;
+}
+.dashboard-resizable-table th,
+.dashboard-resizable-table td {
+  position: relative;
+}
 th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid var(--border); }
 #previous-runs-table {
+  border-collapse: separate;
+  border-spacing: 0;
   width: max-content;
   min-width: 1600px;
   max-width: none;
+}
+#previous-runs-table thead th {
+  background-clip: padding-box;
 }
 #previous-runs-table th,
 #previous-runs-table td {
   white-space: nowrap;
 }
 #previous-runs-table th {
-  position: relative;
   padding-right: 0.9rem;
 }
 #previous-runs-table .previous-runs-header-title {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
+}
+#previous-runs-table thead tr.previous-runs-header-row th:not(:last-child),
+.dashboard-resizable-table thead tr:first-child th:not(:last-child) {
+  border-right: 1px solid #d6e0ea;
 }
 .previous-runs-column-filter {
   position: relative;
@@ -2469,10 +2662,13 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.35rem;
-  align-items: center;
+  align-items: flex-start;
 }
 .previous-runs-column-filter-summary {
-  min-height: 1rem;
+  min-height: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
   color: var(--muted);
   font-size: 0.74rem;
   line-height: 1.2;
@@ -2480,6 +2676,36 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
 .previous-runs-column-filter-summary.filter-active {
   color: #174d84;
   font-weight: 600;
+}
+.previous-runs-column-filter-summary-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.24rem;
+}
+.previous-runs-column-filter-summary-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.previous-runs-column-filter-summary-remove {
+  border: 1px solid #d7e0ea;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4a5b6b;
+  cursor: pointer;
+  width: 1.05rem;
+  height: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0;
+}
+.previous-runs-column-filter-summary-remove:hover {
+  border-color: #c6d0dc;
 }
 .previous-runs-column-filter-toggle {
   width: 1.1rem;
@@ -2526,6 +2752,89 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   text-transform: uppercase;
   color: var(--muted);
   margin: 0 0 0.35rem;
+}
+.previous-runs-column-filter-mode {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.32rem;
+  margin: 0 0 0.42rem;
+}
+.previous-runs-column-filter-mode-label {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.previous-runs-column-filter-mode-buttons {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 0.24rem;
+}
+.previous-runs-column-filter-mode-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f6f9fc;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.66rem;
+  padding: 0.08rem 0.42rem;
+}
+.previous-runs-column-filter-mode-btn.active {
+  border-color: #8ab0d8;
+  background: #e7f1ff;
+  color: #174d84;
+}
+.previous-runs-column-filter-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.previous-runs-column-filter-mode-btn:hover:not(:disabled) {
+  border-color: #c7d0d9;
+}
+.previous-runs-column-filter-active-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  margin: 0 0 0.45rem;
+}
+.previous-runs-column-filter-active-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.28rem;
+  font-size: 0.71rem;
+  color: var(--text);
+  border: 1px solid #dde6f0;
+  border-radius: 6px;
+  background: #f8fbff;
+  padding: 0.15rem 0.22rem 0.15rem 0.34rem;
+}
+.previous-runs-column-filter-active-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.previous-runs-column-filter-active-remove {
+  border: 1px solid #d7e0ea;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4a5b6b;
+  cursor: pointer;
+  width: 1.1rem;
+  height: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0;
+}
+.previous-runs-column-filter-active-remove:hover {
+  border-color: #c6d0dc;
+}
+.previous-runs-column-filter-active-empty {
+  font-size: 0.7rem;
+  color: var(--muted);
 }
 .previous-runs-column-filter-popover-controls {
   display: grid;
@@ -2629,23 +2938,17 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
 #previous-runs-table th.previous-runs-drag-target {
   box-shadow: inset 0 -2px 0 var(--focus);
 }
-.previous-runs-resize-handle {
+.previous-runs-resize-handle,
+.dashboard-table-resize-handle {
   position: absolute;
   top: 0;
-  right: -0.2rem;
-  width: 0.45rem;
+  right: -0.28rem;
+  width: 0.62rem;
   height: 100%;
   cursor: col-resize;
 }
-.previous-runs-resize-handle::after {
-  content: "";
-  position: absolute;
-  top: 20%;
-  bottom: 20%;
-  left: 50%;
-  border-left: 1px solid #ccd7e3;
-}
-body.previous-runs-resizing {
+body.previous-runs-resizing,
+body.dashboard-table-resizing {
   cursor: col-resize;
   user-select: none;
 }
@@ -2924,20 +3227,56 @@ td.warn-note { color: #b45309; font-weight: 600; }
 
 .diagnostics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.7rem;
 }
 .diagnostic-card {
   margin: 0;
   background: #f8fbfe;
 }
-#runtime-summary table {
+#runtime-summary table,
+#boundary-summary table {
   margin: 0;
   width: 100%;
+  min-width: 0;
+  table-layout: fixed;
 }
 #runtime-summary td:first-child {
   color: var(--muted);
   width: 42%;
+}
+#runtime-summary,
+#boundary-summary {
+  overflow-x: hidden;
+}
+#per-label-section {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+#per-label-table {
+  width: max-content;
+  min-width: 100%;
+}
+#per-label-table th {
+  white-space: nowrap;
+  text-align: left;
+  padding-top: 0.16rem;
+  padding-bottom: 0.16rem;
+}
+#per-label-table th,
+#per-label-table td {
+  padding-left: 0.38rem;
+  padding-right: 0.38rem;
+}
+.per-label-col-head {
+  display: inline-block;
+  line-height: 1.06;
+  text-align: left;
+  font-size: 0.92em;
+}
+.per-label-col-sub {
+  font-size: 0.74em;
+  letter-spacing: 0.01em;
 }
 
 footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 1.3rem; }
@@ -2952,6 +3291,9 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
 }
 
 @media (max-width: 900px) {
+  .diagnostics-grid {
+    grid-template-columns: 1fr;
+  }
   body {
     padding: 0 0.55rem 1.4rem;
   }
@@ -3011,12 +3353,25 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .previous-runs-columns-popup {
     width: min(280px, calc(100vw - 1.3rem));
   }
+  .previous-runs-top-grid {
+    grid-template-columns: 1fr;
+  }
   .isolate-controls {
+    align-items: stretch;
+  }
+  #isolate-combine {
+    width: 100%;
+  }
+  .isolate-rule-row {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
   .isolate-controls label {
     margin-top: 0.1rem;
+  }
+  .quick-filters-list {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -3041,18 +3396,27 @@ _JS = """\
   let selectedFileTrend = "";
   let throughputScaleMode = "clamp95";
   let previousRunsColumnFilters = Object.create(null);
+  let previousRunsColumnFilterModes = Object.create(null);
+  let previousRunsQuickFilters = {
+    exclude_ai_tests: false,
+    official_full_golden_only: true,
+  };
   let previousRunsFieldOptions = [];
   let previousRunsVisibleColumns = [];
   let previousRunsColumnWidths = Object.create(null);
+  let dashboardTableColumnWidths = Object.create(null);
   let previousRunsDraggedColumn = null;
   let previousRunsOpenFilterField = "";
   let previousRunsOpenFilterDraft = null;
   let previousRunsColumnsPopupOpen = false;
   let previousRunsFilterResultCache = null;
+  let previousRunsViewPresets = Object.create(null);
+  let previousRunsSelectedPreset = "";
   let previousRunsSortField = "run_timestamp";
   let previousRunsSortDirection = "desc";
-  let isolateField = "";
-  let isolateValue = "";
+  let previousRunsFilterControlSource = "table";
+  let isolateClauses = [];
+  let isolateCombineMode = "all";
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
   const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [
@@ -3074,7 +3438,16 @@ _JS = """\
     PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS
   );
   const PREVIOUS_RUNS_UNARY_FILTER_OPERATORS = new Set(["is_empty", "not_empty"]);
+  const PREVIOUS_RUNS_COLUMN_FILTER_MODES = [
+    ["and", "AND"],
+    ["or", "OR"],
+  ];
+  const PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL = Object.fromEntries(
+    PREVIOUS_RUNS_COLUMN_FILTER_MODES
+  );
   const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;
+  const PREVIOUS_RUNS_PRESET_NAME_MAX = 80;
+  const PREVIOUS_RUNS_PRESET_MAX_COUNT = 40;
   const PREVIOUS_RUNS_DEFAULT_COLUMNS = [
     "run_timestamp",
     "strict_accuracy",
@@ -3121,7 +3494,7 @@ _JS = """\
     },
     all_token_use: {
       label: "All token use",
-      title: "Combined token view (total/input/output). Sort/filter uses total tokens.",
+      title: "Combined token view (discounted_total/input/output). Discounted total applies cached-input tokens at 10% weight.",
       numeric: true,
     },
     tokens_input: {
@@ -3234,6 +3607,19 @@ _JS = """\
     "run_config.input_tokens",
     "run_config.output_tokens",
   ];
+  const ISOLATE_OPERATORS = [
+    ["eq", "is"],
+    ["neq", "is not"],
+  ];
+  const ISOLATE_OPERATOR_LABEL = Object.fromEntries(ISOLATE_OPERATORS);
+  const ISOLATE_COMBINE_MODES = [
+    ["all", "all rules (AND)"],
+    ["any", "any rule (OR)"],
+  ];
+  const ISOLATE_COMBINE_LABEL = {
+    all: "all rules",
+    any: "any rule",
+  };
   const TABLE_COLLAPSE_DEFAULT_ROWS = {
     "recent-runs": 8,
     "file-trend-table": 8,
@@ -3245,6 +3631,510 @@ _JS = """\
     log: "Log scale (log10(sec/recipe + 1)) keeps large spikes visible without flattening small runs.",
   };
   const tableCollapsedState = Object.create(null);
+  const DASHBOARD_UI_STATE_VERSION = 1;
+  const DASHBOARD_UI_STATE_STORAGE_KEY = "cookimport.stats_dashboard.ui_state.v1";
+  const DASHBOARD_UI_STATE_SERVER_PATH = "assets/dashboard_ui_state.json";
+  let dashboardUiStateLoadAttempted = false;
+  let dashboardUiProgramStateLoadAttempted = false;
+  let dashboardUiStorageResolved = false;
+  let dashboardUiStorage = null;
+  let dashboardUiStateSavedAtMs = -1;
+
+  function dashboardUiStorageHandle() {
+    if (dashboardUiStorageResolved) return dashboardUiStorage;
+    dashboardUiStorageResolved = true;
+    if (typeof window === "undefined") return null;
+    try {
+      const storage = window.localStorage;
+      if (!storage) return null;
+      const probeKey = "__cookimport_dashboard_probe__";
+      storage.setItem(probeKey, "1");
+      storage.removeItem(probeKey);
+      dashboardUiStorage = storage;
+      return dashboardUiStorage;
+    } catch (error) {
+      dashboardUiStorage = null;
+      return null;
+    }
+  }
+
+  function sanitizeColumnWidthsMap(rawMap) {
+    if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) {
+      return Object.create(null);
+    }
+    const next = Object.create(null);
+    Object.keys(rawMap).forEach(columnKey => {
+      const key = String(columnKey || "").trim();
+      if (!key) return;
+      const width = Number(rawMap[columnKey]);
+      if (!Number.isFinite(width) || width <= 0) return;
+      next[key] = Math.max(72, width);
+    });
+    return next;
+  }
+
+  function sanitizeDashboardTableColumnWidths(rawTableWidths) {
+    if (!rawTableWidths || typeof rawTableWidths !== "object" || Array.isArray(rawTableWidths)) {
+      return Object.create(null);
+    }
+    const next = Object.create(null);
+    Object.keys(rawTableWidths).forEach(tableKey => {
+      const key = String(tableKey || "").trim();
+      if (!key) return;
+      const columnWidths = sanitizeColumnWidthsMap(rawTableWidths[tableKey]);
+      if (!Object.keys(columnWidths).length) return;
+      next[key] = columnWidths;
+    });
+    return next;
+  }
+
+  function dashboardTableColumnWidth(tableKey, columnKey) {
+    const table = String(tableKey || "").trim();
+    const column = String(columnKey || "").trim();
+    if (!table || !column) return null;
+    const rawMap = dashboardTableColumnWidths[table];
+    if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) return null;
+    const width = Number(rawMap[column]);
+    if (!Number.isFinite(width) || width <= 0) return null;
+    return Math.max(72, width);
+  }
+
+  function setDashboardTableColumnWidth(tableKey, columnKey, width) {
+    const table = String(tableKey || "").trim();
+    const column = String(columnKey || "").trim();
+    const nextWidth = Number(width);
+    if (!table || !column || !Number.isFinite(nextWidth) || nextWidth <= 0) return;
+    let rawMap = dashboardTableColumnWidths[table];
+    if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) {
+      rawMap = Object.create(null);
+      dashboardTableColumnWidths[table] = rawMap;
+    }
+    rawMap[column] = Math.max(72, nextWidth);
+  }
+
+  function clearDashboardTableColumnWidths(tableKey) {
+    const table = String(tableKey || "").trim();
+    if (!table) return;
+    delete dashboardTableColumnWidths[table];
+  }
+
+  function normalizePreviousRunsColumnFilterMode(value) {
+    const key = String(value || "and").trim().toLowerCase();
+    return key === "or" ? "or" : "and";
+  }
+
+  function normalizePreviousRunsFilterControlSource(value) {
+    const key = String(value || "table").trim().toLowerCase();
+    return key === "isolate" ? "isolate" : "table";
+  }
+
+  function isolateClauseListHasActiveSelection(clauses) {
+    if (!Array.isArray(clauses)) return false;
+    return clauses.some(clause => {
+      if (!clause || typeof clause !== "object" || Array.isArray(clause)) return false;
+      return Boolean(String(clause.field || "").trim() && String(clause.value || "").trim());
+    });
+  }
+
+  function normalizeIsolateOperator(value) {
+    const key = String(value || "eq").trim();
+    return ISOLATE_OPERATOR_LABEL[key] ? key : "eq";
+  }
+
+  function normalizeIsolateCombineMode(value) {
+    const key = String(value || "all").trim().toLowerCase();
+    return key === "any" ? "any" : "all";
+  }
+
+  function normalizeIsolateClause(rawClause) {
+    if (!rawClause || typeof rawClause !== "object" || Array.isArray(rawClause)) {
+      return {
+        field: "",
+        operator: "eq",
+        value: "",
+      };
+    }
+    return {
+      field: String(rawClause.field || "").trim(),
+      operator: normalizeIsolateOperator(rawClause.operator),
+      value: String(rawClause.value || "").trim(),
+    };
+  }
+
+  function normalizeIsolateClauseList(rawClauses) {
+    if (!Array.isArray(rawClauses)) return [];
+    return rawClauses.map(normalizeIsolateClause);
+  }
+
+  function sanitizePreviousRunsPresetName(rawName) {
+    const text = String(rawName || "").trim().replace(/\s+/g, " ");
+    if (!text) return "";
+    return text.slice(0, PREVIOUS_RUNS_PRESET_NAME_MAX);
+  }
+
+  function sanitizePreviousRunsPresetState(rawPreset) {
+    if (!rawPreset || typeof rawPreset !== "object" || Array.isArray(rawPreset)) {
+      return null;
+    }
+    const visibleColumns = Array.isArray(rawPreset.visible_columns)
+      ? rawPreset.visible_columns
+        .map(fieldName => String(fieldName || "").trim())
+        .filter(Boolean)
+      : [];
+    const columnFilters = Object.create(null);
+    const columnFilterModes = Object.create(null);
+    const rawColumnFilters = rawPreset.column_filters;
+    if (rawColumnFilters && typeof rawColumnFilters === "object" && !Array.isArray(rawColumnFilters)) {
+      Object.keys(rawColumnFilters).forEach(fieldName => {
+        const key = String(fieldName || "").trim();
+        if (!key) return;
+        const normalized = normalizePreviousRunsColumnFilterList(rawColumnFilters[fieldName]);
+        if (!normalized.length) return;
+        columnFilters[key] = normalized;
+      });
+    }
+    const rawColumnFilterModes = rawPreset.column_filter_modes;
+    if (rawColumnFilterModes && typeof rawColumnFilterModes === "object" && !Array.isArray(rawColumnFilterModes)) {
+      Object.keys(rawColumnFilterModes).forEach(fieldName => {
+        const key = String(fieldName || "").trim();
+        if (!key) return;
+        if (!Object.prototype.hasOwnProperty.call(columnFilters, key)) return;
+        columnFilterModes[key] = normalizePreviousRunsColumnFilterMode(rawColumnFilterModes[key]);
+      });
+    }
+    const rawQuickFilters = rawPreset.quick_filters;
+    const quickFilters = {
+      exclude_ai_tests: false,
+      official_full_golden_only: true,
+    };
+    if (rawQuickFilters && typeof rawQuickFilters === "object") {
+      if (Object.prototype.hasOwnProperty.call(rawQuickFilters, "exclude_ai_tests")) {
+        quickFilters.exclude_ai_tests = Boolean(rawQuickFilters.exclude_ai_tests);
+      }
+      if (Object.prototype.hasOwnProperty.call(rawQuickFilters, "official_full_golden_only")) {
+        quickFilters.official_full_golden_only = Boolean(rawQuickFilters.official_full_golden_only);
+      }
+    }
+    const rawSort = rawPreset.sort;
+    const sort = {
+      field: "run_timestamp",
+      direction: "desc",
+    };
+    if (rawSort && typeof rawSort === "object" && !Array.isArray(rawSort)) {
+      const sortField = String(rawSort.field || "").trim();
+      if (sortField) sort.field = sortField;
+      const sortDirection = String(rawSort.direction || "").toLowerCase();
+      if (sortDirection === "asc" || sortDirection === "desc") {
+        sort.direction = sortDirection;
+      }
+    }
+    const rawIsolate = rawPreset.isolate;
+    const isolate = {
+      mode: "all",
+      clauses: [],
+    };
+    if (rawIsolate && typeof rawIsolate === "object" && !Array.isArray(rawIsolate)) {
+      isolate.mode = normalizeIsolateCombineMode(rawIsolate.mode);
+      isolate.clauses = normalizeIsolateClauseList(rawIsolate.clauses);
+    }
+    const filterControlSource = Object.prototype.hasOwnProperty.call(rawPreset, "filter_control_source")
+      ? normalizePreviousRunsFilterControlSource(rawPreset.filter_control_source)
+      : (isolateClauseListHasActiveSelection(isolate.clauses) ? "isolate" : "table");
+    return {
+      visible_columns: visibleColumns,
+      column_filters: columnFilters,
+      column_filter_modes: columnFilterModes,
+      quick_filters: quickFilters,
+      column_widths: sanitizeColumnWidthsMap(rawPreset.column_widths),
+      sort,
+      isolate,
+      filter_control_source: filterControlSource,
+    };
+  }
+
+  function sanitizePreviousRunsPresetMap(rawPresets) {
+    if (!rawPresets || typeof rawPresets !== "object" || Array.isArray(rawPresets)) {
+      return Object.create(null);
+    }
+    const next = Object.create(null);
+    Object.keys(rawPresets).forEach(rawName => {
+      const name = sanitizePreviousRunsPresetName(rawName);
+      if (!name) return;
+      const preset = sanitizePreviousRunsPresetState(rawPresets[rawName]);
+      if (!preset) return;
+      next[name] = preset;
+    });
+    return next;
+  }
+
+  function dashboardUiStateSavedAtMsFromValue(rawValue) {
+    const text = String(rawValue || "").trim();
+    if (!text) return -1;
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? parsed : -1;
+  }
+
+  function applyDashboardUiStatePayload(parsed, savedAtMs) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    const nextSavedAtMs = Number.isFinite(savedAtMs) ? savedAtMs : -1;
+    if (nextSavedAtMs < dashboardUiStateSavedAtMs) return false;
+    const version = Number(parsed.version || 0);
+    if (version && version !== DASHBOARD_UI_STATE_VERSION) return false;
+    dashboardTableColumnWidths = sanitizeDashboardTableColumnWidths(parsed.table_column_widths);
+    previousRunsViewPresets = sanitizePreviousRunsPresetMap(parsed.previous_runs_presets);
+    const previousRuns = parsed.previous_runs;
+    if (!previousRuns || typeof previousRuns !== "object") {
+      dashboardUiStateSavedAtMs = nextSavedAtMs;
+      return true;
+    }
+
+    if (Array.isArray(previousRuns.visible_columns)) {
+      previousRunsVisibleColumns = previousRuns.visible_columns
+        .map(fieldName => String(fieldName || "").trim())
+        .filter(Boolean);
+    }
+
+    const rawColumnFilters = previousRuns.column_filters;
+    if (rawColumnFilters && typeof rawColumnFilters === "object" && !Array.isArray(rawColumnFilters)) {
+      const nextColumnFilters = Object.create(null);
+      Object.keys(rawColumnFilters).forEach(fieldName => {
+        const key = String(fieldName || "").trim();
+        if (!key) return;
+        const normalized = normalizePreviousRunsColumnFilterList(rawColumnFilters[fieldName]);
+        if (!normalized.length) return;
+        nextColumnFilters[key] = normalized;
+      });
+      previousRunsColumnFilters = nextColumnFilters;
+    }
+    const rawColumnFilterModes = previousRuns.column_filter_modes;
+    if (rawColumnFilterModes && typeof rawColumnFilterModes === "object" && !Array.isArray(rawColumnFilterModes)) {
+      const nextModes = Object.create(null);
+      Object.keys(rawColumnFilterModes).forEach(fieldName => {
+        const key = String(fieldName || "").trim();
+        if (!key) return;
+        if (!Object.prototype.hasOwnProperty.call(previousRunsColumnFilters, key)) return;
+        nextModes[key] = normalizePreviousRunsColumnFilterMode(rawColumnFilterModes[fieldName]);
+      });
+      previousRunsColumnFilterModes = nextModes;
+    }
+
+    const rawQuickFilters = previousRuns.quick_filters;
+    if (rawQuickFilters && typeof rawQuickFilters === "object") {
+      if (Object.prototype.hasOwnProperty.call(rawQuickFilters, "exclude_ai_tests")) {
+        previousRunsQuickFilters.exclude_ai_tests = Boolean(rawQuickFilters.exclude_ai_tests);
+      }
+      if (Object.prototype.hasOwnProperty.call(rawQuickFilters, "official_full_golden_only")) {
+        previousRunsQuickFilters.official_full_golden_only = Boolean(rawQuickFilters.official_full_golden_only);
+      }
+    }
+
+    const rawColumnWidths = previousRuns.column_widths;
+    if (rawColumnWidths && typeof rawColumnWidths === "object" && !Array.isArray(rawColumnWidths)) {
+      const nextColumnWidths = sanitizeColumnWidthsMap(rawColumnWidths);
+      previousRunsColumnWidths = nextColumnWidths;
+      Object.keys(nextColumnWidths).forEach(fieldName => {
+        setDashboardTableColumnWidth("previous-runs-table", fieldName, nextColumnWidths[fieldName]);
+      });
+    } else {
+      previousRunsColumnWidths = sanitizeColumnWidthsMap(
+        dashboardTableColumnWidths["previous-runs-table"]
+      );
+    }
+
+    const rawSort = previousRuns.sort;
+    if (rawSort && typeof rawSort === "object" && !Array.isArray(rawSort)) {
+      const sortField = String(rawSort.field || "").trim();
+      if (sortField) {
+        previousRunsSortField = sortField;
+      }
+      const sortDirection = String(rawSort.direction || "").toLowerCase();
+      if (sortDirection === "asc" || sortDirection === "desc") {
+        previousRunsSortDirection = sortDirection;
+      }
+    }
+
+    const rawIsolate = previousRuns.isolate;
+    if (rawIsolate && typeof rawIsolate === "object" && !Array.isArray(rawIsolate)) {
+      const nextMode = normalizeIsolateCombineMode(rawIsolate.mode);
+      const nextClauses = normalizeIsolateClauseList(rawIsolate.clauses);
+      isolateCombineMode = nextMode;
+      if (nextClauses.length || Array.isArray(rawIsolate.clauses)) {
+        isolateClauses = nextClauses;
+      } else {
+        // Backward compatibility with older single-clause isolate state.
+        const legacyField = String(rawIsolate.field || "").trim();
+        const legacyValue = String(rawIsolate.value || "").trim();
+        if (legacyField || legacyValue) {
+          isolateCombineMode = "all";
+          isolateClauses = [
+            {
+              field: legacyField,
+              operator: normalizeIsolateOperator(rawIsolate.operator),
+              value: legacyValue,
+            },
+          ];
+        }
+      }
+    }
+    const rawFilterControlSource = previousRuns.filter_control_source;
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "filter_control_source")) {
+      previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(rawFilterControlSource);
+    } else {
+      previousRunsFilterControlSource = isolateClauseListHasActiveSelection(isolateClauses)
+        ? "isolate"
+        : "table";
+    }
+    const selectedPreset = sanitizePreviousRunsPresetName(previousRuns.selected_preset);
+    previousRunsSelectedPreset = Object.prototype.hasOwnProperty.call(previousRunsViewPresets, selectedPreset)
+      ? selectedPreset
+      : "";
+    dashboardUiStateSavedAtMs = nextSavedAtMs;
+    return true;
+  }
+
+  function loadDashboardUiState() {
+    if (dashboardUiStateLoadAttempted) return;
+    dashboardUiStateLoadAttempted = true;
+    const storage = dashboardUiStorageHandle();
+    if (!storage) return;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(storage.getItem(DASHBOARD_UI_STATE_STORAGE_KEY) || "null");
+    } catch (error) {
+      return;
+    }
+    if (!parsed || typeof parsed !== "object") return;
+    applyDashboardUiStatePayload(
+      parsed,
+      dashboardUiStateSavedAtMsFromValue(parsed.saved_at)
+    );
+  }
+
+  function loadDashboardUiStateFromProgramStore() {
+    if (dashboardUiProgramStateLoadAttempted) return Promise.resolve(false);
+    dashboardUiProgramStateLoadAttempted = true;
+    if (typeof fetch !== "function") return Promise.resolve(false);
+    return fetch(DASHBOARD_UI_STATE_SERVER_PATH, { cache: "no-store" })
+      .then(response => {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json();
+      })
+      .then(parsed => applyDashboardUiStatePayload(
+        parsed,
+        dashboardUiStateSavedAtMsFromValue(parsed && parsed.saved_at)
+      ))
+      .catch(() => false);
+  }
+
+  function buildDashboardUiStatePayload() {
+    const savedAt = new Date().toISOString();
+    dashboardUiStateSavedAtMs = dashboardUiStateSavedAtMsFromValue(savedAt);
+    const visibleColumns = previousRunsVisibleColumns
+      .map(fieldName => String(fieldName || "").trim())
+      .filter(Boolean);
+    const columnFilters = Object.create(null);
+    const columnFilterModes = Object.create(null);
+    Object.keys(previousRunsColumnFilters).forEach(fieldName => {
+      const clauses = previousRunsColumnFilterClauses(fieldName);
+      if (!clauses.length) return;
+      columnFilters[fieldName] = clauses.map(clause => ({
+        operator: clause.operator,
+        value: clause.value,
+      }));
+      columnFilterModes[fieldName] = previousRunsColumnFilterMode(fieldName);
+    });
+    const columnWidths = Object.create(null);
+    Object.keys(previousRunsColumnWidths).forEach(fieldName => {
+      const key = String(fieldName || "").trim();
+      if (!key) return;
+      const width = Number(previousRunsColumnWidths[fieldName]);
+      if (!Number.isFinite(width) || width <= 0) return;
+      columnWidths[key] = Math.max(72, width);
+      setDashboardTableColumnWidth("previous-runs-table", key, width);
+    });
+    const tableColumnWidths = sanitizeDashboardTableColumnWidths(dashboardTableColumnWidths);
+    if (Object.keys(columnWidths).length) {
+      tableColumnWidths["previous-runs-table"] = Object.assign(Object.create(null), columnWidths);
+    } else {
+      delete tableColumnWidths["previous-runs-table"];
+    }
+    const previousRunsPresets = Object.create(null);
+    Object.keys(previousRunsViewPresets).forEach(rawName => {
+      const name = sanitizePreviousRunsPresetName(rawName);
+      if (!name) return;
+      const preset = sanitizePreviousRunsPresetState(previousRunsViewPresets[rawName]);
+      if (!preset) return;
+      previousRunsPresets[name] = preset;
+    });
+    const selectedPreset = sanitizePreviousRunsPresetName(previousRunsSelectedPreset);
+    const selectedPresetName = Object.prototype.hasOwnProperty.call(previousRunsPresets, selectedPreset)
+      ? selectedPreset
+      : "";
+    const payload = {
+      version: DASHBOARD_UI_STATE_VERSION,
+      previous_runs: {
+        visible_columns: visibleColumns,
+        column_filters: columnFilters,
+        column_filter_modes: columnFilterModes,
+        quick_filters: {
+          exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
+          official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
+        },
+        column_widths: columnWidths,
+        sort: {
+          field: String(previousRunsSortField || "run_timestamp"),
+          direction: previousRunsSortDirection === "asc" ? "asc" : "desc",
+        },
+        isolate: {
+          mode: normalizeIsolateCombineMode(isolateCombineMode),
+          clauses: isolateClauses.map(clause => ({
+            field: String((clause && clause.field) || ""),
+            operator: normalizeIsolateOperator(clause && clause.operator),
+            value: String((clause && clause.value) || ""),
+          })),
+        },
+        filter_control_source: normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource),
+        selected_preset: selectedPresetName,
+      },
+      previous_runs_presets: previousRunsPresets,
+      table_column_widths: tableColumnWidths,
+      saved_at: savedAt,
+    };
+    return payload;
+  }
+
+  function persistDashboardUiStateToProgramStore(payload) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
+    if (typeof fetch !== "function") return;
+    try {
+      fetch(DASHBOARD_UI_STATE_SERVER_PATH, {
+        method: "PUT",
+        cache: "no-store",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }).catch(() => {
+        // Ignore program-side sync failures when dashboard is opened as plain static HTML.
+      });
+    } catch (error) {
+      // Ignore program-side sync failures when dashboard is opened as plain static HTML.
+    }
+  }
+
+  function persistDashboardUiState() {
+    const payload = buildDashboardUiStatePayload();
+    try {
+      const storage = dashboardUiStorageHandle();
+      if (storage) {
+        storage.setItem(DASHBOARD_UI_STATE_STORAGE_KEY, JSON.stringify(payload));
+      }
+    } catch (error) {
+      // Ignore persistence failures (storage unavailable/full/private mode restrictions).
+    }
+    persistDashboardUiStateToProgramStore(payload);
+  }
 
   // ---- Load data ----
   function showLoadError(msg) {
@@ -3290,9 +4180,13 @@ _JS = """\
 
   function init() {
     applyHighchartsGlobalDefaults();
-    renderHeader();
-    setupPreviousRunsFilters();
-    renderAll();
+    loadDashboardUiState();
+    loadDashboardUiStateFromProgramStore()
+      .finally(() => {
+        renderHeader();
+        setupPreviousRunsFilters();
+        renderAll();
+      });
   }
 
   function applyHighchartsGlobalDefaults() {
@@ -3506,6 +4400,128 @@ _JS = """\
     return path.includes("/all-method-benchmark/");
   }
 
+  function isLikelyAiTestBenchmarkRecord(record) {
+    const path = benchmarkArtifactPath(record);
+    if (!path) return false;
+    if (path.includes("/bench/")) return true;
+    if (/(^|\\/)pytest-\\d+(\\/|$)/.test(path)) return true;
+    if (/(^|\\/)test_[^/]+(\\/|$)/.test(path)) return true;
+    const parts = path.split("/").filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      const segment = String(parts[i] || "").toLowerCase();
+      const timestampSuffix = segment.match(
+        /^(\\d{4}-\\d{2}-\\d{2}[t_]\\d{2}[.:]\\d{2}[.:]\\d{2})_(.+)$/
+      );
+      if (!timestampSuffix) continue;
+      const suffix = String(timestampSuffix[2] || "").toLowerCase();
+      if (/(^|[-_])(manual|smoke|test|debug|quick|probe|sample|trial)([-_]|$)/.test(suffix)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isOfficialGoldenBenchmarkRecord(record) {
+    const path = benchmarkArtifactPath(record);
+    if (!path) return false;
+    if (!path.includes("/benchmark-vs-golden/")) return false;
+    if (!path.includes("/single-offline-benchmark/")) return false;
+    const variant = benchmarkVariantForRecord(record);
+    return variant === "vanilla" || variant === "codexfarm";
+  }
+
+  function activePreviousRunsQuickFilterLabels(enabled) {
+    const state = enabled || {
+      exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
+      official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
+    };
+    const labels = [];
+    if (state.exclude_ai_tests) labels.push("exclude AI test/smoke runs");
+    if (state.official_full_golden_only) {
+      labels.push("official single-offline vanilla/codexfarm runs only");
+    }
+    return labels;
+  }
+
+  function updatePreviousRunsQuickFiltersStatus(context) {
+    const status = document.getElementById("quick-filters-status");
+    if (!status) return;
+    const sourceTotal = Number((context && context.source_total) || 0);
+    const filteredTotal = Number((context && context.filtered_total) || 0);
+    const labels = activePreviousRunsQuickFilterLabels(context ? context.enabled : null);
+    const summary = labels.length ? labels.join("; ") : "none";
+    const removedParts = [];
+    if (context && context.removed_ai_tests > 0) {
+      removedParts.push(String(context.removed_ai_tests) + " test rows");
+    }
+    if (context && context.removed_unofficial > 0) {
+      removedParts.push(String(context.removed_unofficial) + " unofficial rows");
+    }
+    const removedText = removedParts.length
+      ? " Removed: " + removedParts.join(", ") + "."
+      : "";
+    status.textContent =
+      "Quick filters: " +
+      summary +
+      ". Showing " +
+      filteredTotal +
+      " of " +
+      sourceTotal +
+      " benchmark rows." +
+      removedText;
+  }
+
+  function applyPreviousRunsQuickFilters(records, options) {
+    const baseRecords = Array.isArray(records) ? records : [];
+    const updateStatus = !options || options.updateStatus !== false;
+    const enabled = {
+      exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
+      official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
+    };
+    let filtered = baseRecords;
+    let removedAiTests = 0;
+    let removedUnofficial = 0;
+
+    if (enabled.exclude_ai_tests) {
+      const next = [];
+      filtered.forEach(record => {
+        if (isLikelyAiTestBenchmarkRecord(record)) {
+          removedAiTests += 1;
+          return;
+        }
+        next.push(record);
+      });
+      filtered = next;
+    }
+
+    if (enabled.official_full_golden_only) {
+      const next = [];
+      filtered.forEach(record => {
+        if (!isOfficialGoldenBenchmarkRecord(record)) {
+          removedUnofficial += 1;
+          return;
+        }
+        next.push(record);
+      });
+      filtered = next;
+    }
+
+    const context = {
+      source_total: baseRecords.length,
+      filtered_total: filtered.length,
+      removed_ai_tests: removedAiTests,
+      removed_unofficial: removedUnofficial,
+      enabled,
+    };
+    if (updateStatus) {
+      updatePreviousRunsQuickFiltersStatus(context);
+    }
+    return {
+      records: filtered,
+      context,
+    };
+  }
+
   function stagePassesExtractorFilter(record) {
     const extractor = epubExtractorEffective(record) || epubExtractorRequested(record);
     if (!extractor) return true;
@@ -3514,21 +4530,70 @@ _JS = """\
   }
 
   // ---- Previous-runs column filters ----
+  function clearPreviousRunsTableColumnFilters() {
+    previousRunsFilterControlSource = "table";
+    previousRunsColumnFilters = Object.create(null);
+    previousRunsColumnFilterModes = Object.create(null);
+    closePreviousRunsColumnFilterEditor();
+  }
+
+  function clearAllPreviousRunsFilters() {
+    clearPreviousRunsTableColumnFilters();
+    previousRunsQuickFilters.exclude_ai_tests = false;
+    previousRunsQuickFilters.official_full_golden_only = false;
+    isolateClauses = [];
+    isolateCombineMode = "all";
+    setupPreviousRunsQuickFilters();
+  }
+
   function setupPreviousRunsFilters() {
     previousRunsFieldOptions = collectBenchmarkFieldPaths();
     ensurePreviousRunsColumns();
     setupPreviousRunsColumnsControls();
+    setupPreviousRunsQuickFilters();
     setupIsolateControls();
     const clearBtn = document.getElementById("previous-runs-clear-filters");
     if (clearBtn && !clearBtn.dataset.bound) {
       clearBtn.addEventListener("click", () => {
-        previousRunsColumnFilters = Object.create(null);
-        closePreviousRunsColumnFilterEditor();
+        clearPreviousRunsTableColumnFilters();
         renderAll();
       });
       clearBtn.dataset.bound = "1";
     }
+    const clearAllBtn = document.getElementById("previous-runs-clear-all-filters");
+    if (clearAllBtn && !clearAllBtn.dataset.bound) {
+      clearAllBtn.addEventListener("click", () => {
+        clearAllPreviousRunsFilters();
+        renderAll();
+      });
+      clearAllBtn.dataset.bound = "1";
+    }
     renderPreviousRunsColumnEditor();
+  }
+
+  function setupPreviousRunsQuickFilters() {
+    const excludeTests = document.getElementById("quick-filter-exclude-ai-tests");
+    const officialOnly = document.getElementById("quick-filter-official-only");
+    if (excludeTests) {
+      excludeTests.checked = Boolean(previousRunsQuickFilters.exclude_ai_tests);
+      if (!excludeTests.dataset.bound) {
+        excludeTests.addEventListener("change", () => {
+          previousRunsQuickFilters.exclude_ai_tests = Boolean(excludeTests.checked);
+          renderAll();
+        });
+        excludeTests.dataset.bound = "1";
+      }
+    }
+    if (officialOnly) {
+      officialOnly.checked = Boolean(previousRunsQuickFilters.official_full_golden_only);
+      if (!officialOnly.dataset.bound) {
+        officialOnly.addEventListener("change", () => {
+          previousRunsQuickFilters.official_full_golden_only = Boolean(officialOnly.checked);
+          renderAll();
+        });
+        officialOnly.dataset.bound = "1";
+      }
+    }
   }
 
   function previousRunsAvailableColumnFields() {
@@ -3571,28 +4636,86 @@ _JS = """\
   function prunePreviousRunsColumnFilters() {
     const visible = new Set(previousRunsVisibleColumns);
     const next = Object.create(null);
+    const nextModes = Object.create(null);
     Object.keys(previousRunsColumnFilters).forEach(fieldName => {
       if (!visible.has(fieldName)) return;
-      const normalized = previousRunsColumnFilterState(fieldName);
-      if (normalized.active) {
-        next[fieldName] = {
-          operator: normalized.operator,
-          value: normalized.value,
-        };
-      }
+      const clauses = previousRunsColumnFilterClauses(fieldName);
+      if (!clauses.length) return;
+      next[fieldName] = clauses.map(clause => ({
+        operator: clause.operator,
+        value: clause.value,
+      }));
+      nextModes[fieldName] = previousRunsColumnFilterMode(fieldName);
     });
     previousRunsColumnFilters = next;
+    previousRunsColumnFilterModes = nextModes;
     if (previousRunsOpenFilterField && !visible.has(previousRunsOpenFilterField)) {
       closePreviousRunsColumnFilterEditor();
     }
   }
 
+  function normalizePreviousRunsColumnFilterClause(rawClause) {
+    if (!rawClause || typeof rawClause !== "object" || Array.isArray(rawClause)) return null;
+    const operator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[rawClause.operator]
+      ? String(rawClause.operator)
+      : "contains";
+    const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(operator);
+    const value = unary ? "" : String(rawClause.value || "");
+    if (!unary && value.trim() === "") return null;
+    return {
+      operator,
+      value,
+    };
+  }
+
+  function normalizePreviousRunsColumnFilterList(rawValue) {
+    if (!rawValue) return [];
+    const sourceList = Array.isArray(rawValue) ? rawValue : [rawValue];
+    const next = [];
+    const seen = new Set();
+    sourceList.forEach(candidate => {
+      const clause = normalizePreviousRunsColumnFilterClause(candidate);
+      if (!clause) return;
+      const dedupeKey = clause.operator + "::" + normalizeRuleValue(clause.value);
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      next.push(clause);
+    });
+    return next;
+  }
+
+  function previousRunsColumnFilterClauses(fieldName) {
+    const raw = previousRunsColumnFilters[fieldName];
+    if (!raw) return [];
+    return normalizePreviousRunsColumnFilterList(raw);
+  }
+
+  function previousRunsColumnFilterMode(fieldName) {
+    const key = String(fieldName || "").trim();
+    if (!key) return "and";
+    if (!Object.prototype.hasOwnProperty.call(previousRunsColumnFilters, key)) {
+      return "and";
+    }
+    return normalizePreviousRunsColumnFilterMode(previousRunsColumnFilterModes[key]);
+  }
+
+  function setPreviousRunsColumnFilterMode(fieldName, mode) {
+    const key = String(fieldName || "").trim();
+    if (!key) return false;
+    if (!Object.prototype.hasOwnProperty.call(previousRunsColumnFilters, key)) {
+      delete previousRunsColumnFilterModes[key];
+      return false;
+    }
+    previousRunsColumnFilterModes[key] = normalizePreviousRunsColumnFilterMode(mode);
+    return true;
+  }
+
   function openPreviousRunsColumnFilterEditor(fieldName) {
-    const state = previousRunsColumnFilterState(fieldName);
+    const meta = previousRunsColumnMeta(fieldName);
     previousRunsOpenFilterField = String(fieldName || "");
     previousRunsOpenFilterDraft = {
-      operator: state.operator,
-      value: state.value,
+      operator: meta.numeric ? "eq" : "contains",
+      value: "",
     };
   }
 
@@ -3602,7 +4725,13 @@ _JS = """\
   }
 
   function currentPreviousRunsColumnFilterDraft(fieldName) {
-    const fallback = previousRunsColumnFilterState(fieldName);
+    const meta = previousRunsColumnMeta(fieldName);
+    const fallbackOperator = meta.numeric ? "eq" : "contains";
+    const fallback = {
+      operator: fallbackOperator,
+      value: "",
+      active: false,
+    };
     if (
       previousRunsOpenFilterField !== fieldName ||
       !previousRunsOpenFilterDraft ||
@@ -3632,14 +4761,19 @@ _JS = """\
   }
 
   function previousRunsColumnFilterState(fieldName) {
-    const raw = previousRunsColumnFilters[fieldName] || null;
-    const fallbackOperator = "contains";
-    const operator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[raw && raw.operator]
-      ? String(raw.operator)
-      : fallbackOperator;
+    const clauses = previousRunsColumnFilterClauses(fieldName);
+    const fallbackOperator = previousRunsColumnMeta(fieldName).numeric ? "eq" : "contains";
+    if (!clauses.length) {
+      return {
+        operator: fallbackOperator,
+        value: "",
+        active: false,
+      };
+    }
+    const operator = clauses[0].operator;
+    const value = clauses[0].value;
     const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(operator);
-    const value = unary ? "" : String((raw && raw.value) || "");
-    const active = unary ? true : value.trim() !== "";
+    const active = unary ? true : String(value || "").trim() !== "";
     return {
       operator,
       value,
@@ -3647,20 +4781,60 @@ _JS = """\
     };
   }
 
-  function setPreviousRunsColumnFilter(fieldName, operator, value) {
-    const nextOperator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[operator]
-      ? String(operator)
-      : "contains";
-    const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(nextOperator);
-    const nextValue = unary ? "" : String(value || "");
-    if (!unary && nextValue.trim() === "") {
-      delete previousRunsColumnFilters[fieldName];
+  function setPreviousRunsColumnFilterClauses(fieldName, clauses) {
+    const key = String(fieldName || "").trim();
+    if (!key) return false;
+    const normalized = normalizePreviousRunsColumnFilterList(clauses);
+    if (!normalized.length) {
+      delete previousRunsColumnFilters[key];
+      delete previousRunsColumnFilterModes[key];
       return false;
     }
-    previousRunsColumnFilters[fieldName] = {
-      operator: nextOperator,
-      value: nextValue,
-    };
+    previousRunsColumnFilters[key] = normalized;
+    previousRunsColumnFilterModes[key] = normalizePreviousRunsColumnFilterMode(
+      previousRunsColumnFilterModes[key]
+    );
+    return true;
+  }
+
+  function setPreviousRunsColumnFilter(fieldName, operator, value) {
+    const clause = normalizePreviousRunsColumnFilterClause({
+      operator,
+      value,
+    });
+    if (!clause) {
+      clearPreviousRunsColumnFilter(fieldName);
+      return false;
+    }
+    return setPreviousRunsColumnFilterClauses(fieldName, [clause]);
+  }
+
+  function addPreviousRunsColumnFilter(fieldName, operator, value) {
+    const clause = normalizePreviousRunsColumnFilterClause({
+      operator,
+      value,
+    });
+    if (!clause) return false;
+    const existing = previousRunsColumnFilterClauses(fieldName);
+    const nextKey = clause.operator + "::" + normalizeRuleValue(clause.value);
+    const hasMatch = existing.some(candidate => (
+      candidate.operator + "::" + normalizeRuleValue(candidate.value) === nextKey
+    ));
+    if (hasMatch) {
+      return false;
+    }
+    existing.push(clause);
+    setPreviousRunsColumnFilterClauses(fieldName, existing);
+    return true;
+  }
+
+  function removePreviousRunsColumnFilterAt(fieldName, index) {
+    const clauses = previousRunsColumnFilterClauses(fieldName);
+    if (!clauses.length) return false;
+    const idx = Number(index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= clauses.length) return false;
+    clauses.splice(idx, 1);
+    setPreviousRunsColumnFilterClauses(fieldName, clauses);
     return true;
   }
 
@@ -3669,18 +4843,23 @@ _JS = """\
       return false;
     }
     delete previousRunsColumnFilters[fieldName];
+    delete previousRunsColumnFilterModes[fieldName];
     return true;
   }
 
   function activePreviousRunsColumnFilters() {
     const ordered = [];
     previousRunsVisibleColumns.forEach(fieldName => {
-      const state = previousRunsColumnFilterState(fieldName);
-      if (!state.active) return;
-      ordered.push({
-        field: fieldName,
-        operator: state.operator,
-        value: state.value,
+      const clauses = previousRunsColumnFilterClauses(fieldName);
+      const combine_mode = previousRunsColumnFilterMode(fieldName);
+      clauses.forEach((clause, clauseIndex) => {
+        ordered.push({
+          field: fieldName,
+          operator: clause.operator,
+          value: clause.value,
+          combine_mode,
+          clause_index: clauseIndex,
+        });
       });
     });
     return ordered;
@@ -3694,36 +4873,132 @@ _JS = """\
     return label + " " + String(filter.value || "");
   }
 
-  function setupIsolateControls() {
-    const fieldSelect = document.getElementById("isolate-field");
-    const valueSelect = document.getElementById("isolate-value");
-    const clearBtn = document.getElementById("isolate-clear");
-    if (!fieldSelect || !valueSelect || !clearBtn) return;
+  function formatPreviousRunsColumnFiltersSummary(fieldName, clauses) {
+    const list = Array.isArray(clauses) ? clauses : [];
+    if (!list.length) return "No filter";
+    const mode = previousRunsColumnFilterMode(fieldName);
+    const joinLabel = " " + String(PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL[mode] || mode).toUpperCase() + " ";
+    const shown = list
+      .slice(0, 2)
+      .map(clause => formatPreviousRunsColumnFilterSummary(fieldName, clause));
+    if (list.length <= 2) {
+      return shown.join(joinLabel);
+    }
+    return shown.join(joinLabel) + joinLabel + "+" + (list.length - 2) + " more";
+  }
 
-    if (!fieldSelect.dataset.bound) {
-      fieldSelect.addEventListener("change", () => {
-        isolateField = String(fieldSelect.value || "");
-        isolateValue = "";
+  function groupPreviousRunsFiltersByField(filters) {
+    const groupsByField = new Map();
+    const orderedGroups = [];
+    (filters || []).forEach(filter => {
+      const fieldName = String(filter.field || "").trim();
+      if (!fieldName) return;
+      let group = groupsByField.get(fieldName);
+      if (!group) {
+        group = {
+          field: fieldName,
+          mode: normalizePreviousRunsColumnFilterMode(filter.combine_mode),
+          clauses: [],
+        };
+        groupsByField.set(fieldName, group);
+        orderedGroups.push(group);
+      }
+      group.mode = normalizePreviousRunsColumnFilterMode(filter.combine_mode || group.mode);
+      group.clauses.push({
+        operator: String(filter.operator || "contains"),
+        value: String(filter.value || ""),
+      });
+    });
+    return orderedGroups;
+  }
+
+  function recordMatchesPreviousRunsFilterGroups(record, groupedFilters) {
+    return (groupedFilters || []).every(group => {
+      if (!group || !Array.isArray(group.clauses) || !group.clauses.length) return true;
+      const mode = normalizePreviousRunsColumnFilterMode(group.mode);
+      const evaluate = clause => {
+        const value = previousRunsFieldValue(record, group.field);
+        return evaluatePreviousRunsFilterOperator(value, clause.operator, clause.value);
+      };
+      if (mode === "or") {
+        return group.clauses.some(evaluate);
+      }
+      return group.clauses.every(evaluate);
+    });
+  }
+
+  function setupIsolateControls() {
+    const combineSelect = document.getElementById("isolate-combine");
+    const addBtn = document.getElementById("isolate-add");
+    const clearBtn = document.getElementById("isolate-clear");
+    const rulesHost = document.getElementById("isolate-rules");
+    if (!combineSelect || !addBtn || !clearBtn || !rulesHost) return;
+
+    if (!combineSelect.dataset.bound) {
+      combineSelect.addEventListener("change", () => {
+        previousRunsFilterControlSource = "isolate";
+        isolateCombineMode = normalizeIsolateCombineMode(combineSelect.value);
         renderAll();
       });
-      fieldSelect.dataset.bound = "1";
+      combineSelect.dataset.bound = "1";
     }
 
-    if (!valueSelect.dataset.bound) {
-      valueSelect.addEventListener("change", () => {
-        isolateValue = String(valueSelect.value || "");
+    if (!addBtn.dataset.bound) {
+      addBtn.addEventListener("click", () => {
+        previousRunsFilterControlSource = "isolate";
+        isolateClauses = [...normalizeIsolateClauseList(isolateClauses), normalizeIsolateClause(null)];
         renderAll();
       });
-      valueSelect.dataset.bound = "1";
+      addBtn.dataset.bound = "1";
     }
 
     if (!clearBtn.dataset.bound) {
       clearBtn.addEventListener("click", () => {
-        isolateField = "";
-        isolateValue = "";
+        previousRunsFilterControlSource = "isolate";
+        isolateClauses = [];
+        isolateCombineMode = "all";
         renderAll();
       });
       clearBtn.dataset.bound = "1";
+    }
+
+    if (!rulesHost.dataset.bound) {
+      rulesHost.addEventListener("change", event => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const row = target.closest(".isolate-rule-row");
+        if (!(row instanceof HTMLElement)) return;
+        const idx = Number(row.getAttribute("data-rule-index"));
+        if (!Number.isInteger(idx) || idx < 0 || idx >= isolateClauses.length) return;
+        const nextClauses = normalizeIsolateClauseList(isolateClauses);
+        if (target.classList.contains("isolate-rule-field")) {
+          nextClauses[idx].field = String(target.value || "");
+          nextClauses[idx].value = "";
+        } else if (target.classList.contains("isolate-rule-operator")) {
+          nextClauses[idx].operator = normalizeIsolateOperator(target.value);
+        } else if (target.classList.contains("isolate-rule-value")) {
+          nextClauses[idx].value = String(target.value || "");
+        } else {
+          return;
+        }
+        previousRunsFilterControlSource = "isolate";
+        isolateClauses = nextClauses;
+        renderAll();
+      });
+      rulesHost.addEventListener("click", event => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const removeBtn = target.closest(".isolate-rule-remove");
+        if (!(removeBtn instanceof HTMLElement)) return;
+        const idx = Number(removeBtn.getAttribute("data-rule-index"));
+        if (!Number.isInteger(idx) || idx < 0 || idx >= isolateClauses.length) return;
+        const nextClauses = normalizeIsolateClauseList(isolateClauses);
+        nextClauses.splice(idx, 1);
+        previousRunsFilterControlSource = "isolate";
+        isolateClauses = nextClauses;
+        renderAll();
+      });
+      rulesHost.dataset.bound = "1";
     }
   }
 
@@ -3800,92 +5075,170 @@ _JS = """\
     return ordered;
   }
 
+  function isolateClauseSummary(clause) {
+    if (!clause || !clause.fieldLabel || !clause.valueLabel) return "";
+    return clause.fieldLabel + " " + (clause.operatorLabel || "is") + " " + clause.valueLabel;
+  }
+
+  function isolateRulesExpression(clauses, combineMode) {
+    const activeClauses = Array.isArray(clauses)
+      ? clauses.filter(clause => Boolean(clause && clause.active))
+      : [];
+    if (!activeClauses.length) return "";
+    const parts = activeClauses.map(isolateClauseSummary).filter(Boolean);
+    if (!parts.length) return "";
+    if (parts.length === 1) return parts[0];
+    const joiner = combineMode === "any" ? " OR " : " AND ";
+    return "(" + parts.join(joiner) + ")";
+  }
+
   function syncIsolateControls(records) {
-    const fieldSelect = document.getElementById("isolate-field");
-    const valueSelect = document.getElementById("isolate-value");
-    if (!fieldSelect || !valueSelect) {
+    const combineSelect = document.getElementById("isolate-combine");
+    const rulesHost = document.getElementById("isolate-rules");
+    if (!combineSelect || !rulesHost) {
       return {
         active: false,
         available: false,
-        field: "",
-        fieldLabel: "",
-        value: "",
-        valueLabel: "",
+        combineMode: "all",
+        combineLabel: ISOLATE_COMBINE_LABEL.all,
+        clauses: [],
+        activeClauses: [],
+        expression: "",
       };
     }
+
+    isolateCombineMode = normalizeIsolateCombineMode(isolateCombineMode);
+    const combineOptionsHtml = ISOLATE_COMBINE_MODES
+      .map(([value, label]) => {
+        const selected = value === isolateCombineMode ? " selected" : "";
+        return '<option value="' + value + '"' + selected + ">" + esc(label) + "</option>";
+      })
+      .join("");
+    if (combineSelect.innerHTML !== combineOptionsHtml) {
+      combineSelect.innerHTML = combineOptionsHtml;
+    }
+    combineSelect.value = isolateCombineMode;
 
     const catalog = isolateFieldCatalog(records);
     if (!catalog.length) {
-      isolateField = "";
-      isolateValue = "";
-      fieldSelect.innerHTML = '<option value="">No isolate fields available</option>';
-      valueSelect.innerHTML = '<option value="">No values</option>';
+      isolateClauses = [];
+      rulesHost.innerHTML = '<p class="isolate-rule-empty">No isolate fields available in the current filtered run set.</p>';
       return {
         active: false,
         available: false,
-        field: "",
-        fieldLabel: "",
-        value: "",
-        valueLabel: "",
+        combineMode: isolateCombineMode,
+        combineLabel: ISOLATE_COMBINE_LABEL[isolateCombineMode] || ISOLATE_COMBINE_LABEL.all,
+        clauses: [],
+        activeClauses: [],
+        expression: "",
       };
     }
 
-    if (!catalog.some(entry => entry.field === isolateField)) {
-      isolateField = catalog[0].field;
-      isolateValue = "";
-    }
+    const normalizedClauses = normalizeIsolateClauseList(isolateClauses).map(clause => {
+      const selectedField = catalog.find(entry => entry.field === clause.field) || catalog[0];
+      const selectedValue = selectedField.values.find(entry => entry.key === clause.value) || null;
+      const normalizedValue = selectedValue ? selectedValue.key : "";
+      const operator = normalizeIsolateOperator(clause.operator);
+      return {
+        field: selectedField.field,
+        fieldLabel: selectedField.label,
+        operator,
+        operatorLabel: ISOLATE_OPERATOR_LABEL[operator] || "is",
+        value: normalizedValue,
+        valueLabel: selectedValue ? selectedValue.label : "",
+        values: selectedField.values,
+        active: Boolean(normalizedValue),
+      };
+    });
+    isolateClauses = normalizedClauses.map(clause => ({
+      field: clause.field,
+      operator: clause.operator,
+      value: clause.value,
+    }));
 
-    const fieldOptionsHtml = catalog
-      .map(entry => {
-        const selected = entry.field === isolateField ? " selected" : "";
-        return (
-          '<option value="' + esc(entry.field) + '"' + selected + ">" +
+    if (!normalizedClauses.length) {
+      rulesHost.innerHTML = '<p class="isolate-rule-empty">No isolate rules yet. Click <strong>Add rule</strong> to start.</p>';
+    } else {
+      const fieldOptionsHtml = catalog
+        .map(entry => (
+          '<option value="' + esc(entry.field) + '">' +
           esc(entry.label + " (" + entry.values.length + " values)") +
           "</option>"
-        );
-      })
-      .join("");
-    if (fieldSelect.innerHTML !== fieldOptionsHtml) {
-      fieldSelect.innerHTML = fieldOptionsHtml;
+        ))
+        .join("");
+      const operatorOptionsHtml = ISOLATE_OPERATORS
+        .map(([value, label]) => '<option value="' + value + '">' + esc(label) + "</option>")
+        .join("");
+      rulesHost.innerHTML = normalizedClauses
+        .map((clause, idx) => {
+          const valueOptionsHtml = [
+            '<option value="">Select value...</option>',
+            ...clause.values.map(entry => (
+              '<option value="' + esc(entry.key) + '">' +
+              esc(entry.label + " (" + entry.count + ")") +
+              "</option>"
+            )),
+          ].join("");
+          return (
+            '<div class="isolate-rule-row" data-rule-index="' + idx + '">' +
+              '<select class="isolate-rule-field" aria-label="Isolate field rule ' + (idx + 1) + '">' +
+                fieldOptionsHtml +
+              "</select>" +
+              '<select class="isolate-rule-operator" aria-label="Isolate logic rule ' + (idx + 1) + '">' +
+                operatorOptionsHtml +
+              "</select>" +
+              '<select class="isolate-rule-value" aria-label="Isolate value rule ' + (idx + 1) + '">' +
+                valueOptionsHtml +
+              "</select>" +
+              '<button class="isolate-rule-remove" data-rule-index="' + idx + '" type="button">Remove</button>' +
+            "</div>"
+          );
+        })
+        .join("");
+      Array.from(rulesHost.querySelectorAll(".isolate-rule-row")).forEach((row, idx) => {
+        const clause = normalizedClauses[idx];
+        if (!clause) return;
+        const fieldSelect = row.querySelector(".isolate-rule-field");
+        const operatorSelect = row.querySelector(".isolate-rule-operator");
+        const valueSelect = row.querySelector(".isolate-rule-value");
+        if (fieldSelect) fieldSelect.value = clause.field;
+        if (operatorSelect) operatorSelect.value = clause.operator;
+        if (valueSelect) valueSelect.value = clause.value;
+      });
     }
-    fieldSelect.value = isolateField;
 
-    const selectedField = catalog.find(entry => entry.field === isolateField) || catalog[0];
-    if (!selectedField.values.some(entry => entry.key === isolateValue)) {
-      isolateValue = "";
-    }
-    const valueOptionsHtml = [
-      '<option value="">Select value...</option>',
-      ...selectedField.values.map(entry => {
-        const selected = entry.key === isolateValue ? " selected" : "";
-        return (
-          '<option value="' + esc(entry.key) + '"' + selected + ">" +
-          esc(entry.label + " (" + entry.count + ")") +
-          "</option>"
-        );
-      }),
-    ].join("");
-    if (valueSelect.innerHTML !== valueOptionsHtml) {
-      valueSelect.innerHTML = valueOptionsHtml;
-    }
-    valueSelect.value = isolateValue;
-
-    const selectedValue = selectedField.values.find(entry => entry.key === isolateValue) || null;
-    const active = Boolean(selectedField.field && selectedValue);
+    const activeClauses = normalizedClauses.filter(clause => clause.active);
+    const active = activeClauses.length > 0;
+    const expression = isolateRulesExpression(activeClauses, isolateCombineMode);
     return {
       active,
       available: true,
-      field: selectedField.field,
-      fieldLabel: selectedField.label,
-      value: selectedValue ? selectedValue.key : "",
-      valueLabel: selectedValue ? selectedValue.label : "",
+      combineMode: isolateCombineMode,
+      combineLabel: ISOLATE_COMBINE_LABEL[isolateCombineMode] || ISOLATE_COMBINE_LABEL.all,
+      clauses: normalizedClauses,
+      activeClauses,
+      expression,
     };
+  }
+
+  function isolateClauseMatches(record, isolateClause) {
+    if (!isolateClause || !isolateClause.field || !isolateClause.value) return true;
+    const value = previousRunsFieldValue(record, isolateClause.field);
+    const actual = isolateComparableValue(value);
+    if (isolateClause.operator === "neq") {
+      return actual !== isolateClause.value;
+    }
+    return actual === isolateClause.value;
   }
 
   function isolateRecordMatches(record, isolateState) {
     if (!isolateState || !isolateState.active) return true;
-    const value = previousRunsFieldValue(record, isolateState.field);
-    return isolateComparableValue(value) === isolateState.value;
+    const clauses = Array.isArray(isolateState.activeClauses) ? isolateState.activeClauses : [];
+    if (!clauses.length) return true;
+    if (isolateState.combineMode === "any") {
+      return clauses.some(clause => isolateClauseMatches(record, clause));
+    }
+    return clauses.every(clause => isolateClauseMatches(record, clause));
   }
 
   function isolateNumericMean(records, fieldName) {
@@ -3957,9 +5310,18 @@ _JS = """\
       return;
     }
 
+    if (context.pausedByTable) {
+      status.textContent = "Table column filters currently control the results. Update Isolate For X to override.";
+      host.innerHTML =
+        "<p>Saved isolate rules are currently paused.</p>" +
+        "<p>Current isolate expression: " + esc(context.expression || "none") + ".</p>" +
+        "<p>Edit any isolate rule (or combine mode) to make isolate override table filters again.</p>";
+      return;
+    }
+
     if (!context.active) {
-      status.textContent = "Pick a field and value to isolate a slice.";
-      host.innerHTML = "<p>When active, this panel compares the isolated slice with all currently visible rows.</p>";
+      status.textContent = "Add one or more isolate rules, then pick values to isolate a slice.";
+      host.innerHTML = "<p>When active, this panel compares matching rows with all currently visible rows.</p>";
       return;
     }
 
@@ -3970,9 +5332,7 @@ _JS = """\
       : 0;
     status.textContent =
       "Isolating " +
-      context.fieldLabel +
-      " = " +
-      context.valueLabel +
+      (context.expression || "current rules") +
       ". " +
       isolatedRows.length +
       " / " +
@@ -3982,7 +5342,7 @@ _JS = """\
       "%).";
 
     if (!isolatedRows.length) {
-      host.innerHTML = "<p>No rows match this isolate selection after current filters.</p>";
+      host.innerHTML = "<p>No rows match the current isolate rules after current filters.</p>";
       return;
     }
 
@@ -4068,22 +5428,22 @@ _JS = """\
     });
     host.innerHTML =
       "<p>Baseline uses all currently visible rows before isolate filtering.</p>" +
+      "<p>Rule logic: match " + esc(context.combineLabel || "all rules") + ".</p>" +
       '<ul class="isolate-insight-list">' +
       uniqueBullets.map(line => "<li>" + esc(line) + "</li>").join("") +
       "</ul>";
   }
 
   function previousRunsRecordsMatchingOtherFilters(excludedField) {
-    const base = filteredBenchmarks();
+    const base = applyPreviousRunsQuickFilters(
+      filteredBenchmarks(),
+      { updateStatus: false },
+    ).records;
     const filters = activePreviousRunsColumnFilters()
       .filter(filter => filter.field !== excludedField);
     if (!filters.length) return base;
-    return base.filter(record => (
-      filters.every(filter => {
-        const value = previousRunsFieldValue(record, filter.field);
-        return evaluatePreviousRunsFilterOperator(value, filter.operator, filter.value);
-      })
-    ));
+    const grouped = groupPreviousRunsFiltersByField(filters);
+    return base.filter(record => recordMatchesPreviousRunsFilterGroups(record, grouped));
   }
 
   function previousRunsSuggestionValue(value) {
@@ -4154,6 +5514,209 @@ _JS = """\
     return scored.slice(0, PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT);
   }
 
+  function previousRunsPresetNames() {
+    return Object.keys(previousRunsViewPresets).sort((left, right) => (
+      String(left).localeCompare(String(right), undefined, { sensitivity: "base" })
+    ));
+  }
+
+  function setPreviousRunsPresetStatus(message, isError) {
+    const status = document.getElementById("previous-runs-preset-status");
+    if (!status) return;
+    status.textContent = String(message || "");
+    status.classList.toggle("error", Boolean(isError));
+  }
+
+  function renderPreviousRunsPresetEditor() {
+    const select = document.getElementById("previous-runs-preset-select");
+    if (!select) return;
+    const names = previousRunsPresetNames();
+    const selected = sanitizePreviousRunsPresetName(previousRunsSelectedPreset);
+    previousRunsSelectedPreset = names.includes(selected) ? selected : "";
+
+    select.innerHTML = "";
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "(none)";
+    select.appendChild(emptyOption);
+    names.forEach(name => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    });
+    select.value = previousRunsSelectedPreset;
+
+    const loadBtn = document.getElementById("previous-runs-preset-load");
+    if (loadBtn) loadBtn.disabled = !previousRunsSelectedPreset;
+    const deleteBtn = document.getElementById("previous-runs-preset-delete");
+    if (deleteBtn) deleteBtn.disabled = !previousRunsSelectedPreset;
+  }
+
+  function captureCurrentPreviousRunsPresetState() {
+    ensurePreviousRunsColumns();
+    const visibleColumns = previousRunsVisibleColumns
+      .map(fieldName => String(fieldName || "").trim())
+      .filter(Boolean);
+    const columnFilters = Object.create(null);
+    const columnFilterModes = Object.create(null);
+    Object.keys(previousRunsColumnFilters).forEach(fieldName => {
+      const clauses = previousRunsColumnFilterClauses(fieldName);
+      if (!clauses.length) return;
+      columnFilters[fieldName] = clauses.map(clause => ({
+        operator: clause.operator,
+        value: clause.value,
+      }));
+      columnFilterModes[fieldName] = previousRunsColumnFilterMode(fieldName);
+    });
+    const columnWidths = Object.create(null);
+    Object.keys(previousRunsColumnWidths).forEach(fieldName => {
+      const key = String(fieldName || "").trim();
+      if (!key) return;
+      const width = Number(previousRunsColumnWidths[fieldName]);
+      if (!Number.isFinite(width) || width <= 0) return;
+      columnWidths[key] = Math.max(72, width);
+    });
+    return sanitizePreviousRunsPresetState({
+      visible_columns: visibleColumns,
+      column_filters: columnFilters,
+      column_filter_modes: columnFilterModes,
+      quick_filters: {
+        exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
+        official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
+      },
+      column_widths: columnWidths,
+      sort: {
+        field: String(previousRunsSortField || "run_timestamp"),
+        direction: previousRunsSortDirection === "asc" ? "asc" : "desc",
+      },
+      isolate: {
+        mode: normalizeIsolateCombineMode(isolateCombineMode),
+        clauses: normalizeIsolateClauseList(isolateClauses),
+      },
+      filter_control_source: normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource),
+    });
+  }
+
+  function applyPreviousRunsPresetByName(rawName) {
+    const name = sanitizePreviousRunsPresetName(rawName);
+    if (!name) {
+      setPreviousRunsPresetStatus("Pick a preset first.", true);
+      return false;
+    }
+    if (!Object.prototype.hasOwnProperty.call(previousRunsViewPresets, name)) {
+      setPreviousRunsPresetStatus('Preset "' + name + '" was not found.', true);
+      return false;
+    }
+    const preset = sanitizePreviousRunsPresetState(previousRunsViewPresets[name]);
+    if (!preset) {
+      setPreviousRunsPresetStatus('Preset "' + name + '" is invalid.', true);
+      return false;
+    }
+
+    previousRunsSelectedPreset = name;
+    previousRunsVisibleColumns = preset.visible_columns.slice();
+    ensurePreviousRunsColumns();
+
+    const visibleSet = new Set(previousRunsVisibleColumns);
+    const nextColumnFilters = Object.create(null);
+    const nextColumnFilterModes = Object.create(null);
+    Object.keys(preset.column_filters).forEach(fieldName => {
+      if (!visibleSet.has(fieldName)) return;
+      const normalized = normalizePreviousRunsColumnFilterList(preset.column_filters[fieldName]);
+      if (!normalized.length) return;
+      nextColumnFilters[fieldName] = normalized;
+      nextColumnFilterModes[fieldName] = normalizePreviousRunsColumnFilterMode(
+        preset.column_filter_modes && preset.column_filter_modes[fieldName]
+      );
+    });
+    previousRunsColumnFilters = nextColumnFilters;
+    previousRunsColumnFilterModes = nextColumnFilterModes;
+
+    previousRunsQuickFilters.exclude_ai_tests = Boolean(preset.quick_filters.exclude_ai_tests);
+    previousRunsQuickFilters.official_full_golden_only = Boolean(
+      preset.quick_filters.official_full_golden_only
+    );
+    previousRunsSortField = String(preset.sort.field || "run_timestamp");
+    previousRunsSortDirection = preset.sort.direction === "asc" ? "asc" : "desc";
+    ensurePreviousRunsColumns();
+
+    previousRunsColumnWidths = sanitizeColumnWidthsMap(preset.column_widths);
+    clearDashboardTableColumnWidths("previous-runs-table");
+    Object.keys(previousRunsColumnWidths).forEach(fieldName => {
+      setDashboardTableColumnWidth(
+        "previous-runs-table",
+        fieldName,
+        previousRunsColumnWidths[fieldName]
+      );
+    });
+
+    isolateCombineMode = normalizeIsolateCombineMode(preset.isolate.mode);
+    isolateClauses = normalizeIsolateClauseList(preset.isolate.clauses);
+    previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(
+      preset.filter_control_source
+    );
+
+    closePreviousRunsColumnFilterEditor();
+    setupPreviousRunsQuickFilters();
+    renderPreviousRunsPresetEditor();
+    renderAll();
+    setPreviousRunsPresetStatus('Loaded preset "' + name + '".', false);
+    return true;
+  }
+
+  function saveCurrentPreviousRunsViewPreset(rawName) {
+    let name = sanitizePreviousRunsPresetName(rawName);
+    if (!name && typeof window !== "undefined" && typeof window.prompt === "function") {
+      name = sanitizePreviousRunsPresetName(
+        window.prompt("Preset name for current Previous Runs view:", previousRunsSelectedPreset || "")
+      );
+    }
+    if (!name) {
+      setPreviousRunsPresetStatus("Preset save cancelled (name is required).", true);
+      return false;
+    }
+    const names = previousRunsPresetNames();
+    const exists = Object.prototype.hasOwnProperty.call(previousRunsViewPresets, name);
+    if (!exists && names.length >= PREVIOUS_RUNS_PRESET_MAX_COUNT) {
+      setPreviousRunsPresetStatus(
+        "Preset limit reached (" + PREVIOUS_RUNS_PRESET_MAX_COUNT + "). Delete one first.",
+        true
+      );
+      return false;
+    }
+    const snapshot = captureCurrentPreviousRunsPresetState();
+    if (!snapshot) {
+      setPreviousRunsPresetStatus("Could not capture current view.", true);
+      return false;
+    }
+    previousRunsViewPresets[name] = snapshot;
+    previousRunsSelectedPreset = name;
+    renderPreviousRunsPresetEditor();
+    persistDashboardUiState();
+    setPreviousRunsPresetStatus(
+      (exists ? "Updated" : "Saved") + ' preset "' + name + '".',
+      false
+    );
+    return true;
+  }
+
+  function deletePreviousRunsPreset(rawName) {
+    const name = sanitizePreviousRunsPresetName(rawName);
+    if (!name || !Object.prototype.hasOwnProperty.call(previousRunsViewPresets, name)) {
+      setPreviousRunsPresetStatus("Pick an existing preset to delete.", true);
+      return false;
+    }
+    delete previousRunsViewPresets[name];
+    if (previousRunsSelectedPreset === name) {
+      previousRunsSelectedPreset = "";
+    }
+    renderPreviousRunsPresetEditor();
+    persistDashboardUiState();
+    setPreviousRunsPresetStatus('Deleted preset "' + name + '".', false);
+    return true;
+  }
+
   function setPreviousRunsColumnsPopupOpen(nextOpen) {
     previousRunsColumnsPopupOpen = Boolean(nextOpen);
     const popup = document.getElementById("previous-runs-columns-popup");
@@ -4210,11 +5773,57 @@ _JS = """\
           .filter(fieldName => previousRunsAvailableColumnFields().includes(fieldName));
         ensurePreviousRunsColumns();
         previousRunsColumnWidths = Object.create(null);
+        clearDashboardTableColumnWidths("previous-runs-table");
         renderPreviousRunsColumnEditor();
         renderPreviousRuns();
       });
       resetBtn.dataset.bound = "1";
     }
+
+    const presetSelect = document.getElementById("previous-runs-preset-select");
+    if (presetSelect && !presetSelect.dataset.bound) {
+      presetSelect.addEventListener("change", () => {
+        previousRunsSelectedPreset = sanitizePreviousRunsPresetName(presetSelect.value);
+        renderPreviousRunsPresetEditor();
+        persistDashboardUiState();
+      });
+      presetSelect.dataset.bound = "1";
+    }
+
+    const presetLoadBtn = document.getElementById("previous-runs-preset-load");
+    if (presetLoadBtn && !presetLoadBtn.dataset.bound) {
+      presetLoadBtn.addEventListener("click", () => {
+        const selectedName = sanitizePreviousRunsPresetName(
+          presetSelect ? presetSelect.value : previousRunsSelectedPreset
+        );
+        applyPreviousRunsPresetByName(selectedName);
+      });
+      presetLoadBtn.dataset.bound = "1";
+    }
+
+    const presetSaveCurrentBtn = document.getElementById("previous-runs-preset-save-current");
+    if (presetSaveCurrentBtn && !presetSaveCurrentBtn.dataset.bound) {
+      presetSaveCurrentBtn.addEventListener("click", () => {
+        const selectedName = sanitizePreviousRunsPresetName(
+          presetSelect ? presetSelect.value : previousRunsSelectedPreset
+        );
+        saveCurrentPreviousRunsViewPreset(selectedName);
+      });
+      presetSaveCurrentBtn.dataset.bound = "1";
+    }
+
+    const presetDeleteBtn = document.getElementById("previous-runs-preset-delete");
+    if (presetDeleteBtn && !presetDeleteBtn.dataset.bound) {
+      presetDeleteBtn.addEventListener("click", () => {
+        const selectedName = sanitizePreviousRunsPresetName(
+          presetSelect ? presetSelect.value : previousRunsSelectedPreset
+        );
+        deletePreviousRunsPreset(selectedName);
+      });
+      presetDeleteBtn.dataset.bound = "1";
+    }
+
+    renderPreviousRunsPresetEditor();
     setPreviousRunsColumnsPopupOpen(false);
   }
 
@@ -4394,7 +6003,13 @@ _JS = """\
   }
 
   function computePreviousRunsFilterResult() {
-    const allRecords = filteredBenchmarks();
+    const rawRecords = filteredBenchmarks();
+    const quickFiltered = applyPreviousRunsQuickFilters(rawRecords);
+    const allRecords = quickFiltered.records;
+    const quickFilterLabels = activePreviousRunsQuickFilterLabels(quickFiltered.context.enabled);
+    const quickFiltersText = quickFilterLabels.length ? quickFilterLabels.join("; ") : "none";
+    const filterControlSource = normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource);
+    previousRunsFilterControlSource = filterControlSource;
     if (!allRecords.length) {
       const emptyIsolateState = syncIsolateControls([]);
       const activeExpression = activePreviousRunsColumnFilters()
@@ -4404,10 +6019,13 @@ _JS = """\
         })
         .join("; ");
       updatePreviousRunsFilterStatus({
-        total: 0,
+        total: rawRecords.length,
         matched: 0,
         expression: activeExpression || "(none)",
+        quick_filters_text: quickFiltersText,
         isolate_text: "",
+        filter_control_source: filterControlSource,
+        isolate_has_rules: false,
         error: null,
       });
       renderIsolateInsightsPanel({
@@ -4415,45 +6033,56 @@ _JS = """\
         active: false,
         baselineRecords: [],
         isolatedRecords: [],
-        fieldLabel: "",
-        valueLabel: "",
+        combineLabel: emptyIsolateState.combineLabel || "all rules",
+        expression: "",
+        controlSource: filterControlSource,
+        pausedByTable: false,
       });
       return {
         records: [],
-        total: 0,
+        total: rawRecords.length,
         error: null,
       };
     }
 
     const compiled = compilePreviousRunsFilterPredicate();
-    const baselineRecords = compiled.error
+    const tableFilteredRecords = compiled.error
       ? allRecords
       : allRecords.filter(compiled.predicate);
-    const isolateState = syncIsolateControls(baselineRecords);
-    const matchedRecords = isolateState.active
-      ? baselineRecords.filter(record => isolateRecordMatches(record, isolateState))
-      : baselineRecords;
+    const isolateState = syncIsolateControls(allRecords);
+    const isolateFilteredRecords = isolateState.active
+      ? allRecords.filter(record => isolateRecordMatches(record, isolateState))
+      : allRecords;
+    const useIsolateControl = filterControlSource === "isolate";
+    const matchedRecords = useIsolateControl
+      ? isolateFilteredRecords
+      : tableFilteredRecords;
     updatePreviousRunsFilterStatus({
-      total: allRecords.length,
+      total: rawRecords.length,
       matched: matchedRecords.length,
       expression: compiled.expression,
+      quick_filters_text: quickFiltersText,
       isolate_text: isolateState.active
-        ? isolateState.fieldLabel + " = " + isolateState.valueLabel
+        ? (isolateState.expression || "")
         : "",
-      error: compiled.error,
+      filter_control_source: filterControlSource,
+      isolate_has_rules: isolateState.active,
+      error: useIsolateControl ? null : compiled.error,
     });
     renderIsolateInsightsPanel({
       available: isolateState.available,
-      active: isolateState.active,
-      baselineRecords,
-      isolatedRecords: matchedRecords,
-      fieldLabel: isolateState.fieldLabel,
-      valueLabel: isolateState.valueLabel,
+      active: useIsolateControl && isolateState.active,
+      baselineRecords: allRecords,
+      isolatedRecords: isolateFilteredRecords,
+      combineLabel: isolateState.combineLabel || "all rules",
+      expression: isolateState.expression || "",
+      controlSource: filterControlSource,
+      pausedByTable: !useIsolateControl && isolateState.active,
     });
     return {
       records: matchedRecords,
-      total: allRecords.length,
-      error: compiled.error,
+      total: rawRecords.length,
+      error: useIsolateControl ? null : compiled.error,
     };
   }
 
@@ -4480,17 +6109,19 @@ _JS = """\
       }
     }
 
+    const groupedFilters = groupPreviousRunsFiltersByField(filters);
+
     return {
-      predicate: record => (
-        filters.every(filter => {
-          const value = previousRunsFieldValue(record, filter.field);
-          return evaluatePreviousRunsFilterOperator(value, filter.operator, filter.value);
-        })
-      ),
-      expression: filters
-        .map(filter => {
-          const meta = previousRunsColumnMeta(filter.field);
-          return meta.label + " " + formatPreviousRunsColumnFilterSummary(filter.field, filter);
+      predicate: record => recordMatchesPreviousRunsFilterGroups(record, groupedFilters),
+      expression: groupedFilters
+        .map(group => {
+          const meta = previousRunsColumnMeta(group.field);
+          const mode = normalizePreviousRunsColumnFilterMode(group.mode);
+          const joinLabel = " " + String(PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL[mode] || mode).toUpperCase() + " ";
+          const clauseText = group.clauses
+            .map(clause => formatPreviousRunsColumnFilterSummary(group.field, clause))
+            .join(joinLabel);
+          return meta.label + " " + clauseText;
         })
         .join("; "),
       error: null,
@@ -4544,7 +6175,18 @@ _JS = """\
     if (fieldPath === "ai_model") return aiModelLabelForRecord(record);
     if (fieldPath === "ai_effort") return aiEffortLabelForRecord(record);
     if (fieldPath === "ai_model_effort") return aiModelEffortLabelForRecord(record);
-    if (fieldPath === "all_token_use") return maybeNumber(record && record.tokens_total);
+    if (fieldPath === "all_token_use") {
+      const tokensInput = maybeNumber(record && record.tokens_input);
+      const tokensCachedInput = maybeNumber(record && record.tokens_cached_input);
+      const tokensOutput = maybeNumber(record && record.tokens_output);
+      const tokensTotal = maybeNumber(record && record.tokens_total);
+      return previousRunsDiscountedTokenTotal(
+        tokensInput,
+        tokensCachedInput,
+        tokensOutput,
+        tokensTotal,
+      );
+    }
     if (fieldPath === "artifact_dir_basename") return basename(record.artifact_dir || "");
     if (fieldPath === "all_method_record") return isAllMethodBenchmarkRecord(record);
     if (fieldPath === "speed_suite_record") return isSpeedBenchmarkRecord(record);
@@ -4593,6 +6235,9 @@ _JS = """\
     const status = document.getElementById("previous-runs-filter-status");
     if (!status) return;
     const header = "Showing " + result.matched + " of " + result.total + " rows.";
+    const quickFiltersPart = result.quick_filters_text
+      ? " Quick filters: " + result.quick_filters_text + "."
+      : "";
     const activeFilters = activePreviousRunsColumnFilters();
     const filtersPart = activeFilters.length
       ? " Active filters: " + result.expression + "."
@@ -4600,11 +6245,21 @@ _JS = """\
     const isolatePart = result.isolate_text
       ? " Isolate: " + result.isolate_text + "."
       : " Isolate: none.";
+    const controlSource = normalizePreviousRunsFilterControlSource(result.filter_control_source);
+    const controlPart = controlSource === "isolate"
+      ? " Control: isolate overrides table filters."
+      : (
+        result.isolate_has_rules
+          ? " Control: table filters (isolate paused)."
+          : " Control: table filters."
+      );
     if (result.error) {
       status.textContent = (
         header +
+        quickFiltersPart +
         filtersPart +
         isolatePart +
+        controlPart +
         " Filter error: " +
         result.error +
         " (showing unfiltered rows)."
@@ -4612,7 +6267,7 @@ _JS = """\
       status.classList.add("filter-error");
       return;
     }
-    status.textContent = header + filtersPart + isolatePart;
+    status.textContent = header + quickFiltersPart + filtersPart + isolatePart + controlPart;
     status.classList.remove("filter-error");
   }
 
@@ -4624,6 +6279,87 @@ _JS = """\
     renderLatestRuntime();
     renderPerLabel();
     renderBoundary();
+    setupResizableDashboardTables();
+  }
+
+  function ensureResizableTableColgroup(table, columnCount) {
+    if (!(table instanceof HTMLTableElement) || columnCount <= 0) return [];
+    let colgroup = table.querySelector("colgroup");
+    if (!colgroup) {
+      colgroup = document.createElement("colgroup");
+      table.insertBefore(colgroup, table.firstChild);
+    }
+    while (colgroup.children.length < columnCount) {
+      colgroup.appendChild(document.createElement("col"));
+    }
+    while (colgroup.children.length > columnCount) {
+      colgroup.removeChild(colgroup.lastChild);
+    }
+    return Array.from(colgroup.querySelectorAll("col"));
+  }
+
+  function setupResizableDashboardTable(table, options) {
+    if (!(table instanceof HTMLTableElement)) return;
+    const tableKey = String((options && options.tableKey) || table.id || "").trim();
+    if (!tableKey) return;
+    let cells = Array.from(table.querySelectorAll("thead tr:first-child > th"));
+    if (!cells.length) {
+      const fallbackRow = table.querySelector("tbody tr");
+      if (fallbackRow) {
+        cells = Array.from(fallbackRow.querySelectorAll(":scope > th, :scope > td"));
+      }
+    }
+    if (!cells.length) return;
+    const cols = ensureResizableTableColgroup(table, cells.length);
+    if (!cols.length) return;
+    table.classList.add("dashboard-resizable-table");
+    cells.forEach((cell, index) => {
+      if (!(cell instanceof HTMLElement)) return;
+      const columnKey = "col_" + index;
+      const col = cols[index];
+      const persistedWidth = dashboardTableColumnWidth(tableKey, columnKey);
+      if (persistedWidth != null) {
+        col.style.width = persistedWidth + "px";
+      }
+
+      Array.from(cell.querySelectorAll(".dashboard-table-resize-handle")).forEach(handle => {
+        handle.remove();
+      });
+      const resizeHandle = document.createElement("span");
+      resizeHandle.className = "dashboard-table-resize-handle";
+      resizeHandle.setAttribute("aria-hidden", "true");
+      resizeHandle.draggable = false;
+      resizeHandle.addEventListener("mousedown", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startWidth = col.getBoundingClientRect().width || cell.getBoundingClientRect().width;
+        const minWidth = 72;
+        document.body.classList.add("dashboard-table-resizing");
+
+        const onMove = moveEvent => {
+          const nextWidth = Math.max(minWidth, startWidth + (moveEvent.clientX - startX));
+          col.style.width = nextWidth + "px";
+          setDashboardTableColumnWidth(tableKey, columnKey, nextWidth);
+        };
+
+        const onUp = () => {
+          document.body.classList.remove("dashboard-table-resizing");
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+          persistDashboardUiState();
+        };
+
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      });
+      cell.appendChild(resizeHandle);
+    });
+  }
+
+  function setupResizableDashboardTables() {
+    // Keep Per-Label Breakdown content-sized and clear previously persisted drag widths.
+    clearDashboardTableColumnWidths("per-label-table");
   }
 
   function latestPreferredBenchmarkRecord(records) {
@@ -5475,6 +7211,7 @@ _JS = """\
   }
 
   function renderPreviousRunsTableColumns(table, columns) {
+    const previousRunsTableKey = "previous-runs-table";
     const colgroup = table.querySelector("colgroup");
     const headerRow = table.querySelector("thead tr.previous-runs-header-row");
     const filterRow = table.querySelector("thead tr.previous-runs-active-filters-row");
@@ -5487,14 +7224,20 @@ _JS = """\
     spacerRow.innerHTML = "";
     columns.forEach(fieldName => {
       const meta = previousRunsColumnMeta(fieldName);
-      const filterState = previousRunsColumnFilterState(fieldName);
+      const filterClauses = previousRunsColumnFilterClauses(fieldName);
+      const hasActiveFilters = filterClauses.length > 0;
       const isEditorOpen = previousRunsOpenFilterField === fieldName;
       const draftState = currentPreviousRunsColumnFilterDraft(fieldName);
       const col = document.createElement("col");
       col.dataset.columnKey = fieldName;
-      const width = previousRunsColumnWidths[fieldName];
-      if (Number.isFinite(width)) {
-        col.style.width = Math.max(72, Number(width)) + "px";
+      const width = Number(previousRunsColumnWidths[fieldName]);
+      const persistedWidth = Number.isFinite(width)
+        ? Math.max(72, width)
+        : dashboardTableColumnWidth(previousRunsTableKey, fieldName);
+      if (persistedWidth != null) {
+        previousRunsColumnWidths[fieldName] = persistedWidth;
+        setDashboardTableColumnWidth(previousRunsTableKey, fieldName, persistedWidth);
+        col.style.width = persistedWidth + "px";
       }
       colgroup.appendChild(col);
 
@@ -5587,6 +7330,7 @@ _JS = """\
         const onMove = moveEvent => {
           const nextWidth = Math.max(minWidth, startWidth + (moveEvent.clientX - startX));
           previousRunsColumnWidths[fieldName] = nextWidth;
+          setDashboardTableColumnWidth(previousRunsTableKey, fieldName, nextWidth);
           th.style.width = nextWidth + "px";
           col.style.width = nextWidth + "px";
         };
@@ -5595,6 +7339,7 @@ _JS = """\
           document.body.classList.remove("previous-runs-resizing");
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          persistDashboardUiState();
         };
 
         window.addEventListener("mousemove", onMove);
@@ -5612,9 +7357,32 @@ _JS = """\
       summaryWrap.className = "previous-runs-column-filter-summary-wrap";
       const summary = document.createElement("div");
       summary.className = "previous-runs-column-filter-summary";
-      if (filterState.active) {
+      if (hasActiveFilters) {
         summary.classList.add("filter-active");
-        summary.textContent = formatPreviousRunsColumnFilterSummary(fieldName, filterState);
+        const mode = previousRunsColumnFilterMode(fieldName);
+        const joinLabel = String(PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL[mode] || mode).toUpperCase();
+        filterClauses.forEach((clause, clauseIndex) => {
+          const summaryItem = document.createElement("div");
+          summaryItem.className = "previous-runs-column-filter-summary-item";
+          const summaryText = document.createElement("span");
+          const prefix = clauseIndex > 0 ? joinLabel + " " : "";
+          summaryText.textContent = prefix + formatPreviousRunsColumnFilterSummary(fieldName, clause);
+          summaryItem.appendChild(summaryText);
+          const summaryRemoveBtn = document.createElement("button");
+          summaryRemoveBtn.type = "button";
+          summaryRemoveBtn.className = "previous-runs-column-filter-summary-remove";
+          summaryRemoveBtn.textContent = "×";
+          summaryRemoveBtn.setAttribute("aria-label", "Remove filter " + String(clauseIndex + 1));
+          summaryRemoveBtn.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            removePreviousRunsColumnFilterAt(fieldName, clauseIndex);
+            previousRunsFilterControlSource = "table";
+            renderAll();
+          });
+          summaryItem.appendChild(summaryRemoveBtn);
+          summary.appendChild(summaryItem);
+        });
       } else {
         summary.textContent = "No filter";
       }
@@ -5623,7 +7391,7 @@ _JS = """\
       const toggleBtn = document.createElement("button");
       toggleBtn.type = "button";
       toggleBtn.className = "previous-runs-column-filter-toggle";
-      if (filterState.active) {
+      if (hasActiveFilters) {
         toggleBtn.classList.add("filter-active");
       }
       toggleBtn.textContent = isEditorOpen ? "−" : "+";
@@ -5646,11 +7414,70 @@ _JS = """\
       if (isEditorOpen) {
         const popover = document.createElement("div");
         popover.className = "previous-runs-column-filter-popover";
+        const columnMode = previousRunsColumnFilterMode(fieldName);
 
         const popoverTitle = document.createElement("div");
         popoverTitle.className = "previous-runs-column-filter-popover-title";
         popoverTitle.textContent = (meta.label || fieldName) + " filter";
         popover.appendChild(popoverTitle);
+
+        const modeWrap = document.createElement("div");
+        modeWrap.className = "previous-runs-column-filter-mode";
+        const modeLabel = document.createElement("span");
+        modeLabel.className = "previous-runs-column-filter-mode-label";
+        modeLabel.textContent = "Stack mode";
+        modeWrap.appendChild(modeLabel);
+        const modeButtons = document.createElement("div");
+        modeButtons.className = "previous-runs-column-filter-mode-buttons";
+        PREVIOUS_RUNS_COLUMN_FILTER_MODES.forEach(([modeValue, modeLabelText]) => {
+          const modeBtn = document.createElement("button");
+          modeBtn.type = "button";
+          modeBtn.className = "previous-runs-column-filter-mode-btn";
+          modeBtn.textContent = modeLabelText;
+          if (modeValue === columnMode) {
+            modeBtn.classList.add("active");
+          }
+          modeBtn.disabled = !hasActiveFilters;
+          modeBtn.addEventListener("click", () => {
+            if (!hasActiveFilters) return;
+            setPreviousRunsColumnFilterMode(fieldName, modeValue);
+            previousRunsFilterControlSource = "table";
+            renderAll();
+          });
+          modeButtons.appendChild(modeBtn);
+        });
+        modeWrap.appendChild(modeButtons);
+        popover.appendChild(modeWrap);
+
+        const activeList = document.createElement("div");
+        activeList.className = "previous-runs-column-filter-active-list";
+        if (hasActiveFilters) {
+          filterClauses.forEach((clause, clauseIndex) => {
+            const row = document.createElement("div");
+            row.className = "previous-runs-column-filter-active-item";
+            const text = document.createElement("span");
+            text.textContent = formatPreviousRunsColumnFilterSummary(fieldName, clause);
+            row.appendChild(text);
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.className = "previous-runs-column-filter-active-remove";
+            removeBtn.textContent = "×";
+            removeBtn.setAttribute("aria-label", "Remove filter " + String(clauseIndex + 1));
+            removeBtn.addEventListener("click", () => {
+              removePreviousRunsColumnFilterAt(fieldName, clauseIndex);
+              previousRunsFilterControlSource = "table";
+              renderAll();
+            });
+            row.appendChild(removeBtn);
+            activeList.appendChild(row);
+          });
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "previous-runs-column-filter-active-empty";
+          empty.textContent = "No active filters yet.";
+          activeList.appendChild(empty);
+        }
+        popover.appendChild(activeList);
 
         const controls = document.createElement("div");
         controls.className = "previous-runs-column-filter-popover-controls";
@@ -5708,7 +7535,7 @@ _JS = """\
         function renderSuggestionList() {
           const operatorValue = String(operatorSelect.value || "contains");
           const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(operatorValue);
-          if (unary) {
+          if (unary || meta.numeric) {
             suggestionWrap.hidden = true;
             valueInput.dataset.topSuggestion = "";
             suggestionList.innerHTML = "";
@@ -5750,7 +7577,8 @@ _JS = """\
         }
 
         function applyFilterAndClose() {
-          setPreviousRunsColumnFilter(fieldName, operatorSelect.value || "contains", valueInput.value || "");
+          addPreviousRunsColumnFilter(fieldName, operatorSelect.value || "contains", valueInput.value || "");
+          previousRunsFilterControlSource = "table";
           closePreviousRunsColumnFilterEditor();
           renderAll();
         }
@@ -5804,9 +7632,10 @@ _JS = """\
         clearBtn.type = "button";
         clearBtn.className = "previous-runs-column-filter-clear";
         clearBtn.textContent = "Clear";
-        clearBtn.disabled = !filterState.active;
+        clearBtn.disabled = !hasActiveFilters;
         clearBtn.addEventListener("click", () => {
           clearPreviousRunsColumnFilter(fieldName);
+          previousRunsFilterControlSource = "table";
           closePreviousRunsColumnFilterEditor();
           renderAll();
         });
@@ -5858,7 +7687,14 @@ _JS = """\
       if (fieldName === "ai_model") return row.ai_model || "-";
       if (fieldName === "ai_effort") return row.ai_effort || "-";
       if (fieldName === "ai_model_effort") return row.ai_model_effort || "-";
-      if (fieldName === "all_token_use") return maybeNumber(row.tokens_total);
+      if (fieldName === "all_token_use") {
+        return previousRunsDiscountedTokenTotal(
+          maybeNumber(row.tokens_input),
+          maybeNumber(row.tokens_cached_input),
+          maybeNumber(row.tokens_output),
+          maybeNumber(row.tokens_total),
+        );
+      }
       if (fieldName === "artifact_dir") return row.href || "";
       if (Object.prototype.hasOwnProperty.call(row, fieldName)) {
         return row[fieldName];
@@ -5873,30 +7709,79 @@ _JS = """\
     if (fieldName === "ai_model") return aiModelLabelForRecord(record);
     if (fieldName === "ai_effort") return aiEffortLabelForRecord(record);
     if (fieldName === "ai_model_effort") return aiModelEffortLabelForRecord(record);
-    if (fieldName === "all_token_use") return maybeNumber(record.tokens_total);
+    if (fieldName === "all_token_use") {
+      return previousRunsDiscountedTokenTotal(
+        maybeNumber(record.tokens_input),
+        maybeNumber(record.tokens_cached_input),
+        maybeNumber(record.tokens_output),
+        maybeNumber(record.tokens_total),
+      );
+    }
     if (fieldName === "artifact_dir") return record.artifact_dir || "";
     return previousRunsFieldValue(record, fieldName);
+  }
+
+  function previousRunsDiscountedTokenTotal(tokensInput, tokensCachedInput, tokensOutput, tokensTotal) {
+    const input = maybeNumber(tokensInput);
+    const cached = maybeNumber(tokensCachedInput);
+    const output = maybeNumber(tokensOutput);
+    const rawTotal = maybeNumber(tokensTotal);
+    if (input == null && cached == null && output == null) {
+      return rawTotal;
+    }
+
+    let effectiveInput = input != null ? input : 0;
+    if (cached != null) {
+      if (input != null) {
+        effectiveInput = Math.max(0, input - cached) + (cached * 0.1);
+      } else {
+        effectiveInput = cached * 0.1;
+      }
+    }
+    const effectiveOutput = output != null ? output : 0;
+    return effectiveInput + effectiveOutput;
   }
 
   function previousRunsTokenPartsForRow(row) {
     if (row.type === "all_method") {
       return {
-        total: maybeNumber(row.tokens_total),
+        total: previousRunsDiscountedTokenTotal(
+          maybeNumber(row.tokens_input),
+          maybeNumber(row.tokens_cached_input),
+          maybeNumber(row.tokens_output),
+          maybeNumber(row.tokens_total),
+        ),
         input: maybeNumber(row.tokens_input),
+        cached_input: maybeNumber(row.tokens_cached_input),
         output: maybeNumber(row.tokens_output),
+        raw_total: maybeNumber(row.tokens_total),
       };
     }
     const record = row.record || null;
     return {
-      total: maybeNumber(record && record.tokens_total),
+      total: previousRunsDiscountedTokenTotal(
+        maybeNumber(record && record.tokens_input),
+        maybeNumber(record && record.tokens_cached_input),
+        maybeNumber(record && record.tokens_output),
+        maybeNumber(record && record.tokens_total),
+      ),
       input: maybeNumber(record && record.tokens_input),
+      cached_input: maybeNumber(record && record.tokens_cached_input),
       output: maybeNumber(record && record.tokens_output),
+      raw_total: maybeNumber(record && record.tokens_total),
     };
   }
 
   function formatTokenCount(value) {
     if (value == null || !Number.isFinite(value)) return "-";
-    return Math.round(value).toLocaleString("en-US");
+    const rounded = Math.round(value);
+    if (Math.abs(value - rounded) < 1e-9) {
+      return rounded.toLocaleString("en-US");
+    }
+    return value.toLocaleString("en-US", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
   }
 
   function previousRunsAllTokenUseDisplay(row) {
@@ -5916,14 +7801,23 @@ _JS = """\
 
   function previousRunsAllTokenUseTitle(row) {
     const parts = previousRunsTokenPartsForRow(row);
-    if (parts.total == null && parts.input == null && parts.output == null) {
+    if (
+      parts.total == null &&
+      parts.input == null &&
+      parts.cached_input == null &&
+      parts.output == null
+    ) {
       return "";
     }
     return (
-      "total=" +
+      "discounted_total=" +
       formatTokenCount(parts.total) +
+      " (cached input at 0.1x), raw_total=" +
+      formatTokenCount(parts.raw_total) +
       ", input=" +
       formatTokenCount(parts.input) +
+      ", cached_input=" +
+      formatTokenCount(parts.cached_input) +
       ", output=" +
       formatTokenCount(parts.output)
     );
@@ -6062,6 +7956,7 @@ _JS = """\
         : "No benchmark rows match the current Previous Runs filters.";
       const colspan = Math.max(1, visibleColumns.length);
       tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="empty-note-cell">' + esc(emptyMessage) + "</td></tr>";
+      persistDashboardUiState();
       return;
     }
 
@@ -6260,6 +8155,8 @@ _JS = """\
                 recipesN: 0,
                 tokensInputSum: 0,
                 tokensInputN: 0,
+                tokensCachedInputSum: 0,
+                tokensCachedInputN: 0,
                 tokensOutputSum: 0,
                 tokensOutputN: 0,
                 tokensTotalSum: 0,
@@ -6290,6 +8187,7 @@ _JS = """\
           if (r.gold_matched != null) { agg.goldMatchedSum += Number(r.gold_matched); agg.goldMatchedN += 1; }
           if (r.recipes != null) { agg.recipesSum += Number(r.recipes); agg.recipesN += 1; }
           if (r.tokens_input != null) { agg.tokensInputSum += Number(r.tokens_input); agg.tokensInputN += 1; }
+          if (r.tokens_cached_input != null) { agg.tokensCachedInputSum += Number(r.tokens_cached_input); agg.tokensCachedInputN += 1; }
           if (r.tokens_output != null) { agg.tokensOutputSum += Number(r.tokens_output); agg.tokensOutputN += 1; }
           if (r.tokens_total != null) { agg.tokensTotalSum += Number(r.tokens_total); agg.tokensTotalN += 1; }
         });
@@ -6313,6 +8211,7 @@ _JS = """\
           gold_matched: agg.goldMatchedN ? agg.goldMatchedSum : null,
           recipes: agg.recipesN ? agg.recipesSum : null,
           tokens_input: agg.tokensInputN ? agg.tokensInputSum : null,
+          tokens_cached_input: agg.tokensCachedInputN ? agg.tokensCachedInputSum : null,
           tokens_output: agg.tokensOutputN ? agg.tokensOutputSum : null,
           tokens_total: agg.tokensTotalN ? agg.tokensTotalSum : null,
           importer_name: importer,
@@ -6356,6 +8255,7 @@ _JS = """\
         gold_matched: best ? best.gold_matched : null,
         recipes: best ? best.recipes : null,
         tokens_input: best ? best.tokens_input : null,
+        tokens_cached_input: best ? best.tokens_cached_input : null,
         tokens_output: best ? best.tokens_output : null,
         tokens_total: best ? best.tokens_total : null,
         source: sourceSummary,
@@ -6384,52 +8284,14 @@ _JS = """\
       });
       tbody.appendChild(tr);
     });
+    persistDashboardUiState();
   }
 
   // ---- Per-label section ----
-  function renderPerLabel() {
-    const records = filteredBenchmarks();
-    const section = document.getElementById("per-label-section");
-    if (!section) return;
-    if (records.length === 0) {
-      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No benchmark records with per-label data.</p>';
-      return;
-    }
-    const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
-    const nonSpeed = sorted.filter(r =>
-      !isSpeedBenchmarkRecord(r)
-    );
-    const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;
-    const latestAllMethodRecords = preferredRecords.filter(r =>
-      isAllMethodBenchmarkRecord(r) &&
-      r.per_label &&
-      r.per_label.length > 0
-    );
-    const candidateRecords = latestAllMethodRecords.length > 0
-      ? latestAllMethodRecords
-      : preferredRecords.filter(r => r.per_label && r.per_label.length > 0);
-    const latestWithPerLabel = candidateRecords.length ? candidateRecords[0] : null;
-    if (!latestWithPerLabel) {
-      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in benchmark records.</p>';
-      return;
-    }
-    const latestRunTimestamp = String(latestWithPerLabel.run_timestamp || "");
-    const latestRunRecords = candidateRecords.filter(r =>
-      String(r.run_timestamp || "") === latestRunTimestamp &&
-      r.per_label &&
-      r.per_label.length > 0
-    );
-    if (!latestRunRecords.length) {
-      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in latest benchmark records.</p>';
-      return;
-    }
-    section.querySelector("h2").textContent =
-      "Per-Label Breakdown (" + esc(latestRunTimestamp || "latest") + ", " + latestRunRecords.length + " evals)";
-    const tbody = document.querySelector("#per-label-table tbody");
-    tbody.innerHTML = "";
+  function aggregatePerLabelRows(records) {
     const byLabel = Object.create(null);
-    latestRunRecords.forEach(record => {
-      const labels = Array.isArray(record.per_label) ? record.per_label : [];
+    (records || []).forEach(record => {
+      const labels = Array.isArray(record && record.per_label) ? record.per_label : [];
       labels.forEach(lbl => {
         const label = String(lbl.label || "").trim();
         if (!label) return;
@@ -6467,7 +8329,7 @@ _JS = """\
       });
     });
 
-    const rows = Object.values(byLabel)
+    return Object.values(byLabel)
       .map(agg => {
         const goldTotal = agg.has_gold ? agg.gold_total : null;
         const predTotal = agg.has_pred ? agg.pred_total : null;
@@ -6496,13 +8358,160 @@ _JS = """\
         };
       })
       .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  }
 
-    rows.forEach(lbl => {
+  function perLabelRowsByLabel(rows) {
+    const mapping = Object.create(null);
+    (rows || []).forEach(row => {
+      const label = String((row && row.label) || "").trim();
+      if (!label) return;
+      mapping[label] = row;
+    });
+    return mapping;
+  }
+
+  function rollingPerLabelByVariant(records, variant, windowSize) {
+    const byRunTimestamp = Object.create(null);
+    (records || []).forEach(record => {
+      if (!record) return;
+      if (benchmarkVariantForRecord(record) !== variant) return;
+      const ts = String(record.run_timestamp || "").trim();
+      if (!ts) return;
+      if (!Array.isArray(record.per_label) || !record.per_label.length) return;
+      if (!byRunTimestamp[ts]) byRunTimestamp[ts] = [];
+      byRunTimestamp[ts].push(record);
+    });
+
+    const recentRunTimestamps = Object.keys(byRunTimestamp)
+      .sort(compareRunTimestampDesc)
+      .slice(0, windowSize);
+    const valuesByLabel = Object.create(null);
+    recentRunTimestamps.forEach(ts => {
+      const runRows = aggregatePerLabelRows(byRunTimestamp[ts]);
+      runRows.forEach(row => {
+        const label = row.label;
+        if (!valuesByLabel[label]) {
+          valuesByLabel[label] = {
+            precision_values: [],
+            recall_values: [],
+          };
+        }
+        if (row.precision != null && Number.isFinite(row.precision)) {
+          valuesByLabel[label].precision_values.push(Number(row.precision));
+        }
+        if (row.recall != null && Number.isFinite(row.recall)) {
+          valuesByLabel[label].recall_values.push(Number(row.recall));
+        }
+      });
+    });
+
+    const out = Object.create(null);
+    Object.keys(valuesByLabel).forEach(label => {
+      const entry = valuesByLabel[label];
+      out[label] = {
+        precision: entry.precision_values.length ? mean(entry.precision_values) : null,
+        recall: entry.recall_values.length ? mean(entry.recall_values) : null,
+      };
+    });
+    return out;
+  }
+
+  function latestRunGroupRecords(records, hasData) {
+    const latestRecord = (records || []).find(record => record && hasData(record));
+    if (!latestRecord) {
+      return {
+        runGroupLabel: "",
+        records: [],
+      };
+    }
+    const latestRunGroup = benchmarkRunGroupInfo(latestRecord);
+    const latestRunGroupKey = String((latestRunGroup && latestRunGroup.runGroupKey) || "").trim();
+    const latestRunGroupLabel = String(
+      (latestRunGroup && latestRunGroup.runGroupLabel) || latestRecord.run_timestamp || ""
+    ).trim();
+    const latestRunRecords = (records || []).filter(record => {
+      if (!record || !hasData(record)) return false;
+      const recordRunGroup = benchmarkRunGroupInfo(record);
+      return String((recordRunGroup && recordRunGroup.runGroupKey) || "").trim() === latestRunGroupKey;
+    });
+    return {
+      runGroupLabel: latestRunGroupLabel,
+      records: latestRunRecords,
+    };
+  }
+
+  function renderPerLabel() {
+    const records = filteredBenchmarks();
+    const section = document.getElementById("per-label-section");
+    if (!section) return;
+    if (records.length === 0) {
+      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No benchmark records with per-label data.</p>';
+      return;
+    }
+    const sorted = [...records].sort((a, b) => compareRunTimestampDesc(a.run_timestamp, b.run_timestamp));
+    const nonSpeed = sorted.filter(r =>
+      !isSpeedBenchmarkRecord(r)
+    );
+    const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;
+    const latestAllMethodRecords = preferredRecords.filter(r =>
+      isAllMethodBenchmarkRecord(r) &&
+      r.per_label &&
+      r.per_label.length > 0
+    );
+    const candidateRecords = latestAllMethodRecords.length > 0
+      ? latestAllMethodRecords
+      : preferredRecords.filter(r => r.per_label && r.per_label.length > 0);
+    const latestRunGroup = latestRunGroupRecords(
+      candidateRecords,
+      record => Array.isArray(record.per_label) && record.per_label.length > 0,
+    );
+    const latestRunRecords = latestRunGroup.records;
+    const latestRunLabel = latestRunGroup.runGroupLabel;
+    if (!latestRunRecords.length) {
+      section.innerHTML = '<h2>Per-Label Breakdown</h2><p class="empty-note">No per-label metrics available in benchmark records.</p>';
+      return;
+    }
+    section.querySelector("h2").textContent =
+      "Per-Label Breakdown (" + esc(latestRunLabel || "latest") + ", " + latestRunRecords.length + " evals)";
+    const tbody = document.querySelector("#per-label-table tbody");
+    tbody.innerHTML = "";
+    const rollingWindowSize = 10;
+    const runCodexFarmRows = aggregatePerLabelRows(
+      latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "codexfarm")
+    );
+    const runVanillaRows = aggregatePerLabelRows(
+      latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "vanilla")
+    );
+    const latestRows = aggregatePerLabelRows(latestRunRecords);
+    const runCodexFarmByLabel = perLabelRowsByLabel(runCodexFarmRows);
+    const runVanillaByLabel = perLabelRowsByLabel(runVanillaRows);
+    const rollingCodexFarmByLabel = rollingPerLabelByVariant(
+      candidateRecords,
+      "codexfarm",
+      rollingWindowSize,
+    );
+    const rollingVanillaByLabel = rollingPerLabelByVariant(
+      candidateRecords,
+      "vanilla",
+      rollingWindowSize,
+    );
+
+    latestRows.forEach(lbl => {
+      const runCodexFarm = runCodexFarmByLabel[lbl.label] || {};
+      const runVanilla = runVanillaByLabel[lbl.label] || {};
+      const rollingCodexFarm = rollingCodexFarmByLabel[lbl.label] || {};
+      const rollingVanilla = rollingVanillaByLabel[lbl.label] || {};
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(lbl.label) + '</td>' +
-        '<td class="num">' + fmt4(lbl.precision) + '</td>' +
-        '<td class="num">' + fmt4(lbl.recall) + '</td>' +
+        '<td class="num">' + fmt4(runCodexFarm.precision) + '</td>' +
+        '<td class="num">' + fmt4(runCodexFarm.recall) + '</td>' +
+        '<td class="num">' + fmt4(runVanilla.precision) + '</td>' +
+        '<td class="num">' + fmt4(runVanilla.recall) + '</td>' +
+        '<td class="num">' + fmt4(rollingCodexFarm.precision) + '</td>' +
+        '<td class="num">' + fmt4(rollingCodexFarm.recall) + '</td>' +
+        '<td class="num">' + fmt4(rollingVanilla.precision) + '</td>' +
+        '<td class="num">' + fmt4(rollingVanilla.recall) + '</td>' +
         '<td class="num">' + (lbl.gold_total != null ? Math.round(lbl.gold_total) : "-") + '</td>' +
         '<td class="num">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>';
       tbody.appendChild(tr);
@@ -6523,21 +8532,150 @@ _JS = """\
       !isSpeedBenchmarkRecord(r)
     );
     const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;
-    const latest = preferredRecords.find(r => r.boundary_correct != null || r.boundary_over != null || r.boundary_under != null || r.boundary_partial != null);
-    if (!latest) {
+    const hasBoundaryMetrics = function(record) {
+      return (
+        record.boundary_correct != null ||
+        record.boundary_over != null ||
+        record.boundary_under != null ||
+        record.boundary_partial != null
+      );
+    };
+    const latestAllMethodRecords = preferredRecords.filter(r =>
+      isAllMethodBenchmarkRecord(r) &&
+      hasBoundaryMetrics(r)
+    );
+    const candidateRecords = latestAllMethodRecords.length > 0
+      ? latestAllMethodRecords
+      : preferredRecords.filter(hasBoundaryMetrics);
+    const latestRunGroup = latestRunGroupRecords(candidateRecords, hasBoundaryMetrics);
+    const latestRunRecords = latestRunGroup.records;
+    const latestRunLabel = latestRunGroup.runGroupLabel;
+    if (!latestRunRecords.length) {
       section.innerHTML = '<h2>Boundary Classification</h2><p class="empty-note">No boundary data available in benchmark records.</p>';
       return;
     }
-    section.querySelector("h2").textContent = "Boundary Classification (" + esc(latest.run_timestamp || "latest") + ")";
+    section.querySelector("h2").textContent =
+      "Boundary Classification (" + esc(latestRunLabel || "latest") + ", " + latestRunRecords.length + " evals)";
     const div = document.getElementById("boundary-summary");
-    const total = (latest.boundary_correct || 0) + (latest.boundary_over || 0) + (latest.boundary_under || 0) + (latest.boundary_partial || 0);
-    const pct = function(v) { return total > 0 ? ((v || 0) / total * 100).toFixed(1) + "%" : "-"; };
+    const boundary = {
+      correct: 0,
+      over: 0,
+      under: 0,
+      partial: 0,
+      has_correct: false,
+      has_over: false,
+      has_under: false,
+      has_partial: false,
+    };
+    const coverage = {
+      gold_total: 0,
+      gold_matched: 0,
+      pred_total: 0,
+      has_gold_total: false,
+      has_gold_matched: false,
+      has_pred_total: false,
+    };
+    latestRunRecords.forEach(record => {
+      const correct = maybeNumber(record.boundary_correct);
+      const over = maybeNumber(record.boundary_over);
+      const under = maybeNumber(record.boundary_under);
+      const partial = maybeNumber(record.boundary_partial);
+      const goldTotal = maybeNumber(record.gold_total);
+      const goldMatched = maybeNumber(record.gold_matched);
+      const predTotal = maybeNumber(record.pred_total);
+
+      if (correct != null) {
+        boundary.correct += correct;
+        boundary.has_correct = true;
+      }
+      if (over != null) {
+        boundary.over += over;
+        boundary.has_over = true;
+      }
+      if (under != null) {
+        boundary.under += under;
+        boundary.has_under = true;
+      }
+      if (partial != null) {
+        boundary.partial += partial;
+        boundary.has_partial = true;
+      }
+      if (goldTotal != null) {
+        coverage.gold_total += goldTotal;
+        coverage.has_gold_total = true;
+      }
+      if (goldMatched != null) {
+        coverage.gold_matched += goldMatched;
+        coverage.has_gold_matched = true;
+      }
+      if (predTotal != null) {
+        coverage.pred_total += predTotal;
+        coverage.has_pred_total = true;
+      }
+    });
+
+    const valueOrNull = function(value, hasValue) {
+      return hasValue ? Math.round(value) : null;
+    };
+    const boundaryCorrect = valueOrNull(boundary.correct, boundary.has_correct);
+    const boundaryOver = valueOrNull(boundary.over, boundary.has_over);
+    const boundaryUnder = valueOrNull(boundary.under, boundary.has_under);
+    const boundaryPartial = valueOrNull(boundary.partial, boundary.has_partial);
+    const classifiedMatchedTotal = (boundaryCorrect || 0) + (boundaryOver || 0) + (boundaryUnder || 0) + (boundaryPartial || 0);
+    const goldTotal = coverage.has_gold_total ? Math.max(0, Math.round(coverage.gold_total)) : null;
+    const matchedGold = coverage.has_gold_matched ? Math.max(0, Math.round(coverage.gold_matched)) : null;
+    const matchedButUnclassified = (
+      matchedGold != null
+        ? Math.max(0, matchedGold - classifiedMatchedTotal)
+        : null
+    );
+    const unmatchedGold = (
+      goldTotal != null
+        ? Math.max(
+          0,
+          goldTotal - (matchedGold != null ? matchedGold : classifiedMatchedTotal)
+        )
+        : null
+    );
+    const pctGold = function(v) {
+      return goldTotal != null && goldTotal > 0 ? ((v || 0) / goldTotal * 100).toFixed(1) + "%" : "-";
+    };
+
+    const contextParts = [];
+    if (coverage.has_gold_total && coverage.has_gold_matched && coverage.gold_total > 0) {
+      const recallPct = (coverage.gold_matched / coverage.gold_total * 100).toFixed(1);
+      contextParts.push(
+        "Coverage: " + Math.round(coverage.gold_matched) + "/" + Math.round(coverage.gold_total) + " matched gold spans (" + recallPct + "%)."
+      );
+    }
+    if (
+      coverage.has_pred_total &&
+      coverage.has_gold_matched &&
+      coverage.pred_total > 0 &&
+      Math.round(coverage.pred_total) !== Math.round(coverage.gold_total || -1)
+    ) {
+      const precisionPct = (coverage.gold_matched / coverage.pred_total * 100).toFixed(1);
+      contextParts.push(
+        "Matched predictions: " + Math.round(coverage.gold_matched) + "/" + Math.round(coverage.pred_total) + " (" + precisionPct + "%)."
+      );
+    }
+    const contextHtml = contextParts.length
+      ? '<p class="section-note">' + esc(contextParts.join(" ")) + '</p>'
+      : "";
+
     div.innerHTML =
-      '<table><thead><tr><th>Category</th><th>Count</th><th>%</th></tr></thead><tbody>' +
-      '<tr><td title="Prediction span matches gold boundaries exactly.">Correct</td><td class="num">' + (latest.boundary_correct != null ? latest.boundary_correct : "-") + '</td><td class="num">' + pct(latest.boundary_correct) + '</td></tr>' +
-      '<tr><td title="Prediction fully contains the gold span (too wide).">Over-segmented</td><td class="num">' + (latest.boundary_over != null ? latest.boundary_over : "-") + '</td><td class="num">' + pct(latest.boundary_over) + '</td></tr>' +
-      '<tr><td title="Prediction is fully inside the gold span (too narrow).">Under-segmented</td><td class="num">' + (latest.boundary_under != null ? latest.boundary_under : "-") + '</td><td class="num">' + pct(latest.boundary_under) + '</td></tr>' +
-      '<tr><td title="Prediction overlaps but boundaries are misaligned.">Partial</td><td class="num">' + (latest.boundary_partial != null ? latest.boundary_partial : "-") + '</td><td class="num">' + pct(latest.boundary_partial) + '</td></tr>' +
+      contextHtml +
+      '<table id="boundary-table"><thead><tr><th>Category</th><th>Count</th><th>% of gold</th></tr></thead><tbody>' +
+      '<tr><td title="Prediction span matches gold boundaries exactly.">Correct</td><td class="num">' + (boundaryCorrect != null ? boundaryCorrect : "-") + '</td><td class="num">' + pctGold(boundaryCorrect) + '</td></tr>' +
+      '<tr><td title="Prediction fully contains the gold span (too wide).">Over-segmented</td><td class="num">' + (boundaryOver != null ? boundaryOver : "-") + '</td><td class="num">' + pctGold(boundaryOver) + '</td></tr>' +
+      '<tr><td title="Prediction is fully inside the gold span (too narrow).">Under-segmented</td><td class="num">' + (boundaryUnder != null ? boundaryUnder : "-") + '</td><td class="num">' + pctGold(boundaryUnder) + '</td></tr>' +
+      '<tr><td title="Prediction overlaps but boundaries are misaligned.">Partial</td><td class="num">' + (boundaryPartial != null ? boundaryPartial : "-") + '</td><td class="num">' + pctGold(boundaryPartial) + '</td></tr>' +
+      (
+        matchedButUnclassified != null
+          ? '<tr><td title="Gold spans counted as matched overall but not assigned to a boundary bucket.">Matched (boundary unclassified)</td><td class="num">' + matchedButUnclassified + '</td><td class="num">' + pctGold(matchedButUnclassified) + '</td></tr>'
+          : ""
+      ) +
+      '<tr><td title="Gold spans not matched by prediction.">Unmatched gold spans</td><td class="num">' + (unmatchedGold != null ? unmatchedGold : "-") + '</td><td class="num">' + pctGold(unmatchedGold) + '</td></tr>' +
       '</tbody></table>';
   }
 
@@ -6565,7 +8703,14 @@ _JS = """\
     const pipelineMode = runConfigValue(latest, ["llm_recipe_pipeline", "llm_pipeline"]);
     const model = aiModelForRecord(latest);
     const effort = aiEffortForRecord(latest);
-    const aiRuntime = aiModelEffortLabelForRecord(latest);
+    const totalTokenUse = formatTokenCount(
+      previousRunsDiscountedTokenTotal(
+        maybeNumber(latest.tokens_input),
+        maybeNumber(latest.tokens_cached_input),
+        maybeNumber(latest.tokens_output),
+        maybeNumber(latest.tokens_total),
+      ),
+    );
     const pipelineOff = pipelineMode && String(pipelineMode).toLowerCase() === "off";
 
     const sourceLabel = sourceLabelForRecord(latest);
@@ -6574,11 +8719,11 @@ _JS = """\
     section.querySelector("h2").textContent =
       "Benchmark Runtime (" + esc(latest.run_timestamp || "latest") + ")";
     summary.innerHTML =
-      '<table><tbody>' +
-      '<tr><td>AI Runtime</td><td>' + esc(aiRuntime || "-") + '</td></tr>' +
+      '<table id="runtime-table"><tbody>' +
       '<tr><td>Model</td><td>' + esc(model || (pipelineOff ? "off" : "-")) + '</td></tr>' +
       '<tr><td>Thinking Effort</td><td>' + esc(effort || (pipelineOff ? "n/a (pipeline off)" : "-")) + '</td></tr>' +
       '<tr><td>Pipeline</td><td>' + esc(pipelineMode || "-") + '</td></tr>' +
+      '<tr><td>Token use</td><td>' + esc(totalTokenUse) + '</td></tr>' +
       '<tr><td>Source</td><td title="' + esc(sourceTitle) + '">' + esc(sourceLabel || "-") + '</td></tr>' +
       '<tr><td>Importer</td><td>' + esc(importerLabelForRecord(latest)) + '</td></tr>' +
       '</tbody></table>';

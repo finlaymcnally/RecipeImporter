@@ -27,11 +27,12 @@ Any codex-enabled benchmarking or staging in this plan remains explicit opt-in v
 
 - [x] (2026-03-03 10:19 America/Toronto) Audited current seams: recipe orchestrator, run settings enums/normalizers, benchmark line-role pipeline, and manifest/artifact wiring.
 - [x] (2026-03-03 10:23 America/Toronto) Rewrote this ExecPlan to match current code contracts and avoid stale assumptions.
-- [ ] Implement pass1/pass2 transport audit artifacts and recipe-scoped mismatch guards.
-- [ ] Add deterministic evidence normalization as an additive pass2 input helper with provenance logs.
-- [ ] Integrate benchmark-facing evaluation through the existing line-role pipeline path (no duplicate taxonomy).
-- [ ] Prototype deterministic final-draft assembly fallback for CodexFarm outputs without breaking legacy pass3 behavior.
-- [ ] Add targeted tests and a small checked-in dev slice manifest for c0/c6/c8/c9.
+- [x] (2026-03-03 10:36 America/Toronto) Implemented pass1/pass2 transport audit artifacts with recipe-scoped mismatch guards in orchestrator + manifest/report counters.
+- [x] (2026-03-03 10:37 America/Toronto) Added deterministic additive evidence normalization (`cookimport/llm/evidence_normalizer.py`) with per-recipe provenance sidecars and pass2 helper fields.
+- [x] (2026-03-03 10:38 America/Toronto) Kept benchmark-facing measurement on existing line-role path (no new taxonomy path added in `cookimport/llm`).
+- [x] (2026-03-03 10:39 America/Toronto) Added deterministic pass3 fallback from pass2 structured outputs for missing/invalid/low-quality pass3 bundles.
+- [x] (2026-03-03 10:40 America/Toronto) Added targeted tests and checked in Sea dev-slice manifest `docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`.
+- [x] (2026-03-03 11:10 America/Toronto) Aligned transport mismatch failure-mode semantics (`fallback` marks recipe pass3 fallback) and switched transport/normalization artifacts to sanitized recipe-id keyed filenames.
 - [ ] Run dev-slice benchmark replay, then full `SeaAndSmokeCUTDOWN` replay, and record promotion decision.
 
 ## Surprises & Discoveries
@@ -45,6 +46,12 @@ Any codex-enabled benchmarking or staging in this plan remains explicit opt-in v
 - Observation: Canonical line-role infrastructure already exists and is benchmark-wired. Evidence: `cookimport/parsing/canonical_line_roles.py`, `cookimport/labelstudio/ingest.py`, and line-role projection artifacts under `prediction-run/line-role-pipeline/`.
 
 - Observation: Codex pipeline contract changes must update pipeline/output-schema assets in lockstep because subprocess runner enforces `output_schema_path` parity. Evidence: `cookimport/llm/codex_farm_runner.py` strict schema checks.
+
+- Observation: `_included_indices_for_state(...)` can include indices missing from `full_blocks_by_index`, creating silent pass1/pass2 drift before pass2 input write. Evidence: pass2 payload uses `if idx in full_blocks_by_index` while effective indices are range-derived.
+
+- Observation: Pass3 bundles can be schema-valid but semantically low quality by injecting schema description/headnote prose as step instructions. Evidence: new regression test `test_orchestrator_uses_deterministic_pass3_fallback_for_low_quality_output`.
+
+- Observation: One existing subprocess progress test currently fails independently of this plan work (`task 0/2` callback dedupe assertion). Evidence: `tests/llm/test_codex_farm_orchestrator.py::test_subprocess_runner_emits_progress_callback_from_progress_events`.
 
 ## Decision Log
 
@@ -64,9 +71,24 @@ Any codex-enabled benchmarking or staging in this plan remains explicit opt-in v
   Rationale: Runner-level schema enforcement will otherwise fail hard.
   Date/Author: 2026-03-03 / OpenAI assistant
 
+- Decision: Keep pass2 normalized evidence additive and non-authoritative (`normalized_evidence_*` helper fields), leaving `canonical_text` + `blocks` as source-of-truth.
+  Rationale: We need deterministic repair context without mutating raw extracted evidence contract.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
+- Decision: Apply pass3 deterministic fallback at recipe scope instead of aborting full run for low-quality pass3 output.
+  Rationale: Keeps compatibility with existing recipe-scoped failure handling and preserves deterministic writer path.
+  Date/Author: 2026-03-03 / OpenAI assistant
+
 ## Outcomes & Retrospective
 
-This revision replaces stale assumptions with code-verified seams and narrows risky scope. No runtime code has changed yet. Next update should include first implementation evidence: transport audit artifact samples, test deltas, and benchmark deltas.
+Runtime implementation for milestones 1/2/4 is complete and additive:
+
+- `run_codex_farm_recipe_pipeline(...)` now writes recipe-level transport audits, mismatch counters, and normalization provenance artifacts.
+- pass2 input now includes additive normalized evidence helper fields while preserving authoritative source blocks/canonical text.
+- pass3 now has a deterministic fallback path from pass2 structured output when pass3 bundle is missing/invalid/low-quality.
+- targeted LLM tests and a checked-in Sea dev-slice manifest were added.
+
+Benchmark replay/promotion decision (milestone 5) is still pending in this workspace run.
 
 ## Context and Orientation
 
@@ -177,7 +199,20 @@ Targeted regression tests while implementing:
 
     pytest tests/llm/test_codex_farm_orchestrator.py -q
     pytest tests/llm/test_run_settings.py -q
+    pytest tests/llm/test_evidence_normalizer.py -q
     pytest tests/labelstudio -k line_role -q
+
+Implemented-test verification command set used for this change:
+
+    source .venv/bin/activate
+    pip install -e .[dev]
+    pytest tests/llm/test_evidence_normalizer.py tests/llm/test_codex_farm_orchestrator.py \
+      -k "orchestrator_runs_three_passes_and_writes_manifest or orchestrator_transport_mismatch_is_recipe_scoped_error or orchestrator_transport_mismatch_marks_recipe_fallback_in_fallback_mode or orchestrator_writes_evidence_normalization_artifact or orchestrator_uses_deterministic_pass3_fallback_for_low_quality_output or orchestrator_recipe_level_failures_fallback_without_crashing" -q
+    pytest tests/llm/test_run_settings.py -q
+
+Known unrelated failing test in full orchestrator file:
+
+    tests/llm/test_codex_farm_orchestrator.py::test_subprocess_runner_emits_progress_callback_from_progress_events
 
 Benchmark replay example (Sea path, offline canonical mode):
 
@@ -188,7 +223,9 @@ Benchmark replay example (Sea path, offline canonical mode):
       --no-upload \
       --no-write-labelstudio-tasks
 
-Update this section with exact dev-slice replay command once fixture manifest path is added.
+Dev-slice manifest for manual focus review:
+
+    docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json
 
 ## Validation and Acceptance
 
@@ -221,9 +258,10 @@ If a milestone fails, disable candidate path via existing run settings (`llm_rec
 
 Expected new/updated artifacts for this plan:
 
-- `raw/llm/<workbook_slug>/transport_audit/<recipe_id>.json`
-- `raw/llm/<workbook_slug>/evidence_normalization/<recipe_id>.json`
+- `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)
+- `raw/llm/<workbook_slug>/evidence_normalization/*.json` (sanitized recipe-id keyed)
 - `raw/llm/<workbook_slug>/llm_manifest.json` (with added counters)
+- `docs/plans/2026-03-03_10.40.28-seaandsmoke-dev-slice-c0-c6-c8-c9.json`
 - benchmark run outputs under `data/golden/benchmark-vs-golden/<timestamp>/...`
 
 Add concise transcripts and before/after metrics here as milestones land.
@@ -243,3 +281,5 @@ Any new `llm_recipe_pipeline` value (for example `codex-farm-3pass-v2`) requires
 Dependencies remain within current stack (Typer, Pydantic v2, pytest, existing parsing modules). No new external OCR/LLM libraries are planned.
 
 Revision note: 2026-03-03 - Rewrote plan to match actual runtime seams and policy boundaries: concrete orchestrator symbols, existing line-role subsystem reuse, strict codex schema contract awareness, and additive opt-in rollout constraints.
+Revision note: 2026-03-03 - Implemented milestones 1/2/4 in code and tests: transport audits, additive evidence normalization, deterministic pass3 fallback, and dev-slice manifest check-in; benchmark replay milestone still pending.
+Revision note: 2026-03-03 - Post-implementation alignment pass: transport mismatch now maps to recipe-level pass3 fallback in fallback mode, transport/normalization artifacts use sanitized recipe-id filenames, and eval context token fields are now backward-compatible for legacy test doubles.

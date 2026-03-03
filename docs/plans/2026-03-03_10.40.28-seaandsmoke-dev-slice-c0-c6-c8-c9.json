@@ -1,0 +1,12 @@
+{
+  "schema_version": "codexfarm_dev_slice.v1",
+  "source_file": "data/input/SeaAndSmokeCUTDOWN.epub",
+  "gold_spans_file": "data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl",
+  "notes": "Manual diagnosis focus set for CodexFarm transport/fallback checks.",
+  "recipe_ids": [
+    "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c0",
+    "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c6",
+    "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c8",
+    "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c9"
+  ]
+}

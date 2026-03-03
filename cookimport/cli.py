@@ -23308,8 +23308,39 @@ def stats_dashboard(
         "--scan-benchmark-reports",
         help="Force recursive benchmark eval_report.json scans under --golden-root.",
     ),
+    serve: bool = typer.Option(
+        False,
+        "--serve",
+        help=(
+            "Serve the generated dashboard over HTTP and enable program-side UI-state "
+            "persistence (assets/dashboard_ui_state.json) across browsers."
+        ),
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Host interface used when --serve is enabled.",
+    ),
+    port: int = typer.Option(
+        8765,
+        "--port",
+        min=0,
+        max=65535,
+        help="Port used when --serve is enabled (0 picks a free port).",
+    ),
 ) -> None:
     """Generate a static lifetime-stats dashboard (HTML)."""
+    output_root = _unwrap_typer_option_default(output_root)
+    golden_root = _unwrap_typer_option_default(golden_root)
+    out_dir = _unwrap_typer_option_default(out_dir)
+    open_browser = _unwrap_typer_option_default(open_browser)
+    since_days = _unwrap_typer_option_default(since_days)
+    scan_reports = _unwrap_typer_option_default(scan_reports)
+    scan_benchmark_reports = _unwrap_typer_option_default(scan_benchmark_reports)
+    serve = _unwrap_typer_option_default(serve)
+    host = _unwrap_typer_option_default(host)
+    port = _unwrap_typer_option_default(port)
+
     from cookimport.analytics.dashboard_collect import collect_dashboard_data
     from cookimport.analytics.dashboard_render import render_dashboard
 
@@ -23332,10 +23363,37 @@ def stats_dashboard(
             typer.secho(f"  - {w}", fg=typer.colors.YELLOW)
 
     typer.secho(f"Wrote dashboard to {out_dir}", fg=typer.colors.GREEN)
-    typer.echo(f"Open this file in your browser:\n  {html_path}")
+    if serve:
+        from cookimport.analytics.dashboard_state_server import start_dashboard_server
 
+        try:
+            server, dashboard_url = start_dashboard_server(
+                dashboard_dir=out_dir,
+                host=host,
+                port=port,
+            )
+        except (OSError, FileNotFoundError) as exc:
+            _fail(f"Unable to serve dashboard: {exc}")
+
+        typer.echo(f"Serving dashboard at:\n  {dashboard_url}")
+        typer.echo("Program-side UI state file: assets/dashboard_ui_state.json")
+        typer.echo("Press Ctrl+C to stop the server.")
+        if open_browser:
+            import webbrowser
+
+            webbrowser.open(dashboard_url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+        return
+
+    typer.echo(f"Open this file in your browser:\n  {html_path}")
     if open_browser:
         import webbrowser
+
         webbrowser.open(html_path.as_uri())
 
 
@@ -23966,11 +24024,11 @@ def labelstudio_eval(
         run_config=pred_context.run_config,
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
-        tokens_input=pred_context.tokens_input,
-        tokens_cached_input=pred_context.tokens_cached_input,
-        tokens_output=pred_context.tokens_output,
-        tokens_reasoning=pred_context.tokens_reasoning,
-        tokens_total=pred_context.tokens_total,
+        tokens_input=getattr(pred_context, "tokens_input", None),
+        tokens_cached_input=getattr(pred_context, "tokens_cached_input", None),
+        tokens_output=getattr(pred_context, "tokens_output", None),
+        tokens_reasoning=getattr(pred_context, "tokens_reasoning", None),
+        tokens_total=getattr(pred_context, "tokens_total", None),
     )
     _refresh_dashboard_after_history_write(
         csv_path=csv_history_path,
@@ -25868,11 +25926,11 @@ def labelstudio_benchmark(
         run_config=pred_context.run_config,
         run_config_hash=pred_context.run_config_hash,
         run_config_summary=pred_context.run_config_summary,
-        tokens_input=pred_context.tokens_input,
-        tokens_cached_input=pred_context.tokens_cached_input,
-        tokens_output=pred_context.tokens_output,
-        tokens_reasoning=pred_context.tokens_reasoning,
-        tokens_total=pred_context.tokens_total,
+        tokens_input=getattr(pred_context, "tokens_input", None),
+        tokens_cached_input=getattr(pred_context, "tokens_cached_input", None),
+        tokens_output=getattr(pred_context, "tokens_output", None),
+        tokens_reasoning=getattr(pred_context, "tokens_reasoning", None),
+        tokens_total=getattr(pred_context, "tokens_total", None),
         timing=benchmark_timing,
     )
     if not suppress_summary:

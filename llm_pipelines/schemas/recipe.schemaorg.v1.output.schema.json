@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "recipe.schemaorg.v1 output",
+  "description": "Output contract for pass2 schema extraction. Input may include normalized evidence helper fields, but output remains grounded in canonical evidence.",
   "type": "object",
   "additionalProperties": false,
   "required": [

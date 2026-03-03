@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -786,7 +787,7 @@ class TestCollectors:
         row = {field: "" for field in _CSV_FIELDS}
         row.update(
             {
-                "run_timestamp": "2026-03-03T01:28:32",
+                "run_timestamp": "2026-03-03T04:28:32",
                 "run_dir": str(eval_dir),
                 "file_name": "SeaAndSmokeCUTDOWN.epub",
                 "run_category": "benchmark_eval",
@@ -819,6 +820,63 @@ class TestCollectors:
         assert record.run_config.get("codex_farm_reasoning_effort") == "<default>"
         assert "codex_farm_model=gpt-5.3-codex-spark" in str(record.run_config_summary)
         assert "codex_farm_reasoning_effort=<default>" in str(record.run_config_summary)
+
+    def test_csv_collector_suppresses_known_backfilled_ai_effort_rows(self, tmp_path):
+        output_root = tmp_path / "output"
+        history_dir = output_root / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        row = {field: "" for field in _CSV_FIELDS}
+        row.update(
+            {
+                "run_timestamp": "2026-03-03T01:28:32",
+                "run_dir": str(
+                    tmp_path
+                    / "golden"
+                    / "benchmark-vs-golden"
+                    / "2026-03-03_01.24.28"
+                    / "single-offline-benchmark"
+                    / "seaandsmokecutdown"
+                    / "codexfarm"
+                ),
+                "file_name": "SeaAndSmokeCUTDOWN.epub",
+                "run_category": "benchmark_eval",
+                "eval_scope": "canonical-text",
+                "strict_accuracy": "0.2739",
+                "macro_f1_excluding_other": "0.3484",
+                "gold_total": "595",
+                "gold_matched": "163",
+                "run_config_json": json.dumps(
+                    {
+                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "workers": 7,
+                        "codex_farm_model": "gpt-5.3-codex-spark",
+                        "codex_farm_reasoning_effort": "high",
+                    }
+                ),
+                "run_config_summary": (
+                    "llm_recipe_pipeline=codex-farm-3pass-v1 | workers=7 | "
+                    "codex_farm_model=gpt-5.3-codex-spark | "
+                    "codex_farm_reasoning_effort=high"
+                ),
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(row)
+
+        data = collect_dashboard_data(
+            output_root=output_root,
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        record = data.benchmark_records[0]
+        assert record.run_config is not None
+        assert record.run_config.get("codex_farm_model") == "gpt-5.3-codex-spark"
+        assert "codex_farm_reasoning_effort" not in record.run_config
+        assert "codex_farm_reasoning_effort=high" not in str(record.run_config_summary)
 
     def test_benchmark_csv_recipes_backfill_from_processed_report_path(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
@@ -1109,8 +1167,25 @@ class TestRenderer:
         html_path = render_dashboard(tmp_path / "dash", data)
         assert html_path.exists()
         assert (tmp_path / "dash" / "assets" / "dashboard_data.json").exists()
+        assert (tmp_path / "dash" / "assets" / "dashboard_ui_state.json").exists()
         assert (tmp_path / "dash" / "assets" / "dashboard.js").exists()
         assert (tmp_path / "dash" / "assets" / "style.css").exists()
+
+    def test_render_preserves_existing_program_ui_state(self, tmp_path):
+        out_dir = tmp_path / "dash"
+        state_path = out_dir / "assets" / "dashboard_ui_state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        original_payload = {
+            "version": 1,
+            "saved_at": "2026-03-03T18:22:00Z",
+            "previous_runs": {"visible_columns": ["run_timestamp", "ai_model"]},
+        }
+        state_path.write_text(json.dumps(original_payload), encoding="utf-8")
+
+        render_dashboard(out_dir, DashboardData())
+
+        persisted_payload = json.loads(state_path.read_text(encoding="utf-8"))
+        assert persisted_payload == original_payload
 
     def test_data_json_validates(self, tmp_path):
         data = DashboardData(
@@ -1180,11 +1255,26 @@ class TestRenderer:
         assert 'id="previous-runs-columns-popup"' in html
         assert 'id="previous-runs-columns-checklist"' in html
         assert 'id="previous-runs-column-reset"' in html
+        assert 'id="previous-runs-preset-select"' in html
+        assert 'id="previous-runs-preset-load"' in html
+        assert 'id="previous-runs-preset-save-current"' in html
+        assert 'id="previous-runs-preset-delete"' in html
+        assert 'id="previous-runs-preset-status"' in html
         assert 'id="isolate-panel"' in html
-        assert 'id="isolate-field"' in html
-        assert 'id="isolate-value"' in html
+        assert 'id="isolate-combine"' in html
+        assert 'id="isolate-add"' in html
+        assert 'id="isolate-clear"' in html
+        assert 'id="isolate-rules"' in html
         assert 'id="isolate-status"' in html
         assert 'id="isolate-insights"' in html
+        assert 'id="quick-filters-panel"' in html
+        assert 'id="quick-filters-advanced"' not in html
+        assert 'id="quick-filter-exclude-ai-tests"' in html
+        assert 'id="quick-filter-official-only"' in html
+        assert 'id="previous-runs-clear-all-filters"' in html
+        assert 'id="quick-filter-exclude-ai-tests" type="checkbox" checked' not in html
+        assert 'id="quick-filter-official-only" type="checkbox" checked' in html
+        assert 'id="quick-filters-status"' in html
 
     def test_dashboard_js_orders_columns_popup_by_visible_order(self, tmp_path):
         dash_dir = tmp_path / "dash"
@@ -1192,6 +1282,14 @@ class TestRenderer:
         js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
         assert "const checklistOrder = [...previousRunsVisibleColumns].filter(" in js
         assert "if (!visibleSet.has(fieldName)) {" in js
+
+    def test_dashboard_js_tracks_isolate_table_filter_control_source(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert 'let previousRunsFilterControlSource = "table";' in js
+        assert "Control: isolate overrides table filters." in js
+        assert "Control: table filters (isolate paused)." in js
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -1219,6 +1317,11 @@ class TestRenderer:
         assert "All-Method Benchmark Runs" not in html
         assert "Diagnostics (Latest Benchmark)" in html
         assert 'id="runtime-section"' in html
+        assert 'class="per-label-col-head">Run<br>Precision<br>' in html
+        assert 'class="per-label-col-sub">(codexfarm)</span>' in html
+        assert 'class="per-label-col-head">Run<br>Recall<br>' in html
+        assert "Rolling n=10<br>Precision<br>" in html
+        assert "Rolling n=10<br>Recall<br>" in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html
         assert "Stage / Import Throughput" not in html
@@ -1236,6 +1339,13 @@ class TestRenderer:
         assert 'id="dashboard-data-inline"' in html
         assert "__DASHBOARD_DATA_INLINE__" not in html
         assert '"file_name": "local.xlsx"' in html
+
+    def test_html_includes_highcharts_secondary_cdn_fallback(self, tmp_path):
+        html_path = render_dashboard(tmp_path / "dash", DashboardData())
+        html = html_path.read_text(encoding="utf-8")
+        assert 'src="https://code.highcharts.com/stock/highstock.js"' in html
+        assert "if (!window.Highcharts || typeof window.Highcharts.stockChart !== 'function')" in html
+        assert "https://cdn.jsdelivr.net/npm/highcharts/highstock.js" in html
 
     def test_js_uses_timestamp_comparators_for_run_sorting(self, tmp_path):
         data = DashboardData(
@@ -1290,12 +1400,20 @@ class TestRenderer:
         assert "function aiModelEffortLabelForRecord(record)" in js
         assert "function aiModelLabelForRecord(record)" in js
         assert "function aiEffortLabelForRecord(record)" in js
+        assert "function previousRunsAllTokenUseDisplay(row)" in js
+        assert "function previousRunsAllTokenUseTitle(row)" in js
         assert 'if (pipelineText === "off") return "off";' in js
         assert "return \"-\";" in js
         assert 'lower === "<default>"' in js
         assert "function renderLatestRuntime()" in js
         assert 'const latestTs = String(preferred[0].run_timestamp || "");' in js
         assert "const latestGroup = preferred.filter(" in js
+        assert "const totalTokenUse = formatTokenCount(" in js
+        assert "previousRunsDiscountedTokenTotal(" in js
+        assert "rawTotalTokenUse" not in js
+        assert "AI Runtime" not in js
+        assert "'<tr><td>Token use</td><td>' + esc(totalTokenUse) + '</td></tr>'" in js
+        assert "Raw total tokens" not in js
         assert "link.href = href;" in js
 
     def test_js_supports_previous_runs_column_header_filters(
@@ -1305,15 +1423,80 @@ class TestRenderer:
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
         assert "const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [" in js
         assert "const PREVIOUS_RUNS_UNARY_FILTER_OPERATORS = new Set(" in js
+        assert "const PREVIOUS_RUNS_COLUMN_FILTER_MODES = [" in js
+        assert "const PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL = Object.fromEntries(" in js
         assert "const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;" in js
         assert '"source_label"' in js
         assert '"ai_model"' in js
         assert '"ai_effort"' in js
+        assert '"all_token_use"' in js
+        assert "let previousRunsQuickFilters = {" in js
+        assert "exclude_ai_tests: false" in js
+        assert "official_full_golden_only: true" in js
+        assert "let previousRunsViewPresets = Object.create(null);" in js
+        assert "let previousRunsSelectedPreset = \"\";" in js
+        assert "const PREVIOUS_RUNS_PRESET_NAME_MAX = 80;" in js
+        assert "const PREVIOUS_RUNS_PRESET_MAX_COUNT = 40;" in js
+        assert 'const DASHBOARD_UI_STATE_STORAGE_KEY = "cookimport.stats_dashboard.ui_state.v1";' in js
+        assert 'const DASHBOARD_UI_STATE_SERVER_PATH = "assets/dashboard_ui_state.json";' in js
+        assert "function loadDashboardUiState()" in js
+        assert "function loadDashboardUiStateFromProgramStore()" in js
+        assert "function persistDashboardUiState()" in js
+        assert "function persistDashboardUiStateToProgramStore(payload)" in js
+        assert "function sanitizePreviousRunsPresetName(rawName)" in js
+        assert "function sanitizePreviousRunsPresetState(rawPreset)" in js
+        assert "function sanitizePreviousRunsPresetMap(rawPresets)" in js
+        assert "function previousRunsPresetNames()" in js
+        assert "function renderPreviousRunsPresetEditor()" in js
+        assert "function captureCurrentPreviousRunsPresetState()" in js
+        assert "function applyPreviousRunsPresetByName(rawName)" in js
+        assert "function saveCurrentPreviousRunsViewPreset(rawName)" in js
+        assert "function deletePreviousRunsPreset(rawName)" in js
+        assert "let dashboardTableColumnWidths = Object.create(null);" in js
+        assert "const tableColumnWidths = sanitizeDashboardTableColumnWidths(dashboardTableColumnWidths);" in js
+        assert "table_column_widths: tableColumnWidths," in js
+        assert "previous_runs_presets: previousRunsPresets," in js
+        assert "selected_preset: selectedPresetName," in js
+        assert "saved_at: savedAt," in js
+        assert "setDashboardTableColumnWidth(previousRunsTableKey, fieldName, nextWidth);" in js
+        assert "function setupResizableDashboardTable(table, options)" in js
+        assert "function setupResizableDashboardTables()" in js
+        assert 'clearDashboardTableColumnWidths("per-label-table");' in js
+        assert "tableKey: \"boundary-table\"" not in js
+        assert "tableKey: \"runtime-table\"" not in js
+        assert "setupResizableDashboardTables();" in js
+        assert "window.localStorage" in js
+        assert "loadDashboardUiState();" in js
+        assert "loadDashboardUiStateFromProgramStore()" in js
+        assert 'fetch(DASHBOARD_UI_STATE_SERVER_PATH, { cache: "no-store" })' in js
+        assert "storage.setItem(DASHBOARD_UI_STATE_STORAGE_KEY, JSON.stringify(payload));" in js
+        assert 'method: "PUT"' in js
+        assert "persistDashboardUiState();" in js
         assert "function setupPreviousRunsFilters()" in js
+        assert "function setupPreviousRunsQuickFilters()" in js
+        assert "function applyPreviousRunsQuickFilters(records, options)" in js
+        assert "function isLikelyAiTestBenchmarkRecord(record)" in js
+        assert "timestampSuffix = segment.match(" in js
+        assert "(manual|smoke|test|debug|quick|probe|sample|trial)" in js
+        assert "function isOfficialGoldenBenchmarkRecord(record)" in js
+        assert 'if (!path.includes("/benchmark-vs-golden/")) return false;' in js
+        assert 'if (!path.includes("/single-offline-benchmark/")) return false;' in js
+        assert 'return variant === "vanilla" || variant === "codexfarm";' in js
         assert 'const clearBtn = document.getElementById("previous-runs-clear-filters");' in js
+        assert 'const clearAllBtn = document.getElementById("previous-runs-clear-all-filters");' in js
+        assert "function clearAllPreviousRunsFilters()" in js
         assert "function collectBenchmarkFieldPaths()" in js
+        assert "function normalizePreviousRunsColumnFilterList(rawValue)" in js
+        assert "function previousRunsColumnFilterClauses(fieldName)" in js
+        assert "function previousRunsColumnFilterMode(fieldName)" in js
+        assert "function setPreviousRunsColumnFilterMode(fieldName, mode)" in js
+        assert "function addPreviousRunsColumnFilter(fieldName, operator, value)" in js
+        assert "function removePreviousRunsColumnFilterAt(fieldName, index)" in js
         assert "function activePreviousRunsColumnFilters()" in js
         assert "function formatPreviousRunsColumnFilterSummary(fieldName, filter)" in js
+        assert "function formatPreviousRunsColumnFiltersSummary(fieldName, clauses)" in js
+        assert "function groupPreviousRunsFiltersByField(filters)" in js
+        assert "function recordMatchesPreviousRunsFilterGroups(record, groupedFilters)" in js
         assert "function previousRunsRecordsMatchingOtherFilters(excludedField)" in js
         assert "function previousRunsColumnSuggestionCandidates(fieldName, typedText)" in js
         assert "function previousRunsSuggestionScore(typedLower, candidateLower)" in js
@@ -1326,6 +1509,10 @@ class TestRenderer:
         assert "function setupPreviousRunsColumnsControls()" in js
         assert "function renderPreviousRunsTableColumns(table, columns)" in js
         assert "function renderPreviousRunsColumnEditor()" in js
+        assert 'const presetSelect = document.getElementById("previous-runs-preset-select");' in js
+        assert 'const presetLoadBtn = document.getElementById("previous-runs-preset-load");' in js
+        assert 'const presetSaveCurrentBtn = document.getElementById("previous-runs-preset-save-current");' in js
+        assert 'const presetDeleteBtn = document.getElementById("previous-runs-preset-delete");' in js
         assert 'const filterRow = table.querySelector("thead tr.previous-runs-active-filters-row");' in js
         assert 'const spacerRow = table.querySelector("thead tr.previous-runs-filter-spacer-row");' in js
         assert "let previousRunsOpenFilterField = \"\";" in js
@@ -1333,10 +1520,21 @@ class TestRenderer:
         assert "function openPreviousRunsColumnFilterEditor(fieldName)" in js
         assert "function closePreviousRunsColumnFilterEditor()" in js
         assert 'toggleBtn.textContent = isEditorOpen ? "−" : "+";' in js
+        assert 'summaryItem.className = "previous-runs-column-filter-summary-item";' in js
+        assert 'summaryRemoveBtn.className = "previous-runs-column-filter-summary-remove";' in js
+        assert 'summaryRemoveBtn.textContent = "×";' in js
         assert 'popover.className = "previous-runs-column-filter-popover";' in js
+        assert 'modeWrap.className = "previous-runs-column-filter-mode";' in js
+        assert 'modeButtons.className = "previous-runs-column-filter-mode-buttons";' in js
+        assert "setPreviousRunsColumnFilterMode(fieldName, modeValue);" in js
+        assert 'activeList.className = "previous-runs-column-filter-active-list";' in js
+        assert 'removeBtn.textContent = "×";' in js
+        assert "removePreviousRunsColumnFilterAt(fieldName, clauseIndex);" in js
+        assert "addPreviousRunsColumnFilter(fieldName, operatorSelect.value || \"contains\", valueInput.value || \"\");" in js
         assert 'suggestionWrap.className = "previous-runs-column-filter-suggestions";' in js
         assert 'suggestionList.className = "previous-runs-column-filter-suggestions-list";' in js
         assert 'valueInput.dataset.topSuggestion = topCandidate;' in js
+        assert "if (unary || meta.numeric) {" in js
         assert 'if (event.key === "Tab" && !event.shiftKey) {' in js
         assert "Tab completes top match." in js
         assert 'saveBtn.textContent = "Save";' in js
@@ -1409,19 +1607,34 @@ class TestRenderer:
         assert "const latestAllMethodRecords = preferredRecords.filter(r =>" in js
         assert "isAllMethodBenchmarkRecord(r)" in js
         assert "const candidateRecords = latestAllMethodRecords.length > 0" in js
-        assert 'const latestRunTimestamp = String(latestWithPerLabel.run_timestamp || "");' in js
-        assert "const latestRunRecords = candidateRecords.filter(r =>" in js
-        assert 'String(r.run_timestamp || "") === latestRunTimestamp' in js
+        assert "function latestRunGroupRecords(records, hasData)" in js
+        assert "const latestRunGroup = benchmarkRunGroupInfo(latestRecord);" in js
+        assert "const latestRunGroupKey = String((latestRunGroup && latestRunGroup.runGroupKey) || \"\").trim();" in js
+        assert "const latestRunRecords = (records || []).filter(record => {" in js
+        assert "const recordRunGroup = benchmarkRunGroupInfo(record);" in js
         assert 'latestRunRecords.length + " evals)"' in js
-        assert "const byLabel = Object.create(null);" in js
+        assert "function aggregatePerLabelRows(records)" in js
+        assert "function rollingPerLabelByVariant(records, variant, windowSize)" in js
+        assert "const rollingWindowSize = 10;" in js
+        assert 'benchmarkVariantForRecord(record) === "codexfarm"' in js
+        assert 'benchmarkVariantForRecord(record) === "vanilla"' in js
 
     def test_js_boundary_prefers_non_speed_records_when_available(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
         assert "function renderBoundary()" in js
         assert "function isSpeedBenchmarkRecord(record)" in js
+        assert "const hasBoundaryMetrics = function(record)" in js
         assert "const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;" in js
-        assert "const latest = preferredRecords.find(" in js
+        assert "const latestAllMethodRecords = preferredRecords.filter(r =>" in js
+        assert "const candidateRecords = latestAllMethodRecords.length > 0" in js
+        assert "const latestRunGroup = latestRunGroupRecords(candidateRecords, hasBoundaryMetrics);" in js
+        assert 'latestRunRecords.length + " evals)"' in js
+        assert "Coverage: " in js
+        assert "Matched (boundary unclassified)" in js
+        assert '<th>% of gold</th>' in js
+        assert '% of matched' not in js
+        assert "Unmatched gold spans" in js
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -1474,20 +1687,46 @@ class TestRenderer:
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
+        assert ".diagnostics-grid {" in css
+        assert "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);" in css
         assert "--previous-runs-visible-body-rows: 10;" in css
+        assert ".quick-filters-panel {" in css
+        assert ".quick-filters-list {" in css
+        assert ".quick-filters-advanced {" not in css
+        assert ".quick-filters-advanced-body {" not in css
+        assert ".quick-filters-actions {" in css
+        assert "#previous-runs-clear-all-filters {" in css
+        assert "#quick-filters-status {" in css
+        assert ".previous-runs-presets-panel {" in css
+        assert "#previous-runs-preset-select {" in css
+        assert ".previous-runs-presets-actions {" in css
         assert ".table-scroll {" in css
         assert "max-height: calc(" in css
         assert "overflow-y: auto;" in css
         assert "--previous-runs-filter-row-height: 2.18rem;" in css
         assert "--previous-runs-spacer-row-height: 2.18rem;" in css
         assert "#previous-runs-table {" in css
+        assert "border-collapse: separate;" in css
+        assert "border-spacing: 0;" in css
         assert "width: max-content;" in css
         assert "min-width: 1600px;" in css
         assert "#previous-runs-table th," in css
         assert "white-space: nowrap;" in css
+        th_block = re.search(r"#previous-runs-table th \{([^}]*)\}", css, re.DOTALL)
+        assert th_block is not None
+        assert "position: relative;" not in th_block.group(1)
         assert "#previous-runs-table th.previous-runs-draggable {" in css
         assert "#previous-runs-table th.previous-runs-drag-target {" in css
-        assert ".previous-runs-resize-handle {" in css
+        assert ".previous-runs-resize-handle," in css
+        assert ".dashboard-table-resize-handle {" in css
+        assert ".dashboard-resizable-table th," in css
+        assert "#previous-runs-table thead tr.previous-runs-header-row th:not(:last-child)," in css
+        assert ".dashboard-resizable-table thead tr:first-child th:not(:last-child) {" in css
+        assert "border-right: 1px solid #d6e0ea;" in css
+        assert "#runtime-summary,\n#boundary-summary {" in css
+        assert "overflow-x: hidden;" in css
+        assert "#per-label-section {" in css
+        assert "overflow-x: auto;" in css
         assert "cursor: col-resize;" in css
 
     def test_render_builds_all_method_standalone_pages(self, tmp_path):

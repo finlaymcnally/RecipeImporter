@@ -230,6 +230,7 @@ Developer note:
 - Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
 - The full-screen run-settings editor auto-scrolls to keep the selected row visible when the settings list exceeds terminal height.
 - `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
+- `stats_dashboard(...)` is also called directly from interactive helpers; it must coerce Typer `OptionInfo` defaults (`--serve/--host/--port` and related flags) before branching into serve mode.
 - Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge/tags pipeline toggles, pass4/pass5 pipeline IDs, and related context/catalog settings), not a partial subset.
 - `import` / `C3import` entrypoint shims should forward the expanded stage run-settings arguments so persisted settings can affect direct-entrypoint runs.
 
@@ -631,8 +632,12 @@ Options:
 - `--golden-root PATH` (default `data/golden`): benchmark/golden artifacts root.
 - `--out-dir PATH` (default `data/.history/dashboard`): dashboard output directory.
 - `--open` (default `false`): opens generated HTML in default browser.
+- `--serve` (default `false`): serve dashboard over local HTTP and enable program-side UI-state sync (`assets/dashboard_ui_state.json`).
+- `--host TEXT` (default `127.0.0.1`): host interface for `--serve`.
+- `--port INTEGER` (default `8765`): port for `--serve` (`0` picks a free port).
 - `--since-days INTEGER`: include only recent runs.
 - `--scan-reports` (default `false`): force scanning per-file report JSON instead of cached summaries.
+- `--scan-benchmark-reports` (default `false`): force recursive benchmark eval report scanning under `--golden-root`.
 
 ### `cookimport labelstudio-import PATH`
 

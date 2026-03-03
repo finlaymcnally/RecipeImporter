@@ -23,6 +23,8 @@ from cookimport.llm.codex_farm_orchestrator import (
     PASS1_PIPELINE_ID,
     PASS2_PIPELINE_ID,
     PASS3_PIPELINE_ID,
+    _build_transport_audit,
+    _RecipeState,
     run_codex_farm_recipe_pipeline,
 )
 from cookimport.llm.codex_farm_runner import (
@@ -74,7 +76,11 @@ def _build_conversion_result(source_path: Path) -> ConversionResult:
     )
 
 
-def _build_run_settings(pack_root: Path) -> RunSettings:
+def _build_run_settings(
+    pack_root: Path,
+    *,
+    failure_mode: str = "fail",
+) -> RunSettings:
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
     return RunSettings.model_validate(
@@ -83,7 +89,7 @@ def _build_run_settings(pack_root: Path) -> RunSettings:
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_context_blocks": 3,
-            "codex_farm_failure_mode": "fail",
+            "codex_farm_failure_mode": failure_mode,
         }
     )
 
@@ -115,11 +121,218 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["pass1_ok"] == 1
     assert manifest["counts"]["pass3_ok"] == 1
+    assert manifest["counts"]["transport_audits"] == 1
+    assert manifest["counts"]["transport_mismatches"] == 0
+    assert manifest["counts"]["evidence_normalization_logs"] == 1
     assert manifest["output_schema_paths"] == {}
     assert manifest["codex_farm_recipe_mode"] == "extract"
     assert sorted(manifest["process_runs"].keys()) == ["pass1", "pass2", "pass3"]
+    assert manifest["transport"]["mismatches"] == []
     assert apply_result.llm_report["process_runs"] == manifest["process_runs"]
     assert apply_result.llm_report["codex_farm_recipe_mode"] == "extract"
+    assert apply_result.llm_report["transport"]["mismatch_recipes"] == 0
+
+
+def test_orchestrator_transport_mismatch_is_recipe_scoped_error(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "Toast"},
+        # Missing index 2 on purpose; pass1 range still references it.
+        {"index": 3, "text": "Toast the bread."},
+        {"index": 4, "text": "Serve warm."},
+    ]
+    runner = FakeCodexFarmRunner()
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID]
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["counts"]["transport_mismatches"] == 1
+    assert manifest["counts"]["pass2_errors"] == 1
+    assert manifest["counts"]["pass3_inputs"] == 0
+    assert apply_result.llm_report["transport"]["mismatch_recipes"] == 1
+
+    audit_path = next((apply_result.llm_raw_dir / "transport_audit").glob("*.json"))
+    audit_payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit_payload["mismatch"] is True
+    assert "effective_indices_vs_payload_indices" in audit_payload["mismatch_reasons"]
+
+
+def test_build_transport_audit_detects_block_id_value_mismatch() -> None:
+    recipe = RecipeCandidate(name="Toast")
+    state = _RecipeState(
+        recipe=recipe,
+        recipe_id="urn:recipe:test:toast",
+        bundle_name="urn-recipe-test-toast__r000.json",
+        heuristic_start=1,
+        heuristic_end=3,
+        pass1_status="ok",
+        start_block_index=1,
+        end_block_index=3,
+    )
+    audit = _build_transport_audit(
+        state=state,
+        block_indices=[1, 2],
+        effective_block_ids=["block-1", "block-2"],
+        included_blocks=[
+            {"index": 1, "block_id": "block-1"},
+            {"index": 2, "block_id": "wrong-block-id"},
+        ],
+    )
+
+    assert audit["mismatch"] is True
+    assert "effective_block_ids_vs_payload_block_ids_values" in audit["mismatch_reasons"]
+    assert "effective_count_vs_payload_count" not in audit["mismatch_reasons"]
+
+
+def test_orchestrator_transport_mismatch_marks_recipe_fallback_in_fallback_mode(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack", failure_mode="fallback")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "Toast"},
+        # Missing index 2 on purpose; pass1 range still references it.
+        {"index": 3, "text": "Toast the bread."},
+        {"index": 4, "text": "Serve warm."},
+    ]
+    runner = FakeCodexFarmRunner()
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID]
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["counts"]["transport_mismatches"] == 1
+    assert manifest["counts"]["pass2_errors"] == 1
+    assert manifest["counts"]["pass3_fallback"] == 1
+    assert apply_result.llm_report["pass3_fallback_recipe_ids"] == [
+        result.recipes[0].identifier
+    ]
+    recipe_row = manifest["recipes"][result.recipes[0].identifier]
+    assert recipe_row["pass3"] == "fallback"
+    assert recipe_row["pass3_fallback_reason"] == "transport mismatch"
+
+
+def test_orchestrator_writes_evidence_normalization_artifact(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"][2]["text"] = "Page 9 - 1 cup sugar 2 tbsp butter"
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=FakeCodexFarmRunner(),
+    )
+
+    pass2_input_path = next((apply_result.llm_raw_dir / "pass2_schemaorg" / "in").glob("*.json"))
+    pass2_input = json.loads(pass2_input_path.read_text(encoding="utf-8"))
+    assert "normalized_evidence_text" in pass2_input
+    assert "1 cup sugar" in pass2_input["normalized_evidence_text"]
+    assert "2 tbsp butter" in pass2_input["normalized_evidence_text"]
+    assert pass2_input["normalization_stats"]["folded_page_markers"] == 1
+    assert pass2_input["normalization_stats"]["split_quantity_lines"] == 1
+
+    normalization_path = next((apply_result.llm_raw_dir / "evidence_normalization").glob("*.json"))
+    normalization_payload = json.loads(normalization_path.read_text(encoding="utf-8"))
+    assert normalization_payload["stats"]["folded_page_markers"] == 1
+    assert normalization_payload["stats"]["split_quantity_lines"] == 1
+
+
+def test_orchestrator_uses_deterministic_pass3_fallback_for_low_quality_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                    "description": "Serve warm with lemon.",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {
+                            "instruction": "Serve warm with lemon.",
+                            "ingredient_lines": [],
+                        }
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    fallback_draft = apply_result.final_overrides_by_recipe_id[recipe_id]
+    step_instructions = [step.get("instruction") for step in fallback_draft.get("steps", [])]
+    assert "Serve warm with lemon." not in step_instructions
+    assert "Toast the bread." in step_instructions
+
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["counts"]["pass3_fallback"] == 1
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass3"] == "fallback"
+    assert "pass3 output rejected as low quality" in recipe_row["pass3_fallback_reason"]
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
