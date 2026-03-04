@@ -228,6 +228,89 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert recipe_row["pass2_promotion_policy"] == "pass2_ok_llm_pass3"
     assert recipe_row["pass3_execution_mode"] == "llm"
     assert recipe_row["pass3_routing_reason"] == "pass2_ok"
+    assert recipe_row["pass3_utility_signal"]["status"] == "pass2_ok"
+    assert recipe_row["pass3_utility_signal"]["deterministic_low_risk"] is False
+    assert manifest["counts"]["pass3_pass2_ok_utility_rows"] == 1
+    assert manifest["counts"]["pass3_pass2_ok_skip_candidates"] == 0
+    assert manifest["counts"]["pass3_pass2_ok_deterministic_skips"] == 0
+    assert manifest["counts"]["pass3_pass2_ok_llm_calls"] == 1
+    assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is False
+
+
+def test_orchestrator_skips_pass3_for_low_risk_pass2_ok_when_policy_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK", "1")
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"][3]["text"] = (
+        "Toast slowly until deeply golden and crisp on both sides."
+    )
+    result.raw_artifacts[0].content["blocks"][4]["text"] = (
+        "Serve immediately while the crust is still hot and crackling."
+    )
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": [
+                    "Toast slowly until deeply golden and crisp on both sides.",
+                    "Serve immediately while the crust is still hot and crackling.",
+                ],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Should not run"},
+                    "steps": [{"instruction": "Should not run", "ingredient_lines": []}],
+                },
+                "ingredient_step_mapping": {"0": [0]},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID]
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass3"] == "ok"
+    assert recipe_row["pass3_execution_mode"] == "deterministic"
+    assert recipe_row["pass3_routing_reason"] == "pass2_ok_high_confidence_deterministic"
+    assert recipe_row["pass2_promotion_policy"] == "pass2_ok_deterministic_promotion"
+    assert recipe_row["pass3_utility_signal"]["deterministic_low_risk"] is True
+    assert manifest["counts"]["pass3_inputs"] == 0
+    assert manifest["counts"]["pass3_pass2_ok_skip_candidates"] == 1
+    assert manifest["counts"]["pass3_pass2_ok_deterministic_skips"] == 1
+    assert manifest["counts"]["pass3_pass2_ok_llm_calls"] == 0
+    assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is True
 
 
 def test_orchestrator_records_pass1_span_loss_metrics_when_midpoint_clamp_shrinks_span(

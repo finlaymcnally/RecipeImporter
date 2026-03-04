@@ -47,6 +47,9 @@ PASS2_PIPELINE_ID = DEFAULT_PASS2_PIPELINE_ID
 PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
 _PASS1_PATTERN_HINTS_ENV = "COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS"
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
+_PASS3_SKIP_PASS2_OK_ENV = "COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK"
+_PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS = 2
+_PASS3_PASS2_OK_MIN_CANONICAL_CHARS = 80
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -94,6 +97,7 @@ class _RecipeState:
     pass2_promotion_policy: str | None = None
     pass3_execution_mode: str | None = None
     pass3_routing_reason: str | None = None
+    pass3_utility_signal: dict[str, Any] | None = None
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -191,6 +195,10 @@ def run_codex_farm_recipe_pipeline(
                 "pass3_fallback": 0,
                 "pass3_execution_mode_llm": 0,
                 "pass3_execution_mode_deterministic": 0,
+                "pass3_pass2_ok_utility_rows": 0,
+                "pass3_pass2_ok_skip_candidates": 0,
+                "pass3_pass2_ok_deterministic_skips": 0,
+                "pass3_pass2_ok_llm_calls": 0,
             },
             "timing": {"pass1_seconds": 0.0, "pass2_seconds": 0.0, "pass3_seconds": 0.0},
             "paths": _paths_payload(
@@ -208,6 +216,13 @@ def run_codex_farm_recipe_pipeline(
             "recipes": {},
             "transport": {"audits": {}, "mismatches": []},
             "evidence_normalization": {"recipes": {}},
+            "pass3_policy": {
+                "pass2_ok_deterministic_skip_enabled": _pass3_skip_pass2_ok_enabled(),
+                "pass2_ok_min_non_placeholder_instructions": (
+                    _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS
+                ),
+                "pass2_ok_min_canonical_chars": _PASS3_PASS2_OK_MIN_CANONICAL_CHARS,
+            },
         }
         _write_json(llm_manifest, llm_raw_dir / "llm_manifest.json")
         return CodexFarmApplyResult(
@@ -225,6 +240,7 @@ def run_codex_farm_recipe_pipeline(
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
                 "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
                 "evidence_normalization": {"recipes_logged": 0},
+                "pass3_policy": dict(llm_manifest["pass3_policy"]),
                 "pass3_fallback_recipe_ids": [],
             },
             llm_raw_dir=llm_raw_dir,
@@ -494,6 +510,10 @@ def run_codex_farm_recipe_pipeline(
             state.pass2_status = "ok"
             state.pass2_degradation_severity = "none"
             state.pass2_promotion_policy = "pass2_ok"
+            state.pass3_utility_signal = _build_pass3_utility_signal_for_pass2_ok(
+                output=output,
+                canonical_text=state.canonical_text,
+            )
         intermediate_overrides[state.recipe_id] = dict(output.schemaorg_recipe)
 
     # Pass 3
@@ -522,6 +542,11 @@ def run_codex_farm_recipe_pipeline(
                 state.pass2_promotion_policy = (
                     "soft_degradation_deterministic_promotion"
                 )
+            elif (
+                state.pass2_status == "ok"
+                and state.pass3_routing_reason == "pass2_ok_high_confidence_deterministic"
+            ):
+                state.pass2_promotion_policy = "pass2_ok_deterministic_promotion"
             pass3_deterministic_states.append(state)
 
     for state in pass3_deterministic_states:
@@ -732,6 +757,7 @@ def run_codex_farm_recipe_pipeline(
         "evidence_normalization": {
             "recipes_logged": llm_manifest["counts"].get("evidence_normalization_logs", 0),
         },
+        "pass3_policy": dict(llm_manifest.get("pass3_policy", {})),
         "pass3_fallback_recipe_ids": [
             state.recipe_id for state in states if state.pass3_status == "fallback"
         ],
@@ -822,6 +848,8 @@ def _build_llm_manifest(
             row["pass3_execution_mode"] = state.pass3_execution_mode
         if state.pass3_routing_reason:
             row["pass3_routing_reason"] = state.pass3_routing_reason
+        if isinstance(state.pass3_utility_signal, dict):
+            row["pass3_utility_signal"] = dict(state.pass3_utility_signal)
         if state.pass3_fallback_reason:
             row["pass3_fallback_reason"] = state.pass3_fallback_reason
         if isinstance(state.pass1_span_loss_metrics, dict):
@@ -868,6 +896,31 @@ def _build_llm_manifest(
         "pass3_execution_mode_deterministic": sum(
             1 for state in states if state.pass3_execution_mode == "deterministic"
         ),
+        "pass3_pass2_ok_utility_rows": sum(
+            1
+            for state in states
+            if state.pass2_status == "ok" and isinstance(state.pass3_utility_signal, dict)
+        ),
+        "pass3_pass2_ok_skip_candidates": sum(
+            1
+            for state in states
+            if state.pass2_status == "ok"
+            and isinstance(state.pass3_utility_signal, dict)
+            and bool(state.pass3_utility_signal.get("deterministic_low_risk"))
+        ),
+        "pass3_pass2_ok_deterministic_skips": sum(
+            1
+            for state in states
+            if state.pass2_status == "ok"
+            and state.pass3_execution_mode == "deterministic"
+            and state.pass3_routing_reason == "pass2_ok_high_confidence_deterministic"
+        ),
+        "pass3_pass2_ok_llm_calls": sum(
+            1
+            for state in states
+            if state.pass2_status == "ok"
+            and state.pass3_execution_mode in {"llm", "llm_then_deterministic_fallback"}
+        ),
         "transport_audits": len(transport_audits),
         "transport_mismatches": len(mismatch_recipe_ids),
         "evidence_normalization_logs": len(evidence_normalizations),
@@ -910,6 +963,13 @@ def _build_llm_manifest(
             "audits": dict(transport_audits),
         },
         "evidence_normalization": {"recipes": dict(evidence_normalizations)},
+        "pass3_policy": {
+            "pass2_ok_deterministic_skip_enabled": _pass3_skip_pass2_ok_enabled(),
+            "pass2_ok_min_non_placeholder_instructions": (
+                _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS
+            ),
+            "pass2_ok_min_canonical_chars": _PASS3_PASS2_OK_MIN_CANONICAL_CHARS,
+        },
     }
 
 
@@ -1003,7 +1063,15 @@ def _recipe_location(recipe: RecipeCandidate) -> dict[str, Any]:
 
 
 def _pass1_pattern_hints_enabled() -> bool:
-    raw_value = os.environ.get(_PASS1_PATTERN_HINTS_ENV, "")
+    return _env_flag_enabled(_PASS1_PATTERN_HINTS_ENV)
+
+
+def _pass3_skip_pass2_ok_enabled() -> bool:
+    return _env_flag_enabled(_PASS3_SKIP_PASS2_OK_ENV)
+
+
+def _env_flag_enabled(env_name: str) -> bool:
+    raw_value = os.environ.get(env_name, "")
     normalized = str(raw_value).strip().lower()
     return normalized in {"1", "true", "yes", "on"}
 
@@ -1644,10 +1712,62 @@ def _is_soft_degradation_low_risk_for_deterministic(
     return bool(schema_name)
 
 
+def _build_pass3_utility_signal_for_pass2_ok(
+    *,
+    output: Pass2SchemaOrgOutput,
+    canonical_text: str,
+) -> dict[str, Any]:
+    normalized_instructions = _normalized_nonempty_texts(output.extracted_instructions)
+    non_placeholder_instruction_count = sum(
+        1 for text in normalized_instructions if not _is_placeholder_instruction(text)
+    )
+    ingredient_count = sum(1 for item in output.extracted_ingredients if str(item).strip())
+    schema_name = str(output.schemaorg_recipe.get("name") or "").strip()
+    warning_count = sum(1 for warning in output.warnings if str(warning).strip())
+    canonical_char_count = len(str(canonical_text).strip())
+
+    risk_reasons: list[str] = []
+    if non_placeholder_instruction_count < _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS:
+        risk_reasons.append(
+            "insufficient_non_placeholder_instructions"
+        )
+    if ingredient_count <= 0:
+        risk_reasons.append("missing_ingredient_evidence")
+    if not schema_name:
+        risk_reasons.append("missing_schemaorg_name")
+    if warning_count > 0:
+        risk_reasons.append("pass2_warnings_present")
+    if canonical_char_count < _PASS3_PASS2_OK_MIN_CANONICAL_CHARS:
+        risk_reasons.append("short_canonical_text")
+
+    return {
+        "status": "pass2_ok",
+        "instruction_count": len(normalized_instructions),
+        "non_placeholder_instruction_count": non_placeholder_instruction_count,
+        "ingredient_count": ingredient_count,
+        "schema_name_present": bool(schema_name),
+        "warning_count": warning_count,
+        "canonical_char_count": canonical_char_count,
+        "deterministic_low_risk": len(risk_reasons) == 0,
+        "risk_reasons": risk_reasons,
+    }
+
+
 def _should_run_pass3_llm(*, state: _RecipeState) -> tuple[bool, str]:
     if state.pass2_output is None:
         return False, "pass2_output_missing"
     if state.pass2_status == "ok":
+        if state.pass3_utility_signal is None:
+            state.pass3_utility_signal = _build_pass3_utility_signal_for_pass2_ok(
+                output=state.pass2_output,
+                canonical_text=state.canonical_text,
+            )
+        if _pass3_skip_pass2_ok_enabled() and bool(
+            state.pass3_utility_signal.get("deterministic_low_risk")
+        ):
+            return False, "pass2_ok_high_confidence_deterministic"
+        if _pass3_skip_pass2_ok_enabled():
+            return True, "pass2_ok_requires_llm"
         return True, "pass2_ok"
     if state.pass2_status != "degraded":
         return False, "pass2_not_eligible"

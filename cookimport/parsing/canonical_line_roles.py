@@ -119,6 +119,7 @@ class CanonicalLineRolePrediction(BaseModel):
     label: str
     confidence: float
     decided_by: Literal["rule", "codex", "fallback"]
+    candidate_labels: list[str] = Field(default_factory=list)
     reason_tags: list[str] = Field(default_factory=list)
 
 
@@ -169,6 +170,12 @@ def label_atomic_lines(
             label=label,
             confidence=confidence,
             decided_by="rule",
+            candidate_labels=list(
+                _candidate_allowlist(
+                    candidate,
+                    by_atomic_index=by_atomic_index,
+                )
+            ),
             reason_tags=tags,
         )
 
@@ -248,6 +255,7 @@ def label_atomic_lines(
                         label=row["label"],
                         confidence=0.75,
                         decided_by="codex",
+                        candidate_labels=list(batch_allowed[candidate.atomic_index]),
                         reason_tags=["codex_line_role"],
                     )
                 if parsed_path is not None:
@@ -405,6 +413,12 @@ def _fallback_prediction(
     reason: str,
     by_atomic_index: dict[int, AtomicLineCandidate] | None = None,
 ) -> CanonicalLineRolePrediction:
+    if by_atomic_index is None:
+        by_atomic_index = {int(candidate.atomic_index): candidate}
+    candidate_labels = _candidate_allowlist(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
     deterministic_label, deterministic_confidence, deterministic_tags = _deterministic_label(
         candidate,
         by_atomic_index=by_atomic_index,
@@ -427,6 +441,7 @@ def _fallback_prediction(
         label=label,
         confidence=confidence,
         decided_by="fallback",
+        candidate_labels=list(candidate_labels),
         reason_tags=reason_tags,
     )
 
@@ -438,6 +453,12 @@ def _sanitize_prediction(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> CanonicalLineRolePrediction:
     label = prediction.label if prediction.label in FREEFORM_ALLOWED_LABELS else "OTHER"
+    candidate_labels = _candidate_allowlist(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if label not in candidate_labels:
+        candidate_labels = [label, *candidate_labels]
     reason_tags = list(prediction.reason_tags)
     decided_by = prediction.decided_by
     if (
@@ -465,6 +486,7 @@ def _sanitize_prediction(
         label=label,
         confidence=prediction.confidence,
         decided_by=decided_by,
+        candidate_labels=list(candidate_labels),
         reason_tags=reason_tags,
     )
 

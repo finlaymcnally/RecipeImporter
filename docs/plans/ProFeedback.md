@@ -1,5 +1,5 @@
 ---
-summary: "ExecPlan that converts ProFeedback into a codebase-grounded follow-up focused on pass3 ROI, line-role diagnostics, and upload-bundle completeness."
+summary: "Working ExecPlan for ProFeedback follow-up focused on pass3 ROI, candidate-label diagnostics, and upload-bundle completeness."
 read_when:
   - "When planning the next codex-farm quality/runtime iteration after 2026-03-03_20.49.14."
   - "When deciding which ProFeedback suggestions are still actionable vs already implemented."
@@ -23,14 +23,15 @@ Scope guard: this plan is benchmark/evaluation-only and must not enable codex-fa
 
 ## Progress
 
+- [x] (2026-03-03_21.25.37) Rebuilt this plan as the active working copy, revalidated `docs/PLANS.md` requirements, and confirmed benchmark/LLM/doc context links still match current code paths.
 - [x] (2026-03-03_21.17.00) Audited `docs/PLANS.md`, `docs/07-bench/07-bench_README.md`, `docs/10-llm/10-llm_README.md`, `docs/plans/2026-03-03_20.13.22-codexfarm-soft-gating-runtime-outside-span-precision.md`, and current benchmark artifacts under `data/golden/benchmark-vs-golden/2026-03-03_20.49.14/`.
 - [x] (2026-03-03_21.17.00) Confirmed which ProFeedback suggestions are already implemented versus still actionable in code.
 - [x] (2026-03-03_21.17.00) Replaced freeform `ProFeedback.md` content with this ExecPlan.
-- [ ] Add pass3 utility instrumentation and gated skip-policy prototype for pass2-ok rows in `cookimport/llm/codex_farm_orchestrator.py`.
-- [ ] Implement conservative pass3 skip policy for high-confidence deterministic promotions and propagate routing metadata.
-- [ ] Surface line-role `candidate_labels` through prediction artifacts and upload-bundle analytics.
-- [ ] Generate/fill missing upload-bundle diagnostics (`prompt_warning_aggregate`, `projection_trace`, `wrong_label_full_context`, `preprocess_trace_failures`) when source artifacts are available.
-- [ ] Add/extend tests and rerun paired benchmark plus speed regression checks.
+- [x] (2026-03-03_21.43.38) Added pass2-ok pass3 utility instrumentation in `cookimport/llm/codex_farm_orchestrator.py` and persisted per-recipe/count-level fields in `llm_manifest`.
+- [x] (2026-03-03_21.43.38) Implemented conservative pass2-ok deterministic promotion policy behind `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`, with explicit routing reasons/policies.
+- [x] (2026-03-03_21.43.38) Surfaced line-role `candidate_labels` in prediction rows and propagated candidate-label metadata through `cookimport/bench/cutdown_export.py`.
+- [x] (2026-03-03_21.43.38) Verified upload-bundle diagnostic completion path writes codex statuses when derivation inputs exist; added fixture coverage in `tests/bench/test_benchmark_cutdown_for_external_ai.py`.
+- [ ] Add/extend tests and rerun paired benchmark plus speed regression checks (completed: targeted pytest suites for llm/parsing/bench pass; remaining: paired benchmark rerun + speed-discover/run/compare evidence collection).
 
 ## Surprises & Discoveries
 
@@ -48,6 +49,9 @@ Scope guard: this plan is benchmark/evaluation-only and must not enable codex-fa
 
 - Observation: Codex diagnostic bundle rows still show missing statuses for artifacts reviewers asked for.
   Evidence: `run_diagnostics[run_id=codexfarm]` currently reports `prompt_warning_aggregate_status=missing`, `projection_trace_status=missing`, `wrong_label_full_context_status=missing`, `preprocess_trace_failures_status=missing`.
+
+- Observation: The "all missing" codex diagnostic status was stale artifact state, not current script behavior.
+  Evidence: Regenerating `upload_bundle_v1` for the same 2026-03-03_20.49.14 SeaAndSmoke session now reports codex diagnostic statuses as `written`.
 
 - Observation: Some remaining quality misses are still deterministic-boundary style errors, not raw model-capability errors.
   Evidence: Latest codex confusion still includes `INSTRUCTION_LINE -> RECIPE_NOTES` (11), `OTHER -> HOWTO_SECTION` (10), `OTHER -> RECIPE_NOTES` (13), and `HOWTO_SECTION -> RECIPE_TITLE` (6).
@@ -76,9 +80,9 @@ Scope guard: this plan is benchmark/evaluation-only and must not enable codex-fa
 
 ## Outcomes & Retrospective
 
-Current outcome: `ProFeedback.md` has been converted from unstructured narrative into an executable, codebase-audited plan.
+Current outcome: Milestones 1-4 are implemented in runtime/test surfaces: pass2-ok utility + skip-policy seams, candidate-label propagation, and upload-bundle diagnostic completeness coverage.
 
-Remaining outcome target: ship only the still-valuable feedback items and verify they improve runtime/diagnostic usefulness without eroding codex quality gains.
+Remaining outcome target: run paired benchmark and speed-regression workflows to publish updated ROI evidence against baseline artifacts.
 
 ## Context and Orientation
 
@@ -223,3 +227,5 @@ Expected additive interface changes:
 ---
 
 Plan revision note (2026-03-03_21.17.00): Converted `docs/plans/ProFeedback.md` from unstructured feedback text into a full ExecPlan after auditing current code and benchmark artifacts so only still-valuable suggestions remain in scope.
+Plan revision note (2026-03-03_21.25.37): Rebuilt and revalidated this file as the active working copy, updated summary/progress wording, and confirmed referenced docs/contracts still align with current benchmark and codex-farm surfaces.
+Plan revision note (2026-03-03_21.43.38): Implemented runtime/test/docs changes for pass2-ok utility/skip policy, candidate-label propagation, and upload-bundle diagnostic coverage; left benchmark/speed rerun evidence as remaining validation work.

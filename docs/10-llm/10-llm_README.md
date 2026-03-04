@@ -121,6 +121,15 @@ Report/model plumbing:
 - Pass3 routing now records additive metadata per recipe in `llm_manifest`:
   - `pass2_degradation_severity`, `pass2_promotion_policy`,
   - `pass3_execution_mode`, `pass3_routing_reason`.
+- Pass2-ok rows now also record `pass3_utility_signal` in per-recipe `llm_manifest` rows
+  (instruction/ingredient/schema/warning evidence snapshot + conservative
+  `deterministic_low_risk` flag).
+- Optional pass2-ok deterministic promotion is env-guarded via
+  `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=1` and only skips pass3 when the
+  utility signal is low-risk (`pass3_routing_reason=pass2_ok_high_confidence_deterministic`).
+- Manifest counts now include pass2-ok routing utility counters:
+  `pass3_pass2_ok_utility_rows`, `pass3_pass2_ok_skip_candidates`,
+  `pass3_pass2_ok_deterministic_skips`, `pass3_pass2_ok_llm_calls`.
 - Selective soft-degradation routing defaults to deterministic promotion for low-risk rows (non-placeholder instruction evidence present), producing `pass3_status=ok` with `pass3_execution_mode=deterministic` and no pass3 LLM call.
 - Pass2 degradation warning bucket naming is now layout-specific for page-marker noise (`warning_bucket:page_or_layout_artifact`) instead of OCR-specific wording.
 - Deterministic fallback now starts from the existing `state.recipe` candidate, then applies guarded pass2 enrichments when instruction/ingredient evidence is non-empty and non-placeholder.

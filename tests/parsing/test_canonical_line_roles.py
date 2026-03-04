@@ -340,6 +340,7 @@ def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeyp
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "codex"
+    assert "RECIPE_TITLE" in predictions[0].candidate_labels
 
 
 def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypatch) -> None:
@@ -372,6 +373,7 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "rule"
+    assert "RECIPE_TITLE" in predictions[0].candidate_labels
 
 
 def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:

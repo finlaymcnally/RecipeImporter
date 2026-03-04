@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import importlib.util
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -270,6 +271,8 @@ def _make_run_record(
     llm_recipe_pipeline: str,
     wrong_label_rows: list[dict[str, object]],
     full_prompt_rows: list[dict[str, object]] | None = None,
+    line_role_pipeline: str = "off",
+    line_role_prediction_rows: list[dict[str, object]] | None = None,
 ) -> object:
     run_dir = run_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -280,6 +283,11 @@ def _make_run_record(
     _write_jsonl(run_dir / "unmatched_pred_blocks.jsonl", [])
     _write_jsonl(run_dir / "aligned_prediction_blocks.jsonl", [])
     _write_jsonl(run_dir / "alignment_gaps.jsonl", [])
+    if line_role_prediction_rows is not None:
+        _write_jsonl(
+            run_dir / "line-role-pipeline" / "line_role_predictions.jsonl",
+            line_role_prediction_rows,
+        )
 
     artifacts: dict[str, object] = {}
     full_prompt_log_rows = 0
@@ -298,7 +306,7 @@ def _make_run_record(
         "run_config": {
             "llm_recipe_pipeline": llm_recipe_pipeline,
             "atomic_block_splitter": "off",
-            "line_role_pipeline": "off",
+            "line_role_pipeline": line_role_pipeline,
             "prediction_run_config_hash": "hash-a",
         },
     }
@@ -329,7 +337,7 @@ def _make_run_record(
         source_hash="source-hash",
         llm_recipe_pipeline=llm_recipe_pipeline,
         atomic_block_splitter="off",
-        line_role_pipeline="off",
+        line_role_pipeline=line_role_pipeline,
         codex_enabled=llm_recipe_pipeline not in {"off", "none", ""},
         metric_overall_line_accuracy=0.0,
         metric_macro_f1_excluding_other=0.0,
@@ -1445,8 +1453,19 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 0,
+                "label": "RECIPE_TITLE",
+                "confidence": 0.95,
+                "decided_by": "rule",
+                "candidate_labels": ["RECIPE_TITLE", "HOWTO_SECTION", "OTHER"],
+                "text": "Dish Title",
+            }
+        ],
     )
     _make_run_record(
         module,
@@ -1483,8 +1502,19 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 0,
+                "label": "RECIPE_TITLE",
+                "confidence": 0.95,
+                "decided_by": "rule",
+                "candidate_labels": ["RECIPE_TITLE", "HOWTO_SECTION", "OTHER"],
+                "text": "Dish Title",
+            }
+        ],
     )
     _make_run_record(
         module,
@@ -1526,8 +1556,19 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 0,
+                "label": "RECIPE_TITLE",
+                "confidence": 0.95,
+                "decided_by": "rule",
+                "candidate_labels": ["RECIPE_TITLE", "HOWTO_SECTION", "OTHER"],
+                "text": "Dish Title",
+            }
+        ],
     )
     _make_run_record(
         module,
@@ -1540,6 +1581,24 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     _write_json(
         session_root / "codex_vs_vanilla_comparison.json",
         {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+    codex_run_dir = session_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+    seeded_cutdown_dir = tmp_path / "seed_cutdown" / codex_run_id
+    module._build_run_cutdown(
+        run_dir=codex_run_dir,
+        output_run_dir=seeded_cutdown_dir,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
+    )
+    shutil.copy2(
+        seeded_cutdown_dir / "need_to_know_summary.json",
+        codex_run_dir / "need_to_know_summary.json",
     )
 
     bundle_dir = session_root / "upload_bundle_v1"
@@ -1569,6 +1628,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert int(index_payload["topline"]["run_count"]) == 2
     assert int(index_payload["topline"]["pair_count"]) == 1
     assert int(index_payload["topline"]["changed_lines_total"]) >= 1
+    assert int(index_payload["topline"]["additional_pairs_needed_for_generalization"]) == 1
     self_check = index_payload.get("self_check")
     assert isinstance(self_check, dict)
     assert set(
@@ -1587,12 +1647,35 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
+    line_role_signal = index_payload["analysis"].get("line_role_confidence_or_candidates")
+    assert isinstance(line_role_signal, dict)
+    candidate_signal = line_role_signal.get("candidate_label_signal")
+    assert isinstance(candidate_signal, dict)
+    assert candidate_signal.get("available") is True
+    assert int(candidate_signal.get("rows_with_candidate_labels") or 0) >= 1
     runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
     assert isinstance(runtime_summary.get("cost_signal"), dict)
     assert runtime_summary["cost_signal"]["available"] is False
     assert (
         "recognized cost fields"
         in str(runtime_summary["cost_signal"]["unavailable_reason"])
+    )
+    assert isinstance(runtime_summary.get("estimated_cost_signal"), dict)
+    if runtime_summary["estimated_cost_signal"]["available"] is True:
+        assert int(runtime_summary.get("calls_with_estimated_cost") or 0) >= 1
+        assert runtime_summary.get("total_estimated_cost_usd") is not None
+    else:
+        assert (
+            "token telemetry is missing"
+            in str(runtime_summary["estimated_cost_signal"].get("note") or "")
+        )
+    pair_inventory = index_payload["analysis"]["benchmark_pair_inventory"]
+    assert isinstance(pair_inventory.get("generalization_readiness"), dict)
+    assert (
+        pair_inventory["generalization_readiness"][
+            "additional_pairs_needed_for_generalization"
+        ]
+        == 1
     )
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
@@ -1615,6 +1698,15 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     )
     assert derived_root_run_index in artifact_paths
     assert float(self_check.get("critical_row_locators_coverage_ratio") or 0.0) >= 0.9
+    run_diagnostics = index_payload.get("run_diagnostics")
+    assert isinstance(run_diagnostics, list)
+    codex_diag = next(
+        row for row in run_diagnostics if str(row.get("run_id") or "") == codex_run_id
+    )
+    assert codex_diag["prompt_warning_aggregate_status"] == "written"
+    assert codex_diag["projection_trace_status"] == "written"
+    assert codex_diag["wrong_label_full_context_status"] == "written"
+    assert codex_diag["preprocess_trace_failures_status"] == "written"
 
 
 def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
@@ -1708,6 +1800,27 @@ def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) 
     coverage = float(self_check.get("critical_row_locators_coverage_ratio") or 0.0)
     # Keep a small floor so future changes don't silently null out every critical locator.
     assert coverage >= 0.14
+
+
+def test_upload_bundle_extract_candidate_labels_accepts_multiple_shapes() -> None:
+    module = _load_cutdown_module()
+    labels = module._upload_bundle_extract_candidate_labels(
+        {
+            "candidate_labels": ["recipe_title", {"label": "howto_section"}],
+            "label_candidates": [{"name": "ingredient_line"}],
+            "candidates": [{"pred_label": "other"}],
+            "label_scores": {"knowledge": 0.51, "instruction_line": 0.49},
+        }
+    )
+
+    assert labels == [
+        "RECIPE_TITLE",
+        "HOWTO_SECTION",
+        "INGREDIENT_LINE",
+        "OTHER",
+        "KNOWLEDGE",
+        "INSTRUCTION_LINE",
+    ]
 
 
 def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:

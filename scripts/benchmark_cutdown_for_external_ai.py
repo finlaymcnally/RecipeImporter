@@ -47,6 +47,13 @@ DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
 DEFAULT_TARGETED_PROMPT_CASES = 10
 ALIGNMENT_HEALTHY_COVERAGE_MIN = 0.98
 ALIGNMENT_HEALTHY_MATCH_RATIO_MIN = 0.98
+UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION = 2
+UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD = 0.90
+UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING = {
+    "input_per_1m": 3.0,
+    "cached_input_per_1m": 0.0,
+    "output_per_1m": 15.0,
+}
 
 # Keep this focused on settings that are likely to explain quality deltas.
 RUN_CONFIG_KEYS_OF_INTEREST = (
@@ -6400,6 +6407,7 @@ def _upload_bundle_extract_call_runtime(row: dict[str, Any]) -> dict[str, Any]:
             ("cost_usd",),
             ("total_cost_usd",),
             ("estimated_cost_usd",),
+            ("estimated_cost",),
             ("cost", "total_usd"),
             ("cost", "usd"),
         ),
@@ -6407,7 +6415,13 @@ def _upload_bundle_extract_call_runtime(row: dict[str, Any]) -> dict[str, Any]:
     if cost_usd is None:
         cost_usd = _upload_bundle_nested_numeric(
             request_telemetry,
-            (("cost_usd",), ("estimated_cost_usd",)),
+            (
+                ("cost_usd",),
+                ("total_cost_usd",),
+                ("estimated_cost_usd",),
+                ("estimated_cost",),
+                ("cost",),
+            ),
         )
 
     return {
@@ -6421,6 +6435,31 @@ def _upload_bundle_extract_call_runtime(row: dict[str, Any]) -> dict[str, Any]:
         "attempt_index": _coerce_int(request_telemetry.get("attempt_index")),
         "status": str(request_telemetry.get("status") or "").strip() or None,
     }
+
+
+def _upload_bundle_estimate_call_cost_usd(
+    *,
+    tokens_input: int | None,
+    tokens_cached_input: int | None,
+    tokens_output: int | None,
+) -> float | None:
+    if tokens_input is None and tokens_output is None:
+        return None
+    input_tokens = int(tokens_input or 0)
+    cached_tokens = int(tokens_cached_input or 0)
+    if cached_tokens < 0:
+        cached_tokens = 0
+    if cached_tokens > input_tokens:
+        cached_tokens = input_tokens
+    uncached_tokens = max(input_tokens - cached_tokens, 0)
+    output_tokens = int(tokens_output or 0)
+    pricing = UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING
+    total_cost = (
+        (uncached_tokens / 1_000_000.0) * float(pricing["input_per_1m"])
+        + (cached_tokens / 1_000_000.0) * float(pricing["cached_input_per_1m"])
+        + (output_tokens / 1_000_000.0) * float(pricing["output_per_1m"])
+    )
+    return round(total_cost, 8)
 
 
 def _upload_bundle_collect_call_runtime_map(
@@ -6473,6 +6512,16 @@ def _upload_bundle_build_call_runtime_inventory(
         pass_name = str(row.get("pass") or "").strip().lower()
         call_id = str(row.get("call_id") or "").strip()
         runtime = runtime_by_key.get((run_id, recipe_id, pass_name, call_id), {})
+        observed_cost_usd = _coerce_float(runtime.get("cost_usd"))
+        estimated_cost_usd = (
+            observed_cost_usd
+            if observed_cost_usd is not None
+            else _upload_bundle_estimate_call_cost_usd(
+                tokens_input=_coerce_int(runtime.get("tokens_input")),
+                tokens_cached_input=_coerce_int(runtime.get("tokens_cached_input")),
+                tokens_output=_coerce_int(runtime.get("tokens_output")),
+            )
+        )
         enriched_rows.append(
             {
                 **row,
@@ -6482,7 +6531,17 @@ def _upload_bundle_build_call_runtime_inventory(
                 "tokens_output": _coerce_int(runtime.get("tokens_output")),
                 "tokens_reasoning": _coerce_int(runtime.get("tokens_reasoning")),
                 "tokens_total": _coerce_int(runtime.get("tokens_total")),
-                "cost_usd": _coerce_float(runtime.get("cost_usd")),
+                "cost_usd": observed_cost_usd,
+                "estimated_cost_usd": estimated_cost_usd,
+                "cost_source": (
+                    "observed_telemetry"
+                    if observed_cost_usd is not None
+                    else (
+                        "estimated_from_tokens_default_pricing"
+                        if estimated_cost_usd is not None
+                        else None
+                    )
+                ),
                 "retry_attempt": _coerce_int(runtime.get("attempt_index")),
                 "runtime_status": runtime.get("status"),
             }
@@ -6503,9 +6562,20 @@ def _upload_bundle_build_call_runtime_inventory(
         for row in enriched_rows
         if _coerce_float(row.get("cost_usd")) is not None
     ]
+    estimated_cost_values = [
+        _coerce_float(row.get("estimated_cost_usd"))
+        for row in enriched_rows
+        if _coerce_float(row.get("estimated_cost_usd")) is not None
+    ]
     calls_with_cost = len(cost_values)
     cost_coverage_ratio = (
         round(calls_with_cost / len(enriched_rows), 6) if enriched_rows else 0.0
+    )
+    calls_with_estimated_cost = len(estimated_cost_values)
+    estimated_cost_coverage_ratio = (
+        round(calls_with_estimated_cost / len(enriched_rows), 6)
+        if enriched_rows
+        else 0.0
     )
     by_pass: dict[str, dict[str, Any]] = {}
     pass_names = sorted(
@@ -6536,11 +6606,18 @@ def _upload_bundle_build_call_runtime_inventory(
             for row in pass_rows
             if _coerce_float(row.get("cost_usd")) is not None
         ]
+        pass_estimated_cost = [
+            _coerce_float(row.get("estimated_cost_usd"))
+            for row in pass_rows
+            if _coerce_float(row.get("estimated_cost_usd")) is not None
+        ]
         pass_calls_with_cost = len(pass_cost)
+        pass_calls_with_estimated_cost = len(pass_estimated_cost)
         by_pass[pass_name] = {
             "call_count": len(pass_rows),
             "calls_with_runtime": len(pass_duration),
             "calls_with_cost": pass_calls_with_cost,
+            "calls_with_estimated_cost": pass_calls_with_estimated_cost,
             "avg_duration_ms": (
                 round(sum(pass_duration) / len(pass_duration), 3)
                 if pass_duration
@@ -6550,8 +6627,18 @@ def _upload_bundle_build_call_runtime_inventory(
             "total_cost_usd": (
                 round(float(sum(pass_cost)), 8) if pass_cost else None
             ),
+            "total_estimated_cost_usd": (
+                round(float(sum(pass_estimated_cost)), 8)
+                if pass_estimated_cost
+                else None
+            ),
             "cost_coverage_ratio": (
                 round(pass_calls_with_cost / len(pass_rows), 6) if pass_rows else 0.0
+            ),
+            "estimated_cost_coverage_ratio": (
+                round(pass_calls_with_estimated_cost / len(pass_rows), 6)
+                if pass_rows
+                else 0.0
             ),
         }
 
@@ -6579,12 +6666,25 @@ def _upload_bundle_build_call_runtime_inventory(
             str(row.get("call_id") or ""),
         ),
     )[:12]
+    top_estimated_cost = sorted(
+        [
+            row
+            for row in enriched_rows
+            if _coerce_float(row.get("estimated_cost_usd")) is not None
+        ],
+        key=lambda row: (
+            -float(_coerce_float(row.get("estimated_cost_usd")) or 0.0),
+            str(row.get("run_id") or ""),
+            str(row.get("call_id") or ""),
+        ),
+    )[:12]
 
     return {
         "summary": {
             "call_count": len(enriched_rows),
             "calls_with_runtime": len(duration_values),
             "calls_with_cost": calls_with_cost,
+            "calls_with_estimated_cost": calls_with_estimated_cost,
             "total_duration_ms": int(sum(duration_values)) if duration_values else None,
             "avg_duration_ms": (
                 round(sum(duration_values) / len(duration_values), 3)
@@ -6595,7 +6695,13 @@ def _upload_bundle_build_call_runtime_inventory(
             "total_cost_usd": (
                 round(float(sum(cost_values)), 8) if cost_values else None
             ),
+            "total_estimated_cost_usd": (
+                round(float(sum(estimated_cost_values)), 8)
+                if estimated_cost_values
+                else None
+            ),
             "cost_coverage_ratio": cost_coverage_ratio,
+            "estimated_cost_coverage_ratio": estimated_cost_coverage_ratio,
             "cost_signal": {
                 "available": calls_with_cost > 0,
                 "calls_with_cost": calls_with_cost,
@@ -6609,11 +6715,28 @@ def _upload_bundle_build_call_runtime_inventory(
                     )
                 ),
             },
+            "estimated_cost_signal": {
+                "available": calls_with_estimated_cost > 0,
+                "calls_with_estimated_cost": calls_with_estimated_cost,
+                "coverage_ratio": estimated_cost_coverage_ratio,
+                "method": (
+                    "observed_or_default_token_pricing_estimate"
+                    if calls_with_estimated_cost > 0
+                    else ""
+                ),
+                "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
+                "note": (
+                    "Estimated costs use default token pricing and are not billing truth."
+                    if calls_with_estimated_cost > 0
+                    else "No token-based estimate available because token telemetry is missing."
+                ),
+            },
             "by_pass": by_pass,
         },
         "top_slowest_calls": top_slowest,
         "top_token_calls": top_token,
         "top_cost_calls": top_cost,
+        "top_estimated_cost_calls": top_estimated_cost,
     }
 
 
@@ -6652,6 +6775,8 @@ def _upload_bundle_build_line_role_confidence_summary(
     label_counts: Counter[str] = Counter()
     confidence_values: list[float] = []
     low_confidence_examples: list[dict[str, Any]] = []
+    low_confidence_by_label: Counter[str] = Counter()
+    low_confidence_by_decided_by: Counter[str] = Counter()
     candidate_label_rows = 0
     candidate_label_counts: Counter[str] = Counter()
     total_rows = 0
@@ -6666,14 +6791,17 @@ def _upload_bundle_build_line_role_confidence_summary(
             decided_by_counts[decided_by] += 1
             if confidence is not None:
                 confidence_values.append(float(confidence))
-            candidate_labels = row.get("candidate_labels")
-            if isinstance(candidate_labels, list) and candidate_labels:
+            candidate_labels = _upload_bundle_extract_candidate_labels(row)
+            if candidate_labels:
                 candidate_label_rows += 1
                 for candidate in candidate_labels:
-                    text = str(candidate or "").strip().upper()
-                    if text:
-                        candidate_label_counts[text] += 1
-            if confidence is not None and confidence < 0.90:
+                    candidate_label_counts[candidate] += 1
+            if (
+                confidence is not None
+                and confidence < UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD
+            ):
+                low_confidence_by_label[label] += 1
+                low_confidence_by_decided_by[decided_by] += 1
                 low_confidence_examples.append(
                     {
                         "run_id": str(row.get("run_id") or ""),
@@ -6731,11 +6859,69 @@ def _upload_bundle_build_line_role_confidence_summary(
             "unavailable_reason": (
                 ""
                 if candidate_label_rows > 0
-                else "line-role predictions do not include candidate_labels in this run format"
+                else (
+                    "line-role predictions do not include recognized candidate-label fields "
+                    "(candidate_labels/label_candidates/candidates/label_scores)"
+                )
+            ),
+        },
+        "selective_escalation_signal": {
+            "low_confidence_threshold": UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD,
+            "low_confidence_row_count": int(sum(low_confidence_by_label.values())),
+            "low_confidence_ratio": (
+                round(sum(low_confidence_by_label.values()) / total_rows, 6)
+                if total_rows > 0
+                else 0.0
+            ),
+            "low_confidence_by_label": _counter_to_sorted_dict(low_confidence_by_label),
+            "low_confidence_by_decided_by": _counter_to_sorted_dict(
+                low_confidence_by_decided_by
             ),
         },
         "low_confidence_examples": low_confidence_examples[:24],
     }
+
+
+def _upload_bundle_extract_candidate_labels(row: dict[str, Any]) -> list[str]:
+    def _normalize_candidate(value: Any) -> str | None:
+        if isinstance(value, str):
+            text = value.strip().upper()
+            return text or None
+        if isinstance(value, dict):
+            for key in ("label", "name", "pred_label", "candidate"):
+                text = str(value.get(key) or "").strip().upper()
+                if text:
+                    return text
+        return None
+
+    labels: list[str] = []
+    for field_name in (
+        "candidate_labels",
+        "label_candidates",
+        "candidates",
+        "top_candidates",
+    ):
+        payload = row.get(field_name)
+        if isinstance(payload, list):
+            for item in payload:
+                normalized = _normalize_candidate(item)
+                if normalized:
+                    labels.append(normalized)
+    for field_name in ("candidate_label_scores", "label_scores", "candidate_distribution"):
+        payload = row.get(field_name)
+        if isinstance(payload, dict):
+            for label in payload.keys():
+                normalized = _normalize_candidate(label)
+                if normalized:
+                    labels.append(normalized)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for label in labels:
+        if label in seen:
+            continue
+        seen.add(label)
+        deduped.append(label)
+    return deduped
 
 
 def _upload_bundle_matches_recipe_target(recipe_id: str, target: str) -> bool:
@@ -7697,7 +7883,13 @@ def _write_upload_bundle_three_files(
         ),
         "full_prompt_log_rows": int(full_prompt_log_rows or 0),
         "largest_practical_f1_regressions": largest_regressions,
-        "pair_count_sufficient_for_generalization": pair_count_verified_count >= 2,
+        "pair_count_sufficient_for_generalization": (
+            pair_count_verified_count >= UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
+        ),
+        "additional_pairs_needed_for_generalization": max(
+            UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION - pair_count_verified_count,
+            0,
+        ),
     }
 
     self_check = {
@@ -8047,6 +8239,20 @@ def _write_upload_bundle_three_files(
         "analysis": {
             "benchmark_pair_inventory": {
                 "pair_count": len(pair_inventory),
+                "generalization_readiness": {
+                    "minimum_pairs_for_generalization": (
+                        UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
+                    ),
+                    "pair_count_sufficient_for_generalization": (
+                        pair_count_verified_count
+                        >= UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
+                    ),
+                    "additional_pairs_needed_for_generalization": max(
+                        UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION
+                        - pair_count_verified_count,
+                        0,
+                    ),
+                },
                 "pairs": pair_inventory,
             },
             "per_label_metrics": per_label_metrics,
@@ -8103,6 +8309,10 @@ def _write_upload_bundle_three_files(
             "- pair_count_sufficient_for_generalization: "
             f"{'true' if topline['pair_count_sufficient_for_generalization'] else 'false'}"
         ),
+        (
+            "- additional_pairs_needed_for_generalization: "
+            f"{int(topline['additional_pairs_needed_for_generalization'])}"
+        ),
         f"- full_prompt_log_status: {topline['full_prompt_log_status']}",
         f"- full_prompt_log_rows: {topline['full_prompt_log_rows']}",
         "",
@@ -8158,6 +8368,19 @@ def _write_upload_bundle_three_files(
     )
     cost_signal = cost_signal.get("cost_signal") if isinstance(cost_signal, dict) else {}
     cost_signal = cost_signal if isinstance(cost_signal, dict) else {}
+    estimated_cost_signal = (
+        call_runtime_inventory.get("summary")
+        if isinstance(call_runtime_inventory.get("summary"), dict)
+        else {}
+    )
+    estimated_cost_signal = (
+        estimated_cost_signal.get("estimated_cost_signal")
+        if isinstance(estimated_cost_signal, dict)
+        else {}
+    )
+    estimated_cost_signal = (
+        estimated_cost_signal if isinstance(estimated_cost_signal, dict) else {}
+    )
     candidate_signal = (
         line_role_signal_summary.get("candidate_label_signal")
         if isinstance(line_role_signal_summary, dict)
@@ -8175,6 +8398,14 @@ def _write_upload_bundle_three_files(
             (
                 "- call_cost_coverage_ratio: "
                 f"{_serialize_float(_coerce_float(cost_signal.get('coverage_ratio')))}"
+            ),
+            (
+                "- call_cost_estimated_available: "
+                f"{'true' if bool(estimated_cost_signal.get('available')) else 'false'}"
+            ),
+            (
+                "- call_cost_estimated_coverage_ratio: "
+                f"{_serialize_float(_coerce_float(estimated_cost_signal.get('coverage_ratio')))}"
             ),
             (
                 "- line_role_candidate_labels_available: "

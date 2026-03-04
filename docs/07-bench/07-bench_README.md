@@ -125,7 +125,9 @@ Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer pre
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
 - `line_role_predictions.jsonl` (copied from prediction-run artifact)
+  - rows now include `candidate_labels` from canonical line-role allowlists.
 - `joined_line_table.jsonl`
+  - rows include `candidate_labels` and `candidate_label_count` for joined-line triage.
 - `line_role_flips_vs_baseline.jsonl`
   - baseline source is paired history eval rows when available (same source, canonical mode, `line_role_pipeline=off`, preferring matching `llm_recipe_pipeline`); fallback remains inferred baseline from `decided_by` metadata when no paired baseline exists.
 - `slice_metrics.json`
@@ -184,7 +186,10 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
 - `upload_bundle_index.json` includes verified topline/self-check booleans (`starter_pack_present`, `pair_count_verified`, `changed_lines_verified`, `topline_consistent`) and corrects counts from discovered run artifacts when advertised root summaries are stale or missing.
 - default index views prioritize first-pass triage (`per_label_metrics`, `per_recipe_breakdown`, `stage_separated_comparison`, `failure_ledger`, compact regression casebook, stratified changed-line samples, call runtime/tokens/cost summary, line-role confidence signals) with payload row locators.
-- call-runtime summaries expose `cost_signal` availability/coverage fields so missing per-call cost data is explicit instead of implied by null totals.
+- call-runtime summaries expose observed-cost `cost_signal` plus token-based `estimated_cost_signal` fallback fields (default pricing, clearly marked as estimates) so missing per-call cost data is explicit while preserving first-pass cost ordering.
+- benchmark pair inventory includes `generalization_readiness` (`minimum_pairs_for_generalization`, `additional_pairs_needed_for_generalization`) for quick triage on single-pair overfitting risk.
+- line-role candidate-label analytics accept multiple candidate field shapes (`candidate_labels`, `label_candidates`, `candidates`, `label_scores`) for forward compatibility.
+  - new codex-line-role-v1 runs should report `candidate_label_signal.available=true` once `line_role_predictions.jsonl` includes `candidate_labels`.
 - row locators now include basename fallback resolution (for example, mapping comparison-summary lookups to `codex_vs_vanilla_comparison.json` when that is the available root artifact) plus critical locator coverage counters in `self_check`.
 - heavy/raw artifacts (full prompt logs, raw llm manifests, transport traces, split-cache blobs) remain lossless in payload but are marked as deprioritized for default reading; alias metadata groups equivalent artifacts to reduce duplicate navigation.
 - Starter-pack triage rows now carry pass2/pass3 routing diagnostics when present in `llm_manifest` (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason`).

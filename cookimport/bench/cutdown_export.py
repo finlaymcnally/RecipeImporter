@@ -56,6 +56,7 @@ def build_line_role_joined_line_rows(
                 "decided_by": str(row.get("decided_by") or "").strip().lower() or None,
                 "within_recipe_span": bool(row.get("within_recipe_span")),
                 "recipe_id": str(row.get("recipe_id") or "").strip() or None,
+                "candidate_labels": _coerce_candidate_labels(row),
             }
 
     joined_rows: list[dict[str, Any]] = []
@@ -75,6 +76,8 @@ def build_line_role_joined_line_rows(
                 "within_recipe_span": bool(line_meta.get("within_recipe_span")),
                 "decided_by": line_meta.get("decided_by"),
                 "recipe_id": line_meta.get("recipe_id"),
+                "candidate_labels": list(line_meta.get("candidate_labels") or []),
+                "candidate_label_count": len(list(line_meta.get("candidate_labels") or [])),
             }
         )
     joined_rows.sort(key=lambda row: int(row["line_index"]))
@@ -203,6 +206,21 @@ def _normalize_label(value: Any) -> str:
     normalized = normalize_freeform_label(str(value or "OTHER"))
     if normalized not in _FREEFORM_LABEL_SET:
         return "OTHER"
+    return normalized
+
+
+def _coerce_candidate_labels(row: dict[str, Any]) -> list[str]:
+    labels = row.get("candidate_labels")
+    if not isinstance(labels, list):
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in labels:
+        text = str(item or "").strip().upper()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
     return normalized
 
 

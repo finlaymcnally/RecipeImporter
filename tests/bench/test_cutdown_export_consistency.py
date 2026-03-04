@@ -96,6 +96,7 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
                 "decided_by": "codex",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
+                "candidate_labels": ["ingredient_line", "yield_line"],
             },
             {
                 "atomic_index": 2,
@@ -129,6 +130,9 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
         eval_output_dir=eval_output_dir,
         line_role_predictions_path=line_role_predictions_path,
     )
+    by_line_index = {int(row["line_index"]): row for row in joined_rows}
+    assert by_line_index[1]["candidate_labels"] == ["INGREDIENT_LINE", "YIELD_LINE"]
+    assert by_line_index[1]["candidate_label_count"] == 2
     flips_rows = build_line_role_flips_vs_baseline(
         joined_line_rows=joined_rows,
         line_role_predictions_path=line_role_predictions_path,
