@@ -2058,6 +2058,7 @@ _HTML = """\
           <div class="compare-control-actions">
             <button id="compare-control-filter-subset" type="button">Filter to subset</button>
             <button id="compare-control-clear-selection" type="button">Clear groups</button>
+            <button id="compare-control-reset" type="button">Reset</button>
           </div>
           <p id="compare-control-status" class="section-note"></p>
           <div id="compare-control-results" class="compare-control-results"></div>
@@ -2453,7 +2454,8 @@ section h3 {
   border-color: #c7d0d9;
 }
 #compare-control-filter-subset,
-#compare-control-clear-selection {
+#compare-control-clear-selection,
+#compare-control-reset {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: #f6f9fc;
@@ -2463,11 +2465,13 @@ section h3 {
   padding: 0.18rem 0.62rem;
 }
 #compare-control-filter-subset:hover,
-#compare-control-clear-selection:hover {
+#compare-control-clear-selection:hover,
+#compare-control-reset:hover {
   border-color: #c7d0d9;
 }
 #compare-control-filter-subset:disabled,
-#compare-control-clear-selection:disabled {
+#compare-control-clear-selection:disabled,
+#compare-control-reset:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
@@ -2610,6 +2614,10 @@ section h3 {
 .compare-control-inline-note {
   color: var(--muted);
   font-size: 0.78rem;
+}
+.compare-control-warning {
+  color: #8a5b07;
+  font-size: 0.79rem;
 }
 
 .chart-container { width: 100%; overflow-x: auto; min-height: 120px; }
@@ -3760,14 +3768,17 @@ _JS = """\
   let previousRunsFilterControlSource = "table";
   let isolateClauses = [];
   let isolateCombineMode = "all";
-  let compareControlState = {
-    outcome_field: "strict_accuracy",
-    compare_field: "",
-    hold_constant_fields: [],
-    split_field: "",
-    view_mode: "discover",
-    selected_groups: [],
-  };
+  function compareControlDefaultState() {
+    return {
+      outcome_field: "strict_accuracy",
+      compare_field: "",
+      hold_constant_fields: [],
+      split_field: "",
+      view_mode: "discover",
+      selected_groups: [],
+    };
+  }
+  let compareControlState = compareControlDefaultState();
   let compareControlStatusMessage = "";
   let compareControlStatusIsError = false;
   let perLabelRollingWindowSize = 10;
@@ -4009,6 +4020,27 @@ _JS = """\
     "per_label_json",
     "per_label",
   ]);
+  const COMPARE_CONTROL_SECONDARY_METRIC_PREFERRED = [
+    "benchmark_total_seconds",
+    "benchmark_prediction_seconds",
+    "benchmark_evaluation_seconds",
+    "all_token_use",
+    "tokens_total",
+    "tokens_input",
+    "tokens_output",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "cost_usd",
+    "benchmark_cost_usd",
+    "run_cost_usd",
+  ];
+  const COMPARE_CONTROL_SECONDARY_FIELD_PATTERN = /(token|runtime|second|latency|cost|usd|price)/i;
+  const COMPARE_CONTROL_SECONDARY_MAX_FIELDS = 4;
+  const COMPARE_CONTROL_WARNING_ROW_COVERAGE_MIN = 0.6;
+  const COMPARE_CONTROL_WARNING_STRATA_COVERAGE_MIN = 0.6;
+  const COMPARE_CONTROL_WARNING_MIN_ROWS = 20;
+  const COMPARE_CONTROL_WARNING_MIN_STRATA = 3;
   const TABLE_COLLAPSE_DEFAULT_ROWS = {
     "recent-runs": 8,
     "file-trend-table": 8,
@@ -4202,14 +4234,21 @@ _JS = """\
     const source = rawState && typeof rawState === "object" && !Array.isArray(rawState)
       ? rawState
       : Object.create(null);
+    const base = compareControlDefaultState();
     return {
-      outcome_field: String(source.outcome_field || COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD).trim() || COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD,
+      outcome_field: String(source.outcome_field || base.outcome_field).trim() || base.outcome_field,
       compare_field: String(source.compare_field || "").trim(),
       hold_constant_fields: uniqueStringList(source.hold_constant_fields),
       split_field: String(source.split_field || "").trim(),
       view_mode: normalizeCompareControlViewMode(source.view_mode),
       selected_groups: uniqueStringList(source.selected_groups),
     };
+  }
+
+  function resetCompareControlState() {
+    compareControlState = compareControlDefaultState();
+    compareControlStatusMessage = "Compare & Control reset to default state.";
+    compareControlStatusIsError = false;
   }
 
   function normalizeIsolateClause(rawClause) {
@@ -5683,6 +5722,7 @@ _JS = """\
     const results = document.getElementById("compare-control-results");
     const filterSubset = document.getElementById("compare-control-filter-subset");
     const clearSelection = document.getElementById("compare-control-clear-selection");
+    const resetButton = document.getElementById("compare-control-reset");
     if (
       !panel ||
       !viewMode ||
@@ -5693,7 +5733,8 @@ _JS = """\
       !groupSelection ||
       !results ||
       !filterSubset ||
-      !clearSelection
+      !clearSelection ||
+      !resetButton
     ) {
       return;
     }
@@ -5800,6 +5841,13 @@ _JS = """\
         renderAll();
       });
       clearSelection.dataset.bound = "1";
+    }
+    if (!resetButton.dataset.bound) {
+      resetButton.addEventListener("click", () => {
+        resetCompareControlState();
+        renderAll();
+      });
+      resetButton.dataset.bound = "1";
     }
   }
 
@@ -6097,8 +6145,89 @@ _JS = """\
     return bins;
   }
 
+  function compareControlSecondaryMetricFields(records, outcomeField, compareField) {
+    const totalRows = Array.isArray(records) ? records.length : 0;
+    if (!totalRows) return [];
+    const candidateOrder = [
+      ...COMPARE_CONTROL_SECONDARY_METRIC_PREFERRED,
+      ...previousRunsFieldOptions,
+    ];
+    const preferredSet = new Set(COMPARE_CONTROL_SECONDARY_METRIC_PREFERRED);
+    const seen = new Set();
+    const selected = [];
+    for (const candidate of candidateOrder) {
+      const fieldName = String(candidate || "").trim();
+      if (!fieldName || seen.has(fieldName)) continue;
+      seen.add(fieldName);
+      if (fieldName === outcomeField || fieldName === compareField) continue;
+      if (COMPARE_CONTROL_FIELD_SKIP.has(fieldName)) continue;
+      if (!preferredSet.has(fieldName) && !COMPARE_CONTROL_SECONDARY_FIELD_PATTERN.test(fieldName)) {
+        continue;
+      }
+      let numericCount = 0;
+      records.forEach(record => {
+        if (maybeNumber(previousRunsFieldValue(record, fieldName)) != null) {
+          numericCount += 1;
+        }
+      });
+      if (numericCount < 2) continue;
+      selected.push(fieldName);
+      if (selected.length >= COMPARE_CONTROL_SECONDARY_MAX_FIELDS) break;
+    }
+    return selected;
+  }
+
+  function compareControlWeakCoverageWarnings(analysis) {
+    if (!analysis || typeof analysis !== "object" || Array.isArray(analysis)) return [];
+    const warnings = [];
+    const candidateRows = Number(analysis.candidate_rows || 0);
+    const usedRows = Number(analysis.used_rows || 0);
+    if (usedRows <= 0) {
+      warnings.push("No comparable rows remained after hold-constant controls.");
+      return warnings;
+    }
+    if (candidateRows > 0) {
+      const rowCoverage = usedRows / candidateRows;
+      if (rowCoverage < COMPARE_CONTROL_WARNING_ROW_COVERAGE_MIN) {
+        warnings.push(
+          "Row coverage is low (" +
+          usedRows +
+          " / " +
+          candidateRows +
+          ", " +
+          (rowCoverage * 100).toFixed(1) +
+          "%)."
+        );
+      }
+    }
+    if (usedRows < COMPARE_CONTROL_WARNING_MIN_ROWS) {
+      warnings.push("Only " + usedRows + " comparable rows are available.");
+    }
+    const totalStrata = Number(analysis.total_strata || 0);
+    const usedStrata = Number(analysis.used_strata || 0);
+    if (totalStrata > 0) {
+      const strataCoverage = usedStrata / totalStrata;
+      if (strataCoverage < COMPARE_CONTROL_WARNING_STRATA_COVERAGE_MIN) {
+        warnings.push(
+          "Comparable strata are limited (" +
+          usedStrata +
+          " / " +
+          totalStrata +
+          ", " +
+          (strataCoverage * 100).toFixed(1) +
+          "%)."
+        );
+      }
+    }
+    if (totalStrata > 0 && usedStrata < Math.min(totalStrata, COMPARE_CONTROL_WARNING_MIN_STRATA)) {
+      warnings.push("Only " + usedStrata + " strata contribute to controlled estimates.");
+    }
+    return warnings;
+  }
+
   function analyzeCompareControlCategoricalRaw(records, outcomeField, compareField) {
     const groupsByKey = Object.create(null);
+    const secondaryFields = compareControlSecondaryMetricFields(records, outcomeField, compareField);
     let usedRows = 0;
     records.forEach(record => {
       const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
@@ -6112,10 +6241,21 @@ _JS = """\
           label: isolateDisplayValue(rawCompareValue, groupKey),
           count: 0,
           outcome_sum: 0,
+          secondary_sum: Object.create(null),
+          secondary_count: Object.create(null),
         };
       }
-      groupsByKey[groupKey].count += 1;
-      groupsByKey[groupKey].outcome_sum += outcome;
+      const group = groupsByKey[groupKey];
+      group.count += 1;
+      group.outcome_sum += outcome;
+      secondaryFields.forEach(fieldName => {
+        const secondaryValue = maybeNumber(previousRunsFieldValue(record, fieldName));
+        if (secondaryValue == null) return;
+        const sumValue = Number(group.secondary_sum[fieldName] || 0);
+        const countValue = Number(group.secondary_count[fieldName] || 0);
+        group.secondary_sum[fieldName] = sumValue + secondaryValue;
+        group.secondary_count[fieldName] = countValue + 1;
+      });
       usedRows += 1;
     });
     const groups = Object.values(groupsByKey)
@@ -6124,6 +6264,13 @@ _JS = """\
         label: group.label,
         count: group.count,
         outcome_mean: group.count > 0 ? group.outcome_sum / group.count : null,
+        secondary_means: secondaryFields.reduce((acc, fieldName) => {
+          const countValue = Number(group.secondary_count[fieldName] || 0);
+          if (countValue > 0) {
+            acc[fieldName] = Number(group.secondary_sum[fieldName] || 0) / countValue;
+          }
+          return acc;
+        }, Object.create(null)),
       }))
       .sort((left, right) => {
         if (right.count !== left.count) return right.count - left.count;
@@ -6134,6 +6281,7 @@ _JS = """\
       groups,
       used_rows: usedRows,
       candidate_rows: records.length,
+      secondary_fields: secondaryFields,
     };
   }
 
@@ -6201,7 +6349,10 @@ _JS = """\
     Object.keys(strata).forEach(stratumKey => {
       const groups = Object.values(strata[stratumKey]);
       if (groups.length < 2) return;
+      const stratumWeight = groups.reduce((acc, group) => acc + Number(group.count || 0), 0);
+      if (stratumWeight <= 0) return;
       usedStrata += 1;
+      usedRows += stratumWeight;
       groups.forEach(group => {
         if (!Object.prototype.hasOwnProperty.call(weightedGroups, group.key)) {
           weightedGroups[group.key] = {
@@ -6210,14 +6361,16 @@ _JS = """\
             weighted_sum: 0,
             weight: 0,
             count: 0,
+            strata_count: 0,
           };
         }
         const meanOutcome = group.count > 0 ? group.outcome_sum / group.count : null;
         if (meanOutcome == null) return;
-        weightedGroups[group.key].weighted_sum += meanOutcome * group.count;
-        weightedGroups[group.key].weight += group.count;
+        // Use shared stratum weights so group means are compared on the same stratum mix.
+        weightedGroups[group.key].weighted_sum += meanOutcome * stratumWeight;
+        weightedGroups[group.key].weight += stratumWeight;
         weightedGroups[group.key].count += group.count;
-        usedRows += group.count;
+        weightedGroups[group.key].strata_count += 1;
       });
     });
     const groups = Object.values(weightedGroups)
@@ -6611,6 +6764,14 @@ _JS = """\
           " / " +
           analysis.total_strata +
           ".";
+        const warnings = compareControlWeakCoverageWarnings(analysis);
+        if (warnings.length) {
+          htmlParts.push('<p class="compare-control-warning"><strong>Coverage warning:</strong></p><ul>');
+          warnings.forEach(text => {
+            htmlParts.push('<li class="compare-control-warning">' + esc(text) + "</li>");
+          });
+          htmlParts.push("</ul>");
+        }
       }
       htmlParts.push("<p><strong>Slope:</strong> " + esc(fmtMaybe(analysis.slope, 5)) + "</p>");
       htmlParts.push("<p><strong>R²:</strong> " + esc(fmtMaybe(analysis.r_squared, 4)) + "</p>");
@@ -6682,15 +6843,40 @@ _JS = """\
           " / " +
           analysis.total_strata +
           ".";
+        const warnings = compareControlWeakCoverageWarnings(analysis);
+        if (warnings.length) {
+          htmlParts.push('<p class="compare-control-warning"><strong>Coverage warning:</strong></p><ul>');
+          warnings.forEach(text => {
+            htmlParts.push('<li class="compare-control-warning">' + esc(text) + "</li>");
+          });
+          htmlParts.push("</ul>");
+        }
       }
       if (!analysis.groups.length) {
         htmlParts.push("<p>No comparable groups found with the current controls.</p>");
       } else {
         htmlParts.push("<p><strong>Group outcome means:</strong></p><ul>");
         analysis.groups.slice(0, 12).forEach(group => {
+          const secondarySummary = (analysis.secondary_fields || [])
+            .map(fieldName => {
+              const value = maybeNumber(
+                group &&
+                group.secondary_means &&
+                Object.prototype.hasOwnProperty.call(group.secondary_means, fieldName)
+                  ? group.secondary_means[fieldName]
+                  : null
+              );
+              if (value == null) return null;
+              return compareControlFieldLabel(fieldName) + " " + fmtMaybe(value, 3);
+            })
+            .filter(Boolean)
+            .slice(0, 3);
+          const secondaryText = secondarySummary.length
+            ? " | " + secondarySummary.join(", ")
+            : "";
           htmlParts.push(
             "<li>" +
-            esc(group.label + ": avg " + fmtMaybe(group.outcome_mean, 4) + " (" + group.count + " rows)") +
+            esc(group.label + ": avg " + fmtMaybe(group.outcome_mean, 4) + " (" + group.count + " rows)" + secondaryText) +
             "</li>"
           );
         });

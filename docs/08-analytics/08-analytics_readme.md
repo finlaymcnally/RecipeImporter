@@ -199,8 +199,9 @@ Benchmark scan details:
 - Isolate operator picker supports numeric comparisons (`>`, `>=`, `<`, `<=`) for numeric fields, using direct numeric threshold inputs.
 - `Compare & Control` is now a sibling panel in `Previous Runs` with three modes:
   - `discover`: ranks likely driver fields from currently visible rows.
-  - `raw`: direct categorical/numeric association metrics on visible rows.
-  - `controlled`: exact hold-constant strata metrics with explicit comparable-coverage reporting.
+  - `raw`: direct categorical/numeric association metrics on visible rows; categorical output includes optional secondary means for runtime/token/cost-style numeric fields when available.
+  - `controlled`: exact hold-constant strata metrics with explicit comparable-coverage reporting and weak-coverage warning text when comparable rows/strata are thin; categorical controlled means are stratum-standardized (shared stratum weights) to reduce confounded group-mix effects.
+- `Compare & Control` also has a `Reset` action that restores default panel state without touching table filters.
 - `Compare & Control` supports optional split-by segmentation (categorical buckets or equal-count numeric bins plus missing bucket).
 - `Filter to subset` from `Compare & Control` writes selected categorical groups into existing table column filters (no separate filter engine).
 - `Previous Runs` column filters now include a global `Across columns` combine mode (`AND` / `OR`) so cross-column OR is supported natively.

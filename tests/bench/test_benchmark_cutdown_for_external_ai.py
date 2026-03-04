@@ -140,6 +140,65 @@ def _write_prediction_run(
     return prediction_run
 
 
+def _write_prediction_run_stage_outputs(
+    prediction_run: Path,
+    *,
+    recipe_id: str = "recipe:c0",
+) -> None:
+    llm_run_dir = prediction_run / "raw" / "llm" / "fixture-slug"
+    safe_recipe_name = recipe_id.replace(":", "_")
+    _write_json(
+        llm_run_dir / "pass2_schemaorg" / "in" / f"{safe_recipe_name}.json",
+        {
+            "recipe_id": recipe_id,
+            "blocks": [
+                {"index": 0, "text": "Dish Title"},
+                {"index": 1, "text": "1 cup flour"},
+                {"index": 2, "text": "Mix gently"},
+                {"index": 3, "text": "Chef note"},
+            ],
+        },
+    )
+    _write_json(
+        llm_run_dir / "pass2_schemaorg" / "out" / f"{safe_recipe_name}.json",
+        {
+            "recipe_id": recipe_id,
+            "schemaorg_recipe": {
+                "name": "Dish Title",
+                "description": "Chef note",
+            },
+            "extracted_ingredients": [{"text": "1 cup flour"}],
+            "extracted_instructions": [{"text": "Mix gently"}],
+        },
+    )
+    _write_json(
+        llm_run_dir / "pass3_final" / "out" / f"{safe_recipe_name}.json",
+        {
+            "recipe_id": recipe_id,
+            "draft_v1": {
+                "recipe": {"title": "Dish Title"},
+                "steps": [
+                    {
+                        "instruction": "Mix gently",
+                        "ingredient_lines": [{"text": "1 cup flour"}],
+                    }
+                ],
+            },
+        },
+    )
+
+
+def _set_eval_report_per_label(
+    run_dir: Path,
+    *,
+    per_label: dict[str, object],
+) -> None:
+    eval_report_path = run_dir / "eval_report.json"
+    payload = _read_json(eval_report_path)
+    payload["per_label"] = per_label
+    _write_json(eval_report_path, payload)
+
+
 def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
     return [
         {
@@ -1791,6 +1850,158 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
         f"{derived_prefix}{module.PREPROCESS_TRACE_FAILURES_FILE_NAME.replace('.gz', '')}"
         in artifact_paths
     )
+
+
+def test_build_upload_bundle_stage_separated_comparison_scores_pass2_and_pass3(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "2026-03-03_10.40.00"
+    baseline_run_id = "2026-03-03_10.39.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    for run_id in (codex_run_id, baseline_run_id):
+        _set_eval_report_per_label(
+            session_root / run_id,
+            per_label={
+                "INGREDIENT_LINE": {
+                    "precision": 0.5,
+                    "recall": 0.5,
+                    "f1": 0.5,
+                    "gold_total": 1,
+                    "pred_total": 1,
+                }
+            },
+        )
+
+    codex_prediction_run = _write_prediction_run(
+        session_root / codex_run_id,
+        with_extracted_archive=True,
+    )
+    _write_prediction_run_stage_outputs(codex_prediction_run, recipe_id="recipe:c0")
+    _set_pred_run_artifact(session_root / codex_run_id, "prediction-run")
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    stage_separated = index_payload["analysis"]["stage_separated_comparison"]
+    per_label_rows = stage_separated["per_label"]
+    ingredient_row = next(
+        row for row in per_label_rows if str(row.get("label") or "") == "INGREDIENT_LINE"
+    )
+    pass2_stage = ingredient_row["pass2_stage"]
+    pass3_stage = ingredient_row["pass3_stage"]
+
+    assert pass2_stage["label_scored"] is True
+    assert pass3_stage["label_scored"] is True
+    assert int(pass2_stage["runs_scored"]) == 1
+    assert int(pass3_stage["runs_scored"]) == 1
+    assert "unavailable_reason" not in pass2_stage
+    assert "unavailable_reason" not in pass3_stage
+    assert float(pass2_stage["f1_avg"]) > 0.0
+    assert float(pass3_stage["f1_avg"]) > 0.0
+
+
+def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_prediction_manifest(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    run_id = "codex-standalone"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=None,
+        line_role_pipeline="codex-line-role-v1",
+    )
+    codex_run_dir = session_root / run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _write_json(
+        codex_run_dir / "prediction-run" / "manifest.json",
+        {
+            "llm_codex_farm": {
+                "process_runs": {
+                    "pass1": {
+                        "telemetry_report": {
+                            "summary": {
+                                "tokens_total": 120000,
+                                "duration_avg_ms": 1100,
+                                "status_counts": {"ok": 2, "failed": 0, "timeout": 0},
+                            }
+                        }
+                    },
+                    "pass2": {
+                        "telemetry_report": {
+                            "summary": {
+                                "tokens_total": 130000,
+                                "duration_avg_ms": 2100,
+                                "status_counts": {"ok": 2, "failed": 0, "timeout": 0},
+                            }
+                        }
+                    },
+                    "pass3": {
+                        "telemetry_report": {
+                            "summary": {
+                                "tokens_total": 250000,
+                                "duration_avg_ms": 5100,
+                                "status_counts": {"ok": 1, "failed": 0, "timeout": 0},
+                            }
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
+    assert runtime_summary["runtime_source"] == "prediction_run_manifest_telemetry"
+    assert int(runtime_summary["call_count"]) == 5
+    assert int(runtime_summary["calls_with_runtime"]) == 5
+    assert int(runtime_summary["total_tokens"]) == 500000
+    assert float(runtime_summary["pass1_token_share"]) == 0.24
+    assert float(runtime_summary["pass2_token_share"]) == 0.26
+    assert float(runtime_summary["pass3_token_share"]) == 0.5
+    by_pass = runtime_summary["by_pass"]
+    assert int(by_pass["pass1"]["total_tokens"]) == 120000
+    assert int(by_pass["pass2"]["total_tokens"]) == 130000
+    assert int(by_pass["pass3"]["total_tokens"]) == 250000
+    assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
 def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(

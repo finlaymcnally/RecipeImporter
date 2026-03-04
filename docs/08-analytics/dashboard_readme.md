@@ -157,7 +157,10 @@ Notes:
   - Isolate logic supports categorical `is` / `is not`, plus numeric comparators (`>`, `>=`, `<`, `<=`) when the selected field is numeric.
   - `Isolate For X` now writes directly into `Previous Runs` table column filters (`eq`/`neq`/`gt`/`gte`/`lt`/`lte` clauses), including native cross-column OR when isolate uses `any rule (OR)`.
   - `Compare & Control` is a sibling panel in `Previous Runs`: it scores discovery candidates when no compare field is selected, supports raw vs controlled analysis, and can split results by an optional field.
-  - Controlled mode uses exact hold-constant strata and reports comparable coverage (`used rows / candidate rows`, `used strata / total strata`) so confounding is visible.
+  - `Compare & Control` includes a `Reset` action to return panel controls to their default state (`discover`, default outcome field, no compare/hold/split/selected groups).
+  - Raw categorical compare now includes optional per-group secondary means (runtime/token/cost style numeric fields when present) alongside outcome means.
+  - Controlled mode uses exact hold-constant strata and reports comparable coverage (`used rows / candidate rows`, `used strata / total strata`) so confounding is visible. Categorical controlled means are stratum-standardized (shared stratum weights) rather than per-group-mix weighted.
+  - Controlled mode now emits explicit weak-coverage warning text when comparable row/strata coverage is thin, so controlled estimates are treated as directional.
   - `Filter to subset` in `Compare & Control` writes selected categorical groups into existing `Previous Runs` column filters (same filter engine; no second filter path).
   - `Previous Runs` column filters now support a global `Across columns` mode (`AND` / `OR`) in addition to per-column stack modes.
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 800px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.

@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -264,6 +266,131 @@ def _write_eval_report(tmp_path: Path) -> Path:
     eval_path = eval_dir / "eval_report.json"
     eval_path.write_text(json.dumps(SAMPLE_EVAL_REPORT), encoding="utf-8")
     return eval_path
+
+
+def _run_compare_control_behavior_harness(js_path: Path) -> dict[str, object]:
+    """Run generated dashboard JS compare/control behavior checks in Node."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for compare/control behavior harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+    let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__compareControlHarness = {
+    analyzeCompareControlCategoricalRaw,
+  analyzeCompareControlCategoricalControlled,
+  syncCompareControlSelectionToTableFilters,
+  normalizeCompareControlState,
+  resetCompareControlStateForHarness: function() {
+    resetCompareControlState();
+    const state = compareControlState;
+    return {
+      applied: true,
+      state: JSON.parse(JSON.stringify(state || {})),
+    };
+  },
+  setCompareControlStateForHarness: function(state) {
+    compareControlState = normalizeCompareControlState(state);
+  },
+    clearColumnFiltersForHarness: function() {
+      previousRunsColumnFilters = Object.create(null);
+      previousRunsColumnFilterModes = Object.create(null);
+    },
+    getColumnFiltersForHarness: function() {
+      return JSON.parse(JSON.stringify(previousRunsColumnFilters));
+    },
+    getColumnFilterModeForHarness: function(fieldName) {
+      return previousRunsColumnFilterMode(fieldName);
+    },
+  };
+})();
+`);
+eval(js);
+    const hooks = globalThis.__compareControlHarness;
+    if (!hooks) throw new Error("Compare/control harness exports were not attached");
+
+    const records = [];
+for (let i = 0; i < 1; i += 1) records.push({ strict_accuracy: 0.2, compare_group: "A", stratum: "S1" });
+for (let i = 0; i < 9; i += 1) records.push({ strict_accuracy: 0.3, compare_group: "B", stratum: "S1" });
+for (let i = 0; i < 9; i += 1) records.push({ strict_accuracy: 0.9, compare_group: "A", stratum: "S2" });
+for (let i = 0; i < 1; i += 1) records.push({ strict_accuracy: 1.0, compare_group: "B", stratum: "S2" });
+
+const raw = hooks.analyzeCompareControlCategoricalRaw(records, "strict_accuracy", "compare_group");
+const controlled = hooks.analyzeCompareControlCategoricalControlled(
+  records,
+  "strict_accuracy",
+  "compare_group",
+  ["stratum"]
+);
+
+function toGroupMap(groups) {
+  const out = Object.create(null);
+  (Array.isArray(groups) ? groups : []).forEach(group => {
+    if (!group || !group.key) return;
+    out[String(group.key)] = group;
+  });
+  return out;
+}
+
+const rawByGroup = toGroupMap(raw.groups);
+const controlledByGroup = toGroupMap(controlled.groups);
+
+hooks.clearColumnFiltersForHarness();
+hooks.setCompareControlStateForHarness({
+  compare_field: "compare_group",
+  selected_groups: ["A", "B"],
+});
+const subset = hooks.syncCompareControlSelectionToTableFilters();
+const filters = hooks.getColumnFiltersForHarness();
+const filterClauses = Array.isArray(filters.compare_group) ? filters.compare_group : [];
+const filterMode = hooks.getColumnFilterModeForHarness("compare_group");
+
+const payload = {
+  raw_A: rawByGroup.A ? rawByGroup.A.outcome_mean : null,
+  raw_B: rawByGroup.B ? rawByGroup.B.outcome_mean : null,
+  controlled_A: controlledByGroup.A ? controlledByGroup.A.outcome_mean : null,
+  controlled_B: controlledByGroup.B ? controlledByGroup.B.outcome_mean : null,
+  subset_applied: Boolean(subset && subset.applied),
+  subset_mode: filterMode,
+  subset_clause_count: filterClauses.length,
+  subset_clause_values: filterClauses.map(clause => String((clause && clause.value) || "")),
+  subset_clause_operators: filterClauses.map(clause => String((clause && clause.operator) || "")),
+};
+hooks.setCompareControlStateForHarness({
+  outcome_field: "strict_accuracy",
+  compare_field: "compare_group",
+  hold_constant_fields: ["stratum"],
+  split_field: "stratum",
+  view_mode: "controlled",
+  selected_groups: ["A"],
+});
+const resetState = hooks.resetCompareControlStateForHarness();
+payload.reset_state = resetState.state;
+process.stdout.write(JSON.stringify(payload));
+"""
+    completed = subprocess.run(
+      [node, "-e", harness, str(js_path)],
+      capture_output=True,
+      text=True,
+      check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Compare/control behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
 
 
 # ---------------------------------------------------------------------------
@@ -1313,6 +1440,7 @@ class TestRenderer:
         assert 'id="compare-control-group-selection"' in html
         assert 'id="compare-control-filter-subset"' in html
         assert 'id="compare-control-clear-selection"' in html
+        assert 'id="compare-control-reset"' in html
         assert 'id="compare-control-status"' in html
         assert 'id="compare-control-results"' in html
         assert 'id="quick-filters-panel"' in html
@@ -1370,12 +1498,53 @@ class TestRenderer:
         assert "function analyzeCompareControlNumericRaw(records, outcomeField, compareField)" in js
         assert "function analyzeCompareControlCategoricalControlled(records, outcomeField, compareField, holdFields)" in js
         assert "function analyzeCompareControlNumericControlled(records, outcomeField, compareField, holdFields)" in js
+        assert "function compareControlSecondaryMetricFields(records, outcomeField, compareField)" in js
+        assert "function compareControlWeakCoverageWarnings(analysis)" in js
+        assert "function compareControlDefaultState()" in js
         assert "function renderCompareControlPanel(context)" in js
+        assert "function resetCompareControlState()" in js
         assert "function syncCompareControlSelectionToTableFilters()" in js
+        assert "Coverage warning:" in js
         assert 'class="isolate-rule-value isolate-rule-value-input"' in js
         assert "function isolateFieldIsNumeric(records, fieldName)" in js
         assert "function isolateOperatorsForField(fieldInfo)" in js
         assert "function isolateClauseHasActiveSelection(clause)" in js
+
+    def test_compare_control_controlled_categorical_standardizes_strata(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_compare_control_behavior_harness(js_path)
+        assert result["raw_A"] == pytest.approx(0.83, abs=1e-9)
+        assert result["raw_B"] == pytest.approx(0.37, abs=1e-9)
+        assert result["controlled_A"] == pytest.approx(0.55, abs=1e-9)
+        assert result["controlled_B"] == pytest.approx(0.65, abs=1e-9)
+        assert result["raw_A"] > result["raw_B"]
+        assert result["controlled_B"] > result["controlled_A"]
+
+    def test_compare_control_filter_to_subset_writes_table_filter_clauses(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_compare_control_behavior_harness(js_path)
+        assert result["subset_applied"] is True
+        assert result["subset_mode"] == "or"
+        assert result["subset_clause_count"] == 2
+        assert set(result["subset_clause_values"]) == {"A", "B"}
+        assert set(result["subset_clause_operators"]) == {"eq"}
+
+    def test_compare_control_reset_state_restore_defaults(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_compare_control_behavior_harness(js_path)
+        reset_state = result.get("reset_state") or {}
+        assert reset_state.get("compare_field") == ""
+        assert reset_state.get("split_field") == ""
+        assert reset_state.get("hold_constant_fields") == []
+        assert reset_state.get("selected_groups") == []
+        assert reset_state.get("view_mode") == "discover"
+        assert reset_state.get("outcome_field") == "strict_accuracy"
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -1551,6 +1720,9 @@ class TestRenderer:
         assert "function sanitizePreviousRunsPresetName(rawName)" in js
         assert "function sanitizePreviousRunsPresetState(rawPreset)" in js
         assert "function sanitizePreviousRunsPresetMap(rawPresets)" in js
+        assert "const compareControl = normalizeCompareControlState(rawPreset.compare_control);" in js
+        assert 'if (Object.prototype.hasOwnProperty.call(previousRuns, "compare_control")) {' in js
+        assert "compareControlState = normalizeCompareControlState(compareControlState);" in js
         assert "compare_control: normalizeCompareControlState(compareControlState)," in js
         assert "function previousRunsPresetNames()" in js
         assert "function renderPreviousRunsPresetEditor()" in js

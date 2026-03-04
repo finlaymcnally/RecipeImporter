@@ -31,7 +31,7 @@ Scope guard: this plan is benchmark/evaluation-only and must not enable codex-fa
 - [x] (2026-03-03_21.43.38) Implemented conservative pass2-ok deterministic promotion policy behind `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`, with explicit routing reasons/policies.
 - [x] (2026-03-03_21.43.38) Surfaced line-role `candidate_labels` in prediction rows and propagated candidate-label metadata through `cookimport/bench/cutdown_export.py`.
 - [x] (2026-03-03_21.43.38) Verified upload-bundle diagnostic completion path writes codex statuses when derivation inputs exist; added fixture coverage in `tests/bench/test_benchmark_cutdown_for_external_ai.py`.
-- [ ] Add/extend tests and rerun paired benchmark plus speed regression checks (completed: targeted pytest suites for llm/parsing/bench pass; remaining: paired benchmark rerun + speed-discover/run/compare evidence collection).
+- [x] (2026-03-03_22.13.25) Collected Milestone 5 evidence: reran codex + vanilla SeaAndSmoke benchmarks, verified candidate-label and run-diagnostic acceptance in fresh upload bundles, and completed speed-discover/run/compare with PASS verdict.
 
 ## Surprises & Discoveries
 
@@ -55,6 +55,15 @@ Scope guard: this plan is benchmark/evaluation-only and must not enable codex-fa
 
 - Observation: Some remaining quality misses are still deterministic-boundary style errors, not raw model-capability errors.
   Evidence: Latest codex confusion still includes `INSTRUCTION_LINE -> RECIPE_NOTES` (11), `OTHER -> HOWTO_SECTION` (10), `OTHER -> RECIPE_NOTES` (13), and `HOWTO_SECTION -> RECIPE_TITLE` (6).
+
+- Observation: `labelstudio-benchmark` no longer accepts `--compare-vanilla`; paired evidence now requires separate vanilla/codex runs.
+  Evidence: Current CLI rejects `--compare-vanilla` with `No such option`.
+
+- Observation: Pass2-ok deterministic skip policy can materially cut pass3 load without harming quality on SeaAndSmoke.
+  Evidence: With `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=1`, `pass3_inputs` dropped from `17` to `1`, pass3 token share dropped from `0.5518` to `0.3494`, and quality improved (`accuracy 0.7798 -> 0.7950`, `macro_f1 0.5749 -> 0.5938`).
+
+- Observation: Single-run upload bundles can have empty `call_inventory_runtime` even when codex telemetry exists.
+  Evidence: `upload_bundle_index.json` for standalone codex eval roots reports `call_count=0`, while `prediction-run/manifest.json` still carries full `llm_codex_farm.process_runs.*.telemetry_report.summary` token/runtime fields.
 
 ## Decision Log
 
@@ -80,9 +89,9 @@ Scope guard: this plan is benchmark/evaluation-only and must not enable codex-fa
 
 ## Outcomes & Retrospective
 
-Current outcome: Milestones 1-4 are implemented in runtime/test surfaces: pass2-ok utility + skip-policy seams, candidate-label propagation, and upload-bundle diagnostic completeness coverage.
+Current outcome: Milestones 1-5 are now complete, including runtime/test/docs changes plus fresh benchmark/speed evidence.
 
-Remaining outcome target: run paired benchmark and speed-regression workflows to publish updated ROI evidence against baseline artifacts.
+Retrospective outcome: the plan goals were met with concrete artifacts: candidate-label diagnostics are available, codex run diagnostics are fully written when derivation inputs exist, skip-policy ROI is measurable, and speed regression gates pass.
 
 ## Context and Orientation
 
@@ -170,8 +179,13 @@ Run from repository root:
    - `. .venv/bin/activate && python -m pytest tests/parsing/test_canonical_line_roles.py -q`
    - `. .venv/bin/activate && python -m pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -q`
 
-6. Run paired benchmark with fixed model/effort and collect candidate artifacts.
-   - `cookimport labelstudio-benchmark --source-file data/input/SeaAndSmokeCUTDOWN.epub --gold-spans data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl --eval-mode canonical-text --no-upload --no-write-labelstudio-tasks --workers 1 --epub-split-workers 1 --llm-recipe-pipeline codex-farm-3pass-v1 --atomic-block-splitter atomic-v1 --line-role-pipeline codex-line-role-v1 --compare-vanilla --codex-farm-model gpt-5.3-codex-spark --codex-farm-thinking-effort low --eval-output-dir data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>_seaandsmoke-profeedback-execplan`
+6. Run paired benchmark evidence with fixed model/effort and collect candidate artifacts.
+   - Vanilla run:
+     `cookimport labelstudio-benchmark --source-file data/input/SeaAndSmokeCUTDOWN.epub --gold-spans data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl --eval-mode canonical-text --no-upload --no-write-labelstudio-tasks --workers 1 --epub-split-workers 1 --eval-output-dir data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>_seaandsmoke-profeedback-vanilla`
+   - Codex run (default pass2-ok skip disabled):
+     `cookimport labelstudio-benchmark --source-file data/input/SeaAndSmokeCUTDOWN.epub --gold-spans data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl --eval-mode canonical-text --no-upload --no-write-labelstudio-tasks --workers 1 --epub-split-workers 1 --llm-recipe-pipeline codex-farm-3pass-v1 --atomic-block-splitter atomic-v1 --line-role-pipeline codex-line-role-v1 --codex-farm-model gpt-5.3-codex-spark --codex-farm-thinking-effort low --eval-output-dir data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>_seaandsmoke-profeedback-codex`
+   - Codex ROI run (pass2-ok deterministic skip enabled):
+     `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=1 cookimport labelstudio-benchmark --source-file data/input/SeaAndSmokeCUTDOWN.epub --gold-spans data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl --eval-mode canonical-text --no-upload --no-write-labelstudio-tasks --workers 1 --epub-split-workers 1 --llm-recipe-pipeline codex-farm-3pass-v1 --atomic-block-splitter atomic-v1 --line-role-pipeline codex-line-role-v1 --codex-farm-model gpt-5.3-codex-spark --codex-farm-thinking-effort low --eval-output-dir data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>_seaandsmoke-profeedback-codex-pass3skip`
 
 7. Run required speed regression workflow.
    - `cookimport bench speed-discover --gold-root data/golden/pulled-from-labelstudio --input-root data/input --out data/golden/bench/speed/discovered/<YYYY-MM-DD_HH.MM.SS>_profeedback_execplan_suite.json`
@@ -199,6 +213,20 @@ All conditions below must be met:
   - Targeted pytest suites pass in `.venv`.
   - `bench speed-compare` does not fail configured regression gates.
 
+Evidence snapshot (2026-03-03_22.13.25):
+- Quality preservation:
+  - Codex (skip off): `accuracy=0.7798`, `macro_f1=0.5749`.
+  - Codex (skip on): `accuracy=0.7950`, `macro_f1=0.5938` (above skip-off and above baseline codex `2026-03-03_20.49.14`).
+  - Vanilla paired run: `accuracy=0.3966`, `macro_f1=0.3405` (codex remains clearly above vanilla).
+- Runtime ROI:
+  - Skip-off codex run: `pass3_inputs=17`, `pass3_token_share=0.5518`.
+  - Skip-on codex run: `pass3_inputs=1`, `pass3_token_share=0.3494`.
+- Diagnostics completeness:
+  - `candidate_label_signal.available=true` with `rows_with_candidate_labels=699` on codex upload bundles.
+  - `run_diagnostics` statuses are all `written` (`prompt_warning_aggregate`, `projection_trace`, `wrong_label_full_context`, `preprocess_trace_failures`) on fresh codex upload bundles.
+- Regression safety:
+  - speed compare verdict `PASS` at `data/golden/bench/speed/comparisons/2026-03-03_22.09.21/`.
+
 ## Idempotence and Recovery
 
 All edits are additive and repeatable. Benchmark/speed outputs are timestamped and can be rerun safely with new roots. If skip policy hurts quality, disable only the Milestone 2 routing branch while keeping Milestone 1 instrumentation and diagnostics improvements for continued analysis.
@@ -209,10 +237,19 @@ Primary evidence artifacts for this plan:
 
 - Baseline upload bundle index:
   - `data/golden/benchmark-vs-golden/2026-03-03_20.49.14/single-offline-benchmark/seaandsmokecutdown/upload_bundle_v1/upload_bundle_index.json`
-- Candidate paired rerun root:
-  - `data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>_seaandsmoke-profeedback-execplan/`
+- Vanilla paired rerun root:
+  - `data/golden/benchmark-vs-golden/2026-03-03_21.55.20_seaandsmoke-profeedback-vanilla/`
+- Codex paired rerun root (skip off):
+  - `data/golden/benchmark-vs-golden/2026-03-03_22.04.09_seaandsmoke-profeedback-codex2/`
+- Codex ROI rerun root (skip on):
+  - `data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/`
+- Speed suite discovery:
+  - `data/golden/bench/speed/discovered/2026-03-03_22.08.36_profeedback_execplan_suite.json`
+- Speed baseline/candidate runs:
+  - `data/golden/bench/speed/runs/2026-03-03_22.09.01/`
+  - `data/golden/bench/speed/runs/2026-03-03_22.09.09/`
 - Speed comparison output:
-  - `data/golden/bench/speed/comparisons/<YYYY-MM-DD_HH.MM.SS>/`
+  - `data/golden/bench/speed/comparisons/2026-03-03_22.09.21/`
 
 ## Interfaces and Dependencies
 
@@ -229,3 +266,4 @@ Expected additive interface changes:
 Plan revision note (2026-03-03_21.17.00): Converted `docs/plans/ProFeedback.md` from unstructured feedback text into a full ExecPlan after auditing current code and benchmark artifacts so only still-valuable suggestions remain in scope.
 Plan revision note (2026-03-03_21.25.37): Rebuilt and revalidated this file as the active working copy, updated summary/progress wording, and confirmed referenced docs/contracts still align with current benchmark and codex-farm surfaces.
 Plan revision note (2026-03-03_21.43.38): Implemented runtime/test/docs changes for pass2-ok utility/skip policy, candidate-label propagation, and upload-bundle diagnostic coverage; left benchmark/speed rerun evidence as remaining validation work.
+Plan revision note (2026-03-03_22.13.25): Completed benchmark and speed evidence collection, updated acceptance with concrete metrics/artifacts, and refreshed stale benchmark command examples.

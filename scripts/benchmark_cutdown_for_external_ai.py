@@ -32,6 +32,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.eval_stage_blocks import (
+    compute_block_metrics,
+    load_gold_block_labels,
+)
 from cookimport.bench.codex_bridge_projection_policy import (
     resolve_trace_status,
     select_prompt_row_for_trace,
@@ -212,6 +216,18 @@ PASS_PIPELINE_MAP = {
     "pass2": "recipe.schemaorg.v1",
     "pass3": "recipe.final.v1",
 }
+_UPLOAD_BUNDLE_YIELD_LINE_RE = re.compile(
+    r"\b(yield|serves?|servings?|makes?)\b",
+    re.IGNORECASE,
+)
+_UPLOAD_BUNDLE_TIME_LINE_RE = re.compile(
+    r"\b(prep|cook|total|active|rest|marinate|chill|time)\b",
+    re.IGNORECASE,
+)
+_UPLOAD_BUNDLE_TIME_VALUE_RE = re.compile(
+    r"(?:\b\d+\s*(?:h|hr|hrs|hour|hours|m|min|mins|minute|minutes)\b|\b\d{1,2}:\d{2}\b)",
+    re.IGNORECASE,
+)
 
 LINE_LEVEL_SAMPLED_JSONL_INPUTS = (
     ("wrong_label_lines.jsonl", "wrong_label_lines.sample.jsonl"),
@@ -5979,6 +5995,576 @@ def _upload_bundle_load_run_per_label_metrics(run_dir: Path) -> dict[str, dict[s
     return output
 
 
+def _upload_bundle_resolve_manifest_path(
+    *,
+    run_dir: Path,
+    value: Any,
+) -> Path | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = Path(value.strip())
+    resolved = candidate if candidate.is_absolute() else run_dir / candidate
+    if resolved.exists() and resolved.is_file():
+        return resolved
+    return None
+
+
+def _upload_bundle_resolve_gold_spans_path(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+) -> Path | None:
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        from_artifacts = _upload_bundle_resolve_manifest_path(
+            run_dir=run_dir,
+            value=artifacts.get("gold_spans_jsonl"),
+        )
+        if from_artifacts is not None:
+            return from_artifacts
+    run_config = run_manifest.get("run_config")
+    if isinstance(run_config, dict):
+        from_run_config = _upload_bundle_resolve_manifest_path(
+            run_dir=run_dir,
+            value=run_config.get("gold_spans"),
+        )
+        if from_run_config is not None:
+            return from_run_config
+    eval_report_path = run_dir / "eval_report.json"
+    if eval_report_path.is_file():
+        eval_report = _upload_bundle_load_json_object(eval_report_path)
+        canonical = eval_report.get("canonical") if isinstance(eval_report, dict) else None
+        if isinstance(canonical, dict):
+            from_eval_report = _upload_bundle_resolve_manifest_path(
+                run_dir=run_dir,
+                value=canonical.get("canonical_span_labels_path"),
+            )
+            if from_eval_report is not None:
+                return from_eval_report
+        from_eval_report = _upload_bundle_resolve_manifest_path(
+            run_dir=run_dir,
+            value=eval_report.get("gold_spans_path") if isinstance(eval_report, dict) else None,
+        )
+        if from_eval_report is not None:
+            return from_eval_report
+    return None
+
+
+def _upload_bundle_load_gold_line_labels_from_eval_report(
+    run_dir: Path,
+) -> dict[int, set[str]]:
+    eval_report_path = run_dir / "eval_report.json"
+    if not eval_report_path.is_file():
+        return {}
+    eval_report = _upload_bundle_load_json_object(eval_report_path)
+    canonical = eval_report.get("canonical") if isinstance(eval_report, dict) else None
+    if not isinstance(canonical, dict):
+        return {}
+
+    canonical_text_path_raw = canonical.get("canonical_text_path")
+    canonical_spans_path_raw = canonical.get("canonical_span_labels_path")
+    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
+        return {}
+
+    canonical_text_path = Path(canonical_text_path_raw)
+    canonical_spans_path = Path(canonical_spans_path_raw)
+    if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
+        return {}
+
+    try:
+        canonical_text = canonical_text_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    lines = _build_canonical_lines(canonical_text)
+    spans = _load_gold_spans(canonical_spans_path)
+    labels_by_line = _line_gold_labels(lines=lines, spans=spans)
+    output: dict[int, set[str]] = {}
+    for raw_index, labels in labels_by_line.items():
+        index = _coerce_int(raw_index)
+        if index is None:
+            continue
+        if isinstance(labels, (list, tuple, set)):
+            resolved_labels = {
+                str(label).strip()
+                for label in labels
+                if str(label).strip()
+            }
+        else:
+            resolved_labels = {str(labels).strip()} if str(labels).strip() else set()
+        if not resolved_labels:
+            resolved_labels = {"OTHER"}
+        output[int(index)] = resolved_labels
+    return output
+
+
+def _upload_bundle_normalize_match_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _upload_bundle_extract_text_values(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                rows.append(text)
+            continue
+        if not isinstance(item, dict):
+            continue
+        for key in ("text", "name", "value", "raw", "label"):
+            text = str(item.get(key) or "").strip()
+            if text:
+                rows.append(text)
+                break
+    return rows
+
+
+def _upload_bundle_collect_text_matches(
+    *,
+    targets: list[str],
+    blocks_by_index: dict[int, str],
+) -> set[int]:
+    normalized_targets = [
+        _upload_bundle_normalize_match_text(value)
+        for value in targets
+        if _upload_bundle_normalize_match_text(value)
+    ]
+    if not normalized_targets:
+        return set()
+    matched: set[int] = set()
+    for index, block_text in blocks_by_index.items():
+        normalized_block = _upload_bundle_normalize_match_text(block_text)
+        if not normalized_block:
+            continue
+        for target in normalized_targets:
+            if len(target) < 4:
+                continue
+            if target in normalized_block or (
+                len(normalized_block) >= 20 and normalized_block in target
+            ):
+                matched.add(int(index))
+                break
+    return matched
+
+
+def _upload_bundle_pick_title_block(
+    *,
+    title: str,
+    candidate_indices: list[int],
+    blocks_by_index: dict[int, str],
+) -> int | None:
+    normalized_title = _upload_bundle_normalize_match_text(title)
+    if not normalized_title:
+        return candidate_indices[0] if candidate_indices else None
+    for index in candidate_indices:
+        normalized_block = _upload_bundle_normalize_match_text(blocks_by_index.get(index))
+        if not normalized_block:
+            continue
+        if normalized_title in normalized_block or normalized_block in normalized_title:
+            return int(index)
+    return candidate_indices[0] if candidate_indices else None
+
+
+def _upload_bundle_project_pass2_recipe_labels(
+    *,
+    pass2_input: dict[str, Any],
+    pass2_output: dict[str, Any],
+) -> dict[int, str]:
+    blocks_payload = pass2_input.get("blocks")
+    if not isinstance(blocks_payload, list):
+        return {}
+    blocks_by_index: dict[int, str] = {}
+    ordered_indices: list[int] = []
+    for row in blocks_payload:
+        if not isinstance(row, dict):
+            continue
+        index = _coerce_int(row.get("index"))
+        if index is None or index < 0:
+            continue
+        blocks_by_index[int(index)] = str(row.get("text") or "")
+        ordered_indices.append(int(index))
+    if not blocks_by_index:
+        return {}
+    ordered_indices = sorted(set(ordered_indices))
+
+    schemaorg_payload = pass2_output.get("schemaorg_recipe")
+    if not isinstance(schemaorg_payload, dict):
+        schemaorg_payload = {}
+
+    ingredient_indices = _upload_bundle_collect_text_matches(
+        targets=_upload_bundle_extract_text_values(pass2_output.get("extracted_ingredients")),
+        blocks_by_index=blocks_by_index,
+    )
+    instruction_indices = _upload_bundle_collect_text_matches(
+        targets=_upload_bundle_extract_text_values(pass2_output.get("extracted_instructions")),
+        blocks_by_index=blocks_by_index,
+    )
+    notes_indices = _upload_bundle_collect_text_matches(
+        targets=[
+            str(schemaorg_payload.get("description") or ""),
+            str(schemaorg_payload.get("comment") or ""),
+        ],
+        blocks_by_index=blocks_by_index,
+    )
+
+    labels_by_index: dict[int, str] = {}
+    for index in ingredient_indices:
+        labels_by_index[int(index)] = "INGREDIENT_LINE"
+    for index in instruction_indices:
+        labels_by_index[int(index)] = "INSTRUCTION_LINE"
+    for index in notes_indices:
+        labels_by_index.setdefault(int(index), "RECIPE_NOTES")
+
+    title_index = _upload_bundle_pick_title_block(
+        title=str(schemaorg_payload.get("name") or ""),
+        candidate_indices=ordered_indices,
+        blocks_by_index=blocks_by_index,
+    )
+    if title_index is not None:
+        labels_by_index[int(title_index)] = "RECIPE_TITLE"
+
+    yield_values = [
+        str(schemaorg_payload.get("recipeYield") or ""),
+        str(schemaorg_payload.get("yield") or ""),
+        str(schemaorg_payload.get("yields") or ""),
+    ]
+    normalized_yields = [
+        _upload_bundle_normalize_match_text(value)
+        for value in yield_values
+        if _upload_bundle_normalize_match_text(value)
+    ]
+    time_values = [
+        str(schemaorg_payload.get("prepTime") or ""),
+        str(schemaorg_payload.get("cookTime") or ""),
+        str(schemaorg_payload.get("totalTime") or ""),
+    ]
+    normalized_times = [
+        _upload_bundle_normalize_match_text(value)
+        for value in time_values
+        if _upload_bundle_normalize_match_text(value)
+    ]
+    for index in ordered_indices:
+        block_text = blocks_by_index.get(index, "")
+        normalized_block = _upload_bundle_normalize_match_text(block_text)
+        if not normalized_block:
+            continue
+        if (
+            _UPLOAD_BUNDLE_YIELD_LINE_RE.search(block_text)
+            and (
+                not normalized_yields
+                or any(value in normalized_block for value in normalized_yields)
+            )
+        ):
+            labels_by_index[index] = "YIELD_LINE"
+            continue
+        if _UPLOAD_BUNDLE_TIME_LINE_RE.search(block_text) or _UPLOAD_BUNDLE_TIME_VALUE_RE.search(
+            block_text
+        ):
+            if not normalized_times or any(value in normalized_block for value in normalized_times):
+                labels_by_index.setdefault(index, "TIME_LINE")
+
+    return labels_by_index
+
+
+def _upload_bundle_project_pass3_recipe_labels(
+    *,
+    pass2_input: dict[str, Any],
+    pass2_output: dict[str, Any] | None,
+    pass3_output: dict[str, Any] | None,
+) -> dict[int, str]:
+    blocks_payload = pass2_input.get("blocks")
+    if not isinstance(blocks_payload, list):
+        return {}
+    blocks_by_index: dict[int, str] = {}
+    ordered_indices: list[int] = []
+    for row in blocks_payload:
+        if not isinstance(row, dict):
+            continue
+        index = _coerce_int(row.get("index"))
+        if index is None or index < 0:
+            continue
+        blocks_by_index[int(index)] = str(row.get("text") or "")
+        ordered_indices.append(int(index))
+    if not blocks_by_index:
+        return {}
+    ordered_indices = sorted(set(ordered_indices))
+
+    labels_by_index: dict[int, str] = {}
+    title_value = ""
+    ingredient_targets: list[str] = []
+    instruction_targets: list[str] = []
+
+    if isinstance(pass3_output, dict):
+        draft_payload = pass3_output.get("draft_v1")
+        if isinstance(draft_payload, dict):
+            recipe_payload = draft_payload.get("recipe")
+            if isinstance(recipe_payload, dict):
+                title_value = str(recipe_payload.get("title") or "")
+            steps_payload = draft_payload.get("steps")
+            if isinstance(steps_payload, list):
+                for step_row in steps_payload:
+                    if not isinstance(step_row, dict):
+                        continue
+                    instruction_text = str(step_row.get("instruction") or "").strip()
+                    if instruction_text:
+                        instruction_targets.append(instruction_text)
+                    ingredient_lines = step_row.get("ingredient_lines")
+                    ingredient_targets.extend(
+                        _upload_bundle_extract_text_values(ingredient_lines)
+                    )
+
+    if not title_value and isinstance(pass2_output, dict):
+        schemaorg_payload = pass2_output.get("schemaorg_recipe")
+        if isinstance(schemaorg_payload, dict):
+            title_value = str(schemaorg_payload.get("name") or "")
+        if not ingredient_targets:
+            ingredient_targets = _upload_bundle_extract_text_values(
+                pass2_output.get("extracted_ingredients")
+            )
+        if not instruction_targets:
+            instruction_targets = _upload_bundle_extract_text_values(
+                pass2_output.get("extracted_instructions")
+            )
+
+    for index in _upload_bundle_collect_text_matches(
+        targets=ingredient_targets,
+        blocks_by_index=blocks_by_index,
+    ):
+        labels_by_index[int(index)] = "INGREDIENT_LINE"
+    for index in _upload_bundle_collect_text_matches(
+        targets=instruction_targets,
+        blocks_by_index=blocks_by_index,
+    ):
+        labels_by_index[int(index)] = "INSTRUCTION_LINE"
+
+    title_index = _upload_bundle_pick_title_block(
+        title=title_value,
+        candidate_indices=ordered_indices,
+        blocks_by_index=blocks_by_index,
+    )
+    if title_index is not None:
+        labels_by_index[int(title_index)] = "RECIPE_TITLE"
+
+    return labels_by_index
+
+
+def _upload_bundle_collect_stage_pass_reports_for_run(
+    *,
+    run_dir: Path,
+    gold_cache: dict[Path, dict[int, set[str]]],
+) -> dict[str, dict[str, Any]]:
+    run_manifest_path = run_dir / "run_manifest.json"
+    if not run_manifest_path.is_file():
+        return {}
+    run_manifest = _upload_bundle_load_json_object(run_manifest_path)
+    if not run_manifest:
+        return {}
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    if pred_run_dir is None:
+        return {}
+    gold_spans_path = _upload_bundle_resolve_gold_spans_path(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+    )
+    if gold_spans_path is None:
+        return {}
+    gold_labels = gold_cache.get(gold_spans_path)
+    if gold_labels is None:
+        try:
+            gold_labels = load_gold_block_labels(
+                gold_spans_path,
+                require_exhaustive=False,
+            )
+        except Exception:  # noqa: BLE001
+            gold_labels = _upload_bundle_load_gold_line_labels_from_eval_report(run_dir)
+            if not gold_labels:
+                return {}
+        gold_cache[gold_spans_path] = gold_labels
+    if not gold_labels:
+        return {}
+    gold_indices = sorted(int(index) for index in gold_labels.keys())
+    default_prediction = {index: "OTHER" for index in gold_indices}
+
+    raw_llm_dir = pred_run_dir / "raw" / "llm"
+    llm_run_dirs = sorted(path for path in raw_llm_dir.glob("*") if path.is_dir())
+    if not llm_run_dirs and raw_llm_dir.is_dir():
+        llm_run_dirs = [raw_llm_dir]
+    if not llm_run_dirs:
+        return {}
+
+    pass2_inputs: dict[str, dict[str, Any]] = {}
+    pass2_outputs: dict[str, dict[str, Any]] = {}
+    pass3_outputs: dict[str, dict[str, Any]] = {}
+    for llm_run_dir in llm_run_dirs:
+        pass2_in_dir = llm_run_dir / "pass2_schemaorg" / "in"
+        pass2_out_dir = llm_run_dir / "pass2_schemaorg" / "out"
+        pass3_out_dir = llm_run_dir / "pass3_final" / "out"
+
+        for path in sorted(pass2_in_dir.glob("*.json")):
+            payload = _upload_bundle_load_json_object(path)
+            recipe_id = str(payload.get("recipe_id") or "").strip()
+            if recipe_id:
+                pass2_inputs[recipe_id] = payload
+        for path in sorted(pass2_out_dir.glob("*.json")):
+            payload = _upload_bundle_load_json_object(path)
+            recipe_id = str(payload.get("recipe_id") or "").strip()
+            if recipe_id:
+                pass2_outputs[recipe_id] = payload
+        for path in sorted(pass3_out_dir.glob("*.json")):
+            payload = _upload_bundle_load_json_object(path)
+            recipe_id = str(payload.get("recipe_id") or "").strip()
+            if recipe_id:
+                pass3_outputs[recipe_id] = payload
+
+    reports: dict[str, dict[str, Any]] = {}
+
+    pass2_prediction = dict(default_prediction)
+    pass2_label_hits = 0
+    for recipe_id, pass2_output in pass2_outputs.items():
+        pass2_input = pass2_inputs.get(recipe_id)
+        if not isinstance(pass2_input, dict):
+            continue
+        projected_labels = _upload_bundle_project_pass2_recipe_labels(
+            pass2_input=pass2_input,
+            pass2_output=pass2_output,
+        )
+        if not projected_labels:
+            continue
+        for index, label in projected_labels.items():
+            if index not in pass2_prediction:
+                continue
+            pass2_prediction[index] = str(label)
+            if str(label) != "OTHER":
+                pass2_label_hits += 1
+    if pass2_label_hits > 0:
+        try:
+            reports["pass2"] = compute_block_metrics(gold_labels, pass2_prediction)
+        except Exception:  # noqa: BLE001
+            reports["pass2"] = {}
+
+    pass3_prediction = dict(default_prediction)
+    pass3_label_hits = 0
+    recipe_ids = sorted(set(pass2_inputs.keys()) | set(pass2_outputs.keys()) | set(pass3_outputs.keys()))
+    for recipe_id in recipe_ids:
+        pass2_input = pass2_inputs.get(recipe_id)
+        if not isinstance(pass2_input, dict):
+            continue
+        projected_labels = _upload_bundle_project_pass3_recipe_labels(
+            pass2_input=pass2_input,
+            pass2_output=pass2_outputs.get(recipe_id),
+            pass3_output=pass3_outputs.get(recipe_id),
+        )
+        if not projected_labels:
+            continue
+        for index, label in projected_labels.items():
+            if index not in pass3_prediction:
+                continue
+            pass3_prediction[index] = str(label)
+            if str(label) != "OTHER":
+                pass3_label_hits += 1
+    if pass3_label_hits > 0:
+        try:
+            reports["pass3"] = compute_block_metrics(gold_labels, pass3_prediction)
+        except Exception:  # noqa: BLE001
+            reports["pass3"] = {}
+
+    return reports
+
+
+def _upload_bundle_collect_pass_stage_per_label_metrics(
+    *,
+    comparison_pairs: list[dict[str, Any]],
+    run_dir_by_id: dict[str, Path],
+) -> dict[str, Any]:
+    codex_run_ids: set[str] = set()
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_run = pair.get("codex_run")
+        if not isinstance(codex_run, dict):
+            continue
+        run_id = str(codex_run.get("run_id") or "").strip()
+        if run_id:
+            codex_run_ids.add(run_id)
+
+    gold_cache: dict[Path, dict[int, set[str]]] = {}
+    reports_by_run: dict[str, dict[str, dict[str, Any]]] = {}
+    for run_id in sorted(codex_run_ids):
+        run_dir = run_dir_by_id.get(run_id)
+        if run_dir is None:
+            reports_by_run[run_id] = {}
+            continue
+        reports_by_run[run_id] = _upload_bundle_collect_stage_pass_reports_for_run(
+            run_dir=run_dir,
+            gold_cache=gold_cache,
+        )
+
+    output: dict[str, Any] = {}
+    for stage_key in ("pass2", "pass3"):
+        labels_agg: dict[str, dict[str, Any]] = {}
+        runs_scored = 0
+        for run_id in sorted(codex_run_ids):
+            report = (reports_by_run.get(run_id) or {}).get(stage_key)
+            if not isinstance(report, dict):
+                continue
+            per_label = report.get("per_label")
+            if not isinstance(per_label, dict):
+                continue
+            runs_scored += 1
+            for label, row in per_label.items():
+                if not isinstance(label, str) or not isinstance(row, dict):
+                    continue
+                agg_row = labels_agg.setdefault(
+                    label,
+                    {
+                        "label": label,
+                        "_precision": [],
+                        "_recall": [],
+                        "_f1": [],
+                        "gold_total_sum": 0,
+                        "pred_total_sum": 0,
+                    },
+                )
+                agg_row["_precision"].append(_coerce_float(row.get("precision")))
+                agg_row["_recall"].append(_coerce_float(row.get("recall")))
+                agg_row["_f1"].append(_coerce_float(row.get("f1")))
+                agg_row["gold_total_sum"] = int(agg_row["gold_total_sum"]) + int(
+                    _coerce_int(row.get("gold_total")) or 0
+                )
+                agg_row["pred_total_sum"] = int(agg_row["pred_total_sum"]) + int(
+                    _coerce_int(row.get("pred_total")) or 0
+                )
+
+        labels_rows: dict[str, dict[str, Any]] = {}
+        for label, row in labels_agg.items():
+            labels_rows[label] = {
+                "label": label,
+                "precision_avg": _average_float(row["_precision"]),
+                "recall_avg": _average_float(row["_recall"]),
+                "f1_avg": _average_float(row["_f1"]),
+                "gold_total_sum": int(row["gold_total_sum"]),
+                "pred_total_sum": int(row["pred_total_sum"]),
+                "runs_scored": int(runs_scored),
+            }
+        output[stage_key] = {
+            "available": runs_scored > 0,
+            "runs_scored": int(runs_scored),
+            "labels": labels_rows,
+            "unavailable_reason": (
+                ""
+                if runs_scored > 0
+                else (
+                    f"{stage_key} stage outputs could not be projected/scored from discovered "
+                    "prediction-run codex artifacts"
+                )
+            ),
+        }
+    return output
+
+
 def _upload_bundle_build_per_label_metrics(
     *,
     comparison_pairs: list[dict[str, Any]],
@@ -6499,6 +7085,205 @@ def _upload_bundle_collect_call_runtime_map(
     return runtime_by_key
 
 
+def _upload_bundle_telemetry_call_count(summary: dict[str, Any]) -> int | None:
+    call_count = _coerce_int(summary.get("call_count"))
+    if call_count is not None:
+        return max(int(call_count), 0)
+    status_counts = summary.get("status_counts")
+    if isinstance(status_counts, dict):
+        raw_values = [_coerce_int(value) for value in status_counts.values()]
+        if any(value is not None for value in raw_values):
+            return int(sum(int(value or 0) for value in raw_values))
+    matched_rows = _coerce_int(summary.get("matched_rows"))
+    if matched_rows is not None:
+        return max(int(matched_rows), 0)
+    return None
+
+
+def _upload_bundle_token_share_fields(
+    *,
+    by_pass: dict[str, dict[str, Any]],
+    total_tokens: int | None,
+) -> dict[str, float | None]:
+    fields: dict[str, float | None] = {}
+    for pass_name in ("pass1", "pass2", "pass3"):
+        share_key = f"{pass_name}_token_share"
+        pass_payload = by_pass.get(pass_name)
+        pass_payload = pass_payload if isinstance(pass_payload, dict) else {}
+        pass_tokens = _coerce_int(pass_payload.get("total_tokens"))
+        if (
+            total_tokens is None
+            or total_tokens <= 0
+            or pass_tokens is None
+            or pass_tokens < 0
+        ):
+            fields[share_key] = None
+            continue
+        fields[share_key] = round(float(pass_tokens) / float(total_tokens), 4)
+    return fields
+
+
+def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
+    *,
+    run_dir_by_id: dict[str, Path],
+) -> dict[str, Any] | None:
+    aggregate_by_pass: dict[str, dict[str, Any]] = {}
+    for run_id, run_dir in sorted(run_dir_by_id.items()):
+        run_manifest_path = run_dir / "run_manifest.json"
+        if not run_manifest_path.is_file():
+            continue
+        run_manifest = _upload_bundle_load_json_object(run_manifest_path)
+        pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+        if pred_run_dir is None:
+            continue
+        pred_manifest_path = pred_run_dir / "manifest.json"
+        if not pred_manifest_path.is_file():
+            continue
+        pred_manifest = _upload_bundle_load_json_object(pred_manifest_path)
+        llm_payload = (
+            pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
+        )
+        llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
+        process_runs = llm_payload.get("process_runs")
+        process_runs = process_runs if isinstance(process_runs, dict) else {}
+        for pass_name in ("pass1", "pass2", "pass3"):
+            pass_payload = process_runs.get(pass_name)
+            pass_payload = pass_payload if isinstance(pass_payload, dict) else {}
+            telemetry_report = pass_payload.get("telemetry_report")
+            telemetry_report = telemetry_report if isinstance(telemetry_report, dict) else {}
+            summary = telemetry_report.get("summary")
+            if not isinstance(summary, dict):
+                continue
+            bucket = aggregate_by_pass.setdefault(
+                pass_name,
+                {
+                    "call_count": 0,
+                    "calls_known": False,
+                    "duration_total_ms": 0,
+                    "duration_known": False,
+                    "tokens_total": 0,
+                    "tokens_known": False,
+                },
+            )
+            call_count = _upload_bundle_telemetry_call_count(summary)
+            if call_count is not None:
+                bucket["call_count"] += max(int(call_count), 0)
+                bucket["calls_known"] = True
+            duration_total_ms = _coerce_int(summary.get("duration_total_ms"))
+            if duration_total_ms is None:
+                duration_avg_ms = _coerce_float(summary.get("duration_avg_ms"))
+                if (
+                    duration_avg_ms is not None
+                    and call_count is not None
+                    and int(call_count) > 0
+                ):
+                    duration_total_ms = int(round(float(duration_avg_ms) * int(call_count)))
+            if duration_total_ms is not None:
+                bucket["duration_total_ms"] += max(int(duration_total_ms), 0)
+                bucket["duration_known"] = True
+            tokens_total = _coerce_int(summary.get("tokens_total"))
+            if tokens_total is not None:
+                bucket["tokens_total"] += max(int(tokens_total), 0)
+                bucket["tokens_known"] = True
+
+    if not aggregate_by_pass:
+        return None
+
+    by_pass: dict[str, dict[str, Any]] = {}
+    for pass_name in sorted(aggregate_by_pass.keys()):
+        bucket = aggregate_by_pass.get(pass_name)
+        if not isinstance(bucket, dict):
+            continue
+        call_count = int(bucket.get("call_count") or 0)
+        calls_known = bool(bucket.get("calls_known"))
+        duration_known = bool(bucket.get("duration_known"))
+        tokens_known = bool(bucket.get("tokens_known"))
+        duration_total_ms = (
+            int(bucket.get("duration_total_ms") or 0) if duration_known else None
+        )
+        by_pass[pass_name] = {
+            "call_count": call_count if calls_known else 0,
+            "calls_with_runtime": call_count if calls_known and duration_known else 0,
+            "calls_with_cost": 0,
+            "calls_with_estimated_cost": 0,
+            "avg_duration_ms": (
+                round(float(duration_total_ms) / float(call_count), 3)
+                if duration_total_ms is not None and calls_known and call_count > 0
+                else None
+            ),
+            "total_tokens": int(bucket.get("tokens_total") or 0) if tokens_known else None,
+            "total_cost_usd": None,
+            "total_estimated_cost_usd": None,
+            "cost_coverage_ratio": 0.0,
+            "estimated_cost_coverage_ratio": 0.0,
+        }
+
+    total_calls = int(sum(int(payload.get("call_count") or 0) for payload in by_pass.values()))
+    total_calls_with_runtime = int(
+        sum(int(payload.get("calls_with_runtime") or 0) for payload in by_pass.values())
+    )
+    duration_totals = [
+        int(bucket.get("duration_total_ms") or 0)
+        for bucket in aggregate_by_pass.values()
+        if bool(bucket.get("duration_known"))
+    ]
+    total_duration_ms = int(sum(duration_totals)) if duration_totals else None
+    token_totals = [
+        _coerce_int(payload.get("total_tokens"))
+        for payload in by_pass.values()
+        if _coerce_int(payload.get("total_tokens")) is not None
+    ]
+    total_tokens = int(sum(token_totals)) if token_totals else None
+    summary = {
+        "call_count": total_calls,
+        "calls_with_runtime": total_calls_with_runtime,
+        "calls_with_cost": 0,
+        "calls_with_estimated_cost": 0,
+        "total_duration_ms": total_duration_ms,
+        "avg_duration_ms": (
+            round(float(total_duration_ms) / float(total_calls_with_runtime), 3)
+            if total_duration_ms is not None and total_calls_with_runtime > 0
+            else None
+        ),
+        "total_tokens": total_tokens,
+        "total_cost_usd": None,
+        "total_estimated_cost_usd": None,
+        "cost_coverage_ratio": 0.0,
+        "estimated_cost_coverage_ratio": 0.0,
+        "cost_signal": {
+            "available": False,
+            "calls_with_cost": 0,
+            "coverage_ratio": 0.0,
+            "unavailable_reason": (
+                "prediction-run telemetry summaries do not expose per-call observed cost fields"
+            ),
+        },
+        "estimated_cost_signal": {
+            "available": False,
+            "calls_with_estimated_cost": 0,
+            "coverage_ratio": 0.0,
+            "method": "",
+            "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
+            "note": (
+                "No per-call token telemetry available; aggregate pass totals cannot be "
+                "reliably cost-estimated per call."
+            ),
+        },
+        "by_pass": by_pass,
+        "runtime_source": "prediction_run_manifest_telemetry",
+    }
+    summary.update(
+        _upload_bundle_token_share_fields(by_pass=by_pass, total_tokens=total_tokens)
+    )
+    return {
+        "summary": summary,
+        "top_slowest_calls": [],
+        "top_token_calls": [],
+        "top_cost_calls": [],
+        "top_estimated_cost_calls": [],
+    }
+
+
 def _upload_bundle_build_call_runtime_inventory(
     *,
     call_inventory_rows: list[dict[str, Any]],
@@ -6546,6 +7331,13 @@ def _upload_bundle_build_call_runtime_inventory(
                 "runtime_status": runtime.get("status"),
             }
         )
+
+    if not enriched_rows:
+        telemetry_fallback = _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
+            run_dir_by_id=run_dir_by_id
+        )
+        if telemetry_fallback is not None:
+            return telemetry_fallback
 
     duration_values = [
         _coerce_int(row.get("duration_ms"))
@@ -6679,60 +7471,67 @@ def _upload_bundle_build_call_runtime_inventory(
         ),
     )[:12]
 
-    return {
-        "summary": {
-            "call_count": len(enriched_rows),
-            "calls_with_runtime": len(duration_values),
+    total_tokens = int(sum(token_totals)) if token_totals else None
+    summary = {
+        "call_count": len(enriched_rows),
+        "calls_with_runtime": len(duration_values),
+        "calls_with_cost": calls_with_cost,
+        "calls_with_estimated_cost": calls_with_estimated_cost,
+        "total_duration_ms": int(sum(duration_values)) if duration_values else None,
+        "avg_duration_ms": (
+            round(sum(duration_values) / len(duration_values), 3)
+            if duration_values
+            else None
+        ),
+        "total_tokens": total_tokens,
+        "total_cost_usd": (
+            round(float(sum(cost_values)), 8) if cost_values else None
+        ),
+        "total_estimated_cost_usd": (
+            round(float(sum(estimated_cost_values)), 8)
+            if estimated_cost_values
+            else None
+        ),
+        "cost_coverage_ratio": cost_coverage_ratio,
+        "estimated_cost_coverage_ratio": estimated_cost_coverage_ratio,
+        "cost_signal": {
+            "available": calls_with_cost > 0,
             "calls_with_cost": calls_with_cost,
-            "calls_with_estimated_cost": calls_with_estimated_cost,
-            "total_duration_ms": int(sum(duration_values)) if duration_values else None,
-            "avg_duration_ms": (
-                round(sum(duration_values) / len(duration_values), 3)
-                if duration_values
-                else None
+            "coverage_ratio": cost_coverage_ratio,
+            "unavailable_reason": (
+                ""
+                if calls_with_cost > 0
+                else (
+                    "request telemetry does not include recognized cost fields "
+                    "(cost_usd/total_cost_usd/estimated_cost_usd)"
+                )
             ),
-            "total_tokens": int(sum(token_totals)) if token_totals else None,
-            "total_cost_usd": (
-                round(float(sum(cost_values)), 8) if cost_values else None
-            ),
-            "total_estimated_cost_usd": (
-                round(float(sum(estimated_cost_values)), 8)
-                if estimated_cost_values
-                else None
-            ),
-            "cost_coverage_ratio": cost_coverage_ratio,
-            "estimated_cost_coverage_ratio": estimated_cost_coverage_ratio,
-            "cost_signal": {
-                "available": calls_with_cost > 0,
-                "calls_with_cost": calls_with_cost,
-                "coverage_ratio": cost_coverage_ratio,
-                "unavailable_reason": (
-                    ""
-                    if calls_with_cost > 0
-                    else (
-                        "request telemetry does not include recognized cost fields "
-                        "(cost_usd/total_cost_usd/estimated_cost_usd)"
-                    )
-                ),
-            },
-            "estimated_cost_signal": {
-                "available": calls_with_estimated_cost > 0,
-                "calls_with_estimated_cost": calls_with_estimated_cost,
-                "coverage_ratio": estimated_cost_coverage_ratio,
-                "method": (
-                    "observed_or_default_token_pricing_estimate"
-                    if calls_with_estimated_cost > 0
-                    else ""
-                ),
-                "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
-                "note": (
-                    "Estimated costs use default token pricing and are not billing truth."
-                    if calls_with_estimated_cost > 0
-                    else "No token-based estimate available because token telemetry is missing."
-                ),
-            },
-            "by_pass": by_pass,
         },
+        "estimated_cost_signal": {
+            "available": calls_with_estimated_cost > 0,
+            "calls_with_estimated_cost": calls_with_estimated_cost,
+            "coverage_ratio": estimated_cost_coverage_ratio,
+            "method": (
+                "observed_or_default_token_pricing_estimate"
+                if calls_with_estimated_cost > 0
+                else ""
+            ),
+            "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
+            "note": (
+                "Estimated costs use default token pricing and are not billing truth."
+                if calls_with_estimated_cost > 0
+                else "No token-based estimate available because token telemetry is missing."
+            ),
+        },
+        "by_pass": by_pass,
+        "runtime_source": "call_inventory_rows",
+    }
+    summary.update(
+        _upload_bundle_token_share_fields(by_pass=by_pass, total_tokens=total_tokens)
+    )
+
+    return {
+        "summary": summary,
         "top_slowest_calls": top_slowest,
         "top_token_calls": top_token,
         "top_cost_calls": top_cost,
@@ -7262,6 +8061,7 @@ def _upload_bundle_build_stage_separated_comparison(
     recipe_triage_rows: list[dict[str, Any]],
     per_label_metrics: list[dict[str, Any]],
     comparison_pairs: list[dict[str, Any]],
+    pass_stage_per_label_metrics: dict[str, Any],
 ) -> dict[str, Any]:
     line_role_pipeline_by_run_id: dict[str, str] = {}
     for pair in comparison_pairs:
@@ -7363,11 +8163,42 @@ def _upload_bundle_build_stage_separated_comparison(
         )
     )
 
+    def _build_pass_stage_row(stage_key: str, label: str) -> dict[str, Any]:
+        stage_payload = pass_stage_per_label_metrics.get(stage_key)
+        stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
+        stage_labels = stage_payload.get("labels")
+        stage_labels = stage_labels if isinstance(stage_labels, dict) else {}
+        label_row = stage_labels.get(label)
+        if isinstance(label_row, dict):
+            return {
+                "label_scored": True,
+                "precision_avg": _coerce_float(label_row.get("precision_avg")),
+                "recall_avg": _coerce_float(label_row.get("recall_avg")),
+                "f1_avg": _coerce_float(label_row.get("f1_avg")),
+                "gold_total_sum": int(_coerce_int(label_row.get("gold_total_sum")) or 0),
+                "pred_total_sum": int(_coerce_int(label_row.get("pred_total_sum")) or 0),
+                "runs_scored": int(_coerce_int(label_row.get("runs_scored")) or 0),
+            }
+        reason = str(stage_payload.get("unavailable_reason") or "").strip()
+        if not reason and stage_payload.get("available"):
+            reason = f"{stage_key} stage label metrics unavailable for label={label}"
+        if not reason:
+            reason = (
+                f"{stage_key} stage outputs could not be projected/scored from discovered "
+                "prediction-run codex artifacts"
+            )
+        return {
+            "label_scored": False,
+            "unavailable_reason": reason,
+            "runs_scored": int(_coerce_int(stage_payload.get("runs_scored")) or 0),
+        }
+
     per_label_rows: list[dict[str, Any]] = []
     for row in per_label_metrics:
+        label = str(row.get("label") or "")
         per_label_rows.append(
             {
-                "label": str(row.get("label") or ""),
+                "label": label,
                 "baseline_stage": {
                     "recall_avg": _coerce_float(row.get("baseline_recall_avg")),
                     "f1_avg": _coerce_float(row.get("baseline_f1_avg")),
@@ -7378,18 +8209,8 @@ def _upload_bundle_build_stage_separated_comparison(
                     "delta_recall_avg": _coerce_float(row.get("delta_recall_avg")),
                     "delta_f1_avg": _coerce_float(row.get("delta_f1_avg")),
                 },
-                "pass2_stage": {
-                    "label_scored": False,
-                    "unavailable_reason": (
-                        "pass2 stage outputs do not include label-level benchmark metrics"
-                    ),
-                },
-                "pass3_stage": {
-                    "label_scored": False,
-                    "unavailable_reason": (
-                        "pass3 stage outputs do not include label-level benchmark metrics"
-                    ),
-                },
+                "pass2_stage": _build_pass_stage_row("pass2", label),
+                "pass3_stage": _build_pass_stage_row("pass3", label),
                 "final_or_fallback_stage": {
                     "confusion_delta_outbound_total": int(
                         _coerce_int(row.get("confusion_delta_outbound_total")) or 0
@@ -7800,10 +8621,15 @@ def _write_upload_bundle_three_files(
         comparison_pairs=comparison_pairs,
         run_dir_by_id=run_dir_by_id,
     )
+    pass_stage_per_label_metrics = _upload_bundle_collect_pass_stage_per_label_metrics(
+        comparison_pairs=comparison_pairs,
+        run_dir_by_id=run_dir_by_id,
+    )
     stage_separated_comparison = _upload_bundle_build_stage_separated_comparison(
         recipe_triage_rows=recipe_triage_rows,
         per_label_metrics=per_label_metrics,
         comparison_pairs=comparison_pairs,
+        pass_stage_per_label_metrics=pass_stage_per_label_metrics,
     )
     failure_ledger = _upload_bundle_build_failure_ledger(
         recipe_triage_rows=recipe_triage_rows,
