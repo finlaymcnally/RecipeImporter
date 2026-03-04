@@ -34,9 +34,12 @@ Data sources (read-only):
 
 Output: `.history/dashboard/` for repo-local outputs (configurable via `--out-dir`)
 - Main `index.html` diagnostics now includes a latest benchmark runtime card (model/thinking/pipeline when available).
-- Main `index.html` diagnostics runtime `Token use` now uses compact `k`/`m` display for large token values.
+- Main `index.html` diagnostics runtime `Token use` now uses compact `k`/`m` display for large token values and sums discounted token totals across the latest benchmark run group (not a single book row).
+- Main `index.html` diagnostics runtime now also includes quality-efficiency rows (`Quality / 1M tokens`, vanilla delta efficiency, and peer rank).
 - Main `index.html` `Previous Runs` now includes `AI Model + Effort` and source-slug fallbacks when `source_file` is missing.
 - Main `index.html` `Previous Runs` `All token use` cell now uses compact `k`/`m` display for large token values.
+- Main `index.html` `Previous Runs` includes derived `Quality / 1M tokens` for token-efficiency sorting/filtering across runs.
+- Main `index.html` trend hover cards now show point-level context first (dot score + book/source label + variant + eval-row timestamp), then run-group series context.
 - Benchmark CSV appends now write `importer_name`; dashboard importer display also has source-path/run-config fallback for historical blank rows.
 - Codex model/effort is backfilled from benchmark manifest `llm_codex_farm` runtime payloads when run-config omits those fields.
 - Benchmark runtime model/effort now falls back to prediction-run manifest `llm_codex_farm` telemetry when run-config values are unset/default.

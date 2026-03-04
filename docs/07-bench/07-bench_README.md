@@ -89,6 +89,7 @@ Interactive `single_offline` now writes into one session root:
 - paired single-offline variant normalization now enforces:
   - `vanilla`: deterministic-only (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`)
   - `codexfarm`: LLM-adjusted recipe + line-role path (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
+- prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/codexfarm/`:
   - `prompt_request_response_log.txt` (combined full dump),
   - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
@@ -129,6 +130,7 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
 - interactive single-profile multi-book runs now request two live spinner slots (`COOKIMPORT_LIVE_STATUS_SLOTS=2` for that path) and automatically fall back to plain progress when slots are exhausted, preventing Rich live-display collisions.
+- interactive single-profile multi-book runs inherit the shared split-gated default (`4`) because scheduler split-slot gating is enabled in that path.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
 - interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).

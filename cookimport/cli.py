@@ -493,6 +493,7 @@ _MENU_SHORTCUT_KEYS = (
 _STATUS_ELAPSED_THRESHOLD_SECONDS = 10
 _STATUS_TICK_SECONDS = 1.0
 _STATUS_ETA_RECENT_STEP_WEIGHTS: tuple[float, ...] = (0.30, 0.20, 0.20, 0.20, 0.10)
+_STATUS_ETA_RECENT_INSTANT_BLEND = 0.50
 _STATUS_RATE_RECENT_WINDOW = max(12, len(_STATUS_ETA_RECENT_STEP_WEIGHTS))
 _STATUS_ETA_BOOTSTRAP_MIN_SECONDS = 1.0
 _STATUS_ALL_METHOD_STALL_MIN_SECONDS = 1.0
@@ -7647,6 +7648,7 @@ def _recent_rate_average_seconds_per_task(
     max_steps = max(1, len(_STATUS_ETA_RECENT_STEP_WEIGHTS))
     # Build a most-recent-first list of per-step durations from sampled deltas.
     recent_step_seconds: list[float] = []
+    most_recent_step_seconds: float | None = None
     for elapsed_seconds, completed_units in reversed(samples):
         elapsed_value = float(elapsed_seconds)
         units_value = int(completed_units)
@@ -7655,6 +7657,8 @@ def _recent_rate_average_seconds_per_task(
         per_step_seconds = elapsed_value / float(units_value)
         if per_step_seconds <= 0:
             continue
+        if most_recent_step_seconds is None:
+            most_recent_step_seconds = per_step_seconds
         remaining_slots = max_steps - len(recent_step_seconds)
         if remaining_slots <= 0:
             break
@@ -7671,9 +7675,24 @@ def _recent_rate_average_seconds_per_task(
             continue
         weighted_total += per_step_seconds * weight
         weight_sum += weight
-    if weight_sum <= 0:
-        return sum(recent_step_seconds) / float(len(recent_step_seconds))
-    return weighted_total / weight_sum
+    weighted_average = (
+        weighted_total / weight_sum
+        if weight_sum > 0
+        else sum(recent_step_seconds) / float(len(recent_step_seconds))
+    )
+    if most_recent_step_seconds is None:
+        return weighted_average
+    if len(recent_step_seconds) <= 1:
+        return most_recent_step_seconds
+    blend = max(0.0, min(1.0, float(_STATUS_ETA_RECENT_INSTANT_BLEND)))
+    if blend <= 0.0:
+        return weighted_average
+    if blend >= 1.0:
+        return most_recent_step_seconds
+    return (
+        most_recent_step_seconds * blend
+        + weighted_average * (1.0 - blend)
+    )
 
 
 def _format_status_progress_message(
@@ -8195,6 +8214,11 @@ def _run_with_progress_status(
             for index in range(1, running_slots + 1):
                 worker_lines.append(f"worker {index:02d}: running")
 
+        if running_slots <= 0 and not worker_lines:
+            return "\n".join(lines)
+        if running_slots <= 0 and worker_lines == ["active workers: 0"]:
+            return "\n".join(lines)
+
         if not worker_lines:
             return "\n".join(lines)
 
@@ -8357,6 +8381,7 @@ def _run_with_progress_status(
             message = latest_message
             started_at = latest_message_started
             counter = latest_counter
+            running_workers_hint = latest_running_workers
         worker_total, worker_statuses = worker_dashboard_adapter.snapshot_workers()
         elapsed_seconds = max(0.0, current - started_at)
         message_value = str(message or initial_status).strip() or str(initial_status).strip()
@@ -8370,6 +8395,10 @@ def _run_with_progress_status(
             for status in worker_statuses.values()
             if str(status).strip().lower() not in {"", "idle", "done", "skipped"}
         )
+        if worker_total <= 0 and running_workers_hint is not None:
+            worker_total = max(0, int(running_workers_hint))
+        if worker_active <= 0 and running_workers_hint is not None:
+            worker_active = max(0, int(running_workers_hint))
         snapshot = message_value
         if counter_current is not None and counter_total is not None:
             snapshot = f"{snapshot} | task {counter_current}/{counter_total}"
@@ -8420,6 +8449,8 @@ def _run_with_progress_status(
             cleaned = summarized
             latest_codex_stage_label = codex_stage_label
         elif not is_worker_activity:
+            latest_running_workers = None
+            latest_active_tasks = None
             latest_codex_stage_label = None
         # Route every callback through the shared adapter so callback+worker
         # activity both update the same dashboard state machine.

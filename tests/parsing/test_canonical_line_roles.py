@@ -1015,3 +1015,165 @@ def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
     ).read_text(encoding="utf-8").splitlines()
     assert len(dedup_lines) == 4
     assert all("\tprompt_" in line for line in dedup_lines)
+
+
+def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(
+    monkeypatch,
+) -> None:
+    candidates: list[AtomicLineCandidate] = []
+    for atomic_index in range(3):
+        candidates.append(
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id=f"block:progress:{atomic_index}",
+                block_index=atomic_index,
+                atomic_index=atomic_index,
+                text=f"Ambiguous line {atomic_index}",
+                within_recipe_span=True,
+                candidate_labels=["OTHER", "KNOWLEDGE"],
+                prev_text=None,
+                next_text=None,
+                rule_tags=["recipe_span_fallback"],
+            )
+        )
+
+    def _fake_codex_call(**kwargs):
+        prompt_text = str(kwargs.get("prompt") or "")
+        match = re.search(r'"atomic_index"\\s*:\\s*(\\d+)', prompt_text)
+        assert match is not None
+        atomic_index = int(match.group(1))
+        return {
+            "response": json.dumps(
+                [{"atomic_index": atomic_index, "label": "OTHER"}]
+            ),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_resolve_line_role_codex_max_inflight",
+        lambda: 2,
+    )
+    progress_messages: list[str] = []
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        codex_batch_size=1,
+        progress_callback=progress_messages.append,
+    )
+
+    assert [row.atomic_index for row in predictions] == [0, 1, 2]
+    assert progress_messages[0] == (
+        "Running canonical line-role pipeline... task 0/3"
+    )
+    assert (
+        "Running canonical line-role pipeline... task 3/3" in progress_messages
+    )
+    assert (
+        "Running canonical line-role pipeline... task 0/3 | running 2"
+        in progress_messages
+    )
+    assert progress_messages[-1] == (
+        "Running canonical line-role pipeline... task 3/3 | running 0"
+    )
+    assert any("task 1/3 | running 2" in message for message in progress_messages)
+    assert any("task 2/3 | running 1" in message for message in progress_messages)
+
+
+def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
+    monkeypatch,
+) -> None:
+    candidates: list[AtomicLineCandidate] = []
+    for atomic_index in range(3):
+        candidates.append(
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id=f"block:override:{atomic_index}",
+                block_index=atomic_index,
+                atomic_index=atomic_index,
+                text=f"Ambiguous line {atomic_index}",
+                within_recipe_span=True,
+                candidate_labels=["OTHER", "KNOWLEDGE"],
+                prev_text=None,
+                next_text=None,
+                rule_tags=["recipe_span_fallback"],
+            )
+        )
+
+    def _fake_codex_call(**kwargs):
+        prompt_text = str(kwargs.get("prompt") or "")
+        match = re.search(r'"atomic_index"\\s*:\\s*(\\d+)', prompt_text)
+        assert match is not None
+        atomic_index = int(match.group(1))
+        return {
+            "response": json.dumps(
+                [{"atomic_index": atomic_index, "label": "OTHER"}]
+            ),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_resolve_line_role_codex_max_inflight",
+        lambda: 1,
+    )
+    progress_messages: list[str] = []
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        codex_batch_size=1,
+        codex_max_inflight=3,
+        progress_callback=progress_messages.append,
+    )
+
+    assert [row.atomic_index for row in predictions] == [0, 1, 2]
+    assert (
+        "Running canonical line-role pipeline... task 0/3 | running 3"
+        in progress_messages
+    )
+
+
+def test_label_atomic_lines_deterministic_progress_callback_reports_task_counts() -> None:
+    blocks = [
+        {
+            "block_id": "block:det:0",
+            "block_index": 0,
+            "text": "SERVES 4",
+        },
+        {
+            "block_id": "block:det:1",
+            "block_index": 1,
+            "text": "2 tablespoons olive oil",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:det",
+        within_recipe_span=True,
+    )
+    progress_messages: list[str] = []
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("deterministic-v1"),
+        progress_callback=progress_messages.append,
+    )
+    assert len(predictions) == 2
+    assert progress_messages[0] == "Running canonical line-role pipeline... task 0/2"
+    assert progress_messages[-1] == "Running canonical line-role pipeline... task 2/2"
+    assert all("| running " not in message for message in progress_messages)

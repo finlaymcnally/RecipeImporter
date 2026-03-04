@@ -3346,5 +3346,3 @@ def test_interactive_main_menu_does_not_offer_inspect(
 
 
 
-
-

@@ -101,7 +101,7 @@ def test_extract_all_method_dashboard_metrics_from_task_line() -> None:
     }
 
 
-def test_recent_rate_average_seconds_per_task_uses_weighted_last_five_steps() -> None:
+def test_recent_rate_average_seconds_per_task_biases_toward_latest_step() -> None:
     samples: deque[tuple[float, int]] = deque(
         [
             (8.0, 2),  # older: 4s/task, 4s/task
@@ -110,8 +110,25 @@ def test_recent_rate_average_seconds_per_task_uses_weighted_last_five_steps() ->
         ]
     )
     # Most recent five steps: 3,3,3,6,4 with weights 30/20/20/20/10.
-    expected = (3.0 * 0.30 + 3.0 * 0.20 + 3.0 * 0.20 + 6.0 * 0.20 + 4.0 * 0.10) / 1.0
+    weighted = (3.0 * 0.30 + 3.0 * 0.20 + 3.0 * 0.20 + 6.0 * 0.20 + 4.0 * 0.10) / 1.0
+    # Shared ETA estimator blends weighted recent history with the newest step.
+    expected = (3.0 * 0.50) + (weighted * 0.50)
     assert cli._recent_rate_average_seconds_per_task(samples) == pytest.approx(expected)
+
+
+def test_recent_rate_average_seconds_per_task_reacts_faster_to_latest_slowdown() -> None:
+    samples: deque[tuple[float, int]] = deque(
+        [
+            (2.0, 2),  # older: 1s/task
+            (2.0, 2),  # older: 1s/task
+            (20.0, 1),  # newest: 20s/task
+        ]
+    )
+    recent_average = cli._recent_rate_average_seconds_per_task(samples)
+    assert recent_average is not None
+    # A pure weighted-average estimator would be 6.7s/task for this shape.
+    # Recency blending should move much closer to the newest observed duration.
+    assert recent_average > 10.0
 
 
 def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
@@ -625,6 +642,148 @@ def test_run_with_progress_status_renders_worker_activity_summary(
     assert "worker 01:" not in capture.messages[-1]
 
 
+def test_run_with_progress_status_clears_codex_worker_state_for_new_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("codex-farm recipe.final.v1 task 19/19 | running 0")
+        update_progress("Running canonical line-role pipeline...")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (thefoodlabCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    phase_messages = [
+        message
+        for message in capture.messages
+        if "canonical line-role" in message.lower()
+    ]
+    assert phase_messages
+    assert all("active workers: 0" not in message for message in phase_messages)
+    assert all("stage:" not in message for message in phase_messages)
+
+
+def test_run_with_progress_status_hides_zero_active_workers_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("codex-farm recipe.final.v1 task 4/4 | running 0")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (roastchickenandotherstoriesCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert all("active workers: 0" not in message for message in capture.messages)
+
+
+def test_run_with_progress_status_shows_eta_for_canonical_line_role_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Running canonical line-role pipeline... task 1/4 | running 4")
+        time.sleep(0.12)
+        update_progress("Running canonical line-role pipeline... task 2/4 | running 3")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "eta " in message
+        and "avg " in message
+        for message in capture.messages
+    )
+
+
 def test_run_with_progress_status_clamps_live_box_width_to_terminal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -951,4 +1110,3 @@ def test_run_with_progress_status_escapes_dashboard_markers(
 
     assert result == {"ok": True}
     assert any("\\[x]" in message for message in capture.messages)
-

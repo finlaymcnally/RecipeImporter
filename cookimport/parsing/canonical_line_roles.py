@@ -138,6 +138,7 @@ _LINE_ROLE_CODEX_RETRY_ATTEMPTS = 3
 _LINE_ROLE_CODEX_RETRY_BASE_SECONDS = 1.5
 _LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v1"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
+_LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 
 
 class CanonicalLineRolePrediction(BaseModel):
@@ -179,12 +180,21 @@ def label_atomic_lines(
     cache_root: Path | None = None,
     codex_timeout_seconds: int = 600,
     codex_batch_size: int = 40,
+    codex_max_inflight: int | None = None,
     codex_cmd: str | None = None,
     codex_runner: Callable[..., Any] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> list[CanonicalLineRolePrediction]:
     ordered = list(candidates)
     if not ordered:
         return []
+    deterministic_total = len(ordered)
+    deterministic_interval = _line_role_progress_interval(deterministic_total)
+    _notify_line_role_progress(
+        progress_callback=progress_callback,
+        completed_tasks=0,
+        total_tasks=deterministic_total,
+    )
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     mode = _line_role_pipeline_name(settings)
     cache_path: Path | None = None
@@ -208,43 +218,52 @@ def label_atomic_lines(
 
     predictions: dict[int, CanonicalLineRolePrediction] = {}
     unresolved: list[AtomicLineCandidate] = []
-    for candidate in ordered:
+    for candidate_index, candidate in enumerate(ordered, start=1):
         label, confidence, tags = _deterministic_label(
             candidate,
             by_atomic_index=by_atomic_index,
         )
         if label is None:
             unresolved.append(candidate)
-            continue
-        if (
-            mode == "codex-line-role-v1"
-            and _should_escalate_low_confidence_candidate(
-                candidate=candidate,
-                deterministic_label=label,
-                confidence=confidence,
-                by_atomic_index=by_atomic_index,
-            )
-        ):
-            unresolved.append(candidate)
-            continue
-        predictions[candidate.atomic_index] = CanonicalLineRolePrediction(
-            recipe_id=candidate.recipe_id,
-            block_id=str(candidate.block_id),
-            block_index=int(candidate.block_index),
-            atomic_index=int(candidate.atomic_index),
-            text=str(candidate.text),
-            within_recipe_span=bool(candidate.within_recipe_span),
-            label=label,
-            confidence=confidence,
-            decided_by="rule",
-            candidate_labels=list(
-                _candidate_allowlist(
-                    candidate,
+        else:
+            if (
+                mode == "codex-line-role-v1"
+                and _should_escalate_low_confidence_candidate(
+                    candidate=candidate,
+                    deterministic_label=label,
+                    confidence=confidence,
                     by_atomic_index=by_atomic_index,
                 )
-            ),
-            reason_tags=tags,
-        )
+            ):
+                unresolved.append(candidate)
+            else:
+                predictions[candidate.atomic_index] = CanonicalLineRolePrediction(
+                    recipe_id=candidate.recipe_id,
+                    block_id=str(candidate.block_id),
+                    block_index=int(candidate.block_index),
+                    atomic_index=int(candidate.atomic_index),
+                    text=str(candidate.text),
+                    within_recipe_span=bool(candidate.within_recipe_span),
+                    label=label,
+                    confidence=confidence,
+                    decided_by="rule",
+                    candidate_labels=list(
+                        _candidate_allowlist(
+                            candidate,
+                            by_atomic_index=by_atomic_index,
+                        )
+                    ),
+                    reason_tags=tags,
+                )
+        if (
+            candidate_index == deterministic_total
+            or candidate_index % deterministic_interval == 0
+        ):
+            _notify_line_role_progress(
+                progress_callback=progress_callback,
+                completed_tasks=candidate_index,
+                total_tasks=deterministic_total,
+            )
 
     parse_error_count = 0
     if mode == "codex-line-role-v1" and unresolved:
@@ -266,11 +285,23 @@ def label_atomic_lines(
                 )
             )
 
+        resolved_codex_max_inflight = (
+            _normalize_line_role_codex_max_inflight_value(codex_max_inflight)
+            if codex_max_inflight is not None
+            else _resolve_line_role_codex_max_inflight()
+        )
         max_inflight = min(
-            max(1, _resolve_line_role_codex_max_inflight()),
+            max(1, resolved_codex_max_inflight),
             len(batch_tasks),
         )
+        _notify_line_role_progress(
+            progress_callback=progress_callback,
+            completed_tasks=0,
+            total_tasks=len(batch_tasks),
+            running_tasks=min(max_inflight, len(batch_tasks)),
+        )
         results_by_prompt_index: dict[int, _CodexBatchResult] = {}
+        completed_batches = 0
         with ThreadPoolExecutor(max_workers=max_inflight) as executor:
             future_to_prompt_index = {
                 executor.submit(
@@ -287,6 +318,14 @@ def label_atomic_lines(
             for future in as_completed(future_to_prompt_index):
                 result = future.result()
                 results_by_prompt_index[result.prompt_index] = result
+                completed_batches += 1
+                remaining_batches = max(0, len(batch_tasks) - completed_batches)
+                _notify_line_role_progress(
+                    progress_callback=progress_callback,
+                    completed_tasks=completed_batches,
+                    total_tasks=len(batch_tasks),
+                    running_tasks=min(max_inflight, remaining_batches),
+                )
 
         for task in batch_tasks:
             batch_result = results_by_prompt_index[task.prompt_index]
@@ -319,6 +358,31 @@ def label_atomic_lines(
         predictions=sanitized,
     )
     return sanitized
+
+
+def _notify_line_role_progress(
+    *,
+    progress_callback: Callable[[str], None] | None,
+    completed_tasks: int,
+    total_tasks: int,
+    running_tasks: int | None = None,
+) -> None:
+    if progress_callback is None:
+        return
+    total = max(0, int(total_tasks))
+    completed = max(0, min(total, int(completed_tasks)))
+    message = f"Running canonical line-role pipeline... task {completed}/{total}"
+    if running_tasks is not None:
+        running = max(0, int(running_tasks))
+        message = f"{message} | running {running}"
+    progress_callback(message)
+
+
+def _line_role_progress_interval(total_tasks: int) -> int:
+    total = max(1, int(total_tasks))
+    # Keep progress updates frequent enough for responsive ETA while avoiding
+    # excessive callback chatter on large books.
+    return max(1, (total + _LINE_ROLE_PROGRESS_MAX_UPDATES - 1) // _LINE_ROLE_PROGRESS_MAX_UPDATES)
 
 
 def _run_codex_batch(
@@ -526,9 +590,13 @@ def _resolve_line_role_codex_max_inflight() -> int:
     raw_value = str(os.getenv(_LINE_ROLE_CODEX_MAX_INFLIGHT_ENV) or "").strip()
     if not raw_value:
         return _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT
+    return _normalize_line_role_codex_max_inflight_value(raw_value)
+
+
+def _normalize_line_role_codex_max_inflight_value(value: Any) -> int:
     try:
-        parsed = int(raw_value)
-    except ValueError:
+        parsed = int(value)
+    except (TypeError, ValueError):
         return _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT
     return max(1, min(parsed, 32))
 

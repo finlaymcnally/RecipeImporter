@@ -360,6 +360,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-offline-benchmark/<source_slug>/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
+   - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
    - source slug is derived from the selected source filename stem (slugified),
    - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-offline-benchmark/<source_slug>/.split-cache`),
    - cache controls are available on `labelstudio-benchmark`: `--single-offline-split-cache-mode`, `--single-offline-split-cache-dir`, `--single-offline-split-cache-force`,
@@ -397,6 +398,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
    - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
    - when 2+ books are selected, runs up to three books concurrently (`parallel books=3`),
+   - single-profile runs use the same shared ingest inflight defaults; because multi-book mode enables split-phase gating, canonical line-role codex inflight defaults to `4` there (single-book stays at `8` unless env override is set),
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
    - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
    - concurrent single-profile runs request up to two live spinner panels (`COOKIMPORT_LIVE_STATUS_SLOTS=2` override for this path); extra concurrent runs fall back to plain status lines instead of failing with Rich live-display conflicts,
@@ -1346,11 +1348,13 @@ Merged sources:
 - `docs/understandings/2026-02-22_23.13.34-spinner-xy-eta-flow.md`
 - `docs/understandings/2026-02-23_00.17.44-spinner-worker-activity-telemetry.md`
 - `docs/understandings/2026-03-03_12.20.00-spinner-eta-weighted-window-bootstrap.md`
+- `docs/understandings/2026-03-04_08.30.36-spinner-eta-recent-blend.md`
 
 Durable rules:
-- Callback spinner ETA is derived from the active `X/Y` counter and should prioritize recent throughput via a weighted last-5-step average (`30/20/20/20/10`, newest first). For all-method dashboard snapshots, use top-line `overall ... | config X/Y`.
+- Callback spinner ETA is derived from the active `X/Y` counter and prioritizes recent throughput by combining a weighted last-5-step average (`30/20/20/20/10`, newest first) with the most-recent step duration (50/50 blend). For all-method dashboard snapshots, use top-line `overall ... | config X/Y`.
 - `task/item/config/phase` loops should emit counters from runtime loop boundaries; CLI renderer should format and decorate them, not invent totals.
 - Worker telemetry stays a side-channel payload parsed/rendered by shared spinner code so per-worker status lines do not overwrite the primary phase/task line.
+- Worker summaries suppress zero-only rows (`active workers: 0`) to avoid stale/noise when no worker activity is present.
 - For multi-line dashboard snapshots, ETA/elapsed suffixes decorate the top summary line (`overall ...`) instead of the trailing `task:` line.
 - Live spinner snapshots are rendered as a compact ASCII border panel so operators can see a stable, block-style status block while counts and worker lines refresh in place.
 - The bordered spinner panel is generated once from the same shared snapshot state and used for benchmark/label-studio/import progress paths so the view stays consistent across workflows.

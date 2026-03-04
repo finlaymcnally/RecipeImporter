@@ -67,6 +67,7 @@ Used when the CSV is missing, and also used as a supplement when `--scan-reports
 
 Collector mode:
 - benchmark rows are CSV-first by default
+- when CSV benchmark rows exist, collector auto-supplements only missing **older** benchmark rows from benchmark `eval_report.json` artifacts (migration backfill path), with CSV rows still winning for overlapping artifact dirs
 - benchmark CSV writes now persist Codex token usage columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) when available from prediction manifests
 - CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model` / `AI Effort` columns stay populated without full report scanning
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
@@ -119,10 +120,11 @@ Notes:
 
 `index.html` is intentionally minimal:
 
-- `Diagnostics (Latest Benchmark)`: runtime + per-label + boundary breakdown for the most recent benchmark record.
+- `Diagnostics (Latest Benchmark)`: runtime + per-label + boundary breakdown for the most recent benchmark run group.
   - Layout: on desktop, `Benchmark Runtime` and `Boundary Classification` each take one half-width column on the top row; `Per-Label Breakdown` renders below as a full-width card (mobile collapses to one column).
-  - Runtime card surfaces best-effort AI context from benchmark run-config metadata (`model`, `thinking effort`, pipeline mode), preferring latest non-speed rows when both speed/non-speed exist.
-  - Runtime card surfaces `Token use` using the same cached-adjusted discounted token formula as `All token use`, with compact `k`/`m` display for large values.
+  - Runtime card surfaces best-effort AI context from benchmark run-config metadata (`model`, `thinking effort`, pipeline mode) within the latest preferred run group (non-speed preferred).
+  - Runtime card surfaces `Token use` as a run-group total using the same cached-adjusted discounted token formula as `All token use` (sum across rows in that run group), with compact `k`/`m` display for large values.
+  - Runtime card now also surfaces `Quality / 1M tokens`, `Delta quality vs vanilla`, `Delta quality / 1M extra tokens vs vanilla`, and peer-run efficiency rank (`Quality/tokens vs peers`) for quick token-efficiency checks.
   - When multiple latest rows share one timestamp (for example single-offline `codexfarm` + `vanilla`), diagnostics prefers the row with richer AI metadata (model/effort/pipeline-on) instead of defaulting to `off`.
   - If benchmark run-config is missing codex model/effort, collector backfills from benchmark manifest `llm_codex_farm.process_runs.*.process_payload` (and telemetry reasoning breakdown fallback) so codex rows do not show false `off` labels.
   - When run-config omits explicit model/effort (for example defaults), collector backfills from prediction-run manifest `llm_codex_farm` runtime payload when available.
@@ -154,9 +156,10 @@ Notes:
   - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
   - Placeholder effort values like `<default>`/`default` are treated as unknown effort; CSV backfill resolves model-default effort where available.
   - For `single-offline-benchmark/.../vanilla` rows (or `llm_recipe_pipeline=off` rows), AI model/effort cells are intentionally suppressed even if stale run-config metadata still carries codex model/effort keys.
-  - `All token use` is shown by default and displays `discounted_total | input | output` in one cell, abbreviated with `k`/`m` where large (for example `854k`, `2.27m`).
+  - `All token use` and `Quality / 1M tokens` are shown by default. `All token use` displays `discounted_total | input | output` in one cell, abbreviated with `k`/`m` where large (for example `854k`, `2.27m`).
   - Discounted total applies cached-input tokens at `0.1x` weight (`(input - cached_input) + 0.1*cached_input + output`).
-  - Sorting and filtering `All token use` uses that discounted numeric total (not raw `tokens_total`).
+  - `Quality / 1M tokens` uses preferred quality score (`strict_accuracy`, then `macro_f1_excluding_other`, then `f1`) divided by discounted token total, scaled by `1,000,000` tokens (higher is better).
+  - Sorting and filtering `All token use` uses that discounted numeric total (not raw `tokens_total`); sorting/filtering `Quality / 1M tokens` uses its numeric efficiency value.
   - Other token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) can be enabled from the same `+/-` column picker.
   - `Source` prefers `source_file` basename, then artifact-path source slug fallback (`all-method-benchmark`, `single-profile-benchmark`, `scenario_runs`, `eval/<slug>` patterns).
   - `Importer` uses CSV/importer metadata first, then source-path/run-config fallback (for older benchmark rows with blank CSV importer).
@@ -190,7 +193,7 @@ Notes:
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
   - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
   - Trend run-group timestamp extraction now checks `artifact_dir`, `run_dir`, and `report_path`; when `benchmark-vs-golden` appears in a path, it uses the first timestamp token after that marker so deeper variant-local timestamp folders do not shift paired `codexfarm`/`vanilla` points onto different x positions.
-  - Hovering any trend point shows one run-level tooltip card with local run timestamp and all visible series values for that run group (instead of per-point coordinate tooltips).
+  - Hovering any trend point shows a point-first tooltip card: the hovered dot's exact score, book/source label, variant, and eval-row timestamp, plus run-group series values as secondary context.
   - The `Benchmark Score Trend` range selector defaults to `All`, so older benchmark history is visible on first load instead of starting on a short recent window.
   - The trend chart x-axis is initialized from the full filtered `Previous Runs` timestamp span (including rows without explicit score points), so timeline dates stay aligned with the table.
   - Highcharts Stock now loads with a secondary CDN fallback (`code.highcharts.com` -> `cdn.jsdelivr.net`) before `assets/dashboard.js`, reducing random single-CDN load failures.

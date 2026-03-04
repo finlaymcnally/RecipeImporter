@@ -133,6 +133,7 @@ Collector behavior (`collect_dashboard_data`):
 - Benchmark rows:
   - CSV-first by default
   - includes supplemental benchmark rows from nested benchmark history CSVs under `--output-root`
+  - when CSV benchmark rows exist, collector auto-supplements only missing **older** benchmark history from benchmark `eval_report.json` artifacts (pre-CSV migrations), then keeps CSV rows authoritative for overlapping artifacts
   - benchmark CSV rows persist Codex token usage (`tokens_*`) when benchmark prediction manifests include `llm_codex_farm` telemetry
   - CSV benchmark rows now backfill missing codex model/effort runtime from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) when available
   - collector hard-excludes benchmark artifacts tagged as test/gate noise (`/bench/`, pytest temp layouts, and timestamp-suffix tokens such as `_...-gated-...`, `_...-smoke-...`, `_...-test-...`)
@@ -186,9 +187,10 @@ Benchmark scan details:
 - `Per-Label Breakdown` aggregates per-label totals across the latest preferred benchmark run-group key (all-method preferred, non-speed preferred), where the group key comes from benchmark artifact-path timestamp token and falls back to record timestamp when needed.
 - `Boundary Classification` aggregates boundary counts across all boundary-bearing rows at that same latest preferred benchmark run-group key, and surfaces matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so boundary percentages are interpreted as matched-boundary-only.
 - Boundary table now uses `% of gold` as the only percentage denominator, and adds `Matched (boundary unclassified)` + `Unmatched gold spans` rows so coverage gaps are explicit in-table.
-- `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
+- `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available, scoped to the latest benchmark run group.
 - Diagnostics layout is fixed 2-up on desktop: `Benchmark Runtime` and `Boundary Classification` each occupy 50% width on the first row, with `Per-Label Breakdown` full-width below (mobile collapses to one column).
-- Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`) with compact `k`/`m` display for large values.
+- Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`) with compact `k`/`m` display for large values, summed across rows in the latest benchmark run group.
+- Latest runtime diagnostics also include quality-efficiency rows: `Quality / 1M tokens`, `Delta quality vs vanilla`, `Delta quality / 1M extra tokens vs vanilla`, and peer-run `Quality/tokens vs peers` rank/median comparison.
 - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns. Comparison columns can be shown as signed deltas or raw point values via an in-card `Point value` checkbox; delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
 - Per-label comparison cells now render `-` when the comparison variant metric is missing (instead of coercing to `0.0000` in point-value mode).
 - Per-label diagnostics now include a run-group selector beside the title (`Default - most recent` + all available run timestamps) so the table can auto-follow latest runs or be pinned to a chosen timestamp.
@@ -197,8 +199,10 @@ Benchmark scan details:
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
   - `AI Effort` shows only concrete effort values; placeholders (`<default>`, `default`) are treated as missing in the UI.
-  - `All token use` is part of the default `Previous Runs` columns and displays combined `total | input | output` with compact `k`/`m` formatting for large values.
-  - Sorting/filtering `All token use` uses the numeric `tokens_total` value.
+  - `All token use` and `Quality / 1M tokens` are part of the default `Previous Runs` columns.
+  - `All token use` displays combined `total | input | output` with compact `k`/`m` formatting for large values.
+  - `Quality / 1M tokens` computes preferred quality (`strict_accuracy`, then `macro_f1_excluding_other`, then `f1`) divided by discounted token total and scaled per 1,000,000 tokens (higher is better).
+  - Sorting/filtering `All token use` uses the discounted numeric total (`all_token_use`), not raw `tokens_total`.
   - Detailed token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) remain available through the `+/-` column picker.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
 - `Previous Runs` now supports per-column stacked filters via a compact `+/-` editor toggle in the first row beneath headers; each save appends a clause for that column (instead of replacing), active clauses can be removed individually via `×` in the popup, and each column stack has an `AND/OR` mode toggle. Active filter summaries in that row render one clause per line with a per-clause `X` remove button. Non-numeric popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
@@ -230,7 +234,7 @@ Benchmark scan details:
 - Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line for raw points); each plotted series also gets a dashed linear trendline with a same-color `±1σ` deviation band.
 - When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
 - Paired variants now use one shared x-axis timestamp per benchmark run-group (artifact timestamp token preferred, row timestamp fallback), preventing same-run horizontal drift between `vanilla` and `codexfarm`.
-- Benchmark trend tooltip is run-grouped: hovering any point shows one local-time card with all visible series values for that run (no raw coordinate-style x/y labels).
+- Benchmark trend tooltip is point-first: hovering a point shows that dot's own score plus source/book label, variant, and eval-row timestamp, with run-group series values shown as secondary context.
 - Benchmark trend chart uses a fixed 800px render/container height to preserve stable layout and provide a taller score-history viewport.
 - Dashboard HTML now loads Highcharts Stock with a secondary CDN fallback (`code.highcharts.com` primary, `cdn.jsdelivr.net` fallback) before dashboard JS initialization.
 - `Previous Runs` table columns are configurable in-browser: use the `+/-` header-row button popup to check/uncheck fields, drag headers to reorder, and resize by dragging header edges.

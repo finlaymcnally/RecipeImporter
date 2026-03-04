@@ -1897,6 +1897,66 @@ def _collect_benchmarks(
     return records
 
 
+def _oldest_benchmark_timestamp(records: list[BenchmarkRecord]) -> datetime | None:
+    oldest: datetime | None = None
+    for record in records:
+        parsed = _parse_timestamp(record.run_timestamp)
+        if parsed is None:
+            continue
+        if oldest is None or parsed < oldest:
+            oldest = parsed
+    return oldest
+
+
+def _has_older_benchmark_eval_reports(
+    golden_root: Path,
+    *,
+    cutoff: datetime | None,
+    oldest_csv_timestamp: datetime,
+) -> bool:
+    """Return True when eval_report paths indicate pre-CSV benchmark history."""
+    if not golden_root.is_dir():
+        return False
+    try:
+        candidates = golden_root.rglob("eval_report.json")
+    except OSError:
+        return False
+
+    for report_path in candidates:
+        eval_dir = report_path.parent
+        if _PREDICTION_RUN in eval_dir.parts:
+            continue
+        if _is_excluded_benchmark_artifact(eval_dir):
+            continue
+        timestamp_text = _resolve_eval_run_timestamp(eval_dir, golden_root)
+        parsed = _parse_timestamp(timestamp_text)
+        if parsed is None:
+            continue
+        if cutoff is not None and parsed < cutoff:
+            continue
+        if parsed < oldest_csv_timestamp:
+            return True
+    return False
+
+
+def _collect_older_benchmark_json_rows(
+    golden_root: Path,
+    *,
+    cutoff: datetime | None,
+    oldest_csv_timestamp: datetime,
+    warnings: list[str],
+) -> list[BenchmarkRecord]:
+    records = _collect_benchmarks(golden_root, cutoff, warnings)
+    older_rows: list[BenchmarkRecord] = []
+    for record in records:
+        parsed = _parse_timestamp(record.run_timestamp)
+        if parsed is None:
+            continue
+        if parsed < oldest_csv_timestamp:
+            older_rows.append(record)
+    return older_rows
+
+
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
@@ -2046,6 +2106,21 @@ def collect_dashboard_data(
             warnings=warnings,
         )
 
+    supplemental_older_json_bench_records: list[BenchmarkRecord] = []
+    if not scan_benchmark_reports and csv_bench_records:
+        oldest_csv_timestamp = _oldest_benchmark_timestamp(csv_bench_records)
+        if oldest_csv_timestamp is not None and _has_older_benchmark_eval_reports(
+            golden_root,
+            cutoff=cutoff,
+            oldest_csv_timestamp=oldest_csv_timestamp,
+        ):
+            supplemental_older_json_bench_records = _collect_older_benchmark_json_rows(
+                golden_root,
+                cutoff=cutoff,
+                oldest_csv_timestamp=oldest_csv_timestamp,
+                warnings=warnings,
+            )
+
     # Sort stage records by parsed timestamp (un-parseable sorts last)
     stage_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
@@ -2054,7 +2129,10 @@ def collect_dashboard_data(
         benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
         benchmark_records = _merge_benchmark_records(benchmark_records, csv_bench_records)
     elif csv_bench_records:
-        benchmark_records = list(csv_bench_records)
+        benchmark_records = _merge_benchmark_records(
+            supplemental_older_json_bench_records,
+            list(csv_bench_records),
+        )
     else:
         benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
     benchmark_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))

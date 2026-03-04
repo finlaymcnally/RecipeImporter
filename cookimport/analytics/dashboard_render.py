@@ -1954,7 +1954,7 @@ _HTML = """\
     <div class="diagnostics-grid">
       <section id="runtime-section" class="diagnostic-card">
         <h2>Benchmark Runtime (Latest)</h2>
-        <p class="section-note">AI runtime context for the latest benchmark row: model, thinking effort, and pipeline mode.</p>
+        <p class="section-note">AI runtime context for the latest benchmark run group: model, thinking effort, pipeline mode, token totals, and quality-per-token efficiency (including vanilla and peer comparisons).</p>
         <div id="runtime-summary"></div>
       </section>
 
@@ -2068,8 +2068,9 @@ _HTML = """\
 
 	        <p class="section-note"><strong>Tokens (cost proxy; present when run telemetry is available)</strong></p>
 	        <ul class="metric-help-list">
-	          <li><code>all_token_use</code>: A single “quick scan” token number that combines input and output tokens, with cached input discounted. Cached tokens are treated as cheaper by counting them at 10% weight. Use this to compare overall cost between runs without staring at multiple token columns.</li>
-	          <li><code>tokens_input</code>: How many input tokens were sent to the model across the run. More input tokens often means more context, which can help quality, but it also costs more and can slow things down. If this spikes, check whether chunk sizes or prompts got larger.</li>
+		          <li><code>all_token_use</code>: A single “quick scan” token number that combines input and output tokens, with cached input discounted. Cached tokens are treated as cheaper by counting them at 10% weight. Use this to compare overall cost between runs without staring at multiple token columns.</li>
+		          <li><code>quality_per_million_tokens</code>: Quality efficiency (preferred quality metric per 1,000,000 discounted tokens). Higher is better. Use this to compare whether token spend translated into score gains across runs.</li>
+		          <li><code>tokens_input</code>: How many input tokens were sent to the model across the run. More input tokens often means more context, which can help quality, but it also costs more and can slow things down. If this spikes, check whether chunk sizes or prompts got larger.</li>
 	          <li><code>tokens_cached_input</code>: Input tokens that came from cache (reused context) rather than being fully “paid for” again. This helps explain why a run can have high input tokens but lower effective cost. If cache tokens go up, cost can drop even if quality stays the same.</li>
 	          <li><code>tokens_output</code>: How many tokens the model produced in its responses. Higher output usually means higher cost and can increase latency. If this grows a lot, it can mean the model is being too verbose or returning extra structure.</li>
 	          <li><code>tokens_reasoning</code>: Tokens used for the model’s internal reasoning (when the provider reports it). Higher reasoning can improve hard cases, but it usually increases cost and time. If you raise “effort” settings, this is often the first token bucket to grow.</li>
@@ -3910,6 +3911,12 @@ _JS = """\
   const PER_LABEL_ROLLING_WINDOW_MIN = 1;
   const PER_LABEL_ROLLING_WINDOW_MAX = 50;
   const PER_LABEL_RUN_GROUP_DEFAULT_KEY = "__default_most_recent__";
+  const QUALITY_PER_TOKEN_SCALE = 1000000;
+  const BENCHMARK_QUALITY_METRIC_KEYS = [
+    "strict_accuracy",
+    "macro_f1_excluding_other",
+    "f1",
+  ];
   const BENCHMARK_TREND_DEFAULT_FIELDS = [
     "strict_accuracy",
     "macro_f1_excluding_other",
@@ -3930,6 +3937,7 @@ _JS = """\
     "gold_matched",
     "recipes",
     "all_token_use",
+    "quality_per_million_tokens",
     "tokens_total",
     "tokens_input",
     "tokens_cached_input",
@@ -4005,6 +4013,7 @@ _JS = """\
     "gold_matched",
     "recipes",
     "all_token_use",
+    "quality_per_million_tokens",
     "source_label",
     "importer_name",
     "ai_model",
@@ -4044,6 +4053,11 @@ _JS = """\
     all_token_use: {
       label: "All token use",
       title: "Combined token view (discounted_total/input/output). Discounted total applies cached-input tokens at 10% weight.",
+      numeric: true,
+    },
+    quality_per_million_tokens: {
+      label: "Quality / 1M tokens",
+      title: "Quality-efficiency score: preferred quality metric (strict_accuracy, then macro_f1_excluding_other, then f1) per 1,000,000 discounted tokens.",
       numeric: true,
     },
     tokens_input: {
@@ -4127,6 +4141,8 @@ _JS = """\
     "importer_name",
     "ai_model",
     "ai_effort",
+    "quality_per_million_tokens",
+    "all_token_use",
     "run_config.llm_recipe_pipeline",
     "run_config.epub_extractor",
     "run_config.epub_extractor_effective",
@@ -4162,6 +4178,7 @@ _JS = """\
     "benchmark_prediction_seconds",
     "benchmark_evaluation_seconds",
     "all_token_use",
+    "quality_per_million_tokens",
     "tokens_total",
     "tokens_input",
     "tokens_output",
@@ -7632,6 +7649,7 @@ _JS = """\
       "gold_matched",
       "recipes",
       "all_token_use",
+      "quality_per_million_tokens",
       "tokens_input",
       "tokens_cached_input",
       "tokens_output",
@@ -7691,6 +7709,7 @@ _JS = """\
     PREVIOUS_RUNS_SCORE_FIELDS.forEach(fieldName => discovered.add(fieldName));
     previousRunsFieldOptions.forEach(fieldName => discovered.add(fieldName));
     discovered.add("all_token_use");
+    discovered.add("quality_per_million_tokens");
     discovered.add("tokens_total");
     discovered.add("tokens_input");
     discovered.add("tokens_cached_input");
@@ -7914,16 +7933,10 @@ _JS = """\
     if (fieldPath === "ai_effort") return aiEffortLabelForRecord(record);
     if (fieldPath === "ai_model_effort") return aiModelEffortLabelForRecord(record);
     if (fieldPath === "all_token_use") {
-      const tokensInput = maybeNumber(record && record.tokens_input);
-      const tokensCachedInput = maybeNumber(record && record.tokens_cached_input);
-      const tokensOutput = maybeNumber(record && record.tokens_output);
-      const tokensTotal = maybeNumber(record && record.tokens_total);
-      return previousRunsDiscountedTokenTotal(
-        tokensInput,
-        tokensCachedInput,
-        tokensOutput,
-        tokensTotal,
-      );
+      return discountedTokenTotalForRecord(record);
+    }
+    if (fieldPath === "quality_per_million_tokens") {
+      return benchmarkQualityPerMillionTokensForRecord(record);
     }
     if (fieldPath === "artifact_dir_basename") return basename(record.artifact_dir || "");
     if (fieldPath === "all_method_record") return isAllMethodBenchmarkRecord(record);
@@ -8143,6 +8156,121 @@ _JS = """\
     return best;
   }
 
+  function preferredRuntimeContextRecord(records) {
+    const candidates = Array.isArray(records) ? records.filter(record => !!record) : [];
+    if (!candidates.length) return null;
+    let best = candidates[0];
+    function score(record) {
+      const model = aiModelForRecord(record);
+      const effort = aiEffortForRecord(record);
+      const pipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
+      const pipelineText = String(pipeline || "").toLowerCase();
+      const pipelineOn = pipelineText && pipelineText !== "off";
+      return [
+        model ? 2 : 0,
+        effort ? 1 : 0,
+        pipelineOn ? 1 : 0,
+      ];
+    }
+    candidates.slice(1).forEach(candidate => {
+      const bestScore = score(best);
+      const nextScore = score(candidate);
+      for (let i = 0; i < bestScore.length; i++) {
+        if (nextScore[i] > bestScore[i]) {
+          best = candidate;
+          return;
+        }
+        if (nextScore[i] < bestScore[i]) {
+          return;
+        }
+      }
+      if (
+        compareRunTimestampDesc(candidate.run_timestamp, best.run_timestamp) < 0
+      ) {
+        best = candidate;
+      }
+    });
+    return best;
+  }
+
+  function latestRuntimeSummaryForRecords(records) {
+    const sorted = [...(records || [])].sort((a, b) =>
+      compareRunTimestampDesc(a.run_timestamp, b.run_timestamp)
+    );
+    const nonSpeed = sorted.filter(r => !isSpeedBenchmarkRecord(r));
+    const preferredRecords = nonSpeed.length > 0 ? nonSpeed : sorted;
+    const latestRunGroup = latestRunGroupRecords(preferredRecords, record => !!record);
+    const latestRunRecords = latestRunGroup.records;
+    if (!latestRunRecords.length) return null;
+
+    const contextRecord = preferredRuntimeContextRecord(latestRunRecords) || latestRunRecords[0];
+    if (!contextRecord) return null;
+    const runGroupInfo = benchmarkRunGroupInfo(contextRecord);
+    const pipelineMode = runConfigValue(contextRecord, ["llm_recipe_pipeline", "llm_pipeline"]);
+    const tokenTotals = discountedTokenTotalForRecords(latestRunRecords);
+    const quality = aggregateBenchmarkQuality(latestRunRecords);
+    const qualityPerMillionTokens = qualityPerMillionTokensValue(
+      quality.qualityScore,
+      tokenTotals.discountedTokenTotal,
+    );
+
+    const codexRecords = latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "codexfarm");
+    const vanillaRecords = latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "vanilla");
+    let qualityDeltaVsVanilla = null;
+    let qualityDeltaPerMillionExtraTokensVsVanilla = null;
+    if (codexRecords.length > 0 && vanillaRecords.length > 0) {
+      const codexQuality = aggregateBenchmarkQuality(codexRecords, quality.metricKey);
+      const vanillaQuality = aggregateBenchmarkQuality(vanillaRecords, codexQuality.metricKey);
+      const codexTokens = discountedTokenTotalForRecords(codexRecords).discountedTokenTotal;
+      const vanillaTokens = discountedTokenTotalForRecords(vanillaRecords).discountedTokenTotal;
+      if (
+        codexQuality.qualityScore != null &&
+        vanillaQuality.qualityScore != null
+      ) {
+        qualityDeltaVsVanilla = codexQuality.qualityScore - vanillaQuality.qualityScore;
+      }
+      const deltaTokens = (
+        codexTokens != null && vanillaTokens != null
+          ? codexTokens - vanillaTokens
+          : null
+      );
+      if (
+        qualityDeltaVsVanilla != null &&
+        deltaTokens != null &&
+        Number.isFinite(deltaTokens) &&
+        deltaTokens > 0
+      ) {
+        qualityDeltaPerMillionExtraTokensVsVanilla =
+          (qualityDeltaVsVanilla * QUALITY_PER_TOKEN_SCALE) / deltaTokens;
+      }
+    }
+    const peerStats = runtimeQualityPeerStats(
+      preferredRecords,
+      runGroupInfo.runGroupKey,
+      quality.metricKey,
+    );
+
+    return {
+      runGroupLabel: String(latestRunGroup.runGroupLabel || contextRecord.run_timestamp || "").trim(),
+      runGroupKey: String((runGroupInfo && runGroupInfo.runGroupKey) || "").trim(),
+      runGroupRecordCount: latestRunRecords.length,
+      model: aiModelForRecord(contextRecord),
+      effort: aiEffortForRecord(contextRecord),
+      pipelineMode,
+      sourceLabel: sourceLabelForRecord(contextRecord),
+      sourceTitle: sourceTitleForRecord(contextRecord),
+      importerLabel: importerLabelForRecord(contextRecord),
+      tokenUseValue: tokenTotals.discountedTokenTotal,
+      tokenUseDisplay: formatTokenCountCompact(tokenTotals.discountedTokenTotal),
+      qualityMetricKey: quality.metricKey,
+      qualityScore: quality.qualityScore,
+      qualityPerMillionTokens,
+      qualityDeltaVsVanilla,
+      qualityDeltaPerMillionExtraTokensVsVanilla,
+      peerQualityStats: peerStats,
+    };
+  }
+
   function hasHighchartsStock() {
     return (
       typeof window !== "undefined" &&
@@ -8270,6 +8398,10 @@ _JS = """\
           custom: {
             runGroupKey: runGroup.runGroupKey,
             runGroupLabel: runGroup.runGroupLabel,
+            runTimestamp: String(record.run_timestamp || "").trim(),
+            sourceLabel: sourceLabelForRecord(record),
+            sourceTitle: sourceTitleForRecord(record),
+            variant: benchmarkVariantForRecord(record),
           },
         };
       })
@@ -8618,6 +8750,19 @@ _JS = """\
             (hoveredPoint.options && hoveredPoint.options.custom) || hoveredPoint.custom || {};
           const runGroupKey = String(hoveredCustom.runGroupKey || "").trim();
           if (!runGroupKey) return false;
+          const hoveredSeriesName = String(
+            (hoveredPoint.series && hoveredPoint.series.name) || ""
+          ).trim();
+          const hoveredColor = String(
+            hoveredPoint.color ||
+            (hoveredPoint.series && hoveredPoint.series.color) ||
+            "#2f2f2f"
+          );
+          const hoveredScore = Number(hoveredPoint.y);
+          const hoveredSourceLabel = String(hoveredCustom.sourceLabel || "").trim();
+          const hoveredSourceTitle = String(hoveredCustom.sourceTitle || "").trim();
+          const hoveredVariant = String(hoveredCustom.variant || "").trim();
+          const hoveredRunTimestamp = String(hoveredCustom.runTimestamp || "").trim();
 
           const hoveredX = Number(hoveredPoint.x || 0);
           const chart = hoveredPoint.series && hoveredPoint.series.chart;
@@ -8644,14 +8789,39 @@ _JS = """\
             ? label
             : window.Highcharts.dateFormat("%A, %b %e, %Y, %I:%M:%S %p", hoveredX);
           let html = '<span style="font-size: 0.85rem"><b>' + esc(header) + "</b></span><br/>";
-          rows.forEach(row => {
+          if (Number.isFinite(hoveredScore)) {
             html +=
-              '<span style="color:' + row.color + '">&#9679;</span> ' +
-              esc(row.name) +
+              '<span style="color:' + hoveredColor + '">&#9679;</span> ' +
+              esc(hoveredSeriesName || "score") +
               ': <b>' +
-              row.score.toFixed(4) +
+              hoveredScore.toFixed(4) +
               "</b><br/>";
-          });
+          }
+          if (hoveredSourceLabel) {
+            html +=
+              '<span><b>Book:</b> <span title="' +
+              esc(hoveredSourceTitle || hoveredSourceLabel) +
+              '">' +
+              esc(hoveredSourceLabel) +
+              "</span></span><br/>";
+          }
+          if (hoveredVariant) {
+            html += '<span><b>Variant:</b> ' + esc(hoveredVariant) + "</span><br/>";
+          }
+          if (hoveredRunTimestamp) {
+            html += '<span><b>Eval row:</b> ' + esc(hoveredRunTimestamp) + "</span><br/>";
+          }
+          if (rows.length > 1) {
+            html += '<span style="opacity:0.9"><b>Run-group values:</b></span><br/>';
+            rows.forEach(row => {
+              html +=
+                '<span style="color:' + row.color + '">&#9679;</span> ' +
+                esc(row.name) +
+                ': <b>' +
+                row.score.toFixed(4) +
+                "</b><br/>";
+            });
+          }
           return html;
         },
       },
@@ -9703,12 +9873,10 @@ _JS = """\
       if (fieldName === "ai_effort") return row.ai_effort || "-";
       if (fieldName === "ai_model_effort") return row.ai_model_effort || "-";
       if (fieldName === "all_token_use") {
-        return previousRunsDiscountedTokenTotal(
-          maybeNumber(row.tokens_input),
-          maybeNumber(row.tokens_cached_input),
-          maybeNumber(row.tokens_output),
-          maybeNumber(row.tokens_total),
-        );
+        return discountedTokenTotalForRecord(row);
+      }
+      if (fieldName === "quality_per_million_tokens") {
+        return benchmarkQualityPerMillionTokensForRecord(row);
       }
       if (fieldName === "artifact_dir") return row.href || "";
       if (Object.prototype.hasOwnProperty.call(row, fieldName)) {
@@ -9725,12 +9893,10 @@ _JS = """\
     if (fieldName === "ai_effort") return aiEffortLabelForRecord(record);
     if (fieldName === "ai_model_effort") return aiModelEffortLabelForRecord(record);
     if (fieldName === "all_token_use") {
-      return previousRunsDiscountedTokenTotal(
-        maybeNumber(record.tokens_input),
-        maybeNumber(record.tokens_cached_input),
-        maybeNumber(record.tokens_output),
-        maybeNumber(record.tokens_total),
-      );
+      return discountedTokenTotalForRecord(record);
+    }
+    if (fieldName === "quality_per_million_tokens") {
+      return benchmarkQualityPerMillionTokensForRecord(record);
     }
     if (fieldName === "artifact_dir") return record.artifact_dir || "";
     return previousRunsFieldValue(record, fieldName);
@@ -9755,6 +9921,187 @@ _JS = """\
     }
     const effectiveOutput = output != null ? output : 0;
     return effectiveInput + effectiveOutput;
+  }
+
+  function discountedTokenTotalForRecord(record) {
+    return previousRunsDiscountedTokenTotal(
+      maybeNumber(record && record.tokens_input),
+      maybeNumber(record && record.tokens_cached_input),
+      maybeNumber(record && record.tokens_output),
+      maybeNumber(record && record.tokens_total),
+    );
+  }
+
+  function discountedTokenTotalForRecords(records) {
+    let total = 0;
+    let hasTokenUse = false;
+    (records || []).forEach(record => {
+      const discounted = discountedTokenTotalForRecord(record);
+      if (discounted == null || !Number.isFinite(discounted)) return;
+      total += discounted;
+      hasTokenUse = true;
+    });
+    return {
+      discountedTokenTotal: hasTokenUse ? total : null,
+      hasTokenUse,
+    };
+  }
+
+  function benchmarkQualityMetricValue(record, preferredMetricKey) {
+    const preferred = String(preferredMetricKey || "").trim();
+    if (preferred) {
+      const preferredValue = maybeNumber(record && record[preferred]);
+      if (preferredValue != null) {
+        return { metricKey: preferred, value: preferredValue };
+      }
+    }
+    for (let i = 0; i < BENCHMARK_QUALITY_METRIC_KEYS.length; i++) {
+      const metricKey = BENCHMARK_QUALITY_METRIC_KEYS[i];
+      const value = maybeNumber(record && record[metricKey]);
+      if (value != null) {
+        return { metricKey, value };
+      }
+    }
+    return { metricKey: preferred || null, value: null };
+  }
+
+  function benchmarkQualityMetricForRecords(records, preferredMetricKey) {
+    const preferred = String(preferredMetricKey || "").trim();
+    if (preferred) return preferred;
+    for (let i = 0; i < BENCHMARK_QUALITY_METRIC_KEYS.length; i++) {
+      const metricKey = BENCHMARK_QUALITY_METRIC_KEYS[i];
+      const hasMetric = (records || []).some(record => maybeNumber(record && record[metricKey]) != null);
+      if (hasMetric) return metricKey;
+    }
+    return null;
+  }
+
+  function aggregateBenchmarkQuality(records, preferredMetricKey) {
+    const metricKey = benchmarkQualityMetricForRecords(records, preferredMetricKey);
+    if (!metricKey) {
+      return {
+        metricKey: null,
+        qualityScore: null,
+        qualityCount: 0,
+      };
+    }
+
+    const qualityValues = [];
+    let weightedNumerator = 0;
+    let weightedDenominator = 0;
+    (records || []).forEach(record => {
+      const value = maybeNumber(record && record[metricKey]);
+      if (value == null) return;
+      qualityValues.push(value);
+      const weight = maybeNumber(record && record.gold_total);
+      if (weight == null || !Number.isFinite(weight) || weight <= 0) return;
+      weightedNumerator += value * weight;
+      weightedDenominator += weight;
+    });
+
+    if (!qualityValues.length) {
+      return {
+        metricKey,
+        qualityScore: null,
+        qualityCount: 0,
+      };
+    }
+
+    return {
+      metricKey,
+      qualityScore: weightedDenominator > 0 ? (weightedNumerator / weightedDenominator) : mean(qualityValues),
+      qualityCount: qualityValues.length,
+    };
+  }
+
+  function qualityPerMillionTokensValue(qualityScore, tokenTotal) {
+    const quality = maybeNumber(qualityScore);
+    const tokens = maybeNumber(tokenTotal);
+    if (quality == null || tokens == null || !Number.isFinite(tokens) || tokens <= 0) {
+      return null;
+    }
+    return (quality * QUALITY_PER_TOKEN_SCALE) / tokens;
+  }
+
+  function benchmarkQualityPerMillionTokensForRecord(record) {
+    const quality = benchmarkQualityMetricValue(record);
+    if (!quality.metricKey || quality.value == null) return null;
+    return qualityPerMillionTokensValue(
+      quality.value,
+      discountedTokenTotalForRecord(record),
+    );
+  }
+
+  function formatSigned4(value) {
+    const number = maybeNumber(value);
+    if (number == null) return "-";
+    if (Math.abs(number) <= 1e-12) return "0.0000";
+    return (number > 0 ? "+" : "") + number.toFixed(4);
+  }
+
+  function runtimeQualityPeerStats(records, currentRunGroupKey, preferredMetricKey) {
+    const key = String(currentRunGroupKey || "").trim();
+    if (!key) return null;
+    const groupsByKey = Object.create(null);
+    (records || []).forEach(record => {
+      if (!record) return;
+      const info = benchmarkRunGroupInfo(record);
+      const runGroupKey = String((info && info.runGroupKey) || "").trim();
+      if (!runGroupKey) return;
+      if (!groupsByKey[runGroupKey]) groupsByKey[runGroupKey] = [];
+      groupsByKey[runGroupKey].push(record);
+    });
+
+    const ranked = Object.keys(groupsByKey)
+      .map(runGroupKey => {
+        const runGroupRecords = groupsByKey[runGroupKey];
+        const quality = aggregateBenchmarkQuality(runGroupRecords, preferredMetricKey);
+        const tokens = discountedTokenTotalForRecords(runGroupRecords);
+        const qualityPerMillionTokens = qualityPerMillionTokensValue(
+          quality.qualityScore,
+          tokens.discountedTokenTotal,
+        );
+        if (qualityPerMillionTokens == null || !Number.isFinite(qualityPerMillionTokens)) return null;
+        return {
+          runGroupKey,
+          qualityPerMillionTokens,
+        };
+      })
+      .filter(item => item != null)
+      .sort((left, right) => {
+        if (right.qualityPerMillionTokens !== left.qualityPerMillionTokens) {
+          return right.qualityPerMillionTokens - left.qualityPerMillionTokens;
+        }
+        return String(left.runGroupKey || "").localeCompare(String(right.runGroupKey || ""));
+      });
+
+    if (!ranked.length) return null;
+    const currentIndex = ranked.findIndex(item => item.runGroupKey === key);
+    if (currentIndex < 0) return null;
+    const values = ranked
+      .map(item => item.qualityPerMillionTokens)
+      .sort((left, right) => left - right);
+    const mid = Math.floor(values.length / 2);
+    const median = values.length % 2 === 1
+      ? values[mid]
+      : (values[mid - 1] + values[mid]) / 2;
+    const current = ranked[currentIndex];
+    return {
+      rank: currentIndex + 1,
+      total: ranked.length,
+      currentValue: current.qualityPerMillionTokens,
+      medianValue: median,
+      ratioToMedian: median > 0 ? (current.qualityPerMillionTokens / median) : null,
+    };
+  }
+
+  function runtimeQualityPeerSummaryText(stats) {
+    if (!stats) return "-";
+    const rank = Math.max(1, Math.round(Number(stats.rank || 0)));
+    const total = Math.max(1, Math.round(Number(stats.total || 0)));
+    const ratio = maybeNumber(stats.ratioToMedian);
+    const ratioText = ratio != null ? (ratio.toFixed(2) + "x median") : "median n/a";
+    return "rank " + rank + "/" + total + " (" + ratioText + ")";
   }
 
   function previousRunsTokenPartsForRow(row) {
@@ -9853,6 +10200,30 @@ _JS = """\
     );
   }
 
+  function previousRunsQualityPerMillionTokensTitle(row) {
+    const qualityPerMillionTokens = previousRunsRowFieldValue(row, "quality_per_million_tokens");
+    const parts = previousRunsTokenPartsForRow(row);
+    const source = row.type === "all_method" ? row : row.record;
+    const quality = benchmarkQualityMetricValue(source || null);
+    if (
+      qualityPerMillionTokens == null &&
+      quality.value == null &&
+      parts.total == null
+    ) {
+      return "";
+    }
+    return (
+      "metric=" +
+      String(quality.metricKey || "-") +
+      ", quality=" +
+      fmt4(quality.value) +
+      ", discounted_total=" +
+      formatTokenCount(parts.total) +
+      ", quality_per_1M_tokens=" +
+      fmt4(qualityPerMillionTokens)
+    );
+  }
+
   function previousRunsDisplayValue(fieldName, value) {
     if (value == null || value === "") return "-";
     if (fieldName === "run_timestamp") return String(value);
@@ -9871,6 +10242,9 @@ _JS = """\
     }
     if (fieldName === "all_token_use") {
       return previousRunsAllTokenUseTitle(row);
+    }
+    if (fieldName === "quality_per_million_tokens") {
+      return previousRunsQualityPerMillionTokensTitle(row);
     }
     if (row.type === "single" && fieldName === "source_label" && row.record) {
       return sourceTitleForRecord(row.record);
@@ -10969,39 +11343,47 @@ _JS = """\
       return;
     }
 
-    const latest = latestPreferredBenchmarkRecord(records);
-    if (!latest) {
+    const runtimeSummary = latestRuntimeSummaryForRecords(records);
+    if (!runtimeSummary) {
       section.querySelector("h2").textContent = "Benchmark Runtime";
       summary.innerHTML = '<p class="empty-note">No benchmark runtime metadata available.</p>';
       return;
     }
 
-    const pipelineMode = runConfigValue(latest, ["llm_recipe_pipeline", "llm_pipeline"]);
-    const model = aiModelForRecord(latest);
-    const effort = aiEffortForRecord(latest);
-    const totalTokenUse = formatTokenCountCompact(
-      previousRunsDiscountedTokenTotal(
-        maybeNumber(latest.tokens_input),
-        maybeNumber(latest.tokens_cached_input),
-        maybeNumber(latest.tokens_output),
-        maybeNumber(latest.tokens_total),
-      ),
-    );
+    const pipelineMode = runtimeSummary.pipelineMode;
+    const model = runtimeSummary.model;
+    const effort = runtimeSummary.effort;
+    const totalTokenUse = runtimeSummary.tokenUseDisplay;
     const pipelineOff = pipelineMode && String(pipelineMode).toLowerCase() === "off";
+    const qualityMetricKey = String(runtimeSummary.qualityMetricKey || "").trim();
+    const qualityPerMillionTokens = runtimeSummary.qualityPerMillionTokens;
+    const qualityPerMillionTokensDisplay = fmt4(qualityPerMillionTokens);
+    const qualityDeltaVsVanillaDisplay = formatSigned4(runtimeSummary.qualityDeltaVsVanilla);
+    const qualityDeltaPerMillionExtraTokensVsVanillaDisplay = formatSigned4(
+      runtimeSummary.qualityDeltaPerMillionExtraTokensVsVanilla,
+    );
+    const qualityPeerSummary = runtimeQualityPeerSummaryText(runtimeSummary.peerQualityStats);
 
-    const sourceLabel = sourceLabelForRecord(latest);
-    const sourceTitle = sourceTitleForRecord(latest);
+    const sourceLabel = runtimeSummary.sourceLabel;
+    const sourceTitle = runtimeSummary.sourceTitle;
+    const runGroupLabel = runtimeSummary.runGroupLabel || "latest";
+    const runGroupRecordCount = Math.max(0, Math.round(Number(runtimeSummary.runGroupRecordCount || 0)));
 
     section.querySelector("h2").textContent =
-      "Benchmark Runtime (" + esc(latest.run_timestamp || "latest") + ")";
+      "Benchmark Runtime (" + esc(runGroupLabel) + ", " + runGroupRecordCount + " evals)";
     summary.innerHTML =
       '<table id="runtime-table"><tbody>' +
       '<tr><td>Model</td><td>' + esc(model || (pipelineOff ? "off" : "-")) + '</td></tr>' +
       '<tr><td>Thinking Effort</td><td>' + esc(effort || (pipelineOff ? "n/a (pipeline off)" : "-")) + '</td></tr>' +
       '<tr><td>Pipeline</td><td>' + esc(pipelineMode || "-") + '</td></tr>' +
       '<tr><td>Token use</td><td>' + esc(totalTokenUse) + '</td></tr>' +
+      '<tr><td>Quality metric</td><td>' + esc(qualityMetricKey || "-") + '</td></tr>' +
+      '<tr><td>Quality / 1M tokens</td><td>' + esc(qualityPerMillionTokensDisplay) + '</td></tr>' +
+      '<tr><td>Delta quality vs vanilla</td><td>' + esc(qualityDeltaVsVanillaDisplay) + '</td></tr>' +
+      '<tr><td>Delta quality / 1M extra tokens vs vanilla</td><td>' + esc(qualityDeltaPerMillionExtraTokensVsVanillaDisplay) + '</td></tr>' +
+      '<tr><td>Quality/tokens vs peers</td><td>' + esc(qualityPeerSummary) + '</td></tr>' +
       '<tr><td>Source</td><td title="' + esc(sourceTitle) + '">' + esc(sourceLabel || "-") + '</td></tr>' +
-      '<tr><td>Importer</td><td>' + esc(importerLabelForRecord(latest)) + '</td></tr>' +
+      '<tr><td>Importer</td><td>' + esc(runtimeSummary.importerLabel || "-") + '</td></tr>' +
       '</tbody></table>';
   }
 

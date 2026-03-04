@@ -1189,6 +1189,7 @@ def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
             return fake_result
 
     captured_processed_recipes: dict[str, list[RecipeCandidate]] = {}
+    observed_codex_max_inflight: list[int | None] = []
 
     def _fake_write_processed_outputs(**kwargs):
         result = kwargs["result"]
@@ -1201,6 +1202,7 @@ def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
         return run_root
 
     def _fake_label_atomic_lines(candidates, _settings, **_kwargs):
+        observed_codex_max_inflight.append(_kwargs.get("codex_max_inflight"))
         output: list[CanonicalLineRolePrediction] = []
         for candidate in candidates:
             text = str(candidate.text)
@@ -1373,6 +1375,120 @@ def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
     assert processed_recipe.instructions == predicted_instructions
     assert [comment.text for comment in processed_recipe.comments] == predicted_notes
     assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 1
+    assert observed_codex_max_inflight == [8]
+
+
+def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    fake_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return fake_result
+
+    observed_codex_max_inflight: list[int | None] = []
+
+    def _fake_label_atomic_lines(candidates, _settings, **kwargs):
+        observed_codex_max_inflight.append(kwargs.get("codex_max_inflight"))
+        return [
+            CanonicalLineRolePrediction(
+                recipe_id=candidate.recipe_id,
+                block_id=candidate.block_id,
+                block_index=candidate.block_index,
+                atomic_index=candidate.atomic_index,
+                text=str(candidate.text),
+                label="OTHER",
+                confidence=0.90,
+                decided_by="rule",
+                reason_tags=["test_label"],
+            )
+            for candidate in candidates
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Example line",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash-123",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
+        lambda **_kwargs: [
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id="block:0",
+                block_index=0,
+                atomic_index=0,
+                text="Example line",
+                within_recipe_span=True,
+                candidate_labels=["OTHER"],
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.label_atomic_lines",
+        _fake_label_atomic_lines,
+    )
+
+    generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        line_role_pipeline="deterministic-v1",
+        split_phase_slots=1,
+        write_label_studio_tasks=False,
+        write_markdown=False,
+    )
+
+    assert observed_codex_max_inflight == [4]
 
 
 def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(

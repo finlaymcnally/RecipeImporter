@@ -123,6 +123,9 @@ SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
 SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
+LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
+LINE_ROLE_CODEX_MAX_INFLIGHT_SINGLE_JOB_DEFAULT = 8
+LINE_ROLE_CODEX_MAX_INFLIGHT_SPLIT_GATED_DEFAULT = 4
 
 
 def _normalize_single_offline_split_cache_mode(value: str | None) -> str:
@@ -480,6 +483,23 @@ def _normalize_split_phase_slots(value: int | None) -> int | None:
     if normalized <= 0:
         return None
     return normalized
+
+
+def _line_role_codex_max_inflight_default(split_phase_slots: int | None) -> int:
+    normalized_slots = _normalize_split_phase_slots(split_phase_slots)
+    if normalized_slots is None:
+        return LINE_ROLE_CODEX_MAX_INFLIGHT_SINGLE_JOB_DEFAULT
+    return LINE_ROLE_CODEX_MAX_INFLIGHT_SPLIT_GATED_DEFAULT
+
+
+def _resolve_line_role_codex_max_inflight_override(
+    split_phase_slots: int | None,
+) -> int | None:
+    explicit_value = str(os.getenv(LINE_ROLE_CODEX_MAX_INFLIGHT_ENV) or "").strip()
+    if explicit_value:
+        # Preserve explicit environment overrides when the operator sets one.
+        return None
+    return _line_role_codex_max_inflight_default(split_phase_slots)
 
 
 def _try_acquire_file_lock_nonblocking(handle: Any) -> bool:
@@ -2285,6 +2305,9 @@ def generate_pred_run_artifacts(
     book_id = result.workbook or path.stem
     line_role_artifacts: dict[str, Path] | None = None
     line_role_recipe_projection_summary: dict[str, Any] | None = None
+    line_role_codex_max_inflight = _resolve_line_role_codex_max_inflight_override(
+        split_phase_slots
+    )
     if run_settings.line_role_pipeline.value != "off":
         _notify("Running canonical line-role pipeline...")
         archive_payload_rows = prepared_archive_payload(prepared_archive)
@@ -2299,6 +2322,8 @@ def generate_pred_run_artifacts(
                 run_settings,
                 artifact_root=run_root,
                 source_hash=file_hash,
+                codex_max_inflight=line_role_codex_max_inflight,
+                progress_callback=_notify,
             )
             line_role_artifacts = write_line_role_projection_artifacts(
                 run_root=run_root,

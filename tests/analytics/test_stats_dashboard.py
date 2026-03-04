@@ -513,6 +513,20 @@ const vanillaRecord = records.find(record => String((record && record.artifact_d
 const codexRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/codexfarm"));
 const vanillaGroup = vanillaRecord ? hooks.benchmarkRunGroupInfo(vanillaRecord) : null;
 const codexGroup = codexRecord ? hooks.benchmarkRunGroupInfo(codexRecord) : null;
+const vanillaPointCustom = (
+  vanillaSeries &&
+  Array.isArray(vanillaSeries.data) &&
+  vanillaSeries.data.length &&
+  vanillaSeries.data[0] &&
+  vanillaSeries.data[0].custom
+) || {};
+const codexPointCustom = (
+  codexSeries &&
+  Array.isArray(codexSeries.data) &&
+  codexSeries.data.length &&
+  codexSeries.data[0] &&
+  codexSeries.data[0].custom
+) || {};
 
 const payload = {
   vanilla_x: firstX("strict_accuracy (vanilla)"),
@@ -523,6 +537,14 @@ const payload = {
   token_codex_series_points: tokenCodexSeries && Array.isArray(tokenCodexSeries.data) ? tokenCodexSeries.data.length : 0,
   vanilla_run_group_key: vanillaGroup ? String(vanillaGroup.runGroupKey || "") : "",
   codex_run_group_key: codexGroup ? String(codexGroup.runGroupKey || "") : "",
+  vanilla_point_source_label: String(vanillaPointCustom.sourceLabel || ""),
+  codex_point_source_label: String(codexPointCustom.sourceLabel || ""),
+  vanilla_point_source_title: String(vanillaPointCustom.sourceTitle || ""),
+  codex_point_source_title: String(codexPointCustom.sourceTitle || ""),
+  vanilla_point_variant: String(vanillaPointCustom.variant || ""),
+  codex_point_variant: String(codexPointCustom.variant || ""),
+  vanilla_point_run_timestamp: String(vanillaPointCustom.runTimestamp || ""),
+  codex_point_run_timestamp: String(codexPointCustom.runTimestamp || ""),
   selected_fields: Array.isArray(trendFields) ? trendFields : [],
 };
 process.stdout.write(JSON.stringify(payload));
@@ -538,6 +560,166 @@ process.stdout.write(JSON.stringify(payload));
     if completed.returncode != 0:
         raise AssertionError(
             "Benchmark trend behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_latest_runtime_summary_harness(
+    js_path: Path,
+    records: list[dict[str, object]],
+) -> dict[str, object]:
+    """Run generated dashboard JS and verify latest runtime run-group aggregation."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for runtime summary harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__runtimeHarness = {
+    latestRuntimeSummaryForRecords,
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__runtimeHarness;
+if (!hooks || typeof hooks.latestRuntimeSummaryForRecords !== "function") {
+  throw new Error("Runtime harness exports were not attached");
+}
+
+const records = __RECORDS_JSON__;
+const summary = hooks.latestRuntimeSummaryForRecords(records);
+const payload = summary
+  ? {
+      run_group_label: String(summary.runGroupLabel || ""),
+      run_group_record_count: Number(summary.runGroupRecordCount || 0),
+      token_use_value:
+        summary.tokenUseValue == null ? null : Number(summary.tokenUseValue),
+      token_use_display: String(summary.tokenUseDisplay || ""),
+      context_model: String(summary.model || ""),
+      context_effort: String(summary.effort || ""),
+      context_pipeline: String(summary.pipelineMode || ""),
+      quality_metric_key: String(summary.qualityMetricKey || ""),
+      quality_per_million_tokens:
+        summary.qualityPerMillionTokens == null
+          ? null
+          : Number(summary.qualityPerMillionTokens),
+      quality_delta_vs_vanilla:
+        summary.qualityDeltaVsVanilla == null
+          ? null
+          : Number(summary.qualityDeltaVsVanilla),
+      quality_delta_per_million_extra_tokens_vs_vanilla:
+        summary.qualityDeltaPerMillionExtraTokensVsVanilla == null
+          ? null
+          : Number(summary.qualityDeltaPerMillionExtraTokensVsVanilla),
+      peer_rank:
+        summary.peerQualityStats && summary.peerQualityStats.rank != null
+          ? Number(summary.peerQualityStats.rank)
+          : null,
+      peer_total:
+        summary.peerQualityStats && summary.peerQualityStats.total != null
+          ? Number(summary.peerQualityStats.total)
+          : null,
+      peer_ratio_to_median:
+        summary.peerQualityStats &&
+        summary.peerQualityStats.ratioToMedian != null
+          ? Number(summary.peerQualityStats.ratioToMedian)
+          : null,
+    }
+  : {};
+process.stdout.write(JSON.stringify(payload));
+"""
+    harness = harness.replace("__RECORDS_JSON__", json.dumps(records))
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Latest runtime summary behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_previous_runs_quality_tokens_harness(
+    js_path: Path,
+) -> dict[str, object]:
+    """Run generated dashboard JS and verify quality/tokens derived fields."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for quality/tokens harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__qualityTokensHarness = {
+    previousRunsFieldValue,
+    previousRunsRowFieldValue,
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__qualityTokensHarness;
+if (!hooks) throw new Error("Quality/tokens harness exports were not attached");
+
+const record = {
+  strict_accuracy: 0.5,
+  tokens_input: 1000,
+  tokens_cached_input: 200,
+  tokens_output: 100,
+  tokens_total: 1100,
+};
+const allMethodRow = {
+  type: "all_method",
+  strict_accuracy: 0.25,
+  tokens_input: 2000,
+  tokens_cached_input: 0,
+  tokens_output: 0,
+  tokens_total: 2000,
+};
+const payload = {
+  record_quality_per_million_tokens: Number(
+    hooks.previousRunsFieldValue(record, "quality_per_million_tokens")
+  ),
+  all_method_quality_per_million_tokens: Number(
+    hooks.previousRunsRowFieldValue(allMethodRow, "quality_per_million_tokens")
+  ),
+};
+process.stdout.write(JSON.stringify(payload));
+"""
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Quality/tokens behavior harness failed.\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
@@ -2199,6 +2381,12 @@ class TestRenderer:
         assert 'if (benchmarkVariantForRecord(record) === "vanilla") return null;' in js
         assert "function previousRunsAllTokenUseDisplay(row)" in js
         assert "function previousRunsAllTokenUseTitle(row)" in js
+        assert "function previousRunsQualityPerMillionTokensTitle(row)" in js
+        assert "function benchmarkQualityPerMillionTokensForRecord(record)" in js
+        assert "function aggregateBenchmarkQuality(records, preferredMetricKey)" in js
+        assert "function qualityPerMillionTokensValue(qualityScore, tokenTotal)" in js
+        assert "function runtimeQualityPeerStats(records, currentRunGroupKey, preferredMetricKey)" in js
+        assert "function runtimeQualityPeerSummaryText(stats)" in js
         assert "function formatTokenCountCompact(value)" in js
         assert "formatTokenCountCompact(parts.total)" in js
         assert "formatTokenCountCompact(parts.input)" in js
@@ -2207,9 +2395,16 @@ class TestRenderer:
         assert "return \"-\";" in js
         assert 'lower === "<default>"' in js
         assert "function renderLatestRuntime()" in js
+        assert "function latestRuntimeSummaryForRecords(records)" in js
+        assert "const latestRunGroup = latestRunGroupRecords(preferredRecords, record => !!record);" in js
         assert 'const latestTs = String(preferred[0].run_timestamp || "");' in js
         assert "const latestGroup = preferred.filter(" in js
-        assert "const totalTokenUse = formatTokenCountCompact(" in js
+        assert "const runtimeSummary = latestRuntimeSummaryForRecords(records);" in js
+        assert 'runGroupRecordCount + " evals)"' in js
+        assert "const totalTokenUse = runtimeSummary.tokenUseDisplay;" in js
+        assert 'Quality / 1M tokens' in js
+        assert "runtimeQualityPeerSummaryText(runtimeSummary.peerQualityStats)" in js
+        assert "tokenUseDisplay: formatTokenCountCompact(" in js
         assert "previousRunsDiscountedTokenTotal(" in js
         assert "rawTotalTokenUse" not in js
         assert "AI Runtime" not in js
@@ -2243,6 +2438,7 @@ class TestRenderer:
         assert '"ai_model"' in js
         assert '"ai_effort"' in js
         assert '"all_token_use"' in js
+        assert '"quality_per_million_tokens"' in js
         assert "let previousRunsQuickFilters = {" in js
         assert "exclude_ai_tests: false" in js
         assert "official_full_golden_only: true" in js
@@ -2483,6 +2679,102 @@ class TestRenderer:
         assert '% of matched' not in js
         assert "Unmatched gold spans" in js
 
+    def test_runtime_summary_aggregates_tokens_across_latest_run_group(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        records = [
+            {
+                "run_timestamp": "2026-03-04T08:12:01",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-04_08.00.00/single-profile-benchmark/book_a/2026-03-04_08.12.01/vanilla"
+                ),
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                },
+                "strict_accuracy": 0.40,
+                "tokens_input": 100,
+                "tokens_cached_input": 0,
+                "tokens_output": 20,
+            },
+            {
+                "run_timestamp": "2026-03-04T08:11:01",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-04_08.00.00/single-profile-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
+                ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "codex_farm_model": "gpt-5.3-codex-spark",
+                    "codex_farm_reasoning_effort": "low",
+                },
+                "strict_accuracy": 0.80,
+                "tokens_input": 1000,
+                "tokens_cached_input": 500,
+                "tokens_output": 200,
+            },
+            {
+                "run_timestamp": "2026-03-04T08:10:01",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-04_08.00.00/single-profile-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
+                ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "codex_farm_model": "gpt-5.3-codex-spark",
+                    "codex_farm_reasoning_effort": "low",
+                },
+                "strict_accuracy": 0.70,
+                "tokens_input": 2000,
+                "tokens_cached_input": 1000,
+                "tokens_output": 400,
+            },
+            {
+                "run_timestamp": "2026-03-03T20:10:01",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-03_20.00.00/single-profile-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
+                ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "codex_farm_model": "gpt-5.3-codex-spark",
+                    "codex_farm_reasoning_effort": "medium",
+                },
+                "strict_accuracy": 0.95,
+                "tokens_input": 9000,
+                "tokens_cached_input": 0,
+                "tokens_output": 1000,
+            },
+        ]
+        result = _run_latest_runtime_summary_harness(js_path, records)
+        assert result["run_group_label"] == "2026-03-04_08.00.00"
+        assert result["run_group_record_count"] == 3
+        assert result["token_use_value"] == 2370
+        assert result["token_use_display"] == "2k"
+        assert result["context_model"] == "gpt-5.3-codex-spark"
+        assert result["context_effort"] == "low"
+        assert result["context_pipeline"] == "codex-farm-3pass-v1"
+        assert result["quality_metric_key"] == "strict_accuracy"
+        assert result["quality_per_million_tokens"] == pytest.approx(267.229, rel=1e-4)
+        assert result["quality_delta_vs_vanilla"] == pytest.approx(0.35)
+        assert result[
+            "quality_delta_per_million_extra_tokens_vs_vanilla"
+        ] == pytest.approx(164.319, rel=1e-4)
+        assert result["peer_rank"] == 1
+        assert result["peer_total"] == 2
+        assert result["peer_ratio_to_median"] == pytest.approx(1.4755, rel=1e-4)
+
+    def test_previous_runs_quality_per_million_tokens_calculation(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_previous_runs_quality_tokens_harness(js_path)
+        assert result["record_quality_per_million_tokens"] == pytest.approx(
+            543.47826087, rel=1e-6
+        )
+        assert result["all_method_quality_per_million_tokens"] == pytest.approx(125.0)
+
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         js = (tmp_path / "dash" / "assets" / "dashboard.js").read_text(encoding="utf-8")
@@ -2614,6 +2906,44 @@ class TestRenderer:
         assert result["codex_series_points"] == 0
         assert result["token_vanilla_series_points"] == 1
         assert result["token_codex_series_points"] == 1
+
+    def test_benchmark_trend_points_include_source_metadata_for_tooltips(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        records = [
+            {
+                "run_timestamp": "2026-03-01T10:01:00",
+                "source_file": "/data/input/Sea And Smoke.epub",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.01.00/vanilla"
+                ),
+                "strict_accuracy": 0.42,
+            },
+            {
+                "run_timestamp": "2026-03-01T10:06:00",
+                "source_file": "/data/input/Sea And Smoke.epub",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.06.00/codexfarm"
+                ),
+                "strict_accuracy": 0.58,
+            },
+        ]
+        result = _run_benchmark_trend_alignment_harness(js_path, records)
+        assert result["vanilla_series_points"] == 1
+        assert result["codex_series_points"] == 1
+        assert result["vanilla_point_source_label"] == "Sea And Smoke.epub"
+        assert result["codex_point_source_label"] == "Sea And Smoke.epub"
+        assert result["vanilla_point_source_title"] == "/data/input/Sea And Smoke.epub"
+        assert result["codex_point_source_title"] == "/data/input/Sea And Smoke.epub"
+        assert result["vanilla_point_variant"] == "vanilla"
+        assert result["codex_point_variant"] == "codexfarm"
+        assert result["vanilla_point_run_timestamp"] == "2026-03-01T10:01:00"
+        assert result["codex_point_run_timestamp"] == "2026-03-01T10:06:00"
 
     def test_benchmark_trend_host_rerender_starts_from_clean_host(self, tmp_path):
         dash_dir = tmp_path / "dash"
@@ -3435,6 +3765,57 @@ class TestBenchmarkCsv:
         assert b.recipes == 14
         assert b.gold_recipe_headers == 11
         assert len(b.per_label) == 2
+
+    def test_csv_benchmark_rows_auto_supplement_older_json_history(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        older_eval_dir = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / "2026-02-10_12.00.00"
+        )
+        older_eval_dir.mkdir(parents=True)
+        (older_eval_dir / "eval_report.json").write_text(
+            json.dumps(SAMPLE_EVAL_REPORT), encoding="utf-8"
+        )
+        newer_eval_dir = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / "2026-02-11_16.00.00"
+        )
+        newer_eval_dir.mkdir(parents=True)
+
+        csv_path = history_dir / "performance_history.csv"
+        bench_row = _sample_csv_row(
+            {
+                "run_timestamp": "2026-02-11T16:00:00",
+                "run_dir": str(newer_eval_dir),
+                "file_name": "my_book.pdf",
+                "run_category": "benchmark_eval",
+                "precision": "0.05",
+                "recall": "0.25",
+                "f1": "0.08333333333333333",
+            }
+        )
+        csv_path.write_text(
+            SAMPLE_CSV_HEADER + "\n" + bench_row + "\n",
+            encoding="utf-8",
+        )
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 2
+        assert {record.run_timestamp for record in data.benchmark_records} == {
+            "2026-02-10_12.00.00",
+            "2026-02-11T16:00:00",
+        }
+        assert {
+            str(record.artifact_dir) for record in data.benchmark_records
+        } == {str(older_eval_dir), str(newer_eval_dir)}
 
     def test_csv_benchmark_rows_do_not_json_merge_without_opt_in_scan(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"

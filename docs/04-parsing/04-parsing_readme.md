@@ -470,10 +470,12 @@ Gates include:
 - Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 - Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
 - Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
-- Codex fallback batches now run with bounded in-flight concurrency (default `4` per book; override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`) and merge back deterministically by atomic index/prompt order.
+- Codex fallback batches now run with bounded in-flight concurrency (parser default `4` per book; explicit env override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`; ingest callers can pass `codex_max_inflight`) and merge back deterministically by atomic index/prompt order.
 - Prompt logging internals are thread-safe for concurrent codex batch workers (`prompt_*.txt`, `response_*.txt`, `parsed_*.json`, and dedup log writes).
 - Codex call failures now use bounded retry/backoff before fallback (`3` attempts, exponential backoff base `1.5s`).
 - Canonical line-role predictions are cached on disk by source hash + run-settings hash + candidate fingerprint; reruns can reuse cache and skip codex calls (`COOKIMPORT_LINE_ROLE_CACHE_ROOT` overrides cache location).
+- Codex canonical line-role batches now emit progress callbacks as `task X/Y | running N`, so benchmark/import spinners can display ETA during this stage.
+- Canonical line-role deterministic labeling now also emits `task X/Y` progress callbacks, so ETA appears in this stage even before/without codex batch escalation.
 
 ### Related modules
 
@@ -923,7 +925,7 @@ Merged source task file:
 - `docs/tasks/2026-03-04_07.35.17-canonical-line-role-codex-parallel-cache.md`
 
 Current parsing contracts reinforced:
-- Canonical line-role codex escalation supports bounded per-book in-flight concurrency (default `4`; override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`).
+- Canonical line-role codex escalation supports bounded per-book in-flight concurrency (parser default `4`; ingest prediction-generation defaults now map to `8` for non-split jobs and `4` for split-gated jobs unless env override is set).
 - Merge ordering after concurrent batch completion remains deterministic by atomic index/prompt order.
 - Retry/backoff handles transient codex failures before fallback classification.
 - Cache reuse is keyed conservatively (source hash + settings + candidate fingerprint) and must validate candidate shape/index alignment before reuse.
