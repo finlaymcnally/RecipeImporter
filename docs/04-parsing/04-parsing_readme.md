@@ -855,3 +855,31 @@ Merged source notes (chronological):
 - `2026-03-03_16.38.03-canonical-line-role-title-note-fix-implementation.md`: Canonical line-role fix implementation notes: title allowlist reachability, deterministic title hold, note-vs-instruction heuristic tightening, and serving/yield split guard.
 - `2026-03-03_19.21.23-canonical-next-error-buckets.md`: Post-fix canonical line-role diagnosis: next highest-impact buckets are ingredient recall misses, title-vs-howto overcalls, and quantity-fragment atomization artifacts.
 - `2026-03-03_19.45.44-canonical-quantity-split-and-subheading-context-guards.md`: Canonical line-role quality gains came from blocking instruction-prose quantity splitting and using neighbor context to treat compact title-like rows as HOWTO_SECTION when they are internal subsections.
+
+## 2026-03-03 docs/tasks consolidation batch (canonical line-role title/note and next-bucket fixes)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/2026-03-03_16.31.29-canonical-line-role-title-notes-fixes.md`
+- `docs/tasks/2026-03-03_19.21.23-canonical-line-role-recall-subheading-fragment-guards.md`
+
+Current parsing contracts added/confirmed:
+- `RECIPE_TITLE` must remain reachable from both atomizer candidate generation and canonical allowlist expansion for title-like lines.
+- Low-confidence deterministic title hits stay on deterministic path in codex mode (do not escalate-away a good title hit).
+- Note-like prose has explicit `RECIPE_NOTES` routing; broad punctuation-only instruction fallback is narrowed.
+- Yield boundary regex for prose guard stays `servings` (not bare `serving`) to avoid false yield-tail splits in note prose.
+- Quantity-split safeguards in atomizer keep instruction prose/dual-unit rows intact to prevent quantity-fragment ingredient false positives.
+- Short quantity-led ingredient detection remains widened with negative guards (time/prose negatives) to recover lost ingredient recall without broad false-positive growth.
+- Compact title-like rows may resolve to `HOWTO_SECTION` when neighbor context indicates internal subsection flow.
+
+Benchmark evidence preserved from merged task docs:
+- Baseline vs rerun (`2026-03-03_18.31.00` -> `2026-03-03_19.41.28_seaandsmoke-next-buckets`):
+  - `strict_accuracy`: `0.5916 -> 0.7731`
+  - `macro_f1_excluding_other`: `0.4684 -> 0.5768`
+  - `INGREDIENT_LINE -> OTHER`: `68 -> 18`
+  - `HOWTO_SECTION -> RECIPE_TITLE`: `36 -> 5`
+  - `INSTRUCTION_LINE -> INGREDIENT_LINE`: `26 -> 0`
+  - `RECIPE_TITLE` recall: `0.9524 -> 0.9524`
+
+Anti-loop reminders from this task batch:
+- If title recall drops to zero again, inspect allowlist reachability and low-confidence escalation behavior before prompt-only tuning.
+- If instruction->ingredient confusion reappears, inspect atomizer quantity splitting order/guards before changing canonical label thresholds.

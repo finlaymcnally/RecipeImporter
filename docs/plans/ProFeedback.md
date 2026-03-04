@@ -88,10 +88,10 @@ Remaining outcome target: run paired benchmark and speed-regression workflows to
 
 The relevant runtime pieces are:
 
-- `cookimport/llm/codex_farm_orchestrator.py`: pass2 degradation classification and pass3 routing. Right now pass2-degraded soft rows can skip pass3, but pass2-ok rows always route to pass3.
-- `cookimport/parsing/canonical_line_roles.py`: canonical line labeling and codex fallback. The prediction model currently stores final labels/confidence but not the per-line candidate-label allowlist in emitted prediction records.
-- `cookimport/bench/cutdown_export.py`: joins line-role predictions into benchmark line-level rows. This is where candidate-label metadata can be propagated for downstream analytics.
-- `scripts/benchmark_cutdown_for_external_ai.py`: upload-bundle builder. It has helper logic for the diagnostics reviewers requested, but current single-offline outputs still show those statuses as missing in `run_diagnostics`.
+- `cookimport/llm/codex_farm_orchestrator.py`: pass2 degradation classification and pass3 routing. Pass2-soft rows can skip pass3 via deterministic promotion, and pass2-ok rows now emit utility signals with optional deterministic skip guarded by `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`.
+- `cookimport/parsing/canonical_line_roles.py`: canonical line labeling and codex fallback. Prediction rows now emit `candidate_labels` allowlists in addition to final label/confidence.
+- `cookimport/bench/cutdown_export.py`: joins line-role predictions into benchmark line-level rows and propagates `candidate_labels` + `candidate_label_count` for downstream analytics.
+- `scripts/benchmark_cutdown_for_external_ai.py`: upload-bundle builder. Existing-output bundle generation now derives codex diagnostic statuses from source run artifacts (and emits derived payload rows) when `need_to_know_summary.json` is absent.
 
 Key baseline artifact for this plan:
 

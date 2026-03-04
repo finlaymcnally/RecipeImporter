@@ -1304,6 +1304,17 @@ class TestRenderer:
         assert 'id="isolate-rules"' in html
         assert 'id="isolate-status"' in html
         assert 'id="isolate-insights"' in html
+        assert 'id="compare-control-panel"' in html
+        assert 'id="compare-control-view-mode"' in html
+        assert 'id="compare-control-outcome-field"' in html
+        assert 'id="compare-control-compare-field"' in html
+        assert 'id="compare-control-split-field"' in html
+        assert 'id="compare-control-hold-fields"' in html
+        assert 'id="compare-control-group-selection"' in html
+        assert 'id="compare-control-filter-subset"' in html
+        assert 'id="compare-control-clear-selection"' in html
+        assert 'id="compare-control-status"' in html
+        assert 'id="compare-control-results"' in html
         assert 'id="quick-filters-panel"' in html
         assert 'id="quick-filters-advanced"' not in html
         assert 'id="previous-runs-presets-toggle"' not in html
@@ -1351,6 +1362,16 @@ class TestRenderer:
         assert '["gte", ">="]' in js
         assert '["lt", "<"]' in js
         assert '["lte", "<="]' in js
+        assert "const COMPARE_CONTROL_VIEW_MODES = new Set(" in js
+        assert "function normalizeCompareControlState(rawState)" in js
+        assert "function buildCompareControlFieldCatalog(records)" in js
+        assert "function chooseDefaultCompareOutcome(catalog)" in js
+        assert "function analyzeCompareControlCategoricalRaw(records, outcomeField, compareField)" in js
+        assert "function analyzeCompareControlNumericRaw(records, outcomeField, compareField)" in js
+        assert "function analyzeCompareControlCategoricalControlled(records, outcomeField, compareField, holdFields)" in js
+        assert "function analyzeCompareControlNumericControlled(records, outcomeField, compareField, holdFields)" in js
+        assert "function renderCompareControlPanel(context)" in js
+        assert "function syncCompareControlSelectionToTableFilters()" in js
         assert 'class="isolate-rule-value isolate-rule-value-input"' in js
         assert "function isolateFieldIsNumeric(records, fieldName)" in js
         assert "function isolateOperatorsForField(fieldInfo)" in js
@@ -1530,6 +1551,7 @@ class TestRenderer:
         assert "function sanitizePreviousRunsPresetName(rawName)" in js
         assert "function sanitizePreviousRunsPresetState(rawPreset)" in js
         assert "function sanitizePreviousRunsPresetMap(rawPresets)" in js
+        assert "compare_control: normalizeCompareControlState(compareControlState)," in js
         assert "function previousRunsPresetNames()" in js
         assert "function renderPreviousRunsPresetEditor()" in js
         assert "function captureCurrentPreviousRunsPresetState()" in js
@@ -1560,6 +1582,7 @@ class TestRenderer:
         assert "persistDashboardUiState();" in js
         assert "function setupPreviousRunsFilters()" in js
         assert "function setupPreviousRunsQuickFilters()" in js
+        assert "function setupCompareControlControls()" in js
         assert "function setupPreviousRunsPresetControls()" in js
         assert "function setPreviousRunsPresetsPopupOpen(nextOpen)" not in js
         assert "function applyPreviousRunsQuickFilters(records, options)" in js
@@ -1810,6 +1833,10 @@ class TestRenderer:
         assert ".quick-filters-presets-control {" not in css
         assert ".previous-runs-presets-toggle {" not in css
         assert ".previous-runs-presets-popup {" not in css
+        assert ".previous-runs-analysis-panels {" in css
+        assert ".compare-control-panel {" in css
+        assert ".compare-control-controls {" in css
+        assert ".compare-control-results {" in css
         assert "#previous-runs-clear-all-filters {" in css
         assert "#quick-filters-status {" in css
         assert ".previous-runs-presets-panel {" in css

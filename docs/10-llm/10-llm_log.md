@@ -1779,3 +1779,97 @@ read_when:
   Evidence: Re-running `scripts/benchmark_cutdown_for_external_ai.py` on the 2026-03-03_20.49.14 SeaAndSmoke run now yields codex `run_diagnostics` statuses of `written` for prompt-warning/projection/wrong-context/preprocess traces, while the checked-in historical `upload_bundle_v1/upload_bundle_index.json` still shows `missing`.
 
 ````
+
+## 2026-03-03 docs/tasks consolidation batch (Pro3 + soft gating + ProFeedback OG-gap closure)
+
+### Pro3 transport/fallback/projection hardening (task file `docs/tasks/Pro3.md`)
+
+Source task:
+- `docs/tasks/Pro3.md` (no timestamp in filename; mtime aligns with 2026-03-03 afternoon task batch)
+
+Problems captured:
+- Mechanical transport loss between pass1-selected span and pass2 payload.
+- Fallback anchored on degraded pass2 outputs.
+- Outside-span debug rows could inherit unrelated fallback prompt context.
+
+Durable decisions/outcomes preserved:
+- Centralized pass2 selection/audit helper with inclusive-end semantics (`codex_farm_transport.py`).
+- Kept fail-safe acceptance policy and deterministic fallback fidelity anchored to `state.recipe`.
+- Added explicit outside-span statuses without borrowed prompt-row attribution.
+- Preserved incoming `within_recipe_span` flags for URN/non-`recipe:<int>` projection paths.
+
+Evidence preserved:
+- Task verification transcript includes broad targeted suite pass and `scripts/replay_seaandsmoke_codex_transport.py --all` exact-match replay outcomes.
+
+### 2026-03-03_15.25.18 pass3 schema_v fallback reduction
+
+Source task:
+- `docs/tasks/2026-03-03_15.25.18-pass3-schema-v-fallback-reduction.md`
+
+Problem captured:
+- Pass3 outputs with legacy `draft_v1` families (missing `schema_v`, pass2-like or schemaorg-like shapes) triggered avoidable fallback.
+
+Decision/outcome preserved:
+- Normalize/coerce legacy pass3 `draft_v1` payloads to valid `RecipeDraftV1` before strict validation, without loosening quality gates.
+
+Evidence preserved:
+- `pytest tests/llm/test_codex_farm_orchestrator.py -k "legacy_pass3_draft_shape_without_schema_v or pass2_like_pass3_draft_shape_to_draft_v1"` -> `2 passed`.
+- `pytest tests/llm/test_codex_farm_orchestrator.py` -> `29 passed`.
+- `pytest tests/llm/test_codex_farm_contracts.py` -> `10 passed`.
+
+### 2026-03-03_15.44.46 pass2 page/layout warning-bucket rename
+
+Source task:
+- `docs/tasks/2026-03-03_15.44.46-pass2-page-layout-warning-bucket-rename.md`
+
+Problem captured:
+- `ocr_or_page_artifact` wording implied OCR-only failures for EPUB-heavy layout/page-marker degradation.
+
+Decision/outcome preserved:
+- Runtime emits `warning_bucket:page_or_layout_artifact`; cutdown tooling canonicalizes legacy and new names for backwards-compatible reporting.
+
+Evidence preserved:
+- `pytest tests/llm/test_codex_farm_orchestrator.py` passed.
+- Targeted/full cutdown test runs in task passed (`tests/bench/test_benchmark_cutdown_for_external_ai.py`).
+
+### 2026-03-03_20.13.22 soft gating, selective pass3 routing, outside-span precision
+
+Source task:
+- `docs/tasks/2026-03-03_20.13.22-codexfarm-soft-gating-runtime-outside-span-precision.md`
+
+Problems captured:
+- Degraded pass2 rows were hard-routed to fallback, increasing fallback churn and pass3/runtime pressure.
+- Outside-span narrative lines still drifted into `KNOWLEDGE`/`RECIPE_NOTES` buckets.
+
+Durable decisions/outcomes preserved:
+- Added pass2 severity classification (`soft`/`hard`) and additive routing metadata fields/counters in `llm_manifest`.
+- Soft-degraded low-risk rows can deterministically promote (`pass3_execution_mode=deterministic`) while hard degradation still fail-closes.
+- Outside-span prose defaults tightened toward `OTHER` unless explicit knowledge cues are present.
+- Bench cutdown ingestion/reporting updated to carry new routing/severity metadata.
+
+Evidence preserved:
+- Targeted suites in task:
+  - `tests/llm/test_codex_farm_orchestrator.py`
+  - `tests/parsing/test_canonical_line_roles.py`
+  - `tests/bench/test_benchmark_cutdown_for_external_ai.py`
+- Pending validation explicitly preserved:
+  - locked-model paired SeaAndSmoke rerun not yet executed in-task.
+  - required speed-suite (`speed-discover/run/compare`) not yet executed in-task.
+
+### 2026-03-03_21.42.59 ProFeedback OG-gap implementation
+
+Source task:
+- `docs/tasks/2026-03-03_21.42.59 - profeedback-ogplan-gap-implementation.md`
+
+Problems captured:
+- Remaining OG gaps: no pass2-ok utility/skip instrumentation, missing candidate-label propagation, and weak upload-bundle coverage assertions.
+
+Decision/outcome preserved:
+- Implemented env-guarded pass2-ok deterministic skip policy (`COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`).
+- Added candidate-label propagation into line-role prediction/joined cutdown paths.
+- Expanded upload-bundle tests for candidate-label signal and diagnostics status population.
+
+Evidence preserved:
+- Task command result:
+  - `python -m pytest tests/llm/test_codex_farm_orchestrator.py tests/parsing/test_canonical_line_roles.py tests/bench/test_cutdown_export_consistency.py tests/bench/test_benchmark_cutdown_for_external_ai.py`
+  - `84 passed, 1 warning`.

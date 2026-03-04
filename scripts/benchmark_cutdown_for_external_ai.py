@@ -6924,6 +6924,138 @@ def _upload_bundle_extract_candidate_labels(row: dict[str, Any]) -> list[str]:
     return deduped
 
 
+def _upload_bundle_safe_run_subdir(value: str) -> str:
+    rendered = re.sub(r"[^0-9A-Za-z._-]+", "_", str(value or "").strip())
+    return rendered or "run"
+
+
+def _upload_bundle_derive_run_diagnostic_statuses(
+    *,
+    run_dir: Path,
+    run_id: str,
+    output_subdir: str,
+    append_virtual_payload_row: Any,
+) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    if not run_dir.is_dir():
+        return statuses
+
+    run_manifest_path = run_dir / "run_manifest.json"
+    if not run_manifest_path.is_file():
+        return statuses
+
+    try:
+        run_manifest = _load_json(run_manifest_path)
+    except Exception:  # noqa: BLE001
+        return statuses
+
+    run_config = run_manifest.get("run_config")
+    run_config = run_config if isinstance(run_config, dict) else {}
+    llm_recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "").strip().lower()
+    codex_enabled = llm_recipe_pipeline not in {"", "off", "none"}
+
+    full_prompt_rows: list[dict[str, Any]] = []
+    recipe_spans: list[dict[str, Any]] = []
+    full_prompt_log_path = _resolve_full_prompt_log_path(run_dir, run_manifest)
+    if full_prompt_log_path is not None and full_prompt_log_path.is_file():
+        full_prompt_rows = _iter_jsonl(full_prompt_log_path)
+        if full_prompt_rows:
+            recipe_spans = _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
+
+    derived_dir = (
+        f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/runs/"
+        f"{_upload_bundle_safe_run_subdir(output_subdir or run_id)}"
+    )
+    wrong_context_name = WRONG_LABEL_FULL_CONTEXT_FILE_NAME.replace(".gz", "")
+    preprocess_name = PREPROCESS_TRACE_FAILURES_FILE_NAME.replace(".gz", "")
+
+    if codex_enabled:
+        if full_prompt_log_path is not None and full_prompt_log_path.is_file():
+            try:
+                prompt_warning_aggregate = _summarize_prompt_warning_aggregate(full_prompt_log_path)
+                append_virtual_payload_row(
+                    path=f"{derived_dir}/{PROMPT_WARNING_AGGREGATE_FILE_NAME}",
+                    content_type="json",
+                    content_json=prompt_warning_aggregate,
+                )
+                statuses[PROMPT_WARNING_AGGREGATE_FILE_NAME] = "written"
+            except Exception:  # noqa: BLE001
+                statuses[PROMPT_WARNING_AGGREGATE_FILE_NAME] = "derivation_error"
+
+            try:
+                line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
+                projection_trace = _build_projection_trace(
+                    line_view=line_view,
+                    full_prompt_rows=full_prompt_rows,
+                )
+                projection_trace["recipe_span_count"] = len(recipe_spans)
+                projection_trace["recipe_spans"] = recipe_spans
+                append_virtual_payload_row(
+                    path=f"{derived_dir}/{PROJECTION_TRACE_FILE_NAME}",
+                    content_type="json",
+                    content_json=projection_trace,
+                )
+                statuses[PROJECTION_TRACE_FILE_NAME] = "written"
+            except Exception:  # noqa: BLE001
+                statuses[PROJECTION_TRACE_FILE_NAME] = "derivation_error"
+        else:
+            statuses[PROMPT_WARNING_AGGREGATE_FILE_NAME] = "missing_full_prompt_log"
+            statuses[PROJECTION_TRACE_FILE_NAME] = "missing_full_prompt_log"
+
+    wrong_label_total_rows = _jsonl_row_count(run_dir / "wrong_label_lines.jsonl")
+    if wrong_label_total_rows <= 0:
+        statuses[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = "not_applicable"
+        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = "not_applicable"
+        return statuses
+
+    try:
+        wrong_label_rows = _build_wrong_label_full_context_rows(
+            run_dir=run_dir,
+            recipe_spans=recipe_spans,
+            excerpt_limit=DEFAULT_EXCERPT_LIMIT,
+        )
+    except Exception:  # noqa: BLE001
+        wrong_label_rows = []
+
+    if wrong_label_rows:
+        append_virtual_payload_row(
+            path=f"{derived_dir}/{wrong_context_name}",
+            content_type="jsonl",
+            content_jsonl_rows=wrong_label_rows,
+        )
+        statuses[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = "written"
+    else:
+        statuses[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = "not_applicable"
+
+    if not codex_enabled:
+        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = "not_applicable"
+        return statuses
+
+    try:
+        preprocess_rows, preprocess_status = _build_preprocess_trace_failure_rows(
+            run_dir=run_dir,
+            run_manifest=run_manifest,
+            full_prompt_rows=full_prompt_rows,
+            excerpt_limit=DEFAULT_EXCERPT_LIMIT,
+        )
+    except Exception:  # noqa: BLE001
+        preprocess_rows = []
+        preprocess_status = "derivation_error"
+
+    if preprocess_status == "ready" and preprocess_rows:
+        append_virtual_payload_row(
+            path=f"{derived_dir}/{preprocess_name}",
+            content_type="jsonl",
+            content_jsonl_rows=preprocess_rows,
+        )
+        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = "written"
+    else:
+        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = (
+            preprocess_status if preprocess_status != "ready" else "not_applicable"
+        )
+    return statuses
+
+
 def _upload_bundle_matches_recipe_target(recipe_id: str, target: str) -> bool:
     recipe_text = recipe_id.strip().lower()
     target_text = target.strip().lower()
@@ -7569,6 +7701,7 @@ def _write_upload_bundle_three_files(
     for row in run_rows:
         if not isinstance(row, dict):
             continue
+        run_id = str(row.get("run_id") or "")
         output_subdir = str(row.get("output_subdir") or "")
         if not output_subdir:
             continue
@@ -7576,6 +7709,16 @@ def _write_upload_bundle_three_files(
         summary_payload = _load_json(summary_path) if summary_path.is_file() else {}
         sample_counts = summary_payload.get("sample_counts")
         sample_counts = sample_counts if isinstance(sample_counts, dict) else {}
+        run_dir_candidate = run_dir_by_id.get(run_id)
+        run_dir = run_dir_candidate if isinstance(run_dir_candidate, Path) else None
+        derived_statuses: dict[str, str] = {}
+        if run_dir is not None:
+            derived_statuses = _upload_bundle_derive_run_diagnostic_statuses(
+                run_dir=run_dir,
+                run_id=run_id,
+                output_subdir=output_subdir,
+                append_virtual_payload_row=_append_virtual_payload_row,
+            )
 
         def _sample_status(name: str) -> str:
             sample_payload = sample_counts.get(name)
@@ -7583,23 +7726,32 @@ def _write_upload_bundle_three_files(
                 return str(sample_payload.get("status") or "unknown")
             return "missing"
 
+        def _resolved_status(name: str) -> str:
+            sample_status = _sample_status(name)
+            if sample_status != "missing":
+                return sample_status
+            derived_status = str(derived_statuses.get(name) or "").strip()
+            if derived_status:
+                return derived_status
+            return sample_status
+
         run_diagnostics.append(
             {
-                "run_id": str(row.get("run_id") or ""),
+                "run_id": run_id,
                 "output_subdir": output_subdir,
                 "source_file": row.get("source_file"),
                 "overall_line_accuracy": _coerce_float(row.get("overall_line_accuracy")),
                 "practical_f1": _coerce_float(row.get("practical_f1")),
                 "full_prompt_log_status": str(row.get("full_prompt_log_status") or "unknown"),
                 "need_to_know_summary_path": f"{output_subdir}/need_to_know_summary.json",
-                "prompt_warning_aggregate_status": _sample_status(
+                "prompt_warning_aggregate_status": _resolved_status(
                     PROMPT_WARNING_AGGREGATE_FILE_NAME
                 ),
-                "projection_trace_status": _sample_status(PROJECTION_TRACE_FILE_NAME),
-                "wrong_label_full_context_status": _sample_status(
+                "projection_trace_status": _resolved_status(PROJECTION_TRACE_FILE_NAME),
+                "wrong_label_full_context_status": _resolved_status(
                     WRONG_LABEL_FULL_CONTEXT_FILE_NAME
                 ),
-                "preprocess_trace_failures_status": _sample_status(
+                "preprocess_trace_failures_status": _resolved_status(
                     PREPROCESS_TRACE_FAILURES_FILE_NAME
                 ),
             }

@@ -2502,6 +2502,9 @@ section h3 {
 #isolate-status {
   margin: 0.5rem 0 0.42rem;
 }
+#compare-control-status.error {
+  color: var(--accent3);
+}
 .isolate-insights {
   border: 1px dashed #c5d7ea;
   border-radius: 8px;
@@ -7888,11 +7891,11 @@ _JS = """\
       renderIsolateInsightsPanel({
         available: emptyIsolateState.available,
         active: false,
-      baselineRecords: [],
-      isolatedRecords: [],
-      combineLabel: emptyIsolateState.combineLabel || "all rules",
-      expression: "",
-      controlSource: filterControlSource,
+        baselineRecords: [],
+        isolatedRecords: [],
+        combineLabel: emptyIsolateState.combineLabel || "all rules",
+        expression: "",
+        controlSource: filterControlSource,
         pausedByTable: false,
       });
       renderCompareControlPanel({

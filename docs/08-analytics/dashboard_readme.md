@@ -134,7 +134,7 @@ Notes:
   - Click any table header to toggle sort direction for that column (`A→Z` / `Z→A`), including timestamps.
   - Includes a `+/-` button beside the table header row that opens a small checkbox menu for show/hide column selection; drag headers to reorder and drag header edges to resize.
   - `Quick Filters` includes inline `View presets` controls (`Load`, `Save current view`, `Delete`) so preset actions are available without opening a second popup.
-  - Previous Runs UI preferences persist in browser local storage (`localStorage`): column visibility/order/widths, column filters, quick-filter toggles, isolate combine mode + stacked isolate rules, current sort, and named view presets are restored across page reloads and dashboard regenerations at the same dashboard URL/path.
+  - Previous Runs UI preferences persist in browser local storage (`localStorage`): column visibility/order/widths, column filters, quick-filter toggles, isolate combine mode + stacked isolate rules, compare/control state (`outcome_field`, `compare_field`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`), current sort, and named view presets are restored across page reloads and dashboard regenerations at the same dashboard URL/path.
   - When opened via `cookimport stats-dashboard --serve`, the same UI state is also synced to `assets/dashboard_ui_state.json` so settings carry across browsers on the same machine.
   - While the page stays open, program-side state is polled every few seconds and newer remote state is applied live without a page refresh.
   - Diagnostic table resize is limited to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` are fixed-fit cards (no horizontal scroll/resize) to keep the top row stable.
@@ -156,6 +156,9 @@ Notes:
   - Includes an `Isolate For X` panel beside the trend chart (left on desktop, stacked on small screens): add one or more field + logic + value rules, choose `all rules (AND)` vs `any rule (OR)`, and auto-filter both chart/table with slice-vs-baseline metric deltas (quality, runtime/token fields when present).
   - Isolate logic supports categorical `is` / `is not`, plus numeric comparators (`>`, `>=`, `<`, `<=`) when the selected field is numeric.
   - `Isolate For X` now writes directly into `Previous Runs` table column filters (`eq`/`neq`/`gt`/`gte`/`lt`/`lte` clauses), including native cross-column OR when isolate uses `any rule (OR)`.
+  - `Compare & Control` is a sibling panel in `Previous Runs`: it scores discovery candidates when no compare field is selected, supports raw vs controlled analysis, and can split results by an optional field.
+  - Controlled mode uses exact hold-constant strata and reports comparable coverage (`used rows / candidate rows`, `used strata / total strata`) so confounding is visible.
+  - `Filter to subset` in `Compare & Control` writes selected categorical groups into existing `Previous Runs` column filters (same filter engine; no second filter path).
   - `Previous Runs` column filters now support a global `Across columns` mode (`AND` / `OR`) in addition to per-column stack modes.
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 800px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
   - A `Quick Filters` section sits between the trend chart and table:

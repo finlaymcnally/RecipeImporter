@@ -1988,3 +1988,83 @@ For stats-dashboard, frontend behavior is emitted from `cookimport/analytics/das
 
 Practical planning implication: Compare & Control should be added as a sibling panel that reuses these seams, and regression tests should extend `tests/analytics/test_stats_dashboard.py` (current dashboard contract anchor) instead of referencing non-existent dashboard test modules.
 ````
+
+## 2026-03-03 docs/tasks consolidation batch (dashboard comparison mode, trend overlays, isolate/filter contracts)
+
+### 2026-03-03_16.11.20 per-label comparison mode toggle
+
+Source task:
+- `docs/tasks/2026-03-03_16.11.20-per-label-point-value-toggle.md`
+
+Problem captured:
+- Per-label comparison columns were fixed to baseline delta display and lacked a quick raw point-value view.
+
+Decision/outcome preserved:
+- Added one persisted dashboard mode (`per_label_comparison_mode`) that flips all comparison columns between `delta` and `point value` without changing collector/CSV contracts.
+- Delta sign convention remains codex-baseline oriented (`codexfarm baseline - comparison`).
+
+Evidence preserved:
+- `pytest tests/analytics/test_stats_dashboard.py` -> `61 passed`.
+
+### 2026-03-03_19.42.12 trendline + ±1σ overlays
+
+Source task:
+- `docs/tasks/2026-03-03_19.42.12-dashboard-trendline-std-band.md`
+
+Problem captured:
+- Benchmark trend chart showed raw points only and lacked quick visual trajectory/spread context.
+
+Decision/outcome preserved:
+- Added per-series linear trendline + `±1σ` shaded band overlays in dashboard JS generation while keeping base scatter points and tooltip focus on raw metrics.
+- Added Highcharts secondary module fallback (`highcharts-more`) for `arearange` rendering.
+
+Evidence preserved:
+- Targeted pre/post checks in task:
+  - fail-before assertions: `2 failed`.
+  - pass-after targeted: `2 passed`.
+  - full analytics module: `61 passed`.
+
+### 2026-03-03_19.56.30 isolate/table filter unification with native cross-column OR
+
+Source task:
+- `docs/tasks/2026-03-03_19.56.30-isolate-table-filter-unification.md`
+
+Problem captured:
+- Isolate rules and table filters used separate evaluation paths; table engine lacked native top-level OR across columns.
+
+Decision/outcome preserved:
+- Added global filter combine mode (`column_filter_global_mode=AND|OR`) and mapped isolate edits directly into table filter clauses.
+- Kept compatibility state fields while unifying semantics into one evaluator.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -q` passed.
+
+### 2026-03-03_19.59.52 paired-variant trend X-axis alignment
+
+Source task:
+- `docs/tasks/2026-03-03_19.59.52-dashboard-paired-variant-xaxis-alignment.md`
+
+Problem captured:
+- Same-run codexfarm/vanilla points were horizontally offset because row timestamp seconds differed.
+
+Decision/outcome preserved:
+- Trend point `x` now resolves from run-group timestamp first, with row timestamp fallback only when run-group timestamp is unavailable.
+
+Evidence preserved:
+- `pytest tests/analytics/test_stats_dashboard.py -k benchmark_trend_chart_uses_fixed_height` -> `1 passed`.
+- Full dashboard module run in task: `62 passed`.
+
+### 2026-03-03_20.33.20 isolate numeric operators and typed value controls
+
+Source task:
+- `docs/tasks/2026-03-03_20.33.20-isolate-numeric-boolean-logic.md`
+
+Problem captured:
+- Isolate controls could not express numeric thresholds with stable table-filter parity.
+
+Decision/outcome preserved:
+- Added numeric operator sets for numeric fields and numeric input normalization before clause activation.
+- Isolate matching reuses table operator evaluation (`eq/neq/gt/gte/lt/lte`) for semantics parity.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -q` passed.

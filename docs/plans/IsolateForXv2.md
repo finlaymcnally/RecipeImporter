@@ -37,11 +37,11 @@ Scope guard: this is dashboard analytics/UI work only. It must not enable codex-
 - [x] (2026-03-03_21.47.05) Read `docs/PLANS.md`, `docs/08-analytics/08-analytics_readme.md`, `docs/08-analytics/dashboard_readme.md`, and Isolate system report.
 - [x] (2026-03-03_21.47.05) Traced current isolate/table filter contracts in `cookimport/analytics/dashboard_render.py` and dashboard tests in `tests/analytics/test_stats_dashboard.py`.
 - [x] (2026-03-03_21.47.05) Rebased this OG plan from generic draft text to concrete repo seams, commands, and state contracts.
-- [ ] Add compare/control panel markup, CSS, and JS state plumbing in `cookimport/analytics/dashboard_render.py`.
-- [ ] Implement raw compare analysis (categorical + numeric) and `Filter to subset` handoff into existing table filters.
-- [ ] Implement controlled analysis with hold-constant strata and coverage reporting.
-- [ ] Add discovery defaults, optional split-by field, and UI-state/preset persistence for compare/control state.
-- [ ] Update docs (`docs/08-analytics/dashboard_readme.md`, `docs/08-analytics/08-analytics_readme.md`) and extend dashboard tests.
+- [x] (2026-03-03_22.00.24) Added compare/control panel markup, CSS, and JS state plumbing in `cookimport/analytics/dashboard_render.py`.
+- [x] (2026-03-03_22.00.24) Implemented raw compare analysis (categorical + numeric) and `Filter to subset` handoff into existing table filters.
+- [x] (2026-03-03_22.00.24) Implemented controlled analysis with hold-constant strata and coverage reporting.
+- [x] (2026-03-03_22.00.24) Added discovery defaults, optional split-by field, and UI-state/preset persistence for compare/control state.
+- [x] (2026-03-03_22.00.24) Updated analytics docs and extended dashboard tests; ran `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -q` and `. .venv/bin/activate && cookimport stats-dashboard`.
 
 ## Surprises & Discoveries
 
@@ -56,6 +56,12 @@ Scope guard: this is dashboard analytics/UI work only. It must not enable codex-
 
 - Observation: Previous Runs state already has dual persistence (localStorage plus optional program-side JSON sync in `--serve` mode).
   Evidence: `buildDashboardUiStatePayload(...)` / `applyDashboardUiStatePayload(...)` and `assets/dashboard_ui_state.json` sync flow.
+
+- Observation: Compare/control analysis should run on already-visible rows, not pre-filter rows.
+  Evidence: wiring `renderCompareControlPanel(...)` from `computePreviousRunsFilterResult()` with `matchedRecords` keeps table, trend, isolate, and compare contexts aligned.
+
+- Observation: `Filter to subset` can remain deterministic by writing only through existing table filter helpers.
+  Evidence: `syncCompareControlSelectionToTableFilters()` now uses `setPreviousRunsColumnFilterClauses(...)` + `setPreviousRunsColumnFilterMode(...)` and marks `previousRunsFilterControlSource = "table"`.
 
 ## Decision Log
 
@@ -75,11 +81,15 @@ Scope guard: this is dashboard analytics/UI work only. It must not enable codex-
   Rationale: this keeps restore behavior consistent with filters/sort/columns and avoids adding a second persistence channel.
   Date/Author: 2026-03-03 / assistant
 
+- Decision: Keep compare/control math lightweight and browser-native (ranked discovery, regression/correlation, exact-strata centering) without adding dependencies.
+  Rationale: the dashboard remains static and deterministic while still providing actionable directional analysis and coverage diagnostics.
+  Date/Author: 2026-03-03 / assistant
+
 ## Outcomes & Retrospective
 
-Current outcome: this file is now an executable, codebase-grounded plan rather than a generic draft. The original intent is preserved (discovery + compare + hold-constant + filter handoff), but implementation details now match real files, real function seams, and existing dashboard contracts.
+Current outcome: compare/control shipped in `Previous Runs` as a sibling panel to isolate, with discovery/raw/controlled modes, split-by summaries, and deterministic filter handoff into existing table filters.
 
-Implementation outcome target: ship compare/control without regressing isolate/table filter unification, quick filters, trend alignment, or preset compatibility.
+Validation outcome: dashboard contracts remained intact (`Isolate For X`, quick filters, trend chart integration, preset/state flow), docs were updated, and `pytest tests/analytics/test_stats_dashboard.py -q` passed after the implementation.
 
 ## Context and Orientation
 
@@ -272,3 +282,4 @@ Persist these fields through existing UI-state/preset sanitizer paths:
 - `buildDashboardUiStatePayload(...)`
 
 Plan revision note (2026-03-03_21.47.05 EST): replaced generic draft assumptions with codebase-grounded implementation details for this repository (real files, real state/filter contracts, and repo-specific validation commands).
+Plan revision note (2026-03-03_22.00.24 EST): marked all milestones complete after implementing compare/control panel + analysis + state/preset plumbing, updated analytics docs/tests, and recorded validation command outcomes.

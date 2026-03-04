@@ -841,3 +841,54 @@ Implementation contract
 - In `canonical_line_roles`, prefer `HOWTO_SECTION` for compact title-like headings only when neighbor context indicates an internal subsection (and do not apply this when the next line is a yield boundary).
 
 ````
+
+## 2026-03-03 docs/tasks consolidation batch (canonical line-role remediation sequence)
+
+### 2026-03-03_16.31.29 canonical title/note regression fixes
+
+Source task:
+- `docs/tasks/2026-03-03_16.31.29-canonical-line-role-title-notes-fixes.md`
+
+Problems captured:
+- Title-like lines could lose `RECIPE_TITLE` reachability in candidate allowlists.
+- Deterministic low-confidence title hits were escalated away.
+- Note prose was biased toward instruction heuristics.
+- Yield regex split note prose on standalone `serving` fragments.
+
+Durable decisions/outcomes:
+- Expand candidate/allowlist routes so title-like lines can emit `RECIPE_TITLE` through both atomizer and canonical guards.
+- Preserve deterministic title decisions on low-confidence rule path.
+- Add explicit note-like prose handling toward `RECIPE_NOTES` and tighten instruction-sentence cue requirements.
+- Narrow yield split regex to `servings` in atomizer/canonical paths.
+- Add explicit `RECIPE_TITLE` few-shot in canonical prompt.
+
+Evidence preserved:
+- `. .venv/bin/activate && python -m pytest tests/parsing/test_recipe_block_atomizer.py tests/parsing/test_canonical_line_roles.py -q` -> `27 passed, 1 warning`.
+
+Known gap preserved in source task:
+- Full benchmark rerun against `2026-03-03_15.52.28` was listed as remaining at task close.
+
+### 2026-03-03_19.21.23 next canonical error-bucket pass (ingredient recall, subheading guard, quantity fragments)
+
+Source task:
+- `docs/tasks/2026-03-03_19.21.23-canonical-line-role-recall-subheading-fragment-guards.md`
+
+Problems captured:
+- Dominant residual deterministic buckets after prior title/note fix:
+  - `INGREDIENT_LINE -> OTHER`
+  - `HOWTO_SECTION -> RECIPE_TITLE`
+  - `INSTRUCTION_LINE -> INGREDIENT_LINE` (quantity-fragment artifacts)
+
+Durable decisions/outcomes:
+- Widen short quantity-led ingredient recall heuristics with safety negatives.
+- Add subsection-context guard so compact internal headings prefer `HOWTO_SECTION` rather than recipe-title overcalls.
+- Suppress quantity-fragment splitting for instruction prose and broken dual-unit artifacts.
+- Keep deterministic-first remediation before additional prompt tuning.
+
+Evidence preserved:
+- Targeted parsing suites passed after changes:
+  - `tests/parsing/test_recipe_block_atomizer.py`
+  - `tests/parsing/test_canonical_line_roles.py`
+- SeaAndSmoke benchmark rerun recorded in task:
+  - `data/golden/benchmark-vs-golden/2026-03-03_19.41.28_seaandsmoke-next-buckets/`
+- Baseline comparison in task showed strong bucket reductions (`68 -> 18`, `36 -> 5`, `26 -> 0`) with macro/strict improvements.

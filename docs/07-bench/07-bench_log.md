@@ -4891,3 +4891,153 @@ read_when:
 - `pair_count=1` comes from benchmark scope: this run has one source-key codex-vs-vanilla pair (`seaandsmokecutdown`), while upload bundle generalization readiness requires at least 2 pairs.
 - Pass2/pass3 per-label stage scoring is unavailable by design in current artifacts. Pass2 (`recipe.schemaorg.v1`) and pass3 (`recipe.final.v1`) outputs are recipe-structure payloads (ingredients/instructions/draft mapping), not line-label prediction/eval outputs, so no label-level confusion/precision/recall exists for those stages.
 ````
+
+## 2026-03-03 docs/tasks consolidation batch (benchmark UX + artifact contracts)
+
+### 2026-03-03_13.29.04 codex spinner stage readability
+
+Source task:
+- `docs/tasks/2026-03-03_13.29.04-codex-spinner-stage-readability.md`
+
+Problem captured:
+- Live codex spinner rows exposed raw pipeline IDs/worker payloads, which made current pass/stage unreadable.
+
+Decision/outcome preserved:
+- Kept ETA/task counters unchanged and rewrote display-only status to include human-readable codex stage labels on a dedicated `stage:` line.
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "humanizes_codex_stage_in_live_panel or truncated or clamps_live_box_width_to_terminal or shows_eta_for_xy_progress or bootstraps_eta_when_first_counter_starts_above_one"` -> `5 passed`.
+
+### 2026-03-03_13.45.44 single-offline dashboard refresh target
+
+Source task:
+- `docs/tasks/2026-03-03_13.45.44-single-offline-dashboard-auto-refresh-target.md`
+
+Problem captured:
+- Single-offline refresh printed success but wrote nested run-local `.history/dashboard` instead of lifetime dashboard root.
+
+Decision/outcome preserved:
+- `_refresh_dashboard_after_history_write(...)` gained optional `dashboard_out_dir`, and single-offline batch refresh now forwards lifetime target path.
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "single_offline_codex_enabled_runs_vanilla_then_codex_and_writes_comparison or single_offline_codex_disabled_runs_only_vanilla_and_skips_comparison"` -> `2 passed`.
+
+### 2026-03-03_13.50.00 single-offline flattened summary regression
+
+Source task:
+- `docs/tasks/2026-03-03_13.50.00-single-offline-flattened-summary-regression.md`
+
+Problem captured:
+- Paired single-offline sessions wrote comparison JSON but lost the expected in-place flattened summary artifact.
+
+Decision/outcome preserved:
+- Starter-pack builder supports flattened summary emission and paired single-offline path records `metadata.flattened_summary` when `benchmark_summary.md` is written.
+
+Evidence preserved:
+- `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -k "build_starter_pack_for_existing_runs"`.
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "single_offline_comparison_artifacts_trigger_starter_pack"`.
+
+### 2026-03-03_13.50.18 all-method dashboard refresh target
+
+Source task:
+- `docs/tasks/2026-03-03_13.50.18-all-method-dashboard-auto-refresh-target.md`
+
+Problem captured:
+- Deferred all-method refreshes could regenerate run-local dashboard snapshots instead of lifetime dashboard output.
+
+Decision/outcome preserved:
+- Added `dashboard_output_root` plumbing through all-method runner entrypoints and translated once at refresh call sites into `output_root` + `dashboard_out_dir`.
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_parallel or run_all_method_benchmark_multi_source_defaults_to_global_scheduler_scope or run_all_method_benchmark_multi_source_dispatches_legacy_scheduler_scope or interactive_all_method_benchmark_uses_timestamped_output_root or interactive_all_method_benchmark_all_matched_scope_routes_to_multi_source_runner"` -> `5 passed`.
+
+### 2026-03-03_14.05.00 auto-prune scope correction
+
+Source task:
+- `docs/tasks/2026-03-03_14.05.00-auto-prune-all-benchmark-artifacts.md`
+
+Problem captured:
+- Over-broad prune removed normal interactive outputs and could delete dashboard-related roots still needed after run completion.
+
+Decision/outcome preserved:
+- Restored classifier-driven transient-only prune behavior, removed interactive single-offline batch-end root prune, and preserved CSV-first durability guarantees.
+
+Evidence preserved:
+- `pytest tests/bench/test_benchmark_gc.py -k "prune_benchmark_outputs"`.
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "single_offline"`.
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "prunes_transient_artifacts_only_after_csv_append"`.
+- `pytest tests/analytics/test_stats_dashboard.py -k "skip_gated or skip_pytest_temp or csv_collector_merges_nested_benchmark_history_csv_rows_and_skips_gated_runs"`.
+
+### 2026-03-03_16.20.00 starter-pack fallback loader registration
+
+Source task:
+- `docs/tasks/2026-03-03_16.20.00-single-offline-starter-pack-fallback-loader.md`
+
+Problem captured:
+- Fallback script-loader path failed (`AttributeError` during dataclass/type evaluation) when package import path `scripts.*` was unavailable.
+
+Decision/outcome preserved:
+- Fallback loader still runs, but module is registered in `sys.modules` before `exec_module()` to preserve dataclass namespace resolution.
+
+Evidence preserved:
+- `pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "single_offline_starter_pack_fallback_loader_registers_module or single_offline_comparison_artifacts_trigger_starter_pack"` -> `2 passed`.
+- `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -k "build_starter_pack_for_existing_runs"` -> `2 passed`.
+
+### 2026-03-03_16.32.32 benchmark default upload bundle
+
+Source task:
+- `docs/tasks/2026-03-03_16.32.32-benchmark-default-upload-bundle.md`
+
+Problem captured:
+- Operators needed upload-ready benchmark outputs by default, without extra flags and without destructive artifact replacement.
+
+Decision/outcome preserved:
+- Interactive and direct benchmark flows call upload-bundle helper by default and emit additive `upload_bundle_v1/` artifacts.
+
+Evidence preserved:
+- Bench + labelstudio helper tests were extended/updated in:
+  - `tests/bench/test_benchmark_cutdown_for_external_ai.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+
+### 2026-03-03_16.50.00 cutdown 3-file upload bundle mode
+
+Source task:
+- `docs/tasks/2026-03-03_16.50.00 - cutdown-three-file-upload-bundle.md`
+
+Problem captured:
+- External-AI upload workflows were slowed by many output files (including CSV-heavy artifact sets).
+
+Decision/outcome preserved:
+- Added explicit opt-in 3-file bundle flags (`--upload-3-files`, `--upload-3-files-only`) that keep default multi-file behavior untouched while allowing strict three-file outputs with payload-embedded full data.
+
+Evidence preserved:
+- `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -k "upload_3_files_only"` (task references this targeted check and related contract assertions).
+
+### 2026-03-03_20.16.30 upload_bundle_v1 feedback alignment
+
+Source task:
+- `docs/tasks/2026-03-03_20.16.30-upload-bundle-v1-feedback-alignment.md`
+
+Problem captured:
+- Existing upload bundles could show zero or stale topline values and underexposed triage-first navigation.
+
+Decision/outcome preserved:
+- Kept strict 3-file contract; added derived-topline/self-check block, richer triage views, alias metadata for duplicate-equivalent artifacts, and payload row locators while deprioritizing heavy/raw artifacts in navigation.
+
+Evidence preserved:
+- Bench cutdown suite task result: `176 passed, 31 deselected`.
+- Added assertions for three-file contract and self-check consistency.
+
+### 2026-03-03_21.34.10 upload bundle forward alignment (cost/candidates/generalization)
+
+Source task:
+- `docs/tasks/2026-03-03_21.34.10-upload-bundle-forward-alignment-cost-and-generalization.md`
+
+Problem captured:
+- First-pass triage still had practical gaps: missing observed cost fields, candidate-label shape drift, and weak explicit generalization-readiness signaling.
+
+Decision/outcome preserved:
+- Added additive estimated-cost signal fields, broadened candidate-label shape ingestion, and explicit generalization readiness (`minimum_pairs_for_generalization`, `additional_pairs_needed_for_generalization`) without changing the 3-file bundle contract.
+
+Evidence preserved:
+- Task validation target: `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -k "build_upload_bundle"` and index-field presence checks.

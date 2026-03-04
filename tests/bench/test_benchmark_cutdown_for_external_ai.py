@@ -1709,6 +1709,90 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert codex_diag["preprocess_trace_failures_status"] == "written"
 
 
+def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cutdown_summary(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "codexfarm"
+    baseline_run_id = "vanilla"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[
+            {
+                "line_index": 1,
+                "gold_label": "INGREDIENT_LINE",
+                "pred_label": "RECIPE_NOTES",
+            },
+            {
+                "line_index": 3,
+                "gold_label": "RECIPE_NOTES",
+                "pred_label": "KNOWLEDGE",
+            },
+        ],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    codex_run_dir = session_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    run_diagnostics = index_payload.get("run_diagnostics")
+    assert isinstance(run_diagnostics, list)
+    codex_diag = next(
+        row for row in run_diagnostics if str(row.get("run_id") or "") == codex_run_id
+    )
+    assert codex_diag["prompt_warning_aggregate_status"] == "written"
+    assert codex_diag["projection_trace_status"] == "written"
+    assert codex_diag["wrong_label_full_context_status"] == "written"
+    assert codex_diag["preprocess_trace_failures_status"] == "written"
+
+    artifact_index = index_payload.get("artifact_index")
+    assert isinstance(artifact_index, list)
+    artifact_paths = {
+        str(row.get("path") or "")
+        for row in artifact_index
+        if isinstance(row, dict)
+    }
+    derived_prefix = f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/runs/{codex_run_id}/"
+    assert f"{derived_prefix}{module.PROMPT_WARNING_AGGREGATE_FILE_NAME}" in artifact_paths
+    assert f"{derived_prefix}{module.PROJECTION_TRACE_FILE_NAME}" in artifact_paths
+    assert (
+        f"{derived_prefix}{module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME.replace('.gz', '')}"
+        in artifact_paths
+    )
+    assert (
+        f"{derived_prefix}{module.PREPROCESS_TRACE_FAILURES_FILE_NAME.replace('.gz', '')}"
+        in artifact_paths
+    )
+
+
 def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
     tmp_path: Path,
 ) -> None:

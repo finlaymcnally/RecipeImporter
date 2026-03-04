@@ -604,3 +604,41 @@ Merged source notes (chronological):
 - `2026-03-03_21.17.56-profeedback-relevance-audit.md`: Audit of ProFeedback suggestions against current runtime code and 2026-03-03_20.49.14 artifacts.
 - `2026-03-03_21.25.37-profeedback-plan-rebuild-scope-check.md`: ProFeedback plan rebuild check: active plan already matched OG scope and only needed working-copy refresh.
 - `2026-03-03_21.33.21-profeedback-ogplan-implementation-gap-audit.md`: Audit finding: ProFeedback OG plan remains partially unimplemented despite related runtime improvements.
+
+## 2026-03-03 docs/tasks consolidation batch (transport/fallback hardening, pass3 routing, diagnostics)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/Pro3.md` (task file had no timestamp prefix; mtime-ordered with the 2026-03-03 batch)
+- `docs/tasks/2026-03-03_15.25.18-pass3-schema-v-fallback-reduction.md`
+- `docs/tasks/2026-03-03_15.44.46-pass2-page-layout-warning-bucket-rename.md`
+- `docs/tasks/2026-03-03_20.13.22-codexfarm-soft-gating-runtime-outside-span-precision.md`
+- `docs/tasks/2026-03-03_21.42.59 - profeedback-ogplan-gap-implementation.md`
+
+Current LLM contracts added/confirmed:
+- Pass1->pass2 transport/audit semantics are centralized and inclusive-end; transport mismatches are explicit invariant failures instead of silent shrinkage.
+- Deterministic fallback anchor stays `state.recipe` (not pass2-mutated output), with pass2 enrichments gated on evidence quality.
+- Pass3 acceptance rejects placeholder/empty structures; empty mapping rejection is conditional on missing step/instruction evidence.
+- Pass3 `draft_v1` normalization coerces legacy object families into valid `RecipeDraftV1` shape when usable evidence exists, reducing schema_v-triggered fallback churn.
+- Pass2 warning bucket naming is `warning_bucket:page_or_layout_artifact`; cutdown/reporting canonicalizes legacy `ocr_or_page_artifact` to the new name for compatibility.
+- Pass2 degradation classification is severity-aware (`soft` vs `hard`) with additive routing metadata:
+  - `pass2_degradation_severity`
+  - `pass2_promotion_policy`
+  - `pass3_execution_mode`
+  - `pass3_routing_reason`
+- Soft-degraded low-risk rows can deterministically promote without pass3 LLM calls while preserving existing pass status enums.
+- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts, with env guard `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK` for reversible runtime experiments.
+
+Validation/evidence highlights preserved from merged tasks:
+- `Pro3` merged verification transcript includes replayed SeaAndSmoke transport cases (`c0,c6,c7,c8,c9,c12`) with exact-match transport and zero outside-span fallback prompt joins.
+- Pass3 legacy-shape normalization task recorded:
+  - orchestrator targeted tests (`2 passed`) and full orchestrator suite (`29 passed`) plus contracts suite (`10 passed`).
+- ProFeedback OG gap implementation task recorded:
+  - `python -m pytest tests/llm/test_codex_farm_orchestrator.py tests/parsing/test_canonical_line_roles.py tests/bench/test_cutdown_export_consistency.py tests/bench/test_benchmark_cutdown_for_external_ai.py` -> `84 passed, 1 warning`.
+
+Known pending/runtime-follow-up captured in merged tasks:
+- `2026-03-03_20.13.22` marked paired benchmark rerun and required speed-suite baseline/candidate comparison as remaining validation steps after code/tests/docs implementation.
+
+Anti-loop reminders from this task batch:
+- If fallback spikes return, inspect transport audit + pass2 severity/routing metadata before editing prompts.
+- If candidate-label diagnostics stay unavailable, inspect line-role prediction payload fields before changing upload-bundle summarizers.
+- Keep pass status enums stable for compatibility; prefer additive metadata fields when extending routing observability.

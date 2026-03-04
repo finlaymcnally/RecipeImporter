@@ -185,6 +185,7 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_index.json`
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
 - `upload_bundle_index.json` includes verified topline/self-check booleans (`starter_pack_present`, `pair_count_verified`, `changed_lines_verified`, `topline_consistent`) and corrects counts from discovered run artifacts when advertised root summaries are stale or missing.
+- Existing-output upload-bundle generation (`build_upload_bundle_for_existing_output`) now derives codex diagnostic statuses from source run artifacts when per-run `need_to_know_summary.json` is absent, and persists those derived diagnostics under `_upload_bundle_derived/runs/<run_id>/...` in bundle payload rows.
 - default index views prioritize first-pass triage (`per_label_metrics`, `per_recipe_breakdown`, `stage_separated_comparison`, `failure_ledger`, compact regression casebook, stratified changed-line samples, call runtime/tokens/cost summary, line-role confidence signals) with payload row locators.
 - call-runtime summaries expose observed-cost `cost_signal` plus token-based `estimated_cost_signal` fallback fields (default pricing, clearly marked as estimates) so missing per-call cost data is explicit while preserving first-pass cost ordering.
 - benchmark pair inventory includes `generalization_readiness` (`minimum_pairs_for_generalization`, `additional_pairs_needed_for_generalization`) for quick triage on single-pair overfitting risk.
@@ -1656,3 +1657,33 @@ Merged source notes (chronological):
 - `candidate_label_signal.available=false` means line-role rows did not include recognized candidate-label payload keys.
 - `pair_count=1` in single-source paired runs is expected and below the bundle's `>=2` generalization-readiness threshold.
 - Pass2/pass3 stage-level per-label scoring is intentionally unavailable in current artifacts because pass2/pass3 outputs are recipe-structure payloads, not line-label prediction/eval tables.
+
+## 2026-03-03 docs/tasks consolidation batch (spinner/readability, dashboard refresh targets, prune scope, upload bundle)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/2026-03-03_13.29.04-codex-spinner-stage-readability.md`
+- `docs/tasks/2026-03-03_13.45.44-single-offline-dashboard-auto-refresh-target.md`
+- `docs/tasks/2026-03-03_13.50.00-single-offline-flattened-summary-regression.md`
+- `docs/tasks/2026-03-03_13.50.18-all-method-dashboard-auto-refresh-target.md`
+- `docs/tasks/2026-03-03_14.05.00-auto-prune-all-benchmark-artifacts.md`
+- `docs/tasks/2026-03-03_16.20.00-single-offline-starter-pack-fallback-loader.md`
+- `docs/tasks/2026-03-03_16.32.32-benchmark-default-upload-bundle.md`
+- `docs/tasks/2026-03-03_16.50.00 - cutdown-three-file-upload-bundle.md`
+- `docs/tasks/2026-03-03_20.16.30-upload-bundle-v1-feedback-alignment.md`
+- `docs/tasks/2026-03-03_21.34.10-upload-bundle-forward-alignment-cost-and-generalization.md`
+
+Current benchmark contracts added/confirmed:
+- Codex progress spinner output remains ETA-safe but now surfaces a stable human-readable `stage:` line instead of raw pipeline IDs.
+- Single-offline and all-method deferred dashboard refreshes must target the lifetime dashboard path (`<output_root parent>/.history/dashboard`) via explicit refresh-target plumbing.
+- Paired single-offline sessions restore in-place flattened summary output (`benchmark_summary.md`) and expose it in comparison metadata when available.
+- Auto-prune stays transient-only; normal interactive single-offline artifacts are retained, and prune must run after CSV append.
+- Starter-pack fallback module loading must register loaded script modules in `sys.modules` before `exec_module()` so dataclass/type resolution works in fallback import mode.
+- Upload bundle output is default in interactive + direct benchmark flows and remains additive by default (`upload_bundle_v1/` does not replace core artifacts).
+- Strict 3-file upload mode remains available for cutdown flows (`--upload-3-files`, `--upload-3-files-only`) while preserving no-data-loss payload indexing.
+- `upload_bundle_v1` index/overview now prioritizes derived topline/self-check and triage navigation while retaining full payload access.
+- Upload bundle call/runtime analysis must distinguish observed cost vs estimated fallback cost, accept multiple candidate-label payload shapes, and expose explicit generalization-readiness fields.
+
+Anti-loop reminders from this task batch:
+- If benchmark says dashboard refreshed but `data/.history/dashboard` is stale, inspect refresh target wiring (`dashboard_out_dir` / `dashboard_output_root`) before touching analytics render code.
+- If interactive outputs disappear after a run, verify prune classifier scope before changing artifact writers.
+- If upload bundle `candidate_label_signal.available` or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage.
