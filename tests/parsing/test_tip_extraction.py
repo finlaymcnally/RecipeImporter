@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from cookimport.core.models import ParsingOverrides, RecipeCandidate
 from cookimport.parsing.tips import (
+    classify_standalone_topic_filter_reason,
     canonicalize_recipe_name,
     chunk_standalone_blocks,
     extract_tip_candidates_from_candidate,
@@ -124,3 +125,28 @@ def test_permissive_you_can_tip_is_kept():
     text = "You can wash delicate items like berries and then dry them in a salad spinner."
     tips = extract_tips(text)
     assert len(tips) == 1
+
+
+def test_classify_standalone_topic_filter_reason_detects_toc_noise():
+    reason = classify_standalone_topic_filter_reason("Table of Contents")
+    assert reason == "toc_noise"
+
+
+def test_classify_standalone_topic_filter_reason_detects_cross_reference_noise():
+    reason = classify_standalone_topic_filter_reason("See tip on page 12 for more.")
+    assert reason == "cross_reference_noise"
+
+
+def test_classify_standalone_topic_filter_reason_detects_intro_narrative():
+    text = (
+        "I remember those early kitchen afternoons and I always thought this small lesson "
+        "was enough to change everything for me and for us. "
+        "I remember those early kitchen afternoons and I always thought this small lesson "
+        "was enough to change everything for me and for us. "
+        "I remember those early kitchen afternoons and I always thought this small lesson "
+        "was enough to change everything for me and for us. "
+        "I remember those early kitchen afternoons and I always thought this small lesson "
+        "was enough to change everything for me and for us."
+    )
+    reason = classify_standalone_topic_filter_reason(text)
+    assert reason == "intro_narrative"

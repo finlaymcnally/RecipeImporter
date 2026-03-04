@@ -35,6 +35,7 @@ Primary folders:
 Core orchestration:
 - `cookimport/cli.py` (job planning, worker dispatch, split merge, run telemetry, report/perf history writes)
 - `cookimport/cli_worker.py` (per-file and per-split worker execution)
+- `cookimport/labelstudio/ingest.py` (Label Studio benchmark import path; shares staging writers and finalizes report totals from in-memory results, with mismatch diagnostics artifact when prepopulated totals drift)
 
 Run-setting normalization and policy locks:
 - `cookimport/config/run_settings.py`
@@ -257,6 +258,7 @@ Block extraction:
 - Skips nav/TOC spine docs when identified via OPF `properties="nav"` or nav/toc signatures in HTML.
 - Applies shared post-extraction cleanup for `unstructured`/`beautifulsoup`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
 - Stage/benchmark prediction flows now require explicit extractor choices (`unstructured|beautifulsoup|markdown|markitdown`).
+- Standalone tip/topic extraction now applies deterministic pre-candidate filtering (`toc_noise`, `cross_reference_noise`, `intro_narrative`, duplicate-title carryover) and deterministic long-block sentence splitting, with raw diagnostics artifact `standalone_tip_filter_diagnostics`.
 
 MarkItDown-specific behavior:
 - Uses `markitdown` with plugins disabled (`MarkItDown(enable_plugins=False)`)

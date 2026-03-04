@@ -457,6 +457,93 @@ def test_extract_standalone_tips_parallel_progress_and_order(monkeypatch, tmp_pa
         for msg in progress_messages
     )
 
+
+def test_extract_standalone_tips_filters_noise_and_tracks_split_diagnostics(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    importer = EpubImporter()
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    long_intro = (
+        "I remember those early afternoons and I always thought this quiet routine "
+        "was enough to teach me patience and curiosity in a way nothing else could. "
+        "I remember those early afternoons and I always thought this quiet routine "
+        "was enough to teach me patience and curiosity in a way nothing else could."
+    )
+    long_actionable = " ".join(
+        [
+            "Salt early for flavor.",
+            "Keep the pan hot for browning.",
+            "Let the meat rest before slicing.",
+        ]
+        * 12
+    )
+    blocks = [
+        Block(text="Table of Contents"),
+        Block(text="Simple Soup"),
+        Block(text=long_intro),
+        Block(text=long_actionable),
+    ]
+
+    captured_blocks: dict[str, list[tuple[int, str]]] = {}
+
+    def _fake_chunk_standalone_blocks(raw_blocks, **_kwargs):
+        rows = list(raw_blocks)
+        captured_blocks["rows"] = rows
+        return [
+            TopicContainer(indices=[idx], blocks=[(idx, text)], header=None)
+            for idx, text in rows
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.chunk_standalone_blocks",
+        _fake_chunk_standalone_blocks,
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.split_text_to_atoms",
+        lambda text, block_index, **_kwargs: [
+            Atom(
+                text=text,
+                kind="paragraph",
+                source_block_index=block_index,
+                sequence=0,
+            )
+        ],
+    )
+    monkeypatch.setattr("cookimport.plugins.epub.contextualize_atoms", lambda atoms: atoms)
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.build_topic_candidate",
+        lambda text, **_kwargs: {"topic": text},
+    )
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.extract_tip_candidates",
+        lambda text, **_kwargs: [{"tip": text}],
+    )
+    monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "1")
+
+    tips, topics, standalone_block_count, _topic_block_count = importer._extract_standalone_tips(
+        blocks,
+        [],
+        source,
+        "hash",
+        accepted_recipe_titles=["Simple Soup"],
+    )
+
+    assert standalone_block_count == 4
+    assert len(tips) == len(topics)
+    assert len(captured_blocks["rows"]) > 1
+
+    diagnostics = importer._standalone_filter_diagnostics
+    assert diagnostics["candidate_standalone_block_count"] == 4
+    assert diagnostics["analyzed_standalone_block_count"] == len(captured_blocks["rows"])
+    assert diagnostics["filter_reason_counts"]["toc_noise"] == 1
+    assert diagnostics["filter_reason_counts"]["duplicate_title_carryover"] == 1
+    assert diagnostics["filter_reason_counts"]["intro_narrative"] == 1
+    assert diagnostics["long_split_source_blocks"] == 1
+    assert diagnostics["long_split_segments_added"] >= 1
+
+
 def test_backtrack_for_title_prefers_earliest_title_block():
     importer = EpubImporter()
     blocks = [

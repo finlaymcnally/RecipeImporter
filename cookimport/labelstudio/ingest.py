@@ -37,7 +37,11 @@ from cookimport.core.executor_fallback import (
     shutdown_executor,
 )
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
-from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.core.reporting import (
+    compute_file_hash,
+    enrich_report_with_stats,
+    finalize_report_totals,
+)
 from cookimport.core.scoring import summarize_recipe_likeness
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
@@ -1134,7 +1138,15 @@ def _write_processed_outputs(
     result.report.run_config_summary = run_config_summary
     result.report.llm_codex_farm = llm_codex_farm
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
-    enrich_report_with_stats(result.report, result, path)
+    report_totals_diagnostics_path = (
+        run_root / f"{workbook_name}.report_totals_mismatch_diagnostics.json"
+    )
+    enrich_report_with_stats(
+        result.report,
+        result,
+        path,
+        count_diagnostics_path=report_totals_diagnostics_path,
+    )
 
     output_stats = OutputStats(run_root)
     write_intermediate_outputs(
@@ -1577,7 +1589,7 @@ def _merge_parallel_results(
     )
     report.recipe_likeness = recipe_likeness_summary
 
-    return ConversionResult(
+    merged_result = ConversionResult(
         recipes=sorted_recipes,
         tips=tips,
         tip_candidates=merged_tip_candidates,
@@ -1588,6 +1600,9 @@ def _merge_parallel_results(
         workbook=path.stem,
         workbook_path=str(path),
     )
+    finalize_report_totals(report, merged_result)
+
+    return merged_result
 
 
 def generate_pred_run_artifacts(

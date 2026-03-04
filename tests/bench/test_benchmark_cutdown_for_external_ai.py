@@ -198,6 +198,21 @@ def _set_eval_report_per_label(
     _write_json(eval_report_path, payload)
 
 
+def _set_eval_report_metrics(
+    run_dir: Path,
+    *,
+    overall_line_accuracy: float,
+    macro_f1_excluding_other: float,
+    practical_f1: float,
+) -> None:
+    eval_report_path = run_dir / "eval_report.json"
+    payload = _read_json(eval_report_path)
+    payload["overall_line_accuracy"] = overall_line_accuracy
+    payload["macro_f1_excluding_other"] = macro_f1_excluding_other
+    payload["practical_f1"] = practical_f1
+    _write_json(eval_report_path, payload)
+
+
 def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
     return [
         {
@@ -331,6 +346,8 @@ def _make_run_record(
     full_prompt_rows: list[dict[str, object]] | None = None,
     line_role_pipeline: str = "off",
     line_role_prediction_rows: list[dict[str, object]] | None = None,
+    source_path: str = "/tmp/book.epub",
+    source_hash: str = "source-hash",
 ) -> object:
     run_dir = run_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -359,7 +376,7 @@ def _make_run_record(
 
     run_manifest = {
         "run_id": run_id,
-        "source": {"path": "/tmp/book.epub", "source_hash": "source-hash"},
+        "source": {"path": source_path, "source_hash": source_hash},
         "artifacts": artifacts,
         "run_config": {
             "llm_recipe_pipeline": llm_recipe_pipeline,
@@ -390,9 +407,9 @@ def _make_run_record(
 
     return module.RunRecord(
         run_id=run_id,
-        source_key="source-hash",
-        source_file="book.epub",
-        source_hash="source-hash",
+        source_key=source_hash,
+        source_file=Path(source_path).name,
+        source_hash=source_hash,
         llm_recipe_pipeline=llm_recipe_pipeline,
         atomic_block_splitter="off",
         line_role_pipeline=line_role_pipeline,
@@ -2209,6 +2226,216 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
         if isinstance(row, dict)
     }
     assert not any(path.endswith("full_prompt_log.jsonl") for path in multi_artifact_paths)
+
+
+def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-profile-benchmark"
+
+    def _prompt_rows_with_runtime(
+        *,
+        duration_values: tuple[int, int, int],
+        token_values: tuple[int, int, int],
+        cost_values: tuple[float, float, float],
+    ) -> list[dict[str, object]]:
+        rows = _prompt_rows_for_starter_pack_fixture()
+        enriched: list[dict[str, object]] = []
+        for index, row in enumerate(rows):
+            row_copy = dict(row)
+            row_copy["request_telemetry"] = {
+                "duration_ms": duration_values[index],
+                "tokens_input": token_values[index] - 10,
+                "tokens_output": 10,
+                "tokens_total": token_values[index],
+                "cost_usd": cost_values[index],
+            }
+            enriched.append(row_copy)
+        return enriched
+
+    # Book A (duplicate run ids with book B on purpose: vanilla/codexfarm).
+    _make_run_record(
+        module,
+        run_root=session_root / "book_a",
+        run_id="vanilla",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+        source_path="/tmp/book_a.epub",
+        source_hash="book-a-hash",
+    )
+    _make_run_record(
+        module,
+        run_root=session_root / "book_a",
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_with_runtime(
+            duration_values=(100, 200, 300),
+            token_values=(120, 220, 320),
+            cost_values=(0.12, 0.22, 0.32),
+        ),
+        line_role_prediction_rows=[
+            {
+                "line_index": 1,
+                "label": "INGREDIENT_LINE",
+                "confidence": 0.40,
+                "decided_by": "llm",
+                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
+                "text": "1 cup flour",
+                "within_recipe_span": True,
+                "page_type": "recipe_page",
+                "chapter_title": "Chapter A",
+            }
+        ],
+        source_path="/tmp/book_a.epub",
+        source_hash="book-a-hash",
+    )
+    _set_eval_report_metrics(
+        session_root / "book_a" / "vanilla",
+        overall_line_accuracy=0.70,
+        macro_f1_excluding_other=0.68,
+        practical_f1=0.69,
+    )
+    _set_eval_report_metrics(
+        session_root / "book_a" / "codexfarm",
+        overall_line_accuracy=0.62,
+        macro_f1_excluding_other=0.61,
+        practical_f1=0.60,
+    )
+
+    # Book B.
+    _make_run_record(
+        module,
+        run_root=session_root / "book_b",
+        run_id="vanilla",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+        source_path="/tmp/book_b.epub",
+        source_hash="book-b-hash",
+    )
+    _make_run_record(
+        module,
+        run_root=session_root / "book_b",
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_with_runtime(
+            duration_values=(1000, 2000, 3000),
+            token_values=(1120, 1220, 1320),
+            cost_values=(1.12, 1.22, 1.32),
+        ),
+        line_role_prediction_rows=[
+            {
+                "line_index": 1,
+                "label": "INGREDIENT_LINE",
+                "confidence": 0.35,
+                "decided_by": "llm",
+                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
+                "text": "1 cup flour",
+                "within_recipe_span": False,
+                "page_type": "front_matter",
+                "chapter_title": "Chapter B",
+            }
+        ],
+        source_path="/tmp/book_b.epub",
+        source_hash="book-b-hash",
+    )
+    _set_eval_report_metrics(
+        session_root / "book_b" / "vanilla",
+        overall_line_accuracy=0.62,
+        macro_f1_excluding_other=0.61,
+        practical_f1=0.60,
+    )
+    _set_eval_report_metrics(
+        session_root / "book_b" / "codexfarm",
+        overall_line_accuracy=0.71,
+        macro_f1_excluding_other=0.70,
+        practical_f1=0.72,
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+        high_level_only=True,
+        target_bundle_size_bytes=300_000,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    analysis = index_payload["analysis"]
+    assert analysis["group_high_level"]["enabled"] is True
+
+    book_scorecard = analysis.get("book_scorecard")
+    assert isinstance(book_scorecard, dict)
+    assert int(book_scorecard.get("book_count") or 0) == 2
+    score_rows = book_scorecard.get("rows")
+    assert isinstance(score_rows, list)
+    assert {row.get("source_key") for row in score_rows if isinstance(row, dict)} == {
+        "book-a-hash",
+        "book-b-hash",
+    }
+
+    ablation_summary = analysis.get("ablation_summary")
+    assert isinstance(ablation_summary, dict)
+    assert int(ablation_summary.get("row_count") or 0) >= 1
+
+    outside_by_book = analysis.get("outside_span_by_book")
+    assert isinstance(outside_by_book, dict)
+    assert int(outside_by_book.get("row_count") or 0) == 2
+
+    chapter_page_breakdown = analysis.get("chapter_page_type_breakdown")
+    assert isinstance(chapter_page_breakdown, dict)
+    assert chapter_page_breakdown.get("page_type_available") is True
+    assert int(chapter_page_breakdown.get("book_count") or 0) == 2
+
+    runtime_by_book = analysis.get("runtime_by_book")
+    assert isinstance(runtime_by_book, dict)
+    runtime_rows = runtime_by_book.get("rows")
+    assert isinstance(runtime_rows, list)
+    assert len(runtime_rows) == 2
+    runtime_by_source = {
+        str(row.get("source_key") or ""): row
+        for row in runtime_rows
+        if isinstance(row, dict)
+    }
+    assert int(runtime_by_source["book-a-hash"]["total_duration_ms"] or 0) == 600
+    assert int(runtime_by_source["book-b-hash"]["total_duration_ms"] or 0) == 6000
+    assert round(float(runtime_by_source["book-a-hash"]["total_cost_usd"] or 0.0), 2) == 0.66
+    assert round(float(runtime_by_source["book-b-hash"]["total_cost_usd"] or 0.0), 2) == 3.66
+
+    top_regression_packets = analysis.get("top_regression_packets_full_trace")
+    assert isinstance(top_regression_packets, dict)
+    assert int(top_regression_packets.get("packet_count") or 0) >= 1
+    packet_rows = top_regression_packets.get("packets")
+    assert isinstance(packet_rows, list)
+    first_packet = packet_rows[0]
+    assert isinstance(first_packet, dict)
+    assert isinstance(first_packet.get("decision_trace"), dict)
+
+    navigation_payload = index_payload.get("navigation")
+    assert isinstance(navigation_payload, dict)
+    default_views = navigation_payload.get("default_initial_views")
+    assert isinstance(default_views, list)
+    for expected in (
+        "analysis.book_scorecard",
+        "analysis.ablation_summary",
+        "analysis.outside_span_by_book",
+        "analysis.chapter_page_type_breakdown",
+        "analysis.runtime_by_book",
+        "analysis.top_regression_packets_full_trace",
+    ):
+        assert expected in default_views
+
+    self_check = index_payload.get("self_check")
+    assert isinstance(self_check, dict)
+    assert float(self_check.get("critical_row_locators_coverage_ratio") or 0.0) >= 0.75
 
 
 def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(

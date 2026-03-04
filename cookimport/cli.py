@@ -7358,6 +7358,21 @@ def _normalize_benchmark_eval_mode(value: str) -> str:
     return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
 
 
+def _normalize_gold_adaptation_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "off", "none", "disabled", "false", "0"}:
+        return "off"
+    if normalized in {"auto", "on", "enabled", "true", "1"}:
+        return "auto"
+    if normalized in {"force", "forced"}:
+        return "force"
+    _fail(
+        f"Invalid gold adaptation mode: {value!r}. "
+        "Expected one of: off, auto, force."
+    )
+    return "off"
+
+
 def _normalize_benchmark_execution_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {"legacy", "sequential", "default"}:
@@ -12016,6 +12031,9 @@ def evaluate_stage(
     extracted_archive_path: Path,
     alignment_cache_dir: Path | None,
     prewarmed_canonical_paths: dict[str, Path] | None,
+    gold_adaptation_mode: str,
+    gold_adaptation_min_coverage: float,
+    gold_adaptation_max_ambiguous: int,
 ) -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
     if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
         gold_export_root = selected_gold.parent
@@ -12033,6 +12051,9 @@ def evaluate_stage(
         stage_predictions_json=stage_predictions_path,
         extracted_blocks_json=extracted_archive_path,
         out_dir=eval_output_dir,
+        gold_adaptation_mode=gold_adaptation_mode,
+        gold_adaptation_min_coverage=gold_adaptation_min_coverage,
+        gold_adaptation_max_ambiguous=gold_adaptation_max_ambiguous,
     )
     return eval_result_local, format_stage_block_eval_report_md
 
@@ -26546,6 +26567,25 @@ def labelstudio_benchmark(
             "or canonical-text (extractor-independent alignment scoring)."
         ),
     )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
+    gold_adaptation_mode: Annotated[str, typer.Option(
+        "--gold-adaptation-mode",
+        help=(
+            "Stage-block evaluator only: off keeps strict block index parity; "
+            "auto adaptively remaps immutable gold labels when extractor fingerprints drift; "
+            "force always applies adaptive remap."
+        ),
+    )] = "auto",
+    gold_adaptation_min_coverage: Annotated[float, typer.Option(
+        "--gold-adaptation-min-coverage",
+        min=0.0,
+        max=1.0,
+        help="Stage-block evaluator only: minimum remap coverage required when adaptation runs.",
+    )] = 0.7,
+    gold_adaptation_max_ambiguous: Annotated[int, typer.Option(
+        "--gold-adaptation-max-ambiguous",
+        min=0,
+        help="Stage-block evaluator only: maximum ambiguous remap assignments allowed.",
+    )] = 50,
     sequence_matcher: Annotated[str, typer.Option(
         "--sequence-matcher",
         help=(
@@ -27170,6 +27210,17 @@ def labelstudio_benchmark(
         option="--codex-farm-pipeline-pass3",
     )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
+    selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
+        gold_adaptation_mode
+    )
+    selected_gold_adaptation_min_coverage = max(
+        0.0,
+        min(1.0, float(gold_adaptation_min_coverage)),
+    )
+    selected_gold_adaptation_max_ambiguous = max(
+        0,
+        int(gold_adaptation_max_ambiguous),
+    )
     selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
         sequence_matcher
     )
@@ -27769,6 +27820,9 @@ def labelstudio_benchmark(
         )
         predict_only_run_config: dict[str, Any] = {
             "eval_mode": selected_eval_mode,
+            "gold_adaptation_mode": selected_gold_adaptation_mode,
+            "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
+            "gold_adaptation_max_ambiguous": selected_gold_adaptation_max_ambiguous,
             "sequence_matcher": selected_sequence_matcher,
             "execution_mode": selected_execution_mode,
             "predict_only": True,
@@ -27978,6 +28032,9 @@ def labelstudio_benchmark(
                 extracted_archive_path=evaluation_extracted_archive_path,
                 alignment_cache_dir=alignment_cache_dir,
                 prewarmed_canonical_paths=prewarmed_canonical_paths,
+                gold_adaptation_mode=selected_gold_adaptation_mode,
+                gold_adaptation_min_coverage=selected_gold_adaptation_min_coverage,
+                gold_adaptation_max_ambiguous=selected_gold_adaptation_max_ambiguous,
             )
 
     if eval_profiler is not None:
@@ -28438,6 +28495,9 @@ def labelstudio_benchmark(
 
     benchmark_run_config: dict[str, Any] = {
         "eval_mode": selected_eval_mode,
+        "gold_adaptation_mode": selected_gold_adaptation_mode,
+        "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
+        "gold_adaptation_max_ambiguous": selected_gold_adaptation_max_ambiguous,
         "sequence_matcher": selected_sequence_matcher,
         "execution_mode": selected_execution_mode,
         "predict_only": False,
@@ -30356,6 +30416,27 @@ def bench_eval_stage(
             "Supported: boundary_f1,pk,windowdiff,boundary_similarity."
         ),
     ),
+    gold_adaptation_mode: str = typer.Option(
+        "auto",
+        "--gold-adaptation-mode",
+        help=(
+            "Gold remap policy for stage-block evaluation: off (strict), "
+            "auto (adapt when fingerprints drift), force (always adapt)."
+        ),
+    ),
+    gold_adaptation_min_coverage: float = typer.Option(
+        0.7,
+        "--gold-adaptation-min-coverage",
+        min=0.0,
+        max=1.0,
+        help="Minimum remap coverage required when adaptive mode runs.",
+    ),
+    gold_adaptation_max_ambiguous: int = typer.Option(
+        50,
+        "--gold-adaptation-max-ambiguous",
+        min=0,
+        help="Maximum ambiguous remap assignments allowed.",
+    ),
 ) -> None:
     if not gold_spans.exists() or not gold_spans.is_file():
         _fail(f"Gold spans file not found: {gold_spans}")
@@ -30408,6 +30489,9 @@ def bench_eval_stage(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
+            gold_adaptation_mode
+        )
         result = evaluate_stage_blocks(
             gold_freeform_jsonl=gold_spans,
             stage_predictions_json=stage_predictions_path,
@@ -30416,6 +30500,9 @@ def bench_eval_stage(
             label_projection=label_projection,
             boundary_tolerance_blocks=boundary_tolerance_blocks,
             segmentation_metrics=segmentation_metrics,
+            gold_adaptation_mode=selected_gold_adaptation_mode,
+            gold_adaptation_min_coverage=float(gold_adaptation_min_coverage),
+            gold_adaptation_max_ambiguous=int(gold_adaptation_max_ambiguous),
         )
     except Exception as exc:  # noqa: BLE001
         _fail(str(exc))

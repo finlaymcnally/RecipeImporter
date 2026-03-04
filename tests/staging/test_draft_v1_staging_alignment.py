@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+
 from cookimport.core.models import RecipeCandidate
+from cookimport.core.models import ConversionReport, ConversionResult
 from cookimport.staging.draft_v1 import _sanitize_staging_line, recipe_candidate_to_draft_v1
+from cookimport.staging.writer import write_draft_outputs
 
 
 def _all_lines(draft: dict) -> list[dict]:
@@ -127,3 +131,78 @@ def test_sanitize_staging_line_drops_blank_linked_recipe_id() -> None:
     assert line is not None
     assert line["linked_recipe_id"] is None
     assert line["ingredient_id"] == "flour"
+
+
+def test_write_draft_outputs_populates_compatibility_aliases(tmp_path) -> None:
+    candidate = RecipeCandidate(
+        name="Alias Recipe",
+        ingredients=["1 cup flour", "1 egg"],
+        instructions=["Mix ingredients.", "Bake until done."],
+        identifier="urn:recipeimport:test:alias",
+    )
+    result = ConversionResult(
+        recipes=[candidate],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[],
+        rawArtifacts=[],
+        report=ConversionReport(),
+        workbook="alias-recipe",
+        workbookPath="alias-recipe.txt",
+    )
+    out_dir = tmp_path / "final drafts" / "alias-recipe"
+
+    write_draft_outputs(result, out_dir)
+
+    payload = json.loads((out_dir / "r0.json").read_text(encoding="utf-8"))
+    assert payload["name"] == "Alias Recipe"
+    assert payload["ingredients"] == ["1 cup flour", "1 egg"]
+    assert payload["instructions"][0] == "Gather and prepare ingredients."
+    assert payload["instructions"][1:] == ["Mix ingredients.", "Bake until done."]
+
+
+def test_write_draft_outputs_normalizes_override_aliases(tmp_path) -> None:
+    candidate = RecipeCandidate(
+        name="Ignored Name",
+        ingredients=["salt"],
+        instructions=["Stir."],
+        identifier="urn:recipeimport:test:override",
+    )
+    result = ConversionResult(
+        recipes=[candidate],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[],
+        rawArtifacts=[],
+        report=ConversionReport(),
+        workbook="override",
+        workbookPath="override.txt",
+    )
+    out_dir = tmp_path / "final drafts" / "override"
+    override_payload = {
+        "schema_v": 1,
+        "source": "override.txt",
+        "recipe": {"title": "Override Recipe"},
+        "steps": [
+            {
+                "instruction": "Whisk quickly.",
+                "ingredient_lines": [
+                    {"raw_text": "2 eggs"},
+                    {"raw_text": "pinch salt"},
+                ],
+            }
+        ],
+    }
+
+    write_draft_outputs(
+        result,
+        out_dir,
+        draft_overrides_by_recipe_id={candidate.identifier: override_payload},
+    )
+
+    payload = json.loads((out_dir / "r0.json").read_text(encoding="utf-8"))
+    assert payload["name"] == "Override Recipe"
+    assert payload["ingredients"] == ["2 eggs", "pinch salt"]
+    assert payload["instructions"] == ["Whisk quickly."]

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 import time
+from collections import defaultdict
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,7 @@ from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
 _SEGMENTATION_LABEL_PROJECTION_CORE = "core_structural_v1"
 _SEGMENTATION_DEFAULT_METRICS: tuple[str, ...] = ("boundary_f1",)
+_GOLD_ADAPTATION_MODES: set[str] = {"off", "auto", "force"}
 _OPTIONAL_SEGMENTATION_METRICS: tuple[str, ...] = (
     "pk",
     "windowdiff",
@@ -28,6 +32,8 @@ _STRUCTURAL_LABEL_PRIORITY: tuple[str, ...] = (
 )
 _STRUCTURAL_LABEL_SET = set(_STRUCTURAL_LABEL_PRIORITY)
 _YIELD_TIME_LABELS = {"YIELD_LINE", "TIME_LINE"}
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+_LINE_STABLE_SUFFIX_RE = re.compile(r":line\d+$")
 
 try:  # pragma: no cover - non-Unix runtimes may not expose resource.
     import resource
@@ -418,6 +424,22 @@ def _collect_blockization_diagnostics(
     return [diagnostic]
 
 
+def _has_blockization_mismatch_signal(diagnostics: list[dict[str, Any]]) -> bool:
+    for row in diagnostics:
+        if not isinstance(row, dict):
+            continue
+        warning_value = str(row.get("warning") or "").strip()
+        error_value = str(row.get("error") or "").strip()
+        if warning_value in {
+            "gold_prediction_blockization_mismatch",
+            "gold_prediction_block_index_drift_suspected",
+        }:
+            return True
+        if error_value == "gold_prediction_blockization_mismatch":
+            return True
+    return False
+
+
 def _format_blockization_mismatch_message(diagnostic: dict[str, Any]) -> str:
     gold_profile = diagnostic.get("gold_profile")
     prediction_profile = diagnostic.get("prediction_profile")
@@ -464,6 +486,40 @@ def _extract_block_indices(payload: dict[str, Any]) -> list[int]:
         except (TypeError, ValueError):
             continue
     return indices
+
+
+def _normalize_match_text(text: str) -> str:
+    cleaned = _NON_ALNUM_RE.sub(" ", str(text or "").lower()).strip()
+    return re.sub(r"\s+", " ", cleaned)
+
+
+def _normalize_stable_key(stable_key: str) -> str:
+    return _LINE_STABLE_SUFFIX_RE.sub("", str(stable_key or "").strip())
+
+
+def _extract_gold_matching_metadata(payload: dict[str, Any]) -> tuple[list[str], list[int]]:
+    stable_keys: list[str] = []
+    spine_indices: list[int] = []
+    touched_blocks = payload.get("touched_blocks")
+    if not isinstance(touched_blocks, list):
+        return stable_keys, spine_indices
+
+    for touched in touched_blocks:
+        if not isinstance(touched, dict):
+            continue
+        location = touched.get("location")
+        if not isinstance(location, dict):
+            continue
+        features = location.get("features")
+        if not isinstance(features, dict):
+            continue
+        stable_key = str(features.get("unstructured_stable_key") or "").strip()
+        if stable_key:
+            stable_keys.append(stable_key)
+        spine_value = _coerce_int(features.get("spine_index"))
+        if spine_value is not None:
+            spine_indices.append(spine_value)
+    return stable_keys, spine_indices
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -688,6 +744,243 @@ def _load_extracted_block_profile(extracted_blocks_json: Path) -> dict[str, Any]
     return _serialize_blockization_profile(profile)
 
 
+def _load_prediction_match_index(extracted_blocks_json: Path) -> dict[str, Any]:
+    if not extracted_blocks_json.exists() or not extracted_blocks_json.is_file():
+        return {}
+
+    try:
+        payload = json.loads(extracted_blocks_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    records: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        records = [item for item in payload if isinstance(item, dict)]
+    elif isinstance(payload, dict):
+        blocks = payload.get("blocks")
+        if isinstance(blocks, list):
+            records = [item for item in blocks if isinstance(item, dict)]
+
+    by_exact_stable: dict[str, list[int]] = defaultdict(list)
+    by_normalized_stable: dict[str, list[int]] = defaultdict(list)
+    by_normalized_text: dict[str, list[int]] = defaultdict(list)
+    by_spine_index: dict[int, list[int]] = defaultdict(list)
+    normalized_text_by_index: dict[int, str] = {}
+    text_by_index: dict[int, str] = {}
+
+    for row in records:
+        raw_index = row.get("index")
+        if raw_index is None:
+            raw_index = row.get("block_index")
+        index = _coerce_int(raw_index)
+        if index is None:
+            continue
+        text = str(row.get("text") or "")
+        text_by_index[index] = text
+        normalized_text = _normalize_match_text(text)
+        normalized_text_by_index[index] = normalized_text
+        if normalized_text:
+            by_normalized_text[normalized_text].append(index)
+
+        location = row.get("location")
+        features = location.get("features") if isinstance(location, dict) else None
+        if isinstance(features, dict):
+            stable_key = str(features.get("unstructured_stable_key") or "").strip()
+            if stable_key:
+                by_exact_stable[stable_key].append(index)
+                normalized_stable = _normalize_stable_key(stable_key)
+                if normalized_stable:
+                    by_normalized_stable[normalized_stable].append(index)
+            spine_index = _coerce_int(features.get("spine_index"))
+            if spine_index is not None:
+                by_spine_index[spine_index].append(index)
+
+    return {
+        "by_exact_stable": dict(by_exact_stable),
+        "by_normalized_stable": dict(by_normalized_stable),
+        "by_normalized_text": dict(by_normalized_text),
+        "by_spine_index": dict(by_spine_index),
+        "normalized_text_by_index": normalized_text_by_index,
+        "text_by_index": text_by_index,
+    }
+
+
+def _score_gold_to_prediction_candidates(
+    *,
+    gold_index: int,
+    metadata_rows: list[dict[str, Any]],
+    prediction_match_index: dict[str, Any],
+    pred_label_keys: set[int],
+) -> tuple[dict[int, float], dict[int, set[str]]]:
+    scores: dict[int, float] = defaultdict(float)
+    reasons: dict[int, set[str]] = defaultdict(set)
+
+    exact_stable = prediction_match_index.get("by_exact_stable", {})
+    normalized_stable = prediction_match_index.get("by_normalized_stable", {})
+    normalized_text = prediction_match_index.get("by_normalized_text", {})
+    by_spine = prediction_match_index.get("by_spine_index", {})
+    normalized_text_by_index = prediction_match_index.get("normalized_text_by_index", {})
+
+    for row in metadata_rows:
+        stable_keys = row.get("stable_keys")
+        if isinstance(stable_keys, list):
+            for stable_key in stable_keys:
+                key = str(stable_key or "").strip()
+                if not key:
+                    continue
+                for pred_index in exact_stable.get(key, []):
+                    scores[pred_index] += 4.0
+                    reasons[pred_index].add("stable_key_exact")
+                normalized_key = _normalize_stable_key(key)
+                if normalized_key:
+                    for pred_index in normalized_stable.get(normalized_key, []):
+                        scores[pred_index] += 3.0
+                        reasons[pred_index].add("stable_key_normalized")
+
+        selected_text = _normalize_match_text(str(row.get("selected_text") or ""))
+        if selected_text:
+            direct_matches = list(normalized_text.get(selected_text, []))
+            if direct_matches:
+                for pred_index in direct_matches:
+                    scores[pred_index] += 3.0
+                    reasons[pred_index].add("selected_text_exact")
+            else:
+                spine_indices = row.get("spine_indices")
+                spine_candidates: list[int] = []
+                if isinstance(spine_indices, list):
+                    for spine_index in spine_indices:
+                        spine_value = _coerce_int(spine_index)
+                        if spine_value is None:
+                            continue
+                        for pred_index in by_spine.get(spine_value, []):
+                            if pred_index not in spine_candidates:
+                                spine_candidates.append(pred_index)
+                for pred_index in spine_candidates:
+                    pred_normalized = str(normalized_text_by_index.get(pred_index) or "")
+                    if not pred_normalized:
+                        continue
+                    if selected_text in pred_normalized or pred_normalized in selected_text:
+                        scores[pred_index] += 2.0
+                        reasons[pred_index].add("selected_text_substring")
+                        continue
+                    ratio = SequenceMatcher(None, selected_text, pred_normalized).ratio()
+                    if ratio >= 0.82:
+                        scores[pred_index] += 1.5
+                        reasons[pred_index].add("selected_text_similarity")
+
+        spine_indices = row.get("spine_indices")
+        if isinstance(spine_indices, list):
+            for spine_index in spine_indices:
+                spine_value = _coerce_int(spine_index)
+                if spine_value is None:
+                    continue
+                for pred_index in by_spine.get(spine_value, []):
+                    scores[pred_index] += 0.2
+                    reasons[pred_index].add("spine_hint")
+
+    if not scores and gold_index in pred_label_keys:
+        scores[gold_index] += 0.5
+        reasons[gold_index].add("index_fallback")
+
+    return dict(scores), {key: set(value) for key, value in reasons.items()}
+
+
+def _adapt_gold_labels_to_prediction_indices(
+    *,
+    gold_labels: dict[int, set[str]],
+    gold_index_metadata: dict[int, list[dict[str, Any]]],
+    pred: dict[int, str],
+    extracted_blocks_json: Path,
+    mode: str,
+    min_coverage: float,
+    max_ambiguous: int,
+) -> tuple[dict[int, set[str]], dict[str, Any]]:
+    prediction_match_index = _load_prediction_match_index(extracted_blocks_json)
+    pred_keys = set(pred.keys())
+    remapped: dict[int, set[str]] = {}
+    unresolved_indices: list[int] = []
+    ambiguous_indices: list[int] = []
+    mapping_rows: list[dict[str, Any]] = []
+    confidence_buckets = {"high": 0, "medium": 0, "low": 0}
+
+    for gold_index in sorted(gold_labels):
+        metadata_rows = gold_index_metadata.get(gold_index, [])
+        scores, reasons = _score_gold_to_prediction_candidates(
+            gold_index=gold_index,
+            metadata_rows=metadata_rows,
+            prediction_match_index=prediction_match_index,
+            pred_label_keys=pred_keys,
+        )
+        if not scores:
+            unresolved_indices.append(gold_index)
+            continue
+
+        ranked = sorted(
+            scores.items(),
+            key=lambda item: (-item[1], abs(item[0] - gold_index), item[0]),
+        )
+        selected_index, selected_score = ranked[0]
+        if len(ranked) > 1 and abs(ranked[1][1] - selected_score) <= 1e-9:
+            ambiguous_indices.append(gold_index)
+
+        if selected_score >= 4.0:
+            confidence = "high"
+        elif selected_score >= 2.0:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        confidence_buckets[confidence] += 1
+
+        remapped.setdefault(selected_index, set()).update(gold_labels[gold_index])
+        mapping_rows.append(
+            {
+                "gold_block_index": gold_index,
+                "pred_block_index": selected_index,
+                "score": round(float(selected_score), 4),
+                "confidence": confidence,
+                "reasons": sorted(reasons.get(selected_index, set())),
+            }
+        )
+
+    total_gold_blocks = len(gold_labels)
+    resolved_gold_blocks = len(mapping_rows)
+    unresolved_count = len(unresolved_indices)
+    ambiguous_count = len(ambiguous_indices)
+    coverage_ratio = (
+        resolved_gold_blocks / total_gold_blocks
+        if total_gold_blocks > 0
+        else 0.0
+    )
+    threshold_passed = (
+        coverage_ratio >= min_coverage and ambiguous_count <= max_ambiguous
+    )
+    diagnostics_payload = {
+        "schema_version": "gold_adaptation.v1",
+        "mode": mode,
+        "coverage_ratio": round(coverage_ratio, 6),
+        "total_gold_blocks": total_gold_blocks,
+        "resolved_gold_blocks": resolved_gold_blocks,
+        "unresolved_gold_blocks": unresolved_count,
+        "ambiguous_gold_blocks": ambiguous_count,
+        "thresholds": {
+            "min_coverage": min_coverage,
+            "max_ambiguous": max_ambiguous,
+        },
+        "threshold_passed": bool(threshold_passed),
+        "confidence_counts": confidence_buckets,
+        "sample_unresolved_gold_indices": unresolved_indices[:25],
+        "sample_ambiguous_gold_indices": ambiguous_indices[:25],
+        "sample_mappings": mapping_rows[:50],
+    }
+    if not threshold_passed:
+        raise ValueError(
+            "Adaptive gold remap thresholds failed. "
+            f"coverage={coverage_ratio:.3f} (min={min_coverage:.3f}) "
+            f"ambiguous={ambiguous_count} (max={max_ambiguous})."
+        )
+    return remapped, diagnostics_payload
+
+
 def _coerce_gold_label_set(raw: Any, *, block_index: int) -> set[str]:
     if isinstance(raw, str):
         items: list[Any] = [raw]
@@ -731,6 +1024,7 @@ def load_gold_block_labels(
     conflict_output_path: Path | None = None,
     require_exhaustive: bool = True,
     profile_output: dict[str, Any] | None = None,
+    index_metadata_output: dict[int, list[dict[str, Any]]] | None = None,
 ) -> dict[int, set[str]]:
     assignments: dict[int, set[str]] = {}
     assignment_spans: dict[int, list[dict[str, Any]]] = {}
@@ -767,6 +1061,8 @@ def load_gold_block_labels(
         indices = _extract_block_indices(payload)
         if not indices:
             continue
+        selected_text = str(payload.get("selected_text") or "").strip()
+        stable_keys, spine_indices = _extract_gold_matching_metadata(payload)
         _update_blockization_profile_from_gold_payload(
             profile,
             payload,
@@ -782,6 +1078,15 @@ def load_gold_block_labels(
                     "source_file": source_file,
                 }
             )
+            if index_metadata_output is not None:
+                index_metadata_output.setdefault(block_index, []).append(
+                    {
+                        "span_id": span_id,
+                        "selected_text": selected_text,
+                        "stable_keys": list(stable_keys),
+                        "spine_indices": list(spine_indices),
+                    }
+                )
 
     if not assignments:
         raise ValueError(
@@ -1266,6 +1571,11 @@ def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
                 "- gold_conflicts.jsonl: "
                 f"{artifacts.get('gold_conflicts_jsonl')}"
             )
+        if artifacts.get("gold_adaptation_diagnostics_json"):
+            lines.append(
+                "- gold_adaptation_diagnostics.json: "
+                f"{artifacts.get('gold_adaptation_diagnostics_json')}"
+            )
 
     lines.append("")
     return "\n".join(lines)
@@ -1280,9 +1590,22 @@ def evaluate_stage_blocks(
     label_projection: str = _SEGMENTATION_LABEL_PROJECTION_CORE,
     boundary_tolerance_blocks: int = 0,
     segmentation_metrics: str | list[str] | tuple[str, ...] | set[str] | None = None,
+    gold_adaptation_mode: str = "off",
+    gold_adaptation_min_coverage: float = 0.7,
+    gold_adaptation_max_ambiguous: int = 50,
 ) -> dict[str, Any]:
     if boundary_tolerance_blocks < 0:
         raise ValueError("boundary_tolerance_blocks must be >= 0.")
+    selected_adaptation_mode = str(gold_adaptation_mode or "off").strip().lower()
+    if selected_adaptation_mode not in _GOLD_ADAPTATION_MODES:
+        raise ValueError(
+            "gold_adaptation_mode must be one of: "
+            + ", ".join(sorted(_GOLD_ADAPTATION_MODES))
+        )
+    if not (0.0 <= float(gold_adaptation_min_coverage) <= 1.0):
+        raise ValueError("gold_adaptation_min_coverage must be between 0.0 and 1.0.")
+    if int(gold_adaptation_max_ambiguous) < 0:
+        raise ValueError("gold_adaptation_max_ambiguous must be >= 0.")
     selected_segmentation_metrics = _parse_segmentation_metric_selection(segmentation_metrics)
 
     evaluation_started = time.monotonic()
@@ -1291,14 +1614,18 @@ def evaluate_stage_blocks(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     gold_conflicts_path = out_dir / "gold_conflicts.jsonl"
+    gold_adaptation_diagnostics_path = out_dir / "gold_adaptation_diagnostics.json"
+    gold_adaptation_diagnostics: dict[str, Any] | None = None
 
     load_gold_started = time.monotonic()
     gold_profile: dict[str, Any] = {}
+    gold_index_metadata: dict[int, list[dict[str, Any]]] = {}
     gold = load_gold_block_labels(
         gold_freeform_jsonl,
         conflict_output_path=gold_conflicts_path,
         require_exhaustive=False,
         profile_output=gold_profile,
+        index_metadata_output=gold_index_metadata,
     )
     subphase_seconds["load_gold_seconds"] = max(0.0, time.monotonic() - load_gold_started)
 
@@ -1315,18 +1642,61 @@ def evaluate_stage_blocks(
     diagnostics_started = time.monotonic()
     gold_indices = set(gold)
     pred_indices = set(pred)
-    missing_gold = sorted(pred_indices - gold_indices)
+    initial_missing_gold = sorted(pred_indices - gold_indices)
+    initial_extra_gold = sorted(gold_indices - pred_indices)
 
     blockization_diagnostics = _collect_blockization_diagnostics(
         gold_profile=gold_profile,
         prediction_profile=prediction_profile,
-        missing_gold_indices=missing_gold,
+        missing_gold_indices=initial_missing_gold,
         pred_block_count=len(pred_indices),
     )
     if blockization_diagnostics:
         diagnostics = _read_jsonl(gold_conflicts_path)
         diagnostics.extend(blockization_diagnostics)
         _write_jsonl(gold_conflicts_path, diagnostics)
+
+    has_mismatch_signal = _has_blockization_mismatch_signal(blockization_diagnostics)
+    should_adapt = selected_adaptation_mode == "force" or (
+        selected_adaptation_mode == "auto"
+        and (has_mismatch_signal or bool(initial_extra_gold))
+    )
+
+    if should_adapt:
+        adaptation_started = time.monotonic()
+        gold, gold_adaptation_diagnostics = _adapt_gold_labels_to_prediction_indices(
+            gold_labels=gold,
+            gold_index_metadata=gold_index_metadata,
+            pred=pred,
+            extracted_blocks_json=extracted_blocks_json,
+            mode=selected_adaptation_mode,
+            min_coverage=float(gold_adaptation_min_coverage),
+            max_ambiguous=int(gold_adaptation_max_ambiguous),
+        )
+        gold_adaptation_diagnostics_path.write_text(
+            json.dumps(gold_adaptation_diagnostics, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        diagnostics = _read_jsonl(gold_conflicts_path)
+        diagnostics.append(
+            {
+                "warning": "gold_adaptation_applied",
+                "mode": selected_adaptation_mode,
+                "coverage_ratio": float(gold_adaptation_diagnostics.get("coverage_ratio") or 0.0),
+                "unresolved_gold_blocks": int(
+                    gold_adaptation_diagnostics.get("unresolved_gold_blocks") or 0
+                ),
+                "ambiguous_gold_blocks": int(
+                    gold_adaptation_diagnostics.get("ambiguous_gold_blocks") or 0
+                ),
+            }
+        )
+        _write_jsonl(gold_conflicts_path, diagnostics)
+        subphase_seconds["gold_adaptation_seconds"] = max(
+            0.0,
+            time.monotonic() - adaptation_started,
+        )
+    else:
         fatal_diagnostic = next(
             (
                 item
@@ -1339,6 +1709,8 @@ def evaluate_stage_blocks(
         if isinstance(fatal_diagnostic, dict):
             raise ValueError(_format_blockization_mismatch_message(fatal_diagnostic))
 
+    gold_indices = set(gold)
+    missing_gold = sorted(pred_indices - gold_indices)
     if missing_gold:
         for block_index in missing_gold:
             gold[block_index] = {"OTHER"}
@@ -1532,10 +1904,13 @@ def evaluate_stage_blocks(
         "gold": gold_profile,
         "prediction": prediction_profile,
     }
+    diagnostics_payload: dict[str, Any] = {}
     if blockization_diagnostics:
-        report["diagnostics"] = {
-            "blockization": blockization_diagnostics,
-        }
+        diagnostics_payload["blockization"] = blockization_diagnostics
+    if isinstance(gold_adaptation_diagnostics, dict):
+        diagnostics_payload["gold_adaptation"] = gold_adaptation_diagnostics
+    if diagnostics_payload:
+        report["diagnostics"] = diagnostics_payload
     report["artifacts"] = {
         "eval_report_json": str(out_dir / "eval_report.json"),
         "eval_report_md": str(out_dir / "eval_report.md"),
@@ -1545,6 +1920,11 @@ def evaluate_stage_blocks(
         "false_positive_boundaries_jsonl": str(false_positive_boundaries_path),
         "gold_conflicts_jsonl": (
             str(gold_conflicts_path) if gold_conflicts_path.exists() else ""
+        ),
+        "gold_adaptation_diagnostics_json": (
+            str(gold_adaptation_diagnostics_path)
+            if gold_adaptation_diagnostics_path.exists()
+            else ""
         ),
     }
     overall_boundary_metrics = report["segmentation"].get("boundaries", {}).get("overall_micro", {})
@@ -1563,6 +1943,9 @@ def evaluate_stage_blocks(
             "gold_block_count": float(len(gold)),
             "prediction_block_count": float(len(pred)),
             "missing_gold_defaulted_count": float(len(missing_gold)),
+            "gold_adaptation_coverage_ratio": float(
+                (gold_adaptation_diagnostics or {}).get("coverage_ratio") or 0.0
+            ),
             "wrong_label_count": float(len(wrong_rows)),
             "segmentation_gold_boundary_count": float(
                 int(overall_boundary_metrics.get("gold_count") or 0)

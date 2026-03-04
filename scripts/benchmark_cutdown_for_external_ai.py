@@ -4866,8 +4866,14 @@ def _build_selected_recipe_packets(
         packets.append(
             {
                 "selection_reason": str(row.get("selection_reason") or ""),
+                "source_key": str(row.get("source_key") or ""),
+                "codex_run_id": str(row.get("codex_run_id") or row.get("run_id") or ""),
+                "baseline_run_id": str(row.get("baseline_run_id") or ""),
                 "recipe_id": str(row.get("recipe_id") or ""),
                 "short_title": str(row.get("short_title") or ""),
+                "delta_codex_minus_baseline": _coerce_float(
+                    row.get("delta_codex_minus_baseline")
+                ),
                 "changed_lines_codex_vs_baseline": int(
                     _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
                 ),
@@ -6130,31 +6136,48 @@ def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             continue
     run_dir_by_id: dict[str, Path] = {}
-    for record in derived_run_records:
+    run_dirs_by_id: dict[str, list[Path]] = defaultdict(list)
+    run_dir_by_output_subdir: dict[str, Path] = {}
+    derived_run_rows: list[dict[str, Any]] = []
+    for record in sorted(
+        derived_run_records,
+        key=lambda record: (
+            record.run_timestamp or datetime.min,
+            str(record.run_id or ""),
+            str(record.run_dir or ""),
+        ),
+    ):
+        run_dir_path = Path(record.run_dir)
         run_id = str(record.run_id or "").strip()
-        if not run_id:
-            continue
-        run_dir_by_id.setdefault(run_id, Path(record.run_dir))
-    derived_run_rows = [
-        {
-            "run_id": record.run_id,
-            "output_subdir": record.output_subdir,
-            "source_file": record.source_file,
-            "overall_line_accuracy": record.metric_overall_line_accuracy,
-            "practical_f1": record.metric_practical_f1,
-            "full_prompt_log_status": record.full_prompt_log_status,
-            "full_prompt_log_rows": record.full_prompt_log_rows,
-            "line_role_pipeline": record.line_role_pipeline,
-            "llm_recipe_pipeline": record.llm_recipe_pipeline,
-        }
-        for record in sorted(
-            derived_run_records,
-            key=lambda record: (
-                record.run_timestamp or datetime.min,
-                str(record.run_id or ""),
-            ),
+        if run_id:
+            run_dir_by_id.setdefault(run_id, run_dir_path)
+            run_dirs_by_id[run_id].append(run_dir_path)
+
+        output_subdir = str(record.output_subdir or "").strip()
+        try:
+            relative_subdir = str(run_dir_path.resolve().relative_to(source_root).as_posix())
+        except Exception:  # noqa: BLE001
+            relative_subdir = output_subdir
+        effective_output_subdir = relative_subdir or output_subdir
+        if effective_output_subdir:
+            run_dir_by_output_subdir.setdefault(effective_output_subdir, run_dir_path)
+
+        derived_run_rows.append(
+            {
+                "run_id": record.run_id,
+                "output_subdir": effective_output_subdir,
+                "source_key": record.source_key,
+                "source_file": record.source_file,
+                "source_hash": record.source_hash,
+                "overall_line_accuracy": record.metric_overall_line_accuracy,
+                "macro_f1_excluding_other": record.metric_macro_f1_excluding_other,
+                "practical_f1": record.metric_practical_f1,
+                "full_prompt_log_status": record.full_prompt_log_status,
+                "full_prompt_log_rows": record.full_prompt_log_rows,
+                "line_role_pipeline": record.line_role_pipeline,
+                "llm_recipe_pipeline": record.llm_recipe_pipeline,
+            }
         )
-    ]
 
     derived_pairs: list[dict[str, Any]] = []
     derived_changed_lines: list[dict[str, Any]] = []
@@ -6188,7 +6211,33 @@ def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
             derived_recipe_triage = []
             derived_call_inventory = []
 
-    effective_run_rows = run_rows_from_root if run_rows_from_root else derived_run_rows
+    effective_run_rows_raw = run_rows_from_root if run_rows_from_root else derived_run_rows
+    effective_run_rows: list[dict[str, Any]] = []
+    for row in effective_run_rows_raw:
+        if not isinstance(row, dict):
+            continue
+        run_row = dict(row)
+        run_id = str(run_row.get("run_id") or "").strip()
+        output_subdir = str(run_row.get("output_subdir") or "").strip()
+        if not output_subdir:
+            run_dir = run_dir_by_id.get(run_id)
+            if isinstance(run_dir, Path):
+                try:
+                    output_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
+                except Exception:  # noqa: BLE001
+                    output_subdir = str(run_dir.name)
+        source_file = _source_file_name(str(run_row.get("source_file") or "").strip() or None)
+        source_hash = str(run_row.get("source_hash") or "").strip()
+        source_key = str(run_row.get("source_key") or "").strip() or _source_key(
+            source_hash or None,
+            source_file,
+        )
+        run_row["run_id"] = run_id
+        run_row["output_subdir"] = output_subdir
+        run_row["source_file"] = source_file
+        run_row["source_hash"] = source_hash or None
+        run_row["source_key"] = source_key
+        effective_run_rows.append(run_row)
     effective_pairs = comparison_pairs_from_root if comparison_pairs_from_root else derived_pairs
     effective_changed_lines = (
         changed_lines_from_root if changed_lines_from_root else derived_changed_lines
@@ -6229,6 +6278,8 @@ def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
         "call_inventory_rows": effective_call_inventory,
         "selected_packets": effective_selected_packets,
         "run_dir_by_id": run_dir_by_id,
+        "run_dirs_by_id": run_dirs_by_id,
+        "run_dir_by_output_subdir": run_dir_by_output_subdir,
         "discovered_run_dirs": discovered_run_dirs,
         "advertised_counts": {
             "run_count": len(run_rows_from_root) if has_run_rows_from_root else None,
@@ -7344,16 +7395,52 @@ def _upload_bundle_estimate_call_cost_usd(
     return round(total_cost, 8)
 
 
+def _upload_bundle_iter_unique_run_dirs(
+    *,
+    run_dirs: list[Path] | None = None,
+    run_dir_by_id: dict[str, Path] | None = None,
+) -> list[Path]:
+    candidates: list[Path] = []
+    if isinstance(run_dirs, list):
+        candidates.extend([item for item in run_dirs if isinstance(item, Path)])
+    if isinstance(run_dir_by_id, dict):
+        candidates.extend([item for item in run_dir_by_id.values() if isinstance(item, Path)])
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for run_dir in candidates:
+        key = str(run_dir.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(run_dir)
+    return unique
+
+
 def _upload_bundle_collect_call_runtime_map(
     *,
-    run_dir_by_id: dict[str, Path],
-) -> dict[tuple[str, str, str, str], dict[str, Any]]:
-    runtime_by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-    for run_id, run_dir in sorted(run_dir_by_id.items()):
+    run_dirs: list[Path] | None = None,
+    run_dir_by_id: dict[str, Path] | None = None,
+) -> dict[tuple[str, str, str, str, str], dict[str, Any]]:
+    runtime_by_key: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    for run_dir in _upload_bundle_iter_unique_run_dirs(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    ):
         run_manifest_path = run_dir / "run_manifest.json"
         if not run_manifest_path.is_file():
             continue
         run_manifest = _upload_bundle_load_json_object(run_manifest_path)
+        manifest_run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
+        source_payload = (
+            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+        )
+        source_path = source_payload.get("path") if isinstance(source_payload, dict) else None
+        source_hash = source_payload.get("source_hash") if isinstance(source_payload, dict) else None
+        source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+        source_key = _source_key(
+            source_hash if isinstance(source_hash, str) else None,
+            source_file,
+        )
         full_prompt_path = _resolve_full_prompt_log_path(run_dir, run_manifest)
         if full_prompt_path is None or not full_prompt_path.is_file():
             continue
@@ -7363,8 +7450,10 @@ def _upload_bundle_collect_call_runtime_map(
             recipe_id = str(prompt_row.get("recipe_id") or "").strip()
             if pass_name not in {"pass1", "pass2", "pass3"} or not call_id:
                 continue
+            row_run_id = str(prompt_row.get("run_id") or manifest_run_id).strip() or manifest_run_id
             key = (
-                str(prompt_row.get("run_id") or run_id).strip() or run_id,
+                source_key,
+                row_run_id,
                 recipe_id,
                 pass_name,
                 call_id,
@@ -7421,10 +7510,14 @@ def _upload_bundle_token_share_fields(
 
 def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
     *,
-    run_dir_by_id: dict[str, Path],
+    run_dirs: list[Path] | None = None,
+    run_dir_by_id: dict[str, Path] | None = None,
 ) -> dict[str, Any] | None:
     aggregate_by_pass: dict[str, dict[str, Any]] = {}
-    for run_id, run_dir in sorted(run_dir_by_id.items()):
+    for run_dir in _upload_bundle_iter_unique_run_dirs(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    ):
         run_manifest_path = run_dir / "run_manifest.json"
         if not run_manifest_path.is_file():
             continue
@@ -7573,6 +7666,7 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
     )
     return {
         "summary": summary,
+        "by_source": [],
         "top_slowest_calls": [],
         "top_token_calls": [],
         "top_cost_calls": [],
@@ -7584,15 +7678,47 @@ def _upload_bundle_build_call_runtime_inventory(
     *,
     call_inventory_rows: list[dict[str, Any]],
     run_dir_by_id: dict[str, Path],
+    run_dirs: list[Path] | None = None,
 ) -> dict[str, Any]:
-    runtime_by_key = _upload_bundle_collect_call_runtime_map(run_dir_by_id=run_dir_by_id)
+    runtime_by_key = _upload_bundle_collect_call_runtime_map(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    )
     enriched_rows: list[dict[str, Any]] = []
     for row in call_inventory_rows:
+        source_key = str(row.get("source_key") or "").strip()
         run_id = str(row.get("run_id") or "").strip()
         recipe_id = str(row.get("recipe_id") or "").strip()
         pass_name = str(row.get("pass") or "").strip().lower()
         call_id = str(row.get("call_id") or "").strip()
-        runtime = runtime_by_key.get((run_id, recipe_id, pass_name, call_id), {})
+        runtime = runtime_by_key.get((source_key, run_id, recipe_id, pass_name, call_id))
+        if not isinstance(runtime, dict):
+            runtime = runtime_by_key.get(("", run_id, recipe_id, pass_name, call_id))
+        if not isinstance(runtime, dict):
+            runtime = {}
+            for runtime_key, runtime_payload in runtime_by_key.items():
+                if (
+                    not isinstance(runtime_key, tuple)
+                    or len(runtime_key) != 5
+                    or not isinstance(runtime_payload, dict)
+                ):
+                    continue
+                (
+                    _runtime_source_key,
+                    runtime_run_id,
+                    runtime_recipe_id,
+                    runtime_pass_name,
+                    runtime_call_id,
+                ) = runtime_key
+                if (
+                    str(runtime_run_id) == run_id
+                    and str(runtime_recipe_id) == recipe_id
+                    and str(runtime_pass_name) == pass_name
+                    and str(runtime_call_id) == call_id
+                ):
+                    runtime = runtime_payload
+                    break
+
         observed_cost_usd = _coerce_float(runtime.get("cost_usd"))
         estimated_cost_usd = (
             observed_cost_usd
@@ -7630,7 +7756,8 @@ def _upload_bundle_build_call_runtime_inventory(
 
     if not enriched_rows:
         telemetry_fallback = _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
-            run_dir_by_id=run_dir_by_id
+            run_dirs=run_dirs,
+            run_dir_by_id=run_dir_by_id,
         )
         if telemetry_fallback is not None:
             return telemetry_fallback
@@ -7826,8 +7953,198 @@ def _upload_bundle_build_call_runtime_inventory(
         _upload_bundle_token_share_fields(by_pass=by_pass, total_tokens=total_tokens)
     )
 
+    by_source_buckets: dict[str, dict[str, Any]] = {}
+    for row in enriched_rows:
+        source_key = str(row.get("source_key") or "").strip()
+        source_file = str(row.get("source_file") or "").strip()
+        if not source_key:
+            source_key = source_file.lower() if source_file else "unknown_source"
+        bucket = by_source_buckets.setdefault(
+            source_key,
+            {
+                "source_key": source_key,
+                "source_file": source_file or None,
+                "call_count": 0,
+                "calls_with_runtime": 0,
+                "calls_with_cost": 0,
+                "calls_with_estimated_cost": 0,
+                "duration_total_ms": 0,
+                "duration_known": False,
+                "tokens_total": 0,
+                "tokens_known": False,
+                "cost_total_usd": 0.0,
+                "cost_known": False,
+                "estimated_cost_total_usd": 0.0,
+                "estimated_cost_known": False,
+                "by_pass": defaultdict(
+                    lambda: {
+                        "call_count": 0,
+                        "calls_with_runtime": 0,
+                        "calls_with_cost": 0,
+                        "calls_with_estimated_cost": 0,
+                        "duration_total_ms": 0,
+                        "duration_known": False,
+                        "tokens_total": 0,
+                        "tokens_known": False,
+                        "cost_total_usd": 0.0,
+                        "cost_known": False,
+                        "estimated_cost_total_usd": 0.0,
+                        "estimated_cost_known": False,
+                    }
+                ),
+            },
+        )
+        bucket["call_count"] += 1
+        pass_name = str(row.get("pass") or "").strip().lower() or "unknown"
+        pass_bucket = bucket["by_pass"][pass_name]
+        pass_bucket["call_count"] += 1
+
+        duration_ms = _coerce_int(row.get("duration_ms"))
+        if duration_ms is not None:
+            bucket["calls_with_runtime"] += 1
+            bucket["duration_total_ms"] += int(duration_ms)
+            bucket["duration_known"] = True
+            pass_bucket["calls_with_runtime"] += 1
+            pass_bucket["duration_total_ms"] += int(duration_ms)
+            pass_bucket["duration_known"] = True
+
+        tokens_total_row = _coerce_int(row.get("tokens_total"))
+        if tokens_total_row is not None:
+            bucket["tokens_total"] += int(tokens_total_row)
+            bucket["tokens_known"] = True
+            pass_bucket["tokens_total"] += int(tokens_total_row)
+            pass_bucket["tokens_known"] = True
+
+        cost_usd = _coerce_float(row.get("cost_usd"))
+        if cost_usd is not None:
+            bucket["calls_with_cost"] += 1
+            bucket["cost_total_usd"] += float(cost_usd)
+            bucket["cost_known"] = True
+            pass_bucket["calls_with_cost"] += 1
+            pass_bucket["cost_total_usd"] += float(cost_usd)
+            pass_bucket["cost_known"] = True
+
+        estimated_cost_usd_row = _coerce_float(row.get("estimated_cost_usd"))
+        if estimated_cost_usd_row is not None:
+            bucket["calls_with_estimated_cost"] += 1
+            bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
+            bucket["estimated_cost_known"] = True
+            pass_bucket["calls_with_estimated_cost"] += 1
+            pass_bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
+            pass_bucket["estimated_cost_known"] = True
+
+    by_source_rows: list[dict[str, Any]] = []
+    for source_key, bucket in by_source_buckets.items():
+        call_count = int(bucket.get("call_count") or 0)
+        calls_with_runtime = int(bucket.get("calls_with_runtime") or 0)
+        calls_with_cost = int(bucket.get("calls_with_cost") or 0)
+        calls_with_estimated_cost = int(bucket.get("calls_with_estimated_cost") or 0)
+        pass_rows: dict[str, Any] = {}
+        by_pass_payload = bucket.get("by_pass")
+        if isinstance(by_pass_payload, dict):
+            for pass_name in sorted(by_pass_payload.keys()):
+                pass_bucket = by_pass_payload.get(pass_name)
+                if not isinstance(pass_bucket, dict):
+                    continue
+                pass_call_count = int(pass_bucket.get("call_count") or 0)
+                pass_calls_with_runtime = int(pass_bucket.get("calls_with_runtime") or 0)
+                pass_rows[pass_name] = {
+                    "call_count": pass_call_count,
+                    "calls_with_runtime": pass_calls_with_runtime,
+                    "calls_with_cost": int(pass_bucket.get("calls_with_cost") or 0),
+                    "calls_with_estimated_cost": int(
+                        pass_bucket.get("calls_with_estimated_cost") or 0
+                    ),
+                    "total_duration_ms": (
+                        int(pass_bucket.get("duration_total_ms") or 0)
+                        if bool(pass_bucket.get("duration_known"))
+                        else None
+                    ),
+                    "avg_duration_ms": (
+                        round(
+                            float(int(pass_bucket.get("duration_total_ms") or 0))
+                            / float(pass_calls_with_runtime),
+                            3,
+                        )
+                        if bool(pass_bucket.get("duration_known")) and pass_calls_with_runtime > 0
+                        else None
+                    ),
+                    "total_tokens": (
+                        int(pass_bucket.get("tokens_total") or 0)
+                        if bool(pass_bucket.get("tokens_known"))
+                        else None
+                    ),
+                    "total_cost_usd": (
+                        round(float(pass_bucket.get("cost_total_usd") or 0.0), 8)
+                        if bool(pass_bucket.get("cost_known"))
+                        else None
+                    ),
+                    "total_estimated_cost_usd": (
+                        round(float(pass_bucket.get("estimated_cost_total_usd") or 0.0), 8)
+                        if bool(pass_bucket.get("estimated_cost_known"))
+                        else None
+                    ),
+                }
+        by_source_rows.append(
+            {
+                "source_key": source_key,
+                "source_file": bucket.get("source_file"),
+                "call_count": call_count,
+                "calls_with_runtime": calls_with_runtime,
+                "calls_with_cost": calls_with_cost,
+                "calls_with_estimated_cost": calls_with_estimated_cost,
+                "total_duration_ms": (
+                    int(bucket.get("duration_total_ms") or 0)
+                    if bool(bucket.get("duration_known"))
+                    else None
+                ),
+                "avg_duration_ms": (
+                    round(
+                        float(int(bucket.get("duration_total_ms") or 0))
+                        / float(calls_with_runtime),
+                        3,
+                    )
+                    if bool(bucket.get("duration_known")) and calls_with_runtime > 0
+                    else None
+                ),
+                "total_tokens": (
+                    int(bucket.get("tokens_total") or 0)
+                    if bool(bucket.get("tokens_known"))
+                    else None
+                ),
+                "total_cost_usd": (
+                    round(float(bucket.get("cost_total_usd") or 0.0), 8)
+                    if bool(bucket.get("cost_known"))
+                    else None
+                ),
+                "total_estimated_cost_usd": (
+                    round(float(bucket.get("estimated_cost_total_usd") or 0.0), 8)
+                    if bool(bucket.get("estimated_cost_known"))
+                    else None
+                ),
+                "cost_coverage_ratio": (
+                    round(calls_with_cost / call_count, 6) if call_count > 0 else 0.0
+                ),
+                "estimated_cost_coverage_ratio": (
+                    round(calls_with_estimated_cost / call_count, 6)
+                    if call_count > 0
+                    else 0.0
+                ),
+                "by_pass": pass_rows,
+            }
+        )
+    by_source_rows.sort(
+        key=lambda row: (
+            -_float_or_zero(row.get("total_estimated_cost_usd")),
+            -_float_or_zero(row.get("total_cost_usd")),
+            -int(_coerce_int(row.get("call_count")) or 0),
+            str(row.get("source_key") or ""),
+        )
+    )
+
     return {
         "summary": summary,
+        "by_source": by_source_rows,
         "top_slowest_calls": top_slowest,
         "top_token_calls": top_token,
         "top_cost_calls": top_cost,
@@ -7853,9 +8170,13 @@ def _upload_bundle_build_line_role_confidence_summary(
     *,
     source_root: Path,
     run_dir_by_id: dict[str, Path],
+    run_dirs: list[Path] | None = None,
 ) -> dict[str, Any]:
     file_paths: list[Path] = []
-    for run_dir in run_dir_by_id.values():
+    for run_dir in _upload_bundle_iter_unique_run_dirs(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    ):
         candidate = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
         if candidate.is_file():
             file_paths.append(candidate)
@@ -8657,16 +8978,33 @@ def _upload_bundle_collect_line_role_prediction_rows(
     *,
     source_root: Path,
     run_dir_by_id: dict[str, Path],
+    run_dirs: list[Path] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     rows: list[dict[str, Any]] = []
     relative_paths: list[str] = []
-    for run_id, run_dir_value in sorted(run_dir_by_id.items(), key=lambda item: item[0]):
-        run_dir = run_dir_value if isinstance(run_dir_value, Path) else None
-        if run_dir is None:
-            continue
+    for run_dir in _upload_bundle_iter_unique_run_dirs(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    ):
         path = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
         if not path.is_file():
             continue
+        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
+        run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
+        source_payload = (
+            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+        )
+        source_path = source_payload.get("path") if isinstance(source_payload, dict) else None
+        source_hash = source_payload.get("source_hash") if isinstance(source_payload, dict) else None
+        source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+        source_key = _source_key(
+            source_hash if isinstance(source_hash, str) else None,
+            source_file,
+        )
+        try:
+            output_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
+        except Exception:  # noqa: BLE001
+            output_subdir = run_dir.name
         try:
             relative_paths.append(str(path.relative_to(source_root).as_posix()))
         except ValueError:
@@ -8683,6 +9021,8 @@ def _upload_bundle_collect_line_role_prediction_rows(
             row_payload["decided_by"] = (
                 str(row_payload.get("decided_by") or "").strip().lower() or "unknown"
             )
+            row_payload["source_key"] = source_key
+            row_payload["output_subdir"] = output_subdir
             row_payload["confidence"] = _coerce_float(row_payload.get("confidence"))
             row_payload["candidate_labels"] = _upload_bundle_extract_candidate_labels(row_payload)
             rows.append(row_payload)
@@ -8694,10 +9034,12 @@ def _upload_bundle_build_low_confidence_changed_lines_packet(
     source_root: Path,
     run_dir_by_id: dict[str, Path],
     changed_line_rows: list[dict[str, Any]],
+    run_dirs: list[Path] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     prediction_rows, prediction_files = _upload_bundle_collect_line_role_prediction_rows(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
+        run_dirs=run_dirs,
     )
     if not prediction_rows:
         return (
@@ -8716,12 +9058,17 @@ def _upload_bundle_build_low_confidence_changed_lines_packet(
             [],
         )
 
+    predictions_by_source_run_line: dict[
+        tuple[str, str, int], list[dict[str, Any]]
+    ] = defaultdict(list)
     predictions_by_run_line: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for row in prediction_rows:
+        source_key = str(row.get("source_key") or "").strip()
         run_id = str(row.get("run_id") or "")
         line_index = _coerce_int(row.get("line_index"))
         if not run_id or line_index is None:
             continue
+        predictions_by_source_run_line[(source_key, run_id, int(line_index))].append(row)
         predictions_by_run_line[(run_id, int(line_index))].append(row)
 
     def _pick_prediction_row(
@@ -8746,11 +9093,17 @@ def _upload_bundle_build_low_confidence_changed_lines_packet(
     for changed_row in changed_line_rows:
         if not isinstance(changed_row, dict):
             continue
+        source_key = str(changed_row.get("source_key") or "").strip()
         codex_run_id = str(changed_row.get("codex_run_id") or "").strip()
         line_index = _coerce_int(changed_row.get("line_index"))
         if not codex_run_id or line_index is None:
             continue
-        candidates = predictions_by_run_line.get((codex_run_id, int(line_index)), [])
+        candidates = predictions_by_source_run_line.get(
+            (source_key, codex_run_id, int(line_index)),
+            [],
+        )
+        if not candidates:
+            candidates = predictions_by_run_line.get((codex_run_id, int(line_index)), [])
         if not candidates:
             continue
         selected = _pick_prediction_row(
@@ -9015,21 +9368,31 @@ def _upload_bundle_build_config_version_metadata(
     run_rows: list[dict[str, Any]],
     comparison_pairs: list[dict[str, Any]],
     run_dir_by_id: dict[str, Path],
+    run_dir_by_output_subdir: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
     settings_keys = list(RUN_CONFIG_KEYS_OF_INTEREST) + ["prediction_run_config_hash"]
-    run_rows_by_id: dict[str, dict[str, Any]] = {}
+    run_rows_by_identity: dict[tuple[str, str], dict[str, Any]] = {}
     for row in run_rows:
         if not isinstance(row, dict):
             continue
         run_id = str(row.get("run_id") or "").strip()
-        if not run_id:
+        output_subdir = str(row.get("output_subdir") or "").strip()
+        if not run_id and not output_subdir:
             continue
-        run_rows_by_id.setdefault(run_id, row)
+        identity = (run_id, output_subdir)
+        run_rows_by_identity.setdefault(identity, row)
 
     run_settings_rows: list[dict[str, Any]] = []
-    for run_id in sorted(run_rows_by_id.keys()):
-        row = run_rows_by_id[run_id]
-        run_dir = run_dir_by_id.get(run_id)
+    for run_id, output_subdir in sorted(run_rows_by_identity.keys()):
+        row = run_rows_by_identity[(run_id, output_subdir)]
+        run_dir = None
+        if isinstance(run_dir_by_output_subdir, dict) and output_subdir:
+            candidate = run_dir_by_output_subdir.get(output_subdir)
+            if isinstance(candidate, Path):
+                run_dir = candidate
+        if run_dir is None:
+            candidate = run_dir_by_id.get(run_id)
+            run_dir = candidate if isinstance(candidate, Path) else None
         run_manifest: dict[str, Any] = {}
         eval_report: dict[str, Any] = {}
         if isinstance(run_dir, Path):
@@ -9050,7 +9413,7 @@ def _upload_bundle_build_config_version_metadata(
         run_settings_rows.append(
             {
                 "run_id": run_id,
-                "output_subdir": str(row.get("output_subdir") or ""),
+                "output_subdir": output_subdir,
                 "source_file": row.get("source_file"),
                 "llm_recipe_pipeline": settings.get("llm_recipe_pipeline"),
                 "line_role_pipeline": settings.get("line_role_pipeline"),
@@ -9366,6 +9729,635 @@ def _upload_bundle_build_stage_separated_comparison(
     }
 
 
+def _upload_bundle_source_key_for_row(row: dict[str, Any]) -> str:
+    source_key = str(row.get("source_key") or "").strip()
+    if source_key:
+        return source_key
+    source_hash = str(row.get("source_hash") or "").strip()
+    source_file = _source_file_name(str(row.get("source_file") or "").strip() or None)
+    return _source_key(source_hash or None, source_file)
+
+
+def _upload_bundle_source_metadata(
+    *,
+    run_rows: list[dict[str, Any]],
+    comparison_pairs: list[dict[str, Any]],
+    recipe_triage_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    metadata: dict[str, dict[str, Any]] = {}
+
+    def _register(source_key: str, source_file: Any) -> None:
+        key = str(source_key or "").strip()
+        if not key:
+            return
+        source_file_name = _source_file_name(str(source_file or "").strip() or None)
+        entry = metadata.setdefault(
+            key,
+            {
+                "source_key": key,
+                "source_file": source_file_name,
+            },
+        )
+        if not entry.get("source_file") and source_file_name:
+            entry["source_file"] = source_file_name
+
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        _register(_upload_bundle_source_key_for_row(row), row.get("source_file"))
+
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        _register(str(pair.get("source_key") or ""), pair.get("source_file"))
+        codex_run = pair.get("codex_run")
+        if isinstance(codex_run, dict):
+            _register(str(pair.get("source_key") or ""), codex_run.get("source_file"))
+        baseline_run = pair.get("baseline_run")
+        if isinstance(baseline_run, dict):
+            _register(str(pair.get("source_key") or ""), baseline_run.get("source_file"))
+
+    for row in recipe_triage_rows:
+        if not isinstance(row, dict):
+            continue
+        _register(str(row.get("source_key") or ""), row.get("source_file"))
+
+    return metadata
+
+
+def _upload_bundle_mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(float(sum(values)) / float(len(values)), 6)
+
+
+def _upload_bundle_stringify_value(value: Any) -> str:
+    if value is None:
+        return "<none>"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
+def _upload_bundle_build_book_scorecard(
+    *,
+    comparison_pairs: list[dict[str, Any]],
+    source_metadata: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    metric_keys = (
+        "overall_line_accuracy",
+        "macro_f1_excluding_other",
+        "practical_f1",
+    )
+    by_source: dict[str, dict[str, Any]] = {}
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        source_key = str(pair.get("source_key") or "").strip()
+        if not source_key:
+            continue
+        bucket = by_source.setdefault(
+            source_key,
+            {
+                "pair_count": 0,
+                "changed_line_total": 0,
+                "baseline_metrics": defaultdict(list),
+                "codex_metrics": defaultdict(list),
+                "delta_metrics": defaultdict(list),
+                "wins": [],
+                "regressions": [],
+            },
+        )
+        bucket["pair_count"] += 1
+        bucket["changed_line_total"] += int(_coerce_int(pair.get("changed_line_count")) or 0)
+
+        codex_run = pair.get("codex_run")
+        codex_run = codex_run if isinstance(codex_run, dict) else {}
+        baseline_run = pair.get("baseline_run")
+        baseline_run = baseline_run if isinstance(baseline_run, dict) else {}
+        delta_payload = pair.get("delta_codex_minus_baseline")
+        delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
+        codex_run_id = str(codex_run.get("run_id") or "")
+        baseline_run_id = str(baseline_run.get("run_id") or "")
+
+        for metric_key in metric_keys:
+            baseline_value = _coerce_float(baseline_run.get(metric_key))
+            codex_value = _coerce_float(codex_run.get(metric_key))
+            delta_value = _coerce_float(delta_payload.get(metric_key))
+            if delta_value is None and baseline_value is not None and codex_value is not None:
+                delta_value = _delta(codex_value, baseline_value)
+
+            if baseline_value is not None:
+                bucket["baseline_metrics"][metric_key].append(float(baseline_value))
+            if codex_value is not None:
+                bucket["codex_metrics"][metric_key].append(float(codex_value))
+            if delta_value is not None:
+                delta_float = float(delta_value)
+                bucket["delta_metrics"][metric_key].append(delta_float)
+                metric_row = {
+                    "metric": metric_key,
+                    "delta": round(delta_float, 6),
+                    "codex_run_id": codex_run_id,
+                    "baseline_run_id": baseline_run_id,
+                }
+                if delta_float > 0:
+                    bucket["wins"].append(metric_row)
+                elif delta_float < 0:
+                    bucket["regressions"].append(metric_row)
+
+    rows: list[dict[str, Any]] = []
+    for source_key in sorted(by_source.keys()):
+        bucket = by_source.get(source_key)
+        if not isinstance(bucket, dict):
+            continue
+        source_info = source_metadata.get(source_key, {})
+        wins = sorted(
+            bucket.get("wins") or [],
+            key=lambda row: (
+                -_float_or_zero(row.get("delta")),
+                str(row.get("metric") or ""),
+            ),
+        )[:5]
+        regressions = sorted(
+            bucket.get("regressions") or [],
+            key=lambda row: (
+                _float_or_zero(row.get("delta")),
+                str(row.get("metric") or ""),
+            ),
+        )[:5]
+        row = {
+            "source_key": source_key,
+            "source_file": source_info.get("source_file"),
+            "pair_count": int(bucket.get("pair_count") or 0),
+            "changed_line_total": int(bucket.get("changed_line_total") or 0),
+            "vanilla": {
+                metric_key: _upload_bundle_mean(
+                    [float(value) for value in (bucket.get("baseline_metrics", {}).get(metric_key) or [])]
+                )
+                for metric_key in metric_keys
+            },
+            "codex": {
+                metric_key: _upload_bundle_mean(
+                    [float(value) for value in (bucket.get("codex_metrics", {}).get(metric_key) or [])]
+                )
+                for metric_key in metric_keys
+            },
+            "delta": {
+                metric_key: _upload_bundle_mean(
+                    [float(value) for value in (bucket.get("delta_metrics", {}).get(metric_key) or [])]
+                )
+                for metric_key in metric_keys
+            },
+            "best_wins": wins,
+            "worst_regressions": regressions,
+            "best_wins_count": len(bucket.get("wins") or []),
+            "worst_regressions_count": len(bucket.get("regressions") or []),
+        }
+        rows.append(row)
+
+    rows.sort(
+        key=lambda row: (
+            _float_or_zero((row.get("delta") or {}).get("practical_f1")),
+            _float_or_zero((row.get("delta") or {}).get("overall_line_accuracy")),
+            -int(_coerce_int(row.get("changed_line_total")) or 0),
+            str(row.get("source_key") or ""),
+        )
+    )
+    return {
+        "schema_version": "upload_bundle_book_scorecard.v1",
+        "book_count": len(rows),
+        "rows": rows,
+    }
+
+
+def _upload_bundle_build_ablation_summary(
+    comparison_pairs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    by_key: dict[str, dict[str, Any]] = {}
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        delta_payload = pair.get("delta_codex_minus_baseline")
+        delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
+        practical_delta = _coerce_float(delta_payload.get("practical_f1"))
+        overall_delta = _coerce_float(delta_payload.get("overall_line_accuracy"))
+        macro_delta = _coerce_float(delta_payload.get("macro_f1_excluding_other"))
+        diff_payload = pair.get("run_config_differences")
+        diff_payload = diff_payload if isinstance(diff_payload, dict) else {}
+        diff_items = (
+            list(diff_payload.items()) if diff_payload else [("__no_config_diff__", {})]
+        )
+        for diff_key, diff_row in diff_items:
+            diff_bucket = by_key.setdefault(
+                str(diff_key),
+                {
+                    "pair_count": 0,
+                    "practical_deltas": [],
+                    "overall_deltas": [],
+                    "macro_deltas": [],
+                    "improved_pairs": 0,
+                    "regressed_pairs": 0,
+                    "codex_values": Counter(),
+                    "baseline_values": Counter(),
+                },
+            )
+            diff_bucket["pair_count"] += 1
+            if practical_delta is not None:
+                diff_bucket["practical_deltas"].append(float(practical_delta))
+                if float(practical_delta) > 0:
+                    diff_bucket["improved_pairs"] += 1
+                elif float(practical_delta) < 0:
+                    diff_bucket["regressed_pairs"] += 1
+            if overall_delta is not None:
+                diff_bucket["overall_deltas"].append(float(overall_delta))
+            if macro_delta is not None:
+                diff_bucket["macro_deltas"].append(float(macro_delta))
+            if isinstance(diff_row, dict):
+                diff_bucket["codex_values"][
+                    _upload_bundle_stringify_value(diff_row.get("codex"))
+                ] += 1
+                diff_bucket["baseline_values"][
+                    _upload_bundle_stringify_value(diff_row.get("baseline"))
+                ] += 1
+
+    rows: list[dict[str, Any]] = []
+    for diff_key in sorted(by_key.keys()):
+        bucket = by_key.get(diff_key)
+        if not isinstance(bucket, dict):
+            continue
+        rows.append(
+            {
+                "ablation_key": diff_key,
+                "pair_count": int(bucket.get("pair_count") or 0),
+                "avg_delta_practical_f1": _upload_bundle_mean(
+                    [float(value) for value in (bucket.get("practical_deltas") or [])]
+                ),
+                "avg_delta_overall_line_accuracy": _upload_bundle_mean(
+                    [float(value) for value in (bucket.get("overall_deltas") or [])]
+                ),
+                "avg_delta_macro_f1_excluding_other": _upload_bundle_mean(
+                    [float(value) for value in (bucket.get("macro_deltas") or [])]
+                ),
+                "improved_pairs": int(bucket.get("improved_pairs") or 0),
+                "regressed_pairs": int(bucket.get("regressed_pairs") or 0),
+                "codex_values": [
+                    {"value": value, "count": count}
+                    for value, count in Counter(bucket.get("codex_values") or {}).most_common(5)
+                ],
+                "baseline_values": [
+                    {"value": value, "count": count}
+                    for value, count in Counter(bucket.get("baseline_values") or {}).most_common(5)
+                ],
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -int(_coerce_int(row.get("pair_count")) or 0),
+            _float_or_zero(row.get("avg_delta_practical_f1")),
+            str(row.get("ablation_key") or ""),
+        )
+    )
+    return {
+        "schema_version": "upload_bundle_ablation_summary.v1",
+        "row_count": len(rows),
+        "rows": rows,
+    }
+
+
+def _upload_bundle_build_outside_span_summary_by_book(
+    *,
+    recipe_triage_rows: list[dict[str, Any]],
+    comparison_pairs: list[dict[str, Any]],
+    source_metadata: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    changed_line_totals: Counter[str] = Counter()
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        source_key = str(pair.get("source_key") or "").strip()
+        if not source_key:
+            continue
+        changed_line_totals[source_key] += int(_coerce_int(pair.get("changed_line_count")) or 0)
+
+    by_source: dict[str, dict[str, Any]] = {}
+    for row in recipe_triage_rows:
+        if not isinstance(row, dict):
+            continue
+        source_key = str(row.get("source_key") or "").strip()
+        if not source_key:
+            continue
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        outside_count = int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0)
+        status_top = str(row.get("outside_span_trace_status_top") or "").strip() or "missing"
+        bucket = by_source.setdefault(
+            source_key,
+            {
+                "recipe_keys": set(),
+                "recipes_with_outside": set(),
+                "outside_span_wrong_line_total": 0,
+                "trace_status_counts": Counter(),
+                "dropped_page_markers": 0,
+                "folded_page_markers": 0,
+            },
+        )
+        recipe_key = (str(row.get("codex_run_id") or ""), recipe_id)
+        if recipe_id:
+            bucket["recipe_keys"].add(recipe_key)
+        if outside_count > 0 and recipe_id:
+            bucket["recipes_with_outside"].add(recipe_key)
+        bucket["outside_span_wrong_line_total"] += outside_count
+        bucket["trace_status_counts"][status_top] += 1
+        bucket["dropped_page_markers"] += int(
+            _coerce_int(row.get("evidence_dropped_page_markers")) or 0
+        )
+        bucket["folded_page_markers"] += int(
+            _coerce_int(row.get("evidence_folded_page_markers")) or 0
+        )
+
+    rows: list[dict[str, Any]] = []
+    for source_key in sorted(by_source.keys()):
+        bucket = by_source.get(source_key)
+        if not isinstance(bucket, dict):
+            continue
+        recipe_count = len(bucket.get("recipe_keys") or set())
+        recipes_with_outside = len(bucket.get("recipes_with_outside") or set())
+        outside_total = int(bucket.get("outside_span_wrong_line_total") or 0)
+        changed_line_total = int(changed_line_totals.get(source_key) or 0)
+        source_info = source_metadata.get(source_key, {})
+        rows.append(
+            {
+                "source_key": source_key,
+                "source_file": source_info.get("source_file"),
+                "recipe_count": recipe_count,
+                "recipes_with_outside_span": recipes_with_outside,
+                "outside_span_wrong_line_total": outside_total,
+                "outside_span_recipe_ratio": (
+                    round(recipes_with_outside / recipe_count, 6) if recipe_count > 0 else 0.0
+                ),
+                "outside_span_vs_changed_line_ratio": (
+                    round(outside_total / changed_line_total, 6)
+                    if changed_line_total > 0
+                    else None
+                ),
+                "changed_line_total": changed_line_total,
+                "trace_status_counts": _counter_to_sorted_dict(
+                    Counter(bucket.get("trace_status_counts") or {})
+                ),
+                "evidence_dropped_page_markers": int(
+                    bucket.get("dropped_page_markers") or 0
+                ),
+                "evidence_folded_page_markers": int(
+                    bucket.get("folded_page_markers") or 0
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -int(_coerce_int(row.get("outside_span_wrong_line_total")) or 0),
+            -int(_coerce_int(row.get("recipes_with_outside_span")) or 0),
+            str(row.get("source_key") or ""),
+        )
+    )
+    return {
+        "schema_version": "upload_bundle_outside_span_by_book.v1",
+        "row_count": len(rows),
+        "rows": rows,
+    }
+
+
+def _upload_bundle_build_chapter_page_type_breakdown(
+    *,
+    source_root: Path,
+    discovered_run_dirs: list[Path],
+    run_rows: list[dict[str, Any]],
+    changed_line_rows: list[dict[str, Any]],
+    recipe_triage_rows: list[dict[str, Any]],
+    source_metadata: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    chapter_fields = (
+        "chapter",
+        "chapter_title",
+        "chapter_name",
+        "section",
+        "section_title",
+    )
+    page_type_fields = (
+        "page_type",
+        "page_kind",
+        "page_label",
+        "content_type",
+    )
+
+    run_source_by_subdir: dict[str, str] = {}
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        output_subdir = str(row.get("output_subdir") or "").strip()
+        source_key = _upload_bundle_source_key_for_row(row)
+        if output_subdir and source_key:
+            run_source_by_subdir.setdefault(output_subdir, source_key)
+
+    by_source: dict[str, dict[str, Any]] = {}
+
+    def _bucket_for_source(source_key: str) -> dict[str, Any]:
+        source_info = source_metadata.get(source_key, {})
+        return by_source.setdefault(
+            source_key,
+            {
+                "source_key": source_key,
+                "source_file": source_info.get("source_file"),
+                "run_count": 0,
+                "span_region_counts": Counter(),
+                "page_type_counts": Counter(),
+                "chapter_counts": Counter(),
+                "evidence_dropped_page_markers": 0,
+                "evidence_folded_page_markers": 0,
+            },
+        )
+
+    for row in changed_line_rows:
+        if not isinstance(row, dict):
+            continue
+        source_key = str(row.get("source_key") or "").strip()
+        if not source_key:
+            continue
+        span_region = str(row.get("span_region") or "").strip() or "unknown"
+        _bucket_for_source(source_key)["span_region_counts"][span_region] += 1
+
+    for row in recipe_triage_rows:
+        if not isinstance(row, dict):
+            continue
+        source_key = str(row.get("source_key") or "").strip()
+        if not source_key:
+            continue
+        bucket = _bucket_for_source(source_key)
+        bucket["evidence_dropped_page_markers"] += int(
+            _coerce_int(row.get("evidence_dropped_page_markers")) or 0
+        )
+        bucket["evidence_folded_page_markers"] += int(
+            _coerce_int(row.get("evidence_folded_page_markers")) or 0
+        )
+
+    global_chapter_counts: Counter[str] = Counter()
+    global_page_type_counts: Counter[str] = Counter()
+    for run_dir in discovered_run_dirs:
+        if not isinstance(run_dir, Path):
+            continue
+        prediction_path = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
+        if not prediction_path.is_file():
+            continue
+        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
+        manifest_source = (
+            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+        )
+        source_path = manifest_source.get("path") if isinstance(manifest_source, dict) else None
+        source_hash = (
+            manifest_source.get("source_hash") if isinstance(manifest_source, dict) else None
+        )
+        source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+        source_key = _source_key(
+            source_hash if isinstance(source_hash, str) else None,
+            source_file,
+        )
+        try:
+            run_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
+        except Exception:  # noqa: BLE001
+            run_subdir = run_dir.name
+        source_key = run_source_by_subdir.get(run_subdir, source_key)
+        if not source_key:
+            continue
+        bucket = _bucket_for_source(source_key)
+        bucket["run_count"] = int(bucket.get("run_count") or 0) + 1
+        for row in _iter_jsonl(prediction_path):
+            if not isinstance(row, dict):
+                continue
+            page_type = ""
+            for key in page_type_fields:
+                value = str(row.get(key) or "").strip()
+                if value:
+                    page_type = value
+                    break
+            if not page_type:
+                within_recipe_span = row.get("within_recipe_span")
+                if isinstance(within_recipe_span, bool):
+                    page_type = (
+                        "inside_active_recipe_span"
+                        if within_recipe_span
+                        else "outside_active_recipe_span"
+                    )
+            if page_type:
+                bucket["page_type_counts"][page_type] += 1
+                global_page_type_counts[page_type] += 1
+
+            chapter_value = ""
+            for key in chapter_fields:
+                value = str(row.get(key) or "").strip()
+                if value:
+                    chapter_value = value
+                    break
+            if chapter_value:
+                bucket["chapter_counts"][chapter_value] += 1
+                global_chapter_counts[chapter_value] += 1
+
+    rows: list[dict[str, Any]] = []
+    for source_key in sorted(by_source.keys()):
+        bucket = by_source.get(source_key)
+        if not isinstance(bucket, dict):
+            continue
+        chapter_counts = Counter(bucket.get("chapter_counts") or {})
+        rows.append(
+            {
+                "source_key": source_key,
+                "source_file": bucket.get("source_file"),
+                "run_count": int(bucket.get("run_count") or 0),
+                "span_region_counts": _counter_to_sorted_dict(
+                    Counter(bucket.get("span_region_counts") or {})
+                ),
+                "page_type_counts": _counter_to_sorted_dict(
+                    Counter(bucket.get("page_type_counts") or {})
+                ),
+                "chapter_counts_top": [
+                    {"chapter": chapter, "count": count}
+                    for chapter, count in chapter_counts.most_common(10)
+                ],
+                "evidence_page_markers": {
+                    "dropped": int(bucket.get("evidence_dropped_page_markers") or 0),
+                    "folded": int(bucket.get("evidence_folded_page_markers") or 0),
+                },
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -sum(int(value) for value in (row.get("page_type_counts") or {}).values()),
+            -sum(int(value) for value in (row.get("span_region_counts") or {}).values()),
+            str(row.get("source_key") or ""),
+        )
+    )
+
+    return {
+        "schema_version": "upload_bundle_chapter_page_type_breakdown.v1",
+        "book_count": len(rows),
+        "chapter_available": bool(global_chapter_counts),
+        "chapter_unavailable_reason": (
+            ""
+            if global_chapter_counts
+            else (
+                "No chapter-like fields were present in line_role_predictions.jsonl "
+                "(checked: chapter/chapter_title/chapter_name/section/section_title)."
+            )
+        ),
+        "page_type_available": bool(global_page_type_counts),
+        "page_type_fields_checked": list(page_type_fields),
+        "global_page_type_counts": _counter_to_sorted_dict(global_page_type_counts),
+        "global_chapter_counts_top": [
+            {"chapter": chapter, "count": count}
+            for chapter, count in global_chapter_counts.most_common(20)
+        ],
+        "rows": rows,
+    }
+
+
+def _upload_bundle_build_top_regression_packets_with_decision_trace(
+    *,
+    regression_casebook: dict[str, Any],
+    limit: int = 10,
+) -> dict[str, Any]:
+    packets_raw = regression_casebook.get("packets")
+    packets_raw = packets_raw if isinstance(packets_raw, list) else []
+    packets: list[dict[str, Any]] = []
+    for packet in packets_raw:
+        if not isinstance(packet, dict):
+            continue
+        packet_copy = dict(packet)
+        packet_copy["decision_trace"] = {
+            "selection_reason": str(packet.get("selection_reason") or ""),
+            "pass1_summary": packet.get("pass1_summary"),
+            "pass2_summary": packet.get("pass2_summary"),
+            "pass3_summary": packet.get("pass3_summary"),
+            "transport_summary": packet.get("transport_summary"),
+            "evidence_normalization_summary": packet.get(
+                "evidence_normalization_summary"
+            ),
+            "warning_summary": str(packet.get("warning_summary") or ""),
+            "bridge_anomaly_summary": str(packet.get("bridge_anomaly_summary") or ""),
+        }
+        packets.append(packet_copy)
+
+    packets.sort(
+        key=lambda row: (
+            _float_or_zero(row.get("delta_codex_minus_baseline")),
+            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+            str(row.get("recipe_id") or ""),
+        )
+    )
+    packets = packets[: max(int(limit), 0)]
+    return {
+        "schema_version": "upload_bundle_top_regression_packets.v1",
+        "packet_count": len(packets),
+        "packets": packets,
+    }
+
+
 def _write_upload_bundle_three_files(
     *,
     output_dir: Path,
@@ -9404,6 +10396,12 @@ def _write_upload_bundle_three_files(
     selected_packets = selected_packets if isinstance(selected_packets, list) else []
     run_dir_by_id = context.get("run_dir_by_id")
     run_dir_by_id = run_dir_by_id if isinstance(run_dir_by_id, dict) else {}
+    run_dirs_by_id = context.get("run_dirs_by_id")
+    run_dirs_by_id = run_dirs_by_id if isinstance(run_dirs_by_id, dict) else {}
+    run_dir_by_output_subdir = context.get("run_dir_by_output_subdir")
+    run_dir_by_output_subdir = (
+        run_dir_by_output_subdir if isinstance(run_dir_by_output_subdir, dict) else {}
+    )
     advertised_counts = context.get("advertised_counts")
     advertised_counts = advertised_counts if isinstance(advertised_counts, dict) else {}
     starter_pack_physical_present = bool(context.get("starter_pack_present"))
@@ -9424,6 +10422,25 @@ def _write_upload_bundle_three_files(
         for row in run_rows
         if isinstance(row, dict) and str(row.get("output_subdir") or "")
     }
+    run_dirs_for_analysis: list[Path] = [
+        run_dir for run_dir in discovered_run_dirs if isinstance(run_dir, Path)
+    ]
+    if not run_dirs_for_analysis:
+        for rows in run_dirs_by_id.values():
+            if not isinstance(rows, list):
+                continue
+            for run_dir in rows:
+                if isinstance(run_dir, Path):
+                    run_dirs_for_analysis.append(run_dir)
+    for run_dir in discovered_run_dirs:
+        if not isinstance(run_dir, Path):
+            continue
+        try:
+            relative_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
+        except Exception:  # noqa: BLE001
+            relative_subdir = str(run_dir.name)
+        if relative_subdir:
+            run_dir_by_output_subdir.setdefault(relative_subdir, run_dir)
 
     if high_level_only:
         selected_paths, selection_meta = _upload_bundle_select_high_level_artifact_paths(
@@ -9686,21 +10703,31 @@ def _write_upload_bundle_three_files(
         output_subdir = str(row.get("output_subdir") or "")
         if not output_subdir:
             continue
+        run_dir_relative = output_subdir
+        run_dir_candidate = run_dir_by_output_subdir.get(run_dir_relative)
+        run_dir = run_dir_candidate if isinstance(run_dir_candidate, Path) else None
+        if run_dir is None:
+            run_dir_candidate = run_dir_by_id.get(run_id)
+            run_dir = run_dir_candidate if isinstance(run_dir_candidate, Path) else None
+            if run_dir is not None:
+                try:
+                    run_dir_relative = str(run_dir.resolve().relative_to(source_root).as_posix())
+                except Exception:  # noqa: BLE001
+                    run_dir_relative = output_subdir
+
         codex_enabled = _upload_bundle_is_codex_pipeline_enabled(
             row.get("llm_recipe_pipeline")
         )
-        summary_path = source_root / output_subdir / "need_to_know_summary.json"
+        summary_path = source_root / run_dir_relative / "need_to_know_summary.json"
         summary_payload = _load_json(summary_path) if summary_path.is_file() else {}
         sample_counts = summary_payload.get("sample_counts")
         sample_counts = sample_counts if isinstance(sample_counts, dict) else {}
-        run_dir_candidate = run_dir_by_id.get(run_id)
-        run_dir = run_dir_candidate if isinstance(run_dir_candidate, Path) else None
         derived_statuses: dict[str, str] = {}
         if run_dir is not None:
             derived_statuses = _upload_bundle_derive_run_diagnostic_statuses(
                 run_dir=run_dir,
                 run_id=run_id,
-                output_subdir=output_subdir,
+                output_subdir=run_dir_relative,
                 append_virtual_payload_row=_append_virtual_payload_row,
             )
 
@@ -9732,12 +10759,15 @@ def _write_upload_bundle_three_files(
         run_diagnostics.append(
             {
                 "run_id": run_id,
-                "output_subdir": output_subdir,
+                "output_subdir": run_dir_relative,
+                "source_key": row.get("source_key"),
                 "source_file": row.get("source_file"),
                 "overall_line_accuracy": _coerce_float(row.get("overall_line_accuracy")),
                 "practical_f1": _coerce_float(row.get("practical_f1")),
                 "full_prompt_log_status": str(row.get("full_prompt_log_status") or "unknown"),
-                "need_to_know_summary_path": f"{output_subdir}/need_to_know_summary.json",
+                "need_to_know_summary_path": f"{run_dir_relative}/need_to_know_summary.json",
+                "run_manifest_path": f"{run_dir_relative}/run_manifest.json",
+                "eval_report_path": f"{run_dir_relative}/eval_report.json",
                 "prompt_warning_aggregate_status": _resolved_status(
                     PROMPT_WARNING_AGGREGATE_FILE_NAME
                 ),
@@ -9811,10 +10841,12 @@ def _write_upload_bundle_three_files(
     call_runtime_inventory = _upload_bundle_build_call_runtime_inventory(
         call_inventory_rows=call_inventory_rows,
         run_dir_by_id=run_dir_by_id,
+        run_dirs=run_dirs_for_analysis,
     )
     line_role_signal_summary = _upload_bundle_build_line_role_confidence_summary(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
+        run_dirs=run_dirs_for_analysis,
     )
     regression_casebook = _upload_bundle_build_regression_casebook(
         recipe_triage_rows=recipe_triage_rows,
@@ -9844,6 +10876,7 @@ def _write_upload_bundle_three_files(
         run_rows=run_rows,
         comparison_pairs=comparison_pairs,
         run_dir_by_id=run_dir_by_id,
+        run_dir_by_output_subdir=run_dir_by_output_subdir,
     )
     baseline_trace_parity = _starter_pack_build_baseline_trace_parity_cues(
         comparison_pairs=comparison_pairs,
@@ -9857,6 +10890,56 @@ def _write_upload_bundle_three_files(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
         changed_line_rows=changed_line_rows,
+        run_dirs=run_dirs_for_analysis,
+    )
+    source_metadata = _upload_bundle_source_metadata(
+        run_rows=[row for row in run_rows if isinstance(row, dict)],
+        comparison_pairs=[row for row in comparison_pairs if isinstance(row, dict)],
+        recipe_triage_rows=[row for row in recipe_triage_rows if isinstance(row, dict)],
+    )
+    source_keys = sorted(source_metadata.keys())
+    multi_book_run_level = bool(high_level_only and len(source_keys) > 1)
+    book_scorecard = _upload_bundle_build_book_scorecard(
+        comparison_pairs=comparison_pairs,
+        source_metadata=source_metadata,
+    )
+    ablation_summary = _upload_bundle_build_ablation_summary(comparison_pairs)
+    outside_span_summary_by_book = _upload_bundle_build_outside_span_summary_by_book(
+        recipe_triage_rows=recipe_triage_rows,
+        comparison_pairs=comparison_pairs,
+        source_metadata=source_metadata,
+    )
+    chapter_page_type_breakdown = _upload_bundle_build_chapter_page_type_breakdown(
+        source_root=source_root,
+        discovered_run_dirs=run_dirs_for_analysis,
+        run_rows=[row for row in run_rows if isinstance(row, dict)],
+        changed_line_rows=[row for row in changed_line_rows if isinstance(row, dict)],
+        recipe_triage_rows=[row for row in recipe_triage_rows if isinstance(row, dict)],
+        source_metadata=source_metadata,
+    )
+    runtime_by_book_summary = {
+        "schema_version": "upload_bundle_runtime_by_book.v1",
+        "book_count": len(
+            call_runtime_inventory.get("by_source")
+            if isinstance(call_runtime_inventory.get("by_source"), list)
+            else []
+        ),
+        "rows": (
+            call_runtime_inventory.get("by_source")
+            if isinstance(call_runtime_inventory.get("by_source"), list)
+            else []
+        ),
+        "summary": (
+            call_runtime_inventory.get("summary")
+            if isinstance(call_runtime_inventory.get("summary"), dict)
+            else {}
+        ),
+    }
+    top_regression_packets_full_trace = (
+        _upload_bundle_build_top_regression_packets_with_decision_trace(
+            regression_casebook=regression_casebook,
+            limit=10,
+        )
     )
     derived_root_prefix = f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root"
     derived_starter_prefix = f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{STARTER_PACK_DIR_NAME}"
@@ -10312,16 +11395,8 @@ def _write_upload_bundle_three_files(
             "summary": _payload_locator(
                 paths=(
                     str(item.get("need_to_know_summary_path") or ""),
-                    (
-                        f"{str(item.get('output_subdir') or '').strip()}/run_manifest.json"
-                        if str(item.get("output_subdir") or "").strip()
-                        else ""
-                    ),
-                    (
-                        f"{str(item.get('output_subdir') or '').strip()}/eval_report.json"
-                        if str(item.get("output_subdir") or "").strip()
-                        else ""
-                    ),
+                    str(item.get("run_manifest_path") or ""),
+                    str(item.get("eval_report_path") or ""),
                 ),
             ),
         }
@@ -10613,6 +11688,19 @@ def _write_upload_bundle_three_files(
     ]
     if high_level_only:
         default_initial_views.insert(2, "analysis.group_high_level")
+    if multi_book_run_level:
+        insert_at = 3 if high_level_only else 2
+        for view_name in reversed(
+            [
+                "analysis.book_scorecard",
+                "analysis.ablation_summary",
+                "analysis.outside_span_by_book",
+                "analysis.chapter_page_type_breakdown",
+                "analysis.runtime_by_book",
+                "analysis.top_regression_packets_full_trace",
+            ]
+        ):
+            default_initial_views.insert(insert_at, view_name)
 
     index_payload = {
         "bundle_version": "upload_bundle.v1",
@@ -10722,6 +11810,18 @@ def _write_upload_bundle_three_files(
                 "packet_count": len(selected_packets),
                 "packets": selected_packets,
             },
+            **(
+                {
+                    "book_scorecard": book_scorecard,
+                    "ablation_summary": ablation_summary,
+                    "outside_span_by_book": outside_span_summary_by_book,
+                    "chapter_page_type_breakdown": chapter_page_type_breakdown,
+                    "runtime_by_book": runtime_by_book_summary,
+                    "top_regression_packets_full_trace": top_regression_packets_full_trace,
+                }
+                if multi_book_run_level
+                else {}
+            ),
         },
         "alias_metadata": alias_metadata,
         "artifact_count": len(artifact_index),
@@ -10834,41 +11934,90 @@ def _write_upload_bundle_three_files(
             ]
         )
 
-    overview_lines.extend(
-        [
-            "## Included Views",
-            "",
-            "- triage packet (JSONL-first row navigation; CSV remains legacy-compatible)",
-            "- net-error blame summary (line-role / pass2 / pass3 / routing-fallback buckets)",
-            "- config/version parity metadata",
-            "- per-label metrics + confusion deltas",
-            "- per-recipe breakdown",
-            "- stage-separated comparison (baseline / line-role / pass2 / pass3 / final-fallback)",
-            "- failure ledger (recipe x pass rows)",
-            "- compact regression casebook",
-            "- changed-lines stratified sample",
-            "- low-confidence changed-lines packet",
-            "- call inventory with latency/tokens/cost",
-            "- line-role confidence (and candidate-label signal when present)",
-            "",
-        ]
-    )
+    included_views = [
+        "- triage packet (JSONL-first row navigation; CSV remains legacy-compatible)",
+        "- net-error blame summary (line-role / pass2 / pass3 / routing-fallback buckets)",
+        "- config/version parity metadata",
+        "- per-label metrics + confusion deltas",
+        "- per-recipe breakdown",
+        "- stage-separated comparison (baseline / line-role / pass2 / pass3 / final-fallback)",
+        "- failure ledger (recipe x pass rows)",
+        "- compact regression casebook",
+        "- changed-lines stratified sample",
+        "- low-confidence changed-lines packet",
+        "- call inventory with latency/tokens/cost",
+        "- line-role confidence (and candidate-label signal when present)",
+    ]
+    if multi_book_run_level:
+        included_views.extend(
+            [
+                "- per-book scorecard (vanilla/codex/delta with best wins + worst regressions)",
+                "- ablation summary table",
+                "- outside-span contamination summary by book",
+                "- chapter/page-type breakdown by book",
+                "- runtime by book (latency/tokens/cost)",
+                "- top regression packets (decision trace first)",
+            ]
+        )
+    overview_lines.extend(["## Included Views", "", *included_views, ""])
 
-    cost_signal = (
+    if multi_book_run_level:
+        book_score_rows = book_scorecard.get("rows")
+        book_score_rows = book_score_rows if isinstance(book_score_rows, list) else []
+        top_book_regressions = [
+            row
+            for row in book_score_rows
+            if isinstance(row, dict)
+        ][:3]
+        overview_lines.extend(
+            [
+                "## Multi-Book Highlights",
+                "",
+                f"- book_count: {int(book_scorecard.get('book_count') or 0)}",
+                f"- ablation_rows: {int(ablation_summary.get('row_count') or 0)}",
+                (
+                    "- outside_span_books_with_signal: "
+                    f"{sum(1 for row in (outside_span_summary_by_book.get('rows') or []) if isinstance(row, dict) and int(_coerce_int(row.get('outside_span_wrong_line_total')) or 0) > 0)}"
+                ),
+                (
+                    "- runtime_books: "
+                    f"{int(runtime_by_book_summary.get('book_count') or 0)}"
+                ),
+                (
+                    "- top_regression_packets_with_trace: "
+                    f"{int(top_regression_packets_full_trace.get('packet_count') or 0)}"
+                ),
+                "",
+            ]
+        )
+        if top_book_regressions:
+            overview_lines.append("### Worst Book Deltas (Practical F1)")
+            overview_lines.append("")
+            for row in top_book_regressions:
+                delta_payload = row.get("delta") if isinstance(row.get("delta"), dict) else {}
+                overview_lines.append(
+                    "- "
+                    f"{str(row.get('source_key') or '')} "
+                    f"(delta_practical_f1={_serialize_float(_coerce_float(delta_payload.get('practical_f1')))}, "
+                    f"delta_overall_line_accuracy={_serialize_float(_coerce_float(delta_payload.get('overall_line_accuracy')))}, "
+                    f"pair_count={int(_coerce_int(row.get('pair_count')) or 0)})"
+                )
+            overview_lines.append("")
+
+    runtime_summary_payload = (
         call_runtime_inventory.get("summary")
         if isinstance(call_runtime_inventory.get("summary"), dict)
         else {}
     )
-    cost_signal = cost_signal.get("cost_signal") if isinstance(cost_signal, dict) else {}
+    cost_signal = (
+        runtime_summary_payload.get("cost_signal")
+        if isinstance(runtime_summary_payload, dict)
+        else {}
+    )
     cost_signal = cost_signal if isinstance(cost_signal, dict) else {}
     estimated_cost_signal = (
-        call_runtime_inventory.get("summary")
-        if isinstance(call_runtime_inventory.get("summary"), dict)
-        else {}
-    )
-    estimated_cost_signal = (
-        estimated_cost_signal.get("estimated_cost_signal")
-        if isinstance(estimated_cost_signal, dict)
+        runtime_summary_payload.get("estimated_cost_signal")
+        if isinstance(runtime_summary_payload, dict)
         else {}
     )
     estimated_cost_signal = (
@@ -10903,6 +12052,22 @@ def _write_upload_bundle_three_files(
             (
                 "- line_role_candidate_labels_available: "
                 f"{'true' if bool(candidate_signal.get('available')) else 'false'}"
+            ),
+            (
+                "- total_duration_ms: "
+                f"{int(_coerce_int(runtime_summary_payload.get('total_duration_ms')) or 0)}"
+            ),
+            (
+                "- total_tokens: "
+                f"{int(_coerce_int(runtime_summary_payload.get('total_tokens')) or 0)}"
+            ),
+            (
+                "- total_observed_cost_usd: "
+                f"{_serialize_float(_coerce_float(runtime_summary_payload.get('total_cost_usd')))}"
+            ),
+            (
+                "- total_estimated_cost_usd: "
+                f"{_serialize_float(_coerce_float(runtime_summary_payload.get('total_estimated_cost_usd')))}"
             ),
             (
                 "- triage_packet_rows: "

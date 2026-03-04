@@ -46,6 +46,9 @@ Current scoring surfaces:
 Most benchmark behavior is shared with this command. Active benchmark-specific controls include:
 - action positional: `run` (default) or `compare`
 - `--eval-mode stage-blocks|canonical-text`
+- `--gold-adaptation-mode off|auto|force` (stage-blocks only; default `auto`)
+- `--gold-adaptation-min-coverage <float>` (stage-blocks only; default `0.7`)
+- `--gold-adaptation-max-ambiguous <int>` (stage-blocks only; default `50`)
 - `--execution-mode legacy|pipelined|predict-only`
 - `--predictions-out <jsonl>` / `--predictions-in <jsonl>`
 - `--baseline <run_or_report_path>` / `--candidate <run_or_report_path>` (compare action)
@@ -129,6 +132,7 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
+  - when the group bundle is truly multi-book (more than one source key), the index now also includes per-book scorecards (vanilla/codex/delta), ablation summary, outside-span-by-book, chapter/page-type breakdown, runtime-by-book, and top regression packets with explicit decision traces.
 - interactive single-profile multi-book runs now use one shared spinner dashboard for the full batch; inner per-book benchmark calls suppress their own spinners and emit progress into shared queue/task lines so concurrent books stay readable.
 - interactive single-profile multi-book runs inherit the shared split-gated default (`4`) because scheduler split-slot gating is enabled in that path.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
@@ -187,6 +191,7 @@ Stage-block outputs include:
 - `missed_gold_boundaries.jsonl`, `false_positive_boundaries.jsonl`
 - compatibility aliases: `missed_gold_spans.jsonl`, `false_positive_preds.jsonl`
 - diagnostics: `gold_conflicts.jsonl`
+- adaptive remap diagnostics when adaptation runs: `gold_adaptation_diagnostics.json`
 
 Canonical-text outputs include:
 - `eval_report.json`

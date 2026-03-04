@@ -79,6 +79,7 @@ from cookimport.parsing.section_detector import (
 from cookimport.parsing.atoms import Atom, contextualize_atoms, split_text_to_atoms
 from cookimport.parsing.tips import (
     build_topic_candidate,
+    classify_standalone_topic_filter_reason,
     extract_tip_candidates,
     extract_tip_candidates_from_candidate,
     chunk_standalone_blocks,
@@ -99,6 +100,9 @@ _UNSTRUCTURED_PREPROCESS_MODE_DEFAULT = "br_split_v1"
 _UNSTRUCTURED_PREPROCESS_MODE_CHOICES = {"none", "br_split_v1", "semantic_v1"}
 _STANDALONE_ANALYSIS_WORKERS_DEFAULT = 4
 _STANDALONE_ANALYSIS_WORKERS_ENV = "C3IMP_STANDALONE_ANALYSIS_WORKERS"
+_LONG_STANDALONE_BLOCK_CHAR_THRESHOLD = 420
+_LONG_STANDALONE_BLOCK_WORD_THRESHOLD = 70
+_STANDALONE_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
 
 
 def _get_epub_extractor() -> str:
@@ -237,6 +241,40 @@ def _resolve_unstructured_version() -> str:
     return str(version_value)
 
 
+def _split_long_standalone_block_text(text: str) -> list[str]:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return []
+    words = cleaned.split()
+    if (
+        len(cleaned) < _LONG_STANDALONE_BLOCK_CHAR_THRESHOLD
+        and len(words) < _LONG_STANDALONE_BLOCK_WORD_THRESHOLD
+    ):
+        return [cleaned]
+    sentences = [
+        sentence.strip()
+        for sentence in _STANDALONE_SENTENCE_SPLIT_RE.split(cleaned)
+        if sentence.strip()
+    ]
+    if len(sentences) <= 1:
+        return [cleaned]
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        if not current:
+            current = sentence
+            continue
+        candidate = f"{current} {sentence}".strip()
+        if len(candidate) <= 260:
+            current = candidate
+            continue
+        chunks.append(current)
+        current = sentence
+    if current:
+        chunks.append(current)
+    return chunks or [cleaned]
+
+
 class EpubImporter:
     name = "epub"
 
@@ -245,6 +283,7 @@ class EpubImporter:
         # Keep defaults initialized so probe paths share the same runtime contract.
         self._overrides = None
         self._section_detector_backend = "legacy"
+        self._standalone_filter_diagnostics: dict[str, Any] = {}
 
     def detect(self, path: Path) -> float:
         if path.suffix.lower() == ".epub":
@@ -789,10 +828,42 @@ class EpubImporter:
                 accepted_candidate_ranges,
                 path,
                 file_hash,
+                accepted_recipe_titles=[recipe.name for recipe in recipes],
                 progress_callback=_notify,
             )
             tip_candidates.extend(standalone_tips)
             topic_candidates.extend(standalone_topics)
+            standalone_filter_diagnostics = (
+                dict(self._standalone_filter_diagnostics)
+                if isinstance(self._standalone_filter_diagnostics, dict)
+                else {}
+            )
+            if standalone_filter_diagnostics:
+                raw_artifacts.append(
+                    RawArtifact(
+                        importer="epub",
+                        sourceHash=file_hash,
+                        locationId="standalone_tip_filter_diagnostics",
+                        extension="json",
+                        content=standalone_filter_diagnostics,
+                        metadata={
+                            "artifact_type": "standalone_tip_filter_diagnostics",
+                        },
+                    )
+                )
+                reason_counts = standalone_filter_diagnostics.get(
+                    "filter_reason_counts"
+                )
+                if isinstance(reason_counts, dict) and reason_counts:
+                    reason_summary = ", ".join(
+                        f"{key}={int(value or 0)}"
+                        for key, value in sorted(reason_counts.items())
+                        if int(value or 0) > 0
+                    )
+                    if reason_summary:
+                        report.warnings.append(
+                            "standalone_tip_filtering_applied: " + reason_summary
+                        )
 
             # Collect non-recipe blocks for knowledge chunking
             covered: set[int] = set()
@@ -879,6 +950,7 @@ class EpubImporter:
         finally:
             self._overrides = None
             self._section_detector_backend = "legacy"
+            self._standalone_filter_diagnostics = {}
 
     def _extract_standalone_tips(
         self,
@@ -886,6 +958,7 @@ class EpubImporter:
         candidate_ranges: List[Tuple[int, int, float]],
         path: Path,
         file_hash: str,
+        accepted_recipe_titles: list[str] | None = None,
         progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[List[Any], List[Any], int, int]:
         def _notify(message: str) -> None:
@@ -903,7 +976,17 @@ class EpubImporter:
             source_hash=file_hash,
             extraction_method="heuristic_epub_tip",
         )
+        normalized_recipe_titles = {
+            normalize_title_for_pattern(str(title or ""))
+            for title in (accepted_recipe_titles or [])
+            if str(title or "").strip()
+        }
+        normalized_recipe_titles.discard("")
+        filter_reason_counts: dict[str, int] = {}
+        long_split_source_blocks = 0
+        long_split_segments_added = 0
 
+        candidate_standalone_block_count = 0
         standalone_blocks: list[tuple[int, str]] = []
         for idx, block in enumerate(blocks):
             if idx in covered:
@@ -911,7 +994,23 @@ class EpubImporter:
             text = block.text.strip()
             if not text:
                 continue
-            standalone_blocks.append((idx, text))
+            candidate_standalone_block_count += 1
+            filter_reason = classify_standalone_topic_filter_reason(text)
+            if filter_reason is None:
+                normalized_text = normalize_title_for_pattern(text)
+                if normalized_text and normalized_text in normalized_recipe_titles:
+                    filter_reason = "duplicate_title_carryover"
+            if filter_reason is not None:
+                filter_reason_counts[filter_reason] = (
+                    int(filter_reason_counts.get(filter_reason) or 0) + 1
+                )
+                continue
+            split_parts = _split_long_standalone_block_text(text)
+            if len(split_parts) > 1:
+                long_split_source_blocks += 1
+                long_split_segments_added += len(split_parts) - 1
+            for split_text in split_parts:
+                standalone_blocks.append((idx, split_text))
 
         def _analyze_container(
             container_index: int,
@@ -1075,10 +1174,25 @@ class EpubImporter:
             topic_candidates.extend(container_topics)
             topic_block_indices.update(container_topic_indices)
 
+        self._standalone_filter_diagnostics = {
+            "schema_version": "standalone_tip_filtering.v1",
+            "candidate_standalone_block_count": candidate_standalone_block_count,
+            "analyzed_standalone_block_count": len(standalone_blocks),
+            "filtered_block_count": max(
+                0, candidate_standalone_block_count - len(standalone_blocks)
+            ),
+            "filter_reason_counts": dict(sorted(filter_reason_counts.items())),
+            "long_split_source_blocks": long_split_source_blocks,
+            "long_split_segments_added": long_split_segments_added,
+            "topic_block_count": len(topic_block_indices),
+            "tip_candidate_count": len(tip_candidates),
+            "topic_candidate_count": len(topic_candidates),
+        }
+
         return (
             tip_candidates,
             topic_candidates,
-            len(standalone_blocks),
+            candidate_standalone_block_count,
             len(topic_block_indices),
         )
 

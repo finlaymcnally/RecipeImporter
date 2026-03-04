@@ -460,6 +460,8 @@ def write_draft_outputs(
                 instruction_step_options=instruction_step_options,
             )
 
+        _normalize_draft_compatibility_aliases(draft)
+
         p6_debug_payload = None
         if isinstance(draft, dict):
             p6_debug_payload = draft.pop("_p6_debug", None)
@@ -495,6 +497,52 @@ def write_draft_outputs(
         )
         if output_stats:
             output_stats.record_path(_OUTPUT_CATEGORY_BENCH, debug_path)
+
+
+def _normalize_draft_compatibility_aliases(payload: Any) -> None:
+    if not isinstance(payload, dict):
+        return
+
+    recipe_payload = payload.get("recipe")
+    if not isinstance(recipe_payload, dict):
+        recipe_payload = {}
+
+    steps_payload = payload.get("steps")
+    if not isinstance(steps_payload, list):
+        steps_payload = []
+
+    title = str(recipe_payload.get("title") or "").strip()
+    if not title:
+        title = "Untitled Recipe"
+    payload["name"] = title
+
+    derived_ingredients: list[str] = []
+    seen_ingredients: set[str] = set()
+    derived_instructions: list[str] = []
+    for step in steps_payload:
+        if not isinstance(step, dict):
+            continue
+        instruction_text = str(step.get("instruction") or "").strip()
+        if instruction_text:
+            derived_instructions.append(instruction_text)
+        ingredient_lines = step.get("ingredient_lines")
+        if not isinstance(ingredient_lines, list):
+            continue
+        for line in ingredient_lines:
+            if not isinstance(line, dict):
+                continue
+            ingredient_text = str(
+                line.get("raw_text")
+                or line.get("raw_ingredient_text")
+                or ""
+            ).strip()
+            if not ingredient_text or ingredient_text in seen_ingredients:
+                continue
+            seen_ingredients.add(ingredient_text)
+            derived_ingredients.append(ingredient_text)
+
+    payload["ingredients"] = derived_ingredients
+    payload["instructions"] = derived_instructions
 
 
 def _coerce_instruction_text(value: Any) -> str:

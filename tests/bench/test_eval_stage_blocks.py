@@ -749,6 +749,255 @@ def test_evaluate_stage_blocks_warns_on_nonfatal_blockization_mismatch(
     assert diagnostics["blockization"][0]["warning"] == "gold_prediction_blockization_mismatch"
 
 
+def test_evaluate_stage_blocks_auto_applies_gold_adaptation(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {
+                "span_id": "s0",
+                "label": "RECIPE_TITLE",
+                "selected_text": "Simple Soup",
+                "touched_block_indices": [0],
+                "touched_blocks": [
+                    {
+                        "block_index": 0,
+                        "location": {
+                            "features": {
+                                "extraction_backend": "unstructured",
+                                "unstructured_stable_key": "urn:block:s0",
+                                "spine_index": 0,
+                            }
+                        },
+                    }
+                ],
+            },
+            {
+                "span_id": "s1",
+                "label": "INGREDIENT_LINE",
+                "selected_text": "1 cup stock",
+                "touched_block_indices": [1],
+                "touched_blocks": [
+                    {
+                        "block_index": 1,
+                        "location": {
+                            "features": {
+                                "extraction_backend": "unstructured",
+                                "unstructured_stable_key": "urn:block:s1",
+                                "spine_index": 0,
+                            }
+                        },
+                    }
+                ],
+            },
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 2,
+                "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {
+                    "index": 0,
+                    "text": "Simple Soup",
+                    "location": {
+                        "features": {
+                            "extraction_backend": "beautifulsoup",
+                            "unstructured_stable_key": "urn:block:s0",
+                            "spine_index": 0,
+                        }
+                    },
+                },
+                {
+                    "index": 1,
+                    "text": "1 cup stock",
+                    "location": {
+                        "features": {
+                            "extraction_backend": "beautifulsoup",
+                            "unstructured_stable_key": "urn:block:s1",
+                            "spine_index": 0,
+                        }
+                    },
+                },
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "eval"
+    result = evaluate_stage_blocks(
+        gold_freeform_jsonl=gold_path,
+        stage_predictions_json=stage_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=out_dir,
+        gold_adaptation_mode="auto",
+    )
+
+    assert result["report"]["overall_block_accuracy"] == pytest.approx(1.0)
+    adaptation = result["report"]["diagnostics"]["gold_adaptation"]
+    assert adaptation["mode"] == "auto"
+    assert adaptation["coverage_ratio"] == pytest.approx(1.0)
+    assert (out_dir / "gold_adaptation_diagnostics.json").exists()
+    conflict_rows = [
+        json.loads(line)
+        for line in (out_dir / "gold_conflicts.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert any(row.get("warning") == "gold_adaptation_applied" for row in conflict_rows)
+
+
+def test_evaluate_stage_blocks_force_gold_adaptation_without_mismatch(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {
+                "span_id": "s0",
+                "label": "RECIPE_TITLE",
+                "selected_text": "Simple Soup",
+                "touched_block_indices": [0],
+                "touched_blocks": [
+                    {
+                        "block_index": 0,
+                        "location": {
+                            "features": {
+                                "extraction_backend": "unstructured",
+                                "unstructured_stable_key": "urn:block:s0",
+                                "spine_index": 0,
+                            }
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {
+                    "index": 0,
+                    "text": "Simple Soup",
+                    "location": {
+                        "features": {
+                            "extraction_backend": "unstructured",
+                            "unstructured_stable_key": "urn:block:s0",
+                            "spine_index": 0,
+                        }
+                    },
+                }
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "eval"
+    result = evaluate_stage_blocks(
+        gold_freeform_jsonl=gold_path,
+        stage_predictions_json=stage_path,
+        extracted_blocks_json=extracted_archive_path,
+        out_dir=out_dir,
+        gold_adaptation_mode="force",
+    )
+
+    assert result["report"]["overall_block_accuracy"] == pytest.approx(1.0)
+    adaptation = result["report"]["diagnostics"]["gold_adaptation"]
+    assert adaptation["mode"] == "force"
+    assert adaptation["coverage_ratio"] == pytest.approx(1.0)
+
+
+def test_evaluate_stage_blocks_gold_adaptation_threshold_failure(
+    tmp_path: Path,
+) -> None:
+    gold_path = tmp_path / "freeform_span_labels.jsonl"
+    _write_jsonl(
+        gold_path,
+        [
+            {
+                "span_id": "s99",
+                "label": "RECIPE_TITLE",
+                "selected_text": "Unmapped block",
+                "touched_block_indices": [99],
+            }
+        ],
+    )
+
+    stage_path = tmp_path / "stage_block_predictions.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "abc123",
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [{"index": 0, "text": "Simple Soup"}],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Adaptive gold remap thresholds failed"):
+        evaluate_stage_blocks(
+            gold_freeform_jsonl=gold_path,
+            stage_predictions_json=stage_path,
+            extracted_blocks_json=extracted_archive_path,
+            out_dir=tmp_path / "eval",
+            gold_adaptation_mode="force",
+            gold_adaptation_min_coverage=1.0,
+            gold_adaptation_max_ambiguous=0,
+        )
+
+
 def test_evaluate_stage_blocks_boundary_tolerance_affects_segmentation_metrics(
     tmp_path: Path,
 ) -> None:

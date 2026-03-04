@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -25,6 +26,7 @@ from cookimport.labelstudio.ingest import (
     generate_pred_run_artifacts,
     _merge_parallel_results,
     _plan_parallel_convert_jobs,
+    _write_processed_outputs,
     run_labelstudio_import,
 )
 from cookimport.labelstudio.models import ArchiveBlock
@@ -222,6 +224,71 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
     shifted = next(artifact for artifact in merged.raw_artifacts if artifact.source_hash == "hash-a")
     shifted_indices = [block["index"] for block in shifted.content["blocks"]]
     assert shifted_indices == [2, 3, 4]
+    assert merged.report.total_recipes == 2
+    assert merged.report.total_tip_candidates == 0
+    assert merged.report.total_topic_candidates == 0
+    assert merged.report.total_standalone_blocks == 0
+
+
+def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_root = tmp_path / "processed"
+
+    result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Simple Soup",
+                ingredients=["1 cup stock"],
+                instructions=["Heat stock."],
+                identifier="urn:recipeimport:test:soup",
+            )
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(
+            total_recipes=9,
+            total_tips=8,
+            total_tip_candidates=7,
+            total_topic_candidates=6,
+            total_standalone_blocks=5,
+            total_standalone_topic_blocks=4,
+        ),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    run_dt = dt.datetime(2026, 3, 4, 12, 34, 56)
+    run_root = _write_processed_outputs(
+        result=result,
+        path=source,
+        run_dt=run_dt,
+        output_root=output_root,
+        importer_name="epub",
+        run_config={"table_extraction": "off"},
+    )
+
+    mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
+    assert mismatch_path.exists()
+    mismatch = json.loads(mismatch_path.read_text(encoding="utf-8"))
+    assert mismatch["schema_version"] == "report_totals_mismatch.v1"
+    assert "totalRecipes" in mismatch["mismatched_fields"]
+    assert mismatch["before"]["totalRecipes"] == 9
+    assert mismatch["expected"]["totalRecipes"] == 1
+
+    report_path = run_root / "book.excel_import_report.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["totalRecipes"] == 1
+    assert payload["totalTips"] == 0
+    assert any(
+        "report_total_mismatch_detected" in warning
+        for warning in payload.get("warnings", [])
+    )
 
 
 def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path: Path) -> None:

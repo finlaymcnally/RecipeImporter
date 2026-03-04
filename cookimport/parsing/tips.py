@@ -173,6 +173,14 @@ _CROSSREF_CUE_RE = re.compile(
     r"\b(see the tip|see tip|see page|see above|see below|as discussed)\b",
     re.IGNORECASE,
 )
+_TOC_DOTTED_PAGE_RE = re.compile(
+    r"\.{3,}\s*\d{1,4}\s*$",
+    re.IGNORECASE,
+)
+_TOC_LINE_RE = re.compile(
+    r"^\s*(table of contents|contents|chapter\s+\d+|part\s+\d+)\b",
+    re.IGNORECASE,
+)
 
 _STRONG_IMPERATIVE_RE = re.compile(
     r"^\s*(?:always\s+|never\s+)?"
@@ -182,6 +190,7 @@ _STRONG_IMPERATIVE_RE = re.compile(
 )
 
 _MIN_GENERAL_WORDS = 12
+_LONG_NARRATIVE_WORDS = 45
 
 _PREFIX_STOPWORDS = {
     "mom",
@@ -902,6 +911,25 @@ def _is_narrative_like(text: str) -> bool:
     if _FIRST_PERSON_RE.search(text):
         return True
     return False
+
+
+def classify_standalone_topic_filter_reason(text: str) -> str | None:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return "empty_text"
+    if _TOC_LINE_RE.search(cleaned):
+        return "toc_noise"
+    if _TOC_DOTTED_PAGE_RE.search(cleaned):
+        return "toc_noise"
+    if _CROSSREF_CUE_RE.search(cleaned) and not _has_cooking_anchor(cleaned):
+        return "cross_reference_noise"
+    if (
+        len(cleaned.split()) >= _LONG_NARRATIVE_WORDS
+        and _is_narrative_like(cleaned)
+        and not _has_cooking_anchor(cleaned)
+    ):
+        return "intro_narrative"
+    return None
 
 
 def _has_cooking_anchor(text: str) -> bool:

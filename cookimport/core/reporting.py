@@ -11,6 +11,89 @@ from cookimport.core.models import ConversionReport, ConversionResult
 
 logger = logging.getLogger(__name__)
 
+_REPORT_TOTAL_FIELD_TO_ATTR: tuple[tuple[str, str], ...] = (
+    ("totalRecipes", "total_recipes"),
+    ("totalTips", "total_tips"),
+    ("totalTipCandidates", "total_tip_candidates"),
+    ("totalTopicCandidates", "total_topic_candidates"),
+    ("totalStandaloneBlocks", "total_standalone_blocks"),
+    ("totalStandaloneTopicBlocks", "total_standalone_topic_blocks"),
+    ("totalGeneralTips", "total_general_tips"),
+    ("totalRecipeSpecificTips", "total_recipe_specific_tips"),
+    ("totalNotTips", "total_not_tips"),
+)
+
+
+def _report_counts_from_result(result: ConversionResult) -> dict[str, int]:
+    tips = list(result.tips)
+    tip_candidates = list(result.tip_candidates)
+    topic_candidates = list(result.topic_candidates)
+    non_recipe_blocks = list(result.non_recipe_blocks)
+    recipe_specific_count = sum(
+        1 for tip in tip_candidates if str(getattr(tip, "scope", "")).strip() == "recipe_specific"
+    )
+    not_tip_count = sum(
+        1 for tip in tip_candidates if str(getattr(tip, "scope", "")).strip() == "not_tip"
+    )
+    return {
+        "totalRecipes": len(result.recipes),
+        "totalTips": len(tips),
+        "totalTipCandidates": len(tip_candidates),
+        "totalTopicCandidates": len(topic_candidates),
+        "totalStandaloneBlocks": len(non_recipe_blocks),
+        "totalStandaloneTopicBlocks": len(topic_candidates),
+        "totalGeneralTips": len(tips),
+        "totalRecipeSpecificTips": recipe_specific_count,
+        "totalNotTips": not_tip_count,
+    }
+
+
+def finalize_report_totals(
+    report: ConversionReport,
+    result: ConversionResult,
+    *,
+    diagnostics_path: Path | None = None,
+) -> dict[str, Any] | None:
+    expected = _report_counts_from_result(result)
+    current = {
+        field_alias: int(getattr(report, attr_name, 0) or 0)
+        for field_alias, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR
+    }
+    prepopulated = any(value != 0 for value in current.values())
+    mismatched_fields = [
+        field_alias
+        for field_alias in expected
+        if current.get(field_alias) != expected[field_alias]
+    ]
+
+    diagnostics_payload: dict[str, Any] | None = None
+    if prepopulated and mismatched_fields:
+        diagnostics_payload = {
+            "schema_version": "report_totals_mismatch.v1",
+            "prepopulated": True,
+            "mismatched_fields": mismatched_fields,
+            "before": current,
+            "expected": expected,
+        }
+        warning_text = (
+            "report_total_mismatch_detected: "
+            + ", ".join(mismatched_fields)
+            + " (rewritten from in-memory conversion result counts)"
+        )
+        if warning_text not in report.warnings:
+            report.warnings.append(warning_text)
+        if diagnostics_path is not None:
+            diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+            diagnostics_path.write_text(
+                json.dumps(diagnostics_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+
+    for field_alias, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR:
+        setattr(report, attr_name, int(expected[field_alias]))
+
+    return diagnostics_payload
+
 def compute_file_hash(file_path: Path) -> str:
     """Computes SHA256 hash of a file."""
     sha256_hash = hashlib.sha256()
@@ -148,7 +231,13 @@ class ReportBuilder:
         except Exception as e:
             logger.error(f"Failed to write report: {e}")
 
-def enrich_report_with_stats(report: ConversionReport, result: ConversionResult, source_path: Path) -> None:
+def enrich_report_with_stats(
+    report: ConversionReport,
+    result: ConversionResult,
+    source_path: Path,
+    *,
+    count_diagnostics_path: Path | None = None,
+) -> dict[str, Any] | None:
     report.source_file = str(source_path)
     
     # Collect confidence scores
@@ -189,3 +278,9 @@ def enrich_report_with_stats(report: ConversionReport, result: ConversionResult,
     for cat, cat_scores in category_scores.items():
         if cat_scores:
             report.category_confidence[cat] = sum(cat_scores) / len(cat_scores)
+
+    return finalize_report_totals(
+        report,
+        result,
+        diagnostics_path=count_diagnostics_path,
+    )
