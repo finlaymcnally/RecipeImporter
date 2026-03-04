@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Sequence
 
@@ -127,6 +132,12 @@ _YIELD_COUNT_HINT_RE = re.compile(
     r"about|approximately|approx\.?|around|up to|at least|at most)\b",
     re.IGNORECASE,
 )
+_LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT = 4
+_LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
+_LINE_ROLE_CODEX_RETRY_ATTEMPTS = 3
+_LINE_ROLE_CODEX_RETRY_BASE_SECONDS = 1.5
+_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v1"
+_LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 
 
 class CanonicalLineRolePrediction(BaseModel):
@@ -145,11 +156,27 @@ class CanonicalLineRolePrediction(BaseModel):
     reason_tags: list[str] = Field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _CodexBatchTask:
+    prompt_index: int
+    candidates: tuple[AtomicLineCandidate, ...]
+    allowed_by_index: dict[int, list[str]]
+
+
+@dataclass(frozen=True)
+class _CodexBatchResult:
+    prompt_index: int
+    predictions: tuple[CanonicalLineRolePrediction, ...]
+    parse_error: bool
+
+
 def label_atomic_lines(
     candidates: Sequence[AtomicLineCandidate],
     settings: RunSettings,
     *,
     artifact_root: Path | None = None,
+    source_hash: str | None = None,
+    cache_root: Path | None = None,
     codex_timeout_seconds: int = 600,
     codex_batch_size: int = 40,
     codex_cmd: str | None = None,
@@ -160,6 +187,24 @@ def label_atomic_lines(
         return []
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     mode = _line_role_pipeline_name(settings)
+    cache_path: Path | None = None
+    if mode == "codex-line-role-v1":
+        cache_path = _resolve_line_role_cache_path(
+            source_hash=source_hash,
+            settings=settings,
+            ordered_candidates=ordered,
+            artifact_root=artifact_root,
+            cache_root=cache_root,
+            codex_timeout_seconds=codex_timeout_seconds,
+            codex_batch_size=codex_batch_size,
+        )
+        if cache_path is not None:
+            cached_predictions = _load_cached_predictions(
+                cache_path=cache_path,
+                expected_candidates=ordered,
+            )
+            if cached_predictions is not None:
+                return cached_predictions
 
     predictions: dict[int, CanonicalLineRolePrediction] = {}
     unresolved: list[AtomicLineCandidate] = []
@@ -204,6 +249,7 @@ def label_atomic_lines(
     parse_error_count = 0
     if mode == "codex-line-role-v1" and unresolved:
         log_state = _PromptLogState(artifact_root=artifact_root)
+        batch_tasks: list[_CodexBatchTask] = []
         for batch in _batch(unresolved, max(1, int(codex_batch_size))):
             batch_allowed = {
                 candidate.atomic_index: _candidate_allowlist(
@@ -212,84 +258,42 @@ def label_atomic_lines(
                 )
                 for candidate in batch
             }
-            prompt_targets = [
-                candidate.model_copy(
-                    update={"candidate_labels": list(batch_allowed[candidate.atomic_index])}
+            batch_tasks.append(
+                _CodexBatchTask(
+                    prompt_index=log_state.next_index(),
+                    candidates=tuple(batch),
+                    allowed_by_index=batch_allowed,
                 )
-                for candidate in batch
-            ]
-            prompt_text = build_canonical_line_role_prompt(prompt_targets)
-            prompt_index = log_state.next_index()
-            prompt_path = log_state.prompt_path(prompt_index)
-            if prompt_path is not None:
-                prompt_path.write_text(prompt_text, encoding="utf-8")
-            response_payload = run_codex_json_prompt(
-                prompt=prompt_text,
-                timeout_seconds=codex_timeout_seconds,
-                cmd=codex_cmd or default_codex_exec_cmd(),
-                track_usage=False,
-                runner=codex_runner,
             )
-            raw_response = str(response_payload.get("response") or "")
-            response_path = log_state.response_path(prompt_index)
-            if response_path is not None:
-                response_path.write_text(raw_response, encoding="utf-8")
 
-            parsed_rows, error = _parse_codex_line_role_response(
-                raw_response,
-                requested=batch,
-                allowed_by_index=batch_allowed,
-            )
-            parsed_path = log_state.parsed_path(prompt_index)
-            if error is not None:
+        max_inflight = min(
+            max(1, _resolve_line_role_codex_max_inflight()),
+            len(batch_tasks),
+        )
+        results_by_prompt_index: dict[int, _CodexBatchResult] = {}
+        with ThreadPoolExecutor(max_workers=max_inflight) as executor:
+            future_to_prompt_index = {
+                executor.submit(
+                    _run_codex_batch,
+                    task=task,
+                    by_atomic_index=by_atomic_index,
+                    log_state=log_state,
+                    codex_timeout_seconds=codex_timeout_seconds,
+                    codex_cmd=codex_cmd,
+                    codex_runner=codex_runner,
+                ): task.prompt_index
+                for task in batch_tasks
+            }
+            for future in as_completed(future_to_prompt_index):
+                result = future.result()
+                results_by_prompt_index[result.prompt_index] = result
+
+        for task in batch_tasks:
+            batch_result = results_by_prompt_index[task.prompt_index]
+            if batch_result.parse_error:
                 parse_error_count += 1
-                for candidate in batch:
-                    predictions[candidate.atomic_index] = _fallback_prediction(
-                        candidate,
-                        reason="codex_parse_error",
-                        by_atomic_index=by_atomic_index,
-                    )
-                if parsed_path is not None:
-                    parsed_path.write_text(
-                        json.dumps(
-                            {
-                                "error": error,
-                                "requested_atomic_indices": [
-                                    int(candidate.atomic_index) for candidate in batch
-                                ],
-                                "fallback_applied": True,
-                            },
-                            indent=2,
-                            sort_keys=True,
-                        ),
-                        encoding="utf-8",
-                    )
-            else:
-                for row in parsed_rows:
-                    candidate = by_atomic_index[row["atomic_index"]]
-                    predictions[candidate.atomic_index] = CanonicalLineRolePrediction(
-                        recipe_id=candidate.recipe_id,
-                        block_id=str(candidate.block_id),
-                        block_index=int(candidate.block_index),
-                        atomic_index=int(candidate.atomic_index),
-                        text=str(candidate.text),
-                        within_recipe_span=bool(candidate.within_recipe_span),
-                        label=row["label"],
-                        confidence=0.75,
-                        decided_by="codex",
-                        candidate_labels=list(batch_allowed[candidate.atomic_index]),
-                        reason_tags=["codex_line_role"],
-                    )
-                if parsed_path is not None:
-                    parsed_path.write_text(
-                        json.dumps(parsed_rows, indent=2, sort_keys=True),
-                        encoding="utf-8",
-                    )
-            log_state.append_dedup(
-                prompt_text=prompt_text,
-                response_text=raw_response,
-                prompt_index=prompt_index,
-            )
+            for prediction in batch_result.predictions:
+                predictions[prediction.atomic_index] = prediction
         log_state.write_parse_error_summary(parse_error_count=parse_error_count)
 
     for candidate in unresolved:
@@ -310,7 +314,366 @@ def label_atomic_lines(
                 by_atomic_index=by_atomic_index,
             )
         )
+    _write_cached_predictions(
+        cache_path=cache_path,
+        predictions=sanitized,
+    )
     return sanitized
+
+
+def _run_codex_batch(
+    *,
+    task: _CodexBatchTask,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    log_state: "_PromptLogState",
+    codex_timeout_seconds: int,
+    codex_cmd: str | None,
+    codex_runner: Callable[..., Any] | None,
+) -> _CodexBatchResult:
+    batch = list(task.candidates)
+    prompt_targets = [
+        candidate.model_copy(
+            update={"candidate_labels": list(task.allowed_by_index[candidate.atomic_index])}
+        )
+        for candidate in batch
+    ]
+    prompt_text = build_canonical_line_role_prompt(prompt_targets)
+    prompt_path = log_state.prompt_path(task.prompt_index)
+    if prompt_path is not None:
+        prompt_path.write_text(prompt_text, encoding="utf-8")
+
+    raw_response = ""
+    codex_failure: str | None = None
+    try:
+        response_payload = _run_codex_prompt_with_retry(
+            prompt=prompt_text,
+            timeout_seconds=codex_timeout_seconds,
+            cmd=codex_cmd or default_codex_exec_cmd(),
+            runner=codex_runner,
+        )
+    except Exception as exc:  # pragma: no cover - defensive fallback path
+        codex_failure = f"codex_call_failed:{exc.__class__.__name__}:{exc}"
+    else:
+        raw_response = str(response_payload.get("response") or "")
+
+    response_path = log_state.response_path(task.prompt_index)
+    if response_path is not None:
+        response_path.write_text(raw_response, encoding="utf-8")
+
+    parsed_path = log_state.parsed_path(task.prompt_index)
+    if codex_failure is not None:
+        fallback_predictions = tuple(
+            _fallback_prediction(
+                candidate,
+                reason="codex_call_failed",
+                by_atomic_index=by_atomic_index,
+            )
+            for candidate in batch
+        )
+        if parsed_path is not None:
+            parsed_path.write_text(
+                json.dumps(
+                    {
+                        "error": codex_failure,
+                        "requested_atomic_indices": [
+                            int(candidate.atomic_index) for candidate in batch
+                        ],
+                        "fallback_applied": True,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+        log_state.append_dedup(
+            prompt_text=prompt_text,
+            response_text=raw_response,
+            prompt_index=task.prompt_index,
+        )
+        return _CodexBatchResult(
+            prompt_index=task.prompt_index,
+            predictions=fallback_predictions,
+            parse_error=True,
+        )
+
+    parsed_rows, error = _parse_codex_line_role_response(
+        raw_response,
+        requested=batch,
+        allowed_by_index=task.allowed_by_index,
+    )
+    if error is not None:
+        fallback_predictions = tuple(
+            _fallback_prediction(
+                candidate,
+                reason="codex_parse_error",
+                by_atomic_index=by_atomic_index,
+            )
+            for candidate in batch
+        )
+        if parsed_path is not None:
+            parsed_path.write_text(
+                json.dumps(
+                    {
+                        "error": error,
+                        "requested_atomic_indices": [
+                            int(candidate.atomic_index) for candidate in batch
+                        ],
+                        "fallback_applied": True,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+        log_state.append_dedup(
+            prompt_text=prompt_text,
+            response_text=raw_response,
+            prompt_index=task.prompt_index,
+        )
+        return _CodexBatchResult(
+            prompt_index=task.prompt_index,
+            predictions=fallback_predictions,
+            parse_error=True,
+        )
+
+    codex_predictions = tuple(
+        CanonicalLineRolePrediction(
+            recipe_id=by_atomic_index[row["atomic_index"]].recipe_id,
+            block_id=str(by_atomic_index[row["atomic_index"]].block_id),
+            block_index=int(by_atomic_index[row["atomic_index"]].block_index),
+            atomic_index=int(by_atomic_index[row["atomic_index"]].atomic_index),
+            text=str(by_atomic_index[row["atomic_index"]].text),
+            within_recipe_span=bool(
+                by_atomic_index[row["atomic_index"]].within_recipe_span
+            ),
+            label=row["label"],
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=list(task.allowed_by_index[row["atomic_index"]]),
+            reason_tags=["codex_line_role"],
+        )
+        for row in parsed_rows
+    )
+    if parsed_path is not None:
+        parsed_path.write_text(
+            json.dumps(parsed_rows, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    log_state.append_dedup(
+        prompt_text=prompt_text,
+        response_text=raw_response,
+        prompt_index=task.prompt_index,
+    )
+    return _CodexBatchResult(
+        prompt_index=task.prompt_index,
+        predictions=codex_predictions,
+        parse_error=False,
+    )
+
+
+def _run_codex_prompt_with_retry(
+    *,
+    prompt: str,
+    timeout_seconds: int,
+    cmd: str,
+    runner: Callable[..., Any] | None,
+) -> dict[str, Any]:
+    attempts = max(1, int(_LINE_ROLE_CODEX_RETRY_ATTEMPTS))
+    backoff_seconds = max(0.0, float(_LINE_ROLE_CODEX_RETRY_BASE_SECONDS))
+    last_payload: dict[str, Any] | None = None
+    last_exception: Exception | None = None
+    for attempt_index in range(attempts):
+        try:
+            payload = run_codex_json_prompt(
+                prompt=prompt,
+                timeout_seconds=timeout_seconds,
+                cmd=cmd,
+                track_usage=False,
+                runner=runner,
+            )
+        except Exception as exc:
+            last_exception = exc
+            if attempt_index >= attempts - 1:
+                raise
+            time.sleep(backoff_seconds * (2**attempt_index))
+            continue
+        last_payload = payload
+        if _codex_payload_looks_complete(payload):
+            return payload
+        if attempt_index >= attempts - 1:
+            return payload
+        time.sleep(backoff_seconds * (2**attempt_index))
+
+    if last_payload is not None:
+        return last_payload
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError("codex prompt retries exhausted without payload or exception")
+
+
+def _codex_payload_looks_complete(payload: dict[str, Any]) -> bool:
+    try:
+        returncode = int(payload.get("returncode") or 0)
+    except (TypeError, ValueError):
+        returncode = 1
+    if returncode != 0:
+        return False
+    response = str(payload.get("response") or "").strip()
+    return bool(response)
+
+
+def _resolve_line_role_codex_max_inflight() -> int:
+    raw_value = str(os.getenv(_LINE_ROLE_CODEX_MAX_INFLIGHT_ENV) or "").strip()
+    if not raw_value:
+        return _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT
+    return max(1, min(parsed, 32))
+
+
+def _resolve_line_role_cache_path(
+    *,
+    source_hash: str | None,
+    settings: RunSettings,
+    ordered_candidates: Sequence[AtomicLineCandidate],
+    artifact_root: Path | None,
+    cache_root: Path | None,
+    codex_timeout_seconds: int,
+    codex_batch_size: int,
+) -> Path | None:
+    normalized_source_hash = str(source_hash or "").strip()
+    if not normalized_source_hash:
+        return None
+    resolved_root = _resolve_line_role_cache_root(
+        artifact_root=artifact_root,
+        cache_root=cache_root,
+    )
+    if resolved_root is None:
+        return None
+    candidate_fingerprint = _canonical_candidate_fingerprint(ordered_candidates)
+    key_payload = {
+        "schema_version": _LINE_ROLE_CACHE_SCHEMA_VERSION,
+        "source_hash": normalized_source_hash,
+        "run_settings_hash": settings.stable_hash(),
+        "candidate_fingerprint": candidate_fingerprint,
+        "codex_timeout_seconds": int(codex_timeout_seconds),
+        "codex_batch_size": int(codex_batch_size),
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            key_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    return resolved_root / digest[:2] / f"{digest}.json"
+
+
+def _resolve_line_role_cache_root(
+    *,
+    artifact_root: Path | None,
+    cache_root: Path | None,
+) -> Path | None:
+    if cache_root is not None:
+        return cache_root.expanduser()
+    override = str(os.getenv(_LINE_ROLE_CACHE_ROOT_ENV) or "").strip()
+    if override:
+        return Path(override).expanduser()
+    if artifact_root is None:
+        return None
+    resolved_artifact_root = artifact_root.expanduser().resolve()
+    for parent in (resolved_artifact_root, *resolved_artifact_root.parents):
+        if parent.name in {"benchmark-vs-golden", "sent-to-labelstudio"}:
+            return parent / ".cache" / "canonical_line_role"
+    return resolved_artifact_root / ".cache" / "canonical_line_role"
+
+
+def _canonical_candidate_fingerprint(
+    candidates: Sequence[AtomicLineCandidate],
+) -> str:
+    payload: list[dict[str, Any]] = []
+    for candidate in candidates:
+        payload.append(
+            {
+                "recipe_id": candidate.recipe_id,
+                "block_id": candidate.block_id,
+                "block_index": candidate.block_index,
+                "atomic_index": candidate.atomic_index,
+                "text": candidate.text,
+                "within_recipe_span": candidate.within_recipe_span,
+                "candidate_labels": list(candidate.candidate_labels),
+                "prev_text": candidate.prev_text,
+                "next_text": candidate.next_text,
+                "rule_tags": list(candidate.rule_tags),
+            }
+        )
+    canonical_json = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
+def _load_cached_predictions(
+    *,
+    cache_path: Path,
+    expected_candidates: Sequence[AtomicLineCandidate],
+) -> list[CanonicalLineRolePrediction] | None:
+    if not cache_path.exists():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("schema_version") != _LINE_ROLE_CACHE_SCHEMA_VERSION:
+        return None
+    raw_predictions = payload.get("predictions")
+    if not isinstance(raw_predictions, list):
+        return None
+    predictions: list[CanonicalLineRolePrediction] = []
+    try:
+        for row in raw_predictions:
+            predictions.append(CanonicalLineRolePrediction.model_validate(row))
+    except Exception:
+        return None
+    if len(predictions) != len(expected_candidates):
+        return None
+    for candidate, prediction in zip(expected_candidates, predictions):
+        if int(candidate.atomic_index) != int(prediction.atomic_index):
+            return None
+        if str(candidate.text) != str(prediction.text):
+            return None
+    return predictions
+
+
+def _write_cached_predictions(
+    *,
+    cache_path: Path | None,
+    predictions: Sequence[CanonicalLineRolePrediction],
+) -> None:
+    if cache_path is None:
+        return
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": _LINE_ROLE_CACHE_SCHEMA_VERSION,
+            "predictions": [row.model_dump(mode="json") for row in predictions],
+        }
+        tmp_path = cache_path.with_suffix(".tmp")
+        tmp_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(cache_path)
+    except OSError:
+        return
 
 
 def _line_role_pipeline_name(settings: RunSettings) -> str:
@@ -1086,6 +1449,8 @@ def _batch(
 class _PromptLogState:
     def __init__(self, *, artifact_root: Path | None) -> None:
         self._counter = 0
+        self._counter_lock = threading.Lock()
+        self._dedup_lock = threading.Lock()
         self._artifact_root = artifact_root
         self._prompt_dir = (
             None
@@ -1096,8 +1461,9 @@ class _PromptLogState:
             self._prompt_dir.mkdir(parents=True, exist_ok=True)
 
     def next_index(self) -> int:
-        self._counter += 1
-        return self._counter
+        with self._counter_lock:
+            self._counter += 1
+            return self._counter
 
     def prompt_path(self, index: int) -> Path | None:
         if self._prompt_dir is None:
@@ -1123,23 +1489,24 @@ class _PromptLogState:
     ) -> None:
         if self._prompt_dir is None:
             return
-        dedup_path = self._prompt_dir / "codex_prompt_log.dedup.txt"
-        stable_hash = hashlib.sha256(
-            f"{prompt_text}\n---\n{response_text}".encode("utf-8")
-        ).hexdigest()
-        existing_hashes: set[str] = set()
-        if dedup_path.exists():
-            try:
-                for line in dedup_path.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    existing_hashes.add(line.split("\t", 1)[0].strip())
-            except OSError:
-                existing_hashes = set()
-        if stable_hash in existing_hashes:
-            return
-        with dedup_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"{stable_hash}\tprompt_{prompt_index:04d}\n")
+        with self._dedup_lock:
+            dedup_path = self._prompt_dir / "codex_prompt_log.dedup.txt"
+            stable_hash = hashlib.sha256(
+                f"{prompt_text}\n---\n{response_text}".encode("utf-8")
+            ).hexdigest()
+            existing_hashes: set[str] = set()
+            if dedup_path.exists():
+                try:
+                    for line in dedup_path.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        existing_hashes.add(line.split("\t", 1)[0].strip())
+                except OSError:
+                    existing_hashes = set()
+            if stable_hash in existing_hashes:
+                return
+            with dedup_path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{stable_hash}\tprompt_{prompt_index:04d}\n")
 
     def write_parse_error_summary(self, *, parse_error_count: int) -> None:
         if self._prompt_dir is None:

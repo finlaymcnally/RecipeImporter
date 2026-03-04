@@ -1420,3 +1420,106 @@ Anti-loop reminder:
   - `epub_extractor=auto` => explicit removal warning + `unstructured`.
 - Keeps startup warning semantics aligned with `RunSettings.from_dict(...)` migration behavior.
 - Added regression coverage in `tests/cli/test_c3imp_interactive_menu.py::test_load_settings_migrates_auto_epub_extractor_to_unstructured`.
+
+### 2026-03-04 understandings merge ledger (interactive codex setup + run-settings cleanup)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.19.12-interactive-codex-toggle-top-tier-resolution.md`
+- `docs/understandings/2026-03-04_01.37.23-two-profile-run-settings-cleanup-seams.md`
+- `docs/understandings/2026-03-04_01.49.43-cli-legacy-epub-extractor-migration-parity.md` (captured above)
+- `docs/understandings/2026-03-04_01.55.47-single-profile-benchmark-codex-model-effort-prompt-boundary.md` (historical/superseded)
+- `docs/understandings/2026-03-04_01.56.50-cli-epub-extractor-migration-parity-auto-followup.md` (captured above)
+- `docs/understandings/2026-03-04_01.59.33-interactive-codex-ai-settings-coupled-prompts.md`
+- `docs/understandings/2026-03-04_06.51.02-interactive-codex-model-menu-only.md`
+- `docs/understandings/2026-03-04_06.55.46-interactive-codex-effort-model-copy-validation-gap.md`
+
+#### 2026-03-04_01.19.12 interactive codex toggle -> top-tier profile resolution
+- Replaced explicit codex/vanilla profile menu wording with codex intent prompt.
+- Intent mapping remains deterministic and still resolves to the same two profile families.
+- This keeps codex-vs-vanilla decision explicit without restoring broad profile-pick surfaces.
+
+#### 2026-03-04_01.37.23 two-profile run-settings cleanup seams
+- Removed dead legacy run-settings branches around persistence/editor/all-method routing that no longer had menu reachability.
+- Preserved qualitysuite winner persistence path while retiring obsolete last/preferred settings APIs.
+
+#### 2026-03-04_01.55.47 historical prompt boundary (superseded)
+- Historical state: single-profile codex choice did not yet force immediate model/effort prompting.
+- Superseded by `2026-03-04_01.59.33` where codex enablement and AI settings prompting were intentionally coupled in chooser flow.
+
+#### 2026-03-04_01.59.33 coupled codex AI settings prompts
+- When codex is enabled in shared chooser, model + reasoning effort prompts are now part of the same setup transaction.
+- Prompt cancellation returns `None` so callers can exit cleanly without partial run-state mutation.
+
+#### 2026-03-04_06.51.02 menu-only codex model selection
+- Model override prompt is menu-only and sourced from discovered codex-farm models (+ deterministic fallback).
+- Freeform model text entry branch was removed from shared chooser flow.
+
+#### 2026-03-04_06.55.46 reasoning-effort validation gap fix
+- `model_copy(update=...)` path left reasoning effort as raw string and triggered pydantic serializer warnings.
+- Fix path reconstructs settings through validated `RunSettings.from_dict(...)`-style normalization to keep enum typing stable.
+
+Anti-loop reminders:
+- If codex setup prompt behavior regresses, verify chooser sequencing and cancellation semantics before touching benchmark command routes.
+- If model/effort warnings return, inspect update/validation path first (not serializer config).
+
+### 2026-03-04 docs/tasks merge ledger (interactive codex setup sequence)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.22.04-interactive-codex-toggle-top-tier.md`
+- `docs/tasks/2026-03-04_01.59.33-interactive-codex-ai-settings-always-prompt.md`
+- `docs/tasks/2026-03-04_06.50.54-interactive-model-menu-only.md`
+- `docs/tasks/2026-03-04_06.55.38-interactive-codex-effort-enum-warning.md`
+
+#### 2026-03-04_01.22.04 codex on/off prompt replaces top-tier picker wording
+
+Problem captured:
+- Profile-family choice was expressed as a top-tier profile menu instead of codex intent.
+
+Durable outcomes:
+- `choose_run_settings(...)` uses codex intent prompt and maps to codex/vanilla top-tier families.
+- `COOKIMPORT_TOP_TIER_PROFILE` override contract preserved.
+- Single-offline codex-enabled behavior still runs vanilla baseline then codexfarm for comparison.
+
+Verification evidence retained:
+- `pytest tests/cli/test_c3imp_interactive_menu.py -k choose_run_settings`: `5 passed`.
+- Targeted single-offline variant ordering tests: `2 passed`.
+
+#### 2026-03-04_01.59.33 codex AI settings always prompted on codex-on runs
+
+Problem captured:
+- Codex could be enabled in interactive flows without asking model/effort overrides in shared chooser path.
+
+Durable outcomes:
+- Import + benchmark interactive paths now pass through codex AI settings prompt phase when codex is selected.
+- Cancel/back from model/effort prompts returns `None` and cancels run setup.
+
+Verification evidence retained:
+- `-k choose_run_settings` suite and targeted single-profile helper tests remained green.
+
+#### 2026-03-04_06.50.54 model menu-only chooser
+
+Problem captured:
+- Shared chooser still allowed freeform model typing branch.
+
+Durable outcomes:
+- Model selection moved to menu-only contract with discovered models, pipeline default, and deterministic fallback.
+- Signature stability preserved for existing callers.
+
+Verification evidence retained:
+- `pytest tests/cli/test_c3imp_interactive_menu.py -k "choose_run_settings_codex" -q` (exit `0`).
+
+#### 2026-03-04_06.55.38 reasoning-effort enum warning fix
+
+Problem captured:
+- `model_copy(update=...)` bypassed validation, leaving `codex_farm_reasoning_effort` as raw string and triggering serializer warnings.
+
+Durable outcomes:
+- Chooser updates now reconstruct validated `RunSettings` so effort values normalize to enum type.
+- Prompt UX unchanged.
+
+Verification evidence retained:
+- Codex chooser tests green after fix (`pytest_exit=0`).
+
+Anti-loop reminders:
+- If codex prompt sequence regresses, inspect chooser sequencing/cancel-return semantics before changing benchmark command routing.
+- If pydantic warnings reappear, check settings update validation path before serializer/output code.

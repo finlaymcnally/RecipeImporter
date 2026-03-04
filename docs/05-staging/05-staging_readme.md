@@ -467,3 +467,16 @@ Current staging contracts reinforced:
 
 Anti-loop reminder:
 - If `--no-write-markdown` still emits markdown summary artifacts, inspect `_write_stage_run_summary` markdown gating before changing stage-output orchestration.
+
+## 2026-03-04 merged understandings digest (stage live-status slot fallback)
+
+Merged source note:
+- `docs/understandings/2026-03-04_01.54.06-stage-live-status-slot-fallback.md`
+
+Current staging contract reinforced:
+- Stage live progress rendering must participate in shared live-slot gating.
+- `COOKIMPORT_LIVE_STATUS_SLOTS` controls shared slot capacity (default `1`), and stage should fall back to plain status output when no slot is available.
+- Plain fallback is expected behavior under slot contention; it prevents Rich live-display exceptions in mixed benchmark/stage activity.
+
+Anti-loop reminder:
+- If stage unexpectedly prints plain status lines, confirm live-slot occupancy before changing stage progress code.

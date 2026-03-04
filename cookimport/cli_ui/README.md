@@ -3,7 +3,7 @@ Interactive run-settings UI helpers.
 - `run_settings_flow.py` asks `Use Codex Farm recipe pipeline for this run?` for interactive Import/Benchmark flows.
 - `Yes` resolves `CodexFarm automatic top-tier` (winner-preferred when available).
 - `Yes` also prompts for codex AI settings for that run:
-  - `Codex Farm model override (blank for pipeline default)`
+  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 - `No` resolves `Vanilla automatic top-tier`.
 - `CodexFarm` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes recipe pipeline knobs to `llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`.

@@ -1808,3 +1808,23 @@ Anti-loop reminders:
 - If codex fallback runs show `call_count=0`, do not treat that as benchmark failure; check eval artifacts first.
 - If SeaAndSmoke-like regressions appear, verify settings hash and variant plan before scorer or prompt changes.
 - If GC seems “not cleaning enough,” confirm durable benchmark evidence exists before considering retention-policy changes.
+
+## 2026-03-04 merged understandings digest (single-profile parallel progress conflicts + live-slot controls)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.41.46-single-profile-live-display-conflict.md`
+- `docs/understandings/2026-03-04_01.49.58-live-status-slot-cap-for-parallel-bench.md`
+- `docs/understandings/2026-03-04_01.54.12-single-profile-013930-fall-apart-triage.md`
+
+Current benchmark contracts reinforced:
+- Parallel single-profile matched-book runs can trigger Rich live-display collisions if each worker tries to open its own spinner.
+- Benchmark progress now uses live-status slot gating with plain-status fallback when no slot is available.
+- Interactive single-profile parallel flow intentionally limits live slots (default contract: bounded slots, fallback safe path rather than hard error).
+- Historical triage from run `2026-03-04_01.39.30`:
+  - empty-book failures on some targets aligned with pre-fix live-display collision behavior,
+  - DinnerFor2 codex-vs-vanilla divergence in that run was mostly label-distribution drift (not evaluator crash),
+  - pass2 partial failures can still allow run completion when partial outputs exist.
+
+Anti-loop reminders:
+- If per-book exit code 1 appears with empty variant folders, check live status collision/fallback behavior before parser/scorer changes.
+- If codex/vanilla quality diverges sharply, inspect label-distribution drift and effective settings before concluding benchmark infra failure.

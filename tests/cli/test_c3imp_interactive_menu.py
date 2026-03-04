@@ -17,6 +17,7 @@ from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
     save_qualitysuite_winner_run_settings,
 )
+from cookimport.config.run_settings import CodexReasoningEffort
 from cookimport import entrypoint
 
 
@@ -486,9 +487,23 @@ def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
         "load_qualitysuite_winner_run_settings",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "list_codex_farm_models",
+        lambda **_kwargs: [
+            {"slug": "gpt-5-codex", "description": "Balanced"},
+            {"slug": "gpt-5.3-codex", "description": ""},
+        ],
+    )
     effort_prompt_seen: dict[str, bool] = {"value": False}
+    model_choice_values: list[str] = []
 
     def _menu_select(message, *args, **kwargs):
+        if message == "Codex Farm model override:":
+            model_choice_values.extend(
+                [str(choice.value) for choice in kwargs.get("choices", [])]
+            )
+            return "gpt-5-codex"
         if message == "Codex Farm reasoning effort override:":
             effort_prompt_seen["value"] = True
             return "high"
@@ -500,14 +515,22 @@ def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
         menu_select=_menu_select,
         back_action=object(),
         prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: "gpt-5-codex",
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "freeform model text prompt should not be used"
+        ),
         prompt_codex_ai_settings=True,
     )
 
     assert selected is not None
     assert effort_prompt_seen["value"] is True
+    assert model_choice_values == [
+        "__pipeline_default__",
+        "gpt-5-codex",
+        "gpt-5.3-codex",
+    ]
     assert selected.codex_farm_model == "gpt-5-codex"
     assert selected.codex_farm_reasoning_effort == "high"
+    assert selected.codex_farm_reasoning_effort is CodexReasoningEffort.high
 
 
 def test_choose_run_settings_codex_ai_settings_prompt_cancel_returns_none(
@@ -520,16 +543,26 @@ def test_choose_run_settings_codex_ai_settings_prompt_cancel_returns_none(
         "load_qualitysuite_winner_run_settings",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "list_codex_farm_models",
+        lambda **_kwargs: [{"slug": "gpt-5-codex", "description": ""}],
+    )
+    back_action = object()
 
     selected = run_settings_flow.choose_run_settings(
         global_defaults=global_defaults,
         output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: pytest.fail(
-            "effort menu should not run after model prompt cancel"
+        menu_select=lambda message, *_args, **_kwargs: (
+            back_action
+            if message == "Codex Farm model override:"
+            else pytest.fail("effort menu should not run after model prompt cancel")
         ),
-        back_action=object(),
+        back_action=back_action,
         prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: None,
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "freeform model text prompt should not be used"
+        ),
         prompt_codex_ai_settings=True,
     )
 

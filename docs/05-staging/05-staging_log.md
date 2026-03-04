@@ -536,3 +536,19 @@ Durable decisions/outcomes:
 
 Anti-loop reminder:
 - Treat markdown suppression as a staging-output contract; do not special-case `run_summary.md` outside markdown policy.
+
+### 2026-03-04_01.54.06 stage live-status slot fallback
+
+Source:
+- `docs/understandings/2026-03-04_01.54.06-stage-live-status-slot-fallback.md`
+
+Problem captured:
+- Stage still had a direct live-panel path that did not participate in shared live-slot gating and could collide with other live renderers.
+
+Durable outcomes:
+- Stage progress now acquires a shared live slot before opening live panel.
+- Shared env control is `COOKIMPORT_LIVE_STATUS_SLOTS` (default `1`).
+- When slot is unavailable, stage falls back to plain status output instead of raising live-display exceptions.
+
+Anti-loop reminder:
+- Plain stage status under concurrency is expected fallback behavior, not necessarily a regression.

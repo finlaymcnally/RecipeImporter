@@ -911,3 +911,44 @@ Regression evidence captured in source note:
 
 Anti-loop reminder:
 - If yield/title regressions reappear, inspect contextual/strict guards before prompt or threshold tuning.
+
+### 2026-03-04_07.34.26 canonical line-role codex latency shape and speedup seams
+
+Source:
+- `docs/understandings/2026-03-04_07.34.26-canonical-line-role-codex-latency-shape-and-speedup-seams.md`
+
+Problem captured:
+- Canonical line-role codex escalation in `label_atomic_lines(...)` was largely serial and dominated by codex round-trip latency (low CPU utilization with long wall-clock batches).
+
+Durable outcomes:
+- Added bounded in-flight batch concurrency per book for codex escalation.
+- Added transient retry/backoff for flaky batch failures.
+- Kept deterministic post-merge ordering after concurrent completion.
+- Added cache reuse keyed by source hash + run-settings hash + candidate fingerprint.
+- Hardened prompt/log write paths for thread-safe concurrent execution.
+
+Anti-loop reminder:
+- For slow codex line-role runs with low CPU, optimize batch concurrency/caching and network-tail handling before local parser micro-optimizations.
+
+### 2026-03-04 docs/tasks merge ledger (canonical line-role codex parallel/cache)
+
+Merged source task file:
+- `docs/tasks/2026-03-04_07.35.17-canonical-line-role-codex-parallel-cache.md`
+
+Problem captured:
+- Serial codex batches in canonical line-role escalation made latency tails dominate wall-clock runtime while CPU remained low.
+
+Durable outcomes:
+- Added bounded in-flight codex batch concurrency per book.
+- Added retry/backoff for transient codex-call failures.
+- Preserved deterministic merge order and thread-safe prompt artifact writes.
+- Added conservative cache reuse checks with source/settings/candidate fingerprinting.
+- Kept fallback behavior non-fatal when retries are exhausted.
+
+Verification evidence retained:
+- `pytest tests/parsing/test_canonical_line_roles.py -q` (exit `0`).
+- `pytest tests/labelstudio/test_labelstudio_ingest_parallel.py -k "line_role" -q` (exit `0`).
+
+Anti-loop reminders:
+- If speedup regresses, check in-flight cap, retry/backoff behavior, and cache-hit eligibility before changing line-role heuristics.
+- Preserve deterministic output ordering when adjusting concurrency internals.

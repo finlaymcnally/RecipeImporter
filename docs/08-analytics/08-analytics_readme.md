@@ -681,3 +681,34 @@ Current analytics contracts reinforced:
 Anti-loop reminders:
 - If trend series regress after UI tweaks, check selected-field normalization/state persistence first.
 - If rightward growth returns, inspect both host cleanup lifecycle and long-token wrapping before altering table min-width contracts.
+
+## 2026-03-04 merged understandings digest (Previous Runs width persistence + trend host drift)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.18.36-previous-runs-column-width-state-clamp.md`
+- `docs/understandings/2026-03-04_01.45.33-trend-host-width-drift-vs-page-overflow.md`
+
+Current analytics contracts reinforced:
+- Persisted Previous Runs column widths must be normalized and clamped at load/save/resize boundaries (`72..1200px`) so stale local state cannot force unbounded layout growth.
+- Trend drift diagnosis must include host-level overflow probes (`host.scrollWidth - host.clientWidth`) because page-level overflow checks can stay flat while chart hosts still widen internally.
+- Trend chart rerenders should keep host-width pinning and host-local cleanup to prevent cumulative width creep across repeated redraws.
+
+Anti-loop reminder:
+- If the page width looks stable but trend cards still visually stretch, inspect host-level drift metrics before changing global container CSS.
+
+## 2026-03-04 docs/tasks merge digest (pixel overflow + trend-host drift guards)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.20.21-previous-runs-real-pixel-overflow-guard.md`
+- `docs/tasks/2026-03-04_01.45.22-trend-host-width-drift-guard.md`
+
+Current analytics contracts reinforced:
+- Use browser-level pixel probes for rightward-growth regressions; static CSS/string checks are not sufficient for live rerender behavior.
+- Keep Previous Runs containment at section/wrapper boundaries and preserve local table scroll contracts.
+- Ensure long Compare/Control tokens wrap aggressively to prevent document-level horizontal overflow.
+- Guard trend host drift with host-level metrics over timed rerenders and pin chart width to measured host width.
+- Keep CDN-independent harness behavior in tests (chart scripts stubbed/controlled) for deterministic regression detection.
+
+Known failure patterns retained:
+- Page-level overflow can look stable while host-level chart width still drifts.
+- Removing table min-widths can mask symptoms while degrading readability; containment belongs in wrapper/grid policy.

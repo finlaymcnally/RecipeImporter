@@ -2298,6 +2298,7 @@ def generate_pred_run_artifacts(
                 line_role_candidates,
                 run_settings,
                 artifact_root=run_root,
+                source_hash=file_hash,
             )
             line_role_artifacts = write_line_role_projection_artifacts(
                 run_root=run_root,

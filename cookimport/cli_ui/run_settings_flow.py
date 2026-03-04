@@ -10,6 +10,7 @@ from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import RunSettings
+from cookimport.llm.codex_farm_runner import list_codex_farm_models
 
 TopTierProfileKind = Literal["codexfarm", "vanilla"]
 MenuSelect = Callable[..., Any]
@@ -181,21 +182,55 @@ def _choose_codex_ai_settings(
     selected_settings: RunSettings,
     menu_select: MenuSelect,
     back_action: Any,
-    prompt_text: PromptText | None,
 ) -> RunSettings | None:
-    model_prompt: Any = ""
-    if prompt_text is not None:
-        model_prompt = prompt_text(
-            "Codex Farm model override (blank for pipeline default):",
-            default=str(selected_settings.codex_farm_model or ""),
-        )
-        if model_prompt is None:
-            return None
-    model_override = (
-        str(model_prompt).strip() or None
-        if prompt_text is not None
-        else selected_settings.codex_farm_model
+    model_default = (
+        str(selected_settings.codex_farm_model).strip()
+        if selected_settings.codex_farm_model is not None
+        else "__pipeline_default__"
     )
+    model_choices: list[questionary.Choice] = [
+        questionary.Choice("Pipeline default", value="__pipeline_default__"),
+    ]
+    seen_model_ids: set[str] = {"__pipeline_default__"}
+    if selected_settings.codex_farm_model is not None:
+        current_override = str(selected_settings.codex_farm_model).strip()
+        if current_override:
+            model_choices.append(
+                questionary.Choice(
+                    f"Keep current override ({current_override})",
+                    value=current_override,
+                )
+            )
+            seen_model_ids.add(current_override)
+            model_default = current_override
+    discovered_models = list_codex_farm_models(cmd=selected_settings.codex_farm_cmd)
+    for model_row in discovered_models:
+        model_id = str(model_row.get("slug") or "").strip()
+        if not model_id or model_id in seen_model_ids:
+            continue
+        description = str(model_row.get("description") or "").strip()
+        label = model_id if not description else f"{model_id} - {description}"
+        model_choices.append(questionary.Choice(label, value=model_id))
+        seen_model_ids.add(model_id)
+    if len(model_choices) == 1:
+        fallback_model_id = "gpt-5.3-codex"
+        model_choices.append(questionary.Choice(fallback_model_id, value=fallback_model_id))
+
+    model_choice = menu_select(
+        "Codex Farm model override:",
+        menu_help=(
+            "Choose a model override for this run.\n"
+            "Pipeline default uses the model configured by the selected codex-farm pipelines."
+        ),
+        default=model_default,
+        choices=model_choices,
+    )
+    if model_choice in {None, back_action}:
+        return None
+    model_override = (
+        None if str(model_choice) == "__pipeline_default__" else str(model_choice).strip()
+    ) or None
+
     effort_default = (
         str(selected_settings.codex_farm_reasoning_effort)
         if selected_settings.codex_farm_reasoning_effort is not None
@@ -220,11 +255,12 @@ def _choose_codex_ai_settings(
     reasoning_effort_override = (
         None if effort_choice == "__default__" else str(effort_choice)
     )
-    return selected_settings.model_copy(
-        update={
-            "codex_farm_model": model_override,
-            "codex_farm_reasoning_effort": reasoning_effort_override,
-        }
+    patched_payload = selected_settings.to_run_config_dict()
+    patched_payload["codex_farm_model"] = model_override
+    patched_payload["codex_farm_reasoning_effort"] = reasoning_effort_override
+    return RunSettings.from_dict(
+        patched_payload,
+        warn_context="interactive codex ai settings",
     )
 
 
@@ -268,7 +304,6 @@ def choose_run_settings(
             selected_settings=selected_settings,
             menu_select=menu_select,
             back_action=back_action,
-            prompt_text=prompt_text,
         )
         if selected_settings is None:
             return None

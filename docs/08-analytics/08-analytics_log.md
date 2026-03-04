@@ -2696,3 +2696,72 @@ Anti-loop reminders:
 - Keep red/green harnesses for rerender cleanliness and pixel overflow; these caught regressions invisible to static CSS checks.
 - Do not “fix” rightward growth by removing table readability min-width; containment belongs in wrapper/grid policy.
 - For two-host trend issues, debug host-id-scoped lifecycle and shared-series pipeline together.
+
+### 2026-03-04_01.18.36 Previous Runs column-width state clamp
+
+Source:
+- `docs/understandings/2026-03-04_01.18.36-previous-runs-column-width-state-clamp.md`
+
+Problem captured:
+- Persisted Previous Runs column widths can carry oversized values across sessions and cause recurring layout growth even after content-level overflow fixes.
+
+Durable outcomes:
+- Column-width normalization clamps persisted values to `72..1200px`.
+- Clamp is applied consistently at sanitize/load, drag-resize updates, and state persistence boundaries.
+
+Anti-loop note:
+- If Previous Runs keeps widening across sessions, inspect persisted-width clamp paths before changing table/container CSS.
+
+### 2026-03-04_01.45.33 trend host width drift vs page overflow
+
+Source:
+- `docs/understandings/2026-03-04_01.45.33-trend-host-width-drift-vs-page-overflow.md`
+
+Problem captured:
+- Page-level overflow checks can remain stable while trend hosts still accumulate internal horizontal overflow over rerenders.
+
+Durable outcomes:
+- Added host-level drift checks (`host.scrollWidth - host.clientWidth`) sampled over time.
+- Pinned trend chart width to measured host width each render to stop rerender-time width creep.
+
+Anti-loop note:
+- A passing page-overflow probe does not clear trend-host drift; verify host-level metrics before closing drift incidents.
+
+### 2026-03-04 docs/tasks merge ledger (pixel overflow + host drift)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.20.21-previous-runs-real-pixel-overflow-guard.md`
+- `docs/tasks/2026-03-04_01.45.22-trend-host-width-drift-guard.md`
+
+#### 2026-03-04_01.20.21 Previous Runs real pixel overflow guard
+
+Problem captured:
+- Previous Runs kept growing rightward under live rerenders; prior checks missed real overflow states.
+
+Durable outcomes:
+- Added browser-level pixel harness measuring document and section overflow over repeated rerenders.
+- Hardened runtime containment via long-token wrapping and persisted-column-width normalization (`72..1200px`).
+
+Verification evidence retained:
+- Red before fix: `max_doc_overflow_px=2195`.
+- Green targeted: `4 passed, 68 deselected`.
+- Green full dashboard: `72 passed`.
+
+#### 2026-03-04_01.45.22 trend-host width drift guard
+
+Problem captured:
+- Trend hosts could widen internally over time while page-level overflow checks stayed flat.
+
+Durable outcomes:
+- Added timed host-drift Playwright harness (5 samples, 5s interval).
+- Pinned Highcharts width to measured host width per rerender.
+- Kept rerender forcing deterministic in harness via UI-state churn and chart stubbing.
+
+Verification evidence retained:
+- Red before fix: host overflow drift up to `1396/1516px`.
+- Green targeted/new slow: passing drift guard.
+- Combined dashboard suites remained green after fix.
+
+Anti-loop reminders:
+- If rightward growth returns, run host-level drift + document-level overflow probes together.
+- Treat wrapper containment and explicit host-width pinning as the primary guardrails, not table-width shrinkage.

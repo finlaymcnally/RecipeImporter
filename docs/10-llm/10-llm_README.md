@@ -710,3 +710,26 @@ Current LLM contracts reinforced:
 
 Anti-loop reminder:
 - If pass3 volume changes unexpectedly while profiles stay fixed, inspect run-settings values before editing profile patches.
+
+## 2026-03-04 merged understandings digest (pass-policy control plane + top-tier baseline boundaries)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.21.40-pass3-skip-settings-first-qualitysuite-surface.md`
+- `docs/understandings/2026-03-04_01.24.50-orchestrator-env-benchmark-control-plane.md`
+- `docs/understandings/2026-03-04_01.31.25-top-tier-pass3-skip-profile-baseline-boundary.md`
+- `docs/understandings/2026-03-04_01.32.00-codexfarm-policy-knobs-settings-only.md`
+- `docs/understandings/2026-03-04_01.35.09-pass1-pattern-hints-top-tier-baseline-boundary.md`
+
+Current LLM contracts reinforced:
+- Pass-policy knobs are RunSettings-first controls:
+  - `codex_farm_pass3_skip_pass2_ok`
+  - `codex_farm_pass1_pattern_hints_enabled`
+- Orchestrator policy toggles should not reintroduce separate env-only routing for those knobs; QualitySuite/profile tuning should patch RunSettings directly.
+- `orchestrator/env` references in docs are shorthand for env-aware logic in `cookimport/llm/codex_farm_orchestrator.py`, not a standalone module.
+- Automatic top-tier built-in baselines pin:
+  - `codex_farm_pass3_skip_pass2_ok=true`
+  - `codex_farm_pass1_pattern_hints_enabled=false`
+- Winner harmonization must preserve winner-provided values for both policy knobs while still enforcing codex pipeline trio normalization.
+
+Anti-loop reminder:
+- If pass1 hinting or pass3 volume changes while profile choice appears unchanged, inspect resolved RunSettings payload values before editing orchestrator routing logic.

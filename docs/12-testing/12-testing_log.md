@@ -293,3 +293,101 @@ Verification evidence preserved from task:
 
 Anti-loop reminder:
 - Avoid collapsing these files back into one mixed-cost module unless you re-prove fast-loop performance/coverage tradeoffs.
+
+## 2026-03-04 understandings merge ledger (source files retired)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.15.04-slow-marker-recalibration-and-dashboard-pixel-split.md`
+- `docs/understandings/2026-03-04_01.22.00-labelstudio-benchmark-helper-modular-seams.md`
+- `docs/understandings/2026-03-04_01.25.56-codex-orchestrator-test-modular-seams.md`
+- `docs/understandings/2026-03-04_01.33.59-prelabel-steplinking-bench-test-modular-seams.md`
+- `docs/understandings/2026-03-04_01.36.47-labelstudio-benchmark-helper-progress-seam.md`
+
+Merge note:
+- Detailed outcomes for each note were already captured in the same-timestamp sections above in this log.
+- This ledger is the source-retirement mapping so the removed `docs/understandings/*` files remain traceable from one place.
+
+## 2026-03-04 docs/tasks merge ledger (source files retired)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.15.04-slow-marker-recalibration-and-dashboard-split.md`
+- `docs/tasks/2026-03-04_01.22.00-labelstudio-benchmark-helper-modular-split.md`
+- `docs/tasks/2026-03-04_01.25.56-codex-orchestrator-test-modular-split.md`
+- `docs/tasks/2026-03-04_01.33.59-prelabel-steplinking-bench-test-modular-split.md`
+- `docs/tasks/2026-03-04_01.36.47-labelstudio-benchmark-helper-progress-split.md`
+
+### 2026-03-04_01.15.04 slow-marker recalibration + dashboard split
+
+Problem captured:
+- `-m slow` was polluted by files that no longer represented high runtime cost.
+- Dashboard had one expensive pixel/browser harness mixed into an otherwise fast file.
+
+Durable outcomes:
+- Pixel/browser overflow harness isolated to `tests/analytics/test_stats_dashboard_slow.py`.
+- `_SLOW_FILES` trimmed to genuinely expensive files.
+- Marker-map coverage stayed complete (`missing 0`, `extra 0`).
+
+Verification evidence retained:
+- `test_stats_dashboard.py`: `70 passed in 9.65s`.
+- `test_stats_dashboard_slow.py`: `1 passed in 5.39s`.
+- `pytest -m slow --collect-only -q` narrowed to four high-cost files.
+
+### 2026-03-04_01.22.00 labelstudio benchmark-helper modular split
+
+Problem captured:
+- One mixed file blocked targeted debugging and clean slow/fast boundaries.
+
+Durable outcomes:
+- Split into `..._eval_payload.py`, `..._scheduler.py`, `..._single_profile.py` with base module retained.
+- Slow scope narrowed to eval + scheduler modules.
+- Collection and targeted split tests remained stable.
+
+Verification evidence retained:
+- Collect counts: `75 + 26 + 66 + 7`.
+- Targeted seam check: `3 passed`.
+
+### 2026-03-04_01.25.56 codex orchestrator modular split
+
+Problem captured:
+- Policy/transport/stage seam tests were coupled in one file.
+
+Durable outcomes:
+- Split into policy (`test_codex_farm_orchestrator.py`), runner transport, and stage integration modules.
+- Slow slice includes policy + runner transport; stage seam stays non-slow.
+
+Verification evidence retained:
+- Collect counts: `16 + 15 + 3`.
+- Representative seam tests: `3 passed`.
+
+### 2026-03-04_01.33.59 modular split pass (prelabel, step-linking, bench)
+
+Problem captured:
+- Three large files mixed unrelated seams, expanding collection/triage cost.
+
+Durable outcomes:
+- Prelabel split into prompt/span vs codex CLI modules.
+- Step-linking split into core vs semantic/fuzzy/collective modules.
+- Bench split into core helper vs speed CLI vs quality CLI modules.
+- Marker-map updates preserved domain marker behavior.
+
+Verification evidence retained:
+- Collection totals: `17 + 19 + 16 + 15 + 11 + 9 + 11`.
+- Representative cross-seam run: `7 passed`.
+
+### 2026-03-04_01.36.47 benchmark-helper progress/status split
+
+Problem captured:
+- Progress/status/dashboard tests were still bundled with general helper flows.
+
+Durable outcomes:
+- Progress seam moved to `test_labelstudio_benchmark_helpers_progress.py`.
+- Base helper file kept general non-progress flows.
+- Marker-map coverage added for new file.
+
+Verification evidence retained:
+- Collect counts: `55 + 20`.
+- Representative run: `2 passed`.
+
+Anti-loop reminders:
+- If focused runs become broad, inspect seam boundaries and marker maps before changing business logic.
+- If slow runs regress, remeasure runtimes first rather than re-expanding slow by default.

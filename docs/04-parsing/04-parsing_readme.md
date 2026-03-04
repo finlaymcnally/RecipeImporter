@@ -470,6 +470,10 @@ Gates include:
 - Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 - Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
 - Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
+- Codex fallback batches now run with bounded in-flight concurrency (default `4` per book; override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`) and merge back deterministically by atomic index/prompt order.
+- Prompt logging internals are thread-safe for concurrent codex batch workers (`prompt_*.txt`, `response_*.txt`, `parsed_*.json`, and dedup log writes).
+- Codex call failures now use bounded retry/backoff before fallback (`3` attempts, exponential backoff base `1.5s`).
+- Canonical line-role predictions are cached on disk by source hash + run-settings hash + candidate fingerprint; reruns can reuse cache and skip codex calls (`COOKIMPORT_LINE_ROLE_CACHE_ROOT` overrides cache location).
 
 ### Related modules
 
@@ -899,3 +903,31 @@ Current parsing contracts reinforced:
 - Regression anchors for this closure:
   - `test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction`
   - `test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_title`
+
+## 2026-03-04 merged understandings digest (canonical line-role codex throughput seams)
+
+Merged source note:
+- `docs/understandings/2026-03-04_07.34.26-canonical-line-role-codex-latency-shape-and-speedup-seams.md`
+
+Current parsing contract reinforced:
+- Canonical line-role codex escalation is latency-bound by codex round trips, not CPU-bound.
+- Throughput gains should focus on bounded batch concurrency, retry/backoff, deterministic merge ordering, and cache reuse keyed by source/settings/candidate fingerprints.
+- Prompt/log artifact writing must remain thread-safe under concurrent batch execution.
+
+Anti-loop reminder:
+- Low CPU during slow codex labeling is expected for network-latency-bound runs; tune concurrency/caching before local CPU optimizations.
+
+## 2026-03-04 docs/tasks merge digest (canonical line-role codex parallel/cache contract)
+
+Merged source task file:
+- `docs/tasks/2026-03-04_07.35.17-canonical-line-role-codex-parallel-cache.md`
+
+Current parsing contracts reinforced:
+- Canonical line-role codex escalation supports bounded per-book in-flight concurrency (default `4`; override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`).
+- Merge ordering after concurrent batch completion remains deterministic by atomic index/prompt order.
+- Retry/backoff handles transient codex failures before fallback classification.
+- Cache reuse is keyed conservatively (source hash + settings + candidate fingerprint) and must validate candidate shape/index alignment before reuse.
+- Failure mode remains fail-safe: exhausted retries fall back without aborting entire run.
+
+Operational note:
+- This optimization primarily targets latency-bound codex round trips; CPU-bound tuning is secondary for this path.

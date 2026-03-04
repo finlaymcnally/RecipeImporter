@@ -111,7 +111,7 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - default is inferred from global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`),
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can force either profile and bypass the prompt.
 - when codex is selected, chooser then asks:
-  - `Codex Farm model override (blank for pipeline default)`
+  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 
 Resolved profile families:
@@ -1481,7 +1481,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
   - keep current value,
   - pipeline default (shown when an override exists),
   - discovered models from `codex-farm models list --json` (best-effort, with fallback options),
-  - custom model id fallback.
+  - no freeform custom model entry.
 - Reasoning-effort prompt behavior is unchanged and still follows model selection when codex is enabled.
 - Cancel/back from model or reasoning prompts cancels run setup cleanly for both import and benchmark interactive flows.
 
@@ -1496,8 +1496,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 
 ### 2026-02-28_04.15.12 codex-farm run-settings model picker surface
 - Source: `docs/understandings/2026-02-28_04.15.12-codex-farm-run-settings-model-picker-surface.md`
-- Codex model override uses menu-first selection (`keep current`, optional `pipeline default`, discovered models, `custom model id...`) instead of free-text-first input.
-- Typing is only used for the explicit `custom model id...` branch.
+- Codex model override uses menu-first selection (`pipeline default`, optional `keep current`, discovered models, fallback `gpt-5.3-codex`) with no freeform typing branch.
 - `None`/`BACK_ACTION` from model or reasoning prompts cancels setup for both interactive import and benchmark paths.
 
 Anti-loop note:
@@ -1708,3 +1707,50 @@ Current CLI contract reinforced:
 
 Anti-loop reminder:
 - If stale low-quality setting combos reappear, verify chooser removal and resolver path usage before changing benchmark/scoring logic.
+
+## 2026-03-04 merged understandings digest (interactive codex setup + settings cleanup + EPUB migration parity)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.19.12-interactive-codex-toggle-top-tier-resolution.md`
+- `docs/understandings/2026-03-04_01.37.23-two-profile-run-settings-cleanup-seams.md`
+- `docs/understandings/2026-03-04_01.49.43-cli-legacy-epub-extractor-migration-parity.md`
+- `docs/understandings/2026-03-04_01.55.47-single-profile-benchmark-codex-model-effort-prompt-boundary.md` (historical; superseded)
+- `docs/understandings/2026-03-04_01.56.50-cli-epub-extractor-migration-parity-auto-followup.md`
+- `docs/understandings/2026-03-04_01.59.33-interactive-codex-ai-settings-coupled-prompts.md`
+- `docs/understandings/2026-03-04_06.51.02-interactive-codex-model-menu-only.md`
+- `docs/understandings/2026-03-04_06.55.46-interactive-codex-effort-model-copy-validation-gap.md`
+
+Current CLI contracts reinforced:
+- Interactive import/benchmark setup uses codex intent prompt (`Use Codex Farm recipe pipeline for this run?`) to resolve codex-vs-vanilla top-tier profile families.
+- Legacy run-settings persistence/editor/dead branches remain retired; runtime chooser is two-profile focused and deterministic.
+- Codex-enabled setup must collect AI settings during chooser flow:
+  - model override selection is menu-only,
+  - reasoning effort uses enum-safe selection,
+  - cancel/back returns `None` and exits setup cleanly.
+- Pydantic enum fields in run-settings patching must be revalidated through `RunSettings.from_dict(...)`-style reconstruction rather than raw `model_copy(update=...)` payload writes.
+- `cookimport.json` EPUB extractor migration parity is explicit in interactive config loading:
+  - `legacy -> beautifulsoup` (migration warning),
+  - `auto -> unstructured` (removed-mode warning).
+- Historical boundary note (`01.55.47`): there was a brief period where single-profile flow intentionally did not prompt model/effort; current contract is the superseding `01.59.33` coupled-prompt behavior.
+
+Anti-loop reminders:
+- If codex-on runs stop asking model/effort, inspect chooser prompt sequencing before touching benchmark routing.
+- If serializer warnings reappear for reasoning effort, verify patch path uses validated reconstruction.
+
+## 2026-03-04 docs/tasks merge digest (interactive codex prompt sequencing)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.22.04-interactive-codex-toggle-top-tier.md`
+- `docs/tasks/2026-03-04_01.59.33-interactive-codex-ai-settings-always-prompt.md`
+- `docs/tasks/2026-03-04_06.50.54-interactive-model-menu-only.md`
+- `docs/tasks/2026-03-04_06.55.38-interactive-codex-effort-enum-warning.md`
+
+Current CLI contracts reinforced:
+- Interactive setup captures codex intent with `Use Codex Farm recipe pipeline for this run?` and resolves deterministic top-tier profiles behind that prompt.
+- Codex-enabled chooser flows must collect codex AI settings in-sequence (model + reasoning effort), with cancel/back returning `None` for clean abort.
+- Codex model selection in shared chooser is menu-only (discovered models + deterministic fallback, no freeform text branch).
+- Reasoning effort updates must pass through validated `RunSettings` reconstruction so enum typing remains stable.
+- `COOKIMPORT_TOP_TIER_PROFILE` remains a force-override path for codexfarm/vanilla profile resolution.
+
+Known gotcha retained:
+- `model_copy(update=...)` on run settings can bypass field validation and reintroduce serializer warnings for enum fields.

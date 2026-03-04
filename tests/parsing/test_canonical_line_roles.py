@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
+import time
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.llm.canonical_line_role_prompt import build_canonical_line_role_prompt
+from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from tests.paths import FIXTURES_DIR
@@ -815,3 +818,200 @@ def test_codex_mode_escalates_low_confidence_deterministic_candidates(monkeypatc
     assert len(predictions) == 1
     assert predictions[0].label == "KNOWLEDGE"
     assert predictions[0].decided_by == "codex"
+
+
+def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:retry:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+    call_count = {"value": 0}
+    observed_sleeps: list[float] = []
+
+    def _fake_sleep(seconds: float) -> None:
+        observed_sleeps.append(float(seconds))
+
+    def _fake_codex_call(**_kwargs):
+        call_count["value"] += 1
+        if call_count["value"] < 3:
+            return {
+                "response": "",
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "temporary service unavailable",
+                "usage": None,
+                "turn_failed_message": "transient",
+            }
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.time.sleep",
+        _fake_sleep,
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by == "codex"
+    assert call_count["value"] == 3
+    assert observed_sleeps == [1.5, 3.0]
+
+
+def test_label_atomic_lines_codex_cache_hit_skips_runner(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    settings = _settings("codex-line-role-v1")
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:cache:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+    call_count = {"value": 0}
+
+    def _fake_codex_call(**_kwargs):
+        call_count["value"] += 1
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    first = label_atomic_lines(
+        candidates,
+        settings,
+        artifact_root=tmp_path / "artifacts",
+        source_hash="source-hash-1",
+        cache_root=tmp_path / "line-role-cache",
+    )
+    assert call_count["value"] == 1
+    assert first[0].decided_by == "codex"
+
+    def _runner_should_not_execute(**_kwargs):
+        raise AssertionError("cache hit should skip codex call")
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _runner_should_not_execute,
+    )
+    second = label_atomic_lines(
+        candidates,
+        settings,
+        artifact_root=tmp_path / "artifacts",
+        source_hash="source-hash-1",
+        cache_root=tmp_path / "line-role-cache",
+    )
+    assert second[0].label == first[0].label
+    assert second[0].decided_by == first[0].decided_by
+    cache_files = list((tmp_path / "line-role-cache").rglob("*.json"))
+    assert cache_files
+
+
+def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    candidates: list[AtomicLineCandidate] = []
+    for atomic_index in range(4):
+        candidates.append(
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id=f"block:parallel:{atomic_index}",
+                block_index=atomic_index,
+                atomic_index=atomic_index,
+                text=f"Ambiguous line {atomic_index}",
+                within_recipe_span=True,
+                candidate_labels=["OTHER", "KNOWLEDGE"],
+                prev_text=None,
+                next_text=None,
+                rule_tags=["recipe_span_fallback"],
+            )
+        )
+
+    delay_by_atomic_index = {
+        0: 0.20,
+        1: 0.05,
+        2: 0.15,
+        3: 0.01,
+    }
+    call_order: list[int] = []
+
+    def _fake_codex_call(**kwargs):
+        prompt_text = str(kwargs.get("prompt") or "")
+        match = re.search(r'"atomic_index"\\s*:\\s*(\\d+)', prompt_text)
+        assert match is not None
+        atomic_index = int(match.group(1))
+        time.sleep(delay_by_atomic_index.get(atomic_index, 0.0))
+        call_order.append(atomic_index)
+        return {
+            "response": json.dumps(
+                [{"atomic_index": atomic_index, "label": "OTHER"}]
+            ),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_resolve_line_role_codex_max_inflight",
+        lambda: 4,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+    )
+    assert call_order != [0, 1, 2, 3]
+    assert [row.atomic_index for row in predictions] == [0, 1, 2, 3]
+    assert all(row.label == "OTHER" for row in predictions)
+
+    prompt_dir = tmp_path / "line-role-pipeline" / "prompts"
+    dedup_lines = (
+        prompt_dir / "codex_prompt_log.dedup.txt"
+    ).read_text(encoding="utf-8").splitlines()
+    assert len(dedup_lines) == 4
+    assert all("\tprompt_" in line for line in dedup_lines)

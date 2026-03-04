@@ -206,3 +206,51 @@ Current testing contract reinforced:
 
 Anti-loop reminder:
 - When CLI defaults evolve, prefer extending fast signature/settings assertions before adding expensive integration paths to default loops.
+
+## 2026-03-04 merged understandings digest (slow-slice recalibration + modular test seams)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.15.04-slow-marker-recalibration-and-dashboard-pixel-split.md`
+- `docs/understandings/2026-03-04_01.22.00-labelstudio-benchmark-helper-modular-seams.md`
+- `docs/understandings/2026-03-04_01.25.56-codex-orchestrator-test-modular-seams.md`
+- `docs/understandings/2026-03-04_01.33.59-prelabel-steplinking-bench-test-modular-seams.md`
+- `docs/understandings/2026-03-04_01.36.47-labelstudio-benchmark-helper-progress-seam.md`
+
+Current testing contracts reinforced:
+- `_SLOW_FILES` should stay narrowly scoped to genuinely expensive files; fast files should not be dragged into `-m slow` by historical classifications.
+- Dashboard browser pixel-overflow coverage is intentionally isolated in `tests/analytics/test_stats_dashboard_slow.py`; fast dashboard logic stays in `tests/analytics/test_stats_dashboard.py`.
+- Large mixed modules should stay split by functional seam:
+  - labelstudio benchmark helper: general vs eval payload vs scheduler vs single-profile vs progress,
+  - codex orchestrator: policy vs runner transport vs stage integration,
+  - prelabel: prompt/span contracts vs codex CLI contracts,
+  - step-linking: core heuristics vs semantic/fuzzy/collective,
+  - bench CLI: helper/noise/cost vs speed wiring vs quality wiring.
+- Split modules may share base-module helper state through controlled non-test-global injection to avoid fixture duplication.
+
+Anti-loop reminders:
+- If targeted test runs become broad again, check module split boundaries before changing marker policies.
+- If slow runs regrow, remeasure file runtime first; do not promote files to slow by assumption.
+
+## 2026-03-04 docs/tasks merge digest (slow-slice recalibration + modular test seams)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.15.04-slow-marker-recalibration-and-dashboard-split.md`
+- `docs/tasks/2026-03-04_01.22.00-labelstudio-benchmark-helper-modular-split.md`
+- `docs/tasks/2026-03-04_01.25.56-codex-orchestrator-test-modular-split.md`
+- `docs/tasks/2026-03-04_01.33.59-prelabel-steplinking-bench-test-modular-split.md`
+- `docs/tasks/2026-03-04_01.36.47-labelstudio-benchmark-helper-progress-split.md`
+
+Current testing contracts reinforced:
+- Keep `slow` marker scope cost-based and narrow; avoid historical over-classification of now-fast suites.
+- Dashboard browser pixel harness stays isolated in `tests/analytics/test_stats_dashboard_slow.py`, with fast dashboard checks kept in `test_stats_dashboard.py`.
+- Maintain concern-based test modularization for focused loops:
+  - labelstudio benchmark helper split into base/eval/scheduler/single-profile/progress seams,
+  - codex orchestrator split into policy/runner transport/stage integration seams,
+  - prelabel split into prompt/span vs codex CLI seams,
+  - step-linking split into core vs semantic/fuzzy/collective seams,
+  - bench CLI split into core helper vs speed wiring vs quality wiring seams.
+- Keep `tests/conftest.py` marker mapping complete for each new split file; avoid duplicate basename collisions.
+
+Known gotchas retained:
+- Split modules intentionally import shared non-test globals from base modules; copying dunder globals can trigger pytest import-file mismatch.
+- Browser/pixel harnesses are environment-sensitive and belong in the slow slice unless runtime profile changes materially.

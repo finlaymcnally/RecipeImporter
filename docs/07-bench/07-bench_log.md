@@ -5702,3 +5702,44 @@ Evidence anchors preserved from source notes:
 Anti-loop reminders:
 - Do not conclude model regression before confirming resolved run settings and variant-plan shape.
 - Do not couple GC cleanup behavior to CSV mutation; durable checks must stay read-only.
+
+### 2026-03-04_01.41.46 single-profile parallel benchmark live-display conflict
+
+Source:
+- `docs/understandings/2026-03-04_01.41.46-single-profile-live-display-conflict.md`
+
+Problem captured:
+- Parallel matched-book single-profile workers could each open Rich live spinners and trigger `LiveError: Only one live display may be active at once`.
+
+Durable outcomes:
+- Classified as progress-rendering concurrency conflict, not parser/data correctness failure.
+- Documented operator workaround (`COOKIMPORT_PLAIN_PROGRESS=1`) and bounded live-slot solution path.
+
+### 2026-03-04_01.49.58 live-status slot cap for parallel benchmark flows
+
+Source:
+- `docs/understandings/2026-03-04_01.49.58-live-status-slot-cap-for-parallel-bench.md`
+
+Problem captured:
+- Shared-console live displays collided under parallel benchmark threads.
+
+Durable outcomes:
+- Added live-slot gating in `_run_with_progress_status(...)` with per-run slot override plumbing.
+- Interactive single-profile parallel runs request bounded live slots; slot exhaustion falls back to plain status instead of hard error.
+
+### 2026-03-04_01.54.12 single-profile 01:39:30 run triage
+
+Source:
+- `docs/understandings/2026-03-04_01.54.12-single-profile-013930-fall-apart-triage.md`
+
+Problem captured:
+- Run root `2026-03-04_01.39.30` showed empty variant folders for some books with per-book failures, alongside one completed book with strong codex-vs-vanilla divergence.
+
+Durable findings:
+- Empty-book failures aligned with pre-fix live-display collision timing.
+- DinnerFor2 vanilla collapse in that run was label-distribution drift (`YIELD_LINE` overprediction), not benchmark evaluator breakage.
+- Codex pass2 could complete partially under websocket/auth failures and still allow benchmark completion when partial outputs were retained.
+
+Anti-loop reminders:
+- Empty per-book variant dirs + exit code 1 should trigger live-status collision checks before parsing/scoring rewrites.
+- Distinguish infra/concurrency failures from content-labeling drift before changing gate thresholds.

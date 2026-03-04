@@ -2256,3 +2256,36 @@ Durable decision:
 
 Anti-loop reminder:
 - Debug pass3 skip behavior in orchestrator env/default evaluation first; do not add pseudo pass3-skip keys to profile payloads unless the architecture intentionally changes.
+
+### 2026-03-04 understandings merge ledger (pass policy knobs + benchmark control-plane boundary)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_01.21.40-pass3-skip-settings-first-qualitysuite-surface.md`
+- `docs/understandings/2026-03-04_01.24.50-orchestrator-env-benchmark-control-plane.md`
+- `docs/understandings/2026-03-04_01.31.25-top-tier-pass3-skip-profile-baseline-boundary.md`
+- `docs/understandings/2026-03-04_01.32.00-codexfarm-policy-knobs-settings-only.md`
+- `docs/understandings/2026-03-04_01.35.09-pass1-pattern-hints-top-tier-baseline-boundary.md`
+
+#### 2026-03-04_01.21.40 pass3 skip moved to settings-first tuning surface
+- `codex_farm_pass3_skip_pass2_ok` was promoted to RunSettings and propagated through stage/bench/labelstudio adapters.
+- This made QualitySuite/profile tuning direct and inspectable instead of hidden inside orchestrator internals.
+
+#### 2026-03-04_01.24.50 orchestrator/env shorthand and benchmark control plane split
+- `orchestrator/env` is documentation shorthand; no standalone module exists.
+- Benchmark runtime env controls (parallelism/executor/cache/ETA) remain mostly in bench runner surfaces, while pass policy routing remains in orchestrator.
+
+#### 2026-03-04_01.31.25 top-tier baseline boundary for pass3 skip
+- Built-in top-tier baselines explicitly pin `codex_farm_pass3_skip_pass2_ok=true`.
+- Winner harmonization preserves winner-specific skip tuning values and does not overwrite them.
+
+#### 2026-03-04_01.32.00 policy knobs settings-only boundary
+- Pass-routing knobs (`codex_farm_pass1_pattern_hints_enabled`, `codex_farm_pass3_skip_pass2_ok`) now live in RunSettings only.
+- Older orchestrator env policy toggles for these controls were retired.
+
+#### 2026-03-04_01.35.09 top-tier baseline boundary for pass1 hints
+- Built-in codex and vanilla baselines explicitly pin `codex_farm_pass1_pattern_hints_enabled=false`.
+- Winner harmonization does not overwrite winner-provided pattern-hints value.
+
+Anti-loop reminders:
+- If pass1/pass3 behavior drifts, inspect resolved settings payload first; do not re-add implicit env toggles to orchestrator policy logic.
+- When benchmarking, keep benchmark runner env controls distinct from pass-policy knobs to avoid mixed control-plane debugging.
