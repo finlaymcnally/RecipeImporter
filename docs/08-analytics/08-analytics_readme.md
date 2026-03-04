@@ -244,6 +244,9 @@ Benchmark scan details:
 - Agent mode keeps running after malformed request lines and returns structured error envelopes.
 - New `insights` action auto-summarizes candidate rows (actionable drivers vs noisy high-cardinality fields, process-factor spreads, model-efficiency view, and suggested next compare-control queries).
 - QualitySuite bench flows now auto-produce agent bridge bundles (`agent_compare_control/`) that precompute `insights` outputs per scope/outcome and provide ready JSONL follow-up requests for `compare-control agent`.
+- Discovery-card ranking can now be tuned from backend/CLI:
+  - one-shot via `compare-control run` discovery flags (`--discover-exclude-field`, `--discover-prefer-field`, `--discover-demote-pattern`, `--discover-max-cards`),
+  - persisted dashboard behavior via `compare-control discovery-preferences` (writes to `assets/dashboard_ui_state.json`).
 
 ### Benchmark CSV append entry points (`append_benchmark_csv`)
 
@@ -553,3 +556,55 @@ Anti-loop reminders from this task batch:
 - If table filter results diverge from trend/table row counts, verify global combine mode + quick-filter application order before changing row-match helpers.
 - If paired trend points drift horizontally, inspect run-group timestamp extraction logic before changing chart series split behavior.
 - If trend overlays render blank, confirm `highcharts-more.js` fallback is loaded for `arearange` support.
+
+## 2026-03-03 docs/tasks merge digest (Compare/Control evolution and isolate removal)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/IsolateForXv2.md`
+- `docs/tasks/2026-03-03_22.54.59-remove-isolate-for-x-dashboard.md`
+- `docs/tasks/2026-03-03_23.05.29-compare-control-agent-cli.md`
+
+Current analytics contracts to keep:
+- Compare/Control started as a sibling panel to Isolate in Previous Runs, sharing the same filtered row pool (`computePreviousRunsFilterResult`) and the same table-filter write path for `Filter to subset`.
+- Isolate was then intentionally removed end-to-end (HTML/CSS/JS/state/status text) to keep one slicing path (quick filters + table filters) and one analysis path (Compare/Control), while preserving backward compatibility for old saved UI payloads that still contain isolate keys.
+- Compare/Control semantics that must remain stable:
+  - views: `discover`, `raw`, `controlled`
+  - controlled categorical mode uses stratum-standardized weighting with explicit coverage diagnostics (`used_rows`, `candidate_rows`, `used_strata`, `total_strata`)
+  - subset action writes deterministic table clauses (`eq` + `or` mode for selected groups)
+- Backend parity now exists via `cookimport compare-control`:
+  - deterministic Python engine: `cookimport/analytics/compare_control_engine.py`
+  - one-shot mode: `cookimport compare-control run`
+  - JSONL agent loop: `cookimport compare-control agent`
+  - agent actions include `discover`, `analyze`, `insights`, `subset_filter_patch`, `suggest_hold_constants`, `suggest_splits`.
+- QualitySuite handoff contract now includes `agent_compare_control/` bridge bundles (index + insights + `agent_requests.jsonl` + README) so agent workflows can move directly from quality verdicts to compare/control drill-down without rediscovery.
+
+Anti-loop reminders from this batch:
+- Do not re-introduce a parallel isolate evaluator path; compare/control + table filters should stay on one semantics engine.
+- If dashboard and backend compare/control disagree, validate derived field semantics (`source_label`, `ai_model`, `ai_effort`, `all_token_use`, `artifact_dir_basename`) before changing metric formulas.
+- If old presets look odd after isolate removal, fix payload migration/sanitization first rather than adding isolate UI back.
+
+## 2026-03-04 docs/understandings merge digest (Compare/Control completion wave)
+
+Merged source notes (timestamp order):
+- `2026-03-03_22.00.24-compare-control-dashboard-seams.md`: Compare & Control implementation discovery: reuse Previous Runs filtered-row output and table-filter writer seams to avoid parallel filtering logic.
+- `2026-03-03_22.22.36-compare-control-gap-closure.md`: Gap-closure design for Compare & Control: secondary categorical metrics, weak coverage warnings, and legacy state compatibility checks.
+- `2026-03-03_22.31.58-isolateforxv2-og-vs-implementation-audit.md`: Audit result: IsolateForXv2 OG milestones are implemented; remaining gap is mostly behavioral test depth for compare/control math and filter handoff.
+- `2026-03-03_22.38.48-compare-control-categorical-controlled-weighting-fix.md`: Compare & Control categorical controlled mode now uses stratum-standardized weighting; added Node harness tests for confounding reversal and Filter-to-subset clause writes.
+- `2026-03-03_22.45.05-compare-control-vs-isolate-intent.md`: Dashboard intent check: Compare & Control complements Isolate For X; it was not intended to replace it.
+- `2026-03-03_22.54.37-dashboard-isolate-removal-seams.md`: Isolate For X removal seam map: delete isolate UI/logic, keep compare/control and table filter pipeline as the single slice path.
+- `2026-03-03_22.58.03-compare-control-view-mode-discover-raw-controlled.md`: Compare & Control view semantics: `discover` is field-finding mode; `raw` and `controlled` are analysis modes.
+- `2026-03-03_23.04.55-dashboard-previous-runs-metrics-sources.md`: Source map for where Previous Runs metrics and derived fields come from.
+- `2026-03-03_23.05.29-compare-control-backend-cli-seams.md`: Seam map for adding a backend Compare & Control CLI without diverging from dashboard behavior.
+- `2026-03-03_23.17.54-compare-control-agent-cli-plan-hardening.md`: Hardening notes for backend Compare & Control CLI plan: JS seam map, test anchors, and Typer integration points.
+- `2026-03-03_23.38.21-compare-control-cli-usage-playbook.md`: Practical usage playbook for compare-control run/agent based on real local-output trials.
+- `2026-03-03_23.40.00-compare-control-backend-engine-parity-implementation.md`: Backend Compare & Control engine implementation note: JS parity seams mirrored in Python and exposed via run/agent CLI surfaces.
+- `2026-03-03_23.48.14-compare-control-insights-action-implementation.md`: Compare-control insights action: auto-profile + actionable driver filtering + process-factor deltas.
+- `2026-03-03_23.57.39-per-label-run-selector-seam.md`: Per-label diagnostics run selector seam map in dashboard_render.js template.
+- `2026-03-04_00.08.03-compare-control-discovery-preferences-cli-bridge.md`: Compare & Control discovery cards can now be tuned from backend/CLI via shared discovery-preferences state.
+
+Current analytics contracts reinforced by this batch:
+- Compare/Control and Previous Runs table filters must continue sharing one row-selection engine; avoid introducing parallel filtering/evaluation paths.
+- Controlled categorical analysis uses stratum-standardized weighting and should keep explicit weak-coverage messaging.
+- Backend compare-control parity (`run`/`agent`/`insights`) is part of the maintained contract, not an optional side tool.
+- Discovery/analysis modes remain distinct (`discover` for field finding, `raw`/`controlled` for inference) and this wording should stay explicit in UI/docs.
+- Per-label and compare-control run selectors should remain state-backed and deterministic across reload/preset restores.

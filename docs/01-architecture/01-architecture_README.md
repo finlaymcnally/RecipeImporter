@@ -423,3 +423,11 @@ Current architecture-doc maintenance reminders:
 - Importer inventory should include active `webschema` coverage when documenting supported source types.
 - LLM boundary wording should stay accurate: stage includes optional pass1-5 codex-farm paths via run settings; it is no longer only a prelabel-adjacent concern.
 - Prefer linking to section READMEs for live operational details instead of embedding brittle health snapshots in top-level onboarding docs.
+
+## 2026-03-04 docs/understandings merge digest (documentation mapping hygiene)
+
+Merged source note:
+- `2026-03-04_00.09.35-docs-tasks-late-batch-domain-mapping.md`: Domain mapping used to consolidate the late 2026-03-03 docs/tasks batch into benchmark, analytics, and llm docs without losing chronology.
+
+Architecture-level docs hygiene contract:
+- When consolidating large task/understanding batches, preserve timestamp order and keep explicit domain mapping so cross-domain decisions remain traceable.

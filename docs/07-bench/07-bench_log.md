@@ -5041,3 +5041,633 @@ Decision/outcome preserved:
 
 Evidence preserved:
 - Task validation target: `pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -k "build_upload_bundle"` and index-field presence checks.
+
+## 2026-03-03 docs/tasks consolidation batch (candidate-stage scoring + upload-bundle starterpack upgrade)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/2026-03-03_21.56.08-candidate-labels-pass2-pass3-stage-per-label-scoring.md`
+- `docs/tasks/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md`
+
+### 2026-03-03_22.32.16 candidate labels + pass2/pass3 stage-separated scoring
+
+Source task:
+- `docs/tasks/2026-03-03_21.56.08-candidate-labels-pass2-pass3-stage-per-label-scoring.md`
+
+Problem captured:
+- Upload bundles were reporting candidate labels and pass2/pass3 per-label stage metrics as unavailable/placeholder even when enough run artifacts existed.
+
+Decisions/outcomes preserved:
+- Candidate-label ingestion path remained additive/backward-compatible and accepted multiple field shapes.
+- Pass2/pass3 per-label scoring was implemented on-demand in upload-bundle generation (no new required persisted run artifacts in this pass):
+  - discover pass2/pass3 artifacts from prediction-run tree,
+  - project to stage labels,
+  - evaluate via `cookimport/bench/eval_stage_blocks.py::compute_block_metrics(...)`,
+  - populate `analysis.stage_separated_comparison.per_label[*].pass2_stage|pass3_stage` when scoreable.
+- Added canonical gold-label fallback loading from `eval_report.json` paths when run manifest gold path is missing.
+- Older/incomplete roots stay explicit with `label_scored=false` and concrete unavailable reasons rather than errors.
+
+Evidence preserved:
+- Targeted tests in `.venv` for upload-bundle/stage scoring path passed (task-recorded).
+
+Known pending from source task:
+- Paired benchmark rerun verification for fresh non-placeholder pass2/pass3 per-label values remained unchecked in this specific task.
+
+### 2026-03-03_23.30.13 to 23.55.17 upload_bundle_v1 starterpack/triage upgrade
+
+Source task:
+- `docs/tasks/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md`
+
+Problems captured:
+- Starter triage was effectively CSV-first, parity/status messaging was asymmetric, and first-pass blame/config/low-confidence signals were fragmented.
+
+Decisions/outcomes preserved:
+- Shifted first-pass navigation to JSONL-first triage packet while preserving legacy CSV compatibility readers.
+- Added deterministic blame summary with explicit bucket precedence and later clarified net/new/fixed counts + shares.
+- Added config/version comparability metadata at top-level analysis.
+- Added low-confidence changed-lines packet as a first-class analysis surface with explicit empty/unavailable notes.
+- Normalized non-codex statuses for codex-only diagnostics to `not_applicable` when explicit statuses are absent.
+- Added alias-aware canonical row locator resolution (`alias_path` retained when rewritten).
+- Closed existing-output gap where starter-pack locator entries could be `null` by backfilling derived-root artifacts for blame/config/low-confidence/parity surfaces.
+- Regenerated SaltFat sample bundle to reflect JSONL-first locator keys and avoid stale CSV-era example drift.
+
+Evidence preserved:
+- `. .venv/bin/activate && python -m pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -q` passed.
+- Acceptance regeneration command run on SaltFat source root with `--upload-3-files --upload-3-files-only` and verified index fields.
+
+Anti-loop reminders:
+- Prefer deterministic attribution and explicit unavailable signals over silent nulls.
+- Keep navigation dedupe separate from payload preservation; row-locator cleanup must never drop artifacts.
+- If starter-pack locators regress to null in existing-output mode, inspect derived fallback rows before changing analysis producers.
+
+## 2026-03-04 docs/understandings consolidation batch (upload bundle / starterpack / scheduler chronology)
+
+Merged source notes below are preserved in timestamp order to retain failed-attempt context and avoid repeating audit loops.
+### 2026-03-03_21.51.43-profeedback-upload-bundle-existing-output-gap
+
+Source:
+- `docs/understandings/2026-03-03_21.51.43-profeedback-upload-bundle-existing-output-gap.md`
+
+Summary:
+- ProFeedback review discovery: existing-output upload bundle path does not derive codex diagnostics without prebuilt need_to_know summaries.
+
+Preserved source note:
+
+````md
+---
+summary: "ProFeedback review discovery: existing-output upload bundle path does not derive codex diagnostics without prebuilt need_to_know summaries."
+read_when:
+  - "When validating Milestone 4 status for docs/plans/OGplan/ProFeedback.md against current code."
+  - "When debugging why upload_bundle_v1 run_diagnostics still show missing statuses on raw single-offline session roots."
+---
+
+# Discovery
+
+`build_upload_bundle_for_existing_output(...)` currently builds `run_diagnostics` statuses from `need_to_know_summary.json` `sample_counts` only. It does not derive `prompt_warning_aggregate`, `projection_trace`, `wrong_label_full_context`, or `preprocess_trace_failures` directly from raw run artifacts when those summaries are absent.
+
+# Evidence
+
+- `scripts/benchmark_cutdown_for_external_ai.py` `build_upload_bundle_for_existing_output` only calls `_write_upload_bundle_three_files` (no `_build_run_cutdown` pass).
+- `_write_upload_bundle_three_files` computes `run_diagnostics` via `_sample_status(...)` over `need_to_know_summary.json` sample counts.
+- Rebuilding `upload_bundle_v1` from baseline root `data/golden/benchmark-vs-golden/2026-03-03_20.49.14/single-offline-benchmark/seaandsmokecutdown` still yields codex diagnostic statuses `missing` when run-level `need_to_know_summary.json` is absent.
+````
+
+### 2026-03-03_21.54.46-candidate-labels-and-pass-stage-scoring-build-path
+
+Source:
+- `docs/understandings/2026-03-03_21.54.46-candidate-labels-and-pass-stage-scoring-build-path.md`
+
+Summary:
+- Implementation path for candidate-label diagnostics and pass2/pass3 per-label stage scoring in upload bundles.
+
+Preserved source note:
+
+````md
+---
+summary: "Implementation path for candidate-label diagnostics and pass2/pass3 per-label stage scoring in upload bundles."
+read_when:
+  - "When adding candidate-label signal to line_role_predictions.jsonl"
+  - "When implementing pass2/pass3 per-label stage metrics for upload_bundle stage-separated comparison"
+---
+
+# Discovery
+
+- Candidate-label signal in upload bundle already ingests recognized fields from `line_role_predictions.jsonl`, but current SeaAndSmoke artifact rows only include final `label/confidence/decided_by` and omit candidate-label payloads.
+- Canonical line-role code already carries `candidate_labels` in the model and passes allowlists into Codex prompts; candidate confidence/ranking is not captured because prompt/response contract currently returns only final `label`.
+- Stage-separated per-label pass2/pass3 scoring is hardcoded unavailable in upload bundle because existing pass2/pass3 artifacts are recipe-structure outputs, not stage-block label manifests with `per_label` eval reports.
+- The clean path is to emit stage-block prediction manifests per stage (`line-role`, `pass2`, `pass3/final`), then reuse existing `compute_block_metrics`/`evaluate_stage_blocks` to produce per-label metrics for each stage.
+
+````
+
+### 2026-03-03_22.13.25-profeedback-runtime-roi-evidence-surfaces
+
+Source:
+- `docs/understandings/2026-03-03_22.13.25-profeedback-runtime-roi-evidence-surfaces.md`
+
+Summary:
+- ProFeedback Milestone 5 discovery: single-run upload bundles can omit call inventory, so pass3 ROI should be read from prediction-run llm manifest telemetry.
+
+Preserved source note:
+
+````md
+---
+summary: "ProFeedback Milestone 5 discovery: single-run upload bundles can omit call inventory, so pass3 ROI should be read from prediction-run llm manifest telemetry."
+read_when:
+  - "When validating pass3 runtime/token ROI for single-output labelstudio-benchmark codex runs."
+  - "When upload_bundle_v1 call_inventory_runtime shows zero calls but codex process telemetry exists."
+---
+
+# Discovery
+
+For standalone `labelstudio-benchmark` codex outputs, `upload_bundle_v1/upload_bundle_index.json` can report `analysis.call_inventory_runtime.summary.call_count=0` even though codex pass telemetry is present and complete.
+
+# Evidence
+
+- Run: `data/golden/benchmark-vs-golden/2026-03-03_22.04.09_seaandsmoke-profeedback-codex2/`
+  - `upload_bundle_v1/upload_bundle_index.json` call inventory summary reports zero calls.
+  - `prediction-run/manifest.json` contains full `llm_codex_farm.process_runs.pass1|pass2|pass3.telemetry_report.summary` token/runtime fields.
+- Run: `data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/`
+  - `prediction-run/manifest.json` accurately reflects skip-policy ROI (`pass3_inputs=1`, pass3 deterministic skips=16).
+
+# Practical guidance
+
+For Milestone 2 runtime ROI validation on single-run codex outputs:
+
+1. Use `prediction-run/manifest.json` as the primary source for pass counts/tokens/shares.
+2. Treat upload bundle call inventory as advisory unless non-zero and consistent.
+````
+
+### 2026-03-03_22.28.01-upload-bundle-runtime-telemetry-fallback
+
+Source:
+- `docs/understandings/2026-03-03_22.28.01-upload-bundle-runtime-telemetry-fallback.md`
+
+Summary:
+- Upload-bundle runtime summary now backfills from prediction-run manifest telemetry when call inventory rows are unavailable.
+
+Preserved source note:
+
+````md
+---
+summary: "Upload-bundle runtime summary now backfills from prediction-run manifest telemetry when call inventory rows are unavailable."
+read_when:
+  - "When call_inventory_runtime is empty for standalone codex benchmark roots"
+  - "When validating pass1/pass2/pass3 token share fields in upload_bundle_index.json"
+---
+
+# Upload bundle runtime fallback seam
+
+- Existing-output upload bundles can have no call inventory rows when there is no codex-vs-baseline pair context (for example standalone codex run roots).
+- `scripts/benchmark_cutdown_for_external_ai.py` now falls back to `prediction-run/manifest.json -> llm_codex_farm.process_runs.*.telemetry_report.summary` to populate `analysis.call_inventory_runtime.summary`.
+- Summary now includes direct `pass1_token_share`, `pass2_token_share`, and `pass3_token_share` fields so pass-stage share checks remain first-pass readable even without per-call rows.
+- `runtime_source` indicates source mode:
+  - `call_inventory_rows` for normal per-call prompt-log-backed inventory.
+  - `prediction_run_manifest_telemetry` when fallback backfill is used.
+````
+
+### 2026-03-03_22.32.52-upload-bundle-pass-stage-scoring-fallback
+
+Source:
+- `docs/understandings/2026-03-03_22.32.52-upload-bundle-pass-stage-scoring-fallback.md`
+
+Summary:
+- Upload-bundle pass2/pass3 label scoring depends on prediction-run pass artifacts and gold-label path availability.
+
+Preserved source note:
+
+````md
+---
+summary: "Upload-bundle pass2/pass3 label scoring depends on prediction-run pass artifacts and gold-label path availability."
+---
+
+- `scripts/benchmark_cutdown_for_external_ai.py` already had pass2/pass3 projection and `compute_block_metrics` aggregation helpers, but `stage_separated_comparison` was still hardcoded to `label_scored=false`.
+- The missing integration point was wiring `_upload_bundle_collect_pass_stage_per_label_metrics(...)` into `_upload_bundle_build_stage_separated_comparison(...)`.
+- Existing-output runs can miss `run_manifest.run_config.gold_spans`; relying only on `load_gold_block_labels(...)` makes pass-stage scoring silently unavailable.
+- A practical fallback is to derive gold labels from `eval_report.json` canonical paths (`canonical_text_path` + `canonical_span_labels_path`) using `_build_canonical_lines(...)` + `_line_gold_labels(...)`.
+- With this fallback plus wiring, upload-bundle per-label rows show real `pass2_stage`/`pass3_stage` metrics when pass artifacts exist, and keep explicit unavailable reasons for older/incomplete runs.
+````
+
+### 2026-03-03_23.18.23-feedback-ogplan-execplan-seam-map
+
+Source:
+- `docs/understandings/2026-03-03_23.18.23-feedback-ogplan-execplan-seam-map.md`
+
+Summary:
+- Discovery note for converting OG feedback narrative into an executable plan: existing routing/candidate seams already exist, while starter-pack triage still depends on CSV.
+
+Preserved source note:
+
+````md
+---
+summary: "Discovery note for converting OG feedback narrative into an executable plan: existing routing/candidate seams already exist, while starter-pack triage still depends on CSV."
+read_when:
+  - "When implementing docs/plans/OGplan/feedback.md milestones."
+  - "When migrating starter-pack triage artifacts away from CSV."
+---
+
+# Feedback OG plan conversion seam map
+
+- Existing seams already support part of the feedback:
+  - line-role candidate allowlists are emitted in `cookimport/parsing/canonical_line_roles.py`;
+  - pass3 utility/routing evidence is emitted in `cookimport/llm/codex_farm_orchestrator.py`.
+- Remaining packaging gap is concrete and code-local:
+  - starter-pack triage is still written as `starter_pack_v1/01_recipe_triage.csv` in `scripts/benchmark_cutdown_for_external_ai.py`;
+  - upload-bundle existing-output context currently loads that CSV via `_upload_bundle_load_csv_rows(...)`.
+- Implication for implementation:
+  - deterministic label/routing refinements can be incremental on existing contracts;
+  - starter-pack non-CSV migration must include compatibility reads for historical output roots.
+````
+
+### 2026-03-03_23.18.25-upload-bundle-v1-starterpack-upgrade-gap-audit
+
+Source:
+- `docs/understandings/2026-03-03_23.18.25-upload-bundle-v1-starterpack-upgrade-gap-audit.md`
+
+Summary:
+- Gap audit for starterpackUPGRADE vs current upload_bundle_v1 implementation.
+
+Preserved source note:
+
+````md
+---
+summary: "Gap audit for starterpackUPGRADE vs current upload_bundle_v1 implementation."
+read_when:
+  - "When implementing starterpackUPGRADE changes in upload_bundle_v1."
+  - "When auditing why upload_bundle_v1 still feels CSV-first or asymmetrical."
+---
+
+- Audited target bundle: `data/golden/benchmark-vs-golden/2026-03-03_22.48.38/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1`.
+- Current `upload_bundle_index.json` still exposes starter triage via `navigation.row_locators.starter_pack.triage_csv` pointing to `_upload_bundle_derived/starter_pack_v1/01_recipe_triage.csv`.
+- `scripts/benchmark_cutdown_for_external_ai.py` already computes alias metadata (`_upload_bundle_build_alias_metadata`) but default row-locator surfaces do not use that metadata to simplify canonical-vs-alias navigation.
+- Low-confidence signal exists (`analysis.line_role_confidence_or_candidates.low_confidence_examples`) but there is no first-class packet that intersects low-confidence predictions with changed-line rows.
+- Run diagnostics are asymmetrical: non-codex runs can show `prompt_warning_aggregate_status=missing` / `projection_trace_status=missing` instead of explicit `not_applicable`.
+- Existing upload-bundle analyses already cover per-label, per-recipe, stage-separated comparison, failure ledger, casebook, changed-line sample, call-runtime summary, and candidate-label signal; remaining work is mostly packaging/triage ergonomics, parity semantics, and explicit attribution metadata.
+````
+
+### 2026-03-03_23.24.10-single-offline-settings-control-chain
+
+Source:
+- `docs/understandings/2026-03-03_23.24.10-single-offline-settings-control-chain.md`
+
+Summary:
+- Single-offline benchmark settings are inherited from interactive run-settings selection + codex prompt, then codex variant normalization force-sets line-role/atomic knobs.
+
+Preserved source note:
+
+````md
+---
+summary: "Single-offline benchmark settings are inherited from interactive run-settings selection + codex prompt, then codex variant normalization force-sets line-role/atomic knobs."
+read_when:
+  - "When a new single-offline book unexpectedly runs with codex settings."
+  - "When tracing where benchmark llm_recipe_pipeline/line_role_pipeline/atomic_block_splitter values came from."
+---
+
+- Single-offline benchmark does not derive settings from the book; it reuses one selected benchmark settings profile for the session (`choose_run_settings` in interactive mode).
+- Selection sources are: global defaults (`cookimport.json`), preferred settings, quality-suite winner, last benchmark settings, or manual edit.
+- After profile selection, interactive flow always asks `Use Codex Farm recipe pipeline for this run?` with default `True`; answering yes flips `llm_recipe_pipeline` to `codex-farm-3pass-v1`.
+- If selected settings have `llm_recipe_pipeline=codex-farm-3pass-v1`, `_interactive_single_offline_variants` creates:
+  - `vanilla`: forces `llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`.
+  - `codexfarm`: forces `llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`.
+- Completed benchmark runs persist the selected settings to `data/.history/last_run_settings_benchmark.json`, which can become the next run’s starting point.
+````
+
+### 2026-03-03_23.30.13-upload-bundle-v1-triage-blame-parity-dedupe-implementation
+
+Source:
+- `docs/understandings/2026-03-03_23.30.13-upload-bundle-v1-triage-blame-parity-dedupe-implementation.md`
+
+Summary:
+- Implementation note: upload_bundle_v1 now emits JSONL-first triage, blame/config summaries, low-confidence changed-line packet, parity normalization, and alias-canonical locators.
+
+Preserved source note:
+
+````md
+---
+summary: "Implementation note: upload_bundle_v1 now emits JSONL-first triage, blame/config summaries, low-confidence changed-line packet, parity normalization, and alias-canonical locators."
+read_when:
+  - "When extending upload_bundle_v1 first-pass triage fields or row-locator behavior."
+  - "When debugging why a row locator path differs from the first requested candidate path."
+---
+
+- JSONL-first triage now comes from `_upload_bundle_derived/root/01_recipe_triage.packet.jsonl` (`analysis.triage_packet` + root/starter row locators); CSV triage is retained as legacy compatibility.
+- Alias-dedupe is applied at locator resolution time: `_payload_locator(...)` rewrites alias-equivalent paths to canonical paths from `alias_metadata.content_equivalent_groups` and records `alias_path` when rewritten.
+- Non-codex run diagnostics now normalize codex-only surfaces (`prompt_warning_aggregate`, `projection_trace`, `preprocess_trace_failures`) to `not_applicable` instead of `missing` when no explicit status exists.
+- New deterministic summaries are emitted in index + derived payload rows:
+  - `analysis.net_error_blame_summary`
+  - `analysis.config_version_metadata`
+  - `analysis.low_confidence_changed_lines_packet`
+- Low-confidence changed-line packet semantics are explicit: when prediction files are absent or no rows intersect the threshold, the packet stays present with an unavailable/empty reason instead of being omitted.
+````
+
+### 2026-03-03_23.36.52-upload-bundle-ogplan-audit-regressions
+
+Source:
+- `docs/understandings/2026-03-03_23.36.52-upload-bundle-ogplan-audit-regressions.md`
+
+Summary:
+- Audit discovery: OG upload-bundle milestones are mostly present, but current code has a triage locator key regression and starter-pack triage contract drift.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit discovery: OG upload-bundle milestones are mostly present, but current code has a triage locator key regression and starter-pack triage contract drift."
+read_when:
+  - "When upload_bundle_v1 generation fails with KeyError around starter-pack triage locator keys."
+  - "When reconciling OG starterpackUPGRADE milestones against current starter_pack_v1 file contracts."
+---
+
+- `_write_upload_bundle_three_files(...)` defines `derived_starter_paths["triage_jsonl"]` but later accesses `derived_starter_paths["triage_csv"]` in `row_locators.starter_pack.triage_csv`, raising `KeyError` and blocking upload-bundle generation.
+- Starter-pack triage filename was switched to `01_recipe_triage.jsonl` (`STARTER_PACK_TRIAGE_FILE_NAME`), while several expectations and locator labels still use CSV naming; this is a contract drift point versus legacy `01_recipe_triage.csv` assumptions.
+- OG milestone surfaces (triage packet, blame summary, config/version metadata, low-confidence changed-lines packet, parity normalization, alias dedupe) are implemented in code, but the key mismatch prevents end-to-end validation from succeeding.
+````
+
+### 2026-03-03_23.40.12-feedback-exec-baseline
+
+Source:
+- `docs/understandings/2026-03-03_23.40.12-feedback-exec-baseline.md`
+
+Summary:
+- Milestone 1 baseline evidence snapshot for feedback ExecPlan (SeaAndSmoke canonical-text).
+
+Preserved source note:
+
+````md
+---
+summary: "Milestone 1 baseline evidence snapshot for feedback ExecPlan (SeaAndSmoke canonical-text)."
+read_when:
+  - "When resuming docs/plans/feedback.md Milestone 1 or validating baseline-vs-candidate deltas."
+  - "When codex benchmark runs fail and you need the exact fallback evidence pairing used in this cycle."
+---
+
+# Feedback Exec Baseline Snapshot
+
+## Run directories used
+
+- Fresh vanilla baseline (successful):
+  - `data/golden/benchmark-vs-golden/2026-03-03_23.28.08_feedbackexec_vanilla`
+- Fresh codex attempt (failed due auth):
+  - `data/golden/benchmark-vs-golden/2026-03-03_23.28.30_feedbackexec_codex`
+  - codex-farm process error contained `HTTP 403 Forbidden` websocket failures and explicit auth guidance (`run codex once and sign in`).
+- Successful codex reference used for paired baseline evidence (same source, canonical-text, current code era):
+  - `data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip`
+
+## Baseline topline metrics
+
+- Vanilla (`2026-03-03_23.28.08_feedbackexec_vanilla`):
+  - `overall_line_accuracy=0.39663865546218485`
+  - `macro_f1_excluding_other=0.340507023005739`
+- Codex reference (`2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip`):
+  - `overall_line_accuracy=0.7949579831932773`
+  - `macro_f1_excluding_other=0.5937858182666985`
+
+## Targeted confusion-family baseline counts
+
+Counts pulled from `wrong_label_lines.jsonl`.
+
+- Vanilla:
+  - `INGREDIENT_LINE -> KNOWLEDGE = 62`
+  - `INGREDIENT_LINE -> OTHER = 36`
+  - `OTHER -> RECIPE_NOTES = 3`
+  - false-positive `TIME_LINE` rows = `3`
+  - HOWTO/TITLE swaps (`HOWTO_SECTION<->RECIPE_TITLE`) = `0`
+- Codex reference:
+  - `OTHER -> RECIPE_NOTES = 13`
+  - `RECIPE_NOTES -> KNOWLEDGE = 2`
+  - false-positive `TIME_LINE` rows = `0`
+  - HOWTO/TITLE swaps (`HOWTO_SECTION<->RECIPE_TITLE`) = `5`
+  - ingredient narrative-drop proxy (`INGREDIENT_LINE -> OTHER|KNOWLEDGE`) = `18`
+
+## Pass3 runtime/token-share evidence
+
+From codex reference `upload_bundle_v1/upload_bundle_index.json`:
+
+- `runtime_source=prediction_run_manifest_telemetry`
+- `total_duration_ms=143694`
+- `total_tokens=742708`
+- `pass1_token_share=0.3305`
+- `pass2_token_share=0.3202`
+- `pass3_token_share=0.3494`
+
+## Starter-pack artifact inventory baseline
+
+Baseline cutdown (pre-migration) used to capture inventory shape:
+
+- `data/golden/benchmark-vs-golden/2026-03-03_23.31.41_feedbackexec_baseline_cutdown/starter_pack_v1`
+- inventory included `01_recipe_triage.csv` (CSV-first contract before migration).
+````
+
+### 2026-03-03_23.40.13-starter-pack-jsonl-seam-map
+
+Source:
+- `docs/understandings/2026-03-03_23.40.13-starter-pack-jsonl-seam-map.md`
+
+Summary:
+- Seam map for migrating starter-pack triage to JSONL while preserving upload-bundle compatibility for legacy CSV roots.
+
+Preserved source note:
+
+````md
+---
+summary: "Seam map for migrating starter-pack triage to JSONL while preserving upload-bundle compatibility for legacy CSV roots."
+read_when:
+  - "When editing scripts/benchmark_cutdown_for_external_ai.py starter-pack or upload-bundle contracts."
+  - "When validating why both JSONL and CSV starter triage readers still exist."
+---
+
+# Starter Pack JSONL Migration Seams
+
+## Key finding
+
+The code already had milestone-4 helper surfaces for:
+
+- triage packet rows,
+- net-error blame summary,
+- config/version metadata,
+- low-confidence changed-lines packet,
+
+but these were only guaranteed in upload-bundle derived payload rows, not as first-class files in `starter_pack_v1/`.
+
+## Migration seam decisions
+
+- Promote starter-pack main triage artifact from CSV to JSONL:
+  - `STARTER_PACK_TRIAGE_FILE_NAME = "01_recipe_triage.jsonl"`
+- Keep legacy CSV compatibility explicitly:
+  - `STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME = "01_recipe_triage.csv"`
+  - existing-output loaders now read JSONL first, fallback to legacy CSV.
+- Write first-class starter-pack files for milestone-4 triage surfaces:
+  - `13_net_error_blame_summary.json`
+  - `14_config_version_metadata.json`
+  - `15_low_confidence_changed_lines.packet.jsonl`
+  - `16_baseline_trace_parity.json`
+- Keep alias compatibility in starter manifest:
+  - legacy `01_recipe_triage.csv` path maps to canonical JSONL path.
+
+## Upload-bundle implications
+
+- Starter-pack row locators now point to `triage_jsonl` (with legacy CSV basename fallback).
+- Derived starter artifacts now synthesize triage as JSONL, not CSV.
+- Root/default analysis views remain unchanged, but now resolve directly to canonical non-CSV starter-pack artifacts when present.
+````
+
+### 2026-03-03_23.44.13-single-profile-multi-book-scheduler-seams
+
+Source:
+- `docs/understandings/2026-03-03_23.44.13-single-profile-multi-book-scheduler-seams.md`
+
+Summary:
+- Single-profile matched-sets benchmark execution is sequential by default, but benchmark internals already expose split-phase gating that can be reused for bounded parallel book runs.
+
+Preserved source note:
+
+````md
+---
+summary: "Single-profile matched-sets benchmark execution is sequential by default, but benchmark internals already expose split-phase gating that can be reused for bounded parallel book runs."
+read_when:
+  - "When changing concurrency behavior for interactive single-profile matched-book benchmark runs."
+  - "When enforcing split-phase contention limits across multiple labelstudio-benchmark runs in one process."
+---
+
+- Interactive `single_offline_selected_matched` / `single_offline_all_matched` both route through `_interactive_single_profile_all_matched_benchmark` in `cookimport/cli.py`.
+- That path previously looped books sequentially and called `labelstudio_benchmark(...)` once per target.
+- `labelstudio_benchmark` already consumes split-phase settings from context vars set by `_benchmark_split_phase_overrides(...)`.
+- Downstream ingestion (`cookimport/labelstudio/ingest.py`) honors `split_phase_slots` + `split_phase_gate_dir` and gates split conversion with shared slot files.
+- Practical seam: keep single-profile orchestration in `cli.py`, add bounded per-book parallelism there, and wrap each run in `_benchmark_split_phase_overrides(split_phase_slots=1, shared_gate_dir)` to serialize split-heavy conversion across concurrent books.
+````
+
+### 2026-03-03_23.45.21-upload-bundle-starter-locator-derived-fallback
+
+Source:
+- `docs/understandings/2026-03-03_23.45.21-upload-bundle-starter-locator-derived-fallback.md`
+
+Summary:
+- Upload-bundle fix: starter_pack locator entries for blame/config/low-confidence/parity must fall back to derived root artifacts in existing-output mode.
+
+Preserved source note:
+
+````md
+---
+summary: "Upload-bundle fix: starter_pack locator entries for blame/config/low-confidence/parity must fall back to derived root artifacts in existing-output mode."
+read_when:
+  - "When starter_pack row_locators include null entries in upload_bundle_index.json for existing-output runs."
+  - "When adding new starter-pack diagnostics that are generated virtually in _upload_bundle_derived/root."
+---
+
+- `build_upload_bundle_for_existing_output(...)` can generate starter diagnostics only as virtual derived rows under `_upload_bundle_derived/root`, so `navigation.row_locators.starter_pack.*` cannot assume physical `starter_pack_v1/*` files exist.
+- Concrete fix: add root-derived fallback paths for `net_error_blame_summary_json`, `config_version_metadata_json`, and `low_confidence_changed_lines_packet_jsonl`, and generate+locate a derived baseline-trace parity JSON for `baseline_trace_parity_json`.
+- Result: starter-pack locator entries remain dict locators (not `null`) in existing-output upload bundles, and the bench upload-bundle suite returns to green.
+````
+
+### 2026-03-03_23.51.22-upload-bundle-ogplan-vs-execplan-refresh-audit
+
+Source:
+- `docs/understandings/2026-03-03_23.51.22-upload-bundle-ogplan-vs-execplan-refresh-audit.md`
+
+Summary:
+- Refresh audit: upload-bundle starterpack OG milestones are implemented in code; the remaining drift is stale historical sample artifacts vs current JSONL-first locators.
+
+Preserved source note:
+
+````md
+---
+summary: "Refresh audit: upload-bundle starterpack OG milestones are implemented in code; the remaining drift is stale historical sample artifacts vs current JSONL-first locators."
+read_when:
+  - "When validating docs/plans/OGplan/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md against current runtime behavior."
+  - "When a checked-in upload_bundle_v1 sample still shows triage_csv while code emits triage_jsonl/triage_packet_jsonl."
+---
+
+- Re-audited `scripts/benchmark_cutdown_for_external_ai.py` against OG milestones: JSONL-first triage packet + default views, net-error blame summary, config/version metadata, low-confidence changed-lines packet, non-codex `not_applicable` parity, and alias-aware locator dedupe are all present.
+- Targeted test suite passes (`python -m pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -q`, exit code 0).
+- Fresh regeneration (`python scripts/benchmark_cutdown_for_external_ai.py ... --output-dir /tmp/upload_bundle_audit_2026-03-03_23.18.24 --upload-3-files --upload-3-files-only`) emits `starter_pack.triage_jsonl` and `triage_packet_jsonl` as expected.
+- The checked-in historical bundle at `data/golden/benchmark-vs-golden/2026-03-03_22.48.38/.../upload_bundle_v1/upload_bundle_index.json` still contains older `triage_csv` locator keys; this is stale artifact drift, not current generator behavior.
+````
+
+### 2026-03-03_23.55.17-upload-bundle-net-error-share-and-sample-refresh
+
+Source:
+- `docs/understandings/2026-03-03_23.55.17-upload-bundle-net-error-share-and-sample-refresh.md`
+
+Summary:
+- Upload-bundle blame summary now reports new/fixed/net per bucket, and stale SaltFat upload_bundle_v1 sample was regenerated to JSONL-first locators.
+
+Preserved source note:
+
+````md
+---
+summary: "Upload-bundle blame summary now reports new/fixed/net per bucket, and stale SaltFat upload_bundle_v1 sample was regenerated to JSONL-first locators."
+read_when:
+  - "When interpreting `analysis.net_error_blame_summary.bucket_rows` fields in upload_bundle_index.json."
+  - "When OG-plan audit says the SaltFat sample bundle is still CSV-first despite current code changes."
+---
+
+- `scripts/benchmark_cutdown_for_external_ai.py::_upload_bundle_build_net_error_blame_summary(...)` now classifies both `new_error` and `fixed_error` rows into the same blame buckets, then reports:
+  - `new_error_count`
+  - `fixed_error_count`
+  - `net_error_count`
+  - `share_of_new_errors`
+  - `share_of_fixed_errors`
+  - `share_of_net_error`
+- The legacy `count` field is kept as alias to `new_error_count` for backward compatibility.
+- Overview rendering now prints bucket `new/fixed/net` values instead of a single unlabeled count.
+- Rebuilt `data/golden/benchmark-vs-golden/2026-03-03_22.48.38/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1`; starter-pack locators now show `triage_jsonl` + `triage_packet_jsonl` (no stale `triage_csv` key in current generated artifact).
+````
+
+### 2026-03-03_23.59.10-qualitysuite-compare-control-agent-bridge
+
+Source:
+- `docs/understandings/2026-03-03_23.59.10-qualitysuite-compare-control-agent-bridge.md`
+
+Summary:
+- QualitySuite and Compare & Control are now linked by an agent-first bridge bundle with scope insights + ready JSONL follow-up requests.
+
+Preserved source note:
+
+````md
+---
+summary: "QualitySuite and Compare & Control are now linked by an agent-first bridge bundle with scope insights + ready JSONL follow-up requests."
+read_when:
+  - "When using quality-run or quality-compare outputs from AI-agent workflows."
+  - "When extending compare-control bridge artifacts or request contracts."
+---
+
+- Discovery: QualitySuite artifacts already carry stable scope boundaries (`run_root`, `experiments/<id>`, baseline/candidate experiment selectors), so Compare & Control scoping can be deterministic via artifact-path prefix filters instead of ad-hoc matching.
+
+- Implementation seam: `bench quality-run` and `bench quality-compare` now call bridge writers in `cookimport/cli.py` that:
+  - load compare-control records once,
+  - emit precomputed `insights` JSON per scope/outcome,
+  - emit `qualitysuite_compare_control_index.json` for machine navigation,
+  - emit `agent_requests.jsonl` for immediate `compare-control agent` drill-down.
+
+- Agent-UX reason: this gives agents a clear first-read file (index), a deterministic summary layer (insights JSON), and a deterministic action layer (`agent_requests.jsonl`) without requiring UI scraping or heuristic parsing.
+
+- Safety/constraints note: flow remains local and deterministic; no LLM parsing/cleaning is introduced in import paths.
+````
+
+### 2026-03-04_00.03.15-upload-bundle-ogplan-vs-completed-execplan-audit
+
+Source:
+- `docs/understandings/2026-03-04_00.03.15-upload-bundle-ogplan-vs-completed-execplan-audit.md`
+
+Summary:
+- Audit result: upload_bundle_v1 starterpack OG plan milestones are implemented in code and reflected in the completed execplan; no missing OG deliverables were found.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit result: upload_bundle_v1 starterpack OG plan milestones are implemented in code and reflected in the completed execplan; no missing OG deliverables were found."
+read_when:
+  - "When re-validating OG vs completed plan coverage for upload_bundle_v1 starterpack upgrade."
+  - "When checking whether any OG milestone is still unimplemented in scripts/benchmark_cutdown_for_external_ai.py."
+---
+
+- Re-audited `docs/plans/OGplan/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md` against `scripts/benchmark_cutdown_for_external_ai.py` and `tests/bench/test_benchmark_cutdown_for_external_ai.py`.
+- OG milestones are present in code: JSONL-first triage packet/default views, net-error blame summary, config/version parity metadata, low-confidence changed-lines packet, baseline `not_applicable` normalization for codex-only diagnostics, and alias-aware canonical locator dedupe.
+- Verified sample artifact contract at `data/golden/benchmark-vs-golden/2026-03-03_22.48.38/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1/upload_bundle_index.json` contains required analysis blocks and JSONL-first starter locators (`triage_jsonl`, `triage_packet_jsonl`).
+- Re-ran targeted tests in local venv: `. .venv/bin/activate && python -m pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -q` (pass, exit code 0).
+````
+
+Anti-loop reminders from this consolidation:
+- If upload bundle shows missing/empty diagnostics in existing-output mode, verify prediction-run artifact discovery and fallback derivation before changing analysis contracts.
+- If locator coverage regresses, inspect alias + derived-root fallback wiring before touching payload generators.
+- Keep OG-vs-execplan audits paired with regenerated sample bundles; stale sample artifacts created most false gap signals in this batch.
+

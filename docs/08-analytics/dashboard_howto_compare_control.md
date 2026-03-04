@@ -89,6 +89,15 @@ You can run the same analysis from terminal:
 
 Agent mode reads one JSON request per line and writes one JSON response per line, so external tools can loop quickly without reopening the dashboard.
 
+## Tune discovery cards from CLI (backend-driven)
+
+If discovery keeps surfacing noisy path/hash fields, you can tune card ranking from CLI:
+
+1. Persist dashboard discovery preferences:
+`cookimport compare-control discovery-preferences --exclude-field processed_report_path --exclude-field run_config_hash --prefer-field ai_model --prefer-field ai_effort --demote-pattern path --demote-pattern hash --max-cards 8`
+2. Refresh/reopen dashboard (`cookimport stats-dashboard` if needed).
+3. Compare & Control `discover` cards will now follow those preferences.
+
 ## QualitySuite friend mode (AI-agent shortcut)
 
 After running `cookimport bench quality-run` or `cookimport bench quality-compare`, open the generated `agent_compare_control/` folder in that run/comparison directory.

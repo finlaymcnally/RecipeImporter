@@ -1915,6 +1915,7 @@ class TestRenderer:
         assert 'defaultOption.textContent = "Default - most recent";' in js
         assert 'const checkbox = document.getElementById("per-label-comparison-point-value");' in js
         assert "const rawDelta = baselineNum - valueNum;" in js
+        assert 'if (typeof candidate === "string" && candidate.trim() === "") return null;' in js
         assert 'benchmarkVariantForRecord(record) === "codexfarm"' in js
         assert 'benchmarkVariantForRecord(record) === "vanilla"' in js
 

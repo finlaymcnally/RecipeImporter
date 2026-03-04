@@ -1709,3 +1709,67 @@ Anti-loop reminders from this task batch:
 - If benchmark says dashboard refreshed but `data/.history/dashboard` is stale, inspect refresh target wiring (`dashboard_out_dir` / `dashboard_output_root`) before touching analytics render code.
 - If interactive outputs disappear after a run, verify prune classifier scope before changing artifact writers.
 - If upload bundle `candidate_label_signal.available` or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage.
+
+## 2026-03-03 docs/tasks merge digest (upload_bundle candidate-stage scoring + starterpack upgrade)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/2026-03-03_21.56.08-candidate-labels-pass2-pass3-stage-per-label-scoring.md`
+- `docs/tasks/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md`
+
+Current benchmark/upload-bundle contracts to keep:
+- `upload_bundle_v1` candidate-label analysis is intentionally multi-shape tolerant (`candidate_labels`, `label_candidates`, `candidates`, `top_candidates`, `candidate_label_scores`, `label_scores`, `candidate_distribution`) for backward compatibility.
+- Pass2/pass3 per-label stage metrics are now on-demand in upload-bundle generation when pass artifacts exist:
+  - discover pass artifacts under `prediction-run/raw/llm/*/pass2_schemaorg` and `pass3_final`,
+  - project to stage labels,
+  - score with `compute_block_metrics` (same evaluation engine as stage-block reporting),
+  - keep explicit `label_scored=false` + `unavailable_reason` for historical/incomplete roots.
+- First-pass triage contract is now JSONL-first and additive:
+  - `analysis.triage_packet`
+  - `navigation.row_locators.*.triage_jsonl` / `triage_packet_jsonl`
+  - legacy CSV remains readable but is no longer the intended first surface.
+- New deterministic analysis surfaces in upload bundle:
+  - `analysis.net_error_blame_summary` (new/fixed/net counts + shares by bucket)
+  - `analysis.config_version_metadata` (run settings snapshots + pair comparability)
+  - `analysis.low_confidence_changed_lines_packet` (always present with explicit empty/unavailable notes)
+- Row locator stability contract:
+  - canonical locator path preferred, `alias_path` recorded when rewritten,
+  - existing-output bundles backfill missing starter/root diagnostics through `_upload_bundle_derived/...` fallback rows so locators are not null when source trees are sparse.
+- Baseline parity contract:
+  - non-codex rows should report codex-only diagnostics as `not_applicable` (not ambiguous `missing`) when no explicit status exists.
+
+Known open/verify-later note:
+- Candidate-label + pass2/pass3 stage-scoring task recorded implementation complete with targeted tests; final paired rerun verification of non-placeholder pass2/pass3 per-label values was left as explicit follow-up in that task.
+
+Anti-loop reminders:
+- Keep upload bundle payload lossless/additive; dedupe only navigation/default views.
+- Do not reintroduce CSV-first starter triage as the primary review path.
+- If pass2/pass3 scoring looks absent, check artifact availability and gold-path discovery before changing scorer logic.
+
+## 2026-03-04 docs/understandings merge digest (upload-bundle + starterpack + benchmark handoff)
+
+Merged source notes (timestamp order):
+- `2026-03-03_21.51.43-profeedback-upload-bundle-existing-output-gap.md`: ProFeedback review discovery: existing-output upload bundle path does not derive codex diagnostics without prebuilt need_to_know summaries.
+- `2026-03-03_21.54.46-candidate-labels-and-pass-stage-scoring-build-path.md`: Implementation path for candidate-label diagnostics and pass2/pass3 per-label stage scoring in upload bundles.
+- `2026-03-03_22.13.25-profeedback-runtime-roi-evidence-surfaces.md`: ProFeedback Milestone 5 discovery: single-run upload bundles can omit call inventory, so pass3 ROI should be read from prediction-run llm manifest telemetry.
+- `2026-03-03_22.28.01-upload-bundle-runtime-telemetry-fallback.md`: Upload-bundle runtime summary now backfills from prediction-run manifest telemetry when call inventory rows are unavailable.
+- `2026-03-03_22.32.52-upload-bundle-pass-stage-scoring-fallback.md`: Upload-bundle pass2/pass3 label scoring depends on prediction-run pass artifacts and gold-label path availability.
+- `2026-03-03_23.18.23-feedback-ogplan-execplan-seam-map.md`: Discovery note for converting OG feedback narrative into an executable plan: existing routing/candidate seams already exist, while starter-pack triage still depends on CSV.
+- `2026-03-03_23.18.25-upload-bundle-v1-starterpack-upgrade-gap-audit.md`: Gap audit for starterpackUPGRADE vs current upload_bundle_v1 implementation.
+- `2026-03-03_23.24.10-single-offline-settings-control-chain.md`: Single-offline benchmark settings are inherited from interactive run-settings selection + codex prompt, then codex variant normalization force-sets line-role/atomic knobs.
+- `2026-03-03_23.30.13-upload-bundle-v1-triage-blame-parity-dedupe-implementation.md`: Implementation note: upload_bundle_v1 now emits JSONL-first triage, blame/config summaries, low-confidence changed-line packet, parity normalization, and alias-canonical locators.
+- `2026-03-03_23.36.52-upload-bundle-ogplan-audit-regressions.md`: Audit discovery: OG upload-bundle milestones are mostly present, but current code has a triage locator key regression and starter-pack triage contract drift.
+- `2026-03-03_23.40.12-feedback-exec-baseline.md`: Milestone 1 baseline evidence snapshot for feedback ExecPlan (SeaAndSmoke canonical-text).
+- `2026-03-03_23.40.13-starter-pack-jsonl-seam-map.md`: Seam map for migrating starter-pack triage to JSONL while preserving upload-bundle compatibility for legacy CSV roots.
+- `2026-03-03_23.44.13-single-profile-multi-book-scheduler-seams.md`: Single-profile matched-sets benchmark execution is sequential by default, but benchmark internals already expose split-phase gating that can be reused for bounded parallel book runs.
+- `2026-03-03_23.45.21-upload-bundle-starter-locator-derived-fallback.md`: Upload-bundle fix: starter_pack locator entries for blame/config/low-confidence/parity must fall back to derived root artifacts in existing-output mode.
+- `2026-03-03_23.51.22-upload-bundle-ogplan-vs-execplan-refresh-audit.md`: Refresh audit: upload-bundle starterpack OG milestones are implemented in code; the remaining drift is stale historical sample artifacts vs current JSONL-first locators.
+- `2026-03-03_23.55.17-upload-bundle-net-error-share-and-sample-refresh.md`: Upload-bundle blame summary now reports new/fixed/net per bucket, and stale SaltFat upload_bundle_v1 sample was regenerated to JSONL-first locators.
+- `2026-03-03_23.59.10-qualitysuite-compare-control-agent-bridge.md`: QualitySuite and Compare & Control are now linked by an agent-first bridge bundle with scope insights + ready JSONL follow-up requests.
+- `2026-03-04_00.03.15-upload-bundle-ogplan-vs-completed-execplan-audit.md`: Audit result: upload_bundle_v1 starterpack OG plan milestones are implemented in code and reflected in the completed execplan; no missing OG deliverables were found.
+
+Current benchmark contracts reinforced by this batch:
+- Upload-bundle existing-output mode must keep deriving diagnostics/runtime from discovered prediction-run artifacts when prebuilt summary files are absent.
+- JSONL-first triage and row-locator reliability are now required first-pass contracts; CSV paths remain compatibility surfaces only.
+- Upload-bundle audit/OG comparison notes should be treated as bundle-regeneration-sensitive; stale samples can misrepresent current code behavior.
+- Benchmark setting propagation (interactive run settings -> variant normalization -> downstream artifacts) must remain explicit and traceable.
+- QualitySuite-to-Compare-Control bridge artifacts are part of the benchmark handoff workflow for agent-driven investigation.

@@ -286,3 +286,42 @@ Durable documentation direction:
 
 Anti-loop note:
 - If AI-context onboarding feels stale, verify command/importer/runtime surfaces from section READMEs before rewriting the onboarding doc narrative.
+
+## 2026-03-04 docs/understandings consolidation batch (cross-domain docs mapping note)
+
+### 2026-03-04_00.09.35-docs-tasks-late-batch-domain-mapping
+
+Source:
+- `docs/understandings/2026-03-04_00.09.35-docs-tasks-late-batch-domain-mapping.md`
+
+Summary:
+- Domain mapping used to consolidate the late 2026-03-03 docs/tasks batch into benchmark, analytics, and llm docs without losing chronology.
+
+Preserved source note:
+
+````md
+---
+summary: "Domain mapping used to consolidate the late 2026-03-03 docs/tasks batch into benchmark, analytics, and llm docs without losing chronology."
+read_when:
+  - "When checking where late 2026-03-03 task docs were merged after docs/tasks cleanup."
+  - "When re-tracing why Compare/Control notes landed in analytics while upload-bundle notes landed in bench."
+---
+
+# Discovery
+
+The `docs/tasks` batch had six files that were cross-cutting, but each had a dominant contract owner:
+
+- Analytics owner (`docs/08-analytics/*`): `IsolateForXv2`, isolate removal, backend compare-control CLI/agent.
+- Benchmark owner (`docs/07-bench/*`): candidate-label/pass2-pass3 stage scoring in upload bundle, and upload_bundle starterpack/JSONL-first triage upgrade.
+- LLM owner (`docs/10-llm/*`): ProFeedback rebaseline + pass3 ROI/candidate-label/diagnostics closure.
+
+For anti-loop history, sequence matters:
+1. Compare/Control was added beside isolate.
+2. Isolate was then removed intentionally (not hidden) to keep one slicing path.
+3. Backend compare-control parity CLI/agent was added after dashboard semantics stabilized.
+
+Upload-bundle sequence also matters:
+1. Candidate-label + pass-stage scoring path was implemented with backward-compatible fallbacks.
+2. Later starterpack/triage upgrades changed first-pass navigation to JSONL-first and added deterministic blame/config/low-confidence/locator hardening.
+````
+

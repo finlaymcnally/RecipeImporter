@@ -141,6 +141,7 @@ Report/model plumbing:
 - When pass3 returns placeholder-only steps but pass2 contains non-placeholder extracted instructions, orchestrator now repairs steps from pass2 evidence before low-quality rejection.
 - Pass2/Pass3 contract loaders now attempt bounded repair for malformed object strings (control-byte cleanup, null-hex artifact cleanup, bracket rebalance, and first-object extraction) before raising validation errors.
 - Pass3 draft normalization now coerces legacy `draft_v1` object shapes (for example `name`/`instructions`, schema.org-only, or pass2-like objects) into valid `RecipeDraftV1` (`schema_v`, `recipe.title`, `steps`) before final validation.
+- Recipe-pass block extraction now falls back to `full_text.lines` when `full_text.blocks` is missing/empty (common in some cached prediction payloads), synthesizing minimal block rows by line index so codexfarm can still execute pass1/pass2/pass3.
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 
@@ -647,3 +648,51 @@ Anti-loop reminders from this task batch:
 - If fallback spikes return, inspect transport audit + pass2 severity/routing metadata before editing prompts.
 - If candidate-label diagnostics stay unavailable, inspect line-role prediction payload fields before changing upload-bundle summarizers.
 - Keep pass status enums stable for compatibility; prefer additive metadata fields when extending routing observability.
+
+## 2026-03-03 docs/tasks merge digest (ProFeedback rebaseline and closure)
+
+Merged source task file:
+- `docs/tasks/ProFeedback.md`
+
+Current LLM-side contracts to keep:
+- ProFeedback follow-up scope was benchmark/evaluation only (no default-ingestion enablement changes).
+- Pass3 ROI controls now include pass2-ok utility instrumentation plus deterministic skip policy guarded by:
+  - `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`
+  - task evidence showed substantial pass3 load reduction when enabled, with no quality regression in the cited SeaAndSmoke reruns.
+- Routing observability should remain additive and explicit in manifests (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason` plus pass2-ok utility fields).
+- Candidate-label surfacing is now expected end-to-end:
+  - line-role predictions include candidate-label payloads,
+  - cutdown/export propagates candidate fields,
+  - upload bundle `candidate_label_signal` should become available when those artifacts are present.
+- Upload-bundle codex diagnostics completeness expectation:
+  - when source artifacts exist, codex `run_diagnostics` statuses should resolve to written artifacts rather than blanket `missing`.
+- Validation workflow used in this cycle remains the contract for runtime-sensitive LLM changes:
+  - targeted llm/parsing/bench tests in `.venv`,
+  - paired vanilla/codex benchmark reruns with model/effort locked,
+  - required speed regression flow (`bench speed-discover`, `bench speed-run`, `bench speed-compare`).
+
+Anti-loop reminders:
+- Do not assume old upload bundles reflect current script behavior; regenerate bundles before concluding diagnostics are still missing.
+- If standalone upload bundles show empty call-inventory runtime, check prediction-run manifest telemetry fallback before changing runtime accounting.
+- `labelstudio-benchmark --compare-vanilla` is not a valid path now; paired evidence requires separate vanilla and codex runs.
+
+## 2026-03-04 docs/understandings merge digest (codexfarm reliability + feedback gap closure)
+
+Merged source notes (timestamp order):
+- `2026-03-03_22.21.36-profeedback-ogplan-vs-completed-audit.md`: Audit note: ProFeedback OG plan milestones are implemented; pass3 token-share evidence comes from prediction-run telemetry when standalone upload-bundle call inventory is empty.
+- `2026-03-03_22.32.51-profeedback-ogplan-audit-refresh.md`: Refresh audit: ProFeedback OG milestones are implemented; existing evidence bundles may predate runtime-telemetry fallback regeneration.
+- `2026-03-03_23.08.45-saltfat-codex-single-offline-collapse.md`: SaltFat cutdown codex single-offline collapse: atomic split fragmentation + strict chunk parse fallback + outside-span title/howto rule overfire.
+- `2026-03-03_23.48.18-feedback-ogplan-code-audit-gaps.md`: Audit result: feedback OG plan is mostly implemented, but deterministic line-role refinements and Milestone-5 validation remain partially incomplete.
+- `2026-03-03_23.50.30-codex-farm-no-last-agent-message-recovery-seam.md`: Codex-farm runner seam for recovering from no-last-agent-message chunk failures without aborting full pass runs.
+- `2026-03-03_23.53.16-feedback-og-gap-closure-routing-and-line-role.md`: Gap-closure implementation note: canonical line-role sanitizer adds TIME_LINE demotion + neighbor ingredient rescue; pass2-ok selective pass3 skip is now default-on with env opt-out.
+- `2026-03-03_23.55.30-codex-no-last-agent-message-content-filter-root-cause.md`: Root cause of codex-farm `no last agent message` on DinnerFor2 pass2: provider `content_filter` stream failures prevent final assistant message emission.
+- `2026-03-03_23.58.37-single-offline-codexfarm-full-text-block-guard.md`: Single-offline codexfarm variant can fail immediately when cached conversion payload has `full_text` lines/text but no `blocks` list.
+- `2026-03-04_00.01.53-codexfarm-content-filter-terminal-classification.md`: [missing frontmatter summary]
+- `2026-03-04_00.03.20-feedback-ogplan-vs-code-audit-refresh.md`: Refresh audit: OG feedback plan is mostly implemented, with remaining gaps in deterministic title/yield constraints and Milestone-5 validation evidence.
+- `2026-03-04_00.03.32-codexfarm-full-text-lines-fallback.md`: Codex-farm recipe pass now synthesizes minimal full-text blocks from `full_text.lines` when `full_text.blocks` is missing.
+
+Current LLM contracts reinforced by this batch:
+- ProFeedback/feedback gap audits should be interpreted against fresh artifacts; historical bundle snapshots can lag behind runner/generator fixes.
+- Codexfarm terminal failure classes (`no last agent message`, `content_filter`, missing full_text blocks) now have explicit recovery/fallback seams and should be debugged through those contracts first.
+- Pass3 routing/skip policy and canonical line-role hardening changes are coupled; treat them as one system when evaluating quality/runtime tradeoffs.
+- Single-offline codex failures that do not reproduce in vanilla should first check block/payload shape guardrails before prompt/pipeline rewrites.

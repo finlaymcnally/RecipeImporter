@@ -184,3 +184,96 @@ def test_compare_control_agent_handles_multiple_requests_and_bad_json(
     assert responses[3]["id"] == "req-3"
     assert responses[3]["ok"] is True
     assert responses[3]["result"]["compare_field"] == "ai_model"
+
+
+def test_compare_control_run_applies_discovery_preferences(monkeypatch) -> None:
+    records = [
+        {
+            "strict_accuracy": 0.9,
+            "driver_field": "A",
+            "noise_id": "row-1",
+        },
+        {
+            "strict_accuracy": 0.8,
+            "driver_field": "A",
+            "noise_id": "row-2",
+        },
+        {
+            "strict_accuracy": 0.2,
+            "driver_field": "B",
+            "noise_id": "row-3",
+        },
+        {
+            "strict_accuracy": 0.1,
+            "driver_field": "B",
+            "noise_id": "row-4",
+        },
+    ]
+    monkeypatch.setattr(
+        "cookimport.analytics.compare_control_engine.load_dashboard_records",
+        lambda **_: records,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "compare-control",
+            "run",
+            "--action",
+            "discover",
+            "--outcome-field",
+            "strict_accuracy",
+            "--filters-json",
+            '{"quick_filters":{"official_full_golden_only":false,"exclude_ai_tests":false}}',
+            "--discover-exclude-field",
+            "noise_id",
+            "--discover-max-cards",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    fields = [
+        str(item.get("field") or "")
+        for item in payload["result"]["analysis"]["items"]
+    ]
+    assert len(fields) <= 2
+    assert "noise_id" not in fields
+
+
+def test_compare_control_discovery_preferences_writes_dashboard_ui_state(
+    tmp_path: Path,
+) -> None:
+    dashboard_dir = tmp_path / "dashboard"
+
+    result = runner.invoke(
+        app,
+        [
+            "compare-control",
+            "discovery-preferences",
+            "--dashboard-dir",
+            str(dashboard_dir),
+            "--exclude-field",
+            "processed_report_path",
+            "--prefer-field",
+            "ai_model",
+            "--demote-pattern",
+            "hash",
+            "--max-cards",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    ui_state_path = dashboard_dir / "assets" / "dashboard_ui_state.json"
+    assert ui_state_path.exists()
+    payload = json.loads(ui_state_path.read_text(encoding="utf-8"))
+    prefs = (
+        payload["previous_runs"]["compare_control"]["discovery_preferences"]
+    )
+    assert prefs["exclude_fields"] == ["processed_report_path"]
+    assert prefs["prefer_fields"] == ["ai_model"]
+    assert prefs["demote_patterns"] == ["hash"]
+    assert prefs["max_cards"] == 5

@@ -664,6 +664,11 @@ Usage patterns:
 - Query-file driven: pass `--query-file` with either:
   - payload object only, or
   - `{ \"action\": \"...\", \"payload\": { ... } }`.
+- Discovery tuning (for `discover` cards): optionally pass
+  - `--discover-exclude-field FIELD` (repeatable),
+  - `--discover-prefer-field FIELD` (repeatable),
+  - `--discover-demote-pattern TEXT` (repeatable substring match),
+  - `--discover-max-cards N`.
 
 Actions:
 
@@ -695,6 +700,30 @@ Protocol:
 Supported actions:
 
 - `load`, `fields`, `discover`, `analyze`, `suggest_hold_constants`, `suggest_splits`, `insights`, `subset_filter_patch`, `reset`, `ping`
+
+### `cookimport compare-control discovery-preferences`
+
+Updates dashboard `Compare & Control -> discover` card preferences in `assets/dashboard_ui_state.json` so backend tools can influence what cards are surfaced/emphasized.
+
+Common usage:
+
+- Show current preferences:
+  - `cookimport compare-control discovery-preferences --show-only`
+- Exclude noisy path/hash fields and prefer actionable fields:
+  - `cookimport compare-control discovery-preferences --exclude-field processed_report_path --exclude-field run_config_hash --prefer-field ai_model --prefer-field ai_effort`
+- Reset to defaults:
+  - `cookimport compare-control discovery-preferences --reset`
+
+Options:
+
+- `--output-root PATH` (default `data/output`): used to resolve default dashboard dir.
+- `--dashboard-dir PATH`: explicit dashboard dir override.
+- `--show-only`: print effective preferences without writing.
+- `--reset`: restore defaults.
+- `--exclude-field TEXT` (repeatable): hide these fields from discovery cards.
+- `--prefer-field TEXT` (repeatable): boost these fields in discovery ranking.
+- `--demote-pattern TEXT` (repeatable): demote discovery fields containing these substrings.
+- `--max-cards INTEGER` (`1..40`): max discovery cards shown.
 
 ### `cookimport labelstudio-import PATH`
 

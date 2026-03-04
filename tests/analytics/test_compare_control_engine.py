@@ -234,3 +234,33 @@ def test_generate_insights_surfaces_controlled_coverage_warning() -> None:
     warnings = insights["comparisons"]["controlled_warnings"]
     assert warnings
     assert "No comparable rows remained" in warnings[0]
+
+
+def test_analyze_discover_respects_discovery_preferences() -> None:
+    result = engine.analyze(
+        _insight_records(),
+        {
+            "view_mode": "discover",
+            "outcome_field": "strict_accuracy",
+            "discovery_preferences": {
+                "exclude_fields": ["processed_report_path"],
+                "prefer_fields": ["ai_model"],
+                "demote_patterns": ["run_config."],
+                "max_cards": 3,
+            },
+            "filters": {
+                "quick_filters": {
+                    "official_full_golden_only": False,
+                    "exclude_ai_tests": False,
+                }
+            },
+        },
+    )
+
+    assert result["view_mode"] == "discover"
+    assert result["discovery_preferences"]["max_cards"] == 3
+    items = result["analysis"]["items"]
+    assert len(items) <= 3
+    fields = [str(item.get("field") or "") for item in items]
+    assert "processed_report_path" not in fields
+    assert "ai_model" in fields

@@ -24546,6 +24546,185 @@ def _compare_control_dispatch_action(
     )
 
 
+@compare_control_app.command("discovery-preferences")
+def compare_control_discovery_preferences(
+    output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--output-root",
+        help="Output root used to resolve the default dashboard location.",
+    ),
+    dashboard_dir: Path | None = typer.Option(
+        None,
+        "--dashboard-dir",
+        help=(
+            "Dashboard directory containing assets/dashboard_ui_state.json. "
+            "Defaults to <history root for output>/dashboard."
+        ),
+    ),
+    show_only: bool = typer.Option(
+        False,
+        "--show-only",
+        help="Print current discovery preferences without writing.",
+    ),
+    reset: bool = typer.Option(
+        False,
+        "--reset",
+        help="Reset discovery preferences to defaults.",
+    ),
+    exclude_fields: list[str] | None = typer.Option(
+        None,
+        "--exclude-field",
+        help="Discovery card preference: exclude this field (repeatable).",
+    ),
+    prefer_fields: list[str] | None = typer.Option(
+        None,
+        "--prefer-field",
+        help="Discovery card preference: boost this field (repeatable).",
+    ),
+    demote_patterns: list[str] | None = typer.Option(
+        None,
+        "--demote-pattern",
+        help="Discovery card preference: demote fields containing this substring (repeatable).",
+    ),
+    max_cards: int | None = typer.Option(
+        None,
+        "--max-cards",
+        min=1,
+        max=40,
+        help="Discovery card preference: max cards shown in discover view.",
+    ),
+) -> None:
+    """Read or update dashboard Compare & Control discovery-card preferences."""
+    output_root = _unwrap_typer_option_default(output_root)
+    dashboard_dir = _unwrap_typer_option_default(dashboard_dir)
+    show_only = _unwrap_typer_option_default(show_only)
+    reset = _unwrap_typer_option_default(reset)
+    exclude_fields = _unwrap_typer_option_default(exclude_fields)
+    prefer_fields = _unwrap_typer_option_default(prefer_fields)
+    demote_patterns = _unwrap_typer_option_default(demote_patterns)
+    max_cards = _unwrap_typer_option_default(max_cards)
+
+    resolved_dashboard_dir = (
+        Path(dashboard_dir)
+        if dashboard_dir is not None
+        else history_root_for_output(Path(output_root)) / "dashboard"
+    )
+    ui_state_path = resolved_dashboard_dir / "assets" / "dashboard_ui_state.json"
+
+    def _clean_list(values: list[str] | None) -> list[str]:
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for raw in values or []:
+            value = str(raw or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            cleaned.append(value)
+        return cleaned
+
+    def _normalize_prefs(raw: Any) -> dict[str, Any]:
+        source = raw if isinstance(raw, dict) else {}
+        max_cards_raw = source.get("max_cards")
+        if max_cards_raw is None:
+            max_cards_value = 10
+        else:
+            try:
+                max_cards_value = int(max_cards_raw)
+            except (TypeError, ValueError):
+                max_cards_value = 10
+        max_cards_value = max(1, min(40, max_cards_value))
+        return {
+            "exclude_fields": _clean_list(
+                source.get("exclude_fields")
+                if isinstance(source.get("exclude_fields"), list)
+                else None
+            ),
+            "prefer_fields": _clean_list(
+                source.get("prefer_fields")
+                if isinstance(source.get("prefer_fields"), list)
+                else None
+            ),
+            "demote_patterns": _clean_list(
+                source.get("demote_patterns")
+                if isinstance(source.get("demote_patterns"), list)
+                else None
+            ),
+            "max_cards": max_cards_value,
+        }
+
+    payload: dict[str, Any] = {"version": 1}
+    if ui_state_path.exists():
+        try:
+            loaded = json.loads(ui_state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            _fail(f"Invalid JSON in dashboard UI state file: {exc}")
+        except OSError as exc:
+            _fail(f"Unable to read dashboard UI state file: {exc}")
+        if not isinstance(loaded, dict):
+            _fail("Dashboard UI state file must contain a JSON object.")
+        payload = dict(loaded)
+    if not isinstance(payload.get("version"), int):
+        payload["version"] = 1
+
+    previous_runs_payload = payload.get("previous_runs")
+    if not isinstance(previous_runs_payload, dict):
+        previous_runs_payload = {}
+    compare_control_payload = previous_runs_payload.get("compare_control")
+    if not isinstance(compare_control_payload, dict):
+        compare_control_payload = {}
+
+    current_prefs = _normalize_prefs(compare_control_payload.get("discovery_preferences"))
+    updates_requested = any(
+        value is not None
+        for value in (
+            exclude_fields,
+            prefer_fields,
+            demote_patterns,
+            max_cards,
+        )
+    )
+    should_write = bool(reset or updates_requested) and not bool(show_only)
+
+    if not should_write:
+        typer.secho(f"Dashboard UI state: {ui_state_path}", fg=typer.colors.CYAN)
+        typer.echo(json.dumps(current_prefs, indent=2, sort_keys=True))
+        if not ui_state_path.exists():
+            typer.secho(
+                "Note: state file does not exist yet; run `cookimport stats-dashboard` first "
+                "or pass explicit update flags to create it.",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        return
+
+    next_prefs = _normalize_prefs({})
+    if not reset:
+        next_prefs = _normalize_prefs(current_prefs)
+    if exclude_fields is not None:
+        next_prefs["exclude_fields"] = _clean_list(exclude_fields)
+    if prefer_fields is not None:
+        next_prefs["prefer_fields"] = _clean_list(prefer_fields)
+    if demote_patterns is not None:
+        next_prefs["demote_patterns"] = _clean_list(demote_patterns)
+    if max_cards is not None:
+        next_prefs["max_cards"] = int(max_cards)
+
+    compare_control_payload["discovery_preferences"] = next_prefs
+    previous_runs_payload["compare_control"] = compare_control_payload
+    payload["previous_runs"] = previous_runs_payload
+
+    ui_state_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        ui_state_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        _fail(f"Unable to write dashboard UI state file: {exc}")
+
+    typer.secho(f"Updated discovery preferences in {ui_state_path}", fg=typer.colors.GREEN)
+    typer.echo(json.dumps(next_prefs, indent=2, sort_keys=True))
+
+
 @compare_control_app.command("run")
 def compare_control_run(
     output_root: Path = typer.Option(
@@ -24621,6 +24800,31 @@ def compare_control_run(
         "--filters-json",
         help="JSON object for filters payload (quick_filters + column_filters).",
     ),
+    discover_exclude_fields: list[str] | None = typer.Option(
+        None,
+        "--discover-exclude-field",
+        help="Discovery preference: exclude this field from discovery cards (repeatable).",
+    ),
+    discover_prefer_fields: list[str] | None = typer.Option(
+        None,
+        "--discover-prefer-field",
+        help="Discovery preference: boost this field in discovery cards (repeatable).",
+    ),
+    discover_demote_patterns: list[str] | None = typer.Option(
+        None,
+        "--discover-demote-pattern",
+        help=(
+            "Discovery preference: demote field names containing this substring "
+            "(repeatable, case-insensitive)."
+        ),
+    ),
+    discover_max_cards: int | None = typer.Option(
+        None,
+        "--discover-max-cards",
+        min=1,
+        max=40,
+        help="Discovery preference: max number of discovery cards to return.",
+    ),
 ) -> None:
     """Run backend Compare & Control once and print structured JSON."""
     output_root = _unwrap_typer_option_default(output_root)
@@ -24637,6 +24841,10 @@ def compare_control_run(
     split_field = _unwrap_typer_option_default(split_field)
     selected_groups = _unwrap_typer_option_default(selected_groups)
     filters_json = _unwrap_typer_option_default(filters_json)
+    discover_exclude_fields = _unwrap_typer_option_default(discover_exclude_fields)
+    discover_prefer_fields = _unwrap_typer_option_default(discover_prefer_fields)
+    discover_demote_patterns = _unwrap_typer_option_default(discover_demote_patterns)
+    discover_max_cards = _unwrap_typer_option_default(discover_max_cards)
 
     from cookimport.analytics import compare_control_engine as engine
 
@@ -24684,6 +24892,29 @@ def compare_control_run(
             if not isinstance(parsed_filters, dict):
                 _fail("--filters-json must decode to a JSON object.")
             payload["filters"] = parsed_filters
+        discovery_preferences: dict[str, Any] = {}
+        if discover_exclude_fields:
+            discovery_preferences["exclude_fields"] = [
+                str(value).strip()
+                for value in discover_exclude_fields
+                if str(value).strip()
+            ]
+        if discover_prefer_fields:
+            discovery_preferences["prefer_fields"] = [
+                str(value).strip()
+                for value in discover_prefer_fields
+                if str(value).strip()
+            ]
+        if discover_demote_patterns:
+            discovery_preferences["demote_patterns"] = [
+                str(value).strip()
+                for value in discover_demote_patterns
+                if str(value).strip()
+            ]
+        if discover_max_cards is not None:
+            discovery_preferences["max_cards"] = int(discover_max_cards)
+        if discovery_preferences:
+            payload["discovery_preferences"] = discovery_preferences
 
     if resolved_action == "discover":
         payload["view_mode"] = "discover"

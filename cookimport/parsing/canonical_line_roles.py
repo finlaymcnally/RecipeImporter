@@ -122,6 +122,11 @@ _EXPLICIT_KNOWLEDGE_CUE_RE = re.compile(
     re.IGNORECASE,
 )
 _CODEX_LOW_CONFIDENCE_THRESHOLD = 0.90
+_YIELD_COUNT_HINT_RE = re.compile(
+    r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"about|approximately|approx\.?|around|up to|at least|at most)\b",
+    re.IGNORECASE,
+)
 
 
 class CanonicalLineRolePrediction(BaseModel):
@@ -365,7 +370,10 @@ def _deterministic_label(
     if "note_like_prose" in tags:
         return "RECIPE_NOTES", 0.91, ["note_like_prose"]
     if "ingredient_like" in tags:
-        if _looks_recipe_title(candidate.text):
+        if _looks_recipe_title_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
             return "RECIPE_TITLE", 0.84, ["title_like", "ingredient_heading_override"]
         return "INGREDIENT_LINE", 0.98, ["ingredient_like"]
     if "instruction_with_time" in tags:
@@ -375,7 +383,10 @@ def _deterministic_label(
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
         return "TIME_LINE", 0.95, ["time_metadata"]
     if "outside_recipe_span" in tags:
-        if _looks_recipe_title(candidate.text):
+        if _looks_recipe_title_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
             return "RECIPE_TITLE", 0.79, ["title_like", "outside_recipe_span"]
         if _looks_prose(candidate.text):
             if _looks_narrative_prose(candidate.text):
@@ -388,7 +399,10 @@ def _deterministic_label(
                 ]
             return "OTHER", 0.66, ["outside_recipe_span", "prose_default_other"]
         return "OTHER", 0.65, ["outside_recipe_span"]
-    if "RECIPE_TITLE" in candidate.candidate_labels and _looks_recipe_title(candidate.text):
+    if "RECIPE_TITLE" in candidate.candidate_labels and _looks_recipe_title_with_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
         return "RECIPE_TITLE", 0.8, ["title_like"]
     return None, 0.0, ["needs_disambiguation"]
 
@@ -507,10 +521,19 @@ def _sanitize_prediction(
         label = "INGREDIENT_LINE"
         decided_by = "fallback"
         reason_tags.append("sanitized_neighbor_ingredient_fragment")
-    if label == "YIELD_LINE" and _looks_obvious_ingredient(candidate):
-        label = "INGREDIENT_LINE"
-        decided_by = "fallback"
-        reason_tags.append("sanitized_yield_to_ingredient")
+    if label == "YIELD_LINE":
+        if _looks_obvious_ingredient(candidate):
+            label = "INGREDIENT_LINE"
+            decided_by = "fallback"
+            reason_tags.append("sanitized_yield_to_ingredient")
+        elif not _looks_strict_yield_header(candidate.text):
+            label = _yield_fallback_label(candidate)
+            decided_by = "fallback"
+            reason_tags.append(
+                "sanitized_yield_to_instruction"
+                if label == "INSTRUCTION_LINE"
+                else "sanitized_yield_non_header"
+            )
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -728,6 +751,41 @@ def _looks_recipe_title(text: str) -> bool:
     return title_case_words >= max(2, len(words) - 1)
 
 
+def _looks_recipe_title_with_context(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    if not _looks_recipe_title(candidate.text):
+        return False
+    if by_atomic_index is None:
+        return _looks_compact_heading(candidate.text)
+    next_candidate = by_atomic_index.get(candidate.atomic_index + 1)
+    if next_candidate is None:
+        return _looks_compact_heading(candidate.text)
+    next_tags = {str(tag) for tag in next_candidate.rule_tags}
+    next_text = str(next_candidate.text or "")
+    if _looks_recipe_start_boundary(next_candidate):
+        return True
+    if _neighbor_is_ingredient_dominant(next_candidate):
+        return True
+    if _looks_instructional_neighbor(next_candidate):
+        return True
+    if {
+        "instruction_like",
+        "instruction_with_time",
+        "ingredient_like",
+        "yield_prefix",
+        "howto_heading",
+    } & next_tags:
+        return True
+    if _looks_narrative_prose(next_text):
+        return False
+    if "outside_recipe_span" in next_tags and _looks_prose(next_text):
+        return False
+    return False
+
+
 def _looks_subsection_heading_context(
     candidate: AtomicLineCandidate,
     *,
@@ -927,6 +985,36 @@ def _looks_narrative_prose(text: str) -> bool:
     if any(lowered.startswith(prefix) for prefix in _NON_RECIPE_PROSE_PREFIXES):
         return True
     return bool(_FIRST_PERSON_RE.search(stripped) and not _RECIPE_CONTEXT_RE.search(stripped))
+
+
+def _looks_strict_yield_header(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    match = _YIELD_PREFIX_RE.match(stripped)
+    if match is None:
+        return False
+    if stripped[-1:] in {".", "!", "?"}:
+        return False
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not (1 <= len(words) <= 10):
+        return False
+    if len(stripped) > 72:
+        return False
+    suffix = stripped[match.end() :].strip(" :-")
+    if not suffix:
+        return False
+    return bool(_YIELD_COUNT_HINT_RE.search(suffix))
+
+
+def _yield_fallback_label(candidate: AtomicLineCandidate) -> str:
+    text = str(candidate.text or "").strip()
+    lowered = text.lower()
+    if _INSTRUCTION_VERB_RE.match(text) or lowered.startswith("serves "):
+        return "INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER"
+    if _looks_recipe_note_prose(text) or _looks_editorial_note(text):
+        return "RECIPE_NOTES"
+    return "OTHER"
 
 
 def _looks_explicit_knowledge_cue(text: str) -> bool:

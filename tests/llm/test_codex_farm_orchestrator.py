@@ -124,6 +124,46 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
     )
 
 
+def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
+    return ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Toast",
+                identifier="urn:recipe:test:toast",
+                recipeIngredient=["1 slice bread"],
+                recipeInstructions=["Toast the bread."],
+                provenance={"location": {"start_block": 1, "end_block": 4}},
+            )
+        ],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "lines": [
+                        {"index": 0, "text": "Preface"},
+                        {"index": 1, "text": "Toast"},
+                        {"index": 2, "text": "1 slice bread"},
+                        {"index": 3, "text": "Toast the bread."},
+                        {"index": 4, "text": "Serve warm."},
+                    ],
+                    "text": "Preface\nToast\n1 slice bread\nToast the bread.\nServe warm.\n",
+                },
+                metadata={"artifact_type": "extracted_lines"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook=source_path.stem,
+        workbookPath=str(source_path),
+    )
+
+
 def _build_run_settings(
     pack_root: Path,
     *,
@@ -235,6 +275,65 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert manifest["counts"]["pass3_pass2_ok_deterministic_skips"] == 0
     assert manifest["counts"]["pass3_pass2_ok_llm_calls"] == 1
     assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is True
+
+
+def test_orchestrator_accepts_full_text_lines_when_blocks_missing(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_lines_only_conversion_result(source)
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {
+                            "instruction": "Toast the bread.",
+                            "ingredient_lines": [],
+                        }
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID, PASS3_PIPELINE_ID]
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["counts"]["pass1_ok"] == 1
+    assert manifest["counts"]["pass2_ok"] == 1
+    assert manifest["counts"]["pass3_ok"] == 1
 
 
 def test_orchestrator_runs_pass3_for_low_risk_pass2_ok_when_policy_disabled(

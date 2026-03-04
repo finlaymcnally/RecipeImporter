@@ -80,6 +80,10 @@ COMPARE_CONTROL_WARNING_STRATA_COVERAGE_MIN = 0.6
 COMPARE_CONTROL_WARNING_MIN_ROWS = 20
 COMPARE_CONTROL_WARNING_MIN_STRATA = 3
 COMPARE_CONTROL_VIEW_MODES = {"discover", "raw", "controlled"}
+COMPARE_CONTROL_DISCOVERY_DEFAULT_MAX_CARDS = 10
+COMPARE_CONTROL_DISCOVERY_MAX_CARDS = 40
+COMPARE_CONTROL_DISCOVERY_PREFER_FIELD_BOOST = 1.25
+COMPARE_CONTROL_DISCOVERY_DEMOTE_FACTOR = 0.2
 INSIGHTS_COMPARE_FIELD_PREFERRED = (
     "ai_model",
     "ai_effort",
@@ -766,6 +770,25 @@ def _unique_string_list(values: Any) -> list[str]:
     return ordered
 
 
+def _normalize_discovery_preferences(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    max_cards_raw = source.get("max_cards")
+    if max_cards_raw is None:
+        max_cards = COMPARE_CONTROL_DISCOVERY_DEFAULT_MAX_CARDS
+    else:
+        try:
+            max_cards = int(max_cards_raw)
+        except (TypeError, ValueError):
+            max_cards = COMPARE_CONTROL_DISCOVERY_DEFAULT_MAX_CARDS
+    max_cards = max(1, min(COMPARE_CONTROL_DISCOVERY_MAX_CARDS, max_cards))
+    return {
+        "exclude_fields": _unique_string_list(source.get("exclude_fields")),
+        "prefer_fields": _unique_string_list(source.get("prefer_fields")),
+        "demote_patterns": _unique_string_list(source.get("demote_patterns")),
+        "max_cards": max_cards,
+    }
+
+
 def _normalize_compare_control_state_for_catalog(
     raw_state: dict[str, Any] | None,
     catalog: dict[str, Any],
@@ -783,6 +806,9 @@ def _normalize_compare_control_state_for_catalog(
         "split_field": str(source.get("split_field") or "").strip(),
         "view_mode": _normalize_view_mode(source.get("view_mode")),
         "selected_groups": _unique_string_list(source.get("selected_groups")),
+        "discovery_preferences": _normalize_discovery_preferences(
+            source.get("discovery_preferences")
+        ),
     }
 
     if state["outcome_field"] not in by_field or not bool(by_field[state["outcome_field"]].get("numeric")):
@@ -1476,16 +1502,29 @@ def analyze_compare_control_discovery(
     outcome_field: str,
     catalog: dict[str, Any],
     field_options: list[str],
+    discovery_preferences: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     total_rows = len(records)
     by_field = catalog.get("by_field") if isinstance(catalog, dict) else {}
     if not isinstance(by_field, dict):
         by_field = {}
+    preferences = _normalize_discovery_preferences(discovery_preferences)
+    excluded_fields = {field.lower() for field in preferences["exclude_fields"]}
+    preferred_fields = {field.lower() for field in preferences["prefer_fields"]}
+    demote_patterns = [
+        pattern.lower().strip()
+        for pattern in preferences["demote_patterns"]
+        if str(pattern or "").strip()
+    ]
+    max_cards = int(preferences["max_cards"])
     scored: list[dict[str, Any]] = []
     for field_name, field_info in by_field.items():
         if field_name == outcome_field:
             continue
         if not isinstance(field_info, dict):
+            continue
+        field_name_lower = str(field_name).lower()
+        if field_name_lower in excluded_fields:
             continue
         strength: float | None = None
         summary = ""
@@ -1530,6 +1569,15 @@ def analyze_compare_control_discovery(
         final_score = 0.0
         if strength is not None and math.isfinite(strength):
             final_score = strength * max(0.2, coverage_ratio)
+        score_modifiers: list[str] = []
+        if field_name_lower in preferred_fields:
+            final_score *= COMPARE_CONTROL_DISCOVERY_PREFER_FIELD_BOOST
+            score_modifiers.append("preferred")
+        if any(pattern in field_name_lower for pattern in demote_patterns):
+            final_score *= COMPARE_CONTROL_DISCOVERY_DEMOTE_FACTOR
+            score_modifiers.append("demoted")
+        if score_modifiers:
+            summary = f"{summary} | {'/'.join(score_modifiers)}".strip()
         scored.append(
             {
                 "field": field_name,
@@ -1542,7 +1590,7 @@ def analyze_compare_control_discovery(
         )
 
     scored.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
-    return scored[:10]
+    return scored[:max_cards]
 
 
 def compare_control_split_segments(
@@ -2090,6 +2138,7 @@ def analyze(
             state["outcome_field"],
             catalog,
             field_options,
+            state.get("discovery_preferences"),
         )
         return {
             "view_mode": "discover",
@@ -2097,6 +2146,7 @@ def analyze(
             "compare_field": "",
             "split_field": "",
             "hold_constant_fields": [],
+            "discovery_preferences": state.get("discovery_preferences"),
             "candidate_rows": len(filtered_records),
             "analysis": {
                 "type": "discover",
@@ -2365,6 +2415,7 @@ def generate_insights(
         outcome_field,
         catalog,
         field_options,
+        state.get("discovery_preferences"),
     )
     actionable_drivers = [
         item for item in discovery_items if not _insights_is_noise_field(str(item.get("field") or ""))

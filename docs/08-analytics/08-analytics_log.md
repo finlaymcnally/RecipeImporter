@@ -2068,3 +2068,539 @@ Decision/outcome preserved:
 
 Evidence preserved:
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -q` passed.
+
+## 2026-03-03 docs/tasks consolidation batch (IsolateForXv2 -> isolate removal -> backend compare-control)
+
+Merged source task files (timestamp/file order):
+- `docs/tasks/IsolateForXv2.md`
+- `docs/tasks/2026-03-03_22.54.59-remove-isolate-for-x-dashboard.md`
+- `docs/tasks/2026-03-03_23.05.29-compare-control-agent-cli.md`
+
+### 2026-03-03_22.00.24 IsolateForXv2 implementation baseline
+
+Source task:
+- `docs/tasks/IsolateForXv2.md`
+
+Problem captured:
+- Previous Runs had deterministic slicing (`Isolate For X`) but no local attribution workspace for "what drives metric movement" with confounder control.
+
+Decision/outcome preserved:
+- Added `Compare & Control` as a sibling panel to isolate in `cookimport/analytics/dashboard_render.py` with persisted state under `previous_runs.compare_control`.
+- Implemented deterministic browser-side analysis for:
+  - categorical/raw,
+  - numeric/raw,
+  - categorical/controlled (exact strata weighting),
+  - numeric/controlled (within-strata centering),
+  - discovery ranking when compare field is unset.
+- `Filter to subset` intentionally wrote through existing table filter helpers, not a parallel filtering engine.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -q` passed.
+- `. .venv/bin/activate && cookimport stats-dashboard` completed.
+
+### 2026-03-03_22.54.59 remove isolate from dashboard
+
+Source task:
+- `docs/tasks/2026-03-03_22.54.59-remove-isolate-for-x-dashboard.md`
+
+Problem captured:
+- Once Compare/Control was available, isolate + compare dual-panel UX created overlapping slice surfaces and confusing status/state messaging.
+
+Decision/outcome preserved:
+- Removed Isolate For X end-to-end (rendering, state/control-source plumbing, and isolate-specific status text) while keeping Compare/Control and table-filter behavior intact.
+- Kept backward compatibility for legacy saved UI/preset payloads that still contain isolate keys.
+
+Evidence preserved:
+- `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -q` passed.
+- `. .venv/bin/activate && cookimport stats-dashboard` completed.
+
+Anti-loop note:
+- Do not revert to hiding isolate UI only; previous task explicitly chose full removal to avoid stale state/control complexity.
+
+### 2026-03-03_23.05.29 backend compare-control CLI/agent parity
+
+Source task:
+- `docs/tasks/2026-03-03_23.05.29-compare-control-agent-cli.md`
+
+Problem captured:
+- Compare/Control analysis was JS-only in generated dashboard pages, so terminal/agent tooling could not query it deterministically.
+
+Decision/outcome preserved:
+- Added parity-safe backend engine in `cookimport/analytics/compare_control_engine.py` mirroring dashboard derived fields/filter semantics.
+- Added CLI surfaces:
+  - `cookimport compare-control run`
+  - `cookimport compare-control agent` (JSONL request/response loop with stable error envelope)
+- Added `insights` action (auto-profile + actionable driver filtering + follow-up query suggestions).
+- Added QualitySuite bridge handoff artifacts (`agent_compare_control/`) in `quality-run` and `quality-compare` outputs.
+
+Key parity details preserved:
+- `all_token_use` discounted formula: `(input - cached_input) + 0.1 * cached_input + output`.
+- Controlled categorical parity fixture intentionally demonstrates direction flip (`raw A > raw B` but `controlled B > controlled A`).
+- Subset patch remains table-filter contract (`eq` clauses + `or` mode for selected groups).
+
+Evidence preserved:
+- Engine + CLI parity tests added and passing:
+  - `tests/analytics/test_compare_control_engine.py`
+  - `tests/analytics/test_compare_control_cli.py`
+- Existing dashboard compare/control tests remained green in `tests/analytics/test_stats_dashboard.py`.
+
+Anti-loop reminders:
+- If dashboard and backend outputs diverge, validate field resolution/filter semantics first (`previousRunsFieldValue` parity), not chart/UI rendering.
+- Keep analysis local/deterministic; this path intentionally excludes LLM-in-the-loop behavior.
+
+## 2026-03-04 docs/understandings consolidation batch (Compare/Control + isolate removal chronology)
+
+Merged source notes below are preserved in timestamp order to keep implementation/audit context intact.
+### 2026-03-03_22.00.24-compare-control-dashboard-seams
+
+Source:
+- `docs/understandings/2026-03-03_22.00.24-compare-control-dashboard-seams.md`
+
+Summary:
+- Compare & Control implementation discovery: reuse Previous Runs filtered-row output and table-filter writer seams to avoid parallel filtering logic.
+
+Preserved source note:
+
+````md
+---
+summary: "Compare & Control implementation discovery: reuse Previous Runs filtered-row output and table-filter writer seams to avoid parallel filtering logic."
+read_when:
+  - "When extending Compare & Control behavior in stats-dashboard."
+  - "When debugging Filter to subset interactions with Previous Runs table filters."
+---
+
+# Discovery
+
+`Compare & Control` should run on `computePreviousRunsFilterResult().records` (already quick-filter + table-filter constrained) and only write subsets through existing table filter helpers.
+
+# Evidence
+
+- `computePreviousRunsFilterResult()` is the shared source for table rows and trend points.
+- `setPreviousRunsColumnFilterClauses(...)` + `setPreviousRunsColumnFilterMode(...)` already provide deterministic clause writes for one field.
+- Reusing those helpers keeps `Filter to subset` aligned with existing status text, persistence, preset behavior, and chart/table synchronization.
+````
+
+### 2026-03-03_22.22.36-compare-control-gap-closure
+
+Source:
+- `docs/understandings/2026-03-03_22.22.36-compare-control-gap-closure.md`
+
+Summary:
+- Gap-closure design for Compare & Control: secondary categorical metrics, weak coverage warnings, and legacy state compatibility checks.
+
+Preserved source note:
+
+````md
+---
+summary: "Gap-closure design for Compare & Control: secondary categorical metrics, weak coverage warnings, and legacy state compatibility checks."
+read_when:
+  - "When extending Compare & Control categorical outputs or controlled-coverage messaging."
+  - "When validating dashboard UI-state backward compatibility for missing compare_control keys."
+---
+
+- Raw categorical compare can add useful context without changing filter semantics by computing optional per-group means for a short list of runtime/token/cost numeric fields.
+- Controlled mode already had coverage counts; adding explicit warning text in results is the missing UX contract so low-coverage controlled estimates are not treated as definitive.
+- Legacy payload compatibility is already implemented in JS (`hasOwnProperty('compare_control')` fallback); adding explicit test assertions prevents regressions when UI-state schema evolves.
+````
+
+### 2026-03-03_22.31.58-isolateforxv2-og-vs-implementation-audit
+
+Source:
+- `docs/understandings/2026-03-03_22.31.58-isolateforxv2-og-vs-implementation-audit.md`
+
+Summary:
+- Audit result: IsolateForXv2 OG milestones are implemented; remaining gap is mostly behavioral test depth for compare/control math and filter handoff.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit result: IsolateForXv2 OG milestones are implemented; remaining gap is mostly behavioral test depth for compare/control math and filter handoff."
+read_when:
+  - "When validating docs/plans/OGplan/IsolateForXv2.md against current dashboard code."
+  - "When deciding whether Compare & Control needs stronger behavior-level tests beyond JS string-contract assertions."
+---
+
+- Verified against code: OG milestones for Compare & Control shell/state, raw and controlled analysis, split-by support, and Filter-to-subset table-filter handoff are implemented in `cookimport/analytics/dashboard_render.py`.
+- Verified against docs/tests: analytics docs describe the shipped behavior and `tests/analytics/test_stats_dashboard.py` includes markup/JS/state-contract assertions for compare_control persistence compatibility.
+- Residual gap: acceptance-level behavior (for example, controlled-vs-raw divergence on confounded data and concrete Filter-to-subset result assertions) is not covered by dedicated behavior-driven test fixtures yet.
+````
+
+### 2026-03-03_22.38.48-compare-control-categorical-controlled-weighting-fix
+
+Source:
+- `docs/understandings/2026-03-03_22.38.48-compare-control-categorical-controlled-weighting-fix.md`
+
+Summary:
+- Compare & Control categorical controlled mode now uses stratum-standardized weighting; added Node harness tests for confounding reversal and Filter-to-subset clause writes.
+
+Preserved source note:
+
+````md
+---
+summary: "Compare & Control categorical controlled mode now uses stratum-standardized weighting; added Node harness tests for confounding reversal and Filter-to-subset clause writes."
+read_when:
+  - "When debugging Compare & Control controlled categorical metrics in stats-dashboard."
+  - "When updating behavior tests that execute generated dashboard.js compare/control logic."
+---
+
+- Discovery: the prior controlled categorical aggregation used per-group row counts as weights, which preserves group-mix confounding and can make controlled means equal raw means even when hold-constant strata are present.
+- Fix: controlled categorical now applies shared stratum weights (`stratum total rows`) to each group's within-stratum mean, so groups are compared on the same stratum mix.
+- Test coverage: `tests/analytics/test_stats_dashboard.py` now runs generated dashboard JS in a Node harness (bootstrap disabled) and verifies:
+  - confounded fixture reversal (`raw` favors A while `controlled` favors B),
+  - `Filter to subset` writes `eq` clauses + `or` mode into existing table column filters.
+````
+
+### 2026-03-03_22.45.05-compare-control-vs-isolate-intent
+
+Source:
+- `docs/understandings/2026-03-03_22.45.05-compare-control-vs-isolate-intent.md`
+
+Summary:
+- Dashboard intent check: Compare & Control complements Isolate For X; it was not intended to replace it.
+
+Preserved source note:
+
+````md
+---
+summary: "Dashboard intent check: Compare & Control complements Isolate For X; it was not intended to replace it."
+read_when:
+  - "When deciding whether to remove or rename Isolate For X in stats-dashboard."
+  - "When adjusting Previous Runs analysis/filter UX boundaries."
+---
+
+- Source intent in `docs/tasks/IsolateForXv2.md` defines two distinct workflows: Isolate remains the deterministic row-slicing/filtering surface, while Compare & Control adds attribution/confounding analysis on visible rows.
+- Current dashboard markup in `cookimport/analytics/dashboard_render.py` still renders both panels side-by-side under `Previous Runs`.
+- Compare & Control and Isolate both write through the same table-filter engine, but for different user goals (`Isolate`: explicit rule-based slicing; `Compare & Control`: analysis + optional subset handoff).
+````
+
+### 2026-03-03_22.54.37-dashboard-isolate-removal-seams
+
+Source:
+- `docs/understandings/2026-03-03_22.54.37-dashboard-isolate-removal-seams.md`
+
+Summary:
+- Isolate For X removal seam map: delete isolate UI/logic, keep compare/control and table filter pipeline as the single slice path.
+
+Preserved source note:
+
+````md
+---
+summary: "Isolate For X removal seam map: delete isolate UI/logic, keep compare/control and table filter pipeline as the single slice path."
+read_when:
+  - "When removing or re-introducing Previous Runs isolate-style slicing behavior."
+  - "When debugging compare/control after changes to Previous Runs filtering state/preset payloads."
+---
+
+- `Previous Runs` filtering now has one slice path: quick filters + table column filters (`computePreviousRunsFilterResult`), then compare/control reads those matched rows.
+- Safe isolate removal required deleting isolate-specific HTML/CSS and removing isolate keys from preset/UI-state write paths while tolerating legacy payload keys on load.
+- Status text and table-filter editor actions should no longer mention filter-control-source handoff; they only report active filters and global AND/OR mode.
+````
+
+### 2026-03-03_22.58.03-compare-control-view-mode-discover-raw-controlled
+
+Source:
+- `docs/understandings/2026-03-03_22.58.03-compare-control-view-mode-discover-raw-controlled.md`
+
+Summary:
+- Compare & Control view semantics: `discover` is field-finding mode; `raw` and `controlled` are analysis modes.
+
+Preserved source note:
+
+````md
+---
+summary: "Compare & Control view semantics: `discover` is field-finding mode; `raw` and `controlled` are analysis modes."
+read_when:
+  - "When editing Compare & Control docs and `View` mode wording."
+  - "When UI behavior seems inconsistent between `discover` and `raw`/`controlled`."
+---
+
+# Discovery
+
+`View` intentionally has three values:
+- `discover`: show ranked candidate compare fields (exploration mode).
+- `raw`: run direct comparison analysis.
+- `controlled`: run hold-constant-strata analysis.
+
+The how-to wording can feel contradictory because one step uses `View=discover` for field selection, while the later "how careful" section describes only the two analysis modes (`raw`, `controlled`).
+
+# Evidence
+
+- UI dropdown includes all three options in one control.
+- Rendering logic enters discovery when compare field is empty **or** view is `discover`.
+- Clicking a discovery card sets `compare_field` and switches `view_mode` to `raw`.
+````
+
+### 2026-03-03_23.04.55-dashboard-previous-runs-metrics-sources
+
+Source:
+- `docs/understandings/2026-03-03_23.04.55-dashboard-previous-runs-metrics-sources.md`
+
+Summary:
+- Source map for where Previous Runs metrics and derived fields come from.
+
+Preserved source note:
+
+````md
+---
+summary: "Source map for where Previous Runs metrics and derived fields come from."
+read_when:
+  - "When tracing metric origins in dashboard Previous Runs."
+  - "When adding backend analytics that must match Previous Runs field semantics."
+---
+
+# Dashboard "Previous Runs" metrics: where they come from
+
+- The "Previous Runs" table is driven by `DashboardData.benchmark_records` (schema: `cookimport/analytics/dashboard_schema.py::BenchmarkRecord`). Field options come from `collectBenchmarkFieldPaths()` in `cookimport/analytics/dashboard_render.py`, which flattens every key in the benchmark record objects and also adds a few derived convenience columns (ex: `source_label`, `source_file_basename`, `ai_model`, `ai_effort`, `artifact_dir_basename`, `all_method_record`, `speed_suite_record`, `all_token_use`).
+
+- Benchmark records are collected primarily from `data/.history/performance_history.csv` (CSV-first contract), with best-effort enrichment from artifacts like `eval_report.json` plus optional `coverage.json` and `manifest.json` (collector: `cookimport/analytics/dashboard_collect.py::_collect_benchmarks`).
+
+- Strict vs practical vs supported metrics originate from the Label Studio evaluation logic (`cookimport/labelstudio/eval_freeform.py`). "Practical" metrics use more forgiving overlap-based matching; "supported_*" metrics restrict scoring to the app-supported label set.
+
+- Boundary classification counts (`boundary_correct/over/under/partial`) are computed per matched span via `_classify_boundary()` in `cookimport/labelstudio/eval_freeform.py`: exact boundary match => `correct`; prediction contains gold => `over`; prediction inside gold => `under`; otherwise => `partial`.
+
+- The `all_token_use` column in the dashboard is a derived "discounted" token total computed in `cookimport/analytics/dashboard_render.py::previousRunsDiscountedTokenTotal()`: roughly `(input - cached_input) + 0.1 * cached_input + output` (falls back to `tokens_total` if parts are missing).
+````
+
+### 2026-03-03_23.05.29-compare-control-backend-cli-seams
+
+Source:
+- `docs/understandings/2026-03-03_23.05.29-compare-control-backend-cli-seams.md`
+
+Summary:
+- Seam map for adding a backend Compare & Control CLI without diverging from dashboard behavior.
+
+Preserved source note:
+
+````md
+---
+summary: "Seam map for adding a backend Compare & Control CLI without diverging from dashboard behavior."
+read_when:
+  - "When implementing a backend/agent CLI for Compare & Control."
+  - "When trying to keep CLI analysis parity with dashboard Compare & Control results."
+---
+
+# Discovery
+
+`Compare & Control` analytics currently live only in generated dashboard JavaScript (`cookimport/analytics/dashboard_render.py`) and are not available as reusable Python functions.
+
+# Evidence
+
+- Analysis helpers are JS-only (`analyzeCompareControlCategoricalRaw`, `analyzeCompareControlNumericRaw`, `analyzeCompareControlCategoricalControlled`, `analyzeCompareControlNumericControlled`).
+- The panel runs on already-filtered rows from `computePreviousRunsFilterResult()` (quick filters + column filters).
+- `Filter to subset` uses existing table-filter writers (`setPreviousRunsColumnFilterClauses`, `setPreviousRunsColumnFilterMode`) instead of a separate filter engine.
+- Important derived fields (`source_label`, `ai_model`, `ai_effort`, `all_token_use`) are resolved through `previousRunsFieldValue(...)`, not directly from raw benchmark record keys.
+
+# Implication
+
+A backend/agent CLI should extract or recreate these semantics in Python first (filters, derived fields, and compare/control math), then have dashboard JS and CLI share that logic contract to avoid split-brain analytics.
+````
+
+### 2026-03-03_23.17.54-compare-control-agent-cli-plan-hardening
+
+Source:
+- `docs/understandings/2026-03-03_23.17.54-compare-control-agent-cli-plan-hardening.md`
+
+Summary:
+- Hardening notes for backend Compare & Control CLI plan: JS seam map, test anchors, and Typer integration points.
+
+Preserved source note:
+
+````md
+---
+summary: "Hardening notes for backend Compare & Control CLI plan: JS seam map, test anchors, and Typer integration points."
+read_when:
+  - "When implementing docs/plans/2026-03-03_23.05.29-compare-control-agent-cli.md."
+  - "When validating backend compare/control parity against dashboard behavior."
+---
+
+# Discovery
+
+Backend compare/control should be implemented as a Python engine plus CLI adapter, not as ad-hoc CLI logic, because the dashboard semantics are spread across JS helper seams that must stay consistent (derived fields, filter operators, controlled weighting, and subset patch writes).
+
+# Evidence
+
+- Compare/control analysis functions exist only in dashboard JS emitted by `cookimport/analytics/dashboard_render.py` (`analyzeCompareControlCategoricalRaw`, `analyzeCompareControlNumericRaw`, `analyzeCompareControlCategoricalControlled`, `analyzeCompareControlNumericControlled`, `analyzeCompareControlDiscovery`).
+- Row selection context comes from `computePreviousRunsFilterResult()` (quick filters + column filters) and not directly from raw benchmark rows.
+- Derived field parity depends on `previousRunsFieldValue(...)`, especially `source_label`, `ai_model`, `ai_effort`, `all_token_use`, `artifact_dir_basename`, `all_method_record`, and `speed_suite_record`.
+- Subset patch behavior contract is encoded in `syncCompareControlSelectionToTableFilters()` and writes `eq` clauses with `or` mode.
+- Existing behavior tests in `tests/analytics/test_stats_dashboard.py` already validate controlled categorical weighting and subset patch output.
+- CLI integration should follow existing Typer subgroup pattern in `cookimport/cli.py` (`app.add_typer(...)` pattern used by `bench` and `epub`).
+
+# Implication
+
+Implementation should prioritize one deterministic backend engine module that mirrors JS semantics, then expose it through a Typer `compare-control` subgroup with `run` and `agent` commands. The safest parity validation path is to add backend engine/CLI tests while continuing to run existing dashboard compare/control tests.
+````
+
+### 2026-03-03_23.38.21-compare-control-cli-usage-playbook
+
+Source:
+- `docs/understandings/2026-03-03_23.38.21-compare-control-cli-usage-playbook.md`
+
+Summary:
+- Practical usage playbook for compare-control run/agent based on real local-output trials.
+
+Preserved source note:
+
+````md
+---
+summary: "Practical usage playbook for compare-control run/agent based on real local-output trials."
+read_when:
+  - "When using cookimport compare-control from terminal and results feel noisy or hard to act on."
+  - "When deciding between one-shot run mode and persistent agent mode."
+---
+
+- Discovery context: validated `cookimport compare-control run` and `cookimport compare-control agent` against current local benchmark history (`data/output`, `data/golden`) and inspected response contracts.
+
+- Best operational path:
+  - Use `agent` for iterative analysis (load once, send many JSON lines).
+  - First call `fields` to inspect available fields, cardinality, and active quick-filter context.
+  - Then call `analyze` directly with explicit `compare_field` and `outcome_field`; do not rely on unfiltered `discover` as the only field picker.
+
+- Why `discover` can be noisy:
+  - High-cardinality identity fields (for example artifact/report paths and run-config hashes) can dominate top scores.
+  - This is expected from current scoring because those fields strongly partition outcomes, even when they are not decision-friendly knobs.
+
+- Suggestion caveat (important):
+  - `suggest_hold_constants` and `suggest_splits` can rank outcome-adjacent metrics (for example `f1`, `precision`, `recall`) at the top.
+  - For practical compare/control use, treat those as leakage-style signals and prefer operational controls (for example `source_label`, importer/config knobs) instead.
+
+- Coverage behavior to trust:
+  - Controlled mode emits warnings when comparability collapses (example observed: holding constant on `processed_report_path` produced `used_rows=0` and warning text).
+  - Use `used_rows/candidate_rows` and `used_strata/total_strata` as the go/no-go signal for controlled conclusions.
+
+- Filter contract confirmed:
+  - Quick filters default to `official_full_golden_only=true`, `exclude_ai_tests=false`.
+  - Column filters payload supports grouped clauses with per-field `mode` plus top-level `column_filter_global_mode`.
+  - `subset_filter_patch` returns dashboard-compatible `{compare_field, column_filter_mode:\"or\", clauses:[{operator:\"eq\",value:...}]}`.
+
+- CLI ergonomics note:
+  - `run` always returns a large payload (includes catalog/filter context), so use `jq` projections for terminal readability.
+  - `agent` is the better fit for Codex/tool loops because responses are line-delimited JSON and malformed lines return structured errors without killing the process.
+````
+
+### 2026-03-03_23.40.00-compare-control-backend-engine-parity-implementation
+
+Source:
+- `docs/understandings/2026-03-03_23.40.00-compare-control-backend-engine-parity-implementation.md`
+
+Summary:
+- Backend Compare & Control engine implementation note: JS parity seams mirrored in Python and exposed via run/agent CLI surfaces.
+
+Preserved source note:
+
+````md
+---
+summary: "Backend Compare & Control engine implementation note: JS parity seams mirrored in Python and exposed via run/agent CLI surfaces."
+read_when:
+  - "When debugging differences between dashboard Compare & Control results and cookimport compare-control CLI output."
+  - "When extending compare-control agent actions or filter payload shapes."
+---
+
+- Discovery: dashboard compare/control behavior depends on a combined seam (`previousRunsFieldValue` + quick filters + column filter operators + analysis functions), so backend parity required reproducing all of them together instead of porting only analysis math.
+- Implementation: `cookimport/analytics/compare_control_engine.py` now centralizes derived field resolution, filter evaluation, discover/raw/controlled analysis, suggestions, and subset filter patch generation.
+- CLI wiring: `cookimport compare-control run` and `cookimport compare-control agent` both dispatch through the same engine action router in `cookimport/cli.py`, with structured success/error envelopes.
+- Test anchors: `tests/analytics/test_compare_control_engine.py` covers derived fields/filter errors/controlled-math contract; `tests/analytics/test_compare_control_cli.py` covers one-shot JSON + persistent JSONL agent behavior.
+````
+
+### 2026-03-03_23.48.14-compare-control-insights-action-implementation
+
+Source:
+- `docs/understandings/2026-03-03_23.48.14-compare-control-insights-action-implementation.md`
+
+Summary:
+- Compare-control insights action: auto-profile + actionable driver filtering + process-factor deltas.
+
+Preserved source note:
+
+````md
+---
+summary: "Compare-control insights action: auto-profile + actionable driver filtering + process-factor deltas."
+read_when:
+  - "When extending compare-control beyond manual discover/raw/controlled workflows."
+  - "When interpreting why insights hides some discovery fields as high-cardinality noise."
+---
+
+- Problem observed during local runs: unfiltered `discover` often surfaced path/hash identifiers first (`processed_report_path`, config hashes), which is technically predictive but weak for operator decision-making.
+
+- Implementation added: new backend action `insights` in `cookimport/analytics/compare_control_engine.py`, wired through both `cookimport compare-control run` and `cookimport compare-control agent`.
+
+- `insights` output now includes:
+  - row/profile snapshot (`candidate_rows`, top source/importer/model categories),
+  - actionable vs noisy discovery split (noise identified by path/hash/report-style field naming),
+  - automatic raw + controlled compare payloads (default compare preference starts at `ai_model`),
+  - controlled coverage warnings reused from existing compare/control warning contract,
+  - process-factor delta summaries across key run-config fields,
+  - suggested next query payloads for iterative terminal/agent loops.
+
+- Contract note: this feature stays deterministic and local-data only (no LLM/tooling beyond existing compare-control math/filter contracts).
+
+- Practical usage:
+  - one-shot: `cookimport compare-control run --action insights --outcome-field strict_accuracy`
+  - persistent loop: send JSONL `{ "action": "insights", "payload": { ... } }` to `cookimport compare-control agent`.
+````
+
+### 2026-03-03_23.57.39-per-label-run-selector-seam
+
+Source:
+- `docs/understandings/2026-03-03_23.57.39-per-label-run-selector-seam.md`
+
+Summary:
+- Per-label diagnostics run selector seam map in dashboard_render.js template.
+
+Preserved source note:
+
+````md
+---
+summary: "Per-label diagnostics run selector seam map in dashboard_render.js template."
+read_when:
+  - "When changing which benchmark run timestamp Per-Label Breakdown renders."
+  - "When debugging persisted Per-Label run selection in dashboard UI state."
+---
+
+# Per-label run selector seam
+
+- `renderPerLabel()` already computes `candidateRecords` (non-speed preferred, all-method preferred), so run-picker options should derive from that exact set to keep table semantics unchanged.
+- `benchmarkRunGroupInfo()` is the canonical grouping key/label source; reuse it for dropdown options so timestamp grouping matches boundary/trend behavior.
+- UI persistence belongs in `previous_runs` dashboard state next to other per-label controls (`per_label_rolling_window_size`, `per_label_comparison_mode`), now with `per_label_run_group_key`.
+- The `Default - most recent` option should resolve at render-time (not load-time), so it auto-follows new latest runs while explicit selections stay pinned.
+````
+
+### 2026-03-04_00.08.03-compare-control-discovery-preferences-cli-bridge
+
+Source:
+- `docs/understandings/2026-03-04_00.08.03-compare-control-discovery-preferences-cli-bridge.md`
+
+Summary:
+- Compare & Control discovery cards can now be tuned from backend/CLI via shared discovery-preferences state.
+
+Preserved source note:
+
+````md
+---
+summary: "Compare & Control discovery cards can now be tuned from backend/CLI via shared discovery-preferences state."
+read_when:
+  - "When discovery cards are dominated by path/hash/config identifier fields."
+  - "When adding or debugging compare-control discovery ranking controls in CLI or dashboard."
+---
+
+- Discovery seam: dashboard `discover` cards and backend compare-control discovery both compute a heuristic score per field; adding one shared `discovery_preferences` shape keeps behavior aligned across browser and CLI.
+
+- Implemented preference shape:
+  - `exclude_fields` (hard remove),
+  - `prefer_fields` (score boost),
+  - `demote_patterns` (substring score demotion),
+  - `max_cards` (result cap).
+
+- Backend surfaces:
+  - `cookimport compare-control run` accepts one-shot discovery tuning flags.
+  - `cookimport compare-control discovery-preferences` persists defaults into `assets/dashboard_ui_state.json` so dashboard discover cards follow backend-set preferences.
+
+- Practical outcome: operators/agents can suppress noisy IDs (for example `processed_report_path`, hash fields) and prioritize actionable drivers (`ai_model`, `ai_effort`) without editing frontend code.
+````
+
+Anti-loop reminders from this consolidation:
+- If Compare/Control and table outputs diverge, debug shared filter/value seams first (`previousRunsFieldValue`, compiled column filters, quick-filter handoff).
+- If someone suggests reintroducing isolate behavior, check the isolate-removal seam/audit notes first; this path was intentionally removed to reduce split-brain UX/state.
+- If controlled categorical output looks counterintuitive, inspect strata coverage and weighting assumptions before changing formulas.
+

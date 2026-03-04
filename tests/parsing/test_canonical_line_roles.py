@@ -403,6 +403,51 @@ def test_label_atomic_lines_recipe_title_with_immediate_yield_stays_recipe_title
     assert predictions[0].label == "RECIPE_TITLE"
 
 
+def test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction() -> None:
+    blocks = [
+        {
+            "block_id": "block:yield:1",
+            "block_index": 1,
+            "text": "SERVES with crusty bread and lemon wedges.",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "INSTRUCTION_LINE"
+    assert "sanitized_yield_to_instruction" in predictions[0].reason_tags
+
+
+def test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:outside:1",
+            "block_index": 1,
+            "text": "PAN-SEARED SALMON",
+        },
+        {
+            "block_id": "block:title:outside:2",
+            "block_index": 2,
+            "text": (
+                "I learned this on a rainy night, and this paragraph is narrative "
+                "context rather than an ingredient list or recipe boundary line."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 2
+    assert predictions[0].label == "OTHER"
+
+
 def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeypatch) -> None:
     candidates = [
         AtomicLineCandidate(

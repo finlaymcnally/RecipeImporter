@@ -1201,9 +1201,16 @@ def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:
         if not isinstance(content, dict):
             continue
         blocks = content.get("blocks")
-        if not isinstance(blocks, list):
-            continue
-        for raw_block in blocks:
+        if isinstance(blocks, list) and blocks:
+            candidate_rows: list[Any] = blocks
+        elif str(artifact.location_id) == "full_text":
+            # Older cached prediction payloads may persist line rows without
+            # `full_text.blocks`; synthesize minimal blocks from line indices.
+            lines = content.get("lines")
+            candidate_rows = lines if isinstance(lines, list) else []
+        else:
+            candidate_rows = []
+        for raw_block in candidate_rows:
             if not isinstance(raw_block, dict):
                 continue
             index = _coerce_int(raw_block.get("index"))
@@ -1211,7 +1218,10 @@ def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:
                 continue
             if index in by_index:
                 continue
-            by_index[index] = dict(raw_block)
+            payload = dict(raw_block)
+            payload["index"] = index
+            payload["text"] = str(payload.get("text") or "")
+            by_index[index] = payload
     return [by_index[index] for index in sorted(by_index)]
 
 

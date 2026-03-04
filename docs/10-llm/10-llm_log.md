@@ -1883,3 +1883,360 @@ Evidence preserved:
 - Task command result:
   - `python -m pytest tests/llm/test_codex_farm_orchestrator.py tests/parsing/test_canonical_line_roles.py tests/bench/test_cutdown_export_consistency.py tests/bench/test_benchmark_cutdown_for_external_ai.py`
   - `84 passed, 1 warning`.
+
+## 2026-03-03 docs/tasks consolidation batch (ProFeedback rebaseline and implementation closure)
+
+Merged source task file:
+- `docs/tasks/ProFeedback.md`
+
+### 2026-03-03_21.17.00 to 22.13.25 ProFeedback follow-up milestones
+
+Source task:
+- `docs/tasks/ProFeedback.md`
+
+Problem captured:
+- Original ProFeedback narrative mixed already-shipped work with still-open gaps; remaining high-value items were pass3 runtime ROI, candidate-label visibility, and upload-bundle diagnostic completeness.
+
+Decisions/outcomes preserved:
+- Rebased ProFeedback into executable milestones tied to current runtime seams rather than re-planning already shipped soft-gating/outside-span work.
+- Added pass2-ok utility instrumentation and deterministic skip policy path in orchestrator (`COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`).
+- Propagated candidate-label metadata through line-role predictions and cutdown export surfaces.
+- Hardened upload-bundle diagnostic completeness for existing-output runs so codex statuses are derived/written when source artifacts exist.
+- Kept upload-bundle-first packaging (`upload_bundle_v1`) instead of introducing a new mandatory starter-pack version.
+- Included required speed-regression checks in milestone acceptance path.
+
+Evidence snapshot preserved from task:
+- Quality:
+  - codex skip-off: `accuracy=0.7798`, `macro_f1=0.5749`
+  - codex skip-on: `accuracy=0.7950`, `macro_f1=0.5938`
+  - vanilla paired run: `accuracy=0.3966`, `macro_f1=0.3405`
+- Runtime ROI:
+  - pass3 inputs: `17 -> 1` (skip-off -> skip-on)
+  - pass3 token share: `0.5518 -> 0.3494`
+- Diagnostics completeness:
+  - candidate-label signal available with non-zero rows (`rows_with_candidate_labels=699` in cited codex bundle)
+  - codex run_diagnostics statuses for requested artifacts resolved to `written` on fresh bundles.
+- Regression safety:
+  - targeted suites passed
+  - speed compare verdict recorded as `PASS` (`data/golden/bench/speed/comparisons/2026-03-03_22.09.21/`).
+
+Key operational note preserved:
+- `labelstudio-benchmark` no longer supports `--compare-vanilla`; paired evidence requires separate vanilla/codex runs.
+
+Anti-loop reminders:
+- If old bundles still show missing statuses, regenerate first; stale artifacts can misrepresent current generator behavior.
+- If runtime accounting looks empty in single-run upload bundles, inspect prediction-run manifest telemetry fallback before changing orchestrator telemetry emission.
+- Treat pass3 ROI tuning and candidate-label visibility as coupled observability/perf work; avoid editing one side without validating the other in bundle outputs.
+
+## 2026-03-04 docs/understandings consolidation batch (ProFeedback audits + codexfarm failure seams)
+
+Merged source notes below are preserved in timestamp order to keep runtime root-cause and audit evidence accessible.
+### 2026-03-03_22.21.36-profeedback-ogplan-vs-completed-audit
+
+Source:
+- `docs/understandings/2026-03-03_22.21.36-profeedback-ogplan-vs-completed-audit.md`
+
+Summary:
+- Audit note: ProFeedback OG plan milestones are implemented; pass3 token-share evidence comes from prediction-run telemetry when standalone upload-bundle call inventory is empty.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit note: ProFeedback OG plan milestones are implemented; pass3 token-share evidence comes from prediction-run telemetry when standalone upload-bundle call inventory is empty."
+read_when:
+  - "When validating ProFeedback OG milestone completion against current code and artifacts"
+  - "When checking pass3 ROI evidence sources for standalone codex benchmark roots"
+---
+
+# ProFeedback OG vs completed audit (code-verified)
+
+- Milestones 1-4 from `docs/plans/OGplan/ProFeedback.md` are implemented in code:
+  - pass2-ok pass3 utility + skip policy (`cookimport/llm/codex_farm_orchestrator.py`)
+  - candidate-label propagation (`cookimport/parsing/canonical_line_roles.py`, `cookimport/bench/cutdown_export.py`)
+  - upload-bundle diagnostic derivation for existing-output roots (`scripts/benchmark_cutdown_for_external_ai.py`)
+- Tests covering these behaviors pass in `.venv`:
+  - `tests/llm/test_codex_farm_orchestrator.py`
+  - `tests/parsing/test_canonical_line_roles.py`
+  - `tests/bench/test_benchmark_cutdown_for_external_ai.py`
+- Key nuance:
+  - OG validation text expected pass3 token-share reduction from upload-bundle call inventory.
+  - Current standalone codex benchmark roots can have empty `upload_bundle_index.json -> analysis.call_inventory_runtime` (`call_count=0`), so pass3 token share is computed from `prediction-run/manifest.json -> llm_codex_farm.process_runs.*.telemetry_report.summary.tokens_total`.
+  - Completed ExecPlan captures this in discoveries and uses telemetry-derived shares (`0.5518 -> 0.3494`).
+````
+
+### 2026-03-03_22.32.51-profeedback-ogplan-audit-refresh
+
+Source:
+- `docs/understandings/2026-03-03_22.32.51-profeedback-ogplan-audit-refresh.md`
+
+Summary:
+- Refresh audit: ProFeedback OG milestones are implemented; existing evidence bundles may predate runtime-telemetry fallback regeneration.
+
+Preserved source note:
+
+````md
+---
+summary: "Refresh audit: ProFeedback OG milestones are implemented; existing evidence bundles may predate runtime-telemetry fallback regeneration."
+read_when:
+  - "When re-auditing docs/plans/OGplan/ProFeedback.md vs current code"
+  - "When validating pass3 token-share ROI evidence in upload_bundle_v1 for standalone codex runs"
+---
+
+# ProFeedback OG audit refresh
+
+- OG Milestones 1-4 are code-complete in current runtime/tests:
+  - pass2-ok pass3 utility + env-guarded skip policy in `cookimport/llm/codex_farm_orchestrator.py`
+  - candidate-label propagation in `cookimport/parsing/canonical_line_roles.py` and `cookimport/bench/cutdown_export.py`
+  - existing-output upload-bundle diagnostic derivation in `scripts/benchmark_cutdown_for_external_ai.py`
+- Milestone 5 validation artifacts exist for vanilla/codex/codex-pass3skip runs and speed compare PASS.
+- Important evidence nuance:
+  - historical upload bundles under `2026-03-03_22.04.09_*` and `2026-03-03_22.09.35_*` show `analysis.call_inventory_runtime.summary.call_count=0` and null token shares.
+  - Current code now backfills runtime/token shares from `prediction-run/manifest.json` telemetry when call inventory rows are empty; stale bundles need regeneration to show these fields in `upload_bundle_index.json`.
+- Targeted suites pass in `.venv`:
+  - `tests/llm/test_codex_farm_orchestrator.py`
+  - `tests/parsing/test_canonical_line_roles.py`
+  - `tests/bench/test_benchmark_cutdown_for_external_ai.py`
+````
+
+### 2026-03-03_23.08.45-saltfat-codex-single-offline-collapse
+
+Source:
+- `docs/understandings/2026-03-03_23.08.45-saltfat-codex-single-offline-collapse.md`
+
+Summary:
+- SaltFat cutdown codex single-offline collapse: atomic split fragmentation + strict chunk parse fallback + outside-span title/howto rule overfire.
+
+Preserved source note:
+
+````md
+---
+summary: "SaltFat cutdown codex single-offline collapse: atomic split fragmentation + strict chunk parse fallback + outside-span title/howto rule overfire."
+read_when:
+  - "When codex single-offline quality collapses versus vanilla on cookbook-style narrative/front-matter sources."
+  - "When line-role prompt parses fail with label_outside_allowlist or missing_atomic_index_rows and fallback takes over."
+---
+
+- Run analyzed: `data/golden/benchmark-vs-golden/2026-03-03_22.48.38` (`saltfatacidheatcutdown`).
+- Regression is line-role labeling, not extraction/alignment: canonical char coverage stayed high (`vanilla 0.9937`, `codex 0.9926`) while strict accuracy dropped `0.5730 -> 0.3302`.
+- Codex variant enabled `atomic_block_splitter=atomic-v1` + `line_role_pipeline=codex-line-role-v1`; vanilla used `atomic_block_splitter=off` + `line_role_pipeline=off`.
+- Atomic split produced fragmented prose lines (many start with `to ...` / `for ...`) that bias heuristics and candidate allowlists away from `KNOWLEDGE`.
+- Prompt parse strictness failed whole 40-line chunks when one row violated allowlist or rows were missing. This run had 7 failed chunks (`parsed_0003/0006/0008/0012/0013/0016/0017`) and forced fallback on 280 lines.
+- Fallback rows were high-error (`190/280` wrong in `joined_line_table`), especially on `KNOWLEDGE` gold lines.
+- Rule overfire outside recipe spans drove large false positives: `RECIPE_TITLE title_like|outside_recipe_span` (237 rule rows) and `HOWTO_SECTION howto_heading` (171 rule rows total; eval shows 100 false-positive HOWTO lines with gold total 0).
+- Biggest metric shifts versus vanilla:
+  - `RECIPE_TITLE`: `pred_total 20 -> 257`, precision `1.0 -> 0.1206`, F1 `0.7273 -> 0.2123`.
+  - `KNOWLEDGE`: recall `0.8000 -> 0.2218`, `pred_total 897 -> 178`, F1 `0.6381 -> 0.3415`.
+  - `INSTRUCTION_LINE`: `pred_total 61 -> 275`, precision `0.4754 -> 0.1709`, F1 `0.4640 -> 0.2773`.
+````
+
+### 2026-03-03_23.48.18-feedback-ogplan-code-audit-gaps
+
+Source:
+- `docs/understandings/2026-03-03_23.48.18-feedback-ogplan-code-audit-gaps.md`
+
+Summary:
+- Audit result: feedback OG plan is mostly implemented, but deterministic line-role refinements and Milestone-5 validation remain partially incomplete.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit result: feedback OG plan is mostly implemented, but deterministic line-role refinements and Milestone-5 validation remain partially incomplete."
+read_when:
+  - "When reconciling docs/plans/OGplan/feedbackOG.md against current code behavior."
+  - "When deciding what remains before declaring docs/plans/feedback.md fully complete."
+---
+
+- Milestone 4 (starter-pack/upload-bundle non-CSV triage surfaces) is implemented and backed by tests. `scripts/benchmark_cutdown_for_external_ai.py` writes `starter_pack_v1/01_recipe_triage.jsonl`, emits blame/config/low-confidence/parity artifacts, and still reads legacy CSV for old roots.
+- Milestone 2 is only partially aligned with the OG intent:
+  - No explicit post-classification demotion path exists for unsupported `TIME_LINE` predictions in `cookimport/parsing/canonical_line_roles.py`; `TIME_LINE` appears in deterministic labeling, but there is no sanitizer branch that remaps bad `TIME_LINE` outputs to `INSTRUCTION_LINE`.
+  - No explicit ingredient-neighbor rescue branch was found in `canonical_line_roles.py` for short split quantity/name fragments based on adjacent ingredient-dominant context.
+- Milestone 3 selective escalation exists, but pass2-ok skip policy is env-guarded (`COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`) and off by default; this means broad pass3 invocation remains the default unless explicitly enabled.
+- Milestone 5 validation is still incomplete as documented in `docs/plans/feedback.md`: fresh authenticated codex rerun and speed-regression compare were not completed in this cycle.
+````
+
+### 2026-03-03_23.50.30-codex-farm-no-last-agent-message-recovery-seam
+
+Source:
+- `docs/understandings/2026-03-03_23.50.30-codex-farm-no-last-agent-message-recovery-seam.md`
+
+Summary:
+- Codex-farm runner seam for recovering from no-last-agent-message chunk failures without aborting full pass runs.
+
+Preserved source note:
+
+````md
+---
+summary: "Codex-farm runner seam for recovering from no-last-agent-message chunk failures without aborting full pass runs."
+read_when:
+  - "When codex-farm exits non-zero with 'no last agent message' during benchmark or stage runs."
+  - "When deciding whether runner failures should be hard-stop or partial-output recoverable."
+---
+
+- Failure source is `SubprocessCodexFarmRunner.run_pipeline(...)` in `cookimport/llm/codex_farm_runner.py`, where non-zero `process` exits were previously always raised as `CodexFarmRunnerError`.
+- For `no last agent message` signatures (and telemetry categories limited to `nonzero_exit_no_payload`), hard-failing at runner level prevents orchestrator-level per-bundle fallback from executing.
+- Safe recovery seam is runner-level: continue with warning + returned process metadata, then let orchestrators mark missing output bundles on affected recipe/chunk rows.
+- This keeps broad failure behavior strict while downgrading only the known transient signature.
+````
+
+### 2026-03-03_23.53.16-feedback-og-gap-closure-routing-and-line-role
+
+Source:
+- `docs/understandings/2026-03-03_23.53.16-feedback-og-gap-closure-routing-and-line-role.md`
+
+Summary:
+- Gap-closure implementation note: canonical line-role sanitizer adds TIME_LINE demotion + neighbor ingredient rescue; pass2-ok selective pass3 skip is now default-on with env opt-out.
+
+Preserved source note:
+
+````md
+---
+summary: "Gap-closure implementation note: canonical line-role sanitizer adds TIME_LINE demotion + neighbor ingredient rescue; pass2-ok selective pass3 skip is now default-on with env opt-out."
+read_when:
+  - "When reconciling feedback OG-plan gap closure behavior in parsing and codex pass3 routing."
+  - "When debugging why pass2-ok rows now skip pass3 unless explicitly disabled."
+---
+
+- `cookimport/parsing/canonical_line_roles.py` now enforces two extra post-label sanitizers:
+  - demote non-primary `TIME_LINE` predictions to `INSTRUCTION_LINE` (or `OTHER` outside recipe spans),
+  - rescue short ingredient fragments to `INGREDIENT_LINE` when adjacent ingredient-dominant neighbor context supports a split quantity/name pattern.
+- `cookimport/llm/codex_farm_orchestrator.py` now treats pass2-ok deterministic pass3 skip as default behavior; `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=0|false|no|off` explicitly disables skip.
+- Added tests:
+  - `tests/parsing/test_canonical_line_roles.py` for codex `TIME_LINE` demotion and neighbor fragment rescue.
+  - `tests/llm/test_codex_farm_orchestrator.py` for low-risk pass2-ok behavior when skip policy is explicitly disabled.
+````
+
+### 2026-03-03_23.55.30-codex-no-last-agent-message-content-filter-root-cause
+
+Source:
+- `docs/understandings/2026-03-03_23.55.30-codex-no-last-agent-message-content-filter-root-cause.md`
+
+Summary:
+- Root cause of codex-farm `no last agent message` on DinnerFor2 pass2: provider `content_filter` stream failures prevent final assistant message emission.
+
+Preserved source note:
+
+````md
+---
+summary: "Root cause of codex-farm `no last agent message` on DinnerFor2 pass2: provider `content_filter` stream failures prevent final assistant message emission."
+read_when:
+  - "When codex-farm task errors show `Warning: no last agent message; wrote empty content ...`."
+  - "When pass2/pass3 fail with `nonzero_exit_no_payload` and retries do not recover."
+---
+
+- Run analyzed: `run_id=667a1d418bd8494d99d6e1184ed6630f` (`recipe.schemaorg.v1`, `dinnerfor2cutdown`, pass2).
+- Failed tasks: `534901a74c114a1e962f6dd215074380` and `26a36dafd2e74a1db7c4fab646052f56`, each failed 3 attempts.
+- Forensics metadata marks both as `failure_stage=codex_exec`, `failure_category=runtime_nonzero_no_payload` with only stderr tail `Warning: no last agent message...`.
+- Usage telemetry rows for failed attempts include event types `thread.started`, `turn.started`, `item.completed`, `error`, `turn.failed`.
+- Replaying the exact saved prompts/schemas via raw `codex exec --json` reproduced the failure and exposed hidden event error text:
+  - `stream disconnected before completion: Incomplete response returned, reason: content_filter`
+  - repeated reconnect attempts, then `turn.failed`.
+- Conclusion: `no last agent message` is the surface symptom; root cause is provider-side content filtering interrupting stream completion before a final assistant message can be written to `--output-last-message`.
+- Secondary seam: CodexFarm currently drops JSONL event error bodies from `stdout_tail` (`_parse_jsonl_events` strips event lines), so caller-visible errors can collapse to generic `no last agent message` unless raw stdout events are inspected.
+````
+
+### 2026-03-03_23.58.37-single-offline-codexfarm-full-text-block-guard
+
+Source:
+- `docs/understandings/2026-03-03_23.58.37-single-offline-codexfarm-full-text-block-guard.md`
+
+Summary:
+- Single-offline codexfarm variant can fail immediately when cached conversion payload has `full_text` lines/text but no `blocks` list.
+
+Preserved source note:
+
+````md
+---
+summary: "Single-offline codexfarm variant can fail immediately when cached conversion payload has `full_text` lines/text but no `blocks` list."
+read_when:
+  - "When single-offline benchmark logs `Cannot run codex-farm recipe pipeline: no full_text blocks available.`"
+  - "When diagnosing why vanilla succeeds but codexfarm fails in paired single-offline runs."
+---
+
+- The codexfarm recipe orchestrator requires a `full_text` artifact containing `content.blocks[*]`; if none are found it raises `Cannot run codex-farm recipe pipeline: no full_text blocks available.`
+- In this `hix_written` run, the shared split-cache entry contained `conversion_result.rawArtifacts` where `locationId=full_text` had only `content.lines` + `content.text` (`has_blocks=false`).
+- Vanilla succeeded because it does not execute codexfarm; codexfarm reused the same split-cache conversion payload and hit the guard immediately.
+- Single-offline split cache is intentionally shared between vanilla and codexfarm (key excludes codexfarm-specific knobs), so this behavior is expected with current contracts.
+````
+
+### 2026-03-04_00.01.53-codexfarm-content-filter-terminal-classification
+
+Source:
+- `docs/understandings/2026-03-04_00.01.53-codexfarm-content-filter-terminal-classification.md`
+
+Summary:
+- [missing frontmatter summary]
+
+Preserved source note:
+
+````md
+# CodexFarm fix: surface provider content_filter and stop futile retries
+
+Date: 2026-03-04
+
+What changed:
+- `src/codex_farm/codex_exec.py` now parses JSONL `error` and `turn.failed` events and appends those details to `stderr_tail` when present.
+- `src/codex_farm/worker.py` now detects `content_filter` in failure text and classifies it as `failure_category="content_filter"`.
+- `content_filter` is treated as terminal in retry logic, so workers stop retrying attempts that cannot succeed.
+
+Why:
+- The previous surfaced message (`no last agent message`) was a downstream symptom.
+- Actual provider-side cause (`reason: content_filter`) was present in JSONL events but not surfaced in worker-visible failure text.
+````
+
+### 2026-03-04_00.03.20-feedback-ogplan-vs-code-audit-refresh
+
+Source:
+- `docs/understandings/2026-03-04_00.03.20-feedback-ogplan-vs-code-audit-refresh.md`
+
+Summary:
+- Refresh audit: OG feedback plan is mostly implemented, with remaining gaps in deterministic title/yield constraints and Milestone-5 validation evidence.
+
+Preserved source note:
+
+````md
+---
+summary: "Refresh audit: OG feedback plan is mostly implemented, with remaining gaps in deterministic title/yield constraints and Milestone-5 validation evidence."
+read_when:
+  - "When reconciling docs/plans/OGplan/feedbackOG.md against current code and docs/plans/feedback.md."
+  - "When deciding what still remains before calling the feedback ExecPlan fully complete."
+---
+
+- Starter-pack/upload-bundle Milestone 4 is implemented in code: `scripts/benchmark_cutdown_for_external_ai.py` writes `starter_pack_v1/01_recipe_triage.jsonl`, emits triage packet + net-error blame + config metadata + low-confidence packet + baseline parity, and still falls back to `01_recipe_triage.csv` for legacy roots.
+- Selective pass3 routing (Milestone 3 core) is implemented and test-covered in `cookimport/llm/codex_farm_orchestrator.py` and `tests/llm/test_codex_farm_orchestrator.py`; pass2-ok low-risk rows can deterministically skip pass3 by default.
+- Milestone 2 is only partially aligned with OG wording:
+  - `YIELD_LINE` gating is lexical-prefix based (`_is_yield_line` / `yield_prefix`) with ingredient rescue, but there is no explicit short-header-length/shape gate dedicated to yield lines.
+  - HOWTO uses short-header + neighbor evidence (`_looks_subsection_heading_context`), but RECIPE_TITLE classification still relies on text heuristics and does not explicitly require next-line evidence.
+- Milestone 5 remains incomplete in the ExecPlan itself (`docs/plans/feedback.md`): fresh authenticated codex paired rerun and speed-regression compare evidence are still open.
+````
+
+### 2026-03-04_00.03.32-codexfarm-full-text-lines-fallback
+
+Source:
+- `docs/understandings/2026-03-04_00.03.32-codexfarm-full-text-lines-fallback.md`
+
+Summary:
+- Codex-farm recipe pass now synthesizes minimal full-text blocks from `full_text.lines` when `full_text.blocks` is missing.
+
+Preserved source note:
+
+````md
+---
+summary: "Codex-farm recipe pass now synthesizes minimal full-text blocks from `full_text.lines` when `full_text.blocks` is missing."
+read_when:
+  - "When codexfarm recipe pass fails due to missing full_text blocks on benchmark split-cache reuse."
+  - "When debugging Label Studio prediction payloads that carry line-form full_text artifacts only."
+---
+
+- `run_codex_farm_recipe_pipeline` still prefers `full_text.blocks` exactly as before.
+- If `full_text.blocks` is missing or empty, `_extract_full_blocks` now falls back to `full_text.lines` and converts each `{index, text}` line into a minimal block payload.
+- This keeps codexfarm pass1/pass2/pass3 runnable for legacy/split-cache payloads where full text was persisted as lines-only artifacts.
+- Behavior remains fail-closed when neither block nor line rows provide usable indexed entries.
+````
+
+Anti-loop reminders from this consolidation:
+- Before reopening OG feedback gaps, compare against current code paths and regenerated artifacts; several previously "missing" items were stale-output artifacts.
+- For codexfarm nonzero/no-message failures, check runner recovery/content-filter classifications before changing model or prompt contracts.
+- For full_text block absence failures, preserve the line-to-block synthesis fallback path unless replacement proves equivalent on benchmark replay evidence.
+

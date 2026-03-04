@@ -3772,6 +3772,12 @@ _JS = """\
       split_field: "",
       view_mode: "discover",
       selected_groups: [],
+      discovery_preferences: {
+        exclude_fields: [],
+        prefer_fields: [],
+        demote_patterns: [],
+        max_cards: 10,
+      },
     };
   }
   let compareControlState = compareControlDefaultState();
@@ -3979,6 +3985,10 @@ _JS = """\
   const COMPARE_CONTROL_WARNING_STRATA_COVERAGE_MIN = 0.6;
   const COMPARE_CONTROL_WARNING_MIN_ROWS = 20;
   const COMPARE_CONTROL_WARNING_MIN_STRATA = 3;
+  const COMPARE_CONTROL_DISCOVERY_DEFAULT_MAX_CARDS = 10;
+  const COMPARE_CONTROL_DISCOVERY_MAX_CARDS = 40;
+  const COMPARE_CONTROL_DISCOVERY_PREFER_FIELD_BOOST = 1.25;
+  const COMPARE_CONTROL_DISCOVERY_DEMOTE_FACTOR = 0.2;
   const TABLE_COLLAPSE_DEFAULT_ROWS = {
     "recent-runs": 8,
     "file-trend-table": 8,
@@ -4126,6 +4136,22 @@ _JS = """\
     return COMPARE_CONTROL_VIEW_MODES.has(key) ? key : "discover";
   }
 
+  function normalizeCompareControlDiscoveryPreferences(rawPrefs) {
+    const source = rawPrefs && typeof rawPrefs === "object" && !Array.isArray(rawPrefs)
+      ? rawPrefs
+      : Object.create(null);
+    const maxCardsRaw = Number.parseInt(String(source.max_cards == null ? "" : source.max_cards).trim(), 10);
+    const maxCards = Number.isFinite(maxCardsRaw)
+      ? Math.max(1, Math.min(COMPARE_CONTROL_DISCOVERY_MAX_CARDS, maxCardsRaw))
+      : COMPARE_CONTROL_DISCOVERY_DEFAULT_MAX_CARDS;
+    return {
+      exclude_fields: uniqueStringList(source.exclude_fields),
+      prefer_fields: uniqueStringList(source.prefer_fields),
+      demote_patterns: uniqueStringList(source.demote_patterns),
+      max_cards: maxCards,
+    };
+  }
+
   function uniqueStringList(values) {
     const seen = new Set();
     const ordered = [];
@@ -4150,6 +4176,9 @@ _JS = """\
       split_field: String(source.split_field || "").trim(),
       view_mode: normalizeCompareControlViewMode(source.view_mode),
       selected_groups: uniqueStringList(source.selected_groups),
+      discovery_preferences: normalizeCompareControlDiscoveryPreferences(
+        source.discovery_preferences
+      ),
     };
   }
 
@@ -6161,12 +6190,24 @@ _JS = """\
     };
   }
 
-  function analyzeCompareControlDiscovery(records, outcomeField, catalog) {
+  function analyzeCompareControlDiscovery(records, outcomeField, catalog, discoveryPreferences) {
     const totalRows = Array.isArray(records) ? records.length : 0;
     const byField = (catalog && catalog.by_field) || Object.create(null);
+    const preferences = normalizeCompareControlDiscoveryPreferences(discoveryPreferences);
+    const excludedFields = new Set(
+      preferences.exclude_fields.map(fieldName => String(fieldName || "").toLowerCase())
+    );
+    const preferredFields = new Set(
+      preferences.prefer_fields.map(fieldName => String(fieldName || "").toLowerCase())
+    );
+    const demotePatterns = preferences.demote_patterns
+      .map(pattern => String(pattern || "").toLowerCase().trim())
+      .filter(Boolean);
     const scored = [];
     Object.keys(byField).forEach(fieldName => {
       if (fieldName === outcomeField) return;
+      const fieldLower = String(fieldName || "").toLowerCase();
+      if (excludedFields.has(fieldLower)) return;
       const fieldInfo = byField[fieldName];
       if (!fieldInfo) return;
       let strength = null;
@@ -6197,7 +6238,19 @@ _JS = """\
           ? ("Top group: " + topGroup.label + " (" + fmtMaybe(topGroup.outcome_mean, 3) + ")")
           : "";
       }
-      const finalScore = Number.isFinite(strength) ? strength * Math.max(0.2, coverageRatio) : 0;
+      let finalScore = Number.isFinite(strength) ? strength * Math.max(0.2, coverageRatio) : 0;
+      const scoreModifiers = [];
+      if (preferredFields.has(fieldLower)) {
+        finalScore *= COMPARE_CONTROL_DISCOVERY_PREFER_FIELD_BOOST;
+        scoreModifiers.push("preferred");
+      }
+      if (demotePatterns.some(pattern => fieldLower.includes(pattern))) {
+        finalScore *= COMPARE_CONTROL_DISCOVERY_DEMOTE_FACTOR;
+        scoreModifiers.push("demoted");
+      }
+      if (scoreModifiers.length) {
+        summary = summary + " | " + scoreModifiers.join("/");
+      }
       scored.push({
         field: fieldName,
         field_label: fieldInfo.label,
@@ -6208,7 +6261,7 @@ _JS = """\
       });
     });
     scored.sort((left, right) => right.score - left.score);
-    return scored.slice(0, 10);
+    return scored.slice(0, preferences.max_cards);
   }
 
   function compareControlSplitSegments(records, splitField, catalog) {
@@ -6412,7 +6465,12 @@ _JS = """\
     let statusIsError = false;
 
     if (!state.compare_field || state.view_mode === "discover" || !compareInfo) {
-      const discovery = analyzeCompareControlDiscovery(records, state.outcome_field, catalog);
+      const discovery = analyzeCompareControlDiscovery(
+        records,
+        state.outcome_field,
+        catalog,
+        state.discovery_preferences
+      );
       statusText =
         "Discovery view over " + records.length + " visible rows. Click a field card to compare.";
       if (!discovery.length) {
@@ -9797,8 +9855,13 @@ _JS = """\
   }
 
   function perLabelComparisonCell(value, baseline) {
-    const valueNum = maybeNumber(value);
-    const baselineNum = maybeNumber(baseline);
+    const normalizeComparisonNumber = function(candidate) {
+      if (candidate == null) return null;
+      if (typeof candidate === "string" && candidate.trim() === "") return null;
+      return maybeNumber(candidate);
+    };
+    const valueNum = normalizeComparisonNumber(value);
+    const baselineNum = normalizeComparisonNumber(baseline);
     if (valueNum == null || baselineNum == null) {
       return '<td class="num" style="text-align:left">-</td>';
     }
