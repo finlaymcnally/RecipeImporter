@@ -5885,10 +5885,26 @@ def _upload_bundle_select_high_level_artifact_paths(
         except ValueError:
             run_rel = run_dir.name
         included_files: list[str] = []
+        run_manifest_payload = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
         for file_name, required in GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES:
             candidate = run_dir / file_name
             if _append_if_allowed(candidate, required=required):
                 included_files.append(file_name)
+        # Keep full prompt logs in high-level bundles (deprioritized in navigation).
+        full_prompt_log_path = _resolve_full_prompt_log_path(run_dir, run_manifest_payload)
+        if full_prompt_log_path is not None and full_prompt_log_path.is_file():
+            try:
+                full_prompt_log_path.relative_to(source_root)
+            except ValueError:
+                full_prompt_log_path = None
+        if (
+            full_prompt_log_path is not None
+            and _append_if_allowed(full_prompt_log_path, required=True)
+        ):
+            try:
+                included_files.append(str(full_prompt_log_path.relative_to(run_dir).as_posix()))
+            except ValueError:
+                included_files.append(str(full_prompt_log_path))
         included_run_rows.append(
             {
                 "run_dir": run_rel,

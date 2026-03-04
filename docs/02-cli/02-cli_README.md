@@ -843,7 +843,10 @@ Behavior note:
 
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
-- `cookimport labelstudio-benchmark compare --baseline ... --candidate ...` compares two all-method benchmark outputs and writes timestamped gate reports (`comparison.json`, `comparison.md`) under `--compare-out`.
+- `cookimport labelstudio-benchmark compare --baseline ... --candidate ...` compares either:
+  - two all-method benchmark outputs (`all_method_benchmark_multi_source_report.json` roots), or
+  - two single-run eval outputs (`eval_report.json` files/directories),
+  and writes timestamped gate reports (`comparison.json`, `comparison.md`) under `--compare-out`.
 - Offline prediction generation can skip non-scoring side artifacts via:
   - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
@@ -892,8 +895,8 @@ Options:
 - `--single-offline-split-cache-force / --no-single-offline-split-cache-force` (default disabled): force split-cache rebuild for the current run.
 - `--predictions-out PATH`: optional JSONL output for prediction-stage records (for later evaluate-only runs).
 - `--predictions-in PATH`: optional JSONL input to run evaluate-only without generating predictions.
-- `--baseline PATH`: compare action only; baseline all-method benchmark directory or report JSON path.
-- `--candidate PATH`: compare action only; candidate all-method benchmark directory or report JSON path.
+- `--baseline PATH`: compare action only; baseline all-method benchmark directory/report JSON or single-eval `eval_report.json` path/directory.
+- `--candidate PATH`: compare action only; candidate all-method benchmark directory/report JSON or single-eval `eval_report.json` path/directory.
 - `--compare-out PATH` (default `data/golden/benchmark-vs-golden/comparisons`): compare action output root for timestamped reports.
 - `--fail-on-regression / --no-fail-on-regression` (default disabled): compare action exits non-zero when verdict is FAIL.
 - `--pipeline TEXT` (default `auto`): importer selection.
@@ -933,7 +936,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `codex-farm-3pass-v1`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--codex-farm-recipe-mode TEXT` (default `extract`): `extract|benchmark`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.

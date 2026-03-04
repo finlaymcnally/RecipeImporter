@@ -291,6 +291,110 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
     )
 
 
+def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_explicit_zero_totals(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_root = tmp_path / "processed"
+
+    result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Simple Soup",
+                ingredients=["1 cup stock"],
+                instructions=["Heat stock."],
+                identifier="urn:recipeimport:test:soup",
+            )
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(
+            total_recipes=0,
+            total_tips=0,
+            total_tip_candidates=0,
+            total_topic_candidates=0,
+            total_standalone_blocks=0,
+            total_standalone_topic_blocks=0,
+        ),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    run_dt = dt.datetime(2026, 3, 4, 12, 34, 56)
+    run_root = _write_processed_outputs(
+        result=result,
+        path=source,
+        run_dt=run_dt,
+        output_root=output_root,
+        importer_name="epub",
+        run_config={"table_extraction": "off"},
+    )
+
+    mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
+    assert mismatch_path.exists()
+    mismatch = json.loads(mismatch_path.read_text(encoding="utf-8"))
+    assert mismatch["schema_version"] == "report_totals_mismatch.v1"
+    assert mismatch["prepopulated"] is True
+    assert mismatch["before"]["totalRecipes"] == 0
+    assert mismatch["expected"]["totalRecipes"] == 1
+
+
+def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_implicit_defaults(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_root = tmp_path / "processed"
+
+    result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Simple Soup",
+                ingredients=["1 cup stock"],
+                instructions=["Heat stock."],
+                identifier="urn:recipeimport:test:soup",
+            )
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+
+    run_dt = dt.datetime(2026, 3, 4, 12, 34, 56)
+    run_root = _write_processed_outputs(
+        result=result,
+        path=source,
+        run_dt=run_dt,
+        output_root=output_root,
+        importer_name="epub",
+        run_config={"table_extraction": "off"},
+    )
+
+    mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
+    assert mismatch_path.exists()
+    mismatch = json.loads(mismatch_path.read_text(encoding="utf-8"))
+    assert mismatch["schema_version"] == "report_totals_mismatch.v1"
+    assert mismatch["prepopulated"] is False
+    assert mismatch["before"]["totalRecipes"] == 0
+    assert mismatch["expected"]["totalRecipes"] == 1
+
+    report_path = run_root / "book.excel_import_report.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert any(
+        "report_total_mismatch_detected" in warning
+        for warning in payload.get("warnings", [])
+    )
+
+
 def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "book.epub"
     source.write_text("source", encoding="utf-8")

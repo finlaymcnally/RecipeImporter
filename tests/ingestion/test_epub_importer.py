@@ -544,6 +544,94 @@ def test_extract_standalone_tips_filters_noise_and_tracks_split_diagnostics(
     assert diagnostics["long_split_segments_added"] >= 1
 
 
+def test_extract_standalone_tips_seaandsmoke_slice_improves_with_filtering(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    seaandsmoke_narrative = (
+        "This chapter was something of a turning point in my own work, an embodiment "
+        "of my style and the kind of stories that I like to tell. "
+        "After coming to the island and working with top-notch fishermen, I realized "
+        "there is a disconnect between chefs and commercial fishermen and I kept writing "
+        "down those lessons for years before this chapter came together."
+    )
+    control_actionable = (
+        "When you smoke fish over low heat, keep the temperature steady, salt early, "
+        "and rest the fillet before serving so moisture redistributes and texture stays tender."
+    )
+    blocks = [
+        Block(text=seaandsmoke_narrative),
+        Block(text=control_actionable),
+    ]
+
+    def _install_atom_stubs() -> None:
+        monkeypatch.setattr(
+            "cookimport.plugins.epub.chunk_standalone_blocks",
+            lambda raw_blocks, **_kwargs: [
+                TopicContainer(indices=[idx], blocks=[(idx, text)], header=None)
+                for idx, text in list(raw_blocks)
+            ],
+        )
+        monkeypatch.setattr(
+            "cookimport.plugins.epub.split_text_to_atoms",
+            lambda text, block_index, **_kwargs: [
+                Atom(
+                    text=text,
+                    kind="paragraph",
+                    source_block_index=block_index,
+                    sequence=0,
+                )
+            ],
+        )
+        monkeypatch.setattr("cookimport.plugins.epub.contextualize_atoms", lambda atoms: atoms)
+        monkeypatch.setattr(
+            "cookimport.plugins.epub.build_topic_candidate",
+            lambda text, **_kwargs: {"topic": text},
+        )
+        monkeypatch.setattr(
+            "cookimport.plugins.epub.extract_tip_candidates",
+            lambda text, **_kwargs: [{"tip": text}],
+        )
+        monkeypatch.setenv("C3IMP_STANDALONE_ANALYSIS_WORKERS", "1")
+
+    importer_filtered = EpubImporter()
+    _install_atom_stubs()
+    filtered_tips, filtered_topics, _filtered_total, _filtered_topic_blocks = (
+        importer_filtered._extract_standalone_tips(
+            blocks,
+            [],
+            source,
+            "hash",
+        )
+    )
+    filtered_diag = dict(importer_filtered._standalone_filter_diagnostics)
+    assert filtered_diag["filter_reason_counts"]["intro_narrative"] == 1
+    assert len(filtered_tips) == 1
+    assert len(filtered_topics) == 1
+
+    importer_unfiltered = EpubImporter()
+    _install_atom_stubs()
+    monkeypatch.setattr(
+        "cookimport.plugins.epub.classify_standalone_topic_filter_reason",
+        lambda _text: None,
+    )
+    unfiltered_tips, unfiltered_topics, _unfiltered_total, _unfiltered_topic_blocks = (
+        importer_unfiltered._extract_standalone_tips(
+            blocks,
+            [],
+            source,
+            "hash",
+        )
+    )
+    unfiltered_diag = dict(importer_unfiltered._standalone_filter_diagnostics)
+
+    assert unfiltered_diag["filtered_block_count"] < filtered_diag["filtered_block_count"]
+    assert len(unfiltered_tips) > len(filtered_tips)
+    assert len(unfiltered_topics) > len(filtered_topics)
+
+
 def test_backtrack_for_title_prefers_earliest_title_block():
     importer = EpubImporter()
     blocks = [

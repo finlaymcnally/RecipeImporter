@@ -168,7 +168,7 @@ def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None
     assert predictions[0].label == "RECIPE_NOTES"
 
 
-def test_label_atomic_lines_outside_recipe_variant_heading_is_recipe_variant() -> None:
+def test_label_atomic_lines_outside_recipe_variant_heading_without_context_is_downgraded() -> None:
     blocks = [
         {
             "block_id": "block:variant:1",
@@ -183,7 +183,25 @@ def test_label_atomic_lines_outside_recipe_variant_heading_is_recipe_variant() -
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "RECIPE_VARIANT"
+    assert predictions[0].label in {"OTHER", "KNOWLEDGE"}
+
+
+def test_label_atomic_lines_outside_recipe_howto_heading_is_hard_denied() -> None:
+    blocks = [
+        {
+            "block_id": "block:howto:outside:1",
+            "block_index": 1,
+            "text": "FOR THE SAUCE",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label != "HOWTO_SECTION"
 
 
 def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_notes() -> None:
@@ -267,7 +285,7 @@ def test_label_atomic_lines_outside_recipe_contents_heading_is_not_recipe_varian
     assert predictions[0].label != "RECIPE_VARIANT"
 
 
-def test_label_atomic_lines_heading_like_ingredient_promotes_recipe_title() -> None:
+def test_label_atomic_lines_heading_like_line_without_neighboring_evidence_is_not_title() -> None:
     blocks = [
         {
             "block_id": "block:title:1",
@@ -282,6 +300,29 @@ def test_label_atomic_lines_heading_like_ingredient_promotes_recipe_title() -> N
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
+    assert predictions[0].label in {"OTHER", "KNOWLEDGE"}
+
+
+def test_label_atomic_lines_heading_like_line_with_neighboring_structure_can_be_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:with-context:1",
+            "block_index": 1,
+            "text": "POACHED EGGS",
+        },
+        {
+            "block_id": "block:title:with-context:2",
+            "block_index": 2,
+            "text": "2 large eggs",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 2
     assert predictions[0].label == "RECIPE_TITLE"
 
 
@@ -502,8 +543,20 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
             within_recipe_span=False,
             candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
-            next_text=None,
+            next_text="2 tablespoons olive oil",
             rule_tags=["outside_recipe_span"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:title:3",
+            block_index=3,
+            atomic_index=1,
+            text="2 tablespoons olive oil",
+            within_recipe_span=False,
+            candidate_labels=["INGREDIENT_LINE", "OTHER"],
+            prev_text="A PORRIDGE OF LOVAGE STEMS",
+            next_text=None,
+            rule_tags=["ingredient_like", "outside_recipe_span"],
         )
     ]
 
@@ -518,7 +571,7 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
         candidates,
         _settings("codex-line-role-v1"),
     )
-    assert len(predictions) == 1
+    assert len(predictions) == 2
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "rule"
     assert "RECIPE_TITLE" in predictions[0].candidate_labels
@@ -594,6 +647,8 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     payload = json.loads(parse_errors_path.read_text(encoding="utf-8"))
     assert payload["parse_error_count"] == 1
     assert payload["parse_error_present"] is True
+    do_no_harm_path = tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json"
+    assert do_no_harm_path.exists()
 
 
 def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
@@ -781,7 +836,9 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
     assert by_index[1].decided_by == "fallback"
 
 
-def test_codex_mode_escalates_low_confidence_deterministic_candidates(monkeypatch) -> None:
+def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_span(
+    monkeypatch,
+) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -797,27 +854,200 @@ def test_codex_mode_escalates_low_confidence_deterministic_candidates(monkeypatc
         )
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "KNOWLEDGE"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
+    def _should_not_call_codex(**_kwargs):
+        raise AssertionError("outside-span low-confidence escalation should be disabled")
 
     monkeypatch.setattr(
         "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
-        _fake_codex_call,
+        _should_not_call_codex,
     )
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-v1"),
     )
     assert len(predictions) == 1
-    assert predictions[0].label == "KNOWLEDGE"
-    assert predictions[0].decided_by == "codex"
+    assert predictions[0].label == "OTHER"
+    assert predictions[0].decided_by in {"rule", "fallback"}
+
+
+def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"candidate {index}",
+            within_recipe_span=False,
+            candidate_labels=["OTHER", "RECIPE_TITLE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["outside_recipe_span"],
+        )
+        for index in range(2)
+    ]
+    candidates.extend(
+        [
+            AtomicLineCandidate(
+                recipe_id=f"recipe:{index}",
+                block_id=f"block:inside:{index}",
+                block_index=index + 2,
+                atomic_index=index + 2,
+                text=f"inside {index}",
+                within_recipe_span=True,
+                candidate_labels=["INSTRUCTION_LINE", "OTHER"],
+                prev_text=None,
+                next_text=None,
+                rule_tags=["instruction_like"],
+            )
+            for index in range(8)
+        ]
+    )
+    candidate_predictions = {
+        0: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text="candidate 0",
+            within_recipe_span=False,
+            label="RECIPE_TITLE",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["OTHER", "RECIPE_TITLE"],
+            reason_tags=["codex_line_role"],
+        ),
+        1: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:1",
+            block_index=1,
+            atomic_index=1,
+            text="candidate 1",
+            within_recipe_span=False,
+            label="RECIPE_VARIANT",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["OTHER", "RECIPE_VARIANT"],
+            reason_tags=["codex_line_role"],
+        ),
+    }
+    for index in range(2, 10):
+        candidate_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=f"recipe:{index}",
+            block_id=f"block:inside:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"inside {index}",
+            within_recipe_span=True,
+            label="INSTRUCTION_LINE",
+            confidence=0.9,
+            decided_by="rule",
+            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
+            reason_tags=["instruction_like"],
+        )
+    baseline_predictions = {
+        index: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"candidate {index}",
+            within_recipe_span=False,
+            label="OTHER",
+            confidence=0.7,
+            decided_by="rule",
+            candidate_labels=["OTHER"],
+            reason_tags=["outside_recipe_span"],
+        )
+        for index in range(2)
+    }
+    for index in range(2, 10):
+        baseline_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=f"recipe:{index}",
+            block_id=f"block:inside:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"inside {index}",
+            within_recipe_span=True,
+            label="INSTRUCTION_LINE",
+            confidence=0.9,
+            decided_by="rule",
+            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
+            reason_tags=["instruction_like"],
+        )
+
+    accepted, diagnostics, changed_rows = (
+        canonical_line_roles_module._apply_do_no_harm_arbitration(
+            ordered_candidates=candidates,
+            candidate_predictions=candidate_predictions,
+            baseline_predictions=baseline_predictions,
+        )
+    )
+
+    assert diagnostics["decision"]["scope"] == "partial_outside_downgrade"
+    assert diagnostics["outside_title_variant_promotions"] == 2
+    assert all(accepted[index].label == "OTHER" for index in range(2))
+    assert len(changed_rows) == 2
+
+
+def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"candidate {index}",
+            within_recipe_span=(index >= 8),
+            candidate_labels=["OTHER", "RECIPE_TITLE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["outside_recipe_span"],
+        )
+        for index in range(10)
+    ]
+    candidate_predictions: dict[int, canonical_line_roles_module.CanonicalLineRolePrediction] = {}
+    baseline_predictions: dict[int, canonical_line_roles_module.CanonicalLineRolePrediction] = {}
+    for index in range(10):
+        candidate_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"candidate {index}",
+            within_recipe_span=(index >= 8),
+            label="RECIPE_TITLE" if index < 8 else "INSTRUCTION_LINE",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["OTHER", "RECIPE_TITLE", "INSTRUCTION_LINE"],
+            reason_tags=["codex_line_role"],
+        )
+        baseline_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"candidate {index}",
+            within_recipe_span=(index >= 8),
+            label="OTHER",
+            confidence=0.7,
+            decided_by="rule",
+            candidate_labels=["OTHER"],
+            reason_tags=["baseline"],
+        )
+
+    accepted, diagnostics, changed_rows = (
+        canonical_line_roles_module._apply_do_no_harm_arbitration(
+            ordered_candidates=candidates,
+            candidate_predictions=candidate_predictions,
+            baseline_predictions=baseline_predictions,
+        )
+    )
+
+    assert diagnostics["decision"]["scope"] == "full_source_fallback"
+    assert diagnostics["outside_recipeish_promotions"] == 8
+    assert all(accepted[index].label == "OTHER" for index in range(10))
+    assert len(changed_rows) == 10
 
 
 def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:

@@ -168,12 +168,19 @@ def write_line_role_projection_artifacts(
         json.dumps(extracted_archive_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    return {
+    artifact_paths: dict[str, Path] = {
         "line_role_predictions_path": line_role_predictions_path,
         "projected_spans_path": projected_spans_path,
         "stage_block_predictions_path": stage_path,
         "extracted_archive_path": extracted_archive_path,
     }
+    do_no_harm_diagnostics_path = pipeline_dir / "do_no_harm_diagnostics.json"
+    if do_no_harm_diagnostics_path.exists():
+        artifact_paths["do_no_harm_diagnostics_path"] = do_no_harm_diagnostics_path
+    do_no_harm_changed_rows_path = pipeline_dir / "do_no_harm_changed_rows.jsonl"
+    if do_no_harm_changed_rows_path.exists():
+        artifact_paths["do_no_harm_changed_rows_path"] = do_no_harm_changed_rows_path
+    return artifact_paths
 
 
 def apply_line_role_spans_to_recipes(
@@ -200,4 +207,3 @@ def _recipe_index_from_recipe_id(recipe_id: str | None) -> int | None:
         except ValueError:
             return None
     return None
-

@@ -150,3 +150,33 @@ def test_classify_standalone_topic_filter_reason_detects_intro_narrative():
     )
     reason = classify_standalone_topic_filter_reason(text)
     assert reason == "intro_narrative"
+
+
+def test_seaandsmoke_narrative_slice_is_filtered_as_intro_narrative():
+    text = (
+        "This chapter was something of a turning point in my own work, an embodiment "
+        "of my style and the kind of stories that I like to tell. "
+        "After coming to the island and working with top-notch fishermen, I realized "
+        "there is a disconnect between chefs and commercial fishermen and I kept writing "
+        "down those lessons for years before this chapter came together."
+    )
+    reason = classify_standalone_topic_filter_reason(text)
+    assert reason == "intro_narrative"
+
+
+def test_non_seaandsmoke_control_slice_keeps_actionable_cooking_anchor():
+    text = (
+        "When you smoke fish over low heat, keep the temperature steady, salt early, "
+        "and rest the fillet before serving so moisture redistributes and texture stays tender."
+    )
+    reason = classify_standalone_topic_filter_reason(text)
+    assert reason is None
+
+
+def test_roastchicken_control_book_slice_keeps_actionable_cooking_anchor():
+    text = (
+        "Roast chicken over moderate heat, baste every 15 minutes, and rest before carving "
+        "so juices redistribute and the skin stays crisp."
+    )
+    reason = classify_standalone_topic_filter_reason(text)
+    assert reason is None

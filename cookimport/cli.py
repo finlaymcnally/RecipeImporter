@@ -3678,6 +3678,339 @@ def _single_offline_metric_deltas(
     return deltas
 
 
+def _single_offline_optional_delta(
+    candidate: float | int | None,
+    baseline: float | int | None,
+) -> float | None:
+    if candidate is None or baseline is None:
+        return None
+    return float(candidate) - float(baseline)
+
+
+def _single_offline_eval_segmentation_summary(
+    eval_report: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(eval_report, dict):
+        return {
+            "available": False,
+            "unavailable_reason": "eval_report_unavailable",
+            "boundary_f1": None,
+            "boundary_false_positive_count": None,
+            "boundary_missed_count": None,
+            "error_taxonomy_bucket_counts": {},
+        }
+    segmentation_payload = eval_report.get("segmentation")
+    if not isinstance(segmentation_payload, dict):
+        return {
+            "available": False,
+            "unavailable_reason": "segmentation_not_present_in_eval_report",
+            "boundary_f1": None,
+            "boundary_false_positive_count": None,
+            "boundary_missed_count": None,
+            "error_taxonomy_bucket_counts": {},
+        }
+    boundaries_payload = segmentation_payload.get("boundaries")
+    overall_micro = (
+        boundaries_payload.get("overall_micro")
+        if isinstance(boundaries_payload, dict)
+        else None
+    )
+    boundary_f1 = (
+        _report_optional_metric(overall_micro.get("f1"))
+        if isinstance(overall_micro, dict)
+        else None
+    )
+    boundary_false_positive_count = (
+        _single_offline_nonnegative_int_or_none(overall_micro.get("fp"))
+        if isinstance(overall_micro, dict)
+        else None
+    )
+    boundary_missed_count = (
+        _single_offline_nonnegative_int_or_none(overall_micro.get("fn"))
+        if isinstance(overall_micro, dict)
+        else None
+    )
+    taxonomy_payload = segmentation_payload.get("error_taxonomy")
+    bucket_counts_payload = (
+        taxonomy_payload.get("bucket_counts")
+        if isinstance(taxonomy_payload, dict)
+        else None
+    )
+    bucket_counts: dict[str, int] = {}
+    if isinstance(bucket_counts_payload, dict):
+        for key, value in sorted(bucket_counts_payload.items()):
+            name = str(key or "").strip()
+            parsed = _single_offline_nonnegative_int_or_none(value)
+            if not name or parsed is None:
+                continue
+            bucket_counts[name] = parsed
+    available = (
+        boundary_f1 is not None
+        or boundary_false_positive_count is not None
+        or boundary_missed_count is not None
+        or bool(bucket_counts)
+    )
+    if available:
+        unavailable_reason: str | None = None
+    else:
+        unavailable_reason = "segmentation_metrics_missing"
+    return {
+        "available": bool(available),
+        "unavailable_reason": unavailable_reason,
+        "boundary_f1": boundary_f1,
+        "boundary_false_positive_count": boundary_false_positive_count,
+        "boundary_missed_count": boundary_missed_count,
+        "error_taxonomy_bucket_counts": bucket_counts,
+    }
+
+
+def _single_offline_eval_gold_adaptation_summary(
+    eval_report: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(eval_report, dict):
+        return {
+            "applied": False,
+            "mode": "off",
+            "coverage_ratio": None,
+            "ambiguous_gold_blocks": None,
+            "unresolved_gold_blocks": None,
+            "confidence_counts": {},
+            "unavailable_reason": "eval_report_unavailable",
+        }
+    diagnostics_payload = eval_report.get("diagnostics")
+    adaptation_payload = (
+        diagnostics_payload.get("gold_adaptation")
+        if isinstance(diagnostics_payload, dict)
+        else None
+    )
+    if not isinstance(adaptation_payload, dict):
+        return {
+            "applied": False,
+            "mode": "off",
+            "coverage_ratio": None,
+            "ambiguous_gold_blocks": None,
+            "unresolved_gold_blocks": None,
+            "confidence_counts": {},
+            "unavailable_reason": "gold_adaptation_not_present_in_eval_report",
+        }
+    confidence_counts_payload = adaptation_payload.get("confidence_counts")
+    confidence_counts: dict[str, int] = {}
+    if isinstance(confidence_counts_payload, dict):
+        for key, value in sorted(confidence_counts_payload.items()):
+            name = str(key or "").strip()
+            parsed = _single_offline_nonnegative_int_or_none(value)
+            if not name or parsed is None:
+                continue
+            confidence_counts[name] = parsed
+    return {
+        "applied": True,
+        "mode": str(adaptation_payload.get("mode") or "auto").strip() or "auto",
+        "coverage_ratio": _report_optional_metric(adaptation_payload.get("coverage_ratio")),
+        "ambiguous_gold_blocks": _single_offline_nonnegative_int_or_none(
+            adaptation_payload.get("ambiguous_gold_blocks")
+        ),
+        "unresolved_gold_blocks": _single_offline_nonnegative_int_or_none(
+            adaptation_payload.get("unresolved_gold_blocks")
+        ),
+        "confidence_counts": confidence_counts,
+        "unavailable_reason": None,
+    }
+
+
+def _build_single_offline_variant_diagnostics(
+    *,
+    codex_eval_report: dict[str, Any] | None,
+    vanilla_eval_report: dict[str, Any] | None,
+) -> dict[str, Any]:
+    variant_rows: dict[str, dict[str, Any]] = {}
+    for variant_slug, eval_report in (
+        ("vanilla", vanilla_eval_report),
+        ("codexfarm", codex_eval_report),
+    ):
+        strict_accuracy = _benchmark_report_metric_value(
+            eval_report if isinstance(eval_report, dict) else None,
+            "strict_accuracy",
+        )
+        macro_f1 = _benchmark_report_metric_value(
+            eval_report if isinstance(eval_report, dict) else None,
+            "macro_f1_excluding_other",
+        )
+        classification_error_rate = (
+            max(0.0, 1.0 - strict_accuracy) if strict_accuracy is not None else None
+        )
+        practical_error_rate = (
+            max(0.0, 1.0 - macro_f1) if macro_f1 is not None else None
+        )
+        segmentation_summary = _single_offline_eval_segmentation_summary(eval_report)
+        boundary_f1 = _report_optional_metric(segmentation_summary.get("boundary_f1"))
+        segmentation_boundary_error_rate = (
+            max(0.0, 1.0 - boundary_f1) if boundary_f1 is not None else None
+        )
+        adaptation_summary = _single_offline_eval_gold_adaptation_summary(eval_report)
+        variant_rows[variant_slug] = {
+            "strict_accuracy": strict_accuracy,
+            "macro_f1_excluding_other": macro_f1,
+            "classification_error_rate": classification_error_rate,
+            "practical_error_rate": practical_error_rate,
+            "segmentation": segmentation_summary,
+            "segmentation_boundary_error_rate": segmentation_boundary_error_rate,
+            "gold_adaptation": adaptation_summary,
+        }
+
+    codex_row = variant_rows.get("codexfarm") or {}
+    vanilla_row = variant_rows.get("vanilla") or {}
+    codex_seg = codex_row.get("segmentation")
+    vanilla_seg = vanilla_row.get("segmentation")
+    codex_adaptation = codex_row.get("gold_adaptation")
+    vanilla_adaptation = vanilla_row.get("gold_adaptation")
+    codex_confidence_counts = (
+        codex_adaptation.get("confidence_counts")
+        if isinstance(codex_adaptation, dict)
+        and isinstance(codex_adaptation.get("confidence_counts"), dict)
+        else {}
+    )
+    vanilla_confidence_counts = (
+        vanilla_adaptation.get("confidence_counts")
+        if isinstance(vanilla_adaptation, dict)
+        and isinstance(vanilla_adaptation.get("confidence_counts"), dict)
+        else {}
+    )
+
+    confidence_count_deltas: dict[str, int] = {}
+    confidence_count_keys = sorted(
+        set(str(key) for key in codex_confidence_counts.keys())
+        | set(str(key) for key in vanilla_confidence_counts.keys())
+    )
+    for key in confidence_count_keys:
+        codex_value = _single_offline_nonnegative_int_or_none(
+            codex_confidence_counts.get(key)
+        )
+        vanilla_value = _single_offline_nonnegative_int_or_none(
+            vanilla_confidence_counts.get(key)
+        )
+        if codex_value is None or vanilla_value is None:
+            continue
+        confidence_count_deltas[key] = codex_value - vanilla_value
+
+    deltas: dict[str, Any] = {
+        "classification_error_rate_delta": _single_offline_optional_delta(
+            codex_row.get("classification_error_rate"),
+            vanilla_row.get("classification_error_rate"),
+        ),
+        "practical_error_rate_delta": _single_offline_optional_delta(
+            codex_row.get("practical_error_rate"),
+            vanilla_row.get("practical_error_rate"),
+        ),
+        "segmentation_boundary_error_rate_delta": _single_offline_optional_delta(
+            codex_row.get("segmentation_boundary_error_rate"),
+            vanilla_row.get("segmentation_boundary_error_rate"),
+        ),
+        "segmentation_boundary_f1_delta": _single_offline_optional_delta(
+            (
+                codex_seg.get("boundary_f1")
+                if isinstance(codex_seg, dict)
+                else None
+            ),
+            (
+                vanilla_seg.get("boundary_f1")
+                if isinstance(vanilla_seg, dict)
+                else None
+            ),
+        ),
+        "gold_adaptation_coverage_ratio_delta": _single_offline_optional_delta(
+            (
+                codex_adaptation.get("coverage_ratio")
+                if isinstance(codex_adaptation, dict)
+                else None
+            ),
+            (
+                vanilla_adaptation.get("coverage_ratio")
+                if isinstance(vanilla_adaptation, dict)
+                else None
+            ),
+        ),
+        "gold_adaptation_ambiguous_delta": _single_offline_optional_delta(
+            (
+                codex_adaptation.get("ambiguous_gold_blocks")
+                if isinstance(codex_adaptation, dict)
+                else None
+            ),
+            (
+                vanilla_adaptation.get("ambiguous_gold_blocks")
+                if isinstance(vanilla_adaptation, dict)
+                else None
+            ),
+        ),
+        "gold_adaptation_unresolved_delta": _single_offline_optional_delta(
+            (
+                codex_adaptation.get("unresolved_gold_blocks")
+                if isinstance(codex_adaptation, dict)
+                else None
+            ),
+            (
+                vanilla_adaptation.get("unresolved_gold_blocks")
+                if isinstance(vanilla_adaptation, dict)
+                else None
+            ),
+        ),
+        "gold_adaptation_confidence_count_deltas": confidence_count_deltas,
+    }
+
+    abs_classification_delta = (
+        abs(float(deltas["classification_error_rate_delta"]))
+        if deltas["classification_error_rate_delta"] is not None
+        else None
+    )
+    abs_segmentation_delta = (
+        abs(float(deltas["segmentation_boundary_error_rate_delta"]))
+        if deltas["segmentation_boundary_error_rate_delta"] is not None
+        else None
+    )
+    likely_driver = "insufficient_data"
+    rationale = (
+        "Segmentation boundary metrics were not available in one or both variant eval reports."
+    )
+    if abs_classification_delta is not None and abs_segmentation_delta is not None:
+        if abs_classification_delta <= 1e-6 and abs_segmentation_delta <= 1e-6:
+            likely_driver = "no_material_change"
+            rationale = (
+                "Both classification and segmentation error-rate deltas were near zero."
+            )
+        elif abs_segmentation_delta >= max(0.005, abs_classification_delta * 1.25):
+            likely_driver = "segmentation_driven"
+            rationale = (
+                "Segmentation boundary error-rate delta dominated classification error-rate delta."
+            )
+        elif abs_classification_delta >= max(0.005, abs_segmentation_delta * 1.25):
+            likely_driver = "classification_driven"
+            rationale = (
+                "Classification error-rate delta dominated segmentation boundary error-rate delta."
+            )
+        else:
+            likely_driver = "mixed"
+            rationale = (
+                "Classification and segmentation deltas were both present and comparable in magnitude."
+            )
+    elif abs_classification_delta is not None:
+        likely_driver = "classification_signal_only"
+        rationale = (
+            "Only classification deltas were available; segmentation deltas were unavailable."
+        )
+    elif abs_segmentation_delta is not None:
+        likely_driver = "segmentation_signal_only"
+        rationale = (
+            "Only segmentation deltas were available; classification deltas were unavailable."
+        )
+
+    return {
+        "schema_version": "single_offline_variant_diagnostics.v1",
+        "variants": variant_rows,
+        "deltas": deltas,
+        "likely_driver": likely_driver,
+        "likely_driver_rationale": rationale,
+    }
+
+
 def _format_single_offline_comparison_markdown(
     payload: dict[str, Any],
 ) -> str:
@@ -3715,10 +4048,12 @@ def _format_single_offline_comparison_markdown(
     split_cache_payload = None
     codex_runtime_payload = None
     per_label_breakdown_payload = None
+    variant_diagnostics_payload = None
     if isinstance(metadata_payload, dict):
         split_cache_payload = metadata_payload.get("single_offline_split_cache")
         codex_runtime_payload = metadata_payload.get("codex_farm_runtime")
         per_label_breakdown_payload = metadata_payload.get("per_label_breakdown")
+        variant_diagnostics_payload = metadata_payload.get("variant_diagnostics")
 
     codex_model = ""
     codex_reasoning_effort = ""
@@ -3793,6 +4128,88 @@ def _format_single_offline_comparison_markdown(
             f" | {vanilla_text:>{vanilla_col_width}}"
             f" | {delta_text:>{delta_col_width}} |"
         )
+    if isinstance(variant_diagnostics_payload, dict):
+        likely_driver = (
+            str(variant_diagnostics_payload.get("likely_driver") or "").strip()
+            or "unknown"
+        )
+        rationale = (
+            str(variant_diagnostics_payload.get("likely_driver_rationale") or "").strip()
+            or "No rationale provided."
+        )
+        deltas_payload = variant_diagnostics_payload.get("deltas")
+        delta_rows = deltas_payload if isinstance(deltas_payload, dict) else {}
+
+        def _format_optional_number(value: Any, *, digits: int = 6) -> str:
+            number = _report_optional_metric(value)
+            if number is None:
+                return "null"
+            return f"{number:.{digits}f}"
+
+        lines.extend(
+            [
+                "",
+                "## Delta Attribution",
+                "",
+                f"- Likely dominant driver: `{likely_driver}`",
+                f"- Rationale: {rationale}",
+                "- Deltas (`codex - vanilla`): "
+                f"classification_error_rate={_format_optional_number(delta_rows.get('classification_error_rate_delta'))}, "
+                f"segmentation_boundary_error_rate={_format_optional_number(delta_rows.get('segmentation_boundary_error_rate_delta'))}, "
+                f"gold_adaptation_coverage_ratio={_format_optional_number(delta_rows.get('gold_adaptation_coverage_ratio_delta'))}",
+            ]
+        )
+        confidence_deltas = delta_rows.get("gold_adaptation_confidence_count_deltas")
+        if isinstance(confidence_deltas, dict) and confidence_deltas:
+            confidence_summary = ", ".join(
+                f"{str(key)}={int(value)}"
+                for key, value in sorted(confidence_deltas.items())
+            )
+            lines.append(
+                "- Gold adaptation confidence deltas (`codex - vanilla`): "
+                + confidence_summary
+            )
+
+        variant_rows = (
+            variant_diagnostics_payload.get("variants")
+            if isinstance(variant_diagnostics_payload.get("variants"), dict)
+            else {}
+        )
+        for variant_slug in ("vanilla", "codexfarm"):
+            row = variant_rows.get(variant_slug)
+            if not isinstance(row, dict):
+                continue
+            segmentation_payload = (
+                row.get("segmentation")
+                if isinstance(row.get("segmentation"), dict)
+                else {}
+            )
+            adaptation_payload = (
+                row.get("gold_adaptation")
+                if isinstance(row.get("gold_adaptation"), dict)
+                else {}
+            )
+            confidence_counts = (
+                adaptation_payload.get("confidence_counts")
+                if isinstance(adaptation_payload.get("confidence_counts"), dict)
+                else {}
+            )
+            if confidence_counts:
+                confidence_summary = ", ".join(
+                    f"{str(key)}={int(value)}"
+                    for key, value in sorted(confidence_counts.items())
+                )
+            else:
+                confidence_summary = "none"
+            lines.append(
+                f"- {variant_slug}: "
+                f"classification_error_rate={_format_optional_number(row.get('classification_error_rate'))}, "
+                f"segmentation_boundary_error_rate={_format_optional_number(row.get('segmentation_boundary_error_rate'))}, "
+                f"segmentation_boundary_f1={_format_optional_number(segmentation_payload.get('boundary_f1'))}, "
+                f"gold_adaptation_coverage_ratio={_format_optional_number(adaptation_payload.get('coverage_ratio'))}, "
+                f"gold_adaptation_mode={str(adaptation_payload.get('mode') or 'off')}, "
+                f"gold_adaptation_confidence={confidence_summary}"
+            )
     if isinstance(per_label_breakdown_payload, dict):
         rows_payload = per_label_breakdown_payload.get("rows")
         if isinstance(rows_payload, list):
@@ -3966,6 +4383,11 @@ def _write_single_offline_comparison_artifacts(
         run_timestamp=run_timestamp,
         eval_reports=(vanilla_eval_report, codex_eval_report),
     )
+    variant_diagnostics = _build_single_offline_variant_diagnostics(
+        codex_eval_report=codex_eval_report,
+        vanilla_eval_report=vanilla_eval_report,
+    )
+    metadata_payload["variant_diagnostics"] = variant_diagnostics
     if isinstance(per_label_breakdown, dict):
         metadata_payload["per_label_breakdown"] = per_label_breakdown
     if isinstance(split_cache_metadata, dict):
@@ -4579,6 +5001,41 @@ def _resolve_labelstudio_benchmark_compare_report_root(
     return None
 
 
+def _resolve_labelstudio_benchmark_compare_input(
+    run_dir: Path,
+) -> dict[str, Any] | None:
+    candidate = run_dir.expanduser()
+    if candidate.is_file():
+        if candidate.name == "all_method_benchmark_multi_source_report.json":
+            return {
+                "mode": "all_method_report",
+                "report_root": candidate.parent,
+            }
+        if candidate.name == "eval_report.json":
+            return {
+                "mode": "single_eval_report",
+                "report_root": candidate.parent,
+                "eval_report_path": candidate,
+            }
+        return None
+
+    report_root = _resolve_labelstudio_benchmark_compare_report_root(candidate)
+    if report_root is not None:
+        return {
+            "mode": "all_method_report",
+            "report_root": report_root,
+        }
+
+    eval_report_path = candidate / "eval_report.json"
+    if eval_report_path.exists() and eval_report_path.is_file():
+        return {
+            "mode": "single_eval_report",
+            "report_root": candidate,
+            "eval_report_path": eval_report_path,
+        }
+    return None
+
+
 def _parse_run_config_summary(summary: str | None) -> dict[str, str]:
     parsed: dict[str, str] = {}
     text = str(summary or "").strip()
@@ -5059,12 +5516,78 @@ def _build_labelstudio_benchmark_source_context(
     if eval_report is None or eval_report_path is None:
         return None
 
-    summary_tokens = _parse_run_config_summary(
-        str((eval_report.get("run_config_summary") or ""))
-    )
     winner_metrics = source_row.get("winner_metrics")
     if not isinstance(winner_metrics, dict):
         winner_metrics = {}
+    return _build_labelstudio_benchmark_context_from_eval_report(
+        source_key=_source_key_from_row(source_row),
+        source_file=str(source_row.get("source_file") or ""),
+        winner_metrics=winner_metrics,
+        eval_report=eval_report,
+        eval_report_path=eval_report_path,
+    )
+
+
+def _infer_source_file_from_eval_report_and_manifest(
+    *,
+    eval_report: dict[str, Any],
+    eval_report_path: Path,
+) -> str:
+    source_file = str(eval_report.get("source_file") or "").strip()
+    if source_file:
+        return source_file
+
+    eval_run_manifest = _load_json_dict(eval_report_path.parent / "run_manifest.json")
+    if isinstance(eval_run_manifest, dict):
+        source_payload = eval_run_manifest.get("source")
+        if isinstance(source_payload, dict):
+            source_file = str(source_payload.get("path") or "").strip()
+            if source_file:
+                return source_file
+        run_config_payload = eval_run_manifest.get("run_config")
+        if isinstance(run_config_payload, dict):
+            source_file = str(run_config_payload.get("source_file") or "").strip()
+            if source_file:
+                return source_file
+            prediction_run_config = run_config_payload.get("prediction_run_config")
+            if isinstance(prediction_run_config, dict):
+                source_file = str(prediction_run_config.get("source_file") or "").strip()
+                if source_file:
+                    return source_file
+
+    prediction_run_manifest = _load_json_dict(
+        eval_report_path.parent / "prediction-run" / "run_manifest.json"
+    )
+    if isinstance(prediction_run_manifest, dict):
+        source_payload = prediction_run_manifest.get("source")
+        if isinstance(source_payload, dict):
+            source_file = str(source_payload.get("path") or "").strip()
+            if source_file:
+                return source_file
+        run_config_payload = prediction_run_manifest.get("run_config")
+        if isinstance(run_config_payload, dict):
+            source_file = str(run_config_payload.get("source_file") or "").strip()
+            if source_file:
+                return source_file
+            prediction_run_config = run_config_payload.get("prediction_run_config")
+            if isinstance(prediction_run_config, dict):
+                source_file = str(prediction_run_config.get("source_file") or "").strip()
+                if source_file:
+                    return source_file
+    return ""
+
+
+def _build_labelstudio_benchmark_context_from_eval_report(
+    *,
+    source_key: str,
+    source_file: str,
+    winner_metrics: dict[str, Any] | None,
+    eval_report: dict[str, Any],
+    eval_report_path: Path,
+) -> dict[str, Any]:
+    summary_tokens = _parse_run_config_summary(
+        str((eval_report.get("run_config_summary") or ""))
+    )
 
     eval_run_manifest = _load_json_dict(eval_report_path.parent / "run_manifest.json")
     run_config_payload = (
@@ -5126,9 +5649,15 @@ def _build_labelstudio_benchmark_source_context(
         overall_line_accuracy = _report_optional_metric(
             eval_metric_bundle.get("strict_accuracy")
         )
+    resolved_source_file = str(source_file or "").strip()
+    if not resolved_source_file:
+        resolved_source_file = _infer_source_file_from_eval_report_and_manifest(
+            eval_report=eval_report,
+            eval_report_path=eval_report_path,
+        )
     return {
-        "source_group_key": _source_key_from_row(source_row),
-        "source_file": str(source_row.get("source_file") or ""),
+        "source_group_key": str(source_key or "").strip(),
+        "source_file": resolved_source_file,
         "winner_metrics": {**winner_metric_bundle},
         "overall_line_accuracy": overall_line_accuracy,
         "practical_f1": _report_optional_metric(
@@ -5918,6 +6447,280 @@ def _build_labelstudio_benchmark_compare_payload(
     }
 
 
+def _build_labelstudio_benchmark_compare_single_eval_payload(
+    *,
+    baseline_eval_report_path: Path,
+    candidate_eval_report_path: Path,
+) -> dict[str, Any]:
+    baseline_eval_report = _load_json_dict(baseline_eval_report_path)
+    if baseline_eval_report is None:
+        _fail(
+            "Baseline eval report is missing or invalid: "
+            f"{baseline_eval_report_path}"
+        )
+    candidate_eval_report = _load_json_dict(candidate_eval_report_path)
+    if candidate_eval_report is None:
+        _fail(
+            "Candidate eval report is missing or invalid: "
+            f"{candidate_eval_report_path}"
+        )
+
+    baseline_source_file = _infer_source_file_from_eval_report_and_manifest(
+        eval_report=baseline_eval_report,
+        eval_report_path=baseline_eval_report_path,
+    )
+    candidate_source_file = _infer_source_file_from_eval_report_and_manifest(
+        eval_report=candidate_eval_report,
+        eval_report_path=candidate_eval_report_path,
+    )
+    baseline_source_key = _source_key_from_source_path(baseline_source_file)
+    candidate_source_key = _source_key_from_source_path(candidate_source_file)
+    source_key = (
+        baseline_source_key
+        or candidate_source_key
+        or slugify_name(candidate_eval_report_path.parent.name)
+        or "single_source"
+    )
+
+    baseline_context = _build_labelstudio_benchmark_context_from_eval_report(
+        source_key=source_key,
+        source_file=baseline_source_file,
+        winner_metrics=None,
+        eval_report=baseline_eval_report,
+        eval_report_path=baseline_eval_report_path,
+    )
+    candidate_context = _build_labelstudio_benchmark_context_from_eval_report(
+        source_key=source_key,
+        source_file=candidate_source_file,
+        winner_metrics=None,
+        eval_report=candidate_eval_report,
+        eval_report_path=candidate_eval_report_path,
+    )
+    source_comparison: dict[str, dict[str, Any]] = {
+        source_key: {
+            "baseline": baseline_context,
+            "candidate": candidate_context,
+            "deltas": {
+                "practical_f1": _metric_delta(
+                    _report_optional_metric(candidate_context.get("practical_f1")),
+                    _report_optional_metric(baseline_context.get("practical_f1")),
+                ),
+                "overall_line_accuracy": _metric_delta(
+                    _report_optional_metric(candidate_context.get("overall_line_accuracy")),
+                    _report_optional_metric(baseline_context.get("overall_line_accuracy")),
+                ),
+                "ingredient_recall": _metric_delta(
+                    _report_optional_metric(candidate_context.get("ingredient_recall")),
+                    _report_optional_metric(baseline_context.get("ingredient_recall")),
+                ),
+                "variant_recall": _metric_delta(
+                    _report_optional_metric(candidate_context.get("variant_recall")),
+                    _report_optional_metric(baseline_context.get("variant_recall")),
+                ),
+            },
+        }
+    }
+
+    gates: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    def _add_warning(message: str) -> None:
+        text = str(message).strip()
+        if not text:
+            return
+        if text not in warnings:
+            warnings.append(text)
+
+    def _add_gate(name: str, passed: bool, reason: str) -> None:
+        gates.append({"name": name, "passed": bool(passed), "reason": reason})
+
+    def _add_no_regression_gate(
+        *,
+        name: str,
+        metric_name: str,
+        baseline_value: float | None,
+        candidate_value: float | None,
+    ) -> None:
+        if baseline_value is None or candidate_value is None:
+            _add_gate(
+                name,
+                False,
+                f"Missing baseline/candidate {metric_name}.",
+            )
+            return
+        _add_gate(
+            name,
+            candidate_value >= baseline_value,
+            (
+                f"candidate_{metric_name}={candidate_value:.6f}, "
+                f"baseline_{metric_name}={baseline_value:.6f}"
+            ),
+        )
+
+    if baseline_source_key and candidate_source_key and baseline_source_key != candidate_source_key:
+        _add_gate(
+            "source_key_match",
+            False,
+            (
+                "Baseline/candidate source mismatch: "
+                f"{baseline_source_key} vs {candidate_source_key}."
+            ),
+        )
+    else:
+        _add_gate(
+            "source_key_match",
+            True,
+            (
+                f"source_key={source_key}"
+                if source_key
+                else "Source key unavailable in eval metadata."
+            ),
+        )
+
+    _add_no_regression_gate(
+        name="practical_f1_no_regression",
+        metric_name="practical_f1",
+        baseline_value=_report_optional_metric(baseline_context.get("practical_f1")),
+        candidate_value=_report_optional_metric(candidate_context.get("practical_f1")),
+    )
+    _add_no_regression_gate(
+        name="overall_line_accuracy_no_regression",
+        metric_name="overall_line_accuracy",
+        baseline_value=_report_optional_metric(
+            baseline_context.get("overall_line_accuracy")
+        ),
+        candidate_value=_report_optional_metric(
+            candidate_context.get("overall_line_accuracy")
+        ),
+    )
+
+    baseline_ingredient = _report_optional_metric(baseline_context.get("ingredient_recall"))
+    candidate_ingredient = _report_optional_metric(candidate_context.get("ingredient_recall"))
+    if baseline_ingredient is None or candidate_ingredient is None:
+        _add_gate(
+            "ingredient_recall_at_least_baseline",
+            False,
+            "Missing ingredient recall in baseline/candidate eval report.",
+        )
+    else:
+        _add_gate(
+            "ingredient_recall_at_least_baseline",
+            candidate_ingredient >= baseline_ingredient,
+            (
+                f"candidate_ingredient_recall={candidate_ingredient:.6f}, "
+                f"baseline_ingredient_recall={baseline_ingredient:.6f}"
+            ),
+        )
+
+    candidate_variant = _report_optional_metric(candidate_context.get("variant_recall"))
+    if candidate_variant is None:
+        _add_gate(
+            "variant_recall_nonzero",
+            False,
+            "Missing candidate RECIPE_VARIANT recall.",
+        )
+    else:
+        _add_gate(
+            "variant_recall_nonzero",
+            candidate_variant > 0.0,
+            f"candidate_variant_recall={candidate_variant:.6f}",
+        )
+
+    debug_payload = candidate_context.get("debug_artifacts")
+    if not isinstance(debug_payload, dict):
+        _add_gate(
+            "debug_artifacts_present",
+            False,
+            "Missing candidate debug artifact payload.",
+        )
+    else:
+        mode_source = str(candidate_context.get("codex_farm_mode_source") or "").strip()
+        if not mode_source:
+            mode_source = "unknown"
+        requires_debug = bool(debug_payload.get("required"))
+        skip_required_debug = False
+        hard_failure_mode_source = False
+        if mode_source == "inferred" and requires_debug:
+            _add_warning(
+                (
+                    f"Running benchmark-only debug checks for {source_key} using "
+                    "inferred benchmark mode from artifacts (metadata missing)."
+                )
+            )
+        elif mode_source == "unknown":
+            _add_warning(
+                (
+                    f"Could not confirm benchmark mode for {source_key}: "
+                    "mode metadata is missing and artifact signals are not conclusive."
+                )
+            )
+            if requires_debug:
+                _add_warning(
+                    f"Skipping benchmark-only debug checks for {source_key}: "
+                    "mode could not be determined from metadata or artifacts."
+                )
+                skip_required_debug = True
+        elif mode_source != "metadata":
+            _add_warning(f"Unrecognized mode_source for {source_key}: {mode_source}.")
+            _add_gate(
+                "debug_artifacts_present",
+                False,
+                f"Invalid mode source reported for benchmark comparison: {mode_source}.",
+            )
+            hard_failure_mode_source = True
+
+        if hard_failure_mode_source:
+            pass
+        elif skip_required_debug:
+            _add_gate(
+                "debug_artifacts_present",
+                True,
+                (
+                    "Not required: "
+                    f"mode={candidate_context.get('codex_farm_recipe_mode')}, "
+                    f"llm_recipe_pipeline={candidate_context.get('llm_recipe_pipeline')}"
+                ),
+            )
+        else:
+            missing = debug_payload.get("missing")
+            if not isinstance(missing, list):
+                missing = []
+            passed = bool(debug_payload.get("all_present"))
+            _add_gate(
+                "debug_artifacts_present",
+                passed,
+                (
+                    "Required debug artifacts present."
+                    if passed
+                    else "Missing required debug artifacts: "
+                    + ", ".join(str(name) for name in missing)
+                ),
+            )
+
+    failed_gate_count = sum(1 for gate in gates if not bool(gate.get("passed")))
+    passed_gate_count = len(gates) - failed_gate_count
+    overall_verdict = "PASS" if failed_gate_count == 0 else "FAIL"
+
+    return {
+        "schema_version": LABELSTUDIO_BENCHMARK_COMPARE_SCHEMA_VERSION,
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "comparison_mode": "single_eval_report",
+        "baseline_report_root": str(baseline_eval_report_path.parent),
+        "candidate_report_root": str(candidate_eval_report_path.parent),
+        "baseline_eval_report_path": str(baseline_eval_report_path),
+        "candidate_eval_report_path": str(candidate_eval_report_path),
+        "overall": {
+            "verdict": overall_verdict,
+            "gate_count": len(gates),
+            "passed_gate_count": passed_gate_count,
+            "failed_gate_count": failed_gate_count,
+        },
+        "warnings": warnings,
+        "gates": gates,
+        "sources": source_comparison,
+    }
+
+
 def _format_labelstudio_benchmark_compare_markdown(
     payload: dict[str, Any],
 ) -> str:
@@ -6077,22 +6880,46 @@ def labelstudio_benchmark_compare(
     out_dir: Path = DEFAULT_LABELSTUDIO_BENCHMARK_COMPARISONS,
     fail_on_regression: bool = False,
 ) -> dict[str, Any]:
-    baseline_root = _resolve_labelstudio_benchmark_compare_report_root(baseline)
-    if baseline_root is None:
+    baseline_target = _resolve_labelstudio_benchmark_compare_input(baseline)
+    if baseline_target is None:
         _fail(
-            "Unable to resolve baseline all-method benchmark report root from: "
+            "Unable to resolve baseline compare input from: "
             f"{baseline}"
         )
-    candidate_root = _resolve_labelstudio_benchmark_compare_report_root(candidate)
-    if candidate_root is None:
+    candidate_target = _resolve_labelstudio_benchmark_compare_input(candidate)
+    if candidate_target is None:
         _fail(
-            "Unable to resolve candidate all-method benchmark report root from: "
+            "Unable to resolve candidate compare input from: "
             f"{candidate}"
         )
-    comparison = _build_labelstudio_benchmark_compare_payload(
-        baseline_report_root=baseline_root,
-        candidate_report_root=candidate_root,
-    )
+    baseline_mode = str(baseline_target.get("mode") or "").strip()
+    candidate_mode = str(candidate_target.get("mode") or "").strip()
+    if baseline_mode != candidate_mode:
+        _fail(
+            "Compare input mode mismatch: baseline and candidate must both be all-method roots "
+            "or both be single eval_report inputs."
+        )
+
+    if baseline_mode == "single_eval_report":
+        baseline_eval_report_path = baseline_target.get("eval_report_path")
+        candidate_eval_report_path = candidate_target.get("eval_report_path")
+        if not isinstance(baseline_eval_report_path, Path) or not isinstance(
+            candidate_eval_report_path, Path
+        ):
+            _fail("Compare single-eval mode resolution failed: eval_report paths missing.")
+        comparison = _build_labelstudio_benchmark_compare_single_eval_payload(
+            baseline_eval_report_path=baseline_eval_report_path,
+            candidate_eval_report_path=candidate_eval_report_path,
+        )
+    else:
+        baseline_root = baseline_target.get("report_root")
+        candidate_root = candidate_target.get("report_root")
+        if not isinstance(baseline_root, Path) or not isinstance(candidate_root, Path):
+            _fail("Compare all-method mode resolution failed: report roots missing.")
+        comparison = _build_labelstudio_benchmark_compare_payload(
+            baseline_report_root=baseline_root,
+            candidate_report_root=candidate_root,
+        )
     comparison_root = out_dir / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     comparison_root.mkdir(parents=True, exist_ok=True)
     comparison_json_path = comparison_root / "comparison.json"
@@ -22288,8 +23115,13 @@ def _merge_split_jobs(
 
     ordered_jobs = sorted(job_results, key=_job_range_start)
     run_settings = RunSettings.from_dict(run_config, warn_context="split merge run config")
-    llm_enabled = run_settings.llm_recipe_pipeline.value != "off"
-    knowledge_enabled = run_settings.llm_knowledge_pipeline.value != "off"
+    has_explicit_run_config = run_config is not None
+    llm_enabled = (
+        has_explicit_run_config and run_settings.llm_recipe_pipeline.value != "off"
+    )
+    knowledge_enabled = (
+        has_explicit_run_config and run_settings.llm_knowledge_pipeline.value != "off"
+    )
     table_extraction_enabled = run_settings.table_extraction.value == "on"
     merged_full_blocks, job_offsets, _job_block_counts = _build_split_full_blocks(
         out=out,
@@ -26472,11 +27304,17 @@ def _prune_benchmark_outputs(
     suppress_output_prune: bool,
 ) -> None:
     """Drop transient benchmark artifacts after CSV metrics are persisted."""
-    from cookimport.analytics.dashboard_collect import _is_excluded_benchmark_artifact
+    from cookimport.analytics.dashboard_collect import (
+        _is_excluded_benchmark_artifact,
+        _is_pytest_temp_eval_artifact,
+    )
 
     if suppress_output_prune:
         return
     eval_root = eval_output_dir.expanduser()
+    # Pytest temp eval roots are ephemeral test fixtures, not benchmark slop runs.
+    if _is_pytest_temp_eval_artifact(eval_root):
+        return
     if not _is_excluded_benchmark_artifact(eval_root):
         return
 
@@ -26896,7 +27734,7 @@ def labelstudio_benchmark(
             "Recipe codex-farm parsing correction pipeline. "
             "Values: off or codex-farm-3pass-v1."
         ),
-    )] = "codex-farm-3pass-v1",
+    )] = "off",
     atomic_block_splitter: Annotated[str, typer.Option(
         "--atomic-block-splitter",
         help=(
@@ -26910,7 +27748,7 @@ def labelstudio_benchmark(
             "Optional canonical line-role labeling pipeline for benchmark "
             "experiments: off, deterministic-v1, or codex-line-role-v1."
         ),
-    )] = "codex-line-role-v1",
+    )] = "off",
     line_role_gated: Annotated[bool, typer.Option(
         "--line-role-gated/--no-line-role-gated",
         help=(
@@ -27210,6 +28048,10 @@ def labelstudio_benchmark(
         option="--codex-farm-pipeline-pass3",
     )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
+    if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
+        # Line-role/atomic paths are canonical-text benchmark features.
+        selected_atomic_block_splitter = "off"
+        selected_line_role_pipeline = "off"
     selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
         gold_adaptation_mode
     )
@@ -28425,6 +29267,14 @@ def labelstudio_benchmark(
             "line_role_flips_vs_baseline_sample_jsonl": _path_for_manifest(
                 eval_output_dir,
                 line_role_output_dir / "line_role_flips_vs_baseline.sample.jsonl",
+            ),
+            "do_no_harm_diagnostics_json": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "do_no_harm_diagnostics.json",
+            ),
+            "do_no_harm_changed_rows_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "do_no_harm_changed_rows.jsonl",
             ),
         }
         if isinstance(baseline_history_row, dict):

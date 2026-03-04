@@ -466,6 +466,113 @@ def test_labelstudio_benchmark_action_compare_dispatches_to_compare_helper(
     assert captured["fail_on_regression"] is True
 
 
+def test_labelstudio_benchmark_compare_accepts_single_eval_report_inputs(
+    tmp_path: Path,
+) -> None:
+    def _write_single_eval_run(
+        run_dir: Path,
+        *,
+        source_file: str,
+        practical_f1: float,
+        line_accuracy: float,
+        ingredient_recall: float,
+        variant_recall: float,
+    ) -> Path:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "aligned_prediction_blocks.jsonl").write_text("{}\n", encoding="utf-8")
+        (run_dir / "prediction-run").mkdir(parents=True, exist_ok=True)
+        (run_dir / "prediction-run" / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_config": {
+                        "prediction_run_config": {
+                            "llm_recipe_pipeline": "off",
+                            "codex_farm_recipe_mode": "extract",
+                        }
+                    },
+                    "artifacts": {},
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "source": {"path": source_file},
+                    "run_config": {
+                        "llm_recipe_pipeline": "off",
+                        "codex_farm_recipe_mode": "extract",
+                        "prediction_run_config": {
+                            "llm_recipe_pipeline": "off",
+                            "codex_farm_recipe_mode": "extract",
+                        },
+                    },
+                    "artifacts": {"pred_run_dir": "prediction-run"},
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        report_path = run_dir / "eval_report.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "source_file": source_file,
+                    "practical_f1": practical_f1,
+                    "overall_line_accuracy": line_accuracy,
+                    "per_label": {
+                        "INGREDIENT_LINE": {"recall": ingredient_recall},
+                        "RECIPE_VARIANT": {"recall": variant_recall},
+                    },
+                    "artifacts": {
+                        "aligned_prediction_blocks_jsonl": "aligned_prediction_blocks.jsonl",
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        return report_path
+
+    baseline_eval_report = _write_single_eval_run(
+        tmp_path / "baseline-eval",
+        source_file="data/input/thefoodlabCUTDOWN.epub",
+        practical_f1=0.40,
+        line_accuracy=0.50,
+        ingredient_recall=0.30,
+        variant_recall=0.10,
+    )
+    candidate_eval_report = _write_single_eval_run(
+        tmp_path / "candidate-eval",
+        source_file="data/input/thefoodlabCUTDOWN.epub",
+        practical_f1=0.50,
+        line_accuracy=0.60,
+        ingredient_recall=0.35,
+        variant_recall=0.15,
+    )
+
+    payload = cli.labelstudio_benchmark_compare(
+        baseline=baseline_eval_report,
+        candidate=candidate_eval_report,
+        out_dir=tmp_path / "compare-out",
+    )
+
+    assert payload["comparison_mode"] == "single_eval_report"
+    assert payload["overall"]["verdict"] == "PASS"
+    gates = {
+        gate["name"]: gate
+        for gate in payload["gates"]
+        if isinstance(gate, dict) and gate.get("name")
+    }
+    assert gates["practical_f1_no_regression"]["passed"] is True
+    assert gates["overall_line_accuracy_no_regression"]["passed"] is True
+    assert gates["debug_artifacts_present"]["passed"] is True
+
+
 def test_labelstudio_benchmark_passes_processed_output_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

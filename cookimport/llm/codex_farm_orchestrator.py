@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,6 +48,58 @@ PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
 _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS = 2
 _PASS3_PASS2_OK_MIN_CANONICAL_CHARS = 80
+_ELIGIBILITY_INGREDIENT_LEAD_RE = re.compile(
+    r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s+[A-Za-z]"
+)
+_ELIGIBILITY_INGREDIENT_UNIT_RE = re.compile(
+    r"\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|oz|ounces?|lb|lbs|pounds?|"
+    r"g|kg|ml|l|cloves?|sticks?|cans?|pinch)\b",
+    re.IGNORECASE,
+)
+_ELIGIBILITY_INSTRUCTION_VERB_RE = re.compile(
+    r"^\s*(?:add|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|"
+    r"fold|grill|heat|mix|place|pour|reduce|remove|roast|season|serve|simmer|stir|"
+    r"toast|transfer|whisk)\b",
+    re.IGNORECASE,
+)
+_ELIGIBILITY_YIELD_PREFIX_RE = re.compile(
+    r"^\s*(?:makes|serves?|servings|yields?)\b",
+    re.IGNORECASE,
+)
+_ELIGIBILITY_TITLE_LIKE_RE = re.compile(r"^[A-Z][A-Z0-9'/:,\- ]{2,}$")
+_ELIGIBILITY_CHAPTER_PAGE_HINT_KEYS = (
+    "chapter_page_hint",
+    "chapter_page_hints",
+    "chapter_type",
+    "chapter_kind",
+    "section_type",
+    "section_kind",
+    "page_type",
+    "page_kind",
+    "page_region",
+    "layout_region",
+    "layout_type",
+)
+_ELIGIBILITY_TAG_LIST_KEYS = ("heuristic_tags", "reasoning_tags", "tags")
+_ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
+    "chapter",
+    "front_matter",
+    "preface",
+    "introduction",
+    "table_of_contents",
+    "toc",
+    "index",
+    "glossary",
+    "appendix",
+    "essay",
+    "narrative",
+    "prose",
+    "reference",
+    "sidebar",
+    "table",
+    "chart",
+    "mixed_content",
+)
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -81,6 +134,11 @@ class _RecipeState:
     pass1_raw_start_block_index: int | None = None
     pass1_raw_end_block_index: int | None = None
     pass1_span_loss_metrics: dict[str, Any] | None = None
+    pass1_eligibility_status: str | None = None
+    pass1_eligibility_action: str | None = None
+    pass1_eligibility_score: int | None = None
+    pass1_eligibility_score_components: dict[str, Any] | None = None
+    pass1_eligibility_reasons: list[str] = field(default_factory=list)
     excluded_block_ids: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -132,6 +190,9 @@ def run_codex_farm_recipe_pipeline(
     pass3_out_dir = llm_raw_dir / "pass3_final" / "out"
     transport_audit_dir = llm_raw_dir / "transport_audit"
     evidence_normalization_dir = llm_raw_dir / "evidence_normalization"
+    pass1_eligibility_diagnostics_path = (
+        llm_raw_dir / "pass1_recipe_eligibility_diagnostics.json"
+    )
     for path in (
         pass1_in_dir,
         pass1_out_dir,
@@ -164,6 +225,14 @@ def run_codex_farm_recipe_pipeline(
     transport_audits: dict[str, dict[str, Any]] = {}
     evidence_normalizations: dict[str, dict[str, Any]] = {}
     if not states:
+        _write_json(
+            {
+                "schema_version": "pass1_recipe_eligibility.v1",
+                "rows": [],
+                "counts": {"evaluated": 0, "proceed": 0, "clamp": 0, "drop": 0},
+            },
+            pass1_eligibility_diagnostics_path,
+        )
         llm_manifest = {
             "enabled": True,
             "pipeline": run_settings.llm_recipe_pipeline.value,
@@ -209,6 +278,7 @@ def run_codex_farm_recipe_pipeline(
                 llm_manifest_path=llm_raw_dir / "llm_manifest.json",
                 transport_audit_dir=transport_audit_dir,
                 evidence_normalization_dir=evidence_normalization_dir,
+                pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
             ),
             "process_runs": {},
             "recipes": {},
@@ -238,6 +308,9 @@ def run_codex_farm_recipe_pipeline(
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
                 "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
                 "evidence_normalization": {"recipes_logged": 0},
+                "pass1_recipe_eligibility_diagnostics_path": str(
+                    pass1_eligibility_diagnostics_path
+                ),
                 "pass3_policy": dict(llm_manifest["pass3_policy"]),
                 "pass3_fallback_recipe_ids": [],
             },
@@ -339,6 +412,15 @@ def run_codex_farm_recipe_pipeline(
         process_runs["pass1"] = pass1_payload
     pass_timing["pass1_seconds"] = round(time.perf_counter() - pass1_started, 3)
     _consume_pass1_outputs(states, pass1_out_dir, total_blocks=total_blocks)
+    pass1_eligibility_payload = _apply_pass1_recipe_eligibility_gate(
+        states,
+        full_blocks_by_index=full_blocks_by_index,
+        total_blocks=total_blocks,
+    )
+    _write_json(
+        pass1_eligibility_payload,
+        pass1_eligibility_diagnostics_path,
+    )
     _apply_pass1_midpoint_clamps(states, total_blocks=total_blocks)
     _apply_pass1_to_result(conversion_result, states)
     _recompute_non_recipe_blocks(
@@ -736,6 +818,7 @@ def run_codex_farm_recipe_pipeline(
         pass3_skip_pass2_ok_enabled=pass3_skip_pass2_ok_enabled,
         transport_audits=transport_audits,
         evidence_normalizations=evidence_normalizations,
+        pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
@@ -759,6 +842,9 @@ def run_codex_farm_recipe_pipeline(
         "evidence_normalization": {
             "recipes_logged": llm_manifest["counts"].get("evidence_normalization_logs", 0),
         },
+        "pass1_recipe_eligibility_diagnostics_path": str(
+            pass1_eligibility_diagnostics_path
+        ),
         "pass3_policy": dict(llm_manifest.get("pass3_policy", {})),
         "pass3_fallback_recipe_ids": [
             state.recipe_id for state in states if state.pass3_status == "fallback"
@@ -785,6 +871,7 @@ def _paths_payload(
     llm_manifest_path: Path,
     transport_audit_dir: Path | None = None,
     evidence_normalization_dir: Path | None = None,
+    pass1_eligibility_diagnostics_path: Path | None = None,
 ) -> dict[str, str]:
     payload = {
         "pass1_in": str(pass1_in_dir),
@@ -799,6 +886,10 @@ def _paths_payload(
         payload["transport_audit_dir"] = str(transport_audit_dir)
     if evidence_normalization_dir is not None:
         payload["evidence_normalization_dir"] = str(evidence_normalization_dir)
+    if pass1_eligibility_diagnostics_path is not None:
+        payload["pass1_recipe_eligibility_diagnostics"] = str(
+            pass1_eligibility_diagnostics_path
+        )
     return payload
 
 
@@ -824,6 +915,7 @@ def _build_llm_manifest(
     pass3_skip_pass2_ok_enabled: bool,
     transport_audits: dict[str, dict[str, Any]],
     evidence_normalizations: dict[str, dict[str, Any]],
+    pass1_eligibility_diagnostics_path: Path,
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -857,6 +949,18 @@ def _build_llm_manifest(
             row["pass3_fallback_reason"] = state.pass3_fallback_reason
         if isinstance(state.pass1_span_loss_metrics, dict):
             row["pass1_span_loss_metrics"] = dict(state.pass1_span_loss_metrics)
+        if state.pass1_eligibility_status:
+            row["eligibility_status"] = state.pass1_eligibility_status
+        if state.pass1_eligibility_action:
+            row["eligibility_action"] = state.pass1_eligibility_action
+        if state.pass1_eligibility_score is not None:
+            row["eligibility_score"] = int(state.pass1_eligibility_score)
+        if isinstance(state.pass1_eligibility_score_components, dict):
+            row["eligibility_score_components"] = dict(
+                state.pass1_eligibility_score_components
+            )
+        if state.pass1_eligibility_reasons:
+            row["eligibility_reasons"] = list(state.pass1_eligibility_reasons)
         recipe_rows[state.recipe_id] = row
         if state.errors:
             failures.append({"recipe_id": state.recipe_id, "errors": list(state.errors)})
@@ -871,6 +975,15 @@ def _build_llm_manifest(
         "pass1_ok": sum(1 for state in states if state.pass1_status == "ok"),
         "pass1_dropped": sum(1 for state in states if state.pass1_status == "dropped"),
         "pass1_errors": sum(1 for state in states if state.pass1_status == "error"),
+        "pass1_eligibility_proceed": sum(
+            1 for state in states if state.pass1_eligibility_action == "proceed"
+        ),
+        "pass1_eligibility_clamp": sum(
+            1 for state in states if state.pass1_eligibility_action == "clamp"
+        ),
+        "pass1_eligibility_drop": sum(
+            1 for state in states if state.pass1_eligibility_action == "drop"
+        ),
         "pass2_inputs": len(list(pass2_in_dir.glob("*.json"))),
         "pass2_ok": sum(1 for state in states if state.pass2_status == "ok"),
         "pass2_degraded": sum(1 for state in states if state.pass2_status == "degraded"),
@@ -956,6 +1069,7 @@ def _build_llm_manifest(
             llm_manifest_path=llm_manifest_path,
             transport_audit_dir=transport_audit_dir,
             evidence_normalization_dir=evidence_normalization_dir,
+            pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
         ),
         "process_runs": dict(process_runs),
         "failures": failures,
@@ -1320,6 +1434,285 @@ def _consume_pass1_outputs(
         if isinstance(output.title, str) and output.title.strip():
             state.recipe.name = output.title.strip()
         state.pass1_status = "ok"
+
+
+def _apply_pass1_recipe_eligibility_gate(
+    states: list[_RecipeState],
+    *,
+    full_blocks_by_index: dict[int, dict[str, Any]],
+    total_blocks: int,
+) -> dict[str, Any]:
+    max_index = max(total_blocks - 1, 0)
+    rows: list[dict[str, Any]] = []
+    counts = {"evaluated": 0, "proceed": 0, "clamp": 0, "drop": 0}
+    for state in states:
+        row = {"recipe_id": state.recipe_id, "pass1_status_before": state.pass1_status}
+        if state.pass1_status != "ok":
+            state.pass1_eligibility_status = "skipped"
+            state.pass1_eligibility_action = "skip"
+            row["eligibility_status"] = "skipped"
+            row["eligibility_action"] = "skip"
+            rows.append(row)
+            continue
+
+        included_blocks = _pass1_eligibility_blocks_for_state(
+            state,
+            full_blocks_by_index=full_blocks_by_index,
+        )
+        score_components, reasons = _pass1_eligibility_components(included_blocks)
+        score = int(
+            score_components["ingredient_like_score"]
+            + score_components["instruction_like_score"]
+            + score_components["heading_or_yield_context_score"]
+            + score_components["prose_dominance_score"]
+            + score_components["chapter_page_negative_score"]
+        )
+        if score >= 3:
+            action = "proceed"
+        elif score <= 0:
+            action = "drop"
+        else:
+            action = "clamp"
+
+        state.pass1_eligibility_status = "evaluated"
+        state.pass1_eligibility_action = action
+        state.pass1_eligibility_score = score
+        state.pass1_eligibility_score_components = dict(score_components)
+        state.pass1_eligibility_reasons = list(reasons)
+        counts["evaluated"] += 1
+        counts[action] += 1
+
+        if action == "drop":
+            state.pass1_status = "dropped"
+            state.start_block_index = None
+            state.end_block_index = None
+            state.warnings.append(
+                "pass1 eligibility gate dropped recipe before pass2 (low structural evidence)."
+            )
+        elif action == "clamp":
+            target_start = (
+                state.heuristic_start
+                if state.heuristic_start is not None
+                else state.start_block_index
+            )
+            target_end = (
+                state.heuristic_end
+                if state.heuristic_end is not None
+                else state.end_block_index
+            )
+            if target_start is None:
+                target_start = 0
+            if target_end is None:
+                target_end = target_start
+            target_start = max(0, min(int(target_start), max_index))
+            target_end = max(target_start, min(int(target_end), max_index))
+            state.start_block_index = target_start
+            state.end_block_index = target_end
+            state.warnings.append(
+                "pass1 eligibility gate clamped boundaries to heuristic range before pass2."
+            )
+
+        row.update(
+            {
+                "eligibility_status": state.pass1_eligibility_status,
+                "eligibility_action": state.pass1_eligibility_action,
+                "eligibility_score": state.pass1_eligibility_score,
+                "eligibility_score_components": dict(
+                    state.pass1_eligibility_score_components or {}
+                ),
+                "eligibility_reasons": list(state.pass1_eligibility_reasons),
+                "pass1_status_after": state.pass1_status,
+                "start_block_index_after": state.start_block_index,
+                "end_block_index_after": state.end_block_index,
+            }
+        )
+        rows.append(row)
+
+    return {
+        "schema_version": "pass1_recipe_eligibility.v1",
+        "counts": counts,
+        "rows": rows,
+    }
+
+
+def _pass1_eligibility_blocks_for_state(
+    state: _RecipeState,
+    *,
+    full_blocks_by_index: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    start = state.start_block_index
+    end = state.end_block_index
+    if start is None or end is None:
+        return []
+    lo = min(int(start), int(end))
+    hi = max(int(start), int(end))
+    excluded = {str(block_id) for block_id in state.excluded_block_ids}
+    blocks: list[dict[str, Any]] = []
+    for idx in range(lo, hi + 1):
+        block = full_blocks_by_index.get(idx)
+        if block is None:
+            continue
+        block_id = str(block.get("block_id") or "")
+        if block_id and block_id in excluded:
+            continue
+        blocks.append(dict(block))
+    return blocks
+
+
+def _pass1_eligibility_components(
+    blocks: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[str]]:
+    lines = [str(block.get("text") or "").strip() for block in blocks]
+    lines = [line for line in lines if line]
+    ingredient_hits = sum(1 for line in lines if _eligibility_looks_ingredient_line(line))
+    instruction_hits = sum(1 for line in lines if _eligibility_looks_instruction_line(line))
+    heading_yield_hits = sum(1 for line in lines if _eligibility_has_heading_or_yield_context(line))
+    prose_hits = sum(1 for line in lines if _eligibility_looks_prose_line(line))
+    line_count = len(lines)
+
+    has_ingredient_like = ingredient_hits > 0
+    has_instruction_like = instruction_hits > 0
+    has_heading_or_yield_context = heading_yield_hits > 0
+    chapter_page_negative_hits = sum(
+        1
+        for block in blocks
+        if _eligibility_has_chapter_page_negative_metadata(block)
+    )
+    block_count = len(blocks)
+    prose_dominance_high = (
+        line_count > 0
+        and prose_hits >= max(2, (line_count * 2) // 3)
+        and ingredient_hits == 0
+        and instruction_hits <= 1
+    )
+    chapter_page_negative_evidence_high = (
+        block_count > 0
+        and chapter_page_negative_hits >= max(1, (block_count + 1) // 2)
+        and ingredient_hits == 0
+        and instruction_hits <= 1
+    )
+
+    components = {
+        "ingredient_like": has_ingredient_like,
+        "instruction_like": has_instruction_like,
+        "heading_or_yield_context": has_heading_or_yield_context,
+        "prose_dominance_high": prose_dominance_high,
+        "chapter_page_negative_evidence_high": chapter_page_negative_evidence_high,
+        "ingredient_like_score": 2 if has_ingredient_like else 0,
+        "instruction_like_score": 2 if has_instruction_like else 0,
+        "heading_or_yield_context_score": 1 if has_heading_or_yield_context else 0,
+        "prose_dominance_score": -2 if prose_dominance_high else 0,
+        "chapter_page_negative_score": -2 if chapter_page_negative_evidence_high else 0,
+        "line_count": line_count,
+        "block_count": block_count,
+        "ingredient_hits": ingredient_hits,
+        "instruction_hits": instruction_hits,
+        "heading_or_yield_hits": heading_yield_hits,
+        "prose_hits": prose_hits,
+        "chapter_page_negative_hits": chapter_page_negative_hits,
+    }
+    reasons: list[str] = []
+    if has_ingredient_like:
+        reasons.append("ingredient_like_evidence_present")
+    else:
+        reasons.append("ingredient_like_evidence_missing")
+    if has_instruction_like:
+        reasons.append("instruction_like_evidence_present")
+    else:
+        reasons.append("instruction_like_evidence_missing")
+    if has_heading_or_yield_context:
+        reasons.append("heading_or_yield_context_present")
+    if prose_dominance_high:
+        reasons.append("prose_dominance_high")
+    if chapter_page_negative_evidence_high:
+        reasons.append("chapter_page_metadata_negative_evidence_high")
+    return components, reasons
+
+
+def _eligibility_iter_metadata_hint_values(container: object) -> list[str]:
+    if not isinstance(container, dict):
+        return []
+    values: list[str] = []
+    for key in _ELIGIBILITY_CHAPTER_PAGE_HINT_KEYS:
+        raw_value = container.get(key)
+        if isinstance(raw_value, str) and raw_value.strip():
+            values.append(raw_value.strip())
+        elif isinstance(raw_value, (list, tuple, set)):
+            for item in raw_value:
+                if isinstance(item, str) and item.strip():
+                    values.append(item.strip())
+    for key in _ELIGIBILITY_TAG_LIST_KEYS:
+        raw_value = container.get(key)
+        if isinstance(raw_value, str) and raw_value.strip():
+            values.append(raw_value.strip())
+        elif isinstance(raw_value, (list, tuple, set)):
+            for item in raw_value:
+                if isinstance(item, str) and item.strip():
+                    values.append(item.strip())
+    return values
+
+
+def _eligibility_has_chapter_page_negative_metadata(block: dict[str, Any]) -> bool:
+    features = block.get("features")
+    metadata = block.get("metadata")
+    hint_values: list[str] = []
+    hint_values.extend(_eligibility_iter_metadata_hint_values(block))
+    hint_values.extend(_eligibility_iter_metadata_hint_values(features))
+    hint_values.extend(_eligibility_iter_metadata_hint_values(metadata))
+    for raw_value in hint_values:
+        normalized = re.sub(r"[^a-z0-9]+", "_", raw_value.strip().lower()).strip("_")
+        if not normalized:
+            continue
+        for token in _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS:
+            padded_normalized = f"_{normalized}_"
+            padded_token = f"_{token}_"
+            if padded_token in padded_normalized:
+                return True
+    return False
+
+
+def _eligibility_looks_ingredient_line(text: str) -> bool:
+    if _ELIGIBILITY_INSTRUCTION_VERB_RE.match(text):
+        return False
+    if _ELIGIBILITY_INGREDIENT_LEAD_RE.match(text):
+        return True
+    if _ELIGIBILITY_INGREDIENT_UNIT_RE.search(text) and re.search(r"\d", text):
+        return True
+    return False
+
+
+def _eligibility_looks_instruction_line(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _ELIGIBILITY_INSTRUCTION_VERB_RE.match(stripped):
+        return True
+    if re.match(r"^\s*(?:step\s*)?\d+[.)]\s+", stripped, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def _eligibility_has_heading_or_yield_context(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _ELIGIBILITY_YIELD_PREFIX_RE.match(stripped):
+        return True
+    return bool(_ELIGIBILITY_TITLE_LIKE_RE.match(stripped) and "." not in stripped)
+
+
+def _eligibility_looks_prose_line(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'/-]*", stripped)
+    if len(words) < 10:
+        return False
+    if _ELIGIBILITY_INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    if _ELIGIBILITY_INGREDIENT_LEAD_RE.match(stripped):
+        return False
+    return "." in stripped or "," in stripped
 
 
 def _apply_pass1_midpoint_clamps(states: list[_RecipeState], *, total_blocks: int) -> None:

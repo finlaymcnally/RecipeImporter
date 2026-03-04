@@ -206,3 +206,44 @@ def test_write_draft_outputs_normalizes_override_aliases(tmp_path) -> None:
     assert payload["name"] == "Override Recipe"
     assert payload["ingredients"] == ["2 eggs", "pinch salt"]
     assert payload["instructions"] == ["Whisk quickly."]
+
+
+def test_write_draft_outputs_preserves_existing_override_aliases(tmp_path) -> None:
+    candidate = RecipeCandidate(
+        name="Ignored",
+        ingredients=["salt"],
+        instructions=["Stir."],
+        identifier="urn:recipeimport:test:override-preserve",
+    )
+    result = ConversionResult(
+        recipes=[candidate],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        nonRecipeBlocks=[],
+        rawArtifacts=[],
+        report=ConversionReport(),
+        workbook="override-preserve",
+        workbookPath="override-preserve.txt",
+    )
+    out_dir = tmp_path / "final drafts" / "override-preserve"
+    override_payload = {
+        "schema_v": 1,
+        "source": "override.txt",
+        "recipe": {"title": "Derived Title"},
+        "steps": [{"instruction": "Derived instruction", "ingredient_lines": []}],
+        "name": "Pinned Name",
+        "ingredients": ["pinned ingredient"],
+        "instructions": ["Pinned instruction"],
+    }
+
+    write_draft_outputs(
+        result,
+        out_dir,
+        draft_overrides_by_recipe_id={candidate.identifier: override_payload},
+    )
+
+    payload = json.loads((out_dir / "r0.json").read_text(encoding="utf-8"))
+    assert payload["name"] == "Pinned Name"
+    assert payload["ingredients"] == ["pinned ingredient"]
+    assert payload["instructions"] == ["Pinned instruction"]

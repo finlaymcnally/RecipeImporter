@@ -514,7 +514,6 @@ def _normalize_draft_compatibility_aliases(payload: Any) -> None:
     title = str(recipe_payload.get("title") or "").strip()
     if not title:
         title = "Untitled Recipe"
-    payload["name"] = title
 
     derived_ingredients: list[str] = []
     seen_ingredients: set[str] = set()
@@ -541,8 +540,15 @@ def _normalize_draft_compatibility_aliases(payload: Any) -> None:
             seen_ingredients.add(ingredient_text)
             derived_ingredients.append(ingredient_text)
 
-    payload["ingredients"] = derived_ingredients
-    payload["instructions"] = derived_instructions
+    existing_name = payload.get("name")
+    if not str(existing_name or "").strip():
+        payload["name"] = title
+
+    if "ingredients" not in payload or payload.get("ingredients") is None:
+        payload["ingredients"] = derived_ingredients
+
+    if "instructions" not in payload or payload.get("instructions") is None:
+        payload["instructions"] = derived_instructions
 
 
 def _coerce_instruction_text(value: Any) -> str:

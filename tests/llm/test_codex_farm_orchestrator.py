@@ -392,6 +392,196 @@ def test_orchestrator_records_pass1_span_loss_metrics_when_midpoint_clamp_shrink
     assert first_recipe_metrics["boundaries_clamped"] is True
 
 
+def test_orchestrator_pass1_eligibility_gate_drops_low_evidence_spans(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"][0]["text"] = (
+        "This opening paragraph discusses kitchen history, writing style, and context, "
+        "but it is not an actionable recipe span."
+    )
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS1_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "is_recipe": True,
+                "start_block_index": 0,
+                "end_block_index": 0,
+                "title": None,
+                "reasoning_tags": ["eligibility-drop"],
+                "excluded_block_ids": [],
+            }
+        }
+    )
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID]
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    recipe_id = "urn:recipe:test:toast"
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["eligibility_action"] == "drop"
+    assert recipe_row["pass1"] == "dropped"
+    assert manifest["counts"]["pass1_eligibility_drop"] == 1
+    assert manifest["counts"]["pass2_inputs"] == 0
+    assert result.recipes == []
+
+
+def test_orchestrator_pass1_eligibility_gate_clamps_to_heuristic_bounds(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"][1]["text"] = "TOAST"
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS1_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "is_recipe": True,
+                "start_block_index": 1,
+                "end_block_index": 1,
+                "title": None,
+                "reasoning_tags": ["eligibility-clamp"],
+                "excluded_block_ids": [],
+            }
+        }
+    )
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID]
+    recipe_id = "urn:recipe:test:toast"
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["eligibility_action"] == "clamp"
+    assert recipe_row["pass1"] == "ok"
+    assert manifest["counts"]["pass1_eligibility_clamp"] == 1
+    location = result.recipes[0].provenance.get("location")
+    assert location["start_block"] == 1
+    assert location["end_block"] == 4
+
+
+def test_orchestrator_pass1_eligibility_uses_chapter_page_negative_metadata(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    blocks = result.raw_artifacts[0].content["blocks"]
+    blocks[1]["text"] = "TOAST"
+    blocks[1]["features"] = {"chapter_type": "chapter_intro"}
+    blocks[2]["text"] = "Mix the bread."
+    blocks[2]["features"] = {"page_type": "mixed_content_page"}
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS1_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "is_recipe": True,
+                "start_block_index": 1,
+                "end_block_index": 2,
+                "title": None,
+                "reasoning_tags": ["eligibility-clamp"],
+                "excluded_block_ids": [],
+            }
+        }
+    )
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID]
+    recipe_id = "urn:recipe:test:toast"
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    recipe_row = manifest["recipes"][recipe_id]
+    components = recipe_row["eligibility_score_components"]
+    reasons = recipe_row["eligibility_reasons"]
+    assert recipe_row["eligibility_action"] == "clamp"
+    assert components["chapter_page_negative_evidence_high"] is True
+    assert components["chapter_page_negative_score"] == -2
+    assert "chapter_page_metadata_negative_evidence_high" in reasons
+
+
+def test_orchestrator_pass1_eligibility_gate_records_proceed_action(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            }
+        }
+    )
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    recipe_row = manifest["recipes"]["urn:recipe:test:toast"]
+    assert recipe_row["eligibility_action"] == "proceed"
+    assert recipe_row["eligibility_score"] >= 3
+    assert manifest["counts"]["pass1_eligibility_proceed"] == 1
+
+
 def test_orchestrator_transport_mismatch_is_recipe_scoped_error(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
@@ -1130,10 +1320,6 @@ def test_orchestrator_recipe_level_failures_fallback_without_crashing(tmp_path: 
     assert apply_result.final_overrides_by_recipe_id == {}
     assert len(apply_result.updated_conversion_result.recipes) == 1
     assert apply_result.llm_report["counts"]["pass2_errors"] == 1
-
-
-
-
 
 
 

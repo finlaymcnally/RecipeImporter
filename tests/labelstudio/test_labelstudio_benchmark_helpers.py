@@ -2393,6 +2393,88 @@ def test_single_offline_comparison_artifacts_include_per_label_breakdown(
     assert "| RECIPE_TITLE |    0.6923 | 0.6429 |   14 |   13 |" in markdown
 
 
+def test_single_offline_comparison_artifacts_include_variant_diagnostics(
+    tmp_path: Path,
+) -> None:
+    session_root = tmp_path / "session"
+    codex_eval_output_dir = session_root / "codexfarm"
+    vanilla_eval_output_dir = session_root / "vanilla"
+    codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
+    vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
+
+    (codex_eval_output_dir / "eval_report.json").write_text(
+        json.dumps(
+            {
+                "overall_block_accuracy": 0.80,
+                "macro_f1_excluding_other": 0.60,
+                "segmentation": {"boundaries": {"overall_micro": {"f1": 0.75, "fp": 4, "fn": 6}}},
+                "diagnostics": {
+                    "gold_adaptation": {
+                        "mode": "auto",
+                        "coverage_ratio": 0.91,
+                        "ambiguous_gold_blocks": 2,
+                        "unresolved_gold_blocks": 5,
+                        "confidence_counts": {"high": 10, "medium": 8, "low": 2},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (vanilla_eval_output_dir / "eval_report.json").write_text(
+        json.dumps(
+            {
+                "overall_block_accuracy": 0.74,
+                "macro_f1_excluding_other": 0.58,
+                "segmentation": {"boundaries": {"overall_micro": {"f1": 0.81, "fp": 2, "fn": 5}}},
+                "diagnostics": {
+                    "gold_adaptation": {
+                        "mode": "auto",
+                        "coverage_ratio": 0.95,
+                        "ambiguous_gold_blocks": 1,
+                        "unresolved_gold_blocks": 3,
+                        "confidence_counts": {"high": 12, "medium": 7, "low": 1},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    written = cli._write_single_offline_comparison_artifacts(
+        run_timestamp="2026-03-04_11.00.00",
+        session_root=session_root,
+        source_file="book.epub",
+        codex_eval_output_dir=codex_eval_output_dir,
+        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        write_markdown=True,
+    )
+    assert written is not None
+    comparison_json_path, comparison_md_path = written
+    payload = json.loads(comparison_json_path.read_text(encoding="utf-8"))
+    diagnostics = payload["metadata"]["variant_diagnostics"]
+    assert diagnostics["schema_version"] == "single_offline_variant_diagnostics.v1"
+    assert diagnostics["likely_driver"] in {
+        "segmentation_driven",
+        "classification_driven",
+        "mixed",
+        "no_material_change",
+    }
+    codex_row = diagnostics["variants"]["codexfarm"]
+    vanilla_row = diagnostics["variants"]["vanilla"]
+    assert codex_row["gold_adaptation"]["coverage_ratio"] == pytest.approx(0.91)
+    assert vanilla_row["gold_adaptation"]["coverage_ratio"] == pytest.approx(0.95)
+    assert diagnostics["deltas"]["gold_adaptation_coverage_ratio_delta"] == pytest.approx(
+        -0.04
+    )
+    assert diagnostics["deltas"]["gold_adaptation_confidence_count_deltas"]["high"] == -2
+
+    assert comparison_md_path is not None
+    markdown = comparison_md_path.read_text(encoding="utf-8")
+    assert "## Delta Attribution" in markdown
+    assert "gold_adaptation_coverage_ratio" in markdown
+
+
 def test_interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3170,7 +3252,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
 
 
 

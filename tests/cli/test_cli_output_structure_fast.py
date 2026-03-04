@@ -41,11 +41,11 @@ def test_labelstudio_import_defaults_to_codex_recipe_pipeline() -> None:
     assert _default_value(params["llm_recipe_pipeline"]) == "codex-farm-3pass-v1"
 
 
-def test_labelstudio_benchmark_defaults_to_top_tier_profile() -> None:
+def test_labelstudio_benchmark_defaults_to_safe_opt_in_profile() -> None:
     params = inspect.signature(cli.labelstudio_benchmark).parameters
 
     assert params["epub_unstructured_skip_headers_footers"].default is True
     assert params["epub_unstructured_preprocess_mode"].default == "semantic_v1"
-    assert params["llm_recipe_pipeline"].default == "codex-farm-3pass-v1"
+    assert params["llm_recipe_pipeline"].default == "off"
     assert params["atomic_block_splitter"].default == "atomic-v1"
-    assert params["line_role_pipeline"].default == "codex-line-role-v1"
+    assert params["line_role_pipeline"].default == "off"

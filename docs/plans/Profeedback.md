@@ -24,16 +24,24 @@ This plan is limited to codex line-role and pass1 recipe-activation safety polic
 
 This plan stays deterministic for gating and validation logic. It may continue using existing codex paths, but no new LLM-based parsing/cleaning modes are introduced.
 
+Default operator behavior must remain unchanged: codex paths stay opt-in and disabled unless a run explicitly enables `--line-role-pipeline codex-line-role-v1` and/or `--llm-recipe-pipeline codex-farm-3pass-v1`.
+
 ## Progress
 
 - [x] (2026-03-04_09.56.27) Re-read feedback and converted it into an ExecPlan candidate scope.
 - [x] (2026-03-04_09.56.27) Audited current implementations in `cookimport/parsing/canonical_line_roles.py`, `cookimport/parsing/recipe_block_atomizer.py`, `cookimport/llm/codex_farm_orchestrator.py`, and `cookimport/cli.py` line-role gates.
 - [x] (2026-03-04_09.56.27) Removed/changed feedback items already implemented or conflicting with current architecture; recorded in `Decision Log`.
-- [ ] Implement Milestone 1: line-role do-no-harm arbitration and diagnostics.
-- [ ] Implement Milestone 2: outside-span containment for recipe-ish labels, including HOWTO restrictions.
-- [ ] Implement Milestone 3: pass1 recipe-eligibility do-no-harm gate before pass2 promotion.
-- [ ] Implement Milestone 4: selective codex escalation policy for line-role (inside-span first).
-- [ ] Implement Milestone 5: ablation evidence and regression acceptance.
+- [x] (2026-03-04_10.03.19) Tightened milestone policy ambiguity with explicit thresholds/actions and added compare-command acceptance steps.
+- [x] (2026-03-04_10.24.10) Implemented Milestone 1: runtime do-no-harm arbitration with deterministic baseline fallback scopes and diagnostics artifacts (`do_no_harm_diagnostics.json`, `do_no_harm_changed_rows.jsonl`).
+- [x] (2026-03-04_10.24.10) Implemented Milestone 2: outside-span containment policy (`HOWTO_SECTION` hard-deny, title/variant compact+neighbor evidence, structured-line local-evidence requirements) with reason-tagged downgrades.
+- [x] (2026-03-04_10.24.10) Implemented Milestone 3: pass1 eligibility gate (`proceed`/`clamp`/`drop`) and persisted diagnostics in `pass1_recipe_eligibility_diagnostics.json` + llm manifest recipe rows.
+- [x] (2026-03-04_11.10.48) Extended Milestone 3 scoring with explicit chapter/page metadata negative evidence (`chapter_page_negative_score`) and manifest-visible score components/reasons.
+- [x] (2026-03-04_10.24.10) Implemented Milestone 4: outside-span low-confidence codex escalation disabled by default (inside-span-first policy), with narrow env override for controlled ablations.
+- [x] (2026-03-04_10.58.00) Milestone 5 ablation packet executed with deterministic stage-block scoring (`--gold-adaptation-mode off`) and machine-readable summary artifact at `data/output/labelstudio-benchmark/profeedback-2026-03-04_10.41.51/ablation_summary.json`.
+- [x] (2026-03-04_11.20.00) Closed compare-step blocker: `labelstudio-benchmark compare` now accepts single-run `eval_report.json` file/directory inputs in addition to all-method multi-source report roots.
+- [x] (2026-03-04_10.58.00) Codex auth blocker documented: full-stack codex runs required `--codex-farm-failure-mode fallback` in this environment due `codex-farm` websocket `403 Forbidden` authentication failures.
+- [x] (2026-03-04_10.30.20) Added/updated regression tests for do-no-harm arbitration, outside-span policy, pass1 eligibility actions, and line-role artifact path propagation.
+- [x] (2026-03-04_10.31.54) Updated docs (`04-parsing`, `10-llm`, `06-label-studio`) and added implementation findings note in `docs/understandings/`.
 
 ## Surprises & Discoveries
 
@@ -48,6 +56,18 @@ This plan stays deterministic for gating and validation logic. It may continue u
 
 - Observation: Benchmark-time regression gates exist, but runtime do-no-harm arbitration of codex line-role predictions is still missing.
   Evidence: `cookimport/cli.py::_build_line_role_regression_gate_payload` gates benchmark outputs, but there is no equivalent runtime acceptance gate in `label_atomic_lines`.
+
+- Observation: Existing low-confidence escalation tests assumed outside-span codex escalation was allowed; policy flip required explicit test contract updates.
+  Evidence: `tests/parsing/test_canonical_line_roles.py::test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_span` now asserts codex is not called for outside-span low-confidence rows.
+
+- Observation: Full touched-suite run currently fails on a pre-existing benchmark default assertion unrelated to this plan’s code paths.
+  Evidence: `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py::test_labelstudio_benchmark_no_upload_uses_offline_pred_run` expects `atomic_block_splitter=\"off\"` while runtime default is `atomic-v1`.
+
+- Observation: `labelstudio-benchmark compare` does not accept per-run `eval_report.json` artifacts from `labelstudio-benchmark run`.
+  Evidence: compare rejects those paths with `Unable to resolve ... all-method benchmark report root`, and resolver code requires `all_method_benchmark_multi_source_report.json` roots.
+
+- Observation: Full codex-farm recipe pipeline is currently blocked by environment auth, independent of parsing gate code.
+  Evidence: `codex-farm` run failed with websocket `403 Forbidden` and message `codex auth failed: run \`codex\` once and sign in`.
 
 ## Decision Log
 
@@ -71,16 +91,46 @@ This plan stays deterministic for gating and validation logic. It may continue u
   Rationale: They are already covered by `docs/plans/OGplan/2026-03-04_08.40.46-processing-quality-reliability-recovery.md` and would create duplicate execution tracks.
   Date/Author: 2026-03-04 / assistant
 
+- Decision: Lock first-pass do-no-harm thresholds to explicit constants in Milestone 1.
+  Rationale: A threshold-free plan leaves too much implementer discretion and makes benchmark acceptance less reproducible.
+  Date/Author: 2026-03-04 / assistant
+
+- Decision: Enforce `HOWTO_SECTION` outside-span as hard-deny in v1, with no exception path.
+  Rationale: This is the highest-risk contamination label in current feedback and is easy to verify with deterministic tests.
+  Date/Author: 2026-03-04 / assistant
+
+- Decision: Disable outside-span low-confidence codex escalation by default in code for milestone acceptance.
+  Rationale: Confidence-only escalation is a known contamination vector; disabling it first is safer than introducing complex exception rules immediately.
+  Date/Author: 2026-03-04 / assistant
+
+- Decision: Keep a minimal env override (`COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION`) instead of adding broad run-settings surface for outside-span escalation.
+  Rationale: Milestone policy requires safe-by-default behavior; one narrow override supports controlled experiments without expanding persistent operator config complexity.
+  Date/Author: 2026-03-04 / assistant
+
+- Decision: Implement runtime do-no-harm as post-sanitization arbitration against sanitized deterministic baselines.
+  Rationale: Comparing post-sanitization predictions prevents double-counting labels that are already invalidated by deterministic sanitizers and keeps fallback scopes auditable.
+  Date/Author: 2026-03-04 / assistant
+
+- Decision: Execute Milestone 5 with `--gold-adaptation-mode off` to avoid adaptive remap ambiguity aborts in stage-block evaluation.
+  Rationale: Initial run failed with `ambiguous=285 (max=50)` under adaptive remap auto mode; deterministic stage-block scoring is sufficient for this ablation packet.
+  Date/Author: 2026-03-04 / assistant
+
+- Decision: Use `--codex-farm-failure-mode fallback` for full-stack ablation rows in this environment.
+  Rationale: Codex auth was unavailable (`403 Forbidden`), and fallback mode preserved command completion plus comparable artifacts while explicitly recording the limitation.
+  Date/Author: 2026-03-04 / assistant
+
 ## Outcomes & Retrospective
 
-Implementation has not started yet. The target outcome is a safer codex line-role + pass1 activation system that prevents high-impact prose-to-recipe contamination while preserving in-recipe improvements.
+Implemented outcomes:
 
-At completion, this section must report whether:
+- Runtime do-no-harm fallback now emits explicit scope decisions (`accept`, `partial_outside_downgrade`, `full_source_fallback`) with threshold/counter payloads in `line-role-pipeline/do_no_harm_diagnostics.json`.
+- Outside-span containment now hard-denies `HOWTO_SECTION` and applies evidence-checked downgrades for title/variant/instruction/ingredient promotions, with traceable reason tags and changed-row logs.
+- Pass1 recipe activation now has deterministic eligibility scoring and policy-band actions before pass2 (`proceed`, `clamp`, `drop`) with recipe-level manifest visibility plus dedicated diagnostics artifact.
+- Selective escalation policy now runs inside-span-first by default; outside-span low-confidence escalation is off unless explicitly overridden.
 
-- runtime do-no-harm fallback triggers correctly on contamination patterns,
-- outside-span recipe-ish false positives are materially reduced,
-- pass1 accepts fewer low-evidence narrative spans,
-- codex line-role remains beneficial inside confirmed recipe spans.
+Remaining gap:
+
+- Full-stack rows in this packet used codex-farm fallback because auth was unavailable; rerun those rows without fallback after codex auth is restored to get true codex-vs-deterministic compare evidence.
 
 ## Context and Orientation
 
@@ -106,7 +156,7 @@ The code has deterministic outside-span heuristics and sanitizers, but codex esc
 
 Add a deterministic acceptance stage in `cookimport/parsing/canonical_line_roles.py` after codex predictions are parsed and sanitized. This stage must compare codex-resolved labels against deterministic baseline labels for the same candidates and compute contamination-risk counters, including outside-span recipe-ish flips, outside-span HOWTO/title promotions, and outside-span instruction/ingredient promotions lacking nearby recipe evidence.
 
-If counters cross configurable thresholds, fallback behavior should be deterministic and explicit. The first implementation should support two fallback scopes: downgrade only contaminated outside-span rows, or fallback entire source to deterministic labels when contamination is severe. Every fallback decision must produce a diagnostics payload containing counts, thresholds, and selected fallback scope.
+To remove ambiguity, implement fixed first-pass thresholds as constants in this milestone (they can be tuned later in follow-up work): partial downgrade when any outside-span `HOWTO_SECTION` promotion occurs, or when outside-span `RECIPE_TITLE`/`RECIPE_VARIANT` promotions are at least 2, or when outside-span `INSTRUCTION_LINE`/`INGREDIENT_LINE` promotions are at least 4. Trigger full-source fallback to deterministic labels when total outside-span recipe-ish promotions are at least 8 or exceed 20% of candidate rows for that source. The first implementation should support two fallback scopes: downgrade only contaminated outside-span rows, or fallback entire source to deterministic labels when contamination is severe. Every fallback decision must produce a diagnostics payload containing counts, thresholds, and selected fallback scope.
 
 Wire diagnostics artifact emission through the existing artifact root (`line-role-pipeline`) so benchmark and local debugging can trace why codex labels were accepted or rejected.
 
@@ -114,21 +164,23 @@ Wire diagnostics artifact emission through the existing artifact root (`line-rol
 
 Tighten label policy in `cookimport/parsing/canonical_line_roles.py` and, where needed, `cookimport/parsing/recipe_block_atomizer.py` so outside-span rows cannot be promoted to dangerous recipe-structure labels without explicit evidence. In practice, this means:
 
-Outside active recipe spans, `HOWTO_SECTION` should be denied by default. `RECIPE_TITLE` and `RECIPE_VARIANT` should require compact-heading shape plus immediate neighboring structural recipe signals. `INSTRUCTION_LINE` and `INGREDIENT_LINE` outside spans should require stronger local evidence than today, otherwise resolve to `OTHER` or `KNOWLEDGE`.
+Outside active recipe spans, `HOWTO_SECTION` is always denied in this milestone (no exception path in v1). `RECIPE_TITLE` and `RECIPE_VARIANT` require compact-heading shape plus neighboring structural evidence within ±2 lines. `INSTRUCTION_LINE` and `INGREDIENT_LINE` outside spans should require stronger local evidence than today, otherwise resolve to `OTHER` or `KNOWLEDGE`.
 
 Keep the rule deterministic and auditable: each forced downgrade should append reason tags so false positives can be traced.
 
 ### Milestone 3: Pass1 recipe-eligibility do-no-harm gate
 
-Add a recipe-eligibility check in `cookimport/llm/codex_farm_orchestrator.py` after pass1 output consumption and before pass2 input generation. This gate should score each accepted pass1 span using deterministic structural evidence from included blocks: ingredient-like presence, instruction-like presence, heading/yield context, and prose dominance.
+Add a recipe-eligibility check in `cookimport/llm/codex_farm_orchestrator.py` after pass1 output consumption and before pass2 input generation. This gate should score each accepted pass1 span using deterministic structural evidence from included blocks: ingredient-like presence, instruction-like presence, heading/yield context, prose dominance, and explicit chapter/page heuristic metadata as negative evidence.
 
-When pass1 marks `is_recipe=true` but evidence is weak and contamination risk is high, do-no-harm behavior should either clamp to heuristic bounds or drop the candidate recipe before pass2. The policy choice must be deterministic and recorded per recipe in diagnostics and manifest rows.
+Use an explicit first-pass scoring rubric to avoid implementation drift: +2 when ingredient-like evidence is present, +2 when instruction-like evidence is present, +1 when heading/yield context is present, -2 when prose dominance is high, and -2 when chapter/page metadata indicates likely non-recipe context (for example chapter-intro/front-matter/mixed-content tags) under weak structural evidence. When pass1 marks `is_recipe=true` but score is weak, apply deterministic action by band: score >=3 proceeds to pass2, score 1-2 clamps to heuristic bounds before pass2, score <=0 is dropped before pass2. The selected action must be recorded per recipe in diagnostics and manifest rows.
 
 This work hardens activation without changing codex pass contracts.
 
 ### Milestone 4: Selective codex escalation policy
 
 Refine `_should_escalate_low_confidence_candidate` in `cookimport/parsing/canonical_line_roles.py` so codex escalation is inside-span-first. Outside-span escalation should be disabled by default or restricted to evidence-qualified rows only. Confidence value alone should not be enough to escalate.
+
+For milestone acceptance, implement outside-span escalation as disabled by default in code (not only by config guidance). Any later exception path must be follow-up work with explicit evidence rules and tests.
 
 Expose minimal run-settings controls only if needed for ablations; avoid adding broad configuration surface area. Default behavior must prioritize safety while preserving codex utility inside active recipe spans.
 
@@ -174,7 +226,12 @@ Run all commands from `/home/mcnal/projects/recipeimport` with venv active.
    cookimport labelstudio-benchmark run --gold-spans data/golden/pulled-from-labelstudio/saltfatacidheatcutdown/exports/freeform_span_labels.jsonl --source-file data/input/SaltFatAcidHeatCUTDOWN.epub --eval-mode stage-blocks --no-upload --llm-recipe-pipeline codex-farm-3pass-v1 --line-role-pipeline codex-line-role-v1 --atomic-block-splitter atomic-v1
    Expected: do-no-harm diagnostics appear and catastrophic prose-activation slices are reduced versus prior baseline packet.
 
-7. Full touched-surface confidence run.
+7. Compare deterministic baseline vs codex-gated candidate for both books.
+   cookimport labelstudio-benchmark compare --baseline <foodlab_deterministic_run_or_report_path> --candidate <foodlab_codex_gated_run_or_report_path> --compare-out <foodlab_compare_dir> --fail-on-regression
+   cookimport labelstudio-benchmark compare --baseline <saltfatacidheat_deterministic_run_or_report_path> --candidate <saltfatacidheat_codex_gated_run_or_report_path> --compare-out <saltfatacidheat_compare_dir> --fail-on-regression
+   Expected: compare artifacts contain explicit gate pass/fail plus debug-artifact presence checks; regressions fail closed.
+
+8. Full touched-surface confidence run.
    pytest tests/parsing tests/llm tests/labelstudio -q
    Expected: touched suites pass with no contract regressions.
 
@@ -184,15 +241,15 @@ Acceptance is behavior-first.
 
 Runtime do-no-harm gate acceptance:
 
-For codex line-role runs, diagnostics must state whether codex labels were accepted, partially downgraded, or fully reverted. High contamination cases must trigger downgrade/revert deterministically.
+For codex line-role runs, diagnostics must state whether codex labels were accepted, partially downgraded, or fully reverted. High contamination cases must trigger downgrade/revert deterministically, and threshold fields in diagnostics must match the constant values used by the gate.
 
 Outside-span containment acceptance:
 
-Outside active recipe spans, `HOWTO_SECTION` should not appear unless explicit policy exception evidence is present. Title/variant/instruction promotions outside spans must require documented structural evidence and reason tags.
+Outside active recipe spans, `HOWTO_SECTION` must not appear at all in v1. Title/variant/instruction promotions outside spans must require documented structural evidence and reason tags.
 
 Pass1 eligibility acceptance:
 
-Pass1-accepted spans with weak structure and high prose dominance must no longer auto-flow into pass2 without a policy decision record. Diagnostics must show the reason and chosen action.
+Pass1-accepted spans with weak structure and high prose dominance must no longer auto-flow into pass2 without a policy decision record. Diagnostics must show score components and chosen action (`proceed`, `clamp`, or `drop`).
 
 Ablation acceptance:
 
@@ -231,10 +288,13 @@ Target interfaces after implementation:
 
 In `cookimport/parsing/canonical_line_roles.py`, add a deterministic do-no-harm evaluator that receives deterministic predictions, codex-resolved predictions, and candidate context, and returns accepted predictions plus diagnostics.
 
-In `cookimport/llm/codex_farm_orchestrator.py`, add a pass1 eligibility evaluator executed before pass2 input generation, with manifest-safe structured output fields (`eligibility_status`, `eligibility_reasons`, and selected action).
+In `cookimport/llm/codex_farm_orchestrator.py`, add a pass1 eligibility evaluator executed before pass2 input generation, with manifest-safe structured output fields (`eligibility_status`, `eligibility_score_components`, `eligibility_reasons`, and selected action).
 
 In `cookimport/labelstudio/ingest.py`, wire new diagnostics artifacts into run metadata so benchmark helpers can surface them without manual path hunting.
 
 Dependencies remain local and deterministic. No external service or new package is required for gate logic.
 
 Update note (2026-03-04_09.56.27): Converted narrative feedback into a PLANS-compliant ExecPlan, removed already-implemented pass3 fallback work, and narrowed scope to unresolved do-no-harm/activation gaps not covered by the companion reliability ExecPlan.
+Update note (2026-03-04_10.03.19): Tightened ambiguous policy language into explicit first-pass thresholds/actions, locked v1 outside-span HOWTO and escalation behavior, and added concrete compare commands so ablation acceptance is verifiable.
+Update note (2026-03-04_10.31.54): Marked Milestones 1-4 complete with implemented code/tests/docs evidence, recorded remaining Milestone 5 ablation-run gap, and captured new decisions/surprises from implementation.
+Update note (2026-03-04_11.33.00): Synced Milestone 3 rubric text to include chapter/page metadata negative evidence and closed compare-path handling gap by supporting single-run `eval_report.json` inputs in `labelstudio-benchmark compare`.

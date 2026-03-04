@@ -102,6 +102,11 @@ Report/model plumbing:
   - `normalization_stats`
 - Pass1->pass2 transport now uses explicit inclusive end-index semantics (`start <= idx <= end`) through `codex_farm_transport.py`, and transport audits include `end_index_semantics=\"inclusive\"`.
 - Pass1 clamp behavior is overlap-focused: when recipe spans overlap, boundaries are split across the overlap window midpoint to reduce evidence loss while still preventing overlap.
+- Pass1 now applies an eligibility do-no-harm gate before pass2:
+  - score `+2` ingredient-like evidence, `+2` instruction-like evidence, `+1` heading/yield context, `-2` high prose dominance, `-2` high chapter/page metadata negative evidence (chapter-intro/front-matter/mixed-content style tags).
+  - action bands: `score >= 3 => proceed`, `score 1-2 => clamp to heuristic bounds`, `score <= 0 => drop before pass2`.
+  - per-recipe manifest fields: `eligibility_status`, `eligibility_action`, `eligibility_score`, `eligibility_score_components`, `eligibility_reasons`.
+- Eligibility diagnostics are persisted at `raw/llm/<workbook_slug>/pass1_recipe_eligibility_diagnostics.json`.
 - Authoritative pass2 evidence remains `canonical_text` + `blocks`; normalized evidence is helper-only.
 - Recipe-level pass1/pass2 handoff audits are persisted under:
   - `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)

@@ -465,11 +465,19 @@ Gates include:
 - `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` (or `OTHER` outside recipe spans).
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
 - Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
+- Outside recipe spans, `HOWTO_SECTION` is hard-denied in the v1 safety policy.
+- Outside recipe spans, `RECIPE_TITLE`/`RECIPE_VARIANT` now require compact-heading shape plus neighboring (±2 lines) structural evidence; otherwise they are downgraded to `OTHER`/`KNOWLEDGE`.
+- Outside recipe spans, `INSTRUCTION_LINE`/`INGREDIENT_LINE` now require local recipe evidence (±2 lines) and are downgraded when evidence is missing.
 - `RECIPE_TITLE` now requires supportive next-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion.
 - Short ingredient fragments (for example split quantity/name rows) now get neighbor-aware rescue to `INGREDIENT_LINE` when adjacent ingredient-dominant context supports it.
 - Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 - Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
 - Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
+- Outside-span low-confidence escalation is disabled by default; codex escalation remains inside-span-first (optional override: `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION=1`).
+- Codex mode now applies a runtime do-no-harm arbitration step after sanitization. Harmful outside-span promotions trigger partial downgrade or full-source fallback to deterministic baseline labels.
+- Do-no-harm diagnostics are written under `line-role-pipeline/`:
+  - `do_no_harm_diagnostics.json`
+  - `do_no_harm_changed_rows.jsonl`
 - Codex fallback batches now run with bounded in-flight concurrency (parser default `4` per book; explicit env override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`; ingest callers can pass `codex_max_inflight`) and merge back deterministically by atomic index/prompt order.
 - Prompt logging internals are thread-safe for concurrent codex batch workers (`prompt_*.txt`, `response_*.txt`, `parsed_*.json`, and dedup log writes).
 - Codex call failures now use bounded retry/backoff before fallback (`3` attempts, exponential backoff base `1.5s`).

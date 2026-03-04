@@ -67,6 +67,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
+- stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
@@ -81,7 +82,10 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   the default session contract can stay upload-bundle-first.
 
 Interactive benchmark flows (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`) stay offline and use canonical-text scoring.
-`labelstudio-benchmark compare` evaluates named gates (`sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates) and writes timestamped reports under `data/golden/benchmark-vs-golden/comparisons/<timestamp>/`.
+`labelstudio-benchmark compare` supports:
+- all-method multi-source compare (named gates like `sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates), and
+- single-run compare from `eval_report.json` inputs (generic no-regression/debug gates).
+It writes timestamped reports under `data/golden/benchmark-vs-golden/comparisons/<timestamp>/`.
 
 Debug artifact mode checks in compare are resolved by metadata first and inferred from artifacts when metadata is absent. If the pipeline intent cannot be confirmed, the command emits explicit warnings in both CLI output and comparison artifacts and skips benchmark-only checks by design.
 Interactive `single_offline` now writes into one session root:
@@ -103,6 +107,8 @@ Interactive `single_offline` now writes into one session root:
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
   - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
+  - comparison metadata now includes `metadata.variant_diagnostics` with likely-driver attribution (segmentation vs classification), per-variant gold-adaptation summaries, and `codex - vanilla` remap coverage/confidence deltas.
+  - markdown comparison output now includes a `Delta Attribution` section with these diagnostics in human-readable form.
 - dashboard refresh is deferred until the full single-offline variant batch completes, then the lifetime dashboard is regenerated at `.history/dashboard` for repo-local outputs (using the configured output root) so `Previous Runs` updates without a manual dashboard rebuild.
 - all-method deferred refreshes (global queue batch, legacy multi-source batch, and source-batch refreshes) also target the lifetime dashboard path for the configured output root, rather than nested per-run `.history/dashboard` folders.
 - paired success can optionally generate a blended first-look starter pack
@@ -132,10 +138,12 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
+  - high-level group bundles still retain discovered per-run `full_prompt_log.jsonl` rows in payload (deprioritized in default navigation, not removed).
   - when the group bundle is truly multi-book (more than one source key), the index now also includes per-book scorecards (vanilla/codex/delta), ablation summary, outside-span-by-book, chapter/page-type breakdown, runtime-by-book, and top regression packets with explicit decision traces.
 - interactive single-profile multi-book runs now use one shared spinner dashboard for the full batch; inner per-book benchmark calls suppress their own spinners and emit progress into shared queue/task lines so concurrent books stay readable.
 - interactive single-profile multi-book runs inherit the shared split-gated default (`4`) because scheduler split-slot gating is enabled in that path.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
+- pytest temp eval fixtures (for example `/tmp/pytest-*/test_*/eval`) are excluded from this auto-prune path so benchmark helper tests can inspect artifacts after run completion.
 - interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. The worker summary row now includes a remaining-work counter (`active tasks (..., N left)`) derived from the same `task X/Y` counter so operators can always see total tasks left even when the top status line is width-truncated. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.

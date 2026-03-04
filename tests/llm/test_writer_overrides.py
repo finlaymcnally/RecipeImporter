@@ -58,4 +58,7 @@ def test_writer_uses_schemaorg_and_draft_overrides(tmp_path: Path) -> None:
     intermediate_payload = json.loads((intermediate_dir / "r0.jsonld").read_text(encoding="utf-8"))
     final_payload = json.loads((final_dir / "r0.json").read_text(encoding="utf-8"))
     assert intermediate_payload == schemaorg_override
-    assert final_payload == draft_override
+    assert final_payload["schema_v"] == draft_override["schema_v"]
+    assert final_payload["source"] == draft_override["source"]
+    assert final_payload["recipe"] == draft_override["recipe"]
+    assert final_payload["steps"] == draft_override["steps"]

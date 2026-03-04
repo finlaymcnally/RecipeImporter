@@ -2225,7 +2225,21 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
         for row in multi_index_payload.get("artifact_index", [])
         if isinstance(row, dict)
     }
-    assert not any(path.endswith("full_prompt_log.jsonl") for path in multi_artifact_paths)
+    full_prompt_log_paths = sorted(
+        path for path in multi_artifact_paths if path.endswith("full_prompt_log.jsonl")
+    )
+    assert len(full_prompt_log_paths) == 3
+    heavy_rows = (
+        multi_index_payload.get("navigation", {})
+        .get("row_locators", {})
+        .get("deprioritized_heavy_artifacts", [])
+    )
+    assert isinstance(heavy_rows, list)
+    assert any(
+        isinstance(row, dict)
+        and str(row.get("path") or "").endswith("full_prompt_log.jsonl")
+        for row in heavy_rows
+    )
 
 
 def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(

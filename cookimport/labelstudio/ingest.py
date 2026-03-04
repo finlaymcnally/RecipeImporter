@@ -3033,6 +3033,18 @@ def generate_pred_run_artifacts(
             and line_role_artifacts.get("projected_spans_path") is not None
             else None
         ),
+        "line_role_pipeline_do_no_harm_diagnostics_path": (
+            str(line_role_artifacts["do_no_harm_diagnostics_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("do_no_harm_diagnostics_path") is not None
+            else None
+        ),
+        "line_role_pipeline_do_no_harm_changed_rows_path": (
+            str(line_role_artifacts["do_no_harm_changed_rows_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("do_no_harm_changed_rows_path") is not None
+            else None
+        ),
         "line_role_pipeline_recipe_projection": line_role_recipe_projection_summary,
         "task_scope": "freeform-spans",
         "segment_blocks": segment_blocks,
@@ -3146,6 +3158,22 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "line_role_pipeline_projected_spans_jsonl"
             ] = line_role_spans_manifest_path
+        line_role_do_no_harm_diagnostics_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("do_no_harm_diagnostics_path"),
+        )
+        if line_role_do_no_harm_diagnostics_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_do_no_harm_diagnostics_json"
+            ] = line_role_do_no_harm_diagnostics_manifest_path
+        line_role_do_no_harm_changed_rows_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("do_no_harm_changed_rows_path"),
+        )
+        if line_role_do_no_harm_changed_rows_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_do_no_harm_changed_rows_jsonl"
+            ] = line_role_do_no_harm_changed_rows_manifest_path
     if line_role_recipe_projection_summary is not None:
         run_manifest_artifacts[
             "line_role_pipeline_recipe_projection"
@@ -3258,6 +3286,16 @@ def generate_pred_run_artifacts(
         ),
         "line_role_pipeline_projected_spans_path": (
             line_role_artifacts.get("projected_spans_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_do_no_harm_diagnostics_path": (
+            line_role_artifacts.get("do_no_harm_diagnostics_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_do_no_harm_changed_rows_path": (
+            line_role_artifacts.get("do_no_harm_changed_rows_path")
             if isinstance(line_role_artifacts, dict)
             else None
         ),
@@ -3786,6 +3824,22 @@ def run_labelstudio_import(
         run_manifest_artifacts[
             "line_role_pipeline_projected_spans_jsonl"
         ] = line_role_spans_manifest_path
+    line_role_do_no_harm_diagnostics_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_do_no_harm_diagnostics_path"),
+    )
+    if line_role_do_no_harm_diagnostics_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_do_no_harm_diagnostics_json"
+        ] = line_role_do_no_harm_diagnostics_manifest_path
+    line_role_do_no_harm_changed_rows_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_do_no_harm_changed_rows_path"),
+    )
+    if line_role_do_no_harm_changed_rows_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_do_no_harm_changed_rows_jsonl"
+        ] = line_role_do_no_harm_changed_rows_manifest_path
     if isinstance(pred.get("line_role_pipeline_recipe_projection"), dict):
         run_manifest_artifacts[
             "line_role_pipeline_recipe_projection"
@@ -3828,6 +3882,12 @@ def run_labelstudio_import(
         ),
         "line_role_pipeline_projected_spans_path": pred.get(
             "line_role_pipeline_projected_spans_path"
+        ),
+        "line_role_pipeline_do_no_harm_diagnostics_path": pred.get(
+            "line_role_pipeline_do_no_harm_diagnostics_path"
+        ),
+        "line_role_pipeline_do_no_harm_changed_rows_path": pred.get(
+            "line_role_pipeline_do_no_harm_changed_rows_path"
         ),
         "line_role_pipeline_recipe_projection": pred.get(
             "line_role_pipeline_recipe_projection"

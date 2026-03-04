@@ -254,6 +254,8 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/freeform_span_predictions.jsonl`
 - `line-role-pipeline/stage_block_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
+- `line-role-pipeline/do_no_harm_diagnostics.json`
+- `line-role-pipeline/do_no_harm_changed_rows.jsonl`
 Prediction-generation defaults for canonical line-role codex inflight are now shared at ingest seam: non-split jobs use `8`, split-gated jobs use `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` still overrides both.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write:
@@ -286,6 +288,9 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Benchmark also records processed cookbook outputs under configured processed output root.
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
 - If `line_role_pipeline != off`, prediction-run manifests include `line_role_pipeline_*` artifact pointers and optional `line_role_pipeline_recipe_projection` summary from draft-field application.
+- Line-role manifests now also surface do-no-harm pointers:
+  - `line_role_pipeline_do_no_harm_diagnostics_json`
+  - `line_role_pipeline_do_no_harm_changed_rows_jsonl`
 
 ## 7) Troubleshooting Checklist
 

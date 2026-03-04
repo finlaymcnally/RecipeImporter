@@ -59,7 +59,11 @@ def finalize_report_totals(
         field_alias: int(getattr(report, attr_name, 0) or 0)
         for field_alias, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR
     }
-    prepopulated = any(value != 0 for value in current.values())
+    fields_set = set(getattr(report, "model_fields_set", set()) or set())
+    prepopulated = any(
+        attr_name in fields_set
+        for _, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR
+    )
     mismatched_fields = [
         field_alias
         for field_alias in expected
@@ -67,10 +71,10 @@ def finalize_report_totals(
     ]
 
     diagnostics_payload: dict[str, Any] | None = None
-    if prepopulated and mismatched_fields:
+    if mismatched_fields:
         diagnostics_payload = {
             "schema_version": "report_totals_mismatch.v1",
-            "prepopulated": True,
+            "prepopulated": bool(prepopulated),
             "mismatched_fields": mismatched_fields,
             "before": current,
             "expected": expected,
@@ -78,7 +82,9 @@ def finalize_report_totals(
         warning_text = (
             "report_total_mismatch_detected: "
             + ", ".join(mismatched_fields)
-            + " (rewritten from in-memory conversion result counts)"
+            + " (rewritten from in-memory conversion result counts; "
+            + ("prepopulated=true" if prepopulated else "prepopulated=false")
+            + ")"
         )
         if warning_text not in report.warnings:
             report.warnings.append(warning_text)
