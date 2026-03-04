@@ -1057,7 +1057,7 @@ def resolve_codex_model(value: str | None, *, cmd: str | None = None) -> str | N
     return default_codex_model(cmd=cmd)
 
 
-def preflight_codex_model_access(*, cmd: str, timeout_s: int = 30) -> None:
+def preflight_codex_model_access(*, cmd: str, timeout_s: int = 600) -> None:
     """Run one Codex probe call and fail fast for invalid model/account access."""
     normalized_cmd = cmd.strip()
     if not normalized_cmd:

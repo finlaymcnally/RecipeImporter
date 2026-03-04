@@ -135,7 +135,7 @@ If inline annotation import fails, runtime falls back to:
 - Prompt calls are one-task-per-prompt (no cross-task conversation memory).
 - Prompt cache is deterministic and can make reruns appear stateful.
 - Parallel prelabel workers are bounded (`--prelabel-workers`, default `15`).
-- Default prelabel timeout is `300` seconds per call.
+- Default prelabel timeout is `600` seconds per call.
 - First provider 429 sets a stop signal; remaining queued tasks are skipped and logged.
 - Callback failures are non-fatal telemetry warnings.
 - Plain `codex` command fallback to `codex exec -` is handled for TTY-style stdin failures.

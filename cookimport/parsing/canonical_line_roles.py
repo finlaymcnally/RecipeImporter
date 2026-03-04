@@ -38,10 +38,22 @@ _INSTRUCTION_VERB_RE = re.compile(
     r"transfer|whisk)\b",
     re.IGNORECASE,
 )
+_RECIPE_ACTION_CUE_RE = re.compile(
+    r"\b(?:add|allow|arrange|bake|beat|blend|boil|braise|bring|chop|clean|coat|"
+    r"combine|cook|cool|cover|crush|cut|deglaze|drain|dress|ferment|fill|flip|"
+    r"fold|garnish|grill|hang|heat|knead|mix|place|plate|poach|pour|preheat|"
+    r"reduce|remove|rinse|roast|sear|season|serve|set|simmer|slice|soak|stir|"
+    r"strain|tie|toast|transfer|trim|wash|whisk)\b",
+    re.IGNORECASE,
+)
+_INSTRUCTION_LEADIN_RE = re.compile(
+    r"^\s*(?:in|on|with|while|once|when|after|before)\b",
+    re.IGNORECASE,
+)
 _NOTE_PREFIX_RE = re.compile(r"^\s*notes?\s*:\s*", re.IGNORECASE)
 _NUMBERED_STEP_RE = re.compile(r"^\s*(?:step\s*)?\d{1,2}[.)]\s+", re.IGNORECASE)
 _YIELD_PREFIX_RE = re.compile(
-    r"^\s*(?:makes|serves?|servings?|yields?)\b",
+    r"^\s*(?:makes|serves?|servings|yields?)\b",
     re.IGNORECASE,
 )
 _HOWTO_PREFIX_RE = re.compile(
@@ -109,7 +121,7 @@ def label_atomic_lines(
     settings: RunSettings,
     *,
     artifact_root: Path | None = None,
-    codex_timeout_seconds: int = 120,
+    codex_timeout_seconds: int = 600,
     codex_batch_size: int = 40,
     codex_cmd: str | None = None,
     codex_runner: Callable[..., Any] | None = None,
@@ -123,7 +135,10 @@ def label_atomic_lines(
     predictions: dict[int, CanonicalLineRolePrediction] = {}
     unresolved: list[AtomicLineCandidate] = []
     for candidate in ordered:
-        label, confidence, tags = _deterministic_label(candidate)
+        label, confidence, tags = _deterministic_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
         if label is None:
             unresolved.append(candidate)
             continue
@@ -131,7 +146,9 @@ def label_atomic_lines(
             mode == "codex-line-role-v1"
             and _should_escalate_low_confidence_candidate(
                 candidate=candidate,
+                deterministic_label=label,
                 confidence=confidence,
+                by_atomic_index=by_atomic_index,
             )
         ):
             unresolved.append(candidate)
@@ -195,6 +212,7 @@ def label_atomic_lines(
                     predictions[candidate.atomic_index] = _fallback_prediction(
                         candidate,
                         reason="codex_parse_error",
+                        by_atomic_index=by_atomic_index,
                     )
                 if parsed_path is not None:
                     parsed_path.write_text(
@@ -243,6 +261,7 @@ def label_atomic_lines(
             predictions[candidate.atomic_index] = _fallback_prediction(
                 candidate,
                 reason="deterministic_unresolved",
+                by_atomic_index=by_atomic_index,
             )
 
     sanitized: list[CanonicalLineRolePrediction] = []
@@ -267,6 +286,8 @@ def _line_role_pipeline_name(settings: RunSettings) -> str:
 
 def _deterministic_label(
     candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None = None,
 ) -> tuple[str | None, float, list[str]]:
     tags = {str(tag) for tag in candidate.rule_tags}
     if "note_prefix" in tags or _looks_note_text(candidate.text):
@@ -299,6 +320,13 @@ def _deterministic_label(
         return "YIELD_LINE", 0.99, ["yield_prefix"]
     if "howto_heading" in tags:
         return "HOWTO_SECTION", 0.99, ["howto_heading"]
+    if _looks_subsection_heading_context(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return "HOWTO_SECTION", 0.9, ["subsection_heading_context"]
+    if "note_like_prose" in tags:
+        return "RECIPE_NOTES", 0.91, ["note_like_prose"]
     if "ingredient_like" in tags:
         if _looks_recipe_title(candidate.text):
             return "RECIPE_TITLE", 0.84, ["title_like", "ingredient_heading_override"]
@@ -333,6 +361,8 @@ def _candidate_allowlist(
         ]
     else:
         labels = list(FREEFORM_LABELS)
+    if _should_offer_recipe_title(candidate) and "RECIPE_TITLE" not in labels:
+        labels = ["RECIPE_TITLE", *labels]
     if not labels:
         labels = ["OTHER"]
     if (
@@ -353,9 +383,11 @@ def _fallback_prediction(
     candidate: AtomicLineCandidate,
     *,
     reason: str,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None = None,
 ) -> CanonicalLineRolePrediction:
     deterministic_label, deterministic_confidence, deterministic_tags = _deterministic_label(
-        candidate
+        candidate,
+        by_atomic_index=by_atomic_index,
     )
     if deterministic_label is not None and deterministic_label in FREEFORM_ALLOWED_LABELS:
         label = deterministic_label
@@ -420,15 +452,20 @@ def _sanitize_prediction(
 def _should_escalate_low_confidence_candidate(
     *,
     candidate: AtomicLineCandidate,
+    deterministic_label: str | None,
     confidence: float,
+    by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
     if float(confidence) >= _CODEX_LOW_CONFIDENCE_THRESHOLD:
         return False
-    candidate_allowlist = [
-        str(label)
-        for label in candidate.candidate_labels
-        if str(label) in FREEFORM_ALLOWED_LABELS
-    ]
+    if deterministic_label == "RECIPE_TITLE":
+        return False
+    candidate_allowlist = _candidate_allowlist(
+        candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if deterministic_label is not None and deterministic_label not in candidate_allowlist:
+        return False
     return len(candidate_allowlist) > 1
 
 
@@ -487,11 +524,130 @@ def _looks_obvious_ingredient(candidate: AtomicLineCandidate) -> bool:
 
 
 def _looks_recipe_title(text: str) -> bool:
-    words = _PROSE_WORD_RE.findall(text)
-    if not words or len(words) > 12:
+    stripped = str(text or "").strip()
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not words or len(words) < 2 or len(words) > 12:
+        return False
+    if _NOTE_PREFIX_RE.match(stripped):
+        return False
+    if _YIELD_PREFIX_RE.match(stripped):
+        return False
+    if _HOWTO_PREFIX_RE.match(stripped):
+        return False
+    if _NUMBERED_STEP_RE.match(stripped):
+        return False
+    if _QUANTITY_LINE_RE.match(stripped):
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    if _TIME_PREFIX_RE.search(stripped):
+        return False
+    if stripped[-1:] in {".", "!", "?"}:
         return False
     uppercase_words = sum(1 for word in words if word.upper() == word)
-    return uppercase_words >= max(2, len(words) // 2)
+    if uppercase_words >= max(2, len(words) // 2):
+        return True
+    title_case_words = sum(1 for word in words if word[:1].isupper())
+    return title_case_words >= max(2, len(words) - 1)
+
+
+def _looks_subsection_heading_context(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    if by_atomic_index is None:
+        return False
+    if not _looks_recipe_title(candidate.text):
+        return False
+    if not _looks_compact_heading(candidate.text):
+        return False
+
+    prev_candidate = by_atomic_index.get(candidate.atomic_index - 1)
+    next_candidate = by_atomic_index.get(candidate.atomic_index + 1)
+    if next_candidate is None:
+        return False
+    if _looks_recipe_start_boundary(next_candidate):
+        return False
+
+    prev_flow = _looks_recipe_flow_neighbor(prev_candidate)
+    next_instruction = _looks_instructional_neighbor(next_candidate)
+    prev_heading = (
+        prev_candidate is not None and _looks_compact_heading(prev_candidate.text)
+    )
+    return next_instruction and (prev_flow or prev_heading)
+
+
+def _looks_recipe_start_boundary(candidate: AtomicLineCandidate) -> bool:
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if "yield_prefix" in tags:
+        return True
+    return bool(_YIELD_PREFIX_RE.match(str(candidate.text or "")))
+
+
+def _looks_recipe_flow_neighbor(candidate: AtomicLineCandidate | None) -> bool:
+    if candidate is None:
+        return False
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if {
+        "ingredient_like",
+        "instruction_like",
+        "instruction_with_time",
+        "howto_heading",
+        "yield_prefix",
+    } & tags:
+        return True
+    if _looks_obvious_ingredient(candidate):
+        return True
+    if _looks_instructional_neighbor(candidate):
+        return True
+    return False
+
+
+def _looks_instructional_neighbor(candidate: AtomicLineCandidate) -> bool:
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if _INSTRUCTION_VERB_RE.match(text):
+        return True
+    if _RECIPE_ACTION_CUE_RE.match(text):
+        return True
+    if _FIRST_PERSON_RE.search(text):
+        return False
+    if _INSTRUCTION_LEADIN_RE.match(text) and _RECIPE_ACTION_CUE_RE.search(text):
+        return True
+    if "." in text and _RECIPE_ACTION_CUE_RE.search(text):
+        return True
+    return False
+
+
+def _looks_compact_heading(text: str) -> bool:
+    stripped = str(text or "").strip()
+    words = _PROSE_WORD_RE.findall(stripped)
+    if len(words) < 2 or len(words) > 5:
+        return False
+    alpha_chars = sum(1 for ch in stripped if ch.isalpha())
+    if alpha_chars <= 0:
+        return False
+    uppercase_chars = sum(1 for ch in stripped if ch.isupper())
+    return (uppercase_chars / alpha_chars) >= 0.68
+
+
+def _should_offer_recipe_title(candidate: AtomicLineCandidate) -> bool:
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if any(
+        blocked in tags
+        for blocked in {
+            "note_prefix",
+            "yield_prefix",
+            "howto_heading",
+            "instruction_like",
+            "instruction_with_time",
+            "time_metadata",
+        }
+    ):
+        return False
+    return _looks_recipe_title(candidate.text)
 
 
 def _looks_note_text(text: str) -> bool:

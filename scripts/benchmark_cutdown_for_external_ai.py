@@ -16,9 +16,11 @@ folders that contain both `eval_report.json` and `run_manifest.json`.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import gzip
 import hashlib
+import io
 import re
 import json
 import shutil
@@ -85,6 +87,14 @@ ROOT_METADATA_FILES = (
     "per_recipe_or_per_span_breakdown.json",
     "targeted_prompt_cases.md",
     "label_policy_adjudication_notes.md",
+)
+UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "upload_bundle_overview.md"
+UPLOAD_BUNDLE_INDEX_FILE_NAME = "upload_bundle_index.json"
+UPLOAD_BUNDLE_PAYLOAD_FILE_NAME = "upload_bundle_payload.jsonl"
+UPLOAD_BUNDLE_FILE_NAMES = (
+    UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+    UPLOAD_BUNDLE_INDEX_FILE_NAME,
+    UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
 )
 STARTER_PACK_DIR_NAME = "starter_pack_v1"
 STARTER_PACK_README_FILE_NAME = "README.md"
@@ -342,6 +352,22 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("docs/flatten-folders.sh"),
         help="Path to flatten script (default: docs/flatten-folders.sh).",
+    )
+    parser.add_argument(
+        "--upload-3-files",
+        action="store_true",
+        help=(
+            "Write a consolidated 3-file upload bundle at the output root "
+            "(overview markdown + artifact index JSON + full payload JSONL)."
+        ),
+    )
+    parser.add_argument(
+        "--upload-3-files-only",
+        action="store_true",
+        help=(
+            "After writing the 3-file upload bundle, prune all other files/directories "
+            "from the output folder. Requires --upload-3-files and --no-flatten."
+        ),
     )
     return parser.parse_args()
 
@@ -1413,6 +1439,27 @@ def _normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _normalize_warning_bucket_name(bucket: str) -> str:
+    cleaned = str(bucket or "").strip().lower()
+    if cleaned in {"ocr_or_page_artifact", "page_or_layout_artifact"}:
+        return "page_or_layout_artifact"
+    return cleaned
+
+
+def _normalize_warning_bucket_reason(reason: str) -> str:
+    cleaned = str(reason or "").strip()
+    normalized_bare = _normalize_warning_bucket_name(cleaned)
+    if normalized_bare and normalized_bare != cleaned:
+        return normalized_bare
+    prefix = "warning_bucket:"
+    if not cleaned.startswith(prefix):
+        return cleaned
+    bucket = _normalize_warning_bucket_name(cleaned[len(prefix) :])
+    if not bucket:
+        return cleaned
+    return f"{prefix}{bucket}"
+
+
 def _prompt_warning_bucket(message: str) -> str:
     lowered = message.lower()
     if "split" in lowered and "line" in lowered:
@@ -1424,7 +1471,7 @@ def _prompt_warning_bucket(message: str) -> str:
     if "no " in lowered and "instruction" in lowered:
         return "missing_instructions"
     if "page" in lowered or "ocr" in lowered or "artifact" in lowered:
-        return "ocr_or_page_artifact"
+        return "page_or_layout_artifact"
     if "yield" in lowered:
         return "yield_detection"
     return "other"
@@ -3826,9 +3873,10 @@ def _build_pair_diagnostics(
         pass1_clamped_block_loss_ratio = _coerce_float(
             manifest_diagnostics.get("pass1_clamped_block_loss_ratio")
         )
-        pass2_degradation_reasons = _coerce_str_list(
-            manifest_diagnostics.get("pass2_degradation_reasons")
-        )
+        pass2_degradation_reasons = [
+            _normalize_warning_bucket_reason(reason)
+            for reason in _coerce_str_list(manifest_diagnostics.get("pass2_degradation_reasons"))
+        ]
         pass3_fallback_reason = str(manifest_diagnostics.get("pass3_fallback_reason") or "")
         transport_mismatch = _coerce_bool(manifest_diagnostics.get("transport_mismatch"))
         transport_mismatch_reasons = _coerce_str_list(
@@ -5543,6 +5591,2132 @@ def _write_root_summary_markdown(output_dir: Path) -> Path:
     return output_path
 
 
+def _upload_bundle_content_type(path: Path) -> str:
+    name = path.name.lower()
+    suffix = path.suffix.lower()
+    if name.endswith(".jsonl.gz"):
+        return "jsonl_gzip"
+    if suffix == ".json":
+        return "json"
+    if suffix == ".jsonl":
+        return "jsonl"
+    if suffix == ".md":
+        return "markdown"
+    if suffix == ".txt":
+        return "text"
+    if suffix == ".csv":
+        return "csv"
+    if suffix == ".gz":
+        return "gzip"
+    return "binary"
+
+
+def _upload_bundle_parse_jsonl_text(text: str) -> list[Any]:
+    rows: list[Any] = []
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            rows.append(
+                {
+                    "_parse_error": "invalid_json",
+                    "_line_number": line_number,
+                    "_raw_line": raw_line,
+                }
+            )
+    return rows
+
+
+def _upload_bundle_parse_csv_text(text: str) -> dict[str, Any]:
+    reader = csv.DictReader(io.StringIO(text))
+    rows = [dict(row) for row in reader]
+    return {
+        "fieldnames": list(reader.fieldnames or []),
+        "rows": rows,
+    }
+
+
+def _upload_bundle_category(
+    relative_path: str,
+    run_output_dirs: set[str],
+) -> tuple[str, str | None]:
+    parts = relative_path.split("/")
+    if not parts:
+        return ("other", None)
+    first = parts[0]
+    if first == STARTER_PACK_DIR_NAME:
+        return ("starter_pack", None)
+    if first in run_output_dirs:
+        return ("run_artifact", first)
+    if len(parts) == 1:
+        return ("root_artifact", None)
+    return ("other", None)
+
+
+def _upload_bundle_load_csv_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        for row in reader:
+            if isinstance(row, dict):
+                rows.append(dict(row))
+    except csv.Error:
+        return []
+    return rows
+
+
+def _upload_bundle_load_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        return _load_json(path)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
+    run_index_payload = _upload_bundle_load_json_object(source_root / "run_index.json")
+    comparison_summary_payload = _upload_bundle_load_json_object(
+        source_root / "comparison_summary.json"
+    )
+    process_manifest_payload = _upload_bundle_load_json_object(source_root / "process_manifest.json")
+    per_recipe_payload = _upload_bundle_load_json_object(source_root / PER_RECIPE_BREAKDOWN_FILE_NAME)
+
+    run_rows_from_root_raw = run_index_payload.get("runs")
+    has_run_rows_from_root = isinstance(run_rows_from_root_raw, list)
+    run_rows_from_root = run_rows_from_root_raw if has_run_rows_from_root else []
+    comparison_pairs_from_root_raw = comparison_summary_payload.get("pairs")
+    has_pairs_from_root = isinstance(comparison_pairs_from_root_raw, list)
+    comparison_pairs_from_root = (
+        comparison_pairs_from_root_raw if has_pairs_from_root else []
+    )
+    pair_breakdown_from_root = per_recipe_payload.get("pairs")
+    pair_breakdown_from_root = (
+        pair_breakdown_from_root if isinstance(pair_breakdown_from_root, list) else []
+    )
+    changed_lines_from_root = _iter_jsonl(source_root / CHANGED_LINES_FILE_NAME)
+
+    starter_pack_dir = source_root / STARTER_PACK_DIR_NAME
+    starter_pack_present = starter_pack_dir.is_dir()
+    starter_recipe_triage_rows = _upload_bundle_load_csv_rows(
+        starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME
+    )
+    starter_call_inventory_rows = _iter_jsonl(
+        starter_pack_dir / STARTER_PACK_CALL_INVENTORY_FILE_NAME
+    )
+    starter_selected_packets = _iter_jsonl(
+        starter_pack_dir / STARTER_PACK_SELECTED_PACKETS_FILE_NAME
+    )
+    starter_manifest_payload = _upload_bundle_load_json_object(
+        starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME
+    )
+
+    discovered_run_dirs = _discover_run_dirs(source_root)
+    derived_run_records: list[RunRecord] = []
+    for run_dir in discovered_run_dirs:
+        try:
+            derived_run_records.append(
+                _build_run_record_from_existing_run(run_dir=run_dir)
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    run_dir_by_id: dict[str, Path] = {}
+    for record in derived_run_records:
+        run_id = str(record.run_id or "").strip()
+        if not run_id:
+            continue
+        run_dir_by_id.setdefault(run_id, Path(record.run_dir))
+    derived_run_rows = [
+        {
+            "run_id": record.run_id,
+            "output_subdir": record.output_subdir,
+            "source_file": record.source_file,
+            "overall_line_accuracy": record.metric_overall_line_accuracy,
+            "practical_f1": record.metric_practical_f1,
+            "full_prompt_log_status": record.full_prompt_log_status,
+            "full_prompt_log_rows": record.full_prompt_log_rows,
+            "line_role_pipeline": record.line_role_pipeline,
+            "llm_recipe_pipeline": record.llm_recipe_pipeline,
+        }
+        for record in sorted(
+            derived_run_records,
+            key=lambda record: (
+                record.run_timestamp or datetime.min,
+                str(record.run_id or ""),
+            ),
+        )
+    ]
+
+    derived_pairs: list[dict[str, Any]] = []
+    derived_changed_lines: list[dict[str, Any]] = []
+    derived_pair_breakdown: list[dict[str, Any]] = []
+    derived_recipe_triage: list[dict[str, Any]] = []
+    derived_call_inventory: list[dict[str, Any]] = []
+    if derived_run_records:
+        try:
+            (
+                derived_comparison_summary,
+                derived_changed_lines,
+                derived_pair_breakdown,
+                _derived_targeted_prompt_rows,
+                derived_recipe_triage,
+                derived_call_inventory,
+                _derived_outside_span_rows,
+            ) = _build_comparison_summary(
+                records=derived_run_records,
+                excerpt_limit=DEFAULT_EXCERPT_LIMIT,
+                targeted_prompt_case_limit=DEFAULT_TARGETED_PROMPT_CASES,
+            )
+            derived_pairs = (
+                derived_comparison_summary.get("pairs")
+                if isinstance(derived_comparison_summary.get("pairs"), list)
+                else []
+            )
+        except Exception:  # noqa: BLE001
+            derived_pairs = []
+            derived_changed_lines = []
+            derived_pair_breakdown = []
+            derived_recipe_triage = []
+            derived_call_inventory = []
+
+    effective_run_rows = run_rows_from_root if run_rows_from_root else derived_run_rows
+    effective_pairs = comparison_pairs_from_root if comparison_pairs_from_root else derived_pairs
+    effective_changed_lines = (
+        changed_lines_from_root if changed_lines_from_root else derived_changed_lines
+    )
+    effective_pair_breakdown = (
+        pair_breakdown_from_root if pair_breakdown_from_root else derived_pair_breakdown
+    )
+    effective_recipe_triage = (
+        derived_recipe_triage if derived_recipe_triage else starter_recipe_triage_rows
+    )
+    effective_call_inventory = (
+        derived_call_inventory if derived_call_inventory else starter_call_inventory_rows
+    )
+
+    effective_selected_packets = list(starter_selected_packets)
+    if not effective_selected_packets and effective_recipe_triage and effective_changed_lines:
+        try:
+            selected_rows = _select_starter_pack_recipe_cases(effective_recipe_triage)
+            effective_selected_packets = _build_selected_recipe_packets(
+                selected_recipe_rows=selected_rows,
+                changed_line_rows=effective_changed_lines,
+            )
+        except Exception:  # noqa: BLE001
+            effective_selected_packets = []
+
+    return {
+        "run_index_payload": run_index_payload,
+        "comparison_summary_payload": comparison_summary_payload,
+        "process_manifest_payload": process_manifest_payload,
+        "per_recipe_payload": per_recipe_payload,
+        "starter_manifest_payload": starter_manifest_payload,
+        "starter_pack_present": starter_pack_present,
+        "run_rows": effective_run_rows,
+        "comparison_pairs": effective_pairs,
+        "changed_line_rows": effective_changed_lines,
+        "pair_breakdown_rows": effective_pair_breakdown,
+        "recipe_triage_rows": effective_recipe_triage,
+        "call_inventory_rows": effective_call_inventory,
+        "selected_packets": effective_selected_packets,
+        "run_dir_by_id": run_dir_by_id,
+        "discovered_run_dirs": discovered_run_dirs,
+        "advertised_counts": {
+            "run_count": len(run_rows_from_root) if has_run_rows_from_root else None,
+            "pair_count": len(comparison_pairs_from_root) if has_pairs_from_root else None,
+            "changed_lines_total": _coerce_int(
+                comparison_summary_payload.get("changed_lines_total")
+            ),
+        },
+    }
+
+
+def _upload_bundle_collect_confusion_delta_counts(
+    comparison_pairs: list[dict[str, Any]],
+) -> Counter[tuple[str, str]]:
+    counter: Counter[tuple[str, str]] = Counter()
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        confusion_payload = pair.get("confusion_matrix")
+        if not isinstance(confusion_payload, dict):
+            continue
+        delta_matrix = confusion_payload.get("delta_codex_minus_baseline")
+        if not isinstance(delta_matrix, dict):
+            continue
+        for gold_label, pred_counts in delta_matrix.items():
+            if not isinstance(gold_label, str) or not isinstance(pred_counts, dict):
+                continue
+            for pred_label, count_raw in pred_counts.items():
+                if not isinstance(pred_label, str):
+                    continue
+                count = _coerce_int(count_raw)
+                if count is None or count == 0:
+                    continue
+                counter[(gold_label, pred_label)] += count
+    return counter
+
+
+def _upload_bundle_load_run_per_label_metrics(run_dir: Path) -> dict[str, dict[str, Any]]:
+    eval_report_path = run_dir / "eval_report.json"
+    if not eval_report_path.is_file():
+        return {}
+    try:
+        eval_report = _load_json(eval_report_path)
+    except Exception:  # noqa: BLE001
+        return {}
+    per_label = eval_report.get("per_label")
+    if not isinstance(per_label, dict):
+        return {}
+    output: dict[str, dict[str, Any]] = {}
+    for label, row in per_label.items():
+        if not isinstance(label, str) or not isinstance(row, dict):
+            continue
+        output[label] = {
+            "precision": _coerce_float(row.get("precision")),
+            "recall": _coerce_float(row.get("recall")),
+            "f1": _coerce_float(row.get("f1")),
+            "gold_total": _coerce_int(row.get("gold_total")),
+            "pred_total": _coerce_int(row.get("pred_total")),
+        }
+    return output
+
+
+def _upload_bundle_build_per_label_metrics(
+    *,
+    comparison_pairs: list[dict[str, Any]],
+    run_dir_by_id: dict[str, Path],
+) -> list[dict[str, Any]]:
+    confusion_counter = _upload_bundle_collect_confusion_delta_counts(comparison_pairs)
+    per_run_cache: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def _metrics_for_run(run_id: str) -> dict[str, dict[str, Any]]:
+        if run_id in per_run_cache:
+            return per_run_cache[run_id]
+        run_dir = run_dir_by_id.get(run_id)
+        if run_dir is None:
+            per_run_cache[run_id] = {}
+            return {}
+        metrics = _upload_bundle_load_run_per_label_metrics(run_dir)
+        per_run_cache[run_id] = metrics
+        return metrics
+
+    aggregated: dict[str, dict[str, Any]] = {}
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_run = pair.get("codex_run")
+        baseline_run = pair.get("baseline_run")
+        codex_run_id = (
+            str(codex_run.get("run_id") or "")
+            if isinstance(codex_run, dict)
+            else ""
+        )
+        baseline_run_id = (
+            str(baseline_run.get("run_id") or "")
+            if isinstance(baseline_run, dict)
+            else ""
+        )
+        codex_metrics = _metrics_for_run(codex_run_id)
+        baseline_metrics = _metrics_for_run(baseline_run_id)
+        labels = sorted(set(codex_metrics.keys()) | set(baseline_metrics.keys()))
+        for label in labels:
+            row = aggregated.setdefault(
+                label,
+                {
+                    "label": label,
+                    "pair_count_with_metrics": 0,
+                    "_codex_precision": [],
+                    "_baseline_precision": [],
+                    "_delta_precision": [],
+                    "_codex_recall": [],
+                    "_baseline_recall": [],
+                    "_delta_recall": [],
+                    "_codex_f1": [],
+                    "_baseline_f1": [],
+                    "_delta_f1": [],
+                    "gold_total_sum": 0,
+                    "pred_total_sum": 0,
+                },
+            )
+            codex_row = codex_metrics.get(label, {})
+            baseline_row = baseline_metrics.get(label, {})
+
+            codex_precision = _coerce_float(codex_row.get("precision"))
+            baseline_precision = _coerce_float(baseline_row.get("precision"))
+            codex_recall = _coerce_float(codex_row.get("recall"))
+            baseline_recall = _coerce_float(baseline_row.get("recall"))
+            codex_f1 = _coerce_float(codex_row.get("f1"))
+            baseline_f1 = _coerce_float(baseline_row.get("f1"))
+            if (
+                codex_precision is not None
+                or baseline_precision is not None
+                or codex_recall is not None
+                or baseline_recall is not None
+                or codex_f1 is not None
+                or baseline_f1 is not None
+            ):
+                row["pair_count_with_metrics"] = int(row["pair_count_with_metrics"]) + 1
+
+            row["_codex_precision"].append(codex_precision)
+            row["_baseline_precision"].append(baseline_precision)
+            row["_delta_precision"].append(_delta(codex_precision, baseline_precision))
+            row["_codex_recall"].append(codex_recall)
+            row["_baseline_recall"].append(baseline_recall)
+            row["_delta_recall"].append(_delta(codex_recall, baseline_recall))
+            row["_codex_f1"].append(codex_f1)
+            row["_baseline_f1"].append(baseline_f1)
+            row["_delta_f1"].append(_delta(codex_f1, baseline_f1))
+            row["gold_total_sum"] = int(row["gold_total_sum"]) + int(
+                _coerce_int(codex_row.get("gold_total"))
+                or _coerce_int(baseline_row.get("gold_total"))
+                or 0
+            )
+            row["pred_total_sum"] = int(row["pred_total_sum"]) + int(
+                _coerce_int(codex_row.get("pred_total"))
+                or _coerce_int(baseline_row.get("pred_total"))
+                or 0
+            )
+
+    output_rows: list[dict[str, Any]] = []
+    labels_all = sorted(set(aggregated.keys()))
+    for label in labels_all:
+        row = aggregated[label]
+        outbound = [
+            {"pred_label": pred_label, "delta_count": count}
+            for (gold_label, pred_label), count in confusion_counter.items()
+            if gold_label == label
+        ]
+        inbound = [
+            {"gold_label": gold_label, "delta_count": count}
+            for (gold_label, pred_label), count in confusion_counter.items()
+            if pred_label == label
+        ]
+        outbound.sort(
+            key=lambda item: (
+                -abs(int(item["delta_count"])),
+                str(item["pred_label"]),
+            )
+        )
+        inbound.sort(
+            key=lambda item: (
+                -abs(int(item["delta_count"])),
+                str(item["gold_label"]),
+            )
+        )
+        output_rows.append(
+            {
+                "label": label,
+                "pair_count_with_metrics": int(row["pair_count_with_metrics"]),
+                "gold_total_sum": int(row["gold_total_sum"]),
+                "pred_total_sum": int(row["pred_total_sum"]),
+                "codex_precision_avg": _average_float(row["_codex_precision"]),
+                "baseline_precision_avg": _average_float(row["_baseline_precision"]),
+                "delta_precision_avg": _average_float(row["_delta_precision"]),
+                "codex_recall_avg": _average_float(row["_codex_recall"]),
+                "baseline_recall_avg": _average_float(row["_baseline_recall"]),
+                "delta_recall_avg": _average_float(row["_delta_recall"]),
+                "codex_f1_avg": _average_float(row["_codex_f1"]),
+                "baseline_f1_avg": _average_float(row["_baseline_f1"]),
+                "delta_f1_avg": _average_float(row["_delta_f1"]),
+                "confusion_delta_outbound_total": sum(
+                    int(item["delta_count"]) for item in outbound
+                ),
+                "confusion_delta_inbound_total": sum(
+                    int(item["delta_count"]) for item in inbound
+                ),
+                "top_confusion_outbound": outbound[:5],
+                "top_confusion_inbound": inbound[:5],
+            }
+        )
+    output_rows.sort(
+        key=lambda row: (
+            -abs(_float_or_zero(row.get("delta_f1_avg"))),
+            -abs(_float_or_zero(row.get("delta_recall_avg"))),
+            str(row.get("label") or ""),
+        )
+    )
+    return output_rows
+
+
+def _upload_bundle_parse_validation_error(reason: str) -> str | None:
+    text = str(reason or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    keywords = (
+        "parse",
+        "schema",
+        "validation",
+        "invalid json",
+        "reject",
+        "missing schema_v",
+    )
+    if any(keyword in lowered for keyword in keywords):
+        return text
+    return None
+
+
+def _upload_bundle_build_failure_ledger(
+    *,
+    recipe_triage_rows: list[dict[str, Any]],
+    call_inventory_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    retry_counts: Counter[tuple[str, str, str]] = Counter()
+    for call_row in call_inventory_rows:
+        run_id = str(call_row.get("run_id") or "").strip()
+        recipe_id = str(call_row.get("recipe_id") or "").strip()
+        pass_name = str(call_row.get("pass") or "").strip().lower()
+        if not recipe_id or pass_name not in {"pass1", "pass2", "pass3"}:
+            continue
+        retry_counts[(run_id, recipe_id, pass_name)] += 1
+
+    rows: list[dict[str, Any]] = []
+    for triage_row in recipe_triage_rows:
+        recipe_id = str(triage_row.get("recipe_id") or "").strip()
+        if not recipe_id:
+            continue
+        run_id = str(triage_row.get("codex_run_id") or triage_row.get("run_id") or "").strip()
+        pass1_status = str(triage_row.get("pass1_status") or "").strip()
+        pass2_status = str(triage_row.get("pass2_status") or "").strip()
+        pass3_status = str(triage_row.get("pass3_status") or "").strip()
+        pass2_reasons = _coerce_str_list(triage_row.get("pass2_degradation_reasons"))
+        pass3_fallback_reason = str(triage_row.get("pass3_fallback_reason") or "").strip()
+        pass1_clamped_loss = int(
+            _coerce_int(triage_row.get("pass1_clamped_block_loss_count")) or 0
+        )
+        delta = _coerce_float(triage_row.get("delta_codex_minus_baseline"))
+
+        pass_rows = [
+            {
+                "pass": "pass1",
+                "call_id": str(triage_row.get("pass1_call_id") or ""),
+                "status": pass1_status or ("degraded" if pass1_clamped_loss > 0 else "ok"),
+                "reason": (
+                    f"pass1_clamped_block_loss_count={pass1_clamped_loss}"
+                    if pass1_clamped_loss > 0
+                    else ""
+                ),
+                "warning_buckets": [],
+                "fallback_target": None,
+            },
+            {
+                "pass": "pass2",
+                "call_id": str(triage_row.get("pass2_call_id") or ""),
+                "status": pass2_status or ("degraded" if pass2_reasons else "ok"),
+                "reason": "|".join(pass2_reasons),
+                "warning_buckets": _coerce_str_list(
+                    triage_row.get("pass2_warning_buckets")
+                ),
+                "fallback_target": None,
+            },
+            {
+                "pass": "pass3",
+                "call_id": str(triage_row.get("pass3_call_id") or ""),
+                "status": pass3_status or ("fallback" if pass3_fallback_reason else "ok"),
+                "reason": pass3_fallback_reason,
+                "warning_buckets": _coerce_str_list(
+                    triage_row.get("pass3_warning_buckets")
+                ),
+                "fallback_target": (
+                    "baseline_or_safe_finalizer" if pass3_fallback_reason else None
+                ),
+            },
+            {
+                "pass": "final",
+                "call_id": "",
+                "status": (
+                    "fallback"
+                    if pass3_fallback_reason
+                    else (
+                        "regressed"
+                        if delta is not None and delta < 0
+                        else ("ok" if delta is not None else "unknown")
+                    )
+                ),
+                "reason": (
+                    pass3_fallback_reason
+                    if pass3_fallback_reason
+                    else (
+                        f"delta_codex_minus_baseline={_serialize_float(delta)}"
+                        if delta is not None
+                        else ""
+                    )
+                ),
+                "warning_buckets": [],
+                "fallback_target": (
+                    "baseline_or_safe_finalizer" if pass3_fallback_reason else None
+                ),
+            },
+        ]
+
+        for pass_row in pass_rows:
+            pass_name = str(pass_row["pass"])
+            retry_attempted = (
+                retry_counts[(run_id, recipe_id, pass_name)] > 1
+                if pass_name in {"pass1", "pass2", "pass3"}
+                else False
+            )
+            parse_validation_error = _upload_bundle_parse_validation_error(
+                str(pass_row["reason"] or "")
+            )
+            rows.append(
+                {
+                    "source_key": str(triage_row.get("source_key") or ""),
+                    "source_file": str(triage_row.get("source_file") or ""),
+                    "codex_run_id": run_id,
+                    "baseline_run_id": str(triage_row.get("baseline_run_id") or ""),
+                    "recipe_id": recipe_id,
+                    "short_title": str(triage_row.get("short_title") or ""),
+                    "pass": pass_name,
+                    "call_id": str(pass_row["call_id"] or ""),
+                    "status": str(pass_row["status"] or "unknown"),
+                    "reason": str(pass_row["reason"] or ""),
+                    "warning_buckets": list(pass_row["warning_buckets"] or []),
+                    "retry_attempted": bool(retry_attempted),
+                    "fallback_target": pass_row["fallback_target"],
+                    "parse_validation_error": parse_validation_error,
+                }
+            )
+
+    pass_status_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in rows:
+        pass_status_counts[str(row["pass"])][str(row["status"])] += 1
+    return {
+        "rows": rows,
+        "summary": {
+            "row_count": len(rows),
+            "recipe_count": len(
+                {
+                    (str(row.get("codex_run_id") or ""), str(row.get("recipe_id") or ""))
+                    for row in rows
+                    if str(row.get("recipe_id") or "")
+                }
+            ),
+            "pass_status_counts": {
+                pass_name: _counter_to_sorted_dict(counter)
+                for pass_name, counter in sorted(pass_status_counts.items())
+            },
+        },
+    }
+
+
+def _upload_bundle_nested_numeric(
+    payload: Any,
+    paths: tuple[tuple[str, ...], ...],
+    *,
+    integer: bool = False,
+) -> int | float | None:
+    for path in paths:
+        current: Any = payload
+        for key in path:
+            if not isinstance(current, dict):
+                current = None
+                break
+            current = current.get(key)
+        if integer:
+            value = _coerce_int(current)
+            if value is not None:
+                return value
+        else:
+            value = _coerce_float(current)
+            if value is not None:
+                return value
+    return None
+
+
+def _upload_bundle_extract_call_runtime(row: dict[str, Any]) -> dict[str, Any]:
+    request_telemetry = row.get("request_telemetry")
+    request_telemetry = request_telemetry if isinstance(request_telemetry, dict) else {}
+    usage_payload = request_telemetry.get("usage_json")
+    usage_payload = usage_payload if isinstance(usage_payload, dict) else {}
+
+    duration_ms = _upload_bundle_nested_numeric(
+        request_telemetry,
+        (
+            ("duration_ms",),
+            ("duration",),
+        ),
+        integer=True,
+    )
+    tokens_input = _upload_bundle_nested_numeric(
+        request_telemetry,
+        (("tokens_input",),),
+        integer=True,
+    )
+    if tokens_input is None:
+        tokens_input = _upload_bundle_nested_numeric(
+            usage_payload,
+            (("input_tokens",), ("prompt_tokens",), ("tokens_input",)),
+            integer=True,
+        )
+    tokens_cached_input = _upload_bundle_nested_numeric(
+        request_telemetry,
+        (("tokens_cached_input",),),
+        integer=True,
+    )
+    if tokens_cached_input is None:
+        tokens_cached_input = _upload_bundle_nested_numeric(
+            usage_payload,
+            (("cached_input_tokens",),),
+            integer=True,
+        )
+    tokens_output = _upload_bundle_nested_numeric(
+        request_telemetry,
+        (("tokens_output",),),
+        integer=True,
+    )
+    if tokens_output is None:
+        tokens_output = _upload_bundle_nested_numeric(
+            usage_payload,
+            (("output_tokens",), ("completion_tokens",), ("tokens_output",)),
+            integer=True,
+        )
+    tokens_reasoning = _upload_bundle_nested_numeric(
+        request_telemetry,
+        (("tokens_reasoning",),),
+        integer=True,
+    )
+    if tokens_reasoning is None:
+        tokens_reasoning = _upload_bundle_nested_numeric(
+            usage_payload,
+            (
+                ("output_tokens_reasoning",),
+                ("output_tokens_details", "reasoning_tokens"),
+                ("completion_tokens_details", "reasoning_tokens"),
+            ),
+            integer=True,
+        )
+    tokens_total = _upload_bundle_nested_numeric(
+        request_telemetry,
+        (("tokens_total",),),
+        integer=True,
+    )
+    if tokens_total is None:
+        tokens_total = _upload_bundle_nested_numeric(
+            usage_payload,
+            (
+                ("total_tokens",),
+                ("tokens_total",),
+            ),
+            integer=True,
+        )
+    if tokens_total is None and (tokens_input is not None or tokens_output is not None):
+        tokens_total = int(tokens_input or 0) + int(tokens_output or 0)
+
+    cost_usd = _upload_bundle_nested_numeric(
+        usage_payload,
+        (
+            ("cost_usd",),
+            ("total_cost_usd",),
+            ("estimated_cost_usd",),
+            ("cost", "total_usd"),
+            ("cost", "usd"),
+        ),
+    )
+    if cost_usd is None:
+        cost_usd = _upload_bundle_nested_numeric(
+            request_telemetry,
+            (("cost_usd",), ("estimated_cost_usd",)),
+        )
+
+    return {
+        "duration_ms": duration_ms,
+        "tokens_input": tokens_input,
+        "tokens_cached_input": tokens_cached_input,
+        "tokens_output": tokens_output,
+        "tokens_reasoning": tokens_reasoning,
+        "tokens_total": tokens_total,
+        "cost_usd": cost_usd,
+        "attempt_index": _coerce_int(request_telemetry.get("attempt_index")),
+        "status": str(request_telemetry.get("status") or "").strip() or None,
+    }
+
+
+def _upload_bundle_collect_call_runtime_map(
+    *,
+    run_dir_by_id: dict[str, Path],
+) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+    runtime_by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for run_id, run_dir in sorted(run_dir_by_id.items()):
+        run_manifest_path = run_dir / "run_manifest.json"
+        if not run_manifest_path.is_file():
+            continue
+        run_manifest = _upload_bundle_load_json_object(run_manifest_path)
+        full_prompt_path = _resolve_full_prompt_log_path(run_dir, run_manifest)
+        if full_prompt_path is None or not full_prompt_path.is_file():
+            continue
+        for prompt_row in _iter_jsonl(full_prompt_path):
+            pass_name = str(prompt_row.get("pass") or "").strip().lower()
+            call_id = str(prompt_row.get("call_id") or "").strip()
+            recipe_id = str(prompt_row.get("recipe_id") or "").strip()
+            if pass_name not in {"pass1", "pass2", "pass3"} or not call_id:
+                continue
+            key = (
+                str(prompt_row.get("run_id") or run_id).strip() or run_id,
+                recipe_id,
+                pass_name,
+                call_id,
+            )
+            runtime_payload = _upload_bundle_extract_call_runtime(prompt_row)
+            existing = runtime_by_key.get(key)
+            if existing is None:
+                runtime_by_key[key] = runtime_payload
+                continue
+            existing_attempt = _coerce_int(existing.get("attempt_index")) or -1
+            next_attempt = _coerce_int(runtime_payload.get("attempt_index")) or -1
+            if next_attempt >= existing_attempt:
+                runtime_by_key[key] = runtime_payload
+    return runtime_by_key
+
+
+def _upload_bundle_build_call_runtime_inventory(
+    *,
+    call_inventory_rows: list[dict[str, Any]],
+    run_dir_by_id: dict[str, Path],
+) -> dict[str, Any]:
+    runtime_by_key = _upload_bundle_collect_call_runtime_map(run_dir_by_id=run_dir_by_id)
+    enriched_rows: list[dict[str, Any]] = []
+    for row in call_inventory_rows:
+        run_id = str(row.get("run_id") or "").strip()
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        pass_name = str(row.get("pass") or "").strip().lower()
+        call_id = str(row.get("call_id") or "").strip()
+        runtime = runtime_by_key.get((run_id, recipe_id, pass_name, call_id), {})
+        enriched_rows.append(
+            {
+                **row,
+                "duration_ms": _coerce_int(runtime.get("duration_ms")),
+                "tokens_input": _coerce_int(runtime.get("tokens_input")),
+                "tokens_cached_input": _coerce_int(runtime.get("tokens_cached_input")),
+                "tokens_output": _coerce_int(runtime.get("tokens_output")),
+                "tokens_reasoning": _coerce_int(runtime.get("tokens_reasoning")),
+                "tokens_total": _coerce_int(runtime.get("tokens_total")),
+                "cost_usd": _coerce_float(runtime.get("cost_usd")),
+                "retry_attempt": _coerce_int(runtime.get("attempt_index")),
+                "runtime_status": runtime.get("status"),
+            }
+        )
+
+    duration_values = [
+        _coerce_int(row.get("duration_ms"))
+        for row in enriched_rows
+        if _coerce_int(row.get("duration_ms")) is not None
+    ]
+    token_totals = [
+        _coerce_int(row.get("tokens_total"))
+        for row in enriched_rows
+        if _coerce_int(row.get("tokens_total")) is not None
+    ]
+    cost_values = [
+        _coerce_float(row.get("cost_usd"))
+        for row in enriched_rows
+        if _coerce_float(row.get("cost_usd")) is not None
+    ]
+    by_pass: dict[str, dict[str, Any]] = {}
+    pass_names = sorted(
+        {
+            str(row.get("pass") or "").strip().lower()
+            for row in enriched_rows
+            if str(row.get("pass") or "").strip()
+        }
+    )
+    for pass_name in pass_names:
+        pass_rows = [
+            row
+            for row in enriched_rows
+            if str(row.get("pass") or "").strip().lower() == pass_name
+        ]
+        pass_duration = [
+            _coerce_int(row.get("duration_ms"))
+            for row in pass_rows
+            if _coerce_int(row.get("duration_ms")) is not None
+        ]
+        pass_tokens = [
+            _coerce_int(row.get("tokens_total"))
+            for row in pass_rows
+            if _coerce_int(row.get("tokens_total")) is not None
+        ]
+        pass_cost = [
+            _coerce_float(row.get("cost_usd"))
+            for row in pass_rows
+            if _coerce_float(row.get("cost_usd")) is not None
+        ]
+        by_pass[pass_name] = {
+            "call_count": len(pass_rows),
+            "calls_with_runtime": len(pass_duration),
+            "avg_duration_ms": (
+                round(sum(pass_duration) / len(pass_duration), 3)
+                if pass_duration
+                else None
+            ),
+            "total_tokens": int(sum(pass_tokens)) if pass_tokens else None,
+            "total_cost_usd": (
+                round(float(sum(pass_cost)), 8) if pass_cost else None
+            ),
+        }
+
+    top_slowest = sorted(
+        [row for row in enriched_rows if _coerce_int(row.get("duration_ms")) is not None],
+        key=lambda row: (
+            -int(_coerce_int(row.get("duration_ms")) or 0),
+            str(row.get("run_id") or ""),
+            str(row.get("call_id") or ""),
+        ),
+    )[:12]
+    top_token = sorted(
+        [row for row in enriched_rows if _coerce_int(row.get("tokens_total")) is not None],
+        key=lambda row: (
+            -int(_coerce_int(row.get("tokens_total")) or 0),
+            str(row.get("run_id") or ""),
+            str(row.get("call_id") or ""),
+        ),
+    )[:12]
+    top_cost = sorted(
+        [row for row in enriched_rows if _coerce_float(row.get("cost_usd")) is not None],
+        key=lambda row: (
+            -float(_coerce_float(row.get("cost_usd")) or 0.0),
+            str(row.get("run_id") or ""),
+            str(row.get("call_id") or ""),
+        ),
+    )[:12]
+
+    return {
+        "summary": {
+            "call_count": len(enriched_rows),
+            "calls_with_runtime": len(duration_values),
+            "total_duration_ms": int(sum(duration_values)) if duration_values else None,
+            "avg_duration_ms": (
+                round(sum(duration_values) / len(duration_values), 3)
+                if duration_values
+                else None
+            ),
+            "total_tokens": int(sum(token_totals)) if token_totals else None,
+            "total_cost_usd": (
+                round(float(sum(cost_values)), 8) if cost_values else None
+            ),
+            "by_pass": by_pass,
+        },
+        "top_slowest_calls": top_slowest,
+        "top_token_calls": top_token,
+        "top_cost_calls": top_cost,
+    }
+
+
+def _upload_bundle_quantile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    if q <= 0:
+        return float(values[0])
+    if q >= 1:
+        return float(values[-1])
+    position = (len(values) - 1) * q
+    lower = int(position)
+    upper = min(lower + 1, len(values) - 1)
+    weight = position - lower
+    return float(values[lower] * (1.0 - weight) + values[upper] * weight)
+
+
+def _upload_bundle_build_line_role_confidence_summary(
+    *,
+    source_root: Path,
+    run_dir_by_id: dict[str, Path],
+) -> dict[str, Any]:
+    file_paths: list[Path] = []
+    for run_dir in run_dir_by_id.values():
+        candidate = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
+        if candidate.is_file():
+            file_paths.append(candidate)
+    if not file_paths:
+        return {
+            "available": False,
+            "line_role_prediction_files": [],
+            "reason": "line-role-pipeline/line_role_predictions.jsonl not found in discovered run roots",
+        }
+
+    decided_by_counts: Counter[str] = Counter()
+    label_counts: Counter[str] = Counter()
+    confidence_values: list[float] = []
+    low_confidence_examples: list[dict[str, Any]] = []
+    candidate_label_rows = 0
+    candidate_label_counts: Counter[str] = Counter()
+    total_rows = 0
+
+    for path in sorted(file_paths):
+        for row in _iter_jsonl(path):
+            total_rows += 1
+            label = str(row.get("label") or "").strip().upper() or "OTHER"
+            decided_by = str(row.get("decided_by") or "").strip().lower() or "unknown"
+            confidence = _coerce_float(row.get("confidence"))
+            label_counts[label] += 1
+            decided_by_counts[decided_by] += 1
+            if confidence is not None:
+                confidence_values.append(float(confidence))
+            candidate_labels = row.get("candidate_labels")
+            if isinstance(candidate_labels, list) and candidate_labels:
+                candidate_label_rows += 1
+                for candidate in candidate_labels:
+                    text = str(candidate or "").strip().upper()
+                    if text:
+                        candidate_label_counts[text] += 1
+            if confidence is not None and confidence < 0.90:
+                low_confidence_examples.append(
+                    {
+                        "run_id": str(row.get("run_id") or ""),
+                        "recipe_id": str(row.get("recipe_id") or ""),
+                        "line_index": _coerce_int(row.get("line_index")),
+                        "atomic_index": _coerce_int(row.get("atomic_index")),
+                        "label": label,
+                        "decided_by": decided_by,
+                        "confidence": float(confidence),
+                        "text_excerpt": _excerpt(
+                            str(row.get("text") or ""),
+                            max_len=220,
+                        ),
+                    }
+                )
+
+    confidence_values.sort()
+    low_confidence_examples.sort(
+        key=lambda row: (
+            _float_or_zero(row.get("confidence")),
+            str(row.get("recipe_id") or ""),
+            int(_coerce_int(row.get("line_index")) or 0),
+        )
+    )
+    relative_paths = [
+        str(path.relative_to(source_root).as_posix())
+        for path in sorted(file_paths)
+        if path.is_relative_to(source_root)
+    ]
+    return {
+        "available": True,
+        "line_role_prediction_files": relative_paths,
+        "row_count": total_rows,
+        "decided_by_counts": _counter_to_sorted_dict(decided_by_counts),
+        "label_counts": _counter_to_sorted_dict(label_counts),
+        "confidence_stats": {
+            "min": confidence_values[0] if confidence_values else None,
+            "p25": _upload_bundle_quantile(confidence_values, 0.25),
+            "p50": _upload_bundle_quantile(confidence_values, 0.50),
+            "p75": _upload_bundle_quantile(confidence_values, 0.75),
+            "max": confidence_values[-1] if confidence_values else None,
+            "avg": (
+                round(sum(confidence_values) / len(confidence_values), 6)
+                if confidence_values
+                else None
+            ),
+        },
+        "candidate_label_signal": {
+            "available": candidate_label_rows > 0,
+            "rows_with_candidate_labels": candidate_label_rows,
+            "top_candidate_labels": [
+                {"label": label, "count": count}
+                for label, count in candidate_label_counts.most_common(12)
+            ],
+            "unavailable_reason": (
+                ""
+                if candidate_label_rows > 0
+                else "line-role predictions do not include candidate_labels in this run format"
+            ),
+        },
+        "low_confidence_examples": low_confidence_examples[:24],
+    }
+
+
+def _upload_bundle_matches_recipe_target(recipe_id: str, target: str) -> bool:
+    recipe_text = recipe_id.strip().lower()
+    target_text = target.strip().lower()
+    if not recipe_text or not target_text:
+        return False
+    if recipe_text == target_text:
+        return True
+    if recipe_text.endswith(f":{target_text}"):
+        return True
+    return recipe_text.endswith(target_text)
+
+
+def _upload_bundle_build_regression_casebook(
+    *,
+    recipe_triage_rows: list[dict[str, Any]],
+    changed_line_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    requested_targets = ["c6", "c9", "c12", "c3"]
+    selected_rows: list[dict[str, Any]] = []
+    selected_keys: set[tuple[str, str, str]] = set()
+
+    sorted_worst = sorted(
+        recipe_triage_rows,
+        key=lambda row: (
+            _float_or_zero(row.get("delta_codex_minus_baseline")),
+            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+            str(row.get("recipe_id") or ""),
+        ),
+    )
+
+    for target in requested_targets:
+        for row in sorted_worst:
+            recipe_id = str(row.get("recipe_id") or "")
+            if not _upload_bundle_matches_recipe_target(recipe_id, target):
+                continue
+            key = _recipe_row_key(row)
+            if key in selected_keys:
+                continue
+            row_copy = dict(row)
+            row_copy["selection_reason"] = f"targeted_regression_id:{target}"
+            selected_rows.append(row_copy)
+            selected_keys.add(key)
+            break
+
+    for row in sorted_worst:
+        key = _recipe_row_key(row)
+        if key in selected_keys:
+            continue
+        row_copy = dict(row)
+        row_copy["selection_reason"] = "top_negative_delta_fill"
+        selected_rows.append(row_copy)
+        selected_keys.add(key)
+        if len(selected_rows) >= 10:
+            break
+    selected_rows = selected_rows[:10]
+
+    packets = _build_selected_recipe_packets(
+        selected_recipe_rows=selected_rows,
+        changed_line_rows=changed_line_rows,
+    )
+    return {
+        "requested_targets": requested_targets,
+        "found_targets": [
+            str(row.get("recipe_id") or "")
+            for row in selected_rows
+            if any(
+                _upload_bundle_matches_recipe_target(str(row.get("recipe_id") or ""), target)
+                for target in requested_targets
+            )
+        ],
+        "packet_count": len(packets),
+        "packets": packets,
+    }
+
+
+def _upload_bundle_changed_line_bucket(row: dict[str, Any]) -> str:
+    gold_label = str(row.get("gold_label") or "")
+    baseline_label = str(row.get("vanilla_pred") or row.get("baseline_pred") or "")
+    codex_label = str(row.get("codex_pred") or "")
+    baseline_correct = bool(gold_label) and baseline_label == gold_label
+    codex_correct = bool(gold_label) and codex_label == gold_label
+    if baseline_correct and not codex_correct:
+        return "new_error"
+    if not baseline_correct and codex_correct:
+        return "fixed_error"
+    if not baseline_correct and not codex_correct:
+        return "both_wrong_shift"
+    return "other_changed"
+
+
+def _upload_bundle_build_changed_line_stratified_sample(
+    changed_line_rows: list[dict[str, Any]],
+    *,
+    per_bucket_limit: int = 40,
+) -> dict[str, Any]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    confusion_counts: Counter[str] = Counter()
+    for row in changed_line_rows:
+        bucket = _upload_bundle_changed_line_bucket(row)
+        grouped[bucket].append(row)
+        gold_label = str(row.get("gold_label") or "")
+        codex_label = str(row.get("codex_pred") or "")
+        confusion_counts[f"{gold_label}->{codex_label}"] += 1
+
+    samples: dict[str, list[dict[str, Any]]] = {}
+    counts_by_bucket: dict[str, int] = {}
+    for bucket_name in sorted(grouped):
+        rows = sorted(
+            grouped[bucket_name],
+            key=lambda row: (
+                str(row.get("recipe_id") or ""),
+                int(_coerce_int(row.get("line_index")) or 0),
+                str(row.get("gold_label") or ""),
+            ),
+        )
+        counts_by_bucket[bucket_name] = len(rows)
+        sampled_rows: list[dict[str, Any]] = []
+        for row in rows[: max(per_bucket_limit, 0)]:
+            sampled_rows.append(
+                {
+                    "source_key": str(row.get("source_key") or ""),
+                    "codex_run_id": str(row.get("codex_run_id") or ""),
+                    "baseline_run_id": str(row.get("baseline_run_id") or ""),
+                    "recipe_id": str(row.get("recipe_id") or ""),
+                    "line_index": int(_coerce_int(row.get("line_index")) or 0),
+                    "span_region": str(row.get("span_region") or ""),
+                    "gold_label": str(row.get("gold_label") or ""),
+                    "baseline_pred": str(
+                        row.get("vanilla_pred") or row.get("baseline_pred") or ""
+                    ),
+                    "codex_pred": str(row.get("codex_pred") or ""),
+                    "current_line": str(row.get("current_line") or ""),
+                    "previous_line": str(row.get("previous_line") or ""),
+                    "next_line": str(row.get("next_line") or ""),
+                }
+            )
+        samples[bucket_name] = sampled_rows
+    return {
+        "total_rows": len(changed_line_rows),
+        "counts_by_bucket": counts_by_bucket,
+        "top_error_buckets": [
+            {"bucket": bucket, "count": count}
+            for bucket, count in confusion_counts.most_common(20)
+        ],
+        "samples_by_bucket": samples,
+    }
+
+
+def _upload_bundle_build_alias_metadata(
+    *,
+    artifact_index: list[dict[str, Any]],
+    starter_manifest_payload: dict[str, Any],
+) -> dict[str, Any]:
+    sha_groups: dict[str, list[str]] = defaultdict(list)
+    for row in artifact_index:
+        path = str(row.get("path") or "")
+        sha256 = str(row.get("sha256") or "")
+        if not path or not sha256:
+            continue
+        sha_groups[sha256].append(path)
+    content_equivalent_groups: list[dict[str, Any]] = []
+    for sha256, paths in sha_groups.items():
+        if len(paths) < 2:
+            continue
+        ordered_paths = sorted(paths, key=lambda value: (value.count("/"), len(value), value))
+        canonical = ordered_paths[0]
+        aliases = ordered_paths[1:]
+        content_equivalent_groups.append(
+            {
+                "sha256": sha256,
+                "canonical_path": canonical,
+                "alias_paths": aliases,
+                "alias_count": len(aliases),
+                "reason": "same_sha256",
+            }
+        )
+    content_equivalent_groups.sort(
+        key=lambda row: (
+            -int(row.get("alias_count") or 0),
+            str(row.get("canonical_path") or ""),
+        )
+    )
+
+    legacy_aliases: list[dict[str, Any]] = []
+    legacy_mapping = starter_manifest_payload.get("legacy_to_starter_mapping")
+    if isinstance(legacy_mapping, dict):
+        for legacy_path, canonical_path in sorted(legacy_mapping.items()):
+            if not isinstance(legacy_path, str) or not isinstance(canonical_path, str):
+                continue
+            legacy_aliases.append(
+                {
+                    "legacy_path": legacy_path,
+                    "canonical_path": canonical_path,
+                }
+            )
+    return {
+        "content_equivalent_groups": content_equivalent_groups,
+        "legacy_aliases": legacy_aliases,
+    }
+
+
+def _upload_bundle_build_stage_separated_comparison(
+    *,
+    recipe_triage_rows: list[dict[str, Any]],
+    per_label_metrics: list[dict[str, Any]],
+    comparison_pairs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    line_role_pipeline_by_run_id: dict[str, str] = {}
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_run = pair.get("codex_run")
+        if not isinstance(codex_run, dict):
+            continue
+        run_id = str(codex_run.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        line_role_pipeline_by_run_id[run_id] = str(
+            codex_run.get("line_role_pipeline") or "off"
+        )
+
+    per_recipe_rows: list[dict[str, Any]] = []
+    for row in recipe_triage_rows:
+        run_id = str(row.get("codex_run_id") or row.get("run_id") or "").strip()
+        line_role_pipeline = line_role_pipeline_by_run_id.get(run_id, "unknown")
+        pass3_fallback_reason = str(row.get("pass3_fallback_reason") or "").strip()
+        per_recipe_rows.append(
+            {
+                "source_key": str(row.get("source_key") or ""),
+                "codex_run_id": run_id,
+                "baseline_run_id": str(row.get("baseline_run_id") or ""),
+                "recipe_id": str(row.get("recipe_id") or ""),
+                "short_title": str(row.get("short_title") or ""),
+                "baseline_stage": {
+                    "line_accuracy": _coerce_float(row.get("baseline_accuracy")),
+                },
+                "line_role_pipeline_stage": {
+                    "pipeline": line_role_pipeline,
+                    "line_accuracy": _coerce_float(row.get("codex_accuracy")),
+                    "delta_vs_baseline": _coerce_float(
+                        row.get("delta_codex_minus_baseline")
+                    ),
+                },
+                "pass2_stage": {
+                    "status": str(row.get("pass2_status") or ""),
+                    "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+                    "warning_buckets": _coerce_str_list(
+                        row.get("pass2_warning_buckets")
+                    ),
+                    "degradation_reasons": _coerce_str_list(
+                        row.get("pass2_degradation_reasons")
+                    ),
+                    "extracted_instruction_count": int(
+                        _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+                    ),
+                },
+                "pass3_stage": {
+                    "status": str(row.get("pass3_status") or ""),
+                    "empty_mapping": bool(row.get("pass3_empty_mapping")),
+                    "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+                    "warning_buckets": _coerce_str_list(
+                        row.get("pass3_warning_buckets")
+                    ),
+                    "fallback_reason": pass3_fallback_reason,
+                },
+                "final_or_fallback_stage": {
+                    "status": (
+                        "fallback"
+                        if pass3_fallback_reason
+                        else "final"
+                    ),
+                    "fallback_reason": pass3_fallback_reason or None,
+                    "pass1_status": str(row.get("pass1_status") or ""),
+                    "pass2_status": str(row.get("pass2_status") or ""),
+                    "pass3_status": str(row.get("pass3_status") or ""),
+                },
+            }
+        )
+    per_recipe_rows.sort(
+        key=lambda row: (
+            _float_or_zero(
+                ((row.get("line_role_pipeline_stage") or {}).get("delta_vs_baseline"))
+            ),
+            -int(
+                _coerce_int(
+                    ((row.get("pass2_stage") or {}).get("warning_count"))
+                )
+                or 0
+            ),
+            str(row.get("recipe_id") or ""),
+        )
+    )
+
+    per_label_rows: list[dict[str, Any]] = []
+    for row in per_label_metrics:
+        per_label_rows.append(
+            {
+                "label": str(row.get("label") or ""),
+                "baseline_stage": {
+                    "recall_avg": _coerce_float(row.get("baseline_recall_avg")),
+                    "f1_avg": _coerce_float(row.get("baseline_f1_avg")),
+                },
+                "line_role_pipeline_stage": {
+                    "recall_avg": _coerce_float(row.get("codex_recall_avg")),
+                    "f1_avg": _coerce_float(row.get("codex_f1_avg")),
+                    "delta_recall_avg": _coerce_float(row.get("delta_recall_avg")),
+                    "delta_f1_avg": _coerce_float(row.get("delta_f1_avg")),
+                },
+                "pass2_stage": {
+                    "label_scored": False,
+                    "unavailable_reason": (
+                        "pass2 stage outputs do not include label-level benchmark metrics"
+                    ),
+                },
+                "pass3_stage": {
+                    "label_scored": False,
+                    "unavailable_reason": (
+                        "pass3 stage outputs do not include label-level benchmark metrics"
+                    ),
+                },
+                "final_or_fallback_stage": {
+                    "confusion_delta_outbound_total": int(
+                        _coerce_int(row.get("confusion_delta_outbound_total")) or 0
+                    ),
+                    "confusion_delta_inbound_total": int(
+                        _coerce_int(row.get("confusion_delta_inbound_total")) or 0
+                    ),
+                    "top_confusion_outbound": row.get("top_confusion_outbound"),
+                    "top_confusion_inbound": row.get("top_confusion_inbound"),
+                },
+            }
+        )
+    return {
+        "schema_version": "upload_bundle_stage_comparison.v1",
+        "pair_count": len(comparison_pairs),
+        "per_recipe": per_recipe_rows,
+        "per_label": per_label_rows,
+    }
+
+
+def _write_upload_bundle_three_files(
+    *,
+    output_dir: Path,
+    source_dir: Path | None = None,
+) -> dict[str, Any]:
+    source_root = source_dir.resolve() if isinstance(source_dir, Path) else output_dir.resolve()
+    output_root = output_dir.resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    context = _upload_bundle_build_context(source_root=source_root)
+    run_index_payload = context.get("run_index_payload", {})
+    comparison_summary_payload = context.get("comparison_summary_payload", {})
+    process_manifest_payload = context.get("process_manifest_payload", {})
+    starter_manifest_payload = context.get("starter_manifest_payload", {})
+
+    run_rows = context.get("run_rows")
+    run_rows = run_rows if isinstance(run_rows, list) else []
+    comparison_pairs = context.get("comparison_pairs")
+    comparison_pairs = comparison_pairs if isinstance(comparison_pairs, list) else []
+    changed_line_rows = context.get("changed_line_rows")
+    changed_line_rows = changed_line_rows if isinstance(changed_line_rows, list) else []
+    pair_breakdown_rows = context.get("pair_breakdown_rows")
+    pair_breakdown_rows = pair_breakdown_rows if isinstance(pair_breakdown_rows, list) else []
+    recipe_triage_rows = context.get("recipe_triage_rows")
+    recipe_triage_rows = recipe_triage_rows if isinstance(recipe_triage_rows, list) else []
+    call_inventory_rows = context.get("call_inventory_rows")
+    call_inventory_rows = call_inventory_rows if isinstance(call_inventory_rows, list) else []
+    selected_packets = context.get("selected_packets")
+    selected_packets = selected_packets if isinstance(selected_packets, list) else []
+    run_dir_by_id = context.get("run_dir_by_id")
+    run_dir_by_id = run_dir_by_id if isinstance(run_dir_by_id, dict) else {}
+    advertised_counts = context.get("advertised_counts")
+    advertised_counts = advertised_counts if isinstance(advertised_counts, dict) else {}
+    starter_pack_present = bool(context.get("starter_pack_present"))
+    discovered_run_dirs = context.get("discovered_run_dirs")
+    discovered_run_dirs = discovered_run_dirs if isinstance(discovered_run_dirs, list) else []
+
+    run_output_dirs = {
+        str(row.get("output_subdir") or "")
+        for row in run_rows
+        if isinstance(row, dict) and str(row.get("output_subdir") or "")
+    }
+
+    artifact_paths: list[Path] = []
+    excluded = set(UPLOAD_BUNDLE_FILE_NAMES)
+    for path in sorted(source_root.rglob("*")):
+        if not path.is_file():
+            continue
+        if source_root == output_root:
+            if path.parent == output_root and path.name in excluded:
+                continue
+        elif path.is_relative_to(output_root):
+            # Avoid recursively bundling previously written bundle files when the
+            # bundle output lives inside the source tree.
+            continue
+        relative_path = str(path.relative_to(source_root).as_posix())
+        if relative_path in excluded:
+            continue
+        artifact_paths.append(path)
+
+    payload_path = output_root / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
+    artifact_index: list[dict[str, Any]] = []
+    with payload_path.open("w", encoding="utf-8") as handle:
+        for payload_row_number, artifact_path in enumerate(artifact_paths, start=1):
+            relative_path = str(artifact_path.relative_to(source_root).as_posix())
+            raw_bytes = artifact_path.read_bytes()
+            content_type = _upload_bundle_content_type(artifact_path)
+            category, run_subdir = _upload_bundle_category(relative_path, run_output_dirs)
+            sha256 = hashlib.sha256(raw_bytes).hexdigest()
+
+            payload_row: dict[str, Any] = {
+                "path": relative_path,
+                "content_type": content_type,
+                "category": category,
+                "run_subdir": run_subdir,
+                "bytes": len(raw_bytes),
+                "sha256": sha256,
+            }
+            parsed_mode = "base64"
+            try:
+                if content_type == "json":
+                    text = raw_bytes.decode("utf-8")
+                    payload_row["content_json"] = json.loads(text)
+                    parsed_mode = "json"
+                elif content_type == "jsonl":
+                    text = raw_bytes.decode("utf-8")
+                    payload_row["content_jsonl_rows"] = _upload_bundle_parse_jsonl_text(text)
+                    parsed_mode = "jsonl"
+                elif content_type in {"markdown", "text"}:
+                    payload_row["content_text"] = raw_bytes.decode("utf-8")
+                    parsed_mode = "utf8_text"
+                elif content_type == "csv":
+                    text = raw_bytes.decode("utf-8")
+                    payload_row["content_text"] = text
+                    payload_row["content_csv"] = _upload_bundle_parse_csv_text(text)
+                    parsed_mode = "csv_plus_text"
+                elif content_type == "jsonl_gzip":
+                    payload_row["raw_gzip_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+                    decompressed_text = gzip.decompress(raw_bytes).decode("utf-8")
+                    payload_row["content_jsonl_rows"] = _upload_bundle_parse_jsonl_text(
+                        decompressed_text
+                    )
+                    parsed_mode = "gzip_plus_jsonl"
+                elif content_type == "gzip":
+                    payload_row["raw_gzip_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+                    try:
+                        payload_row["decompressed_text"] = gzip.decompress(raw_bytes).decode("utf-8")
+                        parsed_mode = "gzip_plus_text"
+                    except (OSError, UnicodeDecodeError):
+                        parsed_mode = "gzip_base64"
+                else:
+                    payload_row["content_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+                    parsed_mode = "base64"
+            except (UnicodeDecodeError, json.JSONDecodeError, csv.Error, OSError) as exc:
+                payload_row["parse_error"] = f"{exc.__class__.__name__}: {exc}"
+                payload_row["content_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+                parsed_mode = "base64_fallback"
+
+            payload_row["parsed_mode"] = parsed_mode
+            handle.write(json.dumps(payload_row, ensure_ascii=False))
+            handle.write("\n")
+
+            artifact_index.append(
+                {
+                    "path": relative_path,
+                    "payload_row": payload_row_number,
+                    "content_type": content_type,
+                    "category": category,
+                    "run_subdir": run_subdir,
+                    "bytes": len(raw_bytes),
+                    "sha256": sha256,
+                    "parsed_mode": parsed_mode,
+                }
+            )
+
+    artifact_row_lookup = {
+        str(row.get("path") or ""): int(row.get("payload_row") or 0)
+        for row in artifact_index
+        if isinstance(row, dict)
+        and str(row.get("path") or "")
+        and _coerce_int(row.get("payload_row")) is not None
+    }
+
+    run_diagnostics: list[dict[str, Any]] = []
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        output_subdir = str(row.get("output_subdir") or "")
+        if not output_subdir:
+            continue
+        summary_path = source_root / output_subdir / "need_to_know_summary.json"
+        summary_payload = _load_json(summary_path) if summary_path.is_file() else {}
+        sample_counts = summary_payload.get("sample_counts")
+        sample_counts = sample_counts if isinstance(sample_counts, dict) else {}
+
+        def _sample_status(name: str) -> str:
+            sample_payload = sample_counts.get(name)
+            if isinstance(sample_payload, dict):
+                return str(sample_payload.get("status") or "unknown")
+            return "missing"
+
+        run_diagnostics.append(
+            {
+                "run_id": str(row.get("run_id") or ""),
+                "output_subdir": output_subdir,
+                "source_file": row.get("source_file"),
+                "overall_line_accuracy": _coerce_float(row.get("overall_line_accuracy")),
+                "practical_f1": _coerce_float(row.get("practical_f1")),
+                "full_prompt_log_status": str(row.get("full_prompt_log_status") or "unknown"),
+                "need_to_know_summary_path": f"{output_subdir}/need_to_know_summary.json",
+                "prompt_warning_aggregate_status": _sample_status(
+                    PROMPT_WARNING_AGGREGATE_FILE_NAME
+                ),
+                "projection_trace_status": _sample_status(PROJECTION_TRACE_FILE_NAME),
+                "wrong_label_full_context_status": _sample_status(
+                    WRONG_LABEL_FULL_CONTEXT_FILE_NAME
+                ),
+                "preprocess_trace_failures_status": _sample_status(
+                    PREPROCESS_TRACE_FAILURES_FILE_NAME
+                ),
+            }
+        )
+
+    largest_regressions: list[dict[str, Any]] = []
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        delta_payload = pair.get("delta_codex_minus_baseline")
+        delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
+        practical_delta = _coerce_float(delta_payload.get("practical_f1"))
+        if practical_delta is None:
+            continue
+        largest_regressions.append(
+            {
+                "source_key": str(pair.get("source_key") or ""),
+                "codex_run_id": str(
+                    (pair.get("codex_run") or {}).get("run_id")
+                    if isinstance(pair.get("codex_run"), dict)
+                    else ""
+                ),
+                "baseline_run_id": str(
+                    (pair.get("baseline_run") or {}).get("run_id")
+                    if isinstance(pair.get("baseline_run"), dict)
+                    else ""
+                ),
+                "delta_practical_f1": practical_delta,
+                "delta_overall_line_accuracy": _coerce_float(
+                    delta_payload.get("overall_line_accuracy")
+                ),
+                "changed_line_count": int(_coerce_int(pair.get("changed_line_count")) or 0),
+            }
+        )
+    largest_regressions.sort(
+        key=lambda row: (
+            float(row.get("delta_practical_f1") or 0.0),
+            float(row.get("delta_overall_line_accuracy") or 0.0),
+            -int(row.get("changed_line_count") or 0),
+            str(row.get("source_key") or ""),
+        )
+    )
+    largest_regressions = largest_regressions[:5]
+
+    per_label_metrics = _upload_bundle_build_per_label_metrics(
+        comparison_pairs=comparison_pairs,
+        run_dir_by_id=run_dir_by_id,
+    )
+    stage_separated_comparison = _upload_bundle_build_stage_separated_comparison(
+        recipe_triage_rows=recipe_triage_rows,
+        per_label_metrics=per_label_metrics,
+        comparison_pairs=comparison_pairs,
+    )
+    failure_ledger = _upload_bundle_build_failure_ledger(
+        recipe_triage_rows=recipe_triage_rows,
+        call_inventory_rows=call_inventory_rows,
+    )
+    call_runtime_inventory = _upload_bundle_build_call_runtime_inventory(
+        call_inventory_rows=call_inventory_rows,
+        run_dir_by_id=run_dir_by_id,
+    )
+    line_role_signal_summary = _upload_bundle_build_line_role_confidence_summary(
+        source_root=source_root,
+        run_dir_by_id=run_dir_by_id,
+    )
+    regression_casebook = _upload_bundle_build_regression_casebook(
+        recipe_triage_rows=recipe_triage_rows,
+        changed_line_rows=changed_line_rows,
+    )
+    changed_line_stratified = _upload_bundle_build_changed_line_stratified_sample(
+        changed_line_rows
+    )
+    alias_metadata = _upload_bundle_build_alias_metadata(
+        artifact_index=artifact_index,
+        starter_manifest_payload=starter_manifest_payload,
+    )
+
+    run_count_verified = len(run_rows)
+    if run_count_verified <= 0:
+        run_count_verified = len(discovered_run_dirs)
+    pair_count_verified_count = len(comparison_pairs)
+    changed_lines_verified_count = len(changed_line_rows)
+
+    advertised_run_count = _coerce_int(advertised_counts.get("run_count"))
+    advertised_pair_count = _coerce_int(advertised_counts.get("pair_count"))
+    advertised_changed_lines = _coerce_int(advertised_counts.get("changed_lines_total"))
+    if advertised_changed_lines is None:
+        advertised_changed_lines = _coerce_int(
+            comparison_summary_payload.get("changed_lines_total")
+        )
+
+    run_count_match = (
+        advertised_run_count == run_count_verified
+        if advertised_run_count is not None
+        else True
+    )
+    pair_count_match = (
+        advertised_pair_count == pair_count_verified_count
+        if advertised_pair_count is not None
+        else True
+    )
+    changed_lines_match = (
+        advertised_changed_lines == changed_lines_verified_count
+        if advertised_changed_lines is not None
+        else True
+    )
+    topline_consistent = bool(run_count_match and pair_count_match and changed_lines_match)
+
+    full_prompt_log_rows = _coerce_int(process_manifest_payload.get("full_prompt_log_rows"))
+    if full_prompt_log_rows is None:
+        full_prompt_log_rows = len(
+            [
+                row
+                for row in run_diagnostics
+                if str(row.get("full_prompt_log_status") or "").strip() == "complete"
+            ]
+        )
+
+    topline = {
+        "run_count": run_count_verified,
+        "pair_count": pair_count_verified_count,
+        "changed_lines_total": changed_lines_verified_count,
+        "full_prompt_log_status": str(
+            process_manifest_payload.get("full_prompt_log_status") or "unknown"
+        ),
+        "full_prompt_log_rows": int(full_prompt_log_rows or 0),
+        "largest_practical_f1_regressions": largest_regressions,
+        "pair_count_sufficient_for_generalization": pair_count_verified_count >= 2,
+    }
+
+    self_check = {
+        "starter_pack_present": starter_pack_present,
+        "run_count_verified": run_count_match,
+        "pair_count_verified": pair_count_match,
+        "changed_lines_verified": changed_lines_match,
+        "topline_consistent": topline_consistent,
+        "verification_details": {
+            "run_count": {
+                "advertised": advertised_run_count,
+                "recomputed": run_count_verified,
+            },
+            "pair_count": {
+                "advertised": advertised_pair_count,
+                "recomputed": pair_count_verified_count,
+            },
+            "changed_lines_total": {
+                "advertised": advertised_changed_lines,
+                "recomputed": changed_lines_verified_count,
+            },
+        },
+    }
+
+    heavy_markers = (
+        "full_prompt_log.jsonl",
+        "prompt_request_response_log.txt",
+        "llm_manifest.json",
+        ".split-cache",
+        "codex_exec_activity.csv",
+        "wrong_label_lines.with_context.full.jsonl.gz",
+        "preprocess_trace_failures.jsonl.gz",
+    )
+
+    def _is_heavy_artifact(path: str) -> bool:
+        lowered = path.lower()
+        return any(marker in lowered for marker in heavy_markers)
+
+    def _payload_locator(path: str) -> dict[str, Any] | None:
+        payload_row = artifact_row_lookup.get(path)
+        if payload_row is None:
+            return None
+        return {"path": path, "payload_row": int(payload_row)}
+
+    heavy_artifact_locators = [
+        {
+            "path": str(row.get("path") or ""),
+            "payload_row": int(row.get("payload_row") or 0),
+            "category": row.get("category"),
+            "reason": "deprioritized_in_default_reading",
+        }
+        for row in artifact_index
+        if isinstance(row, dict)
+        and _is_heavy_artifact(str(row.get("path") or ""))
+        and _coerce_int(row.get("payload_row")) is not None
+    ]
+    heavy_artifact_locators.sort(
+        key=lambda row: (
+            str(row.get("path") or ""),
+            int(row.get("payload_row") or 0),
+        )
+    )
+
+    row_locators = {
+        "root_files": {
+            "run_index_json": _payload_locator("run_index.json"),
+            "comparison_summary_json": _payload_locator("comparison_summary.json"),
+            "process_manifest_json": _payload_locator("process_manifest.json"),
+            "changed_lines_jsonl": _payload_locator(CHANGED_LINES_FILE_NAME),
+            "per_recipe_breakdown_json": _payload_locator(PER_RECIPE_BREAKDOWN_FILE_NAME),
+            "targeted_prompt_cases_md": _payload_locator(TARGETED_PROMPT_CASES_FILE_NAME),
+            "label_policy_notes_md": _payload_locator(LABEL_POLICY_NOTES_FILE_NAME),
+        },
+        "starter_pack": {
+            "triage_csv": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}"
+            ),
+            "call_inventory_jsonl": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CALL_INVENTORY_FILE_NAME}"
+            ),
+            "changed_lines_jsonl": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}"
+            ),
+            "warning_trace_summary_json": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}"
+            ),
+            "bridge_summary_jsonl": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME}"
+            ),
+            "selected_packets_jsonl": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_SELECTED_PACKETS_FILE_NAME}"
+            ),
+            "casebook_md": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CASEBOOK_FILE_NAME}"
+            ),
+            "manifest_json": _payload_locator(
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}"
+            ),
+        },
+        "deprioritized_heavy_artifacts": heavy_artifact_locators[:80],
+    }
+
+    pair_inventory = []
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_run = pair.get("codex_run")
+        baseline_run = pair.get("baseline_run")
+        codex_payload = codex_run if isinstance(codex_run, dict) else {}
+        baseline_payload = baseline_run if isinstance(baseline_run, dict) else {}
+        delta_payload = (
+            pair.get("delta_codex_minus_baseline")
+            if isinstance(pair.get("delta_codex_minus_baseline"), dict)
+            else {}
+        )
+        pair_inventory.append(
+            {
+                "source_key": str(pair.get("source_key") or ""),
+                "codex_run_id": str(codex_payload.get("run_id") or ""),
+                "baseline_run_id": str(baseline_payload.get("run_id") or ""),
+                "changed_line_count": int(_coerce_int(pair.get("changed_line_count")) or 0),
+                "delta_overall_line_accuracy": _coerce_float(
+                    delta_payload.get("overall_line_accuracy")
+                ),
+                "delta_macro_f1_excluding_other": _coerce_float(
+                    delta_payload.get("macro_f1_excluding_other")
+                ),
+                "delta_practical_f1": _coerce_float(delta_payload.get("practical_f1")),
+            }
+        )
+    pair_inventory.sort(
+        key=lambda row: (
+            _float_or_zero(row.get("delta_practical_f1")),
+            _float_or_zero(row.get("delta_overall_line_accuracy")),
+            -int(row.get("changed_line_count") or 0),
+            str(row.get("source_key") or ""),
+        )
+    )
+
+    index_payload = {
+        "bundle_version": "upload_bundle.v1",
+        "generated_at": _timestamp_now(),
+        "source_dir": str(source_root),
+        "output_dir": str(output_root),
+        "file_contract": {
+            "overview_file": UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+            "artifact_index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
+            "payload_file": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+        },
+        "payload_contract": {
+            "one_json_object_per_line": True,
+            "join_key": "path",
+            "row_locator_field": "payload_row",
+            "lossless_guarantee": (
+                "Every source artifact is represented in payload with sha256/bytes and "
+                "full content (UTF-8 structured/text fields or base64 when binary/compressed)."
+            ),
+        },
+        "topline": topline,
+        "self_check": self_check,
+        "run_diagnostics": run_diagnostics,
+        "navigation": {
+            "start_here": [
+                UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+                UPLOAD_BUNDLE_INDEX_FILE_NAME,
+            ],
+            "default_initial_views": [
+                "topline",
+                "self_check",
+                "analysis.per_label_metrics",
+                "analysis.per_recipe_breakdown",
+                "analysis.stage_separated_comparison",
+                "analysis.failure_ledger",
+                "analysis.regression_casebook",
+                "analysis.changed_lines_stratified_sample",
+                "analysis.call_inventory_runtime",
+                "analysis.line_role_confidence_or_candidates",
+            ],
+            "root_paths": [
+                "README.md",
+                "run_index.json",
+                "comparison_summary.json",
+                "process_manifest.json",
+                CHANGED_LINES_FILE_NAME,
+                PER_RECIPE_BREAKDOWN_FILE_NAME,
+                TARGETED_PROMPT_CASES_FILE_NAME,
+                LABEL_POLICY_NOTES_FILE_NAME,
+            ],
+            "starter_pack_root": STARTER_PACK_DIR_NAME,
+            "per_run_summary_paths": [
+                item["need_to_know_summary_path"] for item in run_diagnostics
+            ],
+            "row_locators": row_locators,
+            "deprioritized_patterns": list(heavy_markers),
+            "full_payload_companion": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+        },
+        "analysis": {
+            "benchmark_pair_inventory": {
+                "pair_count": len(pair_inventory),
+                "pairs": pair_inventory,
+            },
+            "per_label_metrics": per_label_metrics,
+            "top_confusion_deltas": _aggregate_confusion_deltas(
+                {"pairs": comparison_pairs},
+                top_k=20,
+            ),
+            "per_recipe_breakdown": {
+                "pair_breakdown_count": len(pair_breakdown_rows),
+                "pairs": pair_breakdown_rows,
+            },
+            "stage_separated_comparison": stage_separated_comparison,
+            "failure_ledger": failure_ledger,
+            "regression_casebook": regression_casebook,
+            "changed_lines_stratified_sample": changed_line_stratified,
+            "call_inventory_runtime": call_runtime_inventory,
+            "line_role_confidence_or_candidates": line_role_signal_summary,
+            "selected_recipe_packets": {
+                "packet_count": len(selected_packets),
+                "packets": selected_packets,
+            },
+        },
+        "alias_metadata": alias_metadata,
+        "artifact_count": len(artifact_index),
+        "artifact_index": artifact_index,
+    }
+    _write_json(output_root / UPLOAD_BUNDLE_INDEX_FILE_NAME, index_payload)
+
+    overview_lines = [
+        "# External AI Upload Bundle (3 files)",
+        "",
+        f"- Generated at: `{index_payload['generated_at']}`",
+        f"- Source folder: `{source_root}`",
+        f"- Bundle folder: `{output_root}`",
+        "",
+        "## Files",
+        "",
+        f"- `{UPLOAD_BUNDLE_OVERVIEW_FILE_NAME}`: human quick-start + topline diagnostics.",
+        f"- `{UPLOAD_BUNDLE_INDEX_FILE_NAME}`: navigation index, topline metrics, artifact lookup.",
+        f"- `{UPLOAD_BUNDLE_PAYLOAD_FILE_NAME}`: full artifact payload rows (lossless source data).",
+        "",
+        "## Quick Start",
+        "",
+        "1. Read `topline` and `self_check` in `upload_bundle_index.json`.",
+        "2. Open `navigation.default_initial_views` in order for first-pass triage.",
+        "3. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",
+        "",
+        "## Topline",
+        "",
+        f"- run_count: {topline['run_count']}",
+        f"- pair_count: {topline['pair_count']}",
+        f"- changed_lines_total: {topline['changed_lines_total']}",
+        (
+            "- pair_count_sufficient_for_generalization: "
+            f"{'true' if topline['pair_count_sufficient_for_generalization'] else 'false'}"
+        ),
+        f"- full_prompt_log_status: {topline['full_prompt_log_status']}",
+        f"- full_prompt_log_rows: {topline['full_prompt_log_rows']}",
+        "",
+    ]
+    overview_lines.extend(
+        [
+            "## Self-Check",
+            "",
+            (
+                "- starter_pack_present: "
+                f"{'true' if self_check['starter_pack_present'] else 'false'}"
+            ),
+            (
+                "- pair_count_verified: "
+                f"{'true' if self_check['pair_count_verified'] else 'false'}"
+            ),
+            (
+                "- changed_lines_verified: "
+                f"{'true' if self_check['changed_lines_verified'] else 'false'}"
+            ),
+            (
+                "- topline_consistent: "
+                f"{'true' if self_check['topline_consistent'] else 'false'}"
+            ),
+            "",
+        ]
+    )
+
+    overview_lines.extend(
+        [
+            "## Included Views",
+            "",
+            "- per-label metrics + confusion deltas",
+            "- per-recipe breakdown",
+            "- stage-separated comparison (baseline / line-role / pass2 / pass3 / final-fallback)",
+            "- failure ledger (recipe x pass rows)",
+            "- compact regression casebook",
+            "- changed-lines stratified sample",
+            "- call inventory with latency/tokens/cost",
+            "- line-role confidence (and candidate-label signal when present)",
+            "",
+        ]
+    )
+
+    if largest_regressions:
+        overview_lines.append("### Largest Practical-F1 Regressions")
+        overview_lines.append("")
+        for row in largest_regressions:
+            overview_lines.append(
+                "- "
+                f"{row['source_key']} | codex={row['codex_run_id']} vs baseline={row['baseline_run_id']} "
+                f"| delta_practical_f1={_serialize_float(_coerce_float(row['delta_practical_f1']))} "
+                f"| delta_overall_line_accuracy={_serialize_float(_coerce_float(row['delta_overall_line_accuracy']))} "
+                f"| changed_line_count={int(row['changed_line_count'])}"
+            )
+        overview_lines.append("")
+
+    requested_target_ids = regression_casebook.get("requested_targets")
+    requested_target_ids = (
+        requested_target_ids if isinstance(requested_target_ids, list) else []
+    )
+    if requested_target_ids:
+        overview_lines.append("### Targeted Regression IDs")
+        overview_lines.append("")
+        overview_lines.append(
+            "- requested: "
+            + ", ".join(f"`{str(item)}`" for item in requested_target_ids)
+        )
+        found_targets = regression_casebook.get("found_targets")
+        found_targets = found_targets if isinstance(found_targets, list) else []
+        overview_lines.append(
+            "- found: "
+            + (
+                ", ".join(f"`{str(item)}`" for item in found_targets)
+                if found_targets
+                else "none"
+            )
+        )
+        overview_lines.append("")
+
+    if run_diagnostics:
+        overview_lines.extend(
+            [
+                "## Run Diagnostics",
+                "",
+                "| run_id | prompt_log | prompt_warning | projection_trace | wrong_context | preprocess_trace |",
+                "|---|---|---|---|---|---|",
+            ]
+        )
+        for row in run_diagnostics:
+            overview_lines.append(
+                "| "
+                f"{row['run_id']} | "
+                f"{row['full_prompt_log_status']} | "
+                f"{row['prompt_warning_aggregate_status']} | "
+                f"{row['projection_trace_status']} | "
+                f"{row['wrong_label_full_context_status']} | "
+                f"{row['preprocess_trace_failures_status']} |"
+            )
+        overview_lines.append("")
+
+    overview_lines.extend(
+        [
+            "## Data Integrity",
+            "",
+            (
+                "Each artifact row carries `sha256` and `bytes`. Text/structured files are embedded "
+                "directly for easy browsing, while compressed/binary payloads are embedded as base64."
+            ),
+            (
+                "Heavy artifacts (full prompt logs, raw manifests, transport traces, split-cache blobs) "
+                "are retained in payload but deprioritized in default navigation."
+            ),
+            "",
+        ]
+    )
+    (output_root / UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).write_text(
+        "\n".join(overview_lines),
+        encoding="utf-8",
+    )
+
+    return {
+        "file_names": list(UPLOAD_BUNDLE_FILE_NAMES),
+        "artifact_count": len(artifact_index),
+        "payload_rows": len(artifact_index),
+        "topline": topline,
+        "self_check": self_check,
+    }
+
+
+def _prune_output_to_upload_bundle_files(*, output_dir: Path) -> None:
+    keep = set(UPLOAD_BUNDLE_FILE_NAMES)
+    for path in output_dir.iterdir():
+        if path.name in keep and path.is_file():
+            continue
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
+def build_upload_bundle_for_existing_output(
+    *,
+    source_dir: Path,
+    output_dir: Path | None = None,
+    overwrite: bool = True,
+    prune_output_dir: bool = False,
+) -> dict[str, Any]:
+    """Build a 3-file external-AI upload bundle from an existing artifact tree.
+
+    When `output_dir` is omitted, files are written alongside the source tree.
+    When `prune_output_dir` is true and output equals source, only the 3 upload
+    files are retained in that folder.
+    """
+
+    source_root = source_dir.resolve()
+    if not source_root.is_dir():
+        raise ValueError(f"source directory does not exist: {source_root}")
+
+    output_root = output_dir.resolve() if output_dir is not None else source_root
+    if output_root.exists():
+        if not overwrite:
+            raise FileExistsError(f"output directory already exists: {output_root}")
+        if output_root != source_root:
+            shutil.rmtree(output_root)
+            output_root.mkdir(parents=True, exist_ok=True)
+    else:
+        output_root.mkdir(parents=True, exist_ok=True)
+
+    bundle_metadata = _write_upload_bundle_three_files(
+        output_dir=output_root,
+        source_dir=source_root,
+    )
+    if prune_output_dir and output_root == source_root:
+        _prune_output_to_upload_bundle_files(output_dir=output_root)
+
+    bundle_metadata["source_dir"] = str(source_root)
+    bundle_metadata["output_dir"] = str(output_root)
+    return bundle_metadata
+
+
 def write_flattened_summary_for_existing_runs(*, output_dir: Path) -> Path:
     """Write a flattened benchmark summary for in-place single-offline sessions."""
 
@@ -5756,6 +7930,19 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    if args.upload_3_files_only and not args.upload_3_files:
+        print(
+            "error: --upload-3-files-only requires --upload-3-files",
+            file=sys.stderr,
+        )
+        return 1
+    if args.upload_3_files and not args.no_flatten:
+        print(
+            "error: --upload-3-files requires --no-flatten (bundle is built from the "
+            "non-flattened package).",
+            file=sys.stderr,
+        )
+        return 1
 
     run_dirs = _discover_run_dirs(input_dir)
     if not run_dirs:
@@ -5944,6 +8131,11 @@ def main() -> int:
         "targeted_prompt_cases_limit": DEFAULT_TARGETED_PROMPT_CASES,
         "flatten_enabled": not args.no_flatten,
         "flatten_script": str(args.flatten_script),
+        "upload_3_files_enabled": bool(args.upload_3_files),
+        "upload_3_files_only": bool(args.upload_3_files_only),
+        "upload_3_files_contract": list(UPLOAD_BUNDLE_FILE_NAMES)
+        if args.upload_3_files
+        else [],
         "changed_lines_total": len(changed_line_rows),
         "comparison_pair_breakdown_count": len(pair_breakdown_rows),
         "full_prompt_log_status": package_full_prompt_status,
@@ -6006,8 +8198,16 @@ def main() -> int:
             nested_path = run_output_dir / nested_file_name
             if nested_path.is_file():
                 included_files.add(f"{record.output_subdir}/{nested_file_name}")
+    if args.upload_3_files:
+        included_files.update(UPLOAD_BUNDLE_FILE_NAMES)
     process_manifest["included_files"] = sorted(included_files)
     _write_json(output_dir / "process_manifest.json", process_manifest)
+
+    upload_bundle_meta: dict[str, Any] | None = None
+    if args.upload_3_files:
+        upload_bundle_meta = _write_upload_bundle_three_files(output_dir=output_dir)
+        if args.upload_3_files_only:
+            _prune_output_to_upload_bundle_files(output_dir=output_dir)
 
     md_output_dir: Path | None = None
     if not args.no_flatten:
@@ -6026,6 +8226,13 @@ def main() -> int:
         print(f"Kept intermediate package: {output_dir}")
     if md_output_dir is not None and not args.no_flatten:
         print(f"Built flattened package: {md_output_dir}")
+    if upload_bundle_meta is not None:
+        print(
+            "Built 3-file upload bundle: "
+            f"{', '.join(upload_bundle_meta.get('file_names') or [])}"
+        )
+        if args.upload_3_files_only:
+            print("Pruned output to upload bundle files only.")
     print(f"Runs processed: {len(records)}")
     return 0
 

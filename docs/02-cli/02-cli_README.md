@@ -122,7 +122,7 @@ Config keys and defaults:
 - `all_method_max_inflight_pipelines` (default `4`)
 - `all_method_max_split_phase_slots` (default `4`)
 - `all_method_max_eval_tail_pipelines` (default follows split slots)
-- `all_method_config_timeout_seconds` (default `900`; `0` disables timeout)
+- `all_method_config_timeout_seconds` (default `600`; `0` disables timeout)
 - `all_method_retry_failed_configs` (default `1`; `0` disables retries)
 - `all_method_wing_backlog_target` (default follows split slots)
 - `all_method_smart_scheduler` (default `true`)
@@ -356,6 +356,10 @@ Interactive benchmark now has a mode submenu before execution:
      - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
      - also writes `single-offline-benchmark/<source_slug>/starter_pack_v1/` by running the benchmark cutdown starter-pack builder in-place against the paired variant run dirs
      - paired starter-pack generation also writes `single-offline-benchmark/<source_slug>/benchmark_summary.md` (flattened comparison + starter-pack summary)
+     - also writes a dedicated 3-file upload folder: `single-offline-benchmark/<source_slug>/upload_bundle_v1/`:
+       - `upload_bundle_overview.md`
+       - `upload_bundle_index.json`
+       - `upload_bundle_payload.jsonl`
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
@@ -376,6 +380,10 @@ Interactive benchmark now has a mode submenu before execution:
    - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/`,
+   - writes a dedicated 3-file upload folder per target eval root:
+     - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
+     - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
+     - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
 4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile all-matched runs.
 5. Returns to the main menu on completion.
@@ -671,7 +679,7 @@ Options:
 - `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
 - `--codex-model TEXT`: explicit Codex model for prelabel calls (defaults to `COOKIMPORT_CODEX_MODEL` or your Codex CLI default model).
 - `--codex-thinking-effort`, `--codex-reasoning-effort` (alias flags): Codex reasoning-effort hint (`none|minimal|low|medium|high|xhigh`, normalized per model compatibility).
-- `--prelabel-timeout-seconds INTEGER>=1` (default `300`): timeout per provider call.
+- `--prelabel-timeout-seconds INTEGER>=1` (default `600`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-workers INTEGER>=1` (default `15`): concurrent freeform prelabel provider calls (`1` keeps serialized behavior).
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
@@ -760,6 +768,10 @@ Behavior note:
 - Single benchmark runs auto-refresh dashboard artifacts after CSV append.
 - All-method benchmark internals suppress per-config refresh and refresh once per source batch.
 - All-method evaluate-only replay failures now preserve the underlying `_fail(...)` message in report rows instead of opaque `error: "1"` exit-code strings.
+- Non-interactive benchmark runs now also emit a dedicated 3-file upload folder under each eval root:
+  - `<eval_output_dir>/upload_bundle_v1/upload_bundle_overview.md`
+  - `<eval_output_dir>/upload_bundle_v1/upload_bundle_index.json`
+  - `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
 
 Options:
 

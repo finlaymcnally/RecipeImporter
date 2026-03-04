@@ -437,7 +437,12 @@ Gates include:
 
 - Boundary-first splitting for `NOTE:`, yield prefixes (`MAKES`/`SERVES`/`YIELDS`), method headings (`TO MAKE`, `FOR THE`, `FOR SERVING`), and inline numbered steps.
 - Yield-first segments are split so trailing quantity-led ingredient runs become separate candidates.
+- Quantity-run splitting now keeps instruction-like prose whole and blocks broken dual-unit fragments (`2 cups/` + `475 g ...`) from being atomized into fake ingredient rows.
 - Quantity ranges like `4 to 6 chicken leg quarters` are treated as ingredient-like candidates, not yield.
+- Short quantity-led lines (for example `1 fresh bay leaf`, `8 thin slices ...`) now stay ingredient-like with deterministic negative guards for time/instructional fragments.
+- Heading-like title rows now emit `RECIPE_TITLE` candidates (`title_like`) before generic fallback labels.
+- Note-like prose rows now emit `RECIPE_NOTES` candidates (`note_like_prose`) before instruction heuristics.
+- Yield regex intentionally excludes bare `serving` to avoid splitting prose lines like `before serving`.
 
 ### Tests to read
 
@@ -455,9 +460,12 @@ Gates include:
 ### Current safeguards
 
 - Rule-first path handles low-ambiguity cases (`NOTE`, yield, ingredient-like, method headers, variants, and instruction lines).
+- Compact all-caps title-like rows are disambiguated to `HOWTO_SECTION` when neighboring lines indicate an internal component/subsection flow and the next line is not a yield boundary.
 - `TIME_LINE` is only used for primary time metadata; instruction lines that mention duration stay `INSTRUCTION_LINE`.
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
 - Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
+- Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
+- Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
 
 ### Related modules
 
@@ -823,3 +831,14 @@ Current parsing contracts to keep:
 - For canonical line-role labeling, evaluate outside-recipe prose before generic instruction-sentence fallback.
 - If a line is prose-like and outside recipe span, prefer `KNOWLEDGE` instead of `INSTRUCTION_LINE`.
 - This ordering preserves recipe-span precision while avoiding narrative false positives in canonical benchmark labeling.
+
+## 2026-03-03 merged understanding digest (canonical title/note remediation)
+
+Merged source note:
+- `docs/understandings/2026-03-03_16.38.03-canonical-line-role-title-note-fix-implementation.md`
+
+Current parsing contracts to keep:
+- Title-like headings should keep `RECIPE_TITLE` reachable through both atomizer candidates and canonical allowlist expansion.
+- Deterministic title hits should not be escalated away when confidence is low.
+- Note-like prose should not be pre-classified as `INSTRUCTION_LINE` by broad punctuation-only sentence rules.
+- Bare `serving` in prose is not treated as a yield boundary marker.

@@ -1290,6 +1290,7 @@ class TestRenderer:
         assert 'id="previous-runs-columns-toggle"' in html
         assert 'id="previous-runs-columns-popup"' in html
         assert 'id="previous-runs-columns-checklist"' in html
+        assert 'id="previous-runs-global-filter-mode"' in html
         assert 'id="previous-runs-column-reset"' in html
         assert 'id="previous-runs-preset-select"' in html
         assert 'id="previous-runs-preset-load"' in html
@@ -1326,8 +1327,34 @@ class TestRenderer:
         render_dashboard(dash_dir, DashboardData())
         js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
         assert 'let previousRunsFilterControlSource = "table";' in js
-        assert "Control: isolate overrides table filters." in js
-        assert "Control: table filters (isolate paused)." in js
+        assert 'let previousRunsColumnFilterGlobalMode = "and";' in js
+        assert "Control: isolate synced to table filters." in js
+        assert "Control: table filters (isolate rules saved)." in js
+        assert "Column combine: " in js
+        assert "OR across columns." in js
+
+    def test_dashboard_js_supports_cross_column_or_filter_mode(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "function normalizePreviousRunsColumnFilterGlobalMode(value)" in js
+        assert "if (topMode === \"or\") {" in js
+        assert "return groups.some(matchesGroup);" in js
+
+    def test_dashboard_js_supports_isolate_numeric_operators(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "const ISOLATE_OPERATORS_TEXT = [" in js
+        assert "const ISOLATE_OPERATORS_NUMERIC = [" in js
+        assert '["gt", ">"]' in js
+        assert '["gte", ">="]' in js
+        assert '["lt", "<"]' in js
+        assert '["lte", "<="]' in js
+        assert 'class="isolate-rule-value isolate-rule-value-input"' in js
+        assert "function isolateFieldIsNumeric(records, fieldName)" in js
+        assert "function isolateOperatorsForField(fieldInfo)" in js
+        assert "function isolateClauseHasActiveSelection(clause)" in js
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -1356,12 +1383,14 @@ class TestRenderer:
         assert "Diagnostics (Latest Benchmark)" in html
         assert 'id="runtime-section"' in html
         assert 'id="per-label-rolling-window-size"' in html
+        assert 'id="per-label-comparison-point-value"' in html
         assert 'class="per-label-rolling-group"' in html
         assert 'class="per-label-col-head">Run<br>Precision<br>' in html
         assert 'class="per-label-col-sub">(codexfarm)</span>' in html
         assert 'class="per-label-col-head">Run<br>Recall<br>' in html
         assert 'class="per-label-rolling-window-value">10</span>' in html
-        assert "Rolling Delta:" in html
+        assert 'Rolling <span class="per-label-comparison-mode-value">Delta</span>:' in html
+        assert "Point value" in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html
         assert "Stage / Import Throughput" not in html
@@ -1386,6 +1415,9 @@ class TestRenderer:
         assert 'src="https://code.highcharts.com/stock/highstock.js"' in html
         assert "if (!window.Highcharts || typeof window.Highcharts.stockChart !== 'function')" in html
         assert "https://cdn.jsdelivr.net/npm/highcharts/highstock.js" in html
+        assert 'src="https://code.highcharts.com/highcharts-more.js"' in html
+        assert "if (!window.Highcharts || !window.Highcharts.seriesTypes || typeof window.Highcharts.seriesTypes.arearange !== 'function')" in html
+        assert "https://cdn.jsdelivr.net/npm/highcharts/highcharts-more.js" in html
 
     def test_js_uses_timestamp_comparators_for_run_sorting(self, tmp_path):
         data = DashboardData(
@@ -1554,7 +1586,7 @@ class TestRenderer:
         assert "function formatPreviousRunsColumnFilterSummary(fieldName, filter)" in js
         assert "function formatPreviousRunsColumnFiltersSummary(fieldName, clauses)" in js
         assert "function groupPreviousRunsFiltersByField(filters)" in js
-        assert "function recordMatchesPreviousRunsFilterGroups(record, groupedFilters)" in js
+        assert "function recordMatchesPreviousRunsFilterGroups(record, groupedFilters, globalMode)" in js
         assert "function previousRunsRecordsMatchingOtherFilters(excludedField)" in js
         assert "function previousRunsColumnSuggestionCandidates(fieldName, typedText)" in js
         assert "function previousRunsSuggestionScore(typedLower, candidateLower)" in js
@@ -1677,9 +1709,14 @@ class TestRenderer:
         assert "function aggregatePerLabelRows(records)" in js
         assert "function setupPerLabelControls()" in js
         assert "function syncPerLabelRollingWindowUi()" in js
+        assert "function syncPerLabelComparisonModeUi()" in js
         assert "function normalizePerLabelRollingWindowSize(value)" in js
+        assert "function normalizePerLabelComparisonMode(value)" in js
         assert "function rollingPerLabelByVariant(records, variant, windowSize)" in js
         assert "const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);" in js
+        assert "per_label_comparison_mode: normalizePerLabelComparisonMode(perLabelComparisonMode)" in js
+        assert 'const checkbox = document.getElementById("per-label-comparison-point-value");' in js
+        assert "const rawDelta = baselineNum - valueNum;" in js
         assert 'benchmarkVariantForRecord(record) === "codexfarm"' in js
         assert 'benchmarkVariantForRecord(record) === "vanilla"' in js
 
@@ -1734,15 +1771,26 @@ class TestRenderer:
         assert "xAxis: xAxisConfig," in js
         assert "function benchmarkVariantForRecord(record)" in js
         assert "function benchmarkRunGroupInfo(record)" in js
+        assert "runGroupTimestampText" in js
+        assert "function benchmarkRunGroupXAxisTimestampMs(record, runGroup)" in js
+        assert "const xMs = benchmarkRunGroupXAxisTimestampMs(record, runGroup);" in js
+        assert "if (xMs == null) return null;" in js
         assert "function trendSeriesPointForRunGroup(series, runGroupKey, hoveredX)" in js
+        assert "function buildTrendRegression(points)" in js
+        assert "function withTrendOverlays(baseSeriesList)" in js
+        assert "function isTrendOverlaySeries(series)" in js
         assert "function buildBenchmarkTrendSeries(records)" in js
         assert "const hasPairedVariants =" in js
         assert 'name: metric.key + " (" + variant + ")"' in js
         assert "series: trendSeries," in js
         assert 'type: "scatter"' in js
+        assert 'type: "arearange"' in js
+        assert 'name: baseSeries.name + " trend"' in js
+        assert 'name: baseSeries.name + " ±1σ"' in js
         assert "lineWidth: 0," in js
         assert "shared: false," in js
         assert "formatter: function()" in js
+        assert "if (!series || series.visible === false || isTrendOverlaySeries(series)) return;" in js
         assert "trendSeriesPointForRunGroup(series, runGroupKey, hoveredX)" in js
         assert "runGroupKey" in js
         assert "runGroupLabel" in js

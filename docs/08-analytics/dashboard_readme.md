@@ -122,12 +122,12 @@ Notes:
   - Boundary diagnostics now aggregate all boundary-bearing rows at the latest preferred benchmark run-group key (artifact-path timestamp token fallback to record timestamp), so twinned `vanilla`/`codexfarm` evals are grouped even when eval completion timestamps differ.
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
-  - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and show signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse).
-  - Per-label diagnostics include a small `Rolling N` selector in-card; rolling codexfarm/vanilla delta columns sit under one shared dynamic group header (`<N>-run Rolling Delta:`), with per-column labels reduced to metric + variant.
-  - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + delta columns.
+  - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and let you switch the comparison columns between signed deltas and raw point values using an in-card `Point value` checkbox. Delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
+  - Per-label diagnostics include a small `Rolling N` selector in-card; rolling codexfarm/vanilla comparison columns sit under one shared dynamic group header (`<N>-run Rolling <Mode>:`), with per-column labels reduced to metric + variant.
+  - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + comparison columns.
   - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.
   - Per-label metric headers are intentionally three-line (`group`, `metric`, `(variant)`) and left-aligned to keep diagnostic columns narrower on single-screen layouts.
-  - Per-label table is content-sized (no forced full-card width) with compact fixed-width metric/count columns so numeric deltas stay dense; horizontal scroll remains available for overflow.
+  - Per-label table is content-sized (no forced full-card width) with compact fixed-width metric/count columns so comparison values stay dense; horizontal scroll remains available for overflow.
 - `Previous Runs`: full-history table with key benchmark columns only.
   - The table viewport is fixed to roughly 10 data rows of height (even when current filters show fewer rows), then scrolls vertically.
   - Horizontal scrolling is enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
@@ -153,16 +153,19 @@ Notes:
   - Previous Runs header row order is: column names, filter summary/editor row, then one blank spacer row before data rows.
   - Multi-row sticky headers rely on `#previous-runs-table { border-collapse: separate; border-spacing: 0; }` to avoid browser overlap/bleed artifacts.
   - Do not set `position: relative` on `#previous-runs-table th`; that overrides sticky header positioning and causes row-offset overlap artifacts.
-  - Includes an `Isolate For X` panel beside the trend chart (left on desktop, stacked on small screens): add one or more field + logic (`is` / `is not`) + value rules, choose `all rules (AND)` vs `any rule (OR)`, and auto-filter both chart/table with slice-vs-baseline metric deltas (quality, runtime/token fields when present).
-  - Isolate vs table column filters use `last edited wins`: editing isolate controls makes isolate override table filters; editing table column filters pauses isolate until isolate is edited again.
+  - Includes an `Isolate For X` panel beside the trend chart (left on desktop, stacked on small screens): add one or more field + logic + value rules, choose `all rules (AND)` vs `any rule (OR)`, and auto-filter both chart/table with slice-vs-baseline metric deltas (quality, runtime/token fields when present).
+  - Isolate logic supports categorical `is` / `is not`, plus numeric comparators (`>`, `>=`, `<`, `<=`) when the selected field is numeric.
+  - `Isolate For X` now writes directly into `Previous Runs` table column filters (`eq`/`neq`/`gt`/`gte`/`lt`/`lte` clauses), including native cross-column OR when isolate uses `any rule (OR)`.
+  - `Previous Runs` column filters now support a global `Across columns` mode (`AND` / `OR`) in addition to per-column stack modes.
   - The `Benchmark Score Trend` Highcharts panel uses a fixed 800px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
   - A `Quick Filters` section sits between the trend chart and table:
     - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.
     - `Exclude AI test/smoke benchmark runs` remains available mainly as a legacy cleanup toggle for older saved dashboard payloads.
     - `Clear all filters` resets quick filters, per-column table filters, and isolate rules in one click.
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
-  - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps).
+  - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed linear trendlines and matching-color `±1σ` deviation bands.
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
+  - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
   - Hovering any trend point shows one run-level tooltip card with local run timestamp and all visible series values for that run group (instead of per-point coordinate tooltips).
   - The `Benchmark Score Trend` range selector defaults to `All`, so older benchmark history is visible on first load instead of starting on a short recent window.
   - The trend chart x-axis is initialized from the full filtered `Previous Runs` timestamp span (including rows without explicit score points), so timeline dates stay aligned with the table.

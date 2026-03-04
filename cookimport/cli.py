@@ -250,7 +250,7 @@ DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS = (
 )
 DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
-DEFAULT_PRELABEL_TIMEOUT_SECONDS = 300
+DEFAULT_PRELABEL_TIMEOUT_SECONDS = 600
 KNOWN_LABELSTUDIO_TASK_SCOPES = {"pipeline", "canonical-blocks", "freeform-spans"}
 SUPPORTED_LABELSTUDIO_TASK_SCOPES = {"freeform-spans"}
 ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
@@ -269,6 +269,12 @@ SINGLE_OFFLINE_SPLIT_CACHE_ROOT_ENV = "COOKIMPORT_SINGLE_OFFLINE_SPLIT_CACHE_ROO
 SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
 SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
+BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
+BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
+    "upload_bundle_overview.md",
+    "upload_bundle_index.json",
+    "upload_bundle_payload.jsonl",
+)
 LABELSTUDIO_BENCHMARK_COMPARE_SCHEMA_VERSION = "labelstudio_benchmark_compare.v1"
 CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
 CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
@@ -308,7 +314,7 @@ ALL_METHOD_WEBSCHEMA_POLICIES = ("prefer_schema", "schema_only", "heuristic_only
 ALL_METHOD_MAX_INFLIGHT_DEFAULT = 4
 ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT = 4
 ALL_METHOD_MAX_EVAL_TAIL_DEFAULT = 4
-ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 900
+ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT = 600
 ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT = 1
 ALL_METHOD_MAX_PARALLEL_SOURCES_DEFAULT = 4
 ALL_METHOD_SCHEDULER_SCOPE_GLOBAL = "global"
@@ -420,6 +426,9 @@ BENCHMARK_EXECUTION_MODE_PREDICT_ONLY = "predict-only"
 COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
 COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
     "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS"
+)
+COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK_ENV = (
+    "COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK"
 )
 BENCHMARK_SEQUENCE_MATCHER_DISPLAY_NAMES: dict[str, str] = {
     "dmp": "DMP",
@@ -2461,6 +2470,16 @@ def _interactive_single_profile_all_matched_benchmark(
                 }
             )
             labelstudio_benchmark(**target_kwargs)
+            upload_bundle_dir = _write_benchmark_upload_bundle(
+                source_root=target_eval_output,
+                output_dir=target_eval_output / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+                suppress_summary=False,
+            )
+            if upload_bundle_dir is not None:
+                typer.secho(
+                    f"External-AI upload bundle: {upload_bundle_dir}",
+                    fg=typer.colors.CYAN,
+                )
         except typer.Exit as exc:
             exit_code = int(getattr(exc, "exit_code", 1))
             failures.append((target, f"exit code {exit_code}"))
@@ -3455,6 +3474,7 @@ def _write_single_offline_comparison_artifacts(
     vanilla_eval_output_dir: Path,
     split_cache_metadata: dict[str, Any] | None = None,
     write_markdown: bool = True,
+    write_starter_pack: bool = False,
 ) -> tuple[Path, Path | None] | None:
     codex_eval_report = _load_json_dict(codex_eval_output_dir / "eval_report.json")
     vanilla_eval_report = _load_json_dict(vanilla_eval_output_dir / "eval_report.json")
@@ -3494,19 +3514,20 @@ def _write_single_offline_comparison_artifacts(
         metadata_payload["per_label_breakdown"] = per_label_breakdown
     if isinstance(split_cache_metadata, dict):
         metadata_payload["single_offline_split_cache"] = split_cache_metadata
-    starter_pack_dir = _write_single_offline_starter_pack(session_root=session_root)
-    if starter_pack_dir is not None:
-        metadata_payload["starter_pack_v1"] = {
-            "path": str(starter_pack_dir),
-            "relative_path": "starter_pack_v1",
-            "manifest_file": "starter_pack_v1/10_process_manifest.json",
-        }
-        flattened_summary_path = session_root / "benchmark_summary.md"
-        if flattened_summary_path.is_file():
-            metadata_payload["flattened_summary"] = {
-                "path": str(flattened_summary_path),
-                "relative_path": "benchmark_summary.md",
+    if write_starter_pack:
+        starter_pack_dir = _write_single_offline_starter_pack(session_root=session_root)
+        if starter_pack_dir is not None:
+            metadata_payload["starter_pack_v1"] = {
+                "path": str(starter_pack_dir),
+                "relative_path": "starter_pack_v1",
+                "manifest_file": "starter_pack_v1/10_process_manifest.json",
             }
+            flattened_summary_path = session_root / "benchmark_summary.md"
+            if flattened_summary_path.is_file():
+                metadata_payload["flattened_summary"] = {
+                    "path": str(flattened_summary_path),
+                    "relative_path": "benchmark_summary.md",
+                }
     if metadata_payload:
         comparison_payload["metadata"] = metadata_payload
     comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
@@ -3547,7 +3568,15 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
             if module_spec is None or module_spec.loader is None:
                 raise RuntimeError(f"unable to load module spec from {script_path}")
             module = importlib.util.module_from_spec(module_spec)
-            module_spec.loader.exec_module(module)
+            module_name = str(module_spec.name or "cookimport_benchmark_cutdown_for_external_ai")
+            # Ensure dataclass/type introspection inside the helper script can
+            # resolve its module namespace during exec_module().
+            sys.modules[module_name] = module
+            try:
+                module_spec.loader.exec_module(module)
+            except Exception:
+                sys.modules.pop(module_name, None)
+                raise
             build_starter_pack_for_existing_runs = getattr(
                 module,
                 "build_starter_pack_for_existing_runs",
@@ -3596,6 +3625,101 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
         )
         return None
     return starter_pack_dir
+
+
+def _write_benchmark_upload_bundle(
+    *,
+    source_root: Path,
+    output_dir: Path,
+    suppress_summary: bool,
+) -> Path | None:
+    build_upload_bundle_for_existing_output = None
+
+    try:
+        from scripts.benchmark_cutdown_for_external_ai import (
+            build_upload_bundle_for_existing_output,
+        )
+    except Exception as import_exc:  # noqa: BLE001
+        script_path = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "benchmark_cutdown_for_external_ai.py"
+        )
+        try:
+            module_spec = importlib.util.spec_from_file_location(
+                "cookimport_benchmark_cutdown_for_external_ai",
+                script_path,
+            )
+            if module_spec is None or module_spec.loader is None:
+                raise RuntimeError(f"unable to load module spec from {script_path}")
+            module = importlib.util.module_from_spec(module_spec)
+            module_name = str(module_spec.name or "cookimport_benchmark_cutdown_for_external_ai")
+            sys.modules[module_name] = module
+            try:
+                module_spec.loader.exec_module(module)
+            except Exception:
+                sys.modules.pop(module_name, None)
+                raise
+            build_upload_bundle_for_existing_output = getattr(
+                module,
+                "build_upload_bundle_for_existing_output",
+            )
+        except Exception as fallback_exc:  # noqa: BLE001
+            if not suppress_summary:
+                typer.secho(
+                    (
+                        "Skipped benchmark upload bundle generation: unable to load helper "
+                        f"({import_exc}; fallback failed: {fallback_exc})."
+                    ),
+                    fg=typer.colors.YELLOW,
+                )
+            return None
+
+    if build_upload_bundle_for_existing_output is None:
+        if not suppress_summary:
+            typer.secho(
+                "Skipped benchmark upload bundle generation: helper loader unavailable.",
+                fg=typer.colors.YELLOW,
+            )
+        return None
+
+    try:
+        build_upload_bundle_for_existing_output(
+            source_dir=source_root,
+            output_dir=output_dir,
+            overwrite=True,
+            prune_output_dir=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if not suppress_summary:
+            typer.secho(
+                f"Skipped benchmark upload bundle generation: {exc}",
+                fg=typer.colors.YELLOW,
+            )
+        return None
+
+    if not output_dir.is_dir():
+        if not suppress_summary:
+            typer.secho(
+                "Skipped benchmark upload bundle generation: bundle folder missing after export.",
+                fg=typer.colors.YELLOW,
+            )
+        return None
+
+    output_files = {
+        path.name for path in output_dir.iterdir() if path.is_file()
+    }
+    if output_files != set(BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES):
+        if not suppress_summary:
+            typer.secho(
+                (
+                    "Skipped benchmark upload bundle generation: unexpected bundle file set "
+                    f"({sorted(output_files)})."
+                ),
+                fg=typer.colors.YELLOW,
+            )
+        return None
+    return output_dir
 
 
 def _write_single_offline_summary_markdown(
@@ -3693,6 +3817,7 @@ def _interactive_single_offline_benchmark(
     processed_output_root: Path,
     write_markdown: bool = False,
     write_label_studio_tasks: bool = False,
+    write_starter_pack: bool = False,
     single_offline_split_cache_mode: str = "auto",
     single_offline_split_cache_dir: Path | None = None,
     single_offline_split_cache_force: bool = False,
@@ -3903,6 +4028,7 @@ def _interactive_single_offline_benchmark(
                 ),
             ),
             write_markdown=False,
+            write_starter_pack=write_starter_pack,
         )
         if comparison_paths is not None:
             comparison_written = True
@@ -3938,6 +4064,19 @@ def _interactive_single_offline_benchmark(
             comparison_json_path=comparison_json_path,
         )
         typer.secho(f"Summary report: {summary_md_path}", fg=typer.colors.CYAN)
+
+    upload_bundle_dir: Path | None = None
+    if succeeded > 0:
+        upload_bundle_dir = _write_benchmark_upload_bundle(
+            source_root=session_root,
+            output_dir=session_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+            suppress_summary=False,
+        )
+        if upload_bundle_dir is not None:
+            typer.secho(
+                f"External-AI upload bundle: {upload_bundle_dir}",
+                fg=typer.colors.CYAN,
+            )
 
     history_csv_path = history_csv_for_output(
         session_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
@@ -6138,6 +6277,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 os.getenv(COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV),
                 default=False,
             )
+            benchmark_write_single_offline_starter_pack = _coerce_bool_setting(
+                os.getenv(COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK_ENV),
+                default=False,
+            )
 
             if benchmark_mode == "single_offline":
                 completed = _interactive_single_offline_benchmark(
@@ -6146,6 +6289,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     processed_output_root=output_folder,
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
+                    write_starter_pack=benchmark_write_single_offline_starter_pack,
                 )
                 if completed:
                     save_last_run_settings(
@@ -7698,6 +7842,7 @@ def _run_with_progress_status(
                 if latest_codex_stage_label is not None
                 else ""
             )
+            task_counter = latest_counter
         if running_workers is None and active_tasks is None and not codex_stage_label:
             return snapshot
 
@@ -7731,11 +7876,20 @@ def _run_with_progress_status(
         worker_lines: list[str] = []
         if active_tasks is not None:
             task_count = len(active_tasks)
+            tasks_left: int | None = None
+            if task_counter is not None:
+                counter_current, counter_total = task_counter
+                tasks_left = max(0, int(counter_total) - int(counter_current))
             if task_count > 0:
-                worker_lines.append(
+                active_tasks_label = (
                     f"active tasks ({task_count}"
                     + (f"/{running_slots}" if running_slots else "")
-                    + ")"
+                )
+                if tasks_left is not None:
+                    active_tasks_label += f", {tasks_left} left"
+                active_tasks_label += ")"
+                worker_lines.append(
+                    active_tasks_label
                 )
                 for index, task in enumerate(active_tasks[:running_slots], start=1):
                     worker_lines.append(
@@ -27000,6 +27154,21 @@ def labelstudio_benchmark(
         suppress_summary=suppress_summary,
         suppress_output_prune=suppress_output_prune,
     )
+    if (
+        not suppress_summary
+        and not bool(_INTERACTIVE_CLI_ACTIVE.get())
+        and eval_output_dir.is_dir()
+    ):
+        upload_bundle_dir = _write_benchmark_upload_bundle(
+            source_root=eval_output_dir,
+            output_dir=eval_output_dir / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+            suppress_summary=suppress_summary,
+        )
+        if upload_bundle_dir is not None:
+            typer.secho(
+                f"External-AI upload bundle: {upload_bundle_dir}",
+                fg=typer.colors.CYAN,
+            )
 
 
 @bench_app.command("speed-discover")

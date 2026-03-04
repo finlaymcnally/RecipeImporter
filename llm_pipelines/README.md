@@ -44,6 +44,7 @@ Prompt input contract:
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
+- Recipe codex-farm passes (`recipe.chunking.v1`, `recipe.schemaorg.v1`, `recipe.final.v1`, `recipe.knowledge.v1`, `recipe.tags.v1`) default to `codex_timeout_seconds: 600`.
 
 ## Label Studio freeform AI templates
 

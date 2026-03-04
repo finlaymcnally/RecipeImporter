@@ -72,6 +72,9 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown
   summaries are enabled while task JSONL artifacts stay disabled unless
   overridden in the shell.
+- single-offline starter-pack sidecars are opt-in via
+  `COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK=1` (default `0`) so
+  the default session contract can stay upload-bundle-first.
 
 Interactive benchmark flows (`single_offline`, `single_offline_all_matched`, `all_method`) stay offline and use canonical-text scoring.
 `labelstudio-benchmark compare` evaluates named gates (`sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates) and writes timestamped reports under `data/golden/benchmark-vs-golden/comparisons/<timestamp>/`.
@@ -97,16 +100,26 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
 - dashboard refresh is deferred until the full single-offline variant batch completes, then the lifetime dashboard is regenerated at `data/.history/dashboard` (using the configured output root) so `Previous Runs` updates without a manual dashboard rebuild.
 - all-method deferred refreshes (global queue batch, legacy multi-source batch, and source-batch refreshes) also target the lifetime dashboard path for the configured output root, rather than nested per-run `.history/dashboard` folders.
-- paired success also generates a blended first-look starter pack in-place:
+- paired success can optionally generate a blended first-look starter pack
+  in-place when `COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK=1`:
   - `.../single-offline-benchmark/<source_slug>/starter_pack_v1/`
-- paired starter-pack generation also writes an in-place flattened summary:
+- optional paired starter-pack generation also writes an in-place flattened
+  summary:
   - `.../single-offline-benchmark/<source_slug>/benchmark_summary.md`
 - optional consolidated markdown summary (when markdown writes are enabled):
   - `.../single-offline-benchmark/<source_slug>/single_offline_summary.md`
+- single-offline sessions now also write a consolidated 3-file upload bundle:
+  - `.../single-offline-benchmark/<source_slug>/upload_bundle_v1/upload_bundle_overview.md`
+  - `.../single-offline-benchmark/<source_slug>/upload_bundle_v1/upload_bundle_index.json`
+  - `.../single-offline-benchmark/<source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
+- interactive single-profile all-matched runs write the same 3-file upload bundle per target eval root:
+  - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
+  - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
+  - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
 - interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
-When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
+When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. The worker summary row now includes a remaining-work counter (`active tasks (..., N left)`) derived from the same `task X/Y` counter so operators can always see total tasks left even when the top status line is width-truncated. Spinner output is shown as a compact blue ASCII panel (bordered block) to make live worker/task state easy to track without noise.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
@@ -164,6 +177,14 @@ Canonical-text outputs include:
 - `aligned_prediction_blocks.jsonl`
 - `missed_gold_lines.jsonl`, `wrong_label_lines.jsonl`
 - `unmatched_pred_blocks.jsonl`, `alignment_gaps.jsonl`
+
+When eval roots are retained, benchmark runs also write an upload-friendly 3-file bundle under:
+- `<eval_output_dir>/upload_bundle_v1/upload_bundle_overview.md`
+- `<eval_output_dir>/upload_bundle_v1/upload_bundle_index.json`
+- `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
+- `upload_bundle_index.json` includes verified topline/self-check booleans (`starter_pack_present`, `pair_count_verified`, `changed_lines_verified`, `topline_consistent`) and corrects counts from discovered run artifacts when advertised root summaries are stale or missing.
+- default index views prioritize first-pass triage (`per_label_metrics`, `per_recipe_breakdown`, `stage_separated_comparison`, `failure_ledger`, compact regression casebook, stratified changed-line samples, call runtime/tokens/cost summary, line-role confidence signals) with payload row locators.
+- heavy/raw artifacts (full prompt logs, raw llm manifests, transport traces, split-cache blobs) remain lossless in payload but are marked as deprioritized for default reading; alias metadata groups equivalent artifacts to reduce duplicate navigation.
 
 ### 3.4 Speed/quality artifacts
 
@@ -228,6 +249,7 @@ Prediction-record and telemetry artifacts:
 `scripts/benchmark_cutdown_for_external_ai.py` now writes additive blended first-look artifacts under `starter_pack_v1/` while preserving legacy root files.
 Interactive `labelstudio_benchmark` single-offline paired runs reuse the same starter-pack logic directly in the session root.
 Starter-pack generation is wired into the shared codex-vs-vanilla comparison artifact writer, so it runs whenever paired comparison JSON is produced.
+When interactive environments cannot import `scripts.benchmark_cutdown_for_external_ai` as a package module, CLI helper loading falls back to direct script loading and now pre-registers the module name so dataclass/type initialization succeeds.
 Outside-span preprocess trace joins no longer borrow fallback prompt rows from unrelated recipes; outside-span statuses now emit explicit bridge lineage (`outside_span_archive_only`, `outside_span_unattributed`, plus prompt-joined variants when same-recipe prompt context exists).
 Recipe triage now also lifts per-recipe codex-farm `llm_manifest.json` diagnostics (pass statuses, pass1 clamped span-loss metrics, pass2 degradation reasons, pass3 fallback reasons, transport mismatch, and evidence-normalization counters) into starter-pack CSV/summary/casebook artifacts.
 
@@ -1303,6 +1325,7 @@ Current-contract additions:
 - Interactive benchmark sidecar writes stay env-driven and default-disabled in C3imp sessions:
   - `COOKIMPORT_BENCH_WRITE_MARKDOWN`
   - `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS`
+  - `COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK`
 
 ## 2026-03-02 merged understandings digest (single-offline pairing + benchmark queue robustness)
 

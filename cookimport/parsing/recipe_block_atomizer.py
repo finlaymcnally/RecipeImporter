@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 _WHITESPACE_RE = re.compile(r"\s+")
 _NOTE_PREFIX_RE = re.compile(r"^\s*note\s*:\s*", re.IGNORECASE)
 _YIELD_PREFIX_RE = re.compile(
-    r"^\s*(?:makes|serves?|servings?|yields?)\b",
+    r"^\s*(?:makes|serves?|servings|yields?)\b",
     re.IGNORECASE,
 )
 _NUMBERED_STEP_RE = re.compile(r"^\s*(?:step\s*)?\d{1,2}[.)]\s+", re.IGNORECASE)
@@ -18,7 +18,7 @@ _HOWTO_PREFIX_RE = re.compile(
 )
 _BOUNDARY_NOTE_RE = re.compile(r"\bnote\s*:\s*", re.IGNORECASE)
 _BOUNDARY_YIELD_RE = re.compile(
-    r"\b(?:makes|serves?|servings?|yields?)\b",
+    r"\b(?:makes|serves?|servings|yields?)\b",
     re.IGNORECASE,
 )
 _BOUNDARY_HOWTO_RE = re.compile(
@@ -27,7 +27,7 @@ _BOUNDARY_HOWTO_RE = re.compile(
 )
 _BOUNDARY_NUMBERED_RE = re.compile(r"(?<!\w)(?:step\s*)?\d{1,2}[.)]\s+", re.IGNORECASE)
 _QUANTITY_START_RE = re.compile(
-    r"(?<!\w)(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?(?:\s*(?:to|-)\s*\d+(?:\.\d+)?)?)\s+(?=[A-Za-z])",
+    r"(?<![\w/])(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?(?:\s*(?:to|-)\s*\d+(?:\.\d+)?)?)\s+(?=[A-Za-z])",
     re.IGNORECASE,
 )
 _QUANTITY_RANGE_START_RE = re.compile(
@@ -50,8 +50,39 @@ _INSTRUCTION_VERB_RE = re.compile(
     r"transfer|whisk)\b",
     re.IGNORECASE,
 )
+_INSTRUCTION_CUE_RE = re.compile(
+    r"\b(?:add|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|"
+    r"fold|grill|heat|mix|place|pour|reduce|remove|roast|season|serve|simmer|stir|"
+    r"transfer|whisk)\b",
+    re.IGNORECASE,
+)
+_BROKEN_DUAL_UNIT_FRAGMENT_RE = re.compile(
+    r"^\s*\d+(?:\.\d+)?\s+[A-Za-z][A-Za-z'/-]*/\s*$",
+    re.IGNORECASE,
+)
+_SHORT_QUANTITY_INGREDIENT_RE = re.compile(
+    r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s+[A-Za-z]",
+    re.IGNORECASE,
+)
 _VARIANT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
 _TITLE_CASE_WORD_RE = re.compile(r"[A-Z][A-Za-z'/-]*")
+_FIRST_PERSON_RE = re.compile(r"\b(?:i|i'm|i'd|i've|my|me|we|we're|our)\b", re.IGNORECASE)
+_NOTE_PROSE_HINT_RE = re.compile(
+    r"\b(?:you can|you may|if you like|if desired|optional|i like|i prefer|"
+    r"make sure|the key is|don't|do not|tip|tips)\b",
+    re.IGNORECASE,
+)
+_NON_RECIPE_PROSE_HINT_RE = re.compile(
+    r"\b(?:preface|introduction|contents|acknowledg(?:ment|ments)|index)\b",
+    re.IGNORECASE,
+)
+_RECIPE_CONTEXT_HINT_RE = re.compile(
+    r"\b(?:egg|eggs|omelet|omelette|soup|chicken|stock|broth|sauce|gravy|"
+    r"hollandaise|boil|fry|roast|braise|biscuits?|scones?|pancakes?|waffles?|"
+    r"hash|onion|garlic|tomato|cheese|pasta|bean|mushroom|broccoli|potato|"
+    r"parsley|bacon|ham|buttermilk|yolk|rice|noodles|gravy)\b",
+    re.IGNORECASE,
+)
 _INGREDIENT_NOUN_HINTS = {
     "anchovy",
     "beef",
@@ -257,15 +288,20 @@ def _split_quantity_runs(segment: str) -> list[str]:
     starts = sorted({match.start() for match in _QUANTITY_START_RE.finditer(segment)})
     if len(starts) <= 1:
         return [segment]
+    prefix = _normalize_text(segment[: starts[0]].strip(" ,;"))
+    if _should_keep_quantity_segment_whole(segment, prefix=prefix):
+        return [segment]
 
     rows: list[str] = []
     for idx, start in enumerate(starts):
         end = starts[idx + 1] if idx + 1 < len(starts) else len(segment)
         chunk = _normalize_text(segment[start:end].strip(" ,;"))
-        if chunk:
-            rows.append(chunk)
+        if not chunk:
+            continue
+        if _looks_quantity_fragment_artifact(chunk):
+            return [segment]
+        rows.append(chunk)
 
-    prefix = _normalize_text(segment[: starts[0]].strip(" ,;"))
     if prefix:
         rows.insert(0, prefix)
     return rows or [segment]
@@ -321,8 +357,14 @@ def _infer_candidate_labels(
         return ["HOWTO_SECTION", "RECIPE_VARIANT", "OTHER"], ["howto_heading"]
     if _is_variant_heading(text):
         return ["RECIPE_VARIANT", "RECIPE_TITLE", "OTHER"], ["variant_heading"]
+    if _is_recipe_title_like(text):
+        if within_recipe_span:
+            return ["RECIPE_TITLE", "RECIPE_VARIANT", "OTHER"], ["title_like"]
+        return ["RECIPE_TITLE", "KNOWLEDGE", "OTHER"], ["title_like", "outside_recipe_span"]
     if _is_ingredient_line(text):
         return ["INGREDIENT_LINE", "YIELD_LINE", "OTHER"], ["ingredient_like"]
+    if _looks_note_prose(text):
+        return ["RECIPE_NOTES", "INSTRUCTION_LINE", "OTHER"], ["note_like_prose"]
     if _is_numbered_instruction(text) or _is_instruction_sentence(text):
         if _is_time_metadata(text):
             return ["INSTRUCTION_LINE", "TIME_LINE", "OTHER"], ["instruction_with_time"]
@@ -393,12 +435,18 @@ def _is_ingredient_line(text: str) -> bool:
         return False
     if _is_control_line(text):
         return False
+    if _looks_quantity_fragment_artifact(text):
+        return False
+    if _looks_instructional_quantity_fragment(text):
+        return False
     if _QUANTITY_RANGE_START_RE.match(text):
         return True
     if _QUANTITY_START_RE.match(text):
         if _INGREDIENT_UNIT_HINT_RE.search(text):
             return True
         if any(hint in normalized for hint in _INGREDIENT_NOUN_HINTS):
+            return True
+        if _is_short_quantity_led_ingredient_shape(text):
             return True
     word_count = len(_VARIANT_WORD_RE.findall(text))
     if 1 <= word_count <= 4 and any(hint in normalized for hint in _INGREDIENT_NOUN_HINTS):
@@ -407,9 +455,15 @@ def _is_ingredient_line(text: str) -> bool:
 
 
 def _is_instruction_sentence(text: str) -> bool:
+    if _looks_note_prose(text):
+        return False
     if _INSTRUCTION_VERB_RE.match(text):
         return True
-    if "." in text and len(_VARIANT_WORD_RE.findall(text)) >= 8:
+    if (
+        "." in text
+        and len(_VARIANT_WORD_RE.findall(text)) >= 8
+        and _INSTRUCTION_CUE_RE.search(text)
+    ):
         return True
     return False
 
@@ -424,3 +478,99 @@ def _looks_explicit_prose(text: str) -> bool:
         return False
     punctuation_hits = sum(ch in {".", ",", ";", ":"} for ch in text)
     return punctuation_hits >= 1
+
+
+def _is_recipe_title_like(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _is_note_line(stripped) or _is_yield_line(stripped) or _is_howto_heading(stripped):
+        return False
+    if _is_numbered_instruction(stripped) or _is_time_metadata(stripped):
+        return False
+    if _QUANTITY_START_RE.match(stripped) or _INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    if stripped[-1:] in {".", "!", "?"}:
+        return False
+    words = _VARIANT_WORD_RE.findall(stripped)
+    if len(words) < 2 or len(words) > 12:
+        return False
+    if _looks_like_heading(stripped):
+        return True
+    title_case_words = _TITLE_CASE_WORD_RE.findall(stripped)
+    return len(title_case_words) >= max(2, len(words) - 1)
+
+
+def _looks_note_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _is_note_line(stripped):
+        return True
+    if (
+        _is_yield_line(stripped)
+        or _is_howto_heading(stripped)
+        or _is_numbered_instruction(stripped)
+    ):
+        return False
+    if _QUANTITY_START_RE.match(stripped):
+        return False
+    words = _VARIANT_WORD_RE.findall(stripped)
+    if len(words) < 9:
+        return False
+    if _NON_RECIPE_PROSE_HINT_RE.search(stripped):
+        return False
+    if _NOTE_PROSE_HINT_RE.search(stripped):
+        return True
+    if _FIRST_PERSON_RE.search(stripped) and _RECIPE_CONTEXT_HINT_RE.search(stripped):
+        return True
+    return False
+
+
+def _should_keep_quantity_segment_whole(segment: str, *, prefix: str) -> bool:
+    if prefix and not prefix.endswith(":"):
+        return True
+    if _looks_instructional_quantity_fragment(segment):
+        return True
+    return False
+
+
+def _looks_instructional_quantity_fragment(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        return True
+    words = _VARIANT_WORD_RE.findall(stripped)
+    if len(words) < 8:
+        return False
+    if "." in stripped and _INSTRUCTION_CUE_RE.search(stripped):
+        return True
+    if "," in stripped and _INSTRUCTION_CUE_RE.search(stripped):
+        return True
+    return False
+
+
+def _looks_quantity_fragment_artifact(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _BROKEN_DUAL_UNIT_FRAGMENT_RE.match(stripped):
+        return True
+    if stripped.endswith("/") and _QUANTITY_START_RE.match(stripped):
+        return True
+    return False
+
+
+def _is_short_quantity_led_ingredient_shape(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not _SHORT_QUANTITY_INGREDIENT_RE.match(stripped):
+        return False
+    if any(ch in stripped for ch in ".;!?"):
+        return False
+    if _TIME_METADATA_RE.search(stripped):
+        return False
+    if _INSTRUCTION_CUE_RE.search(stripped):
+        return False
+    words = _VARIANT_WORD_RE.findall(stripped)
+    return 2 <= len(words) <= 10

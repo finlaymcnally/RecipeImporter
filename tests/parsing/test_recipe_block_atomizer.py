@@ -146,6 +146,81 @@ def test_atomize_marks_explicit_prose_tag_for_fallback_paragraphs() -> None:
     assert "explicit_prose" in inside_candidates[0].rule_tags
 
 
+def test_atomize_title_like_line_offers_recipe_title_candidate_inside_recipe() -> None:
+    candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:title:inside",
+                "block_index": 4,
+                "text": "A PORRIDGE OF LOVAGE STEMS",
+            }
+        ],
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    assert len(candidates) == 1
+    assert candidates[0].candidate_labels[0] == "RECIPE_TITLE"
+    assert "title_like" in candidates[0].rule_tags
+
+
+def test_atomize_note_like_prose_not_preclassified_as_instruction() -> None:
+    candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:notes:inside",
+                "block_index": 8,
+                "text": (
+                    "If you like a thinner finish, you can whisk in a splash of stock "
+                    "right before serving to loosen the texture."
+                ),
+            }
+        ],
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    assert len(candidates) == 1
+    assert candidates[0].candidate_labels[0] == "RECIPE_NOTES"
+    assert "note_like_prose" in candidates[0].rule_tags
+    assert "instruction_like" not in candidates[0].rule_tags
+
+
+def test_atomize_short_quantity_led_lines_stay_ingredient_candidates() -> None:
+    candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:ingredient:1",
+                "block_index": 1,
+                "text": "1 fresh bay leaf",
+            },
+            {
+                "block_id": "block:ingredient:2",
+                "block_index": 2,
+                "text": "8 thin slices of five-day rye bread (page 244)",
+            },
+        ],
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    assert len(candidates) == 2
+    assert candidates[0].candidate_labels[0] == "INGREDIENT_LINE"
+    assert candidates[1].candidate_labels[0] == "INGREDIENT_LINE"
+
+
+def test_atomize_keeps_instructional_multi_quantity_prose_unsplit() -> None:
+    line = (
+        "Pour 1 quart/1 L of water into the saucepan. Add the dried shiitakes, bring "
+        "to a boil, then reduce the heat and simmer for 1 hour."
+    )
+    candidates = atomize_blocks(
+        [{"block_id": "block:instr:1", "block_index": 1, "text": line}],
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    assert len(candidates) == 1
+    assert candidates[0].text == line
+    assert candidates[0].candidate_labels[0] == "INSTRUCTION_LINE"
+
+
 def test_atomize_blocks_respects_off_splitter_mode() -> None:
     payload = _load_fixture("hollandaise_merged_block.json")
     blocks = payload.get("blocks")

@@ -32,7 +32,7 @@ Recipe codex-farm pass modules:
 
 - `cookimport/llm/codex_farm_orchestrator.py` (pass1/pass2/pass3 orchestration)
 - `cookimport/llm/codex_farm_transport.py` (authoritative pass1->pass2 inclusive span selection + audit payload builder)
-- `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts)
+- `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts with guarded JSON-string repair for malformed object payloads)
 - `cookimport/llm/evidence_normalizer.py` (deterministic additive pass2 evidence normalization)
 - `cookimport/llm/codex_farm_ids.py` (stable slug/id/bundle filename helpers)
 - `cookimport/llm/codex_farm_runner.py` (subprocess runner + shared error type)
@@ -83,6 +83,8 @@ Report/model plumbing:
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 - Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
+- Canonical line-role allowlists now auto-offer `RECIPE_TITLE` for title-like lines, and low-confidence deterministic `RECIPE_TITLE` labels are kept on-rule instead of escalated away.
+- Canonical line-role prompt few-shots now include an explicit `RECIPE_TITLE` positive example (in addition to `RECIPE_VARIANT`) to reduce title-vs-variant confusion.
 
 ## Pass1 Pattern Hints Boundary
 
@@ -114,8 +116,11 @@ Report/model plumbing:
   - evidence-normalization row summaries/counts,
   - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output).
 - Pass3 promotion is now gated by pass2 evidence quality: degraded pass2 rows skip pass3 LLM calls and go directly through deterministic fallback.
+- Pass2 degradation warning bucket naming is now layout-specific for page-marker noise (`warning_bucket:page_or_layout_artifact`) instead of OCR-specific wording.
 - Deterministic fallback now starts from the existing `state.recipe` candidate, then applies guarded pass2 enrichments when instruction/ingredient evidence is non-empty and non-placeholder.
 - When pass3 returns placeholder-only steps but pass2 contains non-placeholder extracted instructions, orchestrator now repairs steps from pass2 evidence before low-quality rejection.
+- Pass2/Pass3 contract loaders now attempt bounded repair for malformed object strings (control-byte cleanup, null-hex artifact cleanup, bracket rebalance, and first-object extraction) before raising validation errors.
+- Pass3 draft normalization now coerces legacy `draft_v1` object shapes (for example `name`/`instructions`, schema.org-only, or pass2-like objects) into valid `RecipeDraftV1` (`schema_v`, `recipe.title`, `steps`) before final validation.
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 

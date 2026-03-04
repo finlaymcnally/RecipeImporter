@@ -25,14 +25,14 @@ A novice should be able to prove success locally without live model calls by run
 - [x] (2026-03-03 12:47 America/Toronto) Verified shipped baseline: strict transport audit enforcement is active and blocks pass2/pass3 promotion on mismatch.
 - [x] (2026-03-03 12:47 America/Toronto) Verified shipped baseline: copied-view pass2 normalization is active (page-marker cleanup and quantity-line splits with provenance artifacts).
 - [x] (2026-03-03 12:47 America/Toronto) Verified shipped baseline: pass3 low-quality rejection + deterministic fallback path is active (but still anchored on pass2 schema recipe).
-- [ ] Extract pass1->pass2 selection/audit assembly into one authoritative helper and reconcile end-index semantics across orchestrator and bridge tooling.
-- [ ] Add explicit pass2 degradation reasons and gate pass3 input generation on evidence quality.
-- [ ] Re-anchor deterministic fallback on `state.recipe`, then apply guarded pass2 enrichments.
-- [ ] Harden pass3 acceptance: reject empty mappings only when steps/instruction evidence is missing/empty; also reject empty steps and placeholder-only steps.
-- [ ] Add upstream multiline splitting for recipe-like text in `unstructured_adapter.py` with stable provenance keys.
-- [ ] Remove outside-span fallback prompt-row join behavior in the benchmark cutdown trace path and emit explicit unattributed/archive-only statuses.
-- [ ] Fix line-role projection to preserve `within_recipe_span` from input predictions for URN/non-`recipe:<int>` IDs.
-- [ ] Add regression fixtures/tests and run targeted suites plus replay script; stop before live benchmark rerun and leave benchmark handoff commands for operator execution.
+- [x] (2026-03-03 13:04 America/Toronto) Extracted pass1->pass2 selection/audit assembly into `cookimport/llm/codex_farm_transport.py`, switched orchestrator to helper-driven inclusive end semantics, and emitted explicit transport invariant failure reasons.
+- [x] (2026-03-03 13:04 America/Toronto) Added explicit pass2 degradation reasons and gated pass3 input generation to non-degraded recipes only.
+- [x] (2026-03-03 13:04 America/Toronto) Re-anchored deterministic fallback on `state.recipe` and applied guarded pass2 enrichments only when evidence is non-empty and non-placeholder.
+- [x] (2026-03-03 13:04 America/Toronto) Hardened pass3 acceptance: placeholder-only/empty steps are rejected, and empty mapping is rejected only when step or instruction evidence is missing.
+- [x] (2026-03-03 13:04 America/Toronto) Added upstream recipe-like multiline splitting in `unstructured_adapter.py` with stable key suffixes and split-reason provenance.
+- [x] (2026-03-03 13:04 America/Toronto) Removed outside-span fallback prompt-row joins in benchmark cutdown trace path and emitted explicit outside-span statuses.
+- [x] (2026-03-03 13:04 America/Toronto) Fixed line-role projection to preserve incoming `within_recipe_span` flags for URN and non-`recipe:<int>` IDs.
+- [x] (2026-03-03 13:04 America/Toronto) Added regression fixtures/tests plus replay script and executed targeted verification; benchmark rerun handoff command recorded for operator use (not executed).
 
 ## Surprises & Discoveries
 
@@ -82,16 +82,42 @@ A novice should be able to prove success locally without live model calls by run
 
 ## Outcomes & Retrospective
 
-Current state: this merged plan has partially shipped baseline behavior in the codebase (transport mismatch blocking, additive pass2 normalization artifacts, and pass3 low-quality fallback), but remaining scope is still substantial for boundary consistency and diagnostics honesty.
+Completed outcome:
 
-Expected completed outcome:
+1. Pass2 selection/audit is centralized in `cookimport/llm/codex_farm_transport.py` with explicit inclusive end semantics and helper-driven audit payloads.
+2. Pass2 degradation reasons are explicit (`missing_instructions`, placeholder-only, degrading warning buckets), pass3 LLM promotion is gated to non-degraded recipes, and deterministic fallback now starts from `state.recipe`.
+3. Pass3 acceptance rejects empty/placeholder step payloads and conditionally rejects empty mapping only when step or instruction evidence is missing.
+4. Outside-span bridge diagnostics no longer borrow fallback prompt rows; unresolved rows now surface explicit outside-span statuses (`outside_span_archive_only`, `outside_span_unattributed`).
+5. Line-role projection preserves incoming `within_recipe_span` for URN/non-`recipe:<int>` IDs.
 
-1. Pass2 selection/audit logic is centralized and explicit about span semantics, with consistent behavior between runtime and bridge diagnostics.
-2. Degraded pass2/pass3 outputs are rejected via explicit reasons, and deterministic fallback is generated from `state.recipe` with guarded enrichments.
-3. Outside-span canonical diagnostics no longer inherit unrelated prompt context; unresolved rows are explicitly archive-only or unattributed.
-4. Targeted replay and tests prove behavior on known regressions, and this plan records benchmark rerun handoff commands for operator execution (not executed in-plan).
+Verification transcripts:
 
-When implementation finishes, update this section with exact test transcripts, replay summary, and the finalized benchmark rerun handoff command/template.
+    . .venv/bin/activate && python -m pytest tests/llm/test_codex_farm_transport.py tests/llm/test_evidence_normalizer.py tests/llm/test_codex_farm_orchestrator.py tests/bench/test_codex_bridge_projection_policy.py tests/bench/test_benchmark_cutdown_for_external_ai.py tests/ingestion/test_unstructured_adapter.py tests/labelstudio/test_canonical_line_projection.py -q
+    # exit 0
+
+    . .venv/bin/activate && python scripts/replay_seaandsmoke_codex_transport.py --all
+    c0 expected=36 actual=36 missing=0 extra=0 exact_match=yes
+    c6 expected=28 actual=28 missing=0 extra=0 exact_match=yes joined_quantity_lines=1 dropped_page_markers=1
+    c7 expected=42 actual=42 missing=0 extra=0 exact_match=yes tail_block_ge_314=yes
+    c8 expected=32 actual=32 missing=0 extra=0 exact_match=yes
+    c9 expected=48 actual=48 missing=0 extra=0 exact_match=yes
+    c12 expected=25 actual=25 missing=0 extra=0 exact_match=yes
+    outside_span rows_with_fallback_prompt=0 outside_span_archive_only_rows=1
+
+Operator benchmark rerun handoff template (not executed in-plan):
+
+    cookimport labelstudio-benchmark \
+      --source-file data/input/seaandsmokeCUTDOWN.epub \
+      --gold-spans data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/freeform_span_labels.jsonl \
+      --eval-mode canonical-text \
+      --no-upload \
+      --no-write-labelstudio-tasks \
+      --workers 1 \
+      --epub-split-workers 1 \
+      --llm-recipe-pipeline codex-farm-3pass-v1 \
+      --atomic-block-splitter atomic-v1 \
+      --line-role-pipeline deterministic-v1 \
+      --eval-output-dir data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>_seaandsmoke-pro3-rerun
 
 ## Context and Orientation
 
@@ -99,7 +125,7 @@ The codex-farm runtime is a three-pass extraction flow. Pass1 selects recipe spa
 
 In this plan, “transport” means assembling the pass2 payload from pass1 span selection using an inclusive end index contract. “Authoritative span membership” means the truth set of block IDs selected by pass1 span minus explicit exclusions. “Normalization-on-copy” means pass2 text cleanup on a derivative view that does not mutate authoritative membership.
 
-“Degraded recipe” means one with insufficient evidence fidelity to trust pass2/pass3 promotion. Signals include severe span-loss ratios, missing instructions, or warning buckets that imply structural corruption (`missing_instructions`, `split_line_boundary`, `ingredient_fragment`, `ocr_or_page_artifact`).
+“Degraded recipe” means one with insufficient evidence fidelity to trust pass2/pass3 promotion. Signals include severe span-loss ratios, missing instructions, or warning buckets that imply structural corruption (`missing_instructions`, `split_line_boundary`, `ingredient_fragment`, `page_or_layout_artifact`).
 
 “Projection bridge” means debug/export code that joins canonical lines with prompt rows, pass spans, and archive rows. This is diagnostic tooling, not core extraction generation, but it must not invent false lineage.
 
@@ -190,7 +216,7 @@ Run from repository root.
     python -m pytest tests/llm/test_evidence_normalizer.py -q
     python -m pytest tests/llm/test_codex_farm_orchestrator.py -q
     python -m pytest tests/bench/test_codex_bridge_projection_policy.py -q
-    python -m pytest tests/parsing/test_unstructured_adapter_multiline_split.py -q
+    python -m pytest tests/ingestion/test_unstructured_adapter.py -q
     python -m pytest tests/labelstudio/test_canonical_line_projection.py -q
 
 5. Run replay proof.
@@ -295,53 +321,29 @@ Define explicit, testable interfaces in new helper modules.
 In `cookimport/llm/codex_farm_transport.py`:
 
     @dataclass(frozen=True)
-    class TransportAudit:
-        start_block_index: int
-        end_block_index_inclusive: int
-        excluded_block_ids: tuple[str, ...]
-        expected_block_ids: tuple[str, ...]
-        payload_block_ids: tuple[str, ...]
-        missing_block_ids: tuple[str, ...]
-        extra_block_ids: tuple[str, ...]
-        missing_indices: tuple[int, ...]
-        exact_match: bool
+    class Pass2TransportSelection:
+        effective_indices: list[int]
+        effective_block_ids: list[str]
+        included_blocks: list[dict[str, Any]]
+        audit: dict[str, Any]
 
-    @dataclass(frozen=True)
-    class NormalizedPass2Line:
-        source_block_ids: tuple[str, ...]
-        text: str
-
-    def merge_blocks_by_index(blocks_before, blocks_candidate, blocks_after):
+    def build_pass2_transport_selection(...):
         ...
 
-    def select_blocks_for_pass2(state, full_blocks_by_index):
+In `cookimport/llm/codex_farm_orchestrator.py` acceptance policy helpers:
+
+    def _pass2_degradation_reasons(...):
         ...
 
-    def build_normalized_pass2_lines(selected_blocks):
-        ...
-
-In `cookimport/llm/codex_farm_orchestrator.py` add explicit helpers for span loss and acceptance policy:
-
-    def _compute_span_loss_metrics(...):
-        ...
-
-    def _compute_pass2_degradation_reasons(...):
-        ...
-
-    def _pass3_rejection_reasons(...):
+    def _pass3_low_quality_reasons(...):
         ...
 
 In `cookimport/bench/codex_bridge_projection_policy.py` (optional extraction from script):
 
-    @dataclass(frozen=True)
-    class PromptContextChoice:
-        prompt_row: object | None
-        trace_status: str
-        recipe_id: str | None
-        call_id: str | None
-        pass_name: str | None
+    def select_prompt_row_for_trace(...):
+        ...
 
-    def choose_prompt_context_for_line(...):
+    def resolve_trace_status(...):
         ...
 
 Dependency policy:
@@ -352,3 +354,4 @@ Dependency policy:
 
 Revision note: 2026-03-03 / assistant. Merged `docs/plans/OGplan/Pro3-1.md` and `docs/plans/OGplan/Pro3-2.md` into one canonical ExecPlan so transport integrity, fail-safe acceptance, and projection-honesty workstreams are tracked together.
 Revision note: 2026-03-03 / assistant. Updated plan to match current codebase state (shipped baseline milestones), resolved path/placeholders, applied conditional empty-mapping acceptance rule, and changed benchmark rerun scope to operator handoff only.
+Revision note: 2026-03-03 / assistant. Marked implementation complete for remaining Pro3 milestones, recorded exact verification transcripts/replay output, and added operator rerun template without executing live benchmarks.

@@ -1413,7 +1413,7 @@ _PASS2_DEGRADING_WARNING_BUCKETS = {
     "missing_instructions",
     "split_line_boundary",
     "ingredient_fragment",
-    "ocr_or_page_artifact",
+    "page_or_layout_artifact",
 }
 
 
@@ -1448,7 +1448,7 @@ def _pass2_warning_bucket(text: str) -> str | None:
         or "page_artifact" in lowered
         or "page_marker" in lowered
     ):
-        return "ocr_or_page_artifact"
+        return "page_or_layout_artifact"
     return None
 
 
@@ -1685,8 +1685,115 @@ def _build_pass3_deterministic_fallback_payload(
     return payload
 
 
+def _as_nonempty_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _coerce_schema_version(value: Any) -> int:
+    if isinstance(value, int):
+        return value if value > 0 else 1
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned.isdigit():
+            parsed = int(cleaned)
+            return parsed if parsed > 0 else 1
+    return 1
+
+
+def _extract_instruction_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    if isinstance(value, dict):
+        for key in ("instruction", "text"):
+            candidate = _as_nonempty_text(value.get(key))
+            if candidate:
+                return candidate
+    return None
+
+
+def _normalize_draft_steps_from_payload(steps_payload: Any) -> list[dict[str, Any]]:
+    normalized_steps: list[dict[str, Any]] = []
+    if not isinstance(steps_payload, list):
+        return normalized_steps
+    for step in steps_payload:
+        if isinstance(step, dict):
+            instruction = _extract_instruction_text(step)
+            if not instruction:
+                continue
+            ingredient_lines = step.get("ingredient_lines")
+            if not isinstance(ingredient_lines, list):
+                ingredient_lines = []
+            normalized_steps.append(
+                {
+                    **step,
+                    "instruction": instruction,
+                    "ingredient_lines": ingredient_lines,
+                }
+            )
+            continue
+        instruction = _extract_instruction_text(step)
+        if instruction:
+            normalized_steps.append(
+                {
+                    "instruction": instruction,
+                    "ingredient_lines": [],
+                }
+            )
+    return normalized_steps
+
+
+def _instruction_texts_from_payload(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [instruction for instruction in (_extract_instruction_text(item) for item in value) if instruction]
+    instruction = _extract_instruction_text(value)
+    return [instruction] if instruction else []
+
+
+def _instruction_texts_from_draft_payload(payload: dict[str, Any]) -> list[str]:
+    instructions: list[str] = []
+    seen: set[str] = set()
+    candidates: list[Any] = [
+        payload.get("instructions"),
+        payload.get("recipeInstructions"),
+        payload.get("extracted_instructions"),
+    ]
+    schemaorg_payload = payload.get("schemaorg_recipe")
+    if isinstance(schemaorg_payload, dict):
+        candidates.append(schemaorg_payload.get("recipeInstructions"))
+    for candidate in candidates:
+        for instruction in _instruction_texts_from_payload(candidate):
+            if instruction in seen:
+                continue
+            seen.add(instruction)
+            instructions.append(instruction)
+    return instructions
+
+
+def _draft_title_from_payload(payload: dict[str, Any], recipe_payload: dict[str, Any]) -> str:
+    title_candidates = [
+        recipe_payload.get("title"),
+        recipe_payload.get("name"),
+        payload.get("title"),
+        payload.get("name"),
+    ]
+    schemaorg_payload = payload.get("schemaorg_recipe")
+    if isinstance(schemaorg_payload, dict):
+        title_candidates.append(schemaorg_payload.get("name"))
+    for candidate in title_candidates:
+        rendered = _as_nonempty_text(candidate)
+        if rendered:
+            return rendered
+    return "Untitled Recipe"
+
+
 def _normalize_draft_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload)
+    normalized["schema_v"] = _coerce_schema_version(normalized.get("schema_v"))
+
     source = normalized.get("source")
     if isinstance(source, str):
         source = source.strip() or None
@@ -1697,30 +1804,18 @@ def _normalize_draft_payload(payload: dict[str, Any]) -> dict[str, Any]:
     recipe_payload = normalized.get("recipe")
     if not isinstance(recipe_payload, dict):
         recipe_payload = {}
-    title = recipe_payload.get("title")
-    if not isinstance(title, str) or not title.strip():
-        recipe_payload["title"] = "Untitled Recipe"
+    recipe_payload["title"] = _draft_title_from_payload(normalized, recipe_payload)
     normalized["recipe"] = recipe_payload
 
-    steps_payload = normalized.get("steps")
-    normalized_steps: list[dict[str, Any]] = []
-    if isinstance(steps_payload, list):
-        for step in steps_payload:
-            if not isinstance(step, dict):
-                continue
-            instruction = step.get("instruction")
-            if not isinstance(instruction, str) or not instruction.strip():
-                instruction = "See original recipe for details."
-            ingredient_lines = step.get("ingredient_lines")
-            if not isinstance(ingredient_lines, list):
-                ingredient_lines = []
-            normalized_steps.append(
-                {
-                    **step,
-                    "instruction": instruction.strip(),
-                    "ingredient_lines": ingredient_lines,
-                }
-            )
+    normalized_steps = _normalize_draft_steps_from_payload(normalized.get("steps"))
+    if not normalized_steps:
+        normalized_steps = [
+            {
+                "instruction": instruction,
+                "ingredient_lines": [],
+            }
+            for instruction in _instruction_texts_from_draft_payload(normalized)
+        ]
     if not normalized_steps:
         normalized_steps = [
             {

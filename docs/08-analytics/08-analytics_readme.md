@@ -183,8 +183,8 @@ Benchmark scan details:
 - `Diagnostics` now includes a latest-benchmark runtime card (model, thinking effort, pipeline mode) from benchmark run-config metadata when available.
 - Diagnostics layout is fixed 2-up on desktop: `Benchmark Runtime` and `Boundary Classification` each occupy 50% width on the first row, with `Per-Label Breakdown` full-width below (mobile collapses to one column).
 - Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`) with compact `k`/`m` display for large values.
-- Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and render signed deltas for the other precision/recall columns against that same-label baseline (green = better, red = worse).
-- Per-label diagnostics expose a `Rolling N` selector; rolling codexfarm/vanilla delta columns use that selected N and render under a shared `<N>-run Rolling Delta:` header with metric+variant subcolumns.
+- Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns. Comparison columns can be shown as signed deltas or raw point values via an in-card `Point value` checkbox; delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
+- Per-label diagnostics expose a `Rolling N` selector; rolling codexfarm/vanilla comparison columns use that selected N and render under a shared dynamic `<N>-run Rolling <Mode>:` header with metric+variant subcolumns.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
@@ -195,7 +195,9 @@ Benchmark scan details:
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
 - `Previous Runs` now supports per-column stacked filters via a compact `+/-` editor toggle in the first row beneath headers; each save appends a clause for that column (instead of replacing), active clauses can be removed individually via `×` in the popup, and each column stack has an `AND/OR` mode toggle. Active filter summaries in that row render one clause per line with a per-clause `X` remove button. Non-numeric popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
 - Previous Runs table UI state is now browser-persistent (`localStorage`) for column visibility/order/width, column filters, quick-filter checkboxes, isolate combine mode + stacked isolate rules, sort order, and named view presets, so these customizations survive dashboard HTML rebuilds at the same dashboard path.
-- Previous Runs filter control between Isolate For X and table column filters now follows `last edited wins`: isolate edits override table filters, table-filter edits pause isolate until isolate is edited again.
+- `Isolate For X` now writes directly into `Previous Runs` table column filters (`eq`/`neq`/`gt`/`gte`/`lt`/`lte`), so isolate results and table filters are the same filter path.
+- Isolate operator picker supports numeric comparisons (`>`, `>=`, `<`, `<=`) for numeric fields, using direct numeric threshold inputs.
+- `Previous Runs` column filters now include a global `Across columns` combine mode (`AND` / `OR`) so cross-column OR is supported natively.
 - `Quick Filters` now includes inline `View presets` controls (`Load`, `Save current view`, `Delete`) for reusable table setups (columns + filters + quick filters + sort + isolate + column widths), without a separate presets popup.
 - Diagnostic table resize now applies only to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` intentionally stay fixed-fit (no horizontal scroll/resize) for cleaner top-row readability.
 - `Quick Filters` appears between trend chart and table with:
@@ -205,8 +207,9 @@ Benchmark scan details:
 - `Previous Runs` table keeps horizontal scrolling with a fixed minimum table width, and the viewport stays at about 10 visible-row height (even when filtered result count is lower) before vertical scrolling.
 - Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).
 - Benchmark trend chart timestamps are rendered in browser-local time (`Highcharts time.useUTC=false`).
-- Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line).
+- Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line for raw points); each plotted series also gets a dashed linear trendline with a same-color `±1σ` deviation band.
 - When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
+- Paired variants now use one shared x-axis timestamp per benchmark run-group (artifact timestamp token preferred, row timestamp fallback), preventing same-run horizontal drift between `vanilla` and `codexfarm`.
 - Benchmark trend tooltip is run-grouped: hovering any point shows one local-time card with all visible series values for that run (no raw coordinate-style x/y labels).
 - Benchmark trend chart uses a fixed 800px render/container height to preserve stable layout and provide a taller score-history viewport.
 - Dashboard HTML now loads Highcharts Stock with a secondary CDN fallback (`code.highcharts.com` primary, `cdn.jsdelivr.net` fallback) before dashboard JS initialization.

@@ -10,6 +10,6 @@
   "codex_sandbox": "read-only",
   "codex_ask_for_approval": "never",
   "codex_web_search": "disabled",
-  "codex_timeout_seconds": 180,
+  "codex_timeout_seconds": 600,
   "codex_cd_mode": "asset_root"
 }

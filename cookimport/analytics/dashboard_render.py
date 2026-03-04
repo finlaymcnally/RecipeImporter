@@ -1967,7 +1967,7 @@ _HTML = """\
       <section id="per-label-section" class="diagnostic-card">
         <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
         <div class="per-label-controls">
-          <label for="per-label-rolling-window-size">Rolling N</label>
+          <label class="per-label-rolling-label" for="per-label-rolling-window-size">Rolling N</label>
           <input
             id="per-label-rolling-window-size"
             type="number"
@@ -1976,8 +1976,12 @@ _HTML = """\
             step="1"
             value="10"
           >
+          <label class="per-label-checkbox" for="per-label-comparison-point-value">
+            <input id="per-label-comparison-point-value" type="checkbox">
+            Point value
+          </label>
         </div>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores; other precision/recall cells show delta vs that same-label codexfarm baseline (dark green means better, dark red means worse). Rolling metrics use the selected N runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores. Use the Point value checkbox to switch the comparison columns between delta-vs-baseline and raw point values (positive/green means codexfarm baseline is higher than the comparison value; negative/red means codexfarm baseline is lower). Rolling metrics use the selected N runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
         <table id="per-label-table" class="dashboard-resizable-table"><thead>
           <tr class="per-label-header-primary">
             <th title="The label name being scored (for example RECIPE_TITLE)." rowspan="2">Label</th>
@@ -1985,15 +1989,15 @@ _HTML = """\
             <th title="Predicted span count for this label." rowspan="2">Pred</th>
             <th title="Latest-run codexfarm precision for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
             <th title="Latest-run codexfarm recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th title="Delta from latest-run codexfarm precision for this label, using latest-run vanilla precision." rowspan="2"><span class="per-label-col-head">Run<br>Delta Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th title="Delta from latest-run codexfarm recall for this label, using latest-run vanilla recall." rowspan="2"><span class="per-label-col-head">Run<br>Delta Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm and vanilla columns." colspan="4"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling Delta:</span></th>
+            <th class="per-label-comparison-header" data-per-label-comparison-scope="run" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus latest-run vanilla precision for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-per-label-comparison-scope="run" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus latest-run vanilla recall for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm and vanilla columns." colspan="4"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling <span class="per-label-comparison-mode-value">Delta</span>:</span></th>
           </tr>
           <tr class="per-label-header-rolling">
-            <th title="Delta from latest-run codexfarm precision for this label, using rolling codexfarm precision over N runs."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th title="Delta from latest-run codexfarm recall for this label, using rolling codexfarm recall over N runs."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th title="Delta from latest-run codexfarm precision for this label, using rolling vanilla precision over N runs."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th title="Delta from latest-run codexfarm recall for this label, using rolling vanilla recall over N runs."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm precision minus rolling codexfarm precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm recall minus rolling codexfarm recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus rolling vanilla precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus rolling vanilla recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
           </tr>
         </thead><tbody></tbody></table>
       </section>
@@ -2017,7 +2021,7 @@ _HTML = """\
     <div class="previous-runs-top-grid">
       <section id="isolate-panel" class="isolate-panel">
         <h3>Isolate For X</h3>
-        <p class="section-note">Stack one or more field + logic + value rules to isolate matching runs. Last edited wins: update Isolate For X to override table column filters, or edit table filters to take control until isolate is updated again.</p>
+        <p class="section-note">Stack one or more field + logic + value rules to isolate matching runs. Isolate rules now write directly into table column filters, including cross-column OR when using <strong>any rule (OR)</strong>.</p>
         <div class="isolate-controls">
           <label for="isolate-combine">Match</label>
           <select id="isolate-combine"></select>
@@ -2084,6 +2088,13 @@ _HTML = """\
           <p class="section-note">Check fields to include them in Previous Runs. Drag table headers to reorder and drag edges to resize.</p>
           <div id="previous-runs-columns-checklist"></div>
           <div class="previous-runs-columns-popup-actions">
+            <div class="previous-runs-global-filter-mode">
+              <label for="previous-runs-global-filter-mode">Across columns</label>
+              <select id="previous-runs-global-filter-mode">
+                <option value="and">AND</option>
+                <option value="or">OR</option>
+              </select>
+            </div>
             <button id="previous-runs-clear-filters" type="button">Clear column filters</button>
             <button id="previous-runs-column-reset" type="button">Reset defaults</button>
           </div>
@@ -2109,6 +2120,12 @@ _HTML = """\
 <script>
 if (!window.Highcharts || typeof window.Highcharts.stockChart !== 'function') {
   document.write('<script src="https://cdn.jsdelivr.net/npm/highcharts/highstock.js"><\\/script>');
+}
+</script>
+<script src="https://code.highcharts.com/highcharts-more.js"></script>
+<script>
+if (!window.Highcharts || !window.Highcharts.seriesTypes || typeof window.Highcharts.seriesTypes.arearange !== 'function') {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/highcharts/highcharts-more.js"><\\/script>');
 }
 </script>
 <script src="assets/dashboard.js"></script>
@@ -2602,10 +2619,22 @@ section h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.36rem;
+  align-items: flex-end;
   margin-top: 0.48rem;
 }
 .previous-runs-columns-popup-actions button {
   font-size: 0.74rem;
+}
+.previous-runs-global-filter-mode {
+  display: grid;
+  gap: 0.18rem;
+}
+.previous-runs-global-filter-mode label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+#previous-runs-global-filter-mode {
+  min-height: 1.9rem;
 }
 
 .table-scroll {
@@ -3310,14 +3339,14 @@ td.warn-note { color: #b45309; font-weight: 600; }
   border-radius: 6px;
   background: #f9fcff;
 }
-.per-label-controls label {
+.per-label-controls .per-label-rolling-label {
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
-.per-label-controls input {
+.per-label-controls input[type="number"] {
   width: 3.6rem;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -3326,6 +3355,23 @@ td.warn-note { color: #b45309; font-weight: 600; }
   color: var(--text);
   font-size: 0.78rem;
   font-family: var(--mono);
+}
+.per-label-controls .per-label-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-left: 0.25rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.per-label-controls .per-label-checkbox input[type="checkbox"] {
+  width: 0.88rem;
+  height: 0.88rem;
+  margin: 0;
 }
 #per-label-table {
   width: max-content;
@@ -3509,6 +3555,7 @@ _JS = """\
   let throughputScaleMode = "clamp95";
   let previousRunsColumnFilters = Object.create(null);
   let previousRunsColumnFilterModes = Object.create(null);
+  let previousRunsColumnFilterGlobalMode = "and";
   let previousRunsQuickFilters = {
     exclude_ai_tests: false,
     official_full_golden_only: true,
@@ -3530,6 +3577,7 @@ _JS = """\
   let isolateClauses = [];
   let isolateCombineMode = "all";
   let perLabelRollingWindowSize = 10;
+  let perLabelComparisonMode = "delta";
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
   const PER_LABEL_ROLLING_WINDOW_MIN = 1;
@@ -3722,11 +3770,21 @@ _JS = """\
     "run_config.input_tokens",
     "run_config.output_tokens",
   ];
-  const ISOLATE_OPERATORS = [
+  const ISOLATE_OPERATORS_TEXT = [
     ["eq", "is"],
     ["neq", "is not"],
   ];
-  const ISOLATE_OPERATOR_LABEL = Object.fromEntries(ISOLATE_OPERATORS);
+  const ISOLATE_OPERATORS_NUMERIC = [
+    ["eq", "="],
+    ["neq", "!="],
+    ["gt", ">"],
+    ["gte", ">="],
+    ["lt", "<"],
+    ["lte", "<="],
+  ];
+  const ISOLATE_OPERATOR_LABEL = Object.fromEntries(
+    ISOLATE_OPERATORS_TEXT.concat(ISOLATE_OPERATORS_NUMERIC)
+  );
   const ISOLATE_COMBINE_MODES = [
     ["all", "all rules (AND)"],
     ["any", "any rule (OR)"],
@@ -3855,17 +3913,35 @@ _JS = """\
     return key === "or" ? "or" : "and";
   }
 
+  function normalizePreviousRunsColumnFilterGlobalMode(value) {
+    return normalizePreviousRunsColumnFilterMode(value);
+  }
+
   function normalizePreviousRunsFilterControlSource(value) {
     const key = String(value || "table").trim().toLowerCase();
     return key === "isolate" ? "isolate" : "table";
   }
 
+  function isolateOperatorAcceptsNumericOnly(operator) {
+    const op = String(operator || "").trim();
+    return op === "gt" || op === "gte" || op === "lt" || op === "lte";
+  }
+
+  function isolateClauseHasActiveSelection(clause) {
+    if (!clause || typeof clause !== "object" || Array.isArray(clause)) return false;
+    const fieldName = String(clause.field || "").trim();
+    const valueText = String(clause.value || "").trim();
+    if (!fieldName || !valueText) return false;
+    const operator = normalizeIsolateOperator(clause.operator);
+    if (isolateOperatorAcceptsNumericOnly(operator)) {
+      return maybeNumber(valueText) != null;
+    }
+    return true;
+  }
+
   function isolateClauseListHasActiveSelection(clauses) {
     if (!Array.isArray(clauses)) return false;
-    return clauses.some(clause => {
-      if (!clause || typeof clause !== "object" || Array.isArray(clause)) return false;
-      return Boolean(String(clause.field || "").trim() && String(clause.value || "").trim());
-    });
+    return clauses.some(clause => isolateClauseHasActiveSelection(clause));
   }
 
   function normalizeIsolateOperator(value) {
@@ -3882,6 +3958,11 @@ _JS = """\
     const parsed = Number.parseInt(String(value == null ? "" : value).trim(), 10);
     if (!Number.isFinite(parsed)) return 10;
     return Math.max(PER_LABEL_ROLLING_WINDOW_MIN, Math.min(PER_LABEL_ROLLING_WINDOW_MAX, parsed));
+  }
+
+  function normalizePerLabelComparisonMode(value) {
+    const key = String(value || "delta").trim().toLowerCase();
+    return key === "point_value" ? "point_value" : "delta";
   }
 
   function normalizeIsolateClause(rawClause) {
@@ -3978,10 +4059,14 @@ _JS = """\
     const filterControlSource = Object.prototype.hasOwnProperty.call(rawPreset, "filter_control_source")
       ? normalizePreviousRunsFilterControlSource(rawPreset.filter_control_source)
       : (isolateClauseListHasActiveSelection(isolate.clauses) ? "isolate" : "table");
+    const columnFilterGlobalMode = Object.prototype.hasOwnProperty.call(rawPreset, "column_filter_global_mode")
+      ? normalizePreviousRunsColumnFilterGlobalMode(rawPreset.column_filter_global_mode)
+      : "and";
     return {
       visible_columns: visibleColumns,
       column_filters: columnFilters,
       column_filter_modes: columnFilterModes,
+      column_filter_global_mode: columnFilterGlobalMode,
       quick_filters: quickFilters,
       column_widths: sanitizeColumnWidthsMap(rawPreset.column_widths),
       sort,
@@ -4058,6 +4143,13 @@ _JS = """\
       });
       previousRunsColumnFilterModes = nextModes;
     }
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "column_filter_global_mode")) {
+      previousRunsColumnFilterGlobalMode = normalizePreviousRunsColumnFilterGlobalMode(
+        previousRuns.column_filter_global_mode
+      );
+    } else {
+      previousRunsColumnFilterGlobalMode = "and";
+    }
 
     const rawQuickFilters = previousRuns.quick_filters;
     if (rawQuickFilters && typeof rawQuickFilters === "object") {
@@ -4071,6 +4163,11 @@ _JS = """\
     if (Object.prototype.hasOwnProperty.call(previousRuns, "per_label_rolling_window_size")) {
       perLabelRollingWindowSize = normalizePerLabelRollingWindowSize(
         previousRuns.per_label_rolling_window_size
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "per_label_comparison_mode")) {
+      perLabelComparisonMode = normalizePerLabelComparisonMode(
+        previousRuns.per_label_comparison_mode
       );
     }
 
@@ -4129,6 +4226,12 @@ _JS = """\
       previousRunsFilterControlSource = isolateClauseListHasActiveSelection(isolateClauses)
         ? "isolate"
         : "table";
+    }
+    if (
+      previousRunsFilterControlSource === "isolate" &&
+      isolateClauseListHasActiveSelection(isolateClauses)
+    ) {
+      applyIsolateRulesToTableFilters({ markControlSource: false });
     }
     const selectedPreset = sanitizePreviousRunsPresetName(previousRuns.selected_preset);
     previousRunsSelectedPreset = Object.prototype.hasOwnProperty.call(previousRunsViewPresets, selectedPreset)
@@ -4198,6 +4301,7 @@ _JS = """\
         dashboardUiStatePersistSuppressed = true;
         try {
           setupPreviousRunsQuickFilters();
+          setupPreviousRunsGlobalFilterModeControl();
           setupPerLabelControls();
           renderPreviousRunsColumnEditor();
           renderAll();
@@ -4258,11 +4362,15 @@ _JS = """\
         visible_columns: visibleColumns,
         column_filters: columnFilters,
         column_filter_modes: columnFilterModes,
+        column_filter_global_mode: normalizePreviousRunsColumnFilterGlobalMode(
+          previousRunsColumnFilterGlobalMode
+        ),
         quick_filters: {
           exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
           official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
         },
         per_label_rolling_window_size: normalizePerLabelRollingWindowSize(perLabelRollingWindowSize),
+        per_label_comparison_mode: normalizePerLabelComparisonMode(perLabelComparisonMode),
         column_widths: columnWidths,
         sort: {
           field: String(previousRunsSortField || "run_timestamp"),
@@ -4712,6 +4820,7 @@ _JS = """\
     previousRunsFilterControlSource = "table";
     previousRunsColumnFilters = Object.create(null);
     previousRunsColumnFilterModes = Object.create(null);
+    previousRunsColumnFilterGlobalMode = "and";
     closePreviousRunsColumnFilterEditor();
   }
 
@@ -4730,6 +4839,7 @@ _JS = """\
     ensurePreviousRunsColumns();
     setupPreviousRunsColumnsControls();
     setupPreviousRunsQuickFilters();
+    setupPreviousRunsGlobalFilterModeControl();
     setupPreviousRunsPresetControls();
     setupIsolateControls();
     const clearBtn = document.getElementById("previous-runs-clear-filters");
@@ -4749,6 +4859,27 @@ _JS = """\
       clearAllBtn.dataset.bound = "1";
     }
     renderPreviousRunsColumnEditor();
+  }
+
+  function setupPreviousRunsGlobalFilterModeControl() {
+    const select = document.getElementById("previous-runs-global-filter-mode");
+    if (!select) return;
+    const normalized = normalizePreviousRunsColumnFilterGlobalMode(
+      previousRunsColumnFilterGlobalMode
+    );
+    previousRunsColumnFilterGlobalMode = normalized;
+    if (select.value !== normalized) {
+      select.value = normalized;
+    }
+    if (select.dataset.bound) return;
+    select.addEventListener("change", () => {
+      previousRunsFilterControlSource = "table";
+      previousRunsColumnFilterGlobalMode = normalizePreviousRunsColumnFilterGlobalMode(
+        select.value
+      );
+      renderAll();
+    });
+    select.dataset.bound = "1";
   }
 
   function setupPreviousRunsQuickFilters() {
@@ -4814,11 +4945,11 @@ _JS = """\
   }
 
   function prunePreviousRunsColumnFilters() {
-    const visible = new Set(previousRunsVisibleColumns);
+    const available = new Set(previousRunsAvailableColumnFields());
     const next = Object.create(null);
     const nextModes = Object.create(null);
     Object.keys(previousRunsColumnFilters).forEach(fieldName => {
-      if (!visible.has(fieldName)) return;
+      if (!available.has(fieldName)) return;
       const clauses = previousRunsColumnFilterClauses(fieldName);
       if (!clauses.length) return;
       next[fieldName] = clauses.map(clause => ({
@@ -4829,7 +4960,7 @@ _JS = """\
     });
     previousRunsColumnFilters = next;
     previousRunsColumnFilterModes = nextModes;
-    if (previousRunsOpenFilterField && !visible.has(previousRunsOpenFilterField)) {
+    if (previousRunsOpenFilterField && !available.has(previousRunsOpenFilterField)) {
       closePreviousRunsColumnFilterEditor();
     }
   }
@@ -5029,7 +5160,22 @@ _JS = """\
 
   function activePreviousRunsColumnFilters() {
     const ordered = [];
+    const seenFields = new Set();
+    const orderedFields = [];
     previousRunsVisibleColumns.forEach(fieldName => {
+      if (Object.prototype.hasOwnProperty.call(previousRunsColumnFilters, fieldName)) {
+        seenFields.add(fieldName);
+        orderedFields.push(fieldName);
+      }
+    });
+    Object.keys(previousRunsColumnFilters)
+      .sort((left, right) => String(left).localeCompare(String(right)))
+      .forEach(fieldName => {
+        if (seenFields.has(fieldName)) return;
+        seenFields.add(fieldName);
+        orderedFields.push(fieldName);
+      });
+    orderedFields.forEach(fieldName => {
       const clauses = previousRunsColumnFilterClauses(fieldName);
       const combine_mode = previousRunsColumnFilterMode(fieldName);
       clauses.forEach((clause, clauseIndex) => {
@@ -5117,8 +5263,13 @@ _JS = """\
     return orderedGroups;
   }
 
-  function recordMatchesPreviousRunsFilterGroups(record, groupedFilters) {
-    return (groupedFilters || []).every(group => {
+  function recordMatchesPreviousRunsFilterGroups(record, groupedFilters, globalMode) {
+    const groups = (groupedFilters || []).filter(group => (
+      group && Array.isArray(group.clauses) && group.clauses.length
+    ));
+    if (!groups.length) return true;
+    const topMode = normalizePreviousRunsColumnFilterGlobalMode(globalMode);
+    const matchesGroup = group => {
       if (!group || !Array.isArray(group.clauses) || !group.clauses.length) return true;
       const mode = normalizePreviousRunsColumnFilterMode(group.mode);
       const evaluate = clause => {
@@ -5129,7 +5280,58 @@ _JS = """\
         return group.clauses.some(evaluate);
       }
       return group.clauses.every(evaluate);
+    };
+    if (topMode === "or") {
+      return groups.some(matchesGroup);
+    }
+    return groups.every(matchesGroup);
+  }
+
+  function isolateCombineModeToGlobalFilterMode(combineMode) {
+    return normalizeIsolateCombineMode(combineMode) === "any" ? "or" : "and";
+  }
+
+  function applyIsolateRulesToTableFilters(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const markControlSource = opts.markControlSource !== false;
+    const activeClauses = normalizeIsolateClauseList(isolateClauses).filter(clause => (
+      isolateClauseHasActiveSelection(clause)
+    ));
+    const grouped = Object.create(null);
+    activeClauses.forEach(clause => {
+      const fieldName = String(clause.field || "").trim();
+      if (!fieldName) return;
+      if (!Object.prototype.hasOwnProperty.call(grouped, fieldName)) {
+        grouped[fieldName] = [];
+      }
+      const operator = normalizeIsolateOperator(clause.operator);
+      grouped[fieldName].push({
+        operator: (
+          operator === "neq" ||
+          operator === "gt" ||
+          operator === "gte" ||
+          operator === "lt" ||
+          operator === "lte"
+        ) ? operator : "eq",
+        value: String(clause.value || ""),
+      });
     });
+    const nextFilters = Object.create(null);
+    const nextModes = Object.create(null);
+    const perFieldMode = isolateCombineModeToGlobalFilterMode(isolateCombineMode);
+    Object.keys(grouped).forEach(fieldName => {
+      const normalized = normalizePreviousRunsColumnFilterList(grouped[fieldName]);
+      if (!normalized.length) return;
+      nextFilters[fieldName] = normalized;
+      nextModes[fieldName] = perFieldMode;
+    });
+    previousRunsColumnFilters = nextFilters;
+    previousRunsColumnFilterModes = nextModes;
+    previousRunsColumnFilterGlobalMode = Object.keys(nextFilters).length ? perFieldMode : "and";
+    if (markControlSource) {
+      previousRunsFilterControlSource = "isolate";
+    }
+    closePreviousRunsColumnFilterEditor();
   }
 
   function setupIsolateControls() {
@@ -5141,8 +5343,8 @@ _JS = """\
 
     if (!combineSelect.dataset.bound) {
       combineSelect.addEventListener("change", () => {
-        previousRunsFilterControlSource = "isolate";
         isolateCombineMode = normalizeIsolateCombineMode(combineSelect.value);
+        applyIsolateRulesToTableFilters();
         renderAll();
       });
       combineSelect.dataset.bound = "1";
@@ -5150,8 +5352,8 @@ _JS = """\
 
     if (!addBtn.dataset.bound) {
       addBtn.addEventListener("click", () => {
-        previousRunsFilterControlSource = "isolate";
         isolateClauses = [...normalizeIsolateClauseList(isolateClauses), normalizeIsolateClause(null)];
+        applyIsolateRulesToTableFilters();
         renderAll();
       });
       addBtn.dataset.bound = "1";
@@ -5159,9 +5361,9 @@ _JS = """\
 
     if (!clearBtn.dataset.bound) {
       clearBtn.addEventListener("click", () => {
-        previousRunsFilterControlSource = "isolate";
         isolateClauses = [];
         isolateCombineMode = "all";
+        applyIsolateRulesToTableFilters();
         renderAll();
       });
       clearBtn.dataset.bound = "1";
@@ -5178,6 +5380,12 @@ _JS = """\
         const nextClauses = normalizeIsolateClauseList(isolateClauses);
         if (target.classList.contains("isolate-rule-field")) {
           nextClauses[idx].field = String(target.value || "");
+          const nextField = {
+            numeric: isolateFieldIsNumeric(filteredBenchmarks(), nextClauses[idx].field),
+          };
+          if (!isolateOperatorAllowedForField(nextClauses[idx].operator, nextField)) {
+            nextClauses[idx].operator = "eq";
+          }
           nextClauses[idx].value = "";
         } else if (target.classList.contains("isolate-rule-operator")) {
           nextClauses[idx].operator = normalizeIsolateOperator(target.value);
@@ -5186,8 +5394,8 @@ _JS = """\
         } else {
           return;
         }
-        previousRunsFilterControlSource = "isolate";
         isolateClauses = nextClauses;
+        applyIsolateRulesToTableFilters();
         renderAll();
       });
       rulesHost.addEventListener("click", event => {
@@ -5199,8 +5407,8 @@ _JS = """\
         if (!Number.isInteger(idx) || idx < 0 || idx >= isolateClauses.length) return;
         const nextClauses = normalizeIsolateClauseList(isolateClauses);
         nextClauses.splice(idx, 1);
-        previousRunsFilterControlSource = "isolate";
         isolateClauses = nextClauses;
+        applyIsolateRulesToTableFilters();
         renderAll();
       });
       rulesHost.dataset.bound = "1";
@@ -5257,6 +5465,52 @@ _JS = """\
     });
   }
 
+  function isolateFieldIsNumeric(records, fieldName) {
+    const meta = previousRunsColumnMeta(fieldName);
+    if (meta && meta.numeric) return true;
+    let sawNonEmpty = 0;
+    let sawNumeric = 0;
+    (records || []).forEach(record => {
+      const rawValue = previousRunsFieldValue(record, fieldName);
+      if (isEmptyRuleValue(rawValue)) return;
+      sawNonEmpty += 1;
+      if (maybeNumber(rawValue) != null) {
+        sawNumeric += 1;
+      }
+    });
+    if (!sawNonEmpty) return false;
+    return sawNumeric === sawNonEmpty;
+  }
+
+  function isolateOperatorsForField(fieldInfo) {
+    if (fieldInfo && fieldInfo.numeric) {
+      return ISOLATE_OPERATORS_NUMERIC;
+    }
+    return ISOLATE_OPERATORS_TEXT;
+  }
+
+  function isolateOperatorAllowedForField(operator, fieldInfo) {
+    const normalized = normalizeIsolateOperator(operator);
+    return isolateOperatorsForField(fieldInfo).some(([value]) => value === normalized);
+  }
+
+  function isolateNormalizeValueForField(rawValue, fieldInfo) {
+    const text = String(rawValue || "").trim();
+    if (!text) return "";
+    if (!fieldInfo || !fieldInfo.numeric) return text;
+    const numericValue = maybeNumber(text);
+    if (numericValue == null) return "";
+    return String(numericValue);
+  }
+
+  function isolateValueLabelForField(rawValue, fieldInfo, selectedValue) {
+    if (!fieldInfo || !fieldInfo.numeric) {
+      return selectedValue ? selectedValue.label : "";
+    }
+    const normalized = isolateNormalizeValueForField(rawValue, fieldInfo);
+    return normalized || "";
+  }
+
   function isolateFieldCatalog(records) {
     const seen = new Set();
     const ordered = [];
@@ -5265,11 +5519,16 @@ _JS = """\
       const key = String(fieldName || "").trim();
       if (!key || seen.has(key) || ISOLATE_FIELD_SKIP.has(key)) return;
       seen.add(key);
-      const values = isolateValueCountsForField(records, key);
-      if (values.length < 2 || values.length > 80) return;
+      const valueCounts = isolateValueCountsForField(records, key);
+      if (valueCounts.length < 2) return;
+      const numeric = isolateFieldIsNumeric(records, key);
+      if (!numeric && valueCounts.length > 80) return;
+      const values = numeric ? valueCounts.slice(0, 80) : valueCounts;
       ordered.push({
         field: key,
         label: isolateFieldLabel(key),
+        numeric,
+        valueCount: valueCounts.length,
         values,
       });
     }
@@ -5342,17 +5601,28 @@ _JS = """\
     const normalizedClauses = normalizeIsolateClauseList(isolateClauses).map(clause => {
       const selectedField = catalog.find(entry => entry.field === clause.field) || catalog[0];
       const selectedValue = selectedField.values.find(entry => entry.key === clause.value) || null;
-      const normalizedValue = selectedValue ? selectedValue.key : "";
-      const operator = normalizeIsolateOperator(clause.operator);
+      const normalizedValue = selectedField.numeric
+        ? isolateNormalizeValueForField(clause.value, selectedField)
+        : (selectedValue ? selectedValue.key : "");
+      let operator = normalizeIsolateOperator(clause.operator);
+      if (!isolateOperatorAllowedForField(operator, selectedField)) {
+        operator = selectedField.numeric ? "eq" : "eq";
+      }
       return {
         field: selectedField.field,
         fieldLabel: selectedField.label,
+        numeric: Boolean(selectedField.numeric),
         operator,
         operatorLabel: ISOLATE_OPERATOR_LABEL[operator] || "is",
         value: normalizedValue,
-        valueLabel: selectedValue ? selectedValue.label : "",
+        valueLabel: isolateValueLabelForField(normalizedValue, selectedField, selectedValue),
+        valueCount: Number(selectedField.valueCount || selectedField.values.length || 0),
         values: selectedField.values,
-        active: Boolean(normalizedValue),
+        active: isolateClauseHasActiveSelection({
+          field: selectedField.field,
+          operator,
+          value: normalizedValue,
+        }),
       };
     });
     isolateClauses = normalizedClauses.map(clause => ({
@@ -5367,23 +5637,31 @@ _JS = """\
       const fieldOptionsHtml = catalog
         .map(entry => (
           '<option value="' + esc(entry.field) + '">' +
-          esc(entry.label + " (" + entry.values.length + " values)") +
+          esc(entry.label + " (" + Number(entry.valueCount || entry.values.length || 0) + " values)") +
           "</option>"
         ))
         .join("");
-      const operatorOptionsHtml = ISOLATE_OPERATORS
-        .map(([value, label]) => '<option value="' + value + '">' + esc(label) + "</option>")
-        .join("");
       rulesHost.innerHTML = normalizedClauses
         .map((clause, idx) => {
-          const valueOptionsHtml = [
-            '<option value="">Select value...</option>',
-            ...clause.values.map(entry => (
-              '<option value="' + esc(entry.key) + '">' +
-              esc(entry.label + " (" + entry.count + ")") +
-              "</option>"
-            )),
-          ].join("");
+          const operatorOptionsHtml = isolateOperatorsForField(clause)
+            .map(([value, label]) => '<option value="' + value + '">' + esc(label) + "</option>")
+            .join("");
+          const valueControlHtml = clause.numeric
+            ? (
+              '<input class="isolate-rule-value isolate-rule-value-input" type="number" step="any" aria-label="Isolate numeric value rule ' + (idx + 1) + '" placeholder="number">'
+            )
+            : (
+              '<select class="isolate-rule-value" aria-label="Isolate value rule ' + (idx + 1) + '">' +
+                [
+                  '<option value="">Select value...</option>',
+                  ...clause.values.map(entry => (
+                    '<option value="' + esc(entry.key) + '">' +
+                    esc(entry.label + " (" + entry.count + ")") +
+                    "</option>"
+                  )),
+                ].join("") +
+              "</select>"
+            );
           return (
             '<div class="isolate-rule-row" data-rule-index="' + idx + '">' +
               '<select class="isolate-rule-field" aria-label="Isolate field rule ' + (idx + 1) + '">' +
@@ -5392,9 +5670,7 @@ _JS = """\
               '<select class="isolate-rule-operator" aria-label="Isolate logic rule ' + (idx + 1) + '">' +
                 operatorOptionsHtml +
               "</select>" +
-              '<select class="isolate-rule-value" aria-label="Isolate value rule ' + (idx + 1) + '">' +
-                valueOptionsHtml +
-              "</select>" +
+              valueControlHtml +
               '<button class="isolate-rule-remove" data-rule-index="' + idx + '" type="button">Remove</button>' +
             "</div>"
           );
@@ -5429,11 +5705,11 @@ _JS = """\
   function isolateClauseMatches(record, isolateClause) {
     if (!isolateClause || !isolateClause.field || !isolateClause.value) return true;
     const value = previousRunsFieldValue(record, isolateClause.field);
-    const actual = isolateComparableValue(value);
-    if (isolateClause.operator === "neq") {
-      return actual !== isolateClause.value;
-    }
-    return actual === isolateClause.value;
+    return evaluatePreviousRunsFilterOperator(
+      value,
+      isolateClause.operator,
+      isolateClause.value
+    );
   }
 
   function isolateRecordMatches(record, isolateState) {
@@ -5516,17 +5792,17 @@ _JS = """\
     }
 
     if (context.pausedByTable) {
-      status.textContent = "Table column filters currently control the results. Update Isolate For X to override.";
+      status.textContent = "Table column filters were edited after isolate. Edit Isolate For X to sync isolate rules back into table filters.";
       host.innerHTML =
-        "<p>Saved isolate rules are currently paused.</p>" +
+        "<p>Saved isolate rules are not currently synced into the table filters.</p>" +
         "<p>Current isolate expression: " + esc(context.expression || "none") + ".</p>" +
-        "<p>Edit any isolate rule (or combine mode) to make isolate override table filters again.</p>";
+        "<p>Edit any isolate rule (or combine mode) to reapply isolate as column filters.</p>";
       return;
     }
 
     if (!context.active) {
       status.textContent = "Add one or more isolate rules, then pick values to isolate a slice.";
-      host.innerHTML = "<p>When active, this panel compares matching rows with all currently visible rows.</p>";
+      host.innerHTML = "<p>When active, isolate rules are written into table column filters and compared with all currently visible rows.</p>";
       return;
     }
 
@@ -5648,7 +5924,13 @@ _JS = """\
       .filter(filter => filter.field !== excludedField);
     if (!filters.length) return base;
     const grouped = groupPreviousRunsFiltersByField(filters);
-    return base.filter(record => recordMatchesPreviousRunsFilterGroups(record, grouped));
+    return base.filter(record => (
+      recordMatchesPreviousRunsFilterGroups(
+        record,
+        grouped,
+        previousRunsColumnFilterGlobalMode
+      )
+    ));
   }
 
   function previousRunsSuggestionValue(value) {
@@ -5786,6 +6068,9 @@ _JS = """\
       visible_columns: visibleColumns,
       column_filters: columnFilters,
       column_filter_modes: columnFilterModes,
+      column_filter_global_mode: normalizePreviousRunsColumnFilterGlobalMode(
+        previousRunsColumnFilterGlobalMode
+      ),
       quick_filters: {
         exclude_ai_tests: Boolean(previousRunsQuickFilters.exclude_ai_tests),
         official_full_golden_only: Boolean(previousRunsQuickFilters.official_full_golden_only),
@@ -5823,11 +6108,11 @@ _JS = """\
     previousRunsVisibleColumns = preset.visible_columns.slice();
     ensurePreviousRunsColumns();
 
-    const visibleSet = new Set(previousRunsVisibleColumns);
+    const availableSet = new Set(previousRunsAvailableColumnFields());
     const nextColumnFilters = Object.create(null);
     const nextColumnFilterModes = Object.create(null);
     Object.keys(preset.column_filters).forEach(fieldName => {
-      if (!visibleSet.has(fieldName)) return;
+      if (!availableSet.has(fieldName)) return;
       const normalized = normalizePreviousRunsColumnFilterList(preset.column_filters[fieldName]);
       if (!normalized.length) return;
       nextColumnFilters[fieldName] = normalized;
@@ -5837,6 +6122,9 @@ _JS = """\
     });
     previousRunsColumnFilters = nextColumnFilters;
     previousRunsColumnFilterModes = nextColumnFilterModes;
+    previousRunsColumnFilterGlobalMode = normalizePreviousRunsColumnFilterGlobalMode(
+      preset.column_filter_global_mode
+    );
 
     previousRunsQuickFilters.exclude_ai_tests = Boolean(preset.quick_filters.exclude_ai_tests);
     previousRunsQuickFilters.official_full_golden_only = Boolean(
@@ -5861,8 +6149,15 @@ _JS = """\
     previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(
       preset.filter_control_source
     );
+    if (
+      previousRunsFilterControlSource === "isolate" &&
+      isolateClauseListHasActiveSelection(isolateClauses)
+    ) {
+      applyIsolateRulesToTableFilters({ markControlSource: false });
+    }
 
     closePreviousRunsColumnFilterEditor();
+    setupPreviousRunsGlobalFilterModeControl();
     setupPreviousRunsQuickFilters();
     renderPreviousRunsPresetEditor();
     renderAll();
@@ -6237,16 +6532,19 @@ _JS = """\
         isolate_text: "",
         filter_control_source: filterControlSource,
         isolate_has_rules: false,
+        column_filter_global_mode: normalizePreviousRunsColumnFilterGlobalMode(
+          previousRunsColumnFilterGlobalMode
+        ),
         error: null,
       });
       renderIsolateInsightsPanel({
         available: emptyIsolateState.available,
         active: false,
-        baselineRecords: [],
-        isolatedRecords: [],
-        combineLabel: emptyIsolateState.combineLabel || "all rules",
-        expression: "",
-        controlSource: filterControlSource,
+      baselineRecords: [],
+      isolatedRecords: [],
+      combineLabel: emptyIsolateState.combineLabel || "all rules",
+      expression: "",
+      controlSource: filterControlSource,
         pausedByTable: false,
       });
       return {
@@ -6265,9 +6563,7 @@ _JS = """\
       ? allRecords.filter(record => isolateRecordMatches(record, isolateState))
       : allRecords;
     const useIsolateControl = filterControlSource === "isolate";
-    const matchedRecords = useIsolateControl
-      ? isolateFilteredRecords
-      : tableFilteredRecords;
+    const matchedRecords = tableFilteredRecords;
     updatePreviousRunsFilterStatus({
       total: rawRecords.length,
       matched: matchedRecords.length,
@@ -6278,7 +6574,8 @@ _JS = """\
         : "",
       filter_control_source: filterControlSource,
       isolate_has_rules: isolateState.active,
-      error: useIsolateControl ? null : compiled.error,
+      column_filter_global_mode: compiled.global_mode,
+      error: compiled.error,
     });
     renderIsolateInsightsPanel({
       available: isolateState.available,
@@ -6293,16 +6590,20 @@ _JS = """\
     return {
       records: matchedRecords,
       total: rawRecords.length,
-      error: useIsolateControl ? null : compiled.error,
+      error: compiled.error,
     };
   }
 
   function compilePreviousRunsFilterPredicate() {
     const filters = activePreviousRunsColumnFilters();
+    const globalMode = normalizePreviousRunsColumnFilterGlobalMode(
+      previousRunsColumnFilterGlobalMode
+    );
     if (!filters.length) {
       return {
         predicate: () => true,
         expression: "(none)",
+        global_mode: globalMode,
         error: null,
       };
     }
@@ -6315,15 +6616,17 @@ _JS = """\
         return {
           predicate: () => true,
           expression: formatPreviousRunsColumnFilterSummary(filter.field, filter),
+          global_mode: globalMode,
           error: "Invalid regex for " + filter.field + ".",
         };
       }
     }
 
     const groupedFilters = groupPreviousRunsFiltersByField(filters);
+    const topJoinLabel = " " + String(PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL[globalMode] || globalMode).toUpperCase() + " ";
 
     return {
-      predicate: record => recordMatchesPreviousRunsFilterGroups(record, groupedFilters),
+      predicate: record => recordMatchesPreviousRunsFilterGroups(record, groupedFilters, globalMode),
       expression: groupedFilters
         .map(group => {
           const meta = previousRunsColumnMeta(group.field);
@@ -6332,9 +6635,13 @@ _JS = """\
           const clauseText = group.clauses
             .map(clause => formatPreviousRunsColumnFilterSummary(group.field, clause))
             .join(joinLabel);
+          if (group.clauses.length > 1) {
+            return meta.label + " (" + clauseText + ")";
+          }
           return meta.label + " " + clauseText;
         })
-        .join("; "),
+        .join(topJoinLabel),
+      global_mode: globalMode,
       error: null,
     };
   }
@@ -6457,13 +6764,21 @@ _JS = """\
       ? " Isolate: " + result.isolate_text + "."
       : " Isolate: none.";
     const controlSource = normalizePreviousRunsFilterControlSource(result.filter_control_source);
-    const controlPart = controlSource === "isolate"
-      ? " Control: isolate overrides table filters."
+    const controlPart = controlSource === "isolate" && result.isolate_has_rules
+      ? " Control: isolate synced to table filters."
       : (
         result.isolate_has_rules
-          ? " Control: table filters (isolate paused)."
+          ? " Control: table filters (isolate rules saved)."
           : " Control: table filters."
       );
+    const globalMode = normalizePreviousRunsColumnFilterGlobalMode(
+      result.column_filter_global_mode
+    );
+    const globalModePart = " Column combine: " + (
+      globalMode === "or"
+        ? "OR across columns."
+        : "AND across columns."
+    );
     if (result.error) {
       status.textContent = (
         header +
@@ -6471,6 +6786,7 @@ _JS = """\
         filtersPart +
         isolatePart +
         controlPart +
+        globalModePart +
         " Filter error: " +
         result.error +
         " (showing unfiltered rows)."
@@ -6478,7 +6794,9 @@ _JS = """\
       status.classList.add("filter-error");
       return;
     }
-    status.textContent = header + quickFiltersPart + filtersPart + isolatePart + controlPart;
+    status.textContent = (
+      header + quickFiltersPart + filtersPart + isolatePart + controlPart + globalModePart
+    );
     status.classList.remove("filter-error");
   }
 
@@ -6624,6 +6942,15 @@ _JS = """\
     );
   }
 
+  function hasHighchartsAreaRange() {
+    return (
+      typeof window !== "undefined" &&
+      window.Highcharts &&
+      window.Highcharts.seriesTypes &&
+      typeof window.Highcharts.seriesTypes.arearange === "function"
+    );
+  }
+
   function benchmarkVariantFromPathOrPipeline(record) {
     const path = benchmarkArtifactPath(record);
     if (path.includes("/codexfarm/") || path.endsWith("/codexfarm")) return "codexfarm";
@@ -6672,7 +6999,22 @@ _JS = """\
     }
     const runGroupLabel = runToken || fallbackTimestamp || "-";
     const runGroupKey = runToken || fallbackTimestamp || rawPath || "-";
-    return { runGroupKey, runGroupLabel };
+    const runGroupTimestampText = runToken || fallbackTimestamp || "";
+    return { runGroupKey, runGroupLabel, runGroupTimestampText };
+  }
+
+  function benchmarkRunGroupXAxisTimestampMs(record, runGroup) {
+    const candidates = [];
+    const groupTimestampText = String((runGroup && runGroup.runGroupTimestampText) || "").trim();
+    if (groupTimestampText) candidates.push(groupTimestampText);
+    const recordTimestampText = String((record && record.run_timestamp) || "").trim();
+    if (recordTimestampText) candidates.push(recordTimestampText);
+    for (let i = 0; i < candidates.length; i++) {
+      const ts = parseTs(candidates[i]);
+      if (!ts) continue;
+      return ts.getTime();
+    }
+    return null;
   }
 
   function benchmarkSeriesFromRecords(records, metricKey, variantKey) {
@@ -6684,11 +7026,11 @@ _JS = """\
         if (value == null) return null;
         const parsedValue = Number(value);
         if (!Number.isFinite(parsedValue)) return null;
-        const ts = parseTs(record.run_timestamp);
-        if (!ts) return null;
         const runGroup = benchmarkRunGroupInfo(record);
+        const xMs = benchmarkRunGroupXAxisTimestampMs(record, runGroup);
+        if (xMs == null) return null;
         return {
-          x: ts.getTime(),
+          x: xMs,
           y: parsedValue,
           custom: {
             runGroupKey: runGroup.runGroupKey,
@@ -6721,6 +7063,124 @@ _JS = """\
     return best;
   }
 
+  function buildTrendRegression(points) {
+    const usable = Array.isArray(points)
+      ? points
+        .map(point => {
+          const x = Number(point && point.x);
+          const y = Number(point && point.y);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+          const custom = (point && point.custom) || {};
+          return { x, y, custom };
+        })
+        .filter(point => point !== null)
+        .sort((a, b) => a.x - b.x)
+      : [];
+    if (!usable.length) return null;
+
+    const count = usable.length;
+    const meanX = usable.reduce((sum, point) => sum + point.x, 0) / count;
+    const meanY = usable.reduce((sum, point) => sum + point.y, 0) / count;
+    let varianceX = 0;
+    let covarianceXY = 0;
+    usable.forEach(point => {
+      const dx = point.x - meanX;
+      varianceX += dx * dx;
+      covarianceXY += dx * (point.y - meanY);
+    });
+    const slope = varianceX > 0 ? covarianceXY / varianceX : 0;
+    const intercept = meanY - slope * meanX;
+
+    const trendPoints = usable.map(point => ({
+      x: point.x,
+      y: intercept + slope * point.x,
+      custom: point.custom,
+    }));
+    let squaredError = 0;
+    usable.forEach((point, index) => {
+      const residual = point.y - trendPoints[index].y;
+      squaredError += residual * residual;
+    });
+    const stdDev = Math.sqrt(squaredError / count);
+    if (!Number.isFinite(stdDev)) return null;
+
+    const bandPoints = trendPoints.map(point => ({
+      x: point.x,
+      low: point.y - stdDev,
+      high: point.y + stdDev,
+      custom: point.custom,
+    }));
+    return { trendPoints, bandPoints, stdDev };
+  }
+
+  function trendSeriesIdPart(name, index) {
+    const base = String(name || "series")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const safe = base || "series";
+    return "trend-series-" + index + "-" + safe;
+  }
+
+  function withTrendOverlays(baseSeriesList) {
+    const supportsAreaRange = hasHighchartsAreaRange();
+    const output = [];
+    (baseSeriesList || []).forEach((baseSeries, index) => {
+      if (!baseSeries) return;
+      const baseId = trendSeriesIdPart(baseSeries.name, index);
+      const baseWithId = {
+        ...baseSeries,
+        id: baseId,
+      };
+      output.push(baseWithId);
+
+      const regression = buildTrendRegression(baseSeries.data);
+      if (!regression) return;
+
+      if (supportsAreaRange) {
+        output.push({
+          id: baseId + "-std-band",
+          name: baseSeries.name + " \u00b11\u03c3",
+          type: "arearange",
+          linkedTo: baseId,
+          showInLegend: false,
+          enableMouseTracking: false,
+          color: baseSeries.color,
+          fillOpacity: 0.14,
+          lineWidth: 0,
+          zIndex: 1,
+          custom: { isTrendOverlay: true },
+          data: regression.bandPoints,
+          turboThreshold: 0,
+        });
+      }
+
+      output.push({
+        id: baseId + "-trendline",
+        name: baseSeries.name + " trend",
+        type: "line",
+        linkedTo: baseId,
+        showInLegend: false,
+        enableMouseTracking: false,
+        color: baseSeries.color,
+        dashStyle: "ShortDash",
+        lineWidth: 1.75,
+        marker: { enabled: false },
+        zIndex: 2,
+        custom: { isTrendOverlay: true },
+        data: regression.trendPoints,
+        turboThreshold: 0,
+      });
+    });
+    return output;
+  }
+
+  function isTrendOverlaySeries(series) {
+    const options = (series && series.options) || {};
+    const custom = (options && options.custom) || {};
+    return Boolean(custom.isTrendOverlay);
+  }
+
   function buildBenchmarkTrendSeries(records) {
     const metricDefs = [
       {
@@ -6749,9 +7209,10 @@ _JS = """\
     const hasPairedVariants =
       presentVariants.has("vanilla") || presentVariants.has("codexfarm");
 
+    const baseSeries = [];
     if (!hasPairedVariants) {
-      return metricDefs
-        .map(metric => ({
+      metricDefs.forEach(metric => {
+        baseSeries.push({
           name: metric.key,
           type: "scatter",
           lineWidth: 0,
@@ -6762,17 +7223,19 @@ _JS = """\
           color: metric.colors.default,
           data: benchmarkSeriesFromRecords(records, metric.key),
           turboThreshold: 0,
-        }))
-        .filter(series => series.data.length > 0);
+        });
+      });
+      return withTrendOverlays(
+        baseSeries.filter(series => Array.isArray(series.data) && series.data.length > 0)
+      );
     }
 
-    const series = [];
     metricDefs.forEach(metric => {
       variantOrder.forEach(variant => {
         if (!presentVariants.has(variant)) return;
         const points = benchmarkSeriesFromRecords(records, metric.key, variant);
         if (!points.length) return;
-        series.push({
+        baseSeries.push({
           name: metric.key + " (" + variant + ")",
           type: "scatter",
           lineWidth: 0,
@@ -6786,7 +7249,7 @@ _JS = """\
         });
       });
     });
-    return series;
+    return withTrendOverlays(baseSeries);
   }
 
   function renderBenchmarkTrendChart() {
@@ -6894,7 +7357,7 @@ _JS = """\
 
           const rows = [];
           chart.series.forEach(series => {
-            if (!series || series.visible === false) return;
+            if (!series || series.visible === false || isTrendOverlaySeries(series)) return;
             const match = trendSeriesPointForRunGroup(series, runGroupKey, hoveredX);
             if (!match) return;
             const score = Number(match.y);
@@ -8189,6 +8652,7 @@ _JS = """\
     const tbody = table.querySelector("tbody");
     if (!tbody) return;
     ensurePreviousRunsColumns();
+    setupPreviousRunsGlobalFilterModeControl();
     const visibleColumns = [...previousRunsVisibleColumns];
     renderPreviousRunsTableColumns(table, visibleColumns);
     renderPreviousRunsColumnEditor();
@@ -8613,19 +9077,41 @@ _JS = """\
     return mapping;
   }
 
-  function perLabelDeltaCell(value, baseline) {
+  function perLabelComparisonModeLabel(mode) {
+    return mode === "point_value" ? "Point Value" : "Delta";
+  }
+
+  function perLabelComparisonHeaderTitle(mode, scope, metric, variant) {
+    const metricLabel = metric === "recall" ? "recall" : "precision";
+    const variantLabel = variant === "vanilla" ? "vanilla" : "codexfarm";
+    if (mode === "point_value") {
+      if (scope === "run") {
+        return "Latest-run " + variantLabel + " " + metricLabel + " for this label.";
+      }
+      return "Rolling " + variantLabel + " " + metricLabel + " over N runs for this label.";
+    }
+    if (scope === "run") {
+      return "Latest-run codexfarm " + metricLabel + " minus latest-run " + variantLabel + " " + metricLabel + " for this label.";
+    }
+    return "Latest-run codexfarm " + metricLabel + " minus rolling " + variantLabel + " " + metricLabel + " over N runs for this label.";
+  }
+
+  function perLabelComparisonCell(value, baseline) {
     const valueNum = maybeNumber(value);
     const baselineNum = maybeNumber(baseline);
     if (valueNum == null || baselineNum == null) {
       return '<td class="num" style="text-align:left">-</td>';
     }
-    const rawDelta = valueNum - baselineNum;
+    const rawDelta = baselineNum - valueNum;
     const delta = Math.abs(rawDelta) <= 1e-12 ? 0 : rawDelta;
     let cellClass = "num";
     if (delta > 0) {
       cellClass += " delta-better";
     } else if (delta < 0) {
       cellClass += " delta-worse";
+    }
+    if (normalizePerLabelComparisonMode(perLabelComparisonMode) === "point_value") {
+      return '<td class="' + cellClass + '" style="text-align:left">' + fmt4(valueNum) + "</td>";
     }
     const absText = Math.abs(delta).toFixed(4);
     let signedText = "";
@@ -8652,22 +9138,59 @@ _JS = """\
     });
   }
 
+  function syncPerLabelComparisonModeUi() {
+    const mode = normalizePerLabelComparisonMode(perLabelComparisonMode);
+    perLabelComparisonMode = mode;
+    const checkbox = document.getElementById("per-label-comparison-point-value");
+    if (checkbox) {
+      checkbox.checked = mode === "point_value";
+    }
+    const modeLabel = perLabelComparisonModeLabel(mode);
+    document.querySelectorAll(".per-label-comparison-mode-value").forEach(node => {
+      node.textContent = modeLabel;
+    });
+    document.querySelectorAll(".per-label-comparison-header").forEach(node => {
+      const scope = String(node.getAttribute("data-per-label-comparison-scope") || "").trim().toLowerCase();
+      const metric = String(node.getAttribute("data-per-label-comparison-metric") || "").trim().toLowerCase();
+      const variant = String(node.getAttribute("data-per-label-comparison-variant") || "").trim().toLowerCase();
+      if (!scope || !metric || !variant) return;
+      node.title = perLabelComparisonHeaderTitle(mode, scope, metric, variant);
+    });
+  }
+
   function setupPerLabelControls() {
     syncPerLabelRollingWindowUi();
+    syncPerLabelComparisonModeUi();
     const input = document.getElementById("per-label-rolling-window-size");
-    if (!input || input.dataset.bound === "1") return;
-    input.addEventListener("change", () => {
-      const nextValue = normalizePerLabelRollingWindowSize(input.value);
-      if (nextValue === perLabelRollingWindowSize) {
+    if (input && input.dataset.bound !== "1") {
+      input.addEventListener("change", () => {
+        const nextValue = normalizePerLabelRollingWindowSize(input.value);
+        if (nextValue === perLabelRollingWindowSize) {
+          syncPerLabelRollingWindowUi();
+          return;
+        }
+        perLabelRollingWindowSize = nextValue;
         syncPerLabelRollingWindowUi();
-        return;
-      }
-      perLabelRollingWindowSize = nextValue;
-      syncPerLabelRollingWindowUi();
-      persistDashboardUiState();
-      renderPerLabel();
-    });
-    input.dataset.bound = "1";
+        persistDashboardUiState();
+        renderPerLabel();
+      });
+      input.dataset.bound = "1";
+    }
+    const checkbox = document.getElementById("per-label-comparison-point-value");
+    if (checkbox && checkbox.dataset.bound !== "1") {
+      checkbox.addEventListener("change", () => {
+        const nextMode = checkbox.checked ? "point_value" : "delta";
+        if (nextMode === perLabelComparisonMode) {
+          syncPerLabelComparisonModeUi();
+          return;
+        }
+        perLabelComparisonMode = nextMode;
+        syncPerLabelComparisonModeUi();
+        persistDashboardUiState();
+        renderPerLabel();
+      });
+      checkbox.dataset.bound = "1";
+    }
   }
 
   function rollingPerLabelByVariant(records, variant, windowSize) {
@@ -8748,6 +9271,7 @@ _JS = """\
     const tbody = document.querySelector("#per-label-table tbody");
     if (!tbody) return;
     syncPerLabelRollingWindowUi();
+    syncPerLabelComparisonModeUi();
     if (records.length === 0) {
       if (title) title.textContent = "Per-Label Breakdown";
       tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="11">No benchmark records with per-label data.</td></tr>';
@@ -8817,12 +9341,12 @@ _JS = """\
         '<td class="num" style="text-align:left">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>' +
         '<td class="num" style="text-align:left">' + fmt4(runCodexFarm.precision) + '</td>' +
         '<td class="num" style="text-align:left">' + fmt4(runCodexFarm.recall) + '</td>' +
-        perLabelDeltaCell(runVanilla.precision, baselinePrecision) +
-        perLabelDeltaCell(runVanilla.recall, baselineRecall) +
-        perLabelDeltaCell(rollingCodexFarm.precision, baselinePrecision) +
-        perLabelDeltaCell(rollingCodexFarm.recall, baselineRecall) +
-        perLabelDeltaCell(rollingVanilla.precision, baselinePrecision) +
-        perLabelDeltaCell(rollingVanilla.recall, baselineRecall);
+        perLabelComparisonCell(runVanilla.precision, baselinePrecision) +
+        perLabelComparisonCell(runVanilla.recall, baselineRecall) +
+        perLabelComparisonCell(rollingCodexFarm.precision, baselinePrecision) +
+        perLabelComparisonCell(rollingCodexFarm.recall, baselineRecall) +
+        perLabelComparisonCell(rollingVanilla.precision, baselinePrecision) +
+        perLabelComparisonCell(rollingVanilla.recall, baselineRecall);
       tbody.appendChild(tr);
     });
   }

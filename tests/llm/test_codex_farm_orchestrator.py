@@ -576,6 +576,131 @@ def test_orchestrator_repairs_placeholder_only_pass3_steps_from_pass2_instructio
     assert "Toast the bread." in steps
 
 
+def test_orchestrator_coerces_legacy_pass3_draft_shape_without_schema_v(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "name": "Toast",
+                    "ingredients": ["1 slice bread"],
+                    "instructions": ["Toast the bread."],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["recipes"][recipe_id]["pass3"] == "ok"
+
+    final_draft = apply_result.final_overrides_by_recipe_id[recipe_id]
+    assert final_draft["schema_v"] == 1
+    assert final_draft["recipe"]["title"] == "Toast"
+    assert final_draft["steps"][0]["instruction"] == "Toast the bread."
+
+
+def test_orchestrator_coerces_pass2_like_pass3_draft_shape_to_draft_v1(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                    "recipeInstructions": [
+                        {"@type": "HowToStep", "text": "Toast the bread."},
+                    ],
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schemaorg_recipe": {
+                        "@context": "http://schema.org",
+                        "@type": "Recipe",
+                        "name": "Toast",
+                        "recipeInstructions": [
+                            {"@type": "HowToStep", "text": "Toast the bread."},
+                        ],
+                    },
+                    "extracted_instructions": ["Toast the bread."],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["recipes"][recipe_id]["pass3"] == "ok"
+
+    final_draft = apply_result.final_overrides_by_recipe_id[recipe_id]
+    assert final_draft["schema_v"] == 1
+    assert final_draft["recipe"]["title"] == "Toast"
+    assert final_draft["steps"][0]["instruction"] == "Toast the bread."
+
+
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
     tmp_path: Path,
 ) -> None:

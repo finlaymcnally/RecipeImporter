@@ -44,6 +44,16 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
     return rows
 
 
+def _jsonl_rows_by_path(path: Path) -> dict[str, dict[str, object]]:
+    rows = _read_jsonl(path)
+    by_path: dict[str, dict[str, object]] = {}
+    for row in rows:
+        key = row.get("path")
+        if isinstance(key, str) and key:
+            by_path[key] = row
+    return by_path
+
+
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -841,6 +851,83 @@ def test_main_process_manifest_includes_new_nested_gzip_paths(tmp_path: Path) ->
     assert f"{run_id}/{module.PREPROCESS_TRACE_FAILURES_FILE_NAME}" in included_files
 
 
+def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    run_root = tmp_path / "runs"
+    codex_run_id = "2026-03-03_10.10.00"
+    baseline_run_id = "2026-03-03_10.09.00"
+
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_cutdown_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=run_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "INGREDIENT_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    codex_run_dir = run_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    output_dir = tmp_path / "cutdown_out"
+    exit_code = _run_main(
+        module,
+        [
+            str(run_root),
+            "--output-dir",
+            str(output_dir),
+            "--overwrite",
+            "--no-flatten",
+            "--upload-3-files",
+            "--upload-3-files-only",
+        ],
+    )
+    assert exit_code == 0
+
+    output_files = sorted(path.name for path in output_dir.iterdir())
+    assert output_files == sorted(module.UPLOAD_BUNDLE_FILE_NAMES)
+    assert all(not name.endswith(".csv") for name in output_files)
+
+    index_payload = _read_json(output_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    artifact_paths = {
+        str(row.get("path") or "")
+        for row in index_payload["artifact_index"]
+        if isinstance(row, dict)
+    }
+    assert "process_manifest.json" in artifact_paths
+    assert (
+        f"{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_FILE_NAME}"
+        in artifact_paths
+    )
+
+    payload_rows = _jsonl_rows_by_path(output_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    triage_payload = payload_rows[
+        f"{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_FILE_NAME}"
+    ]
+    assert triage_payload["content_type"] == "csv"
+    assert isinstance(triage_payload["content_csv"], dict)
+    assert isinstance(triage_payload["content_csv"]["rows"], list)
+
+    process_manifest_payload = payload_rows["process_manifest.json"]["content_json"]
+    assert process_manifest_payload["upload_3_files_enabled"] is True
+    assert process_manifest_payload["upload_3_files_only"] is True
+
+    overview_text = (output_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "## Topline" in overview_text
+    assert "## Run Diagnostics" in overview_text
+
+
 def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> None:
     module = _load_cutdown_module()
     run_root = tmp_path / "runs"
@@ -1206,7 +1293,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     assert triage_row["pass3_status"] == "fallback"
     assert triage_row["pass1_clamped_block_loss_count"] == "3"
     assert triage_row["pass1_clamped_block_loss_ratio"] == "0.250000"
-    assert triage_row["pass2_degradation_reasons"] == "missing_instructions|ocr_or_page_artifact"
+    assert triage_row["pass2_degradation_reasons"] == "missing_instructions|page_or_layout_artifact"
     assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
     assert triage_row["transport_mismatch"] == "true"
     assert triage_row["transport_mismatch_reasons"] == "missing_payload_blocks"
@@ -1249,7 +1336,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     first_packet = selected_packets[0]
     assert first_packet["pass2_summary"]["degradation_reasons"] == [
         "missing_instructions",
-        "ocr_or_page_artifact",
+        "page_or_layout_artifact",
     ]
     assert first_packet["pass3_summary"]["fallback_reason"] == "pass3 output rejected as low quality"
     assert first_packet["transport_summary"]["mismatch"] is True
@@ -1397,6 +1484,126 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
     assert "## codex_vs_vanilla_comparison.json" in summary_text
     assert "## starter_pack_v1/10_process_manifest.json" in summary_text
     assert metadata["flattened_summary_path"] == module.AGGREGATED_ROOT_SUMMARY_MD
+
+
+def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "2026-03-03_10.18.00"
+    baseline_run_id = "2026-03-03_10.17.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    metadata = module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    assert metadata["source_dir"] == str(session_root.resolve())
+    assert metadata["output_dir"] == str(bundle_dir.resolve())
+    assert {
+        path.name
+        for path in bundle_dir.iterdir()
+        if path.is_file()
+    } == set(module.UPLOAD_BUNDLE_FILE_NAMES)
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    artifact_paths = {
+        str(row.get("path") or "")
+        for row in index_payload["artifact_index"]
+        if isinstance(row, dict)
+    }
+    assert f"{codex_run_id}/run_manifest.json" in artifact_paths
+    assert f"{baseline_run_id}/run_manifest.json" in artifact_paths
+    assert int(index_payload["topline"]["run_count"]) == 2
+    assert int(index_payload["topline"]["pair_count"]) == 1
+    assert int(index_payload["topline"]["changed_lines_total"]) >= 1
+    self_check = index_payload.get("self_check")
+    assert isinstance(self_check, dict)
+    assert set(
+        [
+            "starter_pack_present",
+            "pair_count_verified",
+            "changed_lines_verified",
+            "topline_consistent",
+        ]
+    ).issubset(self_check.keys())
+    assert isinstance(index_payload.get("analysis"), dict)
+    assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
+    assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
+    assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
+    assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
+    navigation_payload = index_payload.get("navigation")
+    assert isinstance(navigation_payload, dict)
+    assert isinstance(navigation_payload.get("row_locators"), dict)
+
+
+def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "2026-03-03_10.20.00"
+    baseline_run_id = "2026-03-03_10.19.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    _write_json(session_root / "run_index.json", {"runs": []})
+    _write_json(
+        session_root / "comparison_summary.json",
+        {"pairs": [], "changed_lines_total": 0},
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    assert int(index_payload["topline"]["run_count"]) == 2
+    assert int(index_payload["topline"]["pair_count"]) == 1
+    assert int(index_payload["topline"]["changed_lines_total"]) >= 1
+    self_check = index_payload["self_check"]
+    assert self_check["run_count_verified"] is False
+    assert self_check["pair_count_verified"] is False
+    assert self_check["changed_lines_verified"] is False
+    assert self_check["topline_consistent"] is False
 
 
 def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:

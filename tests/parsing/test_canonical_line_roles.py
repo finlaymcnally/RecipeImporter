@@ -222,6 +222,159 @@ def test_label_atomic_lines_heading_like_ingredient_promotes_recipe_title() -> N
     assert predictions[0].label == "RECIPE_TITLE"
 
 
+def test_label_atomic_lines_component_heading_prefers_howto_section() -> None:
+    blocks = [
+        {
+            "block_id": "block:ingredient:1",
+            "block_index": 1,
+            "text": "4 Hakurei turnip leaves, about 8 to 10 inches long",
+        },
+        {
+            "block_id": "block:heading:1",
+            "block_index": 2,
+            "text": "AGING THE DUCK",
+        },
+        {
+            "block_id": "block:instruction:1",
+            "block_index": 3,
+            "text": (
+                "Trim any excess fat from around the neck and abdominal cavity of "
+                "the duck."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    by_text = {prediction.text: prediction for prediction in predictions}
+    assert by_text["AGING THE DUCK"].label == "HOWTO_SECTION"
+    assert by_text["AGING THE DUCK"].decided_by == "rule"
+
+
+def test_label_atomic_lines_recipe_title_with_immediate_yield_stays_recipe_title() -> None:
+    blocks = [
+        {
+            "block_id": "block:title:yield:1",
+            "block_index": 1,
+            "text": "CHICKEN DRIPPINGS",
+        },
+        {
+            "block_id": "block:title:yield:2",
+            "block_index": 2,
+            "text": "YIELDS ABOUT 2 CUPS/400 G",
+        },
+        {
+            "block_id": "block:title:yield:3",
+            "block_index": 3,
+            "text": "4 whole chickens",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert predictions[0].text == "CHICKEN DRIPPINGS"
+    assert predictions[0].label == "RECIPE_TITLE"
+
+
+def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeypatch) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:title:1",
+            block_index=1,
+            atomic_index=0,
+            text="A PORRIDGE OF LOVAGE STEMS",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "RECIPE_TITLE"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+    )
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_TITLE"
+    assert predictions[0].decided_by == "codex"
+
+
+def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypatch) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:title:2",
+            block_index=2,
+            atomic_index=0,
+            text="A PORRIDGE OF LOVAGE STEMS",
+            within_recipe_span=False,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["outside_recipe_span"],
+        )
+    ]
+
+    def _codex_should_not_run(**_kwargs):
+        raise AssertionError("codex runner should not execute for deterministic title hold")
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _codex_should_not_run,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+    )
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_TITLE"
+    assert predictions[0].decided_by == "rule"
+
+
+def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:note-prose:1",
+            "block_index": 1,
+            "text": (
+                "If you like a thinner finish, you can whisk in a splash of stock "
+                "right before serving to loosen the texture."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+    assert predictions[0].decided_by == "rule"
+
+
 def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     monkeypatch,
     tmp_path,

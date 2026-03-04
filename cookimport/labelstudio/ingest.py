@@ -1658,7 +1658,7 @@ def generate_pred_run_artifacts(
     codex_cmd: str | None = None,
     codex_model: str | None = None,
     codex_reasoning_effort: str | None = None,
-    prelabel_timeout_seconds: int = 300,
+    prelabel_timeout_seconds: int = 600,
     prelabel_cache_dir: Path | None = None,
     prelabel_workers: int = 15,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
@@ -2440,7 +2440,7 @@ def generate_pred_run_artifacts(
         _notify("Checking freeform prelabel model access...")
         preflight_codex_model_access(
             cmd=provider_cmd,
-            timeout_s=min(30, max(1, int(prelabel_timeout_seconds))),
+            timeout_s=max(1, int(prelabel_timeout_seconds)),
         )
         provider_model = getattr(
             provider,
@@ -3326,7 +3326,7 @@ def run_labelstudio_import(
     codex_cmd: str | None = None,
     codex_model: str | None = None,
     codex_reasoning_effort: str | None = None,
-    prelabel_timeout_seconds: int = 300,
+    prelabel_timeout_seconds: int = 600,
     prelabel_cache_dir: Path | None = None,
     prelabel_workers: int = 15,
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,

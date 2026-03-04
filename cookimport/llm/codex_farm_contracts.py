@@ -1,26 +1,118 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any, Literal, TypeVar
 from json import JSONDecodeError
+from pathlib import Path
+import re
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _BUNDLE_VERSION: Literal["1"] = "1"
+_NULL_HEX_PAIR_RE = re.compile(r"\x00([0-9a-fA-F]{2})")
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
+_CONTROL_CHAR_TRANSLATION = str.maketrans({chr(index): " " for index in range(32)})
+
+
+def _normalize_json_text(raw: str) -> str:
+    normalized = _NULL_HEX_PAIR_RE.sub(
+        lambda match: chr(int(match.group(1), 16)),
+        raw,
+    )
+    normalized = normalized.translate(_CONTROL_CHAR_TRANSLATION)
+    normalized = _TRAILING_COMMA_RE.sub(r"\1", normalized)
+    return normalized.strip()
+
+
+def _repair_json_structure(raw: str) -> str:
+    start = raw.find("{")
+    if start < 0:
+        return raw
+    end = max(raw.rfind("}"), raw.rfind("]"))
+    candidate = raw[start : end + 1] if end >= start else raw[start:]
+
+    stack: list[str] = []
+    output: list[str] = []
+    in_string = False
+    escaping = False
+
+    for char in candidate:
+        if in_string:
+            output.append(char)
+            if escaping:
+                escaping = False
+            elif char == "\\":
+                escaping = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            output.append(char)
+            continue
+        if char in "{[":
+            stack.append(char)
+            output.append(char)
+            continue
+        if char in "}]":
+            expected_open = "{" if char == "}" else "["
+            if stack and stack[-1] == expected_open:
+                stack.pop()
+                output.append(char)
+            continue
+        output.append(char)
+
+    if in_string:
+        output.append('"')
+    for open_char in reversed(stack):
+        output.append("}" if open_char == "{" else "]")
+    return "".join(output).strip()
+
+
+def _extract_first_json_object(raw: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(raw):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(raw[index:])
+        except JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def _coerce_json_object_field(value: Any, field_name: str) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except JSONDecodeError as exc:
-            raise ValueError(f"{field_name} must be a JSON object or JSON object string") from exc
-        if not isinstance(parsed, dict):
-            raise ValueError(f"{field_name} must deserialize to a JSON object")
-        return parsed
+        candidates: list[str] = []
+        raw_text = value.strip()
+        if raw_text:
+            candidates.append(raw_text)
+        normalized_text = _normalize_json_text(raw_text)
+        if normalized_text and normalized_text not in candidates:
+            candidates.append(normalized_text)
+        repaired_text = _repair_json_structure(normalized_text)
+        if repaired_text and repaired_text not in candidates:
+            candidates.append(repaired_text)
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+        for candidate in candidates:
+            extracted = _extract_first_json_object(candidate)
+            if extracted is not None:
+                return extracted
+
+        raise ValueError(f"{field_name} must be a JSON object or JSON object string")
     raise ValueError(f"{field_name} must be a JSON object or JSON object string")
 
 

@@ -50,6 +50,10 @@ Few-shot examples:
    Line: `DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET`
    Label: `RECIPE_VARIANT`
 
+9) Context: inside recipe, primary recipe heading
+   Line: `A PORRIDGE OF LOVAGE STEMS`
+   Label: `RECIPE_TITLE`
+
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:
 [{"atomic_index": <int>, "label": "<LABEL>"}]

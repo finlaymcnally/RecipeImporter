@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import csv
 import datetime as dt
 import inspect
@@ -1014,6 +1015,7 @@ def test_run_with_progress_status_humanizes_codex_stage_in_live_panel(
         "codex-farm pass2 schemaorg" in message and "task" in message
         for message in capture.messages
     )
+    assert any("active tasks (2/2, 7 left)" in message for message in capture.messages)
 
 
 def test_all_method_dashboard_current_config_tracks_active_parallel_configs() -> None:
@@ -2896,7 +2898,6 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     source_path = str(tmp_path / "book.epub")
 
     benchmark_calls: list[dict[str, object]] = []
-    starter_pack_calls: list[Path] = []
     refresh_calls: list[dict[str, object]] = []
 
     def fake_labelstudio_benchmark(**kwargs):
@@ -2944,13 +2945,13 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
         lambda **kwargs: refresh_calls.append(kwargs),
     )
 
-    def _fake_starter_pack_writer(*, session_root: Path) -> Path:
-        starter_pack_calls.append(session_root)
-        starter_dir = session_root / "starter_pack_v1"
-        starter_dir.mkdir(parents=True, exist_ok=True)
-        return starter_dir
-
-    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
+    monkeypatch.setattr(
+        cli,
+        "_write_single_offline_starter_pack",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("starter pack should not run by default for single-offline")
+        ),
+    )
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -3020,11 +3021,6 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     )
     assert comparison_json.exists()
     assert not comparison_md.exists()
-    assert starter_pack_calls == [benchmark_eval_output / "single-offline-benchmark"]
-    assert (
-        benchmark_eval_output / "single-offline-benchmark" / "starter_pack_v1"
-    ).is_dir()
-
     payload = json.loads(comparison_json.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "codex_vs_vanilla_comparison.v2"
     assert payload["run_timestamp"] == benchmark_eval_output.name
@@ -3046,6 +3042,7 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     assert (
         payload["metadata"]["codex_farm_runtime"]["codex_reasoning_effort"] == "low"
     )
+    assert "starter_pack_v1" not in payload["metadata"]
     assert len(refresh_calls) == 1
     assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
     assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
@@ -3464,6 +3461,7 @@ def test_single_offline_comparison_artifacts_trigger_starter_pack(
         codex_eval_output_dir=codex_eval_output_dir,
         vanilla_eval_output_dir=vanilla_eval_output_dir,
         write_markdown=False,
+        write_starter_pack=True,
     )
 
     assert comparison_paths is not None
@@ -3481,6 +3479,61 @@ def test_single_offline_comparison_artifacts_trigger_starter_pack(
     assert starter_calls == [session_root]
 
 
+def test_single_offline_starter_pack_fallback_loader_registers_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_root = tmp_path / "session"
+    session_root.mkdir(parents=True, exist_ok=True)
+    helper_script_path = tmp_path / "fake_benchmark_helper.py"
+    helper_script_path.write_text(
+        "\n".join(
+            [
+                "from dataclasses import dataclass",
+                "",
+                "@dataclass",
+                "class _DataclassProbe:",
+                "    value: int = 1",
+                "",
+                "def build_starter_pack_for_existing_runs(*, input_dir, output_dir, write_flattened_summary=False):",
+                "    starter_dir = output_dir / 'starter_pack_v1'",
+                "    starter_dir.mkdir(parents=True, exist_ok=True)",
+                "    if write_flattened_summary:",
+                "        (output_dir / 'benchmark_summary.md').write_text('# summary\\n', encoding='utf-8')",
+                "    return {'ok': True}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    real_import = builtins.__import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # type: ignore[no-untyped-def]
+        if name == "scripts.benchmark_cutdown_for_external_ai":
+            raise ModuleNotFoundError("No module named 'scripts'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    real_spec_from_file_location = cli.importlib.util.spec_from_file_location
+
+    def _fake_spec_from_file_location(name, location, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return real_spec_from_file_location(name, helper_script_path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        cli.importlib.util,
+        "spec_from_file_location",
+        _fake_spec_from_file_location,
+    )
+
+    starter_dir = cli._write_single_offline_starter_pack(session_root=session_root)
+
+    assert starter_dir == session_root / "starter_pack_v1"
+    assert (session_root / "starter_pack_v1").is_dir()
+    assert (session_root / "benchmark_summary.md").is_file()
+
+
 def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3496,7 +3549,6 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     source_path = str(tmp_path / "book.epub")
 
     benchmark_calls: list[dict[str, object]] = []
-    starter_pack_calls: list[Path] = []
 
     def fake_labelstudio_benchmark(**kwargs):
         benchmark_calls.append(kwargs)
@@ -3527,13 +3579,13 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
 
-    def _fake_starter_pack_writer(*, session_root: Path) -> Path:
-        starter_pack_calls.append(session_root)
-        starter_dir = session_root / "starter_pack_v1"
-        starter_dir.mkdir(parents=True, exist_ok=True)
-        return starter_dir
-
-    monkeypatch.setattr(cli, "_write_single_offline_starter_pack", _fake_starter_pack_writer)
+    monkeypatch.setattr(
+        cli,
+        "_write_single_offline_starter_pack",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("starter pack should not run by default")
+        ),
+    )
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -3546,11 +3598,17 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     assert len(benchmark_calls) == 2
     assert all(call["write_markdown"] is False for call in benchmark_calls)
     session_root = benchmark_eval_output / "single-offline-benchmark"
-    assert starter_pack_calls == [session_root]
     summary_path = session_root / "single_offline_summary.md"
     assert summary_path.exists()
     md_files = sorted(session_root.rglob("*.md"))
-    assert md_files == [summary_path]
+    assert summary_path in md_files
+    upload_bundle_dir = session_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    assert upload_bundle_dir.is_dir()
+    assert {
+        path.name
+        for path in upload_bundle_dir.iterdir()
+        if path.is_file()
+    } == set(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
     summary_text = summary_path.read_text(encoding="utf-8")
     assert "Single Offline Benchmark Summary" in summary_text
     assert "Codex vs Vanilla" in summary_text
@@ -4650,7 +4708,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)
 
     processed_root = tmp_path / "output"
-    eval_root = tmp_path / "eval"
+    eval_root = tmp_path / "2026-03-03_10.20.00"
     cli.labelstudio_benchmark(
         gold_spans=gold_spans,
         source_file=source_file,
@@ -4790,7 +4848,7 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
 
     monkeypatch.setattr(cli, "generate_pred_run_artifacts", fake_generate_pred_run_artifacts)
 
-    eval_root = tmp_path / "eval"
+    eval_root = tmp_path / "2026-03-03_10.20.00"
     cli.labelstudio_benchmark(
         gold_spans=gold_spans,
         source_file=source_file,
@@ -4834,6 +4892,13 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["line_role_pipeline"] == "off"
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
+    upload_bundle_dir = eval_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    assert upload_bundle_dir.is_dir()
+    assert {
+        path.name
+        for path in upload_bundle_dir.iterdir()
+        if path.is_file()
+    } == set(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
 
 
 def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
