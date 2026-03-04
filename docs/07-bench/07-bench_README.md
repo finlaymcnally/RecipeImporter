@@ -129,7 +129,7 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
-- interactive single-profile multi-book runs now request two live spinner slots (`COOKIMPORT_LIVE_STATUS_SLOTS=2` for that path) and automatically fall back to plain progress when slots are exhausted, preventing Rich live-display collisions.
+- interactive single-profile multi-book runs now use one shared spinner dashboard for the full batch; inner per-book benchmark calls suppress their own spinners and emit progress into shared queue/task lines so concurrent books stay readable.
 - interactive single-profile multi-book runs inherit the shared split-gated default (`4`) because scheduler split-slot gating is enabled in that path.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
 - interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
@@ -1830,3 +1830,58 @@ Current benchmark contracts reinforced:
 Anti-loop reminders:
 - If per-book exit code 1 appears with empty variant folders, check live status collision/fallback behavior before parser/scorer changes.
 - If codex/vanilla quality diverges sharply, inspect label-distribution drift and effective settings before concluding benchmark infra failure.
+
+## 2026-03-04 docs/tasks consolidation (single-profile scheduling/upload bundle + spinner/runtime policy)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-03_23.44.13-single-profile-multi-book-parallelism.md`
+- `docs/tasks/feedback.md`
+- `docs/tasks/2026-03-04_00.20.31-single-profile-group-upload-bundle.md`
+- `docs/tasks/2026-03-04_08.35.36-canonical-line-role-spinner-eta-unification.md`
+- `docs/tasks/2026-03-04_08.37.45-interactive-line-role-inflight-single-vs-multi.md` (historical; later superseded)
+- `docs/tasks/2026-03-04_08.46.12-shared-benchmark-runtime-policy-spinner-split.md`
+
+Current benchmark contracts reinforced:
+- Interactive single-profile multi-book benchmark scheduling is bounded and split-safe:
+  - up to `3` books in parallel,
+  - per-book worker knobs scaled for concurrency,
+  - shared split conversion gating (`split slots=1`) to serialize split-heavy phases.
+- Multi-book single-profile roots write a group-level `upload_bundle_v1` in high-level-only mode with explicit size budgeting (~40MB target).
+- Canonical line-role progress emits task counters for deterministic and codex phases so ETA remains visible; spinner suppresses standalone `active workers: 0` noise rows.
+- Historical interactive-only inflight env wrappers (`8` single, `4` multi) are superseded by shared ingest/parsing propagation; wrapper wiring should not be reintroduced as primary policy seam.
+- Feedback-exec benchmark hardening contract remains active:
+  - deterministic line-role/routing tightening first,
+  - JSONL-first starter-pack/upload-bundle triage surfaces,
+  - paired quality + speed evidence expectations,
+  - explicit codex-auth-constrained telemetry caveat handling.
+
+Regression anchors from merged tasks:
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
+- `tests/parsing/test_canonical_line_roles.py`
+- `tests/bench/test_benchmark_cutdown_for_external_ai.py`
+- `tests/bench/test_cutdown_export_consistency.py`
+- `tests/llm/test_codex_farm_orchestrator.py`
+
+### 2026-03-04_09.07.21 single-profile multi-book shared spinner dashboard
+
+Merged source task file:
+- `docs/tasks/2026-03-04_09.07.21-single-profile-multi-book-shared-spinner-dashboard.md`
+
+Current benchmark contract addition:
+- Multi-book interactive single-profile runs should use one shared outer progress dashboard spinner, with inner per-book benchmark calls reporting through shared callback status and suppressing their own spinner frames.
+- Single-book single-profile path remains unchanged.
+
+## 2026-03-04 docs/understandings consolidation (canonical ETA unification + shared spinner dashboard)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_08.35.36-canonical-line-role-eta-unified-single-multibook.md`
+- `docs/understandings/2026-03-04_08.37.45-single-vs-multi-line-role-inflight-overrides.md` (historical/superseded)
+- `docs/understandings/2026-03-04_09.07.21-single-profile-shared-spinner-dashboard.md`
+
+Current benchmark progress contracts reinforced:
+- Canonical line-role stage should emit `task X/Y` updates in both deterministic and codex subphases so ETA is visible in both single-book and multi-book runs.
+- Spinner worker summary should suppress pure zero-worker rows.
+- Historical single-vs-multi inflight env wrappers are retained as context only; shared ingest defaults are the active policy seam.
+- Parallel single-profile multi-book runs should render one shared outer spinner dashboard with inner per-book spinner suppression.

@@ -933,3 +933,26 @@ Current parsing contracts reinforced:
 
 Operational note:
 - This optimization primarily targets latency-bound codex round trips; CPU-bound tuning is secondary for this path.
+
+## 2026-03-04 docs/tasks consolidation (canonical line-role codex throughput + shared inflight defaults)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_07.29.55-canonical-line-role-codex-batch-parallel-cache.md`
+- `docs/tasks/2026-03-04_08.50.26-shared-line-role-inflight-default-propagation.md`
+
+Current parsing contracts reinforced:
+- Codex escalation in `label_atomic_lines(...)` is no longer serial-only; it supports bounded per-book in-flight batches (default `4`) with deterministic output merge.
+- Prompt artifact/log writing in codex batch execution must remain thread-safe and deterministic.
+- Transient codex failures are retried with bounded backoff before fallback behavior is used.
+- Canonical line-role cache reuse is keyed by source hash + run-settings + candidate fingerprint to avoid stale mismatches.
+- Shared prediction-generation seam now owns canonical line-role codex inflight defaults:
+  - non-split jobs default to `8`,
+  - split-gated jobs default to `4`,
+  - explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains highest priority.
+- Interactive benchmark wrapper-specific inflight env wiring is historical/superseded by shared ingest propagation.
+
+Regression anchors from merged tasks:
+- `tests/parsing/test_canonical_line_roles.py`
+- `tests/labelstudio/test_labelstudio_ingest_parallel.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`

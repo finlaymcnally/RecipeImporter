@@ -952,3 +952,55 @@ Verification evidence retained:
 Anti-loop reminders:
 - If speedup regresses, check in-flight cap, retry/backoff behavior, and cache-hit eligibility before changing line-role heuristics.
 - Preserve deterministic output ordering when adjusting concurrency internals.
+
+## 2026-03-04 docs/tasks consolidation batch (canonical line-role codex throughput + inflight policy propagation)
+
+### 2026-03-04_07.29.55 canonical line-role codex batch parallel/cache
+
+Source task:
+- `docs/tasks/2026-03-04_07.29.55-canonical-line-role-codex-batch-parallel-cache.md`
+
+Problem captured:
+- Canonical line-role codex escalation was serial over `_batch(...)`, producing long latency tails and low CPU utilization.
+
+Durable outcomes:
+- Added bounded in-flight codex batch concurrency per book (`4` default).
+- Added deterministic post-concurrency merge ordering by prompt/atomic index.
+- Made prompt logging thread-safe under concurrent workers.
+- Added transient retry/backoff path before fallback classification.
+- Added source-hash/settings/candidate-fingerprint cache path to skip repeated codex calls on reruns.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/parsing/test_canonical_line_roles.py -q`
+- `source .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_ingest_parallel.py -k "line_role" -q`
+
+Anti-loop reminders:
+- For slow codex line-role runs with low CPU, check batch concurrency/caching/retry first, not parser CPU micro-optimizations.
+- Preserve deterministic merge ordering whenever concurrency internals are changed.
+
+### 2026-03-04_08.50.26 shared line-role inflight default propagation (ingest/parsing seam)
+
+Source task:
+- `docs/tasks/2026-03-04_08.50.26-shared-line-role-inflight-default-propagation.md`
+
+Problem captured:
+- Inflight defaults were wired in specific CLI wrappers, so new processing/benchmark paths could miss policy.
+
+Durable outcomes:
+- `label_atomic_lines(...)` now accepts explicit `codex_max_inflight` override.
+- Ingest prediction-generation resolves shared defaults and forwards them at call time.
+- Default policy is now seam-owned:
+  - non-split prediction jobs => `8`,
+  - split-gated jobs => `4`,
+  - explicit env override still wins.
+- Removed interactive-only CLI inflight wrapper dependency.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest -q tests/parsing/test_canonical_line_roles.py -k "codex_progress_callback_reports_batch_counts or codex_max_inflight_override"`
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_ingest_parallel.py -k "line_role_projection_updates_draft_fields or line_role_uses_split_gated_inflight_default"`
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_writes_comparison or interactive_single_offline_codex_disabled_runs_only_vanilla_and_skips_comparison"`
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py -k "interactive_single_profile_parallel_requests_two_live_spinner_slots or interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_per_book"`
+
+Anti-loop reminders:
+- If inflight behavior drifts across benchmark/import paths, inspect ingest seam resolver first, not CLI wrappers.
+- Keep parser-level default/env behavior intact; seam injection is meant to avoid per-flow rewiring.

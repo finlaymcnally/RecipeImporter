@@ -552,3 +552,43 @@ Durable outcomes:
 
 Anti-loop reminder:
 - Plain stage status under concurrency is expected fallback behavior, not necessarily a regression.
+
+## 2026-03-04 docs/understandings consolidation batch (processing quality baseline + drift findings)
+
+### 2026-03-04_08.29.09 single-profile benchmark processing-quality findings
+
+Source note:
+- `docs/understandings/2026-03-04_08.29.09-single-profile-benchmark-processing-quality-findings.md`
+
+Problem captured:
+- Deep-dive on run `data/output/2026-03-04_06.58.16/single-profile-benchmark` found report counters and produced artifacts disagreeing on multiple books, plus large stage-block mismatch failures.
+
+High-signal outcomes preserved:
+- Report counters were zero for multiple books while final drafts/topic artifacts existed at large counts.
+- Three books failed stage-block eval with large `extra_gold` mismatches.
+- Draft field normalization diverged across vanilla/codex outputs.
+- Tip/topic extraction was over-broad on narrative-heavy books.
+
+Immediate-fix ordering preserved from note:
+1. Derive or verify report totals from produced artifacts.
+2. Restore blockization comparability with pulled gold.
+3. Normalize final draft `name/ingredients/instructions` from reliable fields at write time.
+4. Tighten deterministic tip/topic filtering for long narrative spans.
+
+### 2026-03-04_08.45.23 processing-quality baseline snapshot
+
+Source note:
+- `docs/understandings/2026-03-04_08.45.23-processing-quality-baseline-snapshot.md`
+
+Problem captured:
+- Baseline evidence for processing-quality recovery plan needed a durable artifact/report/settings snapshot for run `2026-03-04_06.58.16`.
+
+Durable outcomes preserved:
+- Captured report-vs-artifact drift per book and variant.
+- Captured draft-shape consistency gaps across all final drafts.
+- Captured gold-vs-run parser setting mismatch (`v1/br_split_v1` vs `v2/semantic_v1`).
+- Captured per-book codex-vs-vanilla benchmark comparison snapshot to prevent anecdotal quality conclusions.
+
+Anti-loop reminders:
+- Do not treat benchmark score differences as like-for-like until run settings/provenance parity is verified.
+- When report totals look wrong, check produced artifact counts first before debugging evaluator math.

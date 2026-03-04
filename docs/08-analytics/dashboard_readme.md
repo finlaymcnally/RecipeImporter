@@ -193,7 +193,7 @@ Notes:
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
   - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
   - Trend run-group timestamp extraction now checks `artifact_dir`, `run_dir`, and `report_path`; when `benchmark-vs-golden` appears in a path, it uses the first timestamp token after that marker so deeper variant-local timestamp folders do not shift paired `codexfarm`/`vanilla` points onto different x positions.
-  - Hovering any trend point shows a point-first tooltip card: the hovered dot's exact score, book/source label, variant, and eval-row timestamp, plus run-group series values as secondary context.
+  - Hovering any trend point shows a point-only tooltip card: the hovered dot's exact score, book/source label, variant, and eval-row timestamp (no run-group/overall series summary).
   - The `Benchmark Score Trend` range selector defaults to `All`, so older benchmark history is visible on first load instead of starting on a short recent window.
   - The trend chart x-axis is initialized from the full filtered `Previous Runs` timestamp span (including rows without explicit score points), so timeline dates stay aligned with the table.
   - Highcharts Stock now loads with a secondary CDN fallback (`code.highcharts.com` -> `cdn.jsdelivr.net`) before `assets/dashboard.js`, reducing random single-CDN load failures.

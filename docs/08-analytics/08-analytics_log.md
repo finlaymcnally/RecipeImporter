@@ -2765,3 +2765,132 @@ Verification evidence retained:
 Anti-loop reminders:
 - If rightward growth returns, run host-level drift + document-level overflow probes together.
 - Treat wrapper containment and explicit host-width pinning as the primary guardrails, not table-width shrinkage.
+
+## 2026-03-04 docs/tasks consolidation batch (runtime-card token aggregation + quality efficiency + trend tooltips)
+
+### 2026-03-04_08.27.09 runtime-card run-group token totals
+
+Source task:
+- `docs/tasks/2026-03-04_08.27.09 - runtime-card-run-group-token-totals.md`
+
+Problem captured:
+- Latest runtime token usage came from one row and under-reported multi-book benchmark runs.
+
+Durable outcomes:
+- Runtime summary token use now sums across latest preferred benchmark run-group.
+- Runtime context/model/effort selection stays representative but prefers richer rows in that run-group.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -k "runtime_summary_aggregates_tokens_across_latest_run_group or test_js_renders_previous_runs_table_and_links_timestamp_to_artifact"`
+
+### 2026-03-04_08.46.21 dashboard quality-per-token metric
+
+Source task:
+- `docs/tasks/2026-03-04_08.46.21 - dashboard-quality-per-token-metric.md`
+
+Problem captured:
+- Dashboard exposed token totals but not quality gained per token, making efficiency tradeoffs hard to evaluate.
+
+Durable outcomes:
+- Added runtime card quality-efficiency rows for latest run-group.
+- Added `quality_per_million_tokens` derived numeric field in Previous Runs.
+- Added variant comparison context (including delta-vs-vanilla framing when paired variants exist).
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -k "test_js_renders_previous_runs_table_and_links_timestamp_to_artifact or test_js_supports_previous_runs_column_header_filters or test_runtime_summary_aggregates_tokens_across_latest_run_group or test_previous_runs_quality_per_million_tokens_calculation"`
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
+
+### 2026-03-04_08.49.13 benchmark trend tooltip point details
+
+Source task:
+- `docs/tasks/2026-03-04_08.49.13 - benchmark-trend-tooltip-point-details.md`
+
+Problem captured:
+- Trend hover cards emphasized run-group aggregates and did not clearly identify hovered dot source/score context.
+
+Durable outcomes:
+- Trend point `custom` payload now carries source/variant/timestamp metadata.
+- Tooltip formatter shows hovered-point specifics first.
+- Temporary run-group context remained available at this stage.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -k points_include_source_metadata_for_tooltips`
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
+
+### 2026-03-04_09.02.37 benchmark trend tooltip book-only follow-up
+
+Source task:
+- `docs/tasks/2026-03-04_09.02.37 - benchmark-trend-tooltip-book-only.md`
+
+Problem captured:
+- After point metadata landed, tooltip still included run-group summary rows, which conflicted with requested per-point/book-only behavior.
+
+Durable outcomes:
+- Removed run-group summary block from tooltip renderer.
+- Tooltip now keeps only hovered-point score, source/book context, variant, and eval-row timestamp.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py -k benchmark_trend_chart_uses_fixed_height`
+- `source .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
+
+Anti-loop reminders:
+- If tooltip cards look aggregated again, check tooltip formatter block before changing trend grouping logic.
+- Point-only tooltip behavior depends on point `custom` metadata population; verify renderer payloads first.
+
+## 2026-03-04 docs/understandings consolidation batch (history supplement + runtime/quality-token + tooltip point metadata)
+
+### 2026-03-04_08.19.19 dashboard migration benchmark-history gap
+
+Source note:
+- `docs/understandings/2026-03-04_08.19.19-dashboard-migration-benchmark-history-gap.md`
+
+Problem captured:
+- CSV-first benchmark collection can appear to “chop” historical trend data when canonical CSV starts later than existing eval-report artifacts.
+
+Durable outcomes:
+- Keep CSV authoritative.
+- Auto-supplement only rows older than earliest benchmark CSV from eval reports.
+- Reserve full recursive benchmark JSON merge for explicit `--scan-benchmark-reports` runs.
+
+### 2026-03-04_08.27.09 runtime-card latest run-group token sum
+
+Source note:
+- `docs/understandings/2026-03-04_08.27.09-runtime-card-latest-run-group-token-sum.md`
+
+Problem captured:
+- Runtime card token display under-reported multi-book runs by reading one latest row.
+
+Durable outcomes:
+- Runtime card now aggregates discounted token totals across `latestRunGroupRecords`.
+- Runtime context row selection prefers richer metadata rows inside that run-group.
+
+### 2026-03-04_08.46.21 quality-token metric runtime and table
+
+Source note:
+- `docs/understandings/2026-03-04_08.46.21-quality-token-metric-runtime-and-table.md`
+
+Problem captured:
+- Quality-efficiency values could drift if runtime and table paths used different token math/quality keys.
+
+Durable outcomes:
+- Unified discounted token formula for runtime + Previous Runs.
+- Preserved deterministic quality key fallback chain.
+- Preserved latest-run-group delta-vs-vanilla efficiency calculation contract.
+- Preserved peer run-group rank semantics using same metric key.
+
+### 2026-03-04_08.49.13 trend tooltip point metadata
+
+Source note:
+- `docs/understandings/2026-03-04_08.49.13-trend-tooltip-point-metadata.md`
+
+Problem captured:
+- Trend hover cards looked aggregated when point payload lacked per-dot source metadata.
+
+Durable outcomes:
+- Trend series points now carry per-point source/title/variant/timestamp metadata in `custom` payload.
+- Tooltip formatter consumes hovered point metadata first, enabling per-book point context.
+
+Anti-loop reminders:
+- If trends look chopped after migration, validate CSV earliest timestamp and supplement path before enabling full scan-by-default.
+- If runtime/token or quality-per-token numbers disagree across cards/tables, debug shared `all_token_use` and quality-key selection first.
+- If tooltip context regresses to run-group-only, inspect trend point `custom` payload population before chart config changes.

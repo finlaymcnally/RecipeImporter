@@ -2840,6 +2840,7 @@ class TestRenderer:
         assert "runGroupKey" in js
         assert "runGroupLabel" in js
         assert "&#9679;" in js
+        assert "Run-group values:" not in js
 
     def test_benchmark_trend_pairs_variant_points_on_same_run_group_x_axis(self, tmp_path):
         dash_dir = tmp_path / "dash"

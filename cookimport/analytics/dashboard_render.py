@@ -8811,17 +8811,6 @@ _JS = """\
           if (hoveredRunTimestamp) {
             html += '<span><b>Eval row:</b> ' + esc(hoveredRunTimestamp) + "</span><br/>";
           }
-          if (rows.length > 1) {
-            html += '<span style="opacity:0.9"><b>Run-group values:</b></span><br/>';
-            rows.forEach(row => {
-              html +=
-                '<span style="color:' + row.color + '">&#9679;</span> ' +
-                esc(row.name) +
-                ': <b>' +
-                row.score.toFixed(4) +
-                "</b><br/>";
-            });
-          }
           return html;
         },
       },

@@ -560,3 +560,21 @@ Evidence preserved:
 
 Anti-loop note:
 - Do not turn pattern suppression into silent deletion; if suppression is active, diagnostics + non-recipe preservation must remain intact.
+
+## 2026-03-04 docs/understandings consolidation batch (shared inflight propagation)
+
+### 2026-03-04_08.50.26 shared line-role inflight default propagation
+
+Source note:
+- `docs/understandings/2026-03-04_08.50.26-shared-line-role-inflight-default-propagation.md`
+
+Problem captured:
+- Flow-specific CLI wrappers owned line-role inflight defaults, creating drift risk when new benchmark/import paths were added.
+
+Durable outcomes:
+- Moved default-resolution responsibility into shared ingestion seam (`generate_pred_run_artifacts(...)`).
+- Parsing still keeps default/env behavior, but ingest can pass explicit `codex_max_inflight` for shared policy.
+- Split context drives defaults (`8` non-split, `4` split-gated), with explicit env override taking precedence.
+
+Anti-loop reminder:
+- If inflight behavior diverges by entry path, debug ingestion seam resolution first, not CLI orchestration wrappers.

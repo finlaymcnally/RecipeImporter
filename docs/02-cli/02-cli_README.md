@@ -401,7 +401,7 @@ Interactive benchmark now has a mode submenu before execution:
    - single-profile runs use the same shared ingest inflight defaults; because multi-book mode enables split-phase gating, canonical line-role codex inflight defaults to `4` there (single-book stays at `8` unless env override is set),
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
    - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
-   - concurrent single-profile runs request up to two live spinner panels (`COOKIMPORT_LIVE_STATUS_SLOTS=2` override for this path); extra concurrent runs fall back to plain status lines instead of failing with Rich live-display conflicts,
+   - concurrent single-profile runs now use one shared spinner dashboard for the whole batch; inner per-book benchmark runs suppress their own spinners and stream progress into shared per-book queue/task lines,
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codexfarm`),
    - writes a dedicated 3-file upload folder per target eval root:
@@ -1758,3 +1758,34 @@ Current CLI contracts reinforced:
 
 Known gotcha retained:
 - `model_copy(update=...)` on run settings can bypass field validation and reintroduce serializer warnings for enum fields.
+
+## 2026-03-04 docs/tasks consolidation (interactive run-settings cleanup + spinner ETA)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.24.38-two-profile-run-settings-cleanup.md`
+- `docs/tasks/2026-03-04_08.30.36-spinner-eta-recent-bias.md`
+
+Current CLI contracts reinforced:
+- Interactive run setup remains two-profile only (`CodexFarm automatic top-tier` and `Vanilla automatic top-tier`); legacy interactive branches for global defaults, last/preferred snapshots, editor surfaces, and dead interactive all-method routing stay retired.
+- Quality-suite winner persistence remains supported; obsolete last/preferred run-setting persistence is intentionally removed.
+- Interactive benchmark/import callers should continue using shared chooser flow without restoring stale profile-picking surfaces.
+- Spinner ETA responsiveness now blends newest per-step duration with weighted recent history (50/50) so status adapts faster when throughput changes.
+- ETA behavior change applies to every spinner/status path that goes through `_run_with_progress_status(...)`.
+
+Regression anchors from merged tasks:
+- `tests/cli/test_c3imp_interactive_menu.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
+- `tests/llm/test_run_settings.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
+
+## 2026-03-04 docs/understandings consolidation (spinner state reset + ETA responsiveness)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_08.10.42-spinner-line-role-eta-worker-state.md`
+- `docs/understandings/2026-03-04_08.30.36-spinner-eta-recent-blend.md`
+
+Current CLI contracts reinforced:
+- `_update_progress_common` must clear stale codex worker/task state on non-codex, non-worker phase messages so later phase rows do not leak `active workers: 0` noise.
+- Canonical line-role phase ETA visibility depends on receiving `task X/Y` callback strings; ingest/parsing callback plumbing should preserve that shape.
+- Shared ETA helper responsiveness uses a recency blend (`0.5 * latest_step + 0.5 * weighted_recent_average`) so throughput shifts show up quickly without removing smoothing.

@@ -480,3 +480,15 @@ Current staging contract reinforced:
 
 Anti-loop reminder:
 - If stage unexpectedly prints plain status lines, confirm live-slot occupancy before changing stage progress code.
+
+## 2026-03-04 docs/understandings consolidation (processing-quality reliability snapshot)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_08.29.09-single-profile-benchmark-processing-quality-findings.md`
+- `docs/understandings/2026-03-04_08.45.23-processing-quality-baseline-snapshot.md`
+
+Current staging/processed-output risks reinforced:
+- Report counter truth can drift from produced artifacts in single-profile benchmark-processed outputs; validation should compare report totals against actual draft/tip/topic artifacts.
+- Draft normalization remains inconsistent in some runs (`name`/`ingredients`/`instructions` missing while `recipe.title` + `steps` are populated), so write-path normalization checks remain required.
+- Gold-vs-run parser/preprocess setting mismatches (`v1/br_split_v1` vs `v2/semantic_v1`) can create benchmark comparability drift and should be treated as first-class provenance checks.
+- Narrative-heavy books can generate over-broad tip/topic artifacts; keep deterministic filtering and warning-driven triage in place.

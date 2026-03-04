@@ -681,3 +681,16 @@ Current ingestion-side contract reinforced by this task:
 - Raw diagnostics artifact is required for debugging drift: `pattern_diagnostics.json`.
 - Warning keys (`pattern_toc_like_cluster_detected`, `pattern_duplicate_title_flow_detected`, `pattern_overlap_duplicate_candidates_resolved`) are part of expected report/debug output.
 - Optional Codex Farm pass1 `pattern_hints` handoff remains metadata-only and default-off (`codex_farm_pass1_pattern_hints_enabled=false`); this does not enable AI parsing/cleanup during ingestion.
+
+## 2026-03-04 docs/understandings consolidation (shared line-role inflight defaults)
+
+Merged source note:
+- `docs/understandings/2026-03-04_08.50.26-shared-line-role-inflight-default-propagation.md`
+
+Current ingestion contract reinforced:
+- `generate_pred_run_artifacts(...)` is the shared policy seam for canonical line-role codex inflight defaults across benchmark/import prediction generation.
+- Ingest now resolves default inflight by split context and passes explicit override into parsing:
+  - non-split default: `8`
+  - split-gated default: `4`
+  - explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` env remains highest-priority and suppresses ingest override.
+- Avoid reintroducing per-flow CLI wrapper policy for this behavior.

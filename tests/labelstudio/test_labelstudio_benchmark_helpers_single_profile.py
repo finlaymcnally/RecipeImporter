@@ -210,7 +210,7 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     )
 
 
-def test_interactive_single_profile_parallel_requests_two_live_spinner_slots(
+def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -254,18 +254,37 @@ def test_interactive_single_profile_parallel_requests_two_live_spinner_slots(
     )
 
     observed_live_slot_overrides: list[int | None] = []
-    monkeypatch.setattr(
-        cli,
-        "labelstudio_benchmark",
-        lambda **_kwargs: observed_live_slot_overrides.append(
-            cli._BENCHMARK_LIVE_STATUS_SLOTS.get()
-        ),
-    )
+    observed_suppress_spinner: list[bool] = []
+    observed_progress_callbacks: list[bool] = []
+
+    def _fake_labelstudio_benchmark(**_kwargs: object) -> None:
+        observed_live_slot_overrides.append(cli._BENCHMARK_LIVE_STATUS_SLOTS.get())
+        observed_suppress_spinner.append(bool(cli._BENCHMARK_SUPPRESS_SPINNER.get()))
+        progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
+        observed_progress_callbacks.append(callable(progress_callback))
+        if callable(progress_callback):
+            progress_callback("Running benchmark... task 1/2")
+            progress_callback("Evaluating predictions... task 2/2")
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", _fake_labelstudio_benchmark)
     monkeypatch.setattr(
         cli,
         "_write_benchmark_upload_bundle",
         lambda **kwargs: kwargs.get("output_dir"),
     )
+    captured_status: dict[str, object] = {}
+
+    def _fake_run_with_progress_status(**kwargs: object):
+        captured_status["initial_status"] = kwargs.get("initial_status")
+        captured_status["progress_prefix"] = kwargs.get("progress_prefix")
+        captured_status["telemetry_path"] = kwargs.get("telemetry_path")
+        run_callable = kwargs.get("run")
+        assert callable(run_callable)
+        snapshots: list[str] = []
+        captured_status["snapshots"] = snapshots
+        return run_callable(snapshots.append)
+
+    monkeypatch.setattr(cli, "_run_with_progress_status", _fake_run_with_progress_status)
 
     completed = cli._interactive_single_profile_all_matched_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -277,7 +296,20 @@ def test_interactive_single_profile_parallel_requests_two_live_spinner_slots(
 
     assert completed is True
     assert len(observed_live_slot_overrides) == 2
-    assert observed_live_slot_overrides == [2, 2]
+    assert observed_live_slot_overrides == [None, None]
+    assert observed_suppress_spinner == [True, True]
+    assert observed_progress_callbacks == [True, True]
+    assert captured_status["initial_status"] == "Running single-profile benchmark..."
+    assert captured_status["progress_prefix"] == "Single-profile benchmark"
+    assert captured_status["telemetry_path"] == (
+        benchmark_eval_output
+        / "single-profile-benchmark"
+        / cli.PROCESSING_TIMESERIES_FILENAME
+    )
+    snapshots = captured_status.get("snapshots")
+    assert isinstance(snapshots, list)
+    assert snapshots
+    assert any("queue:" in snapshot for snapshot in snapshots)
 
 
 def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_per_book(

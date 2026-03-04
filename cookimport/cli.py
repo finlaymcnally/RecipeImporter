@@ -2588,6 +2588,10 @@ def _interactive_single_profile_all_matched_benchmark(
     split_phase_slots: int | None = None
     split_phase_gate_dir: Path | None = None
     scaled_worker_overrides: dict[str, int] = {}
+    status_initial = "Running single-profile benchmark..."
+    status_prefix = "Single-profile benchmark"
+    single_profile_dashboard: _AllMethodProgressDashboard | None = None
+    dashboard_emit_lock = threading.RLock()
 
     def _scale_parallel_workers(raw_value: Any) -> int:
         try:
@@ -2602,6 +2606,16 @@ def _interactive_single_profile_all_matched_benchmark(
         split_phase_slots = 1
         split_phase_gate_dir = single_profile_root / ".split_phase_slots"
         split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+        single_profile_dashboard = _AllMethodProgressDashboard(
+            rows=[
+                _AllMethodSourceDashboardRow(
+                    source_name=target.source_file_name,
+                    total_configs=max(1, runs_per_target),
+                )
+                for target in targets
+            ],
+            total_planned_configs=max(1, total_planned_runs),
+        )
         scheduler_variant_slug = variants[0][0]
         scheduler_kwargs = variant_call_defaults.get(scheduler_variant_slug, {})
         for key in ("workers", "pdf_split_workers", "epub_split_workers"):
@@ -2616,15 +2630,46 @@ def _interactive_single_profile_all_matched_benchmark(
             fg=typer.colors.BRIGHT_BLACK,
         )
 
+    def _emit_single_profile_dashboard(
+        update_progress: Callable[[str], None] | None,
+        *,
+        task_message: str | None = None,
+    ) -> None:
+        if update_progress is None or single_profile_dashboard is None:
+            return
+        with dashboard_emit_lock:
+            if task_message is not None:
+                single_profile_dashboard.set_task(task_message)
+            update_progress(single_profile_dashboard.render())
+
     def _run_single_profile_target(
-        index: int, target: AllMethodTarget
+        index: int,
+        target: AllMethodTarget,
+        update_progress: Callable[[str], None] | None = None,
     ) -> tuple[AllMethodTarget, str | None, Path | None, Path | None]:
         target_slug = f"{index:02d}_{slugify_name(target.source_file.stem)}"
         target_eval_output = single_profile_root / target_slug
         target_processed_output = single_profile_processed_root / target_slug
+        source_index = index - 1
         variant_eval_outputs: dict[str, Path] = {}
         variant_errors: list[str] = []
         source_file_for_comparison: str | None = None
+        if single_profile_dashboard is not None:
+            single_profile_dashboard.start_source(source_index)
+            _emit_single_profile_dashboard(
+                update_progress,
+                task_message=(
+                    f"{format_task_counter('Running', index, max(1, total_targets), noun='book')}: "
+                    f"{target.source_file_name}"
+                ),
+            )
+
+        def _finish_source_progress(*, failed: bool, status: str) -> None:
+            if single_profile_dashboard is None:
+                return
+            single_profile_dashboard.finish_source(source_index, failed=failed)
+            _emit_single_profile_dashboard(update_progress, task_message=status)
+
         for variant_index, (variant_slug, _variant_settings) in enumerate(
             variants, start=1
         ):
@@ -2649,6 +2694,20 @@ def _interactive_single_profile_all_matched_benchmark(
             )
             if scaled_worker_overrides:
                 variant_kwargs.update(scaled_worker_overrides)
+            if single_profile_dashboard is not None:
+                single_profile_dashboard.start_config(
+                    source_index=source_index,
+                    config_index=variant_index,
+                    config_total=max(1, runs_per_target),
+                    config_slug=variant_slug,
+                )
+                _emit_single_profile_dashboard(
+                    update_progress,
+                    task_message=(
+                        f"{format_task_counter('Running', variant_index, max(1, runs_per_target), noun='variant')} "
+                        f"({variant_slug}) | book {index}/{max(1, total_targets)}: {target.source_file_name}"
+                    ),
+                )
             split_status_label = None
             if split_phase_slots is not None:
                 split_status_label = (
@@ -2661,6 +2720,22 @@ def _interactive_single_profile_all_matched_benchmark(
                         f"variant {variant_index}/{runs_per_target} "
                         f"({variant_slug}): {target.source_file_name}"
                     )
+
+            def _variant_progress(message: str) -> None:
+                cleaned = str(message or "").strip()
+                if not cleaned:
+                    return
+                if parse_worker_activity(cleaned) is not None:
+                    return
+                _emit_single_profile_dashboard(
+                    update_progress,
+                    task_message=(
+                        f"{format_task_counter('Running', variant_index, max(1, runs_per_target), noun='variant')} "
+                        f"({variant_slug}) | book {index}/{max(1, total_targets)}: "
+                        f"{target.source_file_name} | {cleaned}"
+                    ),
+                )
+
             try:
                 with _benchmark_split_phase_overrides(
                     split_phase_slots=split_phase_slots,
@@ -2668,18 +2743,67 @@ def _interactive_single_profile_all_matched_benchmark(
                     split_phase_status_label=split_status_label,
                 ):
                     with _benchmark_progress_overrides(
-                        live_status_slots=2 if max_parallel_targets > 1 else None,
+                        progress_callback=(
+                            _variant_progress if single_profile_dashboard is not None else None
+                        ),
+                        suppress_spinner=single_profile_dashboard is not None,
+                        live_status_slots=(
+                            None
+                            if single_profile_dashboard is not None
+                            else (2 if max_parallel_targets > 1 else None)
+                        ),
                     ):
                         labelstudio_benchmark(**variant_kwargs)
                 variant_eval_outputs[variant_slug] = variant_eval_output
                 source_file = _load_single_offline_source_path(variant_eval_output)
                 if source_file and not source_file_for_comparison:
                     source_file_for_comparison = source_file
+                if single_profile_dashboard is not None:
+                    single_profile_dashboard.complete_config(
+                        source_index=source_index,
+                        success=True,
+                        config_index=variant_index,
+                    )
+                    _emit_single_profile_dashboard(
+                        update_progress,
+                        task_message=(
+                            f"Completed {format_task_counter('', variant_index, max(1, runs_per_target), noun='variant')} "
+                            f"({variant_slug}) | book {index}/{max(1, total_targets)}: {target.source_file_name}"
+                        ),
+                    )
             except typer.Exit as exc:
                 exit_code = int(getattr(exc, "exit_code", 1))
                 variant_errors.append(f"{variant_slug}=exit code {exit_code}")
+                if single_profile_dashboard is not None:
+                    single_profile_dashboard.complete_config(
+                        source_index=source_index,
+                        success=False,
+                        config_index=variant_index,
+                    )
+                    _emit_single_profile_dashboard(
+                        update_progress,
+                        task_message=(
+                            f"Failed {format_task_counter('', variant_index, max(1, runs_per_target), noun='variant')} "
+                            f"({variant_slug}) | book {index}/{max(1, total_targets)}: "
+                            f"{target.source_file_name} (exit code {exit_code})"
+                        ),
+                    )
             except Exception as exc:  # noqa: BLE001
                 variant_errors.append(f"{variant_slug}={exc}")
+                if single_profile_dashboard is not None:
+                    single_profile_dashboard.complete_config(
+                        source_index=source_index,
+                        success=False,
+                        config_index=variant_index,
+                    )
+                    _emit_single_profile_dashboard(
+                        update_progress,
+                        task_message=(
+                            f"Failed {format_task_counter('', variant_index, max(1, runs_per_target), noun='variant')} "
+                            f"({variant_slug}) | book {index}/{max(1, total_targets)}: "
+                            f"{target.source_file_name} ({exc})"
+                        ),
+                    )
 
         comparison_json_path: Path | None = None
         if (
@@ -2712,6 +2836,13 @@ def _interactive_single_profile_all_matched_benchmark(
             if failure_reason:
                 failure_reason += "; "
             failure_reason += f"upload bundle exit code {exit_code}"
+            _finish_source_progress(
+                failed=True,
+                status=(
+                    f"Failed {format_task_counter('', index, max(1, total_targets), noun='book')}: "
+                    f"{target.source_file_name}"
+                ),
+            )
             return target, failure_reason, None, comparison_json_path
         except Exception as exc:  # noqa: BLE001
             reason = "; ".join(variant_errors) if variant_errors else ""
@@ -2719,9 +2850,24 @@ def _interactive_single_profile_all_matched_benchmark(
             if failure_reason:
                 failure_reason += "; "
             failure_reason += f"upload bundle error: {exc}"
+            _finish_source_progress(
+                failed=True,
+                status=(
+                    f"Failed {format_task_counter('', index, max(1, total_targets), noun='book')}: "
+                    f"{target.source_file_name}"
+                ),
+            )
             return target, failure_reason, None, comparison_json_path
 
         failure_reason = "; ".join(variant_errors) if variant_errors else None
+        _finish_source_progress(
+            failed=failure_reason is not None,
+            status=(
+                f"{'Failed' if failure_reason is not None else 'Completed'} "
+                f"{format_task_counter('', index, max(1, total_targets), noun='book')}: "
+                f"{target.source_file_name}"
+            ),
+        )
         return target, failure_reason, upload_bundle_dir, comparison_json_path
 
     target_index_pairs = list(enumerate(targets, start=1))
@@ -2741,16 +2887,38 @@ def _interactive_single_profile_all_matched_benchmark(
             for index, target in target_index_pairs
         ]
     else:
-        completed_results: list[
-            tuple[AllMethodTarget, str | None, Path | None, Path | None]
-        ] = []
-        with ThreadPoolExecutor(max_workers=max_parallel_targets) as executor:
-            futures = [
-                executor.submit(_run_single_profile_target, index, target)
-                for index, target in target_index_pairs
-            ]
-            for future in as_completed(futures):
-                completed_results.append(future.result())
+        def _run_parallel_targets_with_shared_status(
+            update_progress: Callable[[str], None],
+        ) -> list[tuple[AllMethodTarget, str | None, Path | None, Path | None]]:
+            _emit_single_profile_dashboard(
+                update_progress,
+                task_message=(
+                    f"Queued {format_task_counter('', 0, max(1, total_targets), noun='book')}"
+                ),
+            )
+            completed: list[
+                tuple[AllMethodTarget, str | None, Path | None, Path | None]
+            ] = []
+            with ThreadPoolExecutor(max_workers=max_parallel_targets) as executor:
+                futures = [
+                    executor.submit(
+                        _run_single_profile_target,
+                        index,
+                        target,
+                        update_progress,
+                    )
+                    for index, target in target_index_pairs
+                ]
+                for future in as_completed(futures):
+                    completed.append(future.result())
+            return completed
+
+        completed_results = _run_with_progress_status(
+            initial_status=status_initial,
+            progress_prefix=status_prefix,
+            telemetry_path=single_profile_root / PROCESSING_TIMESERIES_FILENAME,
+            run=_run_parallel_targets_with_shared_status,
+        )
 
     for target, failure_reason, upload_bundle_dir, comparison_json_path in completed_results:
         if upload_bundle_dir is not None:

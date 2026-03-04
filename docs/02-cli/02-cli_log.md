@@ -1523,3 +1523,79 @@ Verification evidence retained:
 Anti-loop reminders:
 - If codex prompt sequence regresses, inspect chooser sequencing/cancel-return semantics before changing benchmark command routing.
 - If pydantic warnings reappear, check settings update validation path before serializer/output code.
+
+## 2026-03-04 docs/tasks consolidation batch (interactive run-settings + spinner ETA)
+
+### 2026-03-04_01.24.38 two-profile run-settings cleanup
+
+Source task:
+- `docs/tasks/2026-03-04_01.24.38-two-profile-run-settings-cleanup.md`
+
+Problem captured:
+- Interactive flows still carried dead/stale run-settings surfaces (`global/last/edit`, preferred/last persistence, toggle editor, and unreachable interactive all-method branch).
+
+Durable outcomes:
+- Kept interactive setup centered on two automatic profile families only.
+- Removed stale persistence/editor APIs while preserving `qualitysuite_winner_run_settings` persistence.
+- Removed dead interactive all-method branch while keeping non-interactive all-method command surface intact.
+- Aligned tests/docs to current chooser behavior.
+
+Evidence retained from task:
+- `. .venv/bin/activate && pytest tests/cli/test_c3imp_interactive_menu.py -q`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py -q`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py -q`
+- `. .venv/bin/activate && pytest tests/llm/test_run_settings.py -q`
+
+Anti-loop reminders:
+- Do not restore legacy run-settings branches to patch benchmark/profile regressions; debug chooser resolution and harmonization first.
+- If interactive benchmark behavior drifts, confirm menu reachability before touching all-method internals.
+
+### 2026-03-04_08.30.36 spinner ETA recent-bias update
+
+Source task:
+- `docs/tasks/2026-03-04_08.30.36-spinner-eta-recent-bias.md`
+
+Problem captured:
+- Spinner ETA smoothing lagged behind sudden throughput changes, making estimates stale.
+
+Durable outcomes:
+- `_recent_rate_average_seconds_per_task` now blends newest step duration with weighted window average (deterministic 50/50 blend).
+- ETA responsiveness improvement is shared across callback/status spinner flows that use `_run_with_progress_status(...)`.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py -k "recent_rate_average_seconds_per_task or shows_eta_for_xy_progress or shows_eta_for_canonical_line_role_progress"`
+
+Rollback note from task:
+- If needed, revert to weighted-only ETA helper output and prior test expectations.
+
+## 2026-03-04 docs/understandings consolidation batch (spinner state carryover + ETA blend)
+
+### 2026-03-04_08.10.42 spinner line-role ETA worker-state cleanup
+
+Source note:
+- `docs/understandings/2026-03-04_08.10.42-spinner-line-role-eta-worker-state.md`
+
+Problem captured:
+- Codex worker/task overlay state leaked across phase transitions, causing misleading `active workers: 0` rows after codex-to-non-codex status changes.
+
+Durable outcomes:
+- `_update_progress_common` now clears codex worker/stage fields on non-codex, non-worker callback messages.
+- Canonical line-role task-count messages were wired through ingest->parser callback path so spinner ETA logic can run on that phase.
+
+Anti-loop reminder:
+- If worker rows look stale, inspect state-reset logic in `_update_progress_common` before changing spinner render formatting.
+
+### 2026-03-04_08.30.36 spinner ETA recent-blend
+
+Source note:
+- `docs/understandings/2026-03-04_08.30.36-spinner-eta-recent-blend.md`
+
+Problem captured:
+- Weighted-window-only ETA lagged during sharp throughput changes.
+
+Durable outcomes:
+- `_recent_rate_average_seconds_per_task(...)` now blends latest per-step duration with weighted recent history (50/50).
+- ETA strings in shared spinner paths react faster while retaining stability.
+
+Anti-loop reminder:
+- If ETA feels stale again, check blend math and step-sample updates before widening callback frequency.

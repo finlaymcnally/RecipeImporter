@@ -5743,3 +5743,175 @@ Durable findings:
 Anti-loop reminders:
 - Empty per-book variant dirs + exit code 1 should trigger live-status collision checks before parsing/scoring rewrites.
 - Distinguish infra/concurrency failures from content-labeling drift before changing gate thresholds.
+
+## 2026-03-04 docs/tasks consolidation batch (single-profile scheduling/upload-bundle + spinner/runtime policy)
+
+### 2026-03-03_23.44.13 single-profile multi-book parallelism
+
+Source task:
+- `docs/tasks/2026-03-03_23.44.13-single-profile-multi-book-parallelism.md`
+
+Problem captured:
+- Interactive single-profile matched-book benchmark path was sequential and underused available parallelism.
+
+Durable outcomes:
+- Added bounded per-book concurrency (`parallel books=3`) in `_interactive_single_profile_all_matched_benchmark`.
+- Added shared split-phase slot gating (`split conversion slots=1`) for multi-book runs.
+- Added per-book worker scaling during concurrent runs.
+- Kept failure isolation/continuation behavior intact.
+
+Evidence retained from task:
+- Task acceptance contract: scheduler line prints `parallel books=3`, split-slot gating active, non-fatal per-book failures preserved.
+
+### feedback.md (created 2026-03-04_00.15.12; no timestamp in filename)
+
+Source task:
+- `docs/tasks/feedback.md`
+
+Problem captured:
+- OG feedback guidance needed conversion into a deterministic, testable benchmark execution workflow.
+
+Durable outcomes:
+- Consolidated feedback work around deterministic line-role/routing hardening plus JSONL-first starter-pack/upload-bundle contracts.
+- Preserved milestone structure with paired benchmark + speed validation requirements.
+- Recorded explicit auth-constrained codex caveat handling (`--codex-farm-failure-mode fallback`) and interpretation of missing pass telemetry.
+- Preserved scope guard: no enabling LLM parsing/cleaning as default import behavior.
+
+Evidence retained from task:
+- Fresh benchmark roots: `2026-03-04_00.08.07_feedbackexec_vanilla`, `2026-03-04_00.10.29_feedbackexec_codex_fallback`.
+- Speed compare pass: `data/golden/bench/speed/comparisons/2026-03-04_00.10.12`.
+- Targeted test anchors:
+  - `tests/parsing/test_canonical_line_roles.py`
+  - `tests/llm/test_codex_farm_orchestrator.py`
+  - `tests/bench/test_benchmark_cutdown_for_external_ai.py`
+  - `tests/bench/test_cutdown_export_consistency.py`
+
+Anti-loop reminders:
+- Do not infer model regression before confirming effective run settings and variant plan shape.
+- Treat missing codex call telemetry under auth failures as an environment/runtime signal, not benchmark-eval invalidation.
+
+### 2026-03-04_00.20.31 single-profile group upload bundle
+
+Source task:
+- `docs/tasks/2026-03-04_00.20.31-single-profile-group-upload-bundle.md`
+
+Problem captured:
+- Multi-book single-profile sessions lacked one root-level high-level bundle for external triage across all selected books.
+
+Durable outcomes:
+- Existing-output upload-bundle writer gained `high_level_only` and `target_bundle_size_bytes` mode.
+- Single-profile multi-book path now emits root-level group `upload_bundle_v1` with ~40MB target budget.
+- Group bundle samples per-run wrong-line detail proportionally as run count increases.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/bench/test_benchmark_cutdown_for_external_ai.py -k high_level_only -q`
+- `source .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py -k group_upload_bundle -q`
+
+### 2026-03-04_08.35.36 canonical line-role spinner ETA unification
+
+Source task:
+- `docs/tasks/2026-03-04_08.35.36-canonical-line-role-spinner-eta-unification.md`
+
+Problem captured:
+- Canonical line-role stage could show elapsed-only (no ETA) for long deterministic intervals and spinner showed noisy zero-worker rows.
+
+Durable outcomes:
+- Canonical deterministic and codex phases now emit `task X/Y` callback counts for ETA calculations.
+- Spinner worker summary suppresses standalone `active workers: 0` rows.
+- Callback volume remains bounded by interval updates to avoid status spam.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest -q tests/parsing/test_canonical_line_roles.py -k "codex_progress_callback_reports_batch_counts or deterministic_progress_callback_reports_task_counts"`
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py -k "clears_codex_worker_state_for_new_phase or hides_zero_active_workers_row or shows_eta_for_canonical_line_role_progress"`
+
+### 2026-03-04_08.37.45 interactive line-role inflight single vs multi (historical; superseded)
+
+Source task:
+- `docs/tasks/2026-03-04_08.37.45-interactive-line-role-inflight-single-vs-multi.md`
+
+Historical behavior captured:
+- CLI wrappers applied runtime env policy of `8` inflight for single-book interactive paths and `4` for multi-book single-profile runs.
+
+Status:
+- Superseded by shared ingest/parsing propagation (`docs/tasks/2026-03-04_08.50.26-shared-line-role-inflight-default-propagation.md`), retained here to prevent reintroducing wrapper-only policy drift.
+
+### 2026-03-04_08.46.12 shared benchmark runtime policy spinner/split centralization
+
+Source task:
+- `docs/tasks/2026-03-04_08.46.12-shared-benchmark-runtime-policy-spinner-split.md`
+
+Problem captured:
+- Spinner/split/inflight runtime defaults risked drift because policy was wired per-flow in CLI orchestration.
+
+Durable outcomes:
+- Moved inflight default policy into shared prediction-generation seam (`generate_pred_run_artifacts -> label_atomic_lines`).
+- Removed flow-specific CLI inflight wrappers.
+- Kept split scheduler logic focused on scheduling, with shared defaults inherited automatically by benchmark/import generation paths.
+
+Evidence retained from task:
+- Parsing + ingest seam tests and interactive benchmark helper tests (same anchors listed in task and mirrored in parsing/benchmark docs).
+
+Anti-loop reminders:
+- If benchmark/import inflight defaults diverge, inspect shared ingest resolver path first.
+- Avoid rewiring policy in individual benchmark wrappers unless intentionally introducing flow-specific behavior.
+
+### 2026-03-04_09.07.21 single-profile multi-book shared spinner dashboard
+
+Source task:
+- `docs/tasks/2026-03-04_09.07.21-single-profile-multi-book-shared-spinner-dashboard.md`
+
+Problem captured:
+- Parallel multi-book single-profile runs emitted one spinner per book, causing overlapping/noisy console output.
+
+Durable outcomes:
+- Multi-book path now runs under one outer shared progress dashboard spinner.
+- Inner per-book `labelstudio_benchmark` calls suppress their own spinner and publish progress via shared callback path.
+- Shared dashboard now carries queue/task updates across concurrent books.
+- Single-book behavior was intentionally left unchanged.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py -k "interactive_single_profile_parallel_uses_shared_spinner_dashboard or interactive_single_profile_all_matched_benchmark_runs_each_target_once"`
+- `source .venv/bin/activate && pytest -q tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
+
+Rollback note from task:
+- Restore per-book spinner slot wiring (`live_status_slots=2`) and remove shared outer dashboard callback path.
+
+## 2026-03-04 docs/understandings consolidation batch (canonical ETA + historical inflight wrappers + shared spinner dashboard)
+
+### 2026-03-04_08.35.36 canonical line-role ETA unified single/multibook
+
+Source note:
+- `docs/understandings/2026-03-04_08.35.36-canonical-line-role-eta-unified-single-multibook.md`
+
+Problem captured:
+- Deterministic canonical line-role stretches emitted phase text only, so ETA was absent until codex batch callbacks began.
+
+Durable outcomes:
+- Deterministic phase now emits `task X/Y` callbacks.
+- Codex phase keeps `task X/Y | running N` callback shape.
+- Spinner worker summary suppresses zero-only worker rows.
+
+### 2026-03-04_08.37.45 historical single-vs-multi inflight overrides
+
+Source note:
+- `docs/understandings/2026-03-04_08.37.45-single-vs-multi-line-role-inflight-overrides.md`
+
+Historical context preserved:
+- Early interactive benchmark policy used scoped env overrides (`8` single-book, `4` multi-book).
+- This path is superseded by shared ingest-seam defaults and kept here to avoid reintroducing wrapper-only drift.
+
+### 2026-03-04_09.07.21 single-profile shared spinner dashboard
+
+Source note:
+- `docs/understandings/2026-03-04_09.07.21-single-profile-shared-spinner-dashboard.md`
+
+Problem captured:
+- Parallel multi-book single-profile runs rendered competing live spinners and produced unreadable overlapping frames.
+
+Durable outcomes:
+- Added one outer shared `_run_with_progress_status(...)` dashboard for multi-book single-profile path.
+- Inner per-book runs now report via shared callback and use `suppress_spinner=True`.
+- Reused shared benchmark dashboard model for consolidated per-book queue/task visibility.
+
+Anti-loop reminder:
+- If multi-book spinner output becomes noisy again, verify outer-shared-dashboard wiring before changing callback payload text.

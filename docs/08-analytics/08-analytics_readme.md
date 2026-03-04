@@ -234,7 +234,7 @@ Benchmark scan details:
 - Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line for raw points); each plotted series also gets a dashed linear trendline with a same-color `±1σ` deviation band.
 - When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
 - Paired variants now use one shared x-axis timestamp per benchmark run-group (artifact timestamp token preferred, row timestamp fallback), preventing same-run horizontal drift between `vanilla` and `codexfarm`.
-- Benchmark trend tooltip is point-first: hovering a point shows that dot's own score plus source/book label, variant, and eval-row timestamp, with run-group series values shown as secondary context.
+- Benchmark trend tooltip is point-only: hovering a point shows that dot's own score plus source/book label, variant, and eval-row timestamp, without grouped run-level series values.
 - Benchmark trend chart uses a fixed 800px render/container height to preserve stable layout and provide a taller score-history viewport.
 - Dashboard HTML now loads Highcharts Stock with a secondary CDN fallback (`code.highcharts.com` primary, `cdn.jsdelivr.net` fallback) before dashboard JS initialization.
 - `Previous Runs` table columns are configurable in-browser: use the `+/-` header-row button popup to check/uncheck fields, drag headers to reorder, and resize by dragging header edges.
@@ -716,3 +716,37 @@ Current analytics contracts reinforced:
 Known failure patterns retained:
 - Page-level overflow can look stable while host-level chart width still drifts.
 - Removing table min-widths can mask symptoms while degrading readability; containment belongs in wrapper/grid policy.
+
+## 2026-03-04 docs/tasks consolidation (runtime-card run-group metrics + trend tooltip contracts)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_08.27.09 - runtime-card-run-group-token-totals.md`
+- `docs/tasks/2026-03-04_08.46.21 - dashboard-quality-per-token-metric.md`
+- `docs/tasks/2026-03-04_08.49.13 - benchmark-trend-tooltip-point-details.md`
+- `docs/tasks/2026-03-04_09.02.37 - benchmark-trend-tooltip-book-only.md`
+
+Current analytics contracts reinforced:
+- `Benchmark Runtime` token totals aggregate across the latest preferred benchmark run-group (not a single row), and runtime title/context indicate grouped scope.
+- Runtime diagnostics and Previous Runs now expose quality efficiency using deterministic quality selection priority (`strict_accuracy`, then `macro_f1_excluding_other`, then `f1`) normalized per 1,000,000 discounted tokens.
+- `Previous Runs` keeps numeric `quality_per_million_tokens` for sorting/filtering/compare.
+- Trend tooltip metadata pipeline now includes point-level source/variant/timestamp payload and is intentionally point/book-only in rendered hover cards.
+- Run-group summary rows were intentionally removed from trend tooltip cards after point-level metadata landed.
+
+Regression anchors from merged tasks:
+- `tests/analytics/test_stats_dashboard.py`
+- specifically task-linked selectors around runtime-summary aggregation, quality-per-token derivation, and trend tooltip metadata/content assertions.
+
+## 2026-03-04 docs/understandings consolidation (CSV migration supplement + runtime/tooltip metric seams)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_08.19.19-dashboard-migration-benchmark-history-gap.md`
+- `docs/understandings/2026-03-04_08.27.09-runtime-card-latest-run-group-token-sum.md`
+- `docs/understandings/2026-03-04_08.46.21-quality-token-metric-runtime-and-table.md`
+- `docs/understandings/2026-03-04_08.49.13-trend-tooltip-point-metadata.md`
+
+Current analytics contracts reinforced:
+- Benchmark collection is CSV-first, but migrated workspaces may need automatic supplementation of older pre-CSV `eval_report.json` rows.
+- Runtime token diagnostics aggregate across latest preferred run-group, not one row.
+- `all_token_use` discounted token math is shared between runtime diagnostics and Previous Runs derived metrics.
+- `quality_per_million_tokens` uses deterministic quality-key fallback and discounted token denominator.
+- Trend tooltip point metadata contract (`sourceLabel/sourceTitle/variant/runTimestamp`) remains required for per-point hover context.
