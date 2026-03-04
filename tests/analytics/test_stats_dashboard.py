@@ -1424,13 +1424,13 @@ class TestRenderer:
         assert 'id="previous-runs-preset-save-current"' in html
         assert 'id="previous-runs-preset-delete"' in html
         assert 'id="previous-runs-preset-status"' in html
-        assert 'id="isolate-panel"' in html
-        assert 'id="isolate-combine"' in html
-        assert 'id="isolate-add"' in html
-        assert 'id="isolate-clear"' in html
-        assert 'id="isolate-rules"' in html
-        assert 'id="isolate-status"' in html
-        assert 'id="isolate-insights"' in html
+        assert 'id="isolate-panel"' not in html
+        assert 'id="isolate-combine"' not in html
+        assert 'id="isolate-add"' not in html
+        assert 'id="isolate-clear"' not in html
+        assert 'id="isolate-rules"' not in html
+        assert 'id="isolate-status"' not in html
+        assert 'id="isolate-insights"' not in html
         assert 'id="compare-control-panel"' in html
         assert 'id="compare-control-view-mode"' in html
         assert 'id="compare-control-outcome-field"' in html
@@ -1461,14 +1461,13 @@ class TestRenderer:
         assert "const checklistOrder = [...previousRunsVisibleColumns].filter(" in js
         assert "if (!visibleSet.has(fieldName)) {" in js
 
-    def test_dashboard_js_tracks_isolate_table_filter_control_source(self, tmp_path):
+    def test_dashboard_js_tracks_previous_runs_column_filter_global_mode(self, tmp_path):
         dash_dir = tmp_path / "dash"
         render_dashboard(dash_dir, DashboardData())
         js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert 'let previousRunsFilterControlSource = "table";' in js
         assert 'let previousRunsColumnFilterGlobalMode = "and";' in js
-        assert "Control: isolate synced to table filters." in js
-        assert "Control: table filters (isolate rules saved)." in js
+        assert "Control: isolate synced to table filters." not in js
+        assert "Control: table filters (isolate rules saved)." not in js
         assert "Column combine: " in js
         assert "OR across columns." in js
 
@@ -1480,16 +1479,10 @@ class TestRenderer:
         assert "if (topMode === \"or\") {" in js
         assert "return groups.some(matchesGroup);" in js
 
-    def test_dashboard_js_supports_isolate_numeric_operators(self, tmp_path):
+    def test_dashboard_js_supports_compare_control_analysis(self, tmp_path):
         dash_dir = tmp_path / "dash"
         render_dashboard(dash_dir, DashboardData())
         js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
-        assert "const ISOLATE_OPERATORS_TEXT = [" in js
-        assert "const ISOLATE_OPERATORS_NUMERIC = [" in js
-        assert '["gt", ">"]' in js
-        assert '["gte", ">="]' in js
-        assert '["lt", "<"]' in js
-        assert '["lte", "<="]' in js
         assert "const COMPARE_CONTROL_VIEW_MODES = new Set(" in js
         assert "function normalizeCompareControlState(rawState)" in js
         assert "function buildCompareControlFieldCatalog(records)" in js
@@ -1505,10 +1498,8 @@ class TestRenderer:
         assert "function resetCompareControlState()" in js
         assert "function syncCompareControlSelectionToTableFilters()" in js
         assert "Coverage warning:" in js
-        assert 'class="isolate-rule-value isolate-rule-value-input"' in js
-        assert "function isolateFieldIsNumeric(records, fieldName)" in js
-        assert "function isolateOperatorsForField(fieldInfo)" in js
-        assert "function isolateClauseHasActiveSelection(clause)" in js
+        assert 'class="isolate-rule-value isolate-rule-value-input"' not in js
+        assert "function syncIsolateControls(records)" not in js
 
     def test_compare_control_controlled_categorical_standardizes_strata(self, tmp_path):
         dash_dir = tmp_path / "dash"

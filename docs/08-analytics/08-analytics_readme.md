@@ -194,9 +194,9 @@ Benchmark scan details:
   - Detailed token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) remain available through the `+/-` column picker.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
 - `Previous Runs` now supports per-column stacked filters via a compact `+/-` editor toggle in the first row beneath headers; each save appends a clause for that column (instead of replacing), active clauses can be removed individually via `×` in the popup, and each column stack has an `AND/OR` mode toggle. Active filter summaries in that row render one clause per line with a per-clause `X` remove button. Non-numeric popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
-- Previous Runs table UI state is now browser-persistent (`localStorage`) for column visibility/order/width, column filters, quick-filter checkboxes, isolate combine mode + stacked isolate rules, compare/control state (`outcome_field`, `compare_field`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`), sort order, and named view presets, so these customizations survive dashboard HTML rebuilds at the same dashboard path.
-- `Isolate For X` now writes directly into `Previous Runs` table column filters (`eq`/`neq`/`gt`/`gte`/`lt`/`lte`), so isolate results and table filters are the same filter path.
-- Isolate operator picker supports numeric comparisons (`>`, `>=`, `<`, `<=`) for numeric fields, using direct numeric threshold inputs.
+- Previous Runs table UI state is now browser-persistent (`localStorage`) for column visibility/order/width, column filters, quick-filter checkboxes, compare/control state (`outcome_field`, `compare_field`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`), sort order, and named view presets, so these customizations survive dashboard HTML rebuilds at the same dashboard path.
+- `Isolate For X` was removed from `Previous Runs`; slicing is now done through Quick Filters and table column filters only.
+- Older saved dashboard payloads/presets that still include isolate keys are tolerated on load; isolate keys are ignored and do not mutate current table filters.
 - `Compare & Control` is now a sibling panel in `Previous Runs` with three modes:
   - `discover`: ranks likely driver fields from currently visible rows.
   - `raw`: direct categorical/numeric association metrics on visible rows; categorical output includes optional secondary means for runtime/token/cost-style numeric fields when available.
@@ -205,12 +205,12 @@ Benchmark scan details:
 - `Compare & Control` supports optional split-by segmentation (categorical buckets or equal-count numeric bins plus missing bucket).
 - `Filter to subset` from `Compare & Control` writes selected categorical groups into existing table column filters (no separate filter engine).
 - `Previous Runs` column filters now include a global `Across columns` combine mode (`AND` / `OR`) so cross-column OR is supported natively.
-- `Quick Filters` now includes inline `View presets` controls (`Load`, `Save current view`, `Delete`) for reusable table setups (columns + filters + quick filters + sort + isolate + column widths), without a separate presets popup.
+- `Quick Filters` now includes inline `View presets` controls (`Load`, `Save current view`, `Delete`) for reusable table setups (columns + filters + quick filters + sort + compare/control + column widths), without a separate presets popup.
 - Diagnostic table resize now applies only to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` intentionally stay fixed-fit (no horizontal scroll/resize) for cleaner top-row readability.
 - `Quick Filters` appears between trend chart and table with:
   - a primary default-on toggle for official single-offline benchmark rows (`benchmark-vs-golden` + `single-offline-benchmark`) with `vanilla`/`codexfarm` variants,
   - a secondary legacy toggle for excluding AI test/smoke rows that may still exist in older saved dashboard payloads.
-  - a visible `Clear all filters` button that resets quick filters, table column filters, and isolate rules together.
+  - a visible `Clear all filters` button that resets quick filters and table column filters together.
 - `Previous Runs` table keeps horizontal scrolling with a fixed minimum table width, and the viewport stays at about 10 visible-row height (even when filtered result count is lower) before vertical scrolling.
 - Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).
 - Benchmark trend chart timestamps are rendered in browser-local time (`Highcharts time.useUTC=false`).
@@ -529,11 +529,9 @@ Current analytics contracts added/confirmed:
 - `Per-Label Breakdown` comparison columns share one persisted mode switch (`delta` vs `point value`) through `per_label_comparison_mode`; codex baseline columns remain raw anchors.
 - Benchmark trend chart overlays are derived from base scatter series and include dashed linear trendline + `±1σ` `arearange` bands, with overlay series excluded from grouped tooltip rows.
 - Trend points for paired codexfarm/vanilla rows align on run-group timestamps (artifact-path-derived when available), then row timestamp fallback.
-- Isolate rules are now represented through the same table-filter engine as `Previous Runs`; cross-column `OR` is a first-class global mode (`column_filter_global_mode`).
-- Isolate operators are field-typed: categorical uses `is`/`is not`, numeric fields expose `>`, `>=`, `<`, `<=` and normalize value via `maybeNumber` before activation/sync.
-- Isolate + table matching must continue to share `evaluatePreviousRunsFilterOperator(...)` to prevent semantics drift.
+- `Previous Runs` filtering is table-filter-only (plus quick filters), and cross-column `OR` remains a first-class global mode (`column_filter_global_mode`).
 
 Anti-loop reminders from this task batch:
-- If isolate-any and table results diverge, verify global combine mode + isolate-to-table synchronization before changing row-match helpers.
+- If table filter results diverge from trend/table row counts, verify global combine mode + quick-filter application order before changing row-match helpers.
 - If paired trend points drift horizontally, inspect run-group timestamp extraction logic before changing chart series split behavior.
 - If trend overlays render blank, confirm `highcharts-more.js` fallback is loaded for `arearange` support.

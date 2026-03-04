@@ -2020,19 +2020,6 @@ _HTML = """\
     </details>
     <div class="previous-runs-top-grid">
       <div class="previous-runs-analysis-panels">
-        <section id="isolate-panel" class="isolate-panel">
-          <h3>Isolate For X</h3>
-          <p class="section-note">Stack one or more field + logic + value rules to isolate matching runs. Isolate rules now write directly into table column filters, including cross-column OR when using <strong>any rule (OR)</strong>.</p>
-          <div class="isolate-controls">
-            <label for="isolate-combine">Match</label>
-            <select id="isolate-combine"></select>
-            <button id="isolate-add" type="button">Add rule</button>
-            <button id="isolate-clear" type="button">Clear all</button>
-          </div>
-          <div id="isolate-rules" class="isolate-rules"></div>
-          <p id="isolate-status" class="section-note"></p>
-          <div id="isolate-insights" class="isolate-insights"></div>
-        </section>
         <section id="compare-control-panel" class="compare-control-panel">
           <h3>Compare &amp; Control</h3>
           <p class="section-note">Use visible rows to find likely drivers, compare one field, hold confounders constant, and push selected groups into table filters.</p>
@@ -2362,10 +2349,6 @@ section h3 {
 #previous-runs-column-reset:hover {
   border-color: #c7d0d9;
 }
-.isolate-panel {
-  margin: 0.75rem 0 0.9rem;
-  background: #f8fbff;
-}
 .compare-control-panel {
   margin: 0.75rem 0 0.9rem;
   background: #fbfcf7;
@@ -2382,36 +2365,19 @@ section h3 {
   display: grid;
   gap: 0.7rem;
 }
-.previous-runs-top-grid .isolate-panel,
 .previous-runs-top-grid .compare-control-panel,
 .previous-runs-top-grid .trend-chart-wrap {
   margin: 0;
 }
-.isolate-panel h3 {
-  margin-top: 0;
-}
 .compare-control-panel h3 {
   margin-top: 0;
   color: #4a6438;
-}
-.isolate-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.42rem;
 }
 .compare-control-controls {
   display: grid;
   grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
   gap: 0.32rem 0.45rem;
   align-items: center;
-}
-.isolate-controls label {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 .compare-control-controls label,
 .compare-control-hold-label {
@@ -2421,10 +2387,6 @@ section h3 {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-#isolate-combine,
-.isolate-rule-field,
-.isolate-rule-operator,
-.isolate-rule-value,
 #compare-control-view-mode,
 #compare-control-outcome-field,
 #compare-control-compare-field,
@@ -2435,23 +2397,6 @@ section h3 {
   color: var(--text);
   font-size: 0.8rem;
   padding: 0.28rem 0.4rem;
-}
-#isolate-combine {
-  min-width: 120px;
-}
-#isolate-add,
-#isolate-clear {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: #f6f9fc;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.78rem;
-  padding: 0.19rem 0.62rem;
-}
-#isolate-add:hover,
-#isolate-clear:hover {
-  border-color: #c7d0d9;
 }
 #compare-control-filter-subset,
 #compare-control-clear-selection,
@@ -2475,58 +2420,8 @@ section h3 {
   opacity: 0.65;
   cursor: not-allowed;
 }
-.isolate-rules {
-  display: grid;
-  gap: 0.38rem;
-  margin-top: 0.42rem;
-}
-.isolate-rule-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(94px, 0.75fr) minmax(0, 1fr) auto;
-  gap: 0.35rem;
-  align-items: center;
-}
-.isolate-rule-remove {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: #f6f9fc;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 0.16rem 0.55rem;
-}
-.isolate-rule-remove:hover {
-  border-color: #c7d0d9;
-}
-.isolate-rule-empty {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-#isolate-status {
-  margin: 0.5rem 0 0.42rem;
-}
 #compare-control-status.error {
   color: var(--accent3);
-}
-.isolate-insights {
-  border: 1px dashed #c5d7ea;
-  border-radius: 8px;
-  background: #fff;
-  padding: 0.5rem 0.65rem;
-}
-.isolate-insights p {
-  margin: 0.2rem 0;
-  font-size: 0.82rem;
-}
-.isolate-insight-list {
-  margin: 0.35rem 0 0.1rem 1rem;
-  padding: 0;
-}
-.isolate-insight-list li {
-  margin: 0.17rem 0;
-  font-size: 0.8rem;
-  color: var(--text);
 }
 .compare-control-hold {
   margin-top: 0.5rem;
@@ -3694,27 +3589,14 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .previous-runs-top-grid {
     grid-template-columns: 1fr;
   }
-  .isolate-controls {
-    align-items: stretch;
-  }
   .compare-control-controls {
     grid-template-columns: 1fr;
-  }
-  #isolate-combine {
-    width: 100%;
   }
   #compare-control-view-mode,
   #compare-control-outcome-field,
   #compare-control-compare-field,
   #compare-control-split-field {
     width: 100%;
-  }
-  .isolate-rule-row {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
-  .isolate-controls label {
-    margin-top: 0.1rem;
   }
   .compare-control-hold-fields {
     grid-template-columns: 1fr;
@@ -3765,9 +3647,6 @@ _JS = """\
   let previousRunsSelectedPreset = "";
   let previousRunsSortField = "run_timestamp";
   let previousRunsSortDirection = "desc";
-  let previousRunsFilterControlSource = "table";
-  let isolateClauses = [];
-  let isolateCombineMode = "all";
   function compareControlDefaultState() {
     return {
       outcome_field: "strict_accuracy",
@@ -3924,17 +3803,7 @@ _JS = """\
     "supported_practical_recall",
     "supported_practical_f1",
   ]);
-  const ISOLATE_FIELD_SKIP = new Set([
-    "artifact_dir",
-    "artifact_dir_basename",
-    "run_dir",
-    "report_path",
-    "run_timestamp",
-    "run_config_summary",
-    "run_config_hash",
-    "per_label_json",
-  ]);
-  const ISOLATE_FIELD_PREFERRED = [
+  const ANALYSIS_FIELD_PREFERRED = [
     "source_label",
     "source_file_basename",
     "importer_name",
@@ -3948,56 +3817,6 @@ _JS = """\
     "run_config.codex_farm_reasoning_effort",
     "run_config.codex_farm_model",
   ];
-  const ISOLATE_METRIC_PREFERRED = [
-    "strict_accuracy",
-    "macro_f1_excluding_other",
-    "precision",
-    "recall",
-    "f1",
-    "practical_f1",
-    "supported_practical_f1",
-    "recipes",
-    "benchmark_total_seconds",
-    "benchmark_prediction_seconds",
-    "benchmark_evaluation_seconds",
-    "all_token_use",
-    "tokens_input",
-    "tokens_cached_input",
-    "tokens_output",
-    "tokens_reasoning",
-    "tokens_total",
-    "prompt_tokens",
-    "completion_tokens",
-    "total_tokens",
-    "run_config.prompt_tokens",
-    "run_config.completion_tokens",
-    "run_config.total_tokens",
-    "run_config.input_tokens",
-    "run_config.output_tokens",
-  ];
-  const ISOLATE_OPERATORS_TEXT = [
-    ["eq", "is"],
-    ["neq", "is not"],
-  ];
-  const ISOLATE_OPERATORS_NUMERIC = [
-    ["eq", "="],
-    ["neq", "!="],
-    ["gt", ">"],
-    ["gte", ">="],
-    ["lt", "<"],
-    ["lte", "<="],
-  ];
-  const ISOLATE_OPERATOR_LABEL = Object.fromEntries(
-    ISOLATE_OPERATORS_TEXT.concat(ISOLATE_OPERATORS_NUMERIC)
-  );
-  const ISOLATE_COMBINE_MODES = [
-    ["all", "all rules (AND)"],
-    ["any", "any rule (OR)"],
-  ];
-  const ISOLATE_COMBINE_LABEL = {
-    all: "all rules",
-    any: "any rule",
-  };
   const COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy";
   const COMPARE_CONTROL_VIEW_MODES = new Set(["discover", "raw", "controlled"]);
   const COMPARE_CONTROL_OUTCOME_PREFERRED = [
@@ -4165,43 +3984,6 @@ _JS = """\
     return normalizePreviousRunsColumnFilterMode(value);
   }
 
-  function normalizePreviousRunsFilterControlSource(value) {
-    const key = String(value || "table").trim().toLowerCase();
-    return key === "isolate" ? "isolate" : "table";
-  }
-
-  function isolateOperatorAcceptsNumericOnly(operator) {
-    const op = String(operator || "").trim();
-    return op === "gt" || op === "gte" || op === "lt" || op === "lte";
-  }
-
-  function isolateClauseHasActiveSelection(clause) {
-    if (!clause || typeof clause !== "object" || Array.isArray(clause)) return false;
-    const fieldName = String(clause.field || "").trim();
-    const valueText = String(clause.value || "").trim();
-    if (!fieldName || !valueText) return false;
-    const operator = normalizeIsolateOperator(clause.operator);
-    if (isolateOperatorAcceptsNumericOnly(operator)) {
-      return maybeNumber(valueText) != null;
-    }
-    return true;
-  }
-
-  function isolateClauseListHasActiveSelection(clauses) {
-    if (!Array.isArray(clauses)) return false;
-    return clauses.some(clause => isolateClauseHasActiveSelection(clause));
-  }
-
-  function normalizeIsolateOperator(value) {
-    const key = String(value || "eq").trim();
-    return ISOLATE_OPERATOR_LABEL[key] ? key : "eq";
-  }
-
-  function normalizeIsolateCombineMode(value) {
-    const key = String(value || "all").trim().toLowerCase();
-    return key === "any" ? "any" : "all";
-  }
-
   function normalizePerLabelRollingWindowSize(value) {
     const parsed = Number.parseInt(String(value == null ? "" : value).trim(), 10);
     if (!Number.isFinite(parsed)) return 10;
@@ -4249,26 +4031,6 @@ _JS = """\
     compareControlState = compareControlDefaultState();
     compareControlStatusMessage = "Compare & Control reset to default state.";
     compareControlStatusIsError = false;
-  }
-
-  function normalizeIsolateClause(rawClause) {
-    if (!rawClause || typeof rawClause !== "object" || Array.isArray(rawClause)) {
-      return {
-        field: "",
-        operator: "eq",
-        value: "",
-      };
-    }
-    return {
-      field: String(rawClause.field || "").trim(),
-      operator: normalizeIsolateOperator(rawClause.operator),
-      value: String(rawClause.value || "").trim(),
-    };
-  }
-
-  function normalizeIsolateClauseList(rawClauses) {
-    if (!Array.isArray(rawClauses)) return [];
-    return rawClauses.map(normalizeIsolateClause);
   }
 
   function sanitizePreviousRunsPresetName(rawName) {
@@ -4333,19 +4095,7 @@ _JS = """\
         sort.direction = sortDirection;
       }
     }
-    const rawIsolate = rawPreset.isolate;
-    const isolate = {
-      mode: "all",
-      clauses: [],
-    };
-    if (rawIsolate && typeof rawIsolate === "object" && !Array.isArray(rawIsolate)) {
-      isolate.mode = normalizeIsolateCombineMode(rawIsolate.mode);
-      isolate.clauses = normalizeIsolateClauseList(rawIsolate.clauses);
-    }
     const compareControl = normalizeCompareControlState(rawPreset.compare_control);
-    const filterControlSource = Object.prototype.hasOwnProperty.call(rawPreset, "filter_control_source")
-      ? normalizePreviousRunsFilterControlSource(rawPreset.filter_control_source)
-      : (isolateClauseListHasActiveSelection(isolate.clauses) ? "isolate" : "table");
     const columnFilterGlobalMode = Object.prototype.hasOwnProperty.call(rawPreset, "column_filter_global_mode")
       ? normalizePreviousRunsColumnFilterGlobalMode(rawPreset.column_filter_global_mode)
       : "and";
@@ -4357,9 +4107,7 @@ _JS = """\
       quick_filters: quickFilters,
       column_widths: sanitizeColumnWidthsMap(rawPreset.column_widths),
       sort,
-      isolate,
       compare_control: compareControl,
-      filter_control_source: filterControlSource,
     };
   }
 
@@ -4484,47 +4232,10 @@ _JS = """\
       }
     }
 
-    const rawIsolate = previousRuns.isolate;
-    if (rawIsolate && typeof rawIsolate === "object" && !Array.isArray(rawIsolate)) {
-      const nextMode = normalizeIsolateCombineMode(rawIsolate.mode);
-      const nextClauses = normalizeIsolateClauseList(rawIsolate.clauses);
-      isolateCombineMode = nextMode;
-      if (nextClauses.length || Array.isArray(rawIsolate.clauses)) {
-        isolateClauses = nextClauses;
-      } else {
-        // Backward compatibility with older single-clause isolate state.
-        const legacyField = String(rawIsolate.field || "").trim();
-        const legacyValue = String(rawIsolate.value || "").trim();
-        if (legacyField || legacyValue) {
-          isolateCombineMode = "all";
-          isolateClauses = [
-            {
-              field: legacyField,
-              operator: normalizeIsolateOperator(rawIsolate.operator),
-              value: legacyValue,
-            },
-          ];
-        }
-      }
-    }
     if (Object.prototype.hasOwnProperty.call(previousRuns, "compare_control")) {
       compareControlState = normalizeCompareControlState(previousRuns.compare_control);
     } else {
       compareControlState = normalizeCompareControlState(compareControlState);
-    }
-    const rawFilterControlSource = previousRuns.filter_control_source;
-    if (Object.prototype.hasOwnProperty.call(previousRuns, "filter_control_source")) {
-      previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(rawFilterControlSource);
-    } else {
-      previousRunsFilterControlSource = isolateClauseListHasActiveSelection(isolateClauses)
-        ? "isolate"
-        : "table";
-    }
-    if (
-      previousRunsFilterControlSource === "isolate" &&
-      isolateClauseListHasActiveSelection(isolateClauses)
-    ) {
-      applyIsolateRulesToTableFilters({ markControlSource: false });
     }
     const selectedPreset = sanitizePreviousRunsPresetName(previousRuns.selected_preset);
     previousRunsSelectedPreset = Object.prototype.hasOwnProperty.call(previousRunsViewPresets, selectedPreset)
@@ -4670,16 +4381,7 @@ _JS = """\
           field: String(previousRunsSortField || "run_timestamp"),
           direction: previousRunsSortDirection === "asc" ? "asc" : "desc",
         },
-        isolate: {
-          mode: normalizeIsolateCombineMode(isolateCombineMode),
-          clauses: isolateClauses.map(clause => ({
-            field: String((clause && clause.field) || ""),
-            operator: normalizeIsolateOperator(clause && clause.operator),
-            value: String((clause && clause.value) || ""),
-          })),
-        },
         compare_control: normalizeCompareControlState(compareControlState),
-        filter_control_source: normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource),
         selected_preset: selectedPresetName,
       },
       previous_runs_presets: previousRunsPresets,
@@ -5112,7 +4814,6 @@ _JS = """\
 
   // ---- Previous-runs column filters ----
   function clearPreviousRunsTableColumnFilters() {
-    previousRunsFilterControlSource = "table";
     previousRunsColumnFilters = Object.create(null);
     previousRunsColumnFilterModes = Object.create(null);
     previousRunsColumnFilterGlobalMode = "and";
@@ -5123,8 +4824,6 @@ _JS = """\
     clearPreviousRunsTableColumnFilters();
     previousRunsQuickFilters.exclude_ai_tests = false;
     previousRunsQuickFilters.official_full_golden_only = false;
-    isolateClauses = [];
-    isolateCombineMode = "all";
     setupPreviousRunsQuickFilters();
   }
 
@@ -5136,7 +4835,6 @@ _JS = """\
     setupPreviousRunsQuickFilters();
     setupPreviousRunsGlobalFilterModeControl();
     setupPreviousRunsPresetControls();
-    setupIsolateControls();
     setupCompareControlControls();
     const clearBtn = document.getElementById("previous-runs-clear-filters");
     if (clearBtn && !clearBtn.dataset.bound) {
@@ -5169,7 +4867,6 @@ _JS = """\
     }
     if (select.dataset.bound) return;
     select.addEventListener("change", () => {
-      previousRunsFilterControlSource = "table";
       previousRunsColumnFilterGlobalMode = normalizePreviousRunsColumnFilterGlobalMode(
         select.value
       );
@@ -5583,134 +5280,6 @@ _JS = """\
     return groups.every(matchesGroup);
   }
 
-  function isolateCombineModeToGlobalFilterMode(combineMode) {
-    return normalizeIsolateCombineMode(combineMode) === "any" ? "or" : "and";
-  }
-
-  function applyIsolateRulesToTableFilters(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    const markControlSource = opts.markControlSource !== false;
-    const activeClauses = normalizeIsolateClauseList(isolateClauses).filter(clause => (
-      isolateClauseHasActiveSelection(clause)
-    ));
-    const grouped = Object.create(null);
-    activeClauses.forEach(clause => {
-      const fieldName = String(clause.field || "").trim();
-      if (!fieldName) return;
-      if (!Object.prototype.hasOwnProperty.call(grouped, fieldName)) {
-        grouped[fieldName] = [];
-      }
-      const operator = normalizeIsolateOperator(clause.operator);
-      grouped[fieldName].push({
-        operator: (
-          operator === "neq" ||
-          operator === "gt" ||
-          operator === "gte" ||
-          operator === "lt" ||
-          operator === "lte"
-        ) ? operator : "eq",
-        value: String(clause.value || ""),
-      });
-    });
-    const nextFilters = Object.create(null);
-    const nextModes = Object.create(null);
-    const perFieldMode = isolateCombineModeToGlobalFilterMode(isolateCombineMode);
-    Object.keys(grouped).forEach(fieldName => {
-      const normalized = normalizePreviousRunsColumnFilterList(grouped[fieldName]);
-      if (!normalized.length) return;
-      nextFilters[fieldName] = normalized;
-      nextModes[fieldName] = perFieldMode;
-    });
-    previousRunsColumnFilters = nextFilters;
-    previousRunsColumnFilterModes = nextModes;
-    previousRunsColumnFilterGlobalMode = Object.keys(nextFilters).length ? perFieldMode : "and";
-    if (markControlSource) {
-      previousRunsFilterControlSource = "isolate";
-    }
-    closePreviousRunsColumnFilterEditor();
-  }
-
-  function setupIsolateControls() {
-    const combineSelect = document.getElementById("isolate-combine");
-    const addBtn = document.getElementById("isolate-add");
-    const clearBtn = document.getElementById("isolate-clear");
-    const rulesHost = document.getElementById("isolate-rules");
-    if (!combineSelect || !addBtn || !clearBtn || !rulesHost) return;
-
-    if (!combineSelect.dataset.bound) {
-      combineSelect.addEventListener("change", () => {
-        isolateCombineMode = normalizeIsolateCombineMode(combineSelect.value);
-        applyIsolateRulesToTableFilters();
-        renderAll();
-      });
-      combineSelect.dataset.bound = "1";
-    }
-
-    if (!addBtn.dataset.bound) {
-      addBtn.addEventListener("click", () => {
-        isolateClauses = [...normalizeIsolateClauseList(isolateClauses), normalizeIsolateClause(null)];
-        applyIsolateRulesToTableFilters();
-        renderAll();
-      });
-      addBtn.dataset.bound = "1";
-    }
-
-    if (!clearBtn.dataset.bound) {
-      clearBtn.addEventListener("click", () => {
-        isolateClauses = [];
-        isolateCombineMode = "all";
-        applyIsolateRulesToTableFilters();
-        renderAll();
-      });
-      clearBtn.dataset.bound = "1";
-    }
-
-    if (!rulesHost.dataset.bound) {
-      rulesHost.addEventListener("change", event => {
-        const target = event.target;
-        if (!(target instanceof HTMLElement)) return;
-        const row = target.closest(".isolate-rule-row");
-        if (!(row instanceof HTMLElement)) return;
-        const idx = Number(row.getAttribute("data-rule-index"));
-        if (!Number.isInteger(idx) || idx < 0 || idx >= isolateClauses.length) return;
-        const nextClauses = normalizeIsolateClauseList(isolateClauses);
-        if (target.classList.contains("isolate-rule-field")) {
-          nextClauses[idx].field = String(target.value || "");
-          const nextField = {
-            numeric: isolateFieldIsNumeric(filteredBenchmarks(), nextClauses[idx].field),
-          };
-          if (!isolateOperatorAllowedForField(nextClauses[idx].operator, nextField)) {
-            nextClauses[idx].operator = "eq";
-          }
-          nextClauses[idx].value = "";
-        } else if (target.classList.contains("isolate-rule-operator")) {
-          nextClauses[idx].operator = normalizeIsolateOperator(target.value);
-        } else if (target.classList.contains("isolate-rule-value")) {
-          nextClauses[idx].value = String(target.value || "");
-        } else {
-          return;
-        }
-        isolateClauses = nextClauses;
-        applyIsolateRulesToTableFilters();
-        renderAll();
-      });
-      rulesHost.addEventListener("click", event => {
-        const target = event.target;
-        if (!(target instanceof HTMLElement)) return;
-        const removeBtn = target.closest(".isolate-rule-remove");
-        if (!(removeBtn instanceof HTMLElement)) return;
-        const idx = Number(removeBtn.getAttribute("data-rule-index"));
-        if (!Number.isInteger(idx) || idx < 0 || idx >= isolateClauses.length) return;
-        const nextClauses = normalizeIsolateClauseList(isolateClauses);
-        nextClauses.splice(idx, 1);
-        isolateClauses = nextClauses;
-        applyIsolateRulesToTableFilters();
-        renderAll();
-      });
-      rulesHost.dataset.bound = "1";
-    }
-  }
-
   function setupCompareControlControls() {
     const panel = document.getElementById("compare-control-panel");
     const viewMode = document.getElementById("compare-control-view-mode");
@@ -5852,7 +5421,7 @@ _JS = """\
   }
 
   function compareControlFieldLabel(fieldName) {
-    return isolateFieldLabel(fieldName);
+    return analysisFieldLabel(fieldName);
   }
 
   function compareControlFieldSortValue(fieldInfo) {
@@ -5876,11 +5445,11 @@ _JS = """\
       records.forEach(record => {
         const rawValue = previousRunsFieldValue(record, key);
         if (isEmptyRuleValue(rawValue)) return;
-        const comparableKey = isolateComparableValue(rawValue);
+        const comparableKey = analysisComparableValue(rawValue);
         if (!Object.prototype.hasOwnProperty.call(valueCounts, comparableKey)) {
           valueCounts[comparableKey] = {
             key: comparableKey,
-            label: isolateDisplayValue(rawValue, comparableKey),
+            label: analysisDisplayValue(rawValue, comparableKey),
             count: 0,
           };
         }
@@ -5914,7 +5483,7 @@ _JS = """\
     }
 
     COMPARE_CONTROL_OUTCOME_PREFERRED.forEach(considerField);
-    ISOLATE_FIELD_PREFERRED.forEach(considerField);
+    ANALYSIS_FIELD_PREFERRED.forEach(considerField);
     PREVIOUS_RUNS_DEFAULT_COLUMNS.forEach(considerField);
     previousRunsFieldOptions.forEach(considerField);
     orderedFields.sort((left, right) => {
@@ -6233,12 +5802,12 @@ _JS = """\
       const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
       if (outcome == null) return;
       const rawCompareValue = previousRunsFieldValue(record, compareField);
-      const groupKey = isolateComparableValue(rawCompareValue);
+      const groupKey = analysisComparableValue(rawCompareValue);
       if (groupKey === "__EMPTY__") return;
       if (!Object.prototype.hasOwnProperty.call(groupsByKey, groupKey)) {
         groupsByKey[groupKey] = {
           key: groupKey,
-          label: isolateDisplayValue(rawCompareValue, groupKey),
+          label: analysisDisplayValue(rawCompareValue, groupKey),
           count: 0,
           outcome_sum: 0,
           secondary_sum: Object.create(null),
@@ -6321,10 +5890,10 @@ _JS = """\
       const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
       if (outcome == null) return;
       const rawCompare = previousRunsFieldValue(record, compareField);
-      const groupKey = isolateComparableValue(rawCompare);
+      const groupKey = analysisComparableValue(rawCompare);
       if (groupKey === "__EMPTY__") return;
       const stratumKey = hold
-        .map(fieldName => isolateComparableValue(previousRunsFieldValue(record, fieldName)))
+        .map(fieldName => analysisComparableValue(previousRunsFieldValue(record, fieldName)))
         .join("||");
       if (!Object.prototype.hasOwnProperty.call(strata, stratumKey)) {
         strata[stratumKey] = Object.create(null);
@@ -6332,7 +5901,7 @@ _JS = """\
       if (!Object.prototype.hasOwnProperty.call(strata[stratumKey], groupKey)) {
         strata[stratumKey][groupKey] = {
           key: groupKey,
-          label: isolateDisplayValue(rawCompare, groupKey),
+          label: analysisDisplayValue(rawCompare, groupKey),
           count: 0,
           outcome_sum: 0,
         };
@@ -6413,7 +5982,7 @@ _JS = """\
       const compare = maybeNumber(previousRunsFieldValue(record, compareField));
       if (outcome == null || compare == null) return;
       const stratumKey = hold
-        .map(fieldName => isolateComparableValue(previousRunsFieldValue(record, fieldName)))
+        .map(fieldName => analysisComparableValue(previousRunsFieldValue(record, fieldName)))
         .join("||");
       if (!Object.prototype.hasOwnProperty.call(strata, stratumKey)) {
         strata[stratumKey] = [];
@@ -6545,8 +6114,8 @@ _JS = """\
     const byGroup = Object.create(null);
     records.forEach(record => {
       const rawValue = previousRunsFieldValue(record, splitField);
-      const key = isolateComparableValue(rawValue);
-      const label = isolateDisplayValue(rawValue, key);
+      const key = analysisComparableValue(rawValue);
+      const label = analysisDisplayValue(rawValue, key);
       if (!Object.prototype.hasOwnProperty.call(byGroup, key)) {
         byGroup[key] = {
           key,
@@ -6941,7 +6510,6 @@ _JS = """\
       };
     }
     setPreviousRunsColumnFilterMode(compareField, "or");
-    previousRunsFilterControlSource = "table";
     closePreviousRunsColumnFilterEditor();
     compareControlState.selected_groups = selectedGroups;
     return {
@@ -6950,7 +6518,7 @@ _JS = """\
     };
   }
 
-  function isolateComparableValue(value) {
+  function analysisComparableValue(value) {
     if (value == null) return "__EMPTY__";
     if (typeof value === "string") {
       const text = value.trim();
@@ -6964,7 +6532,7 @@ _JS = """\
     return String(value);
   }
 
-  function isolateDisplayValue(rawValue, comparableValue) {
+  function analysisDisplayValue(rawValue, comparableValue) {
     if (comparableValue === "__EMPTY__") return "(empty)";
     if (typeof rawValue === "boolean") return rawValue ? "true" : "false";
     if (typeof rawValue === "number") {
@@ -6974,480 +6542,10 @@ _JS = """\
     return String(rawValue);
   }
 
-  function isolateFieldLabel(fieldName) {
+  function analysisFieldLabel(fieldName) {
     const meta = previousRunsColumnMeta(fieldName);
     if (!meta || !meta.label || meta.label === fieldName) return fieldName;
     return meta.label + " (" + fieldName + ")";
-  }
-
-  function isolateValueCountsForField(records, fieldName) {
-    const byKey = Object.create(null);
-    records.forEach(record => {
-      const rawValue = previousRunsFieldValue(record, fieldName);
-      const key = isolateComparableValue(rawValue);
-      if (!Object.prototype.hasOwnProperty.call(byKey, key)) {
-        byKey[key] = {
-          key,
-          label: isolateDisplayValue(rawValue, key),
-          count: 0,
-        };
-      }
-      byKey[key].count += 1;
-    });
-    return Object.values(byKey).sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return String(a.label).localeCompare(String(b.label), undefined, { numeric: true });
-    });
-  }
-
-  function isolateFieldIsNumeric(records, fieldName) {
-    const meta = previousRunsColumnMeta(fieldName);
-    if (meta && meta.numeric) return true;
-    let sawNonEmpty = 0;
-    let sawNumeric = 0;
-    (records || []).forEach(record => {
-      const rawValue = previousRunsFieldValue(record, fieldName);
-      if (isEmptyRuleValue(rawValue)) return;
-      sawNonEmpty += 1;
-      if (maybeNumber(rawValue) != null) {
-        sawNumeric += 1;
-      }
-    });
-    if (!sawNonEmpty) return false;
-    return sawNumeric === sawNonEmpty;
-  }
-
-  function isolateOperatorsForField(fieldInfo) {
-    if (fieldInfo && fieldInfo.numeric) {
-      return ISOLATE_OPERATORS_NUMERIC;
-    }
-    return ISOLATE_OPERATORS_TEXT;
-  }
-
-  function isolateOperatorAllowedForField(operator, fieldInfo) {
-    const normalized = normalizeIsolateOperator(operator);
-    return isolateOperatorsForField(fieldInfo).some(([value]) => value === normalized);
-  }
-
-  function isolateNormalizeValueForField(rawValue, fieldInfo) {
-    const text = String(rawValue || "").trim();
-    if (!text) return "";
-    if (!fieldInfo || !fieldInfo.numeric) return text;
-    const numericValue = maybeNumber(text);
-    if (numericValue == null) return "";
-    return String(numericValue);
-  }
-
-  function isolateValueLabelForField(rawValue, fieldInfo, selectedValue) {
-    if (!fieldInfo || !fieldInfo.numeric) {
-      return selectedValue ? selectedValue.label : "";
-    }
-    const normalized = isolateNormalizeValueForField(rawValue, fieldInfo);
-    return normalized || "";
-  }
-
-  function isolateFieldCatalog(records) {
-    const seen = new Set();
-    const ordered = [];
-
-    function considerField(fieldName) {
-      const key = String(fieldName || "").trim();
-      if (!key || seen.has(key) || ISOLATE_FIELD_SKIP.has(key)) return;
-      seen.add(key);
-      const valueCounts = isolateValueCountsForField(records, key);
-      if (valueCounts.length < 2) return;
-      const numeric = isolateFieldIsNumeric(records, key);
-      if (!numeric && valueCounts.length > 80) return;
-      const values = numeric ? valueCounts.slice(0, 80) : valueCounts;
-      ordered.push({
-        field: key,
-        label: isolateFieldLabel(key),
-        numeric,
-        valueCount: valueCounts.length,
-        values,
-      });
-    }
-
-    ISOLATE_FIELD_PREFERRED.forEach(considerField);
-    PREVIOUS_RUNS_DEFAULT_COLUMNS.forEach(considerField);
-    previousRunsFieldOptions.forEach(considerField);
-    return ordered;
-  }
-
-  function isolateClauseSummary(clause) {
-    if (!clause || !clause.fieldLabel || !clause.valueLabel) return "";
-    return clause.fieldLabel + " " + (clause.operatorLabel || "is") + " " + clause.valueLabel;
-  }
-
-  function isolateRulesExpression(clauses, combineMode) {
-    const activeClauses = Array.isArray(clauses)
-      ? clauses.filter(clause => Boolean(clause && clause.active))
-      : [];
-    if (!activeClauses.length) return "";
-    const parts = activeClauses.map(isolateClauseSummary).filter(Boolean);
-    if (!parts.length) return "";
-    if (parts.length === 1) return parts[0];
-    const joiner = combineMode === "any" ? " OR " : " AND ";
-    return "(" + parts.join(joiner) + ")";
-  }
-
-  function syncIsolateControls(records) {
-    const combineSelect = document.getElementById("isolate-combine");
-    const rulesHost = document.getElementById("isolate-rules");
-    if (!combineSelect || !rulesHost) {
-      return {
-        active: false,
-        available: false,
-        combineMode: "all",
-        combineLabel: ISOLATE_COMBINE_LABEL.all,
-        clauses: [],
-        activeClauses: [],
-        expression: "",
-      };
-    }
-
-    isolateCombineMode = normalizeIsolateCombineMode(isolateCombineMode);
-    const combineOptionsHtml = ISOLATE_COMBINE_MODES
-      .map(([value, label]) => {
-        const selected = value === isolateCombineMode ? " selected" : "";
-        return '<option value="' + value + '"' + selected + ">" + esc(label) + "</option>";
-      })
-      .join("");
-    if (combineSelect.innerHTML !== combineOptionsHtml) {
-      combineSelect.innerHTML = combineOptionsHtml;
-    }
-    combineSelect.value = isolateCombineMode;
-
-    const catalog = isolateFieldCatalog(records);
-    if (!catalog.length) {
-      isolateClauses = [];
-      rulesHost.innerHTML = '<p class="isolate-rule-empty">No isolate fields available in the current filtered run set.</p>';
-      return {
-        active: false,
-        available: false,
-        combineMode: isolateCombineMode,
-        combineLabel: ISOLATE_COMBINE_LABEL[isolateCombineMode] || ISOLATE_COMBINE_LABEL.all,
-        clauses: [],
-        activeClauses: [],
-        expression: "",
-      };
-    }
-
-    const normalizedClauses = normalizeIsolateClauseList(isolateClauses).map(clause => {
-      const selectedField = catalog.find(entry => entry.field === clause.field) || catalog[0];
-      const selectedValue = selectedField.values.find(entry => entry.key === clause.value) || null;
-      const normalizedValue = selectedField.numeric
-        ? isolateNormalizeValueForField(clause.value, selectedField)
-        : (selectedValue ? selectedValue.key : "");
-      let operator = normalizeIsolateOperator(clause.operator);
-      if (!isolateOperatorAllowedForField(operator, selectedField)) {
-        operator = selectedField.numeric ? "eq" : "eq";
-      }
-      return {
-        field: selectedField.field,
-        fieldLabel: selectedField.label,
-        numeric: Boolean(selectedField.numeric),
-        operator,
-        operatorLabel: ISOLATE_OPERATOR_LABEL[operator] || "is",
-        value: normalizedValue,
-        valueLabel: isolateValueLabelForField(normalizedValue, selectedField, selectedValue),
-        valueCount: Number(selectedField.valueCount || selectedField.values.length || 0),
-        values: selectedField.values,
-        active: isolateClauseHasActiveSelection({
-          field: selectedField.field,
-          operator,
-          value: normalizedValue,
-        }),
-      };
-    });
-    isolateClauses = normalizedClauses.map(clause => ({
-      field: clause.field,
-      operator: clause.operator,
-      value: clause.value,
-    }));
-
-    if (!normalizedClauses.length) {
-      rulesHost.innerHTML = '<p class="isolate-rule-empty">No isolate rules yet. Click <strong>Add rule</strong> to start.</p>';
-    } else {
-      const fieldOptionsHtml = catalog
-        .map(entry => (
-          '<option value="' + esc(entry.field) + '">' +
-          esc(entry.label + " (" + Number(entry.valueCount || entry.values.length || 0) + " values)") +
-          "</option>"
-        ))
-        .join("");
-      rulesHost.innerHTML = normalizedClauses
-        .map((clause, idx) => {
-          const operatorOptionsHtml = isolateOperatorsForField(clause)
-            .map(([value, label]) => '<option value="' + value + '">' + esc(label) + "</option>")
-            .join("");
-          const valueControlHtml = clause.numeric
-            ? (
-              '<input class="isolate-rule-value isolate-rule-value-input" type="number" step="any" aria-label="Isolate numeric value rule ' + (idx + 1) + '" placeholder="number">'
-            )
-            : (
-              '<select class="isolate-rule-value" aria-label="Isolate value rule ' + (idx + 1) + '">' +
-                [
-                  '<option value="">Select value...</option>',
-                  ...clause.values.map(entry => (
-                    '<option value="' + esc(entry.key) + '">' +
-                    esc(entry.label + " (" + entry.count + ")") +
-                    "</option>"
-                  )),
-                ].join("") +
-              "</select>"
-            );
-          return (
-            '<div class="isolate-rule-row" data-rule-index="' + idx + '">' +
-              '<select class="isolate-rule-field" aria-label="Isolate field rule ' + (idx + 1) + '">' +
-                fieldOptionsHtml +
-              "</select>" +
-              '<select class="isolate-rule-operator" aria-label="Isolate logic rule ' + (idx + 1) + '">' +
-                operatorOptionsHtml +
-              "</select>" +
-              valueControlHtml +
-              '<button class="isolate-rule-remove" data-rule-index="' + idx + '" type="button">Remove</button>' +
-            "</div>"
-          );
-        })
-        .join("");
-      Array.from(rulesHost.querySelectorAll(".isolate-rule-row")).forEach((row, idx) => {
-        const clause = normalizedClauses[idx];
-        if (!clause) return;
-        const fieldSelect = row.querySelector(".isolate-rule-field");
-        const operatorSelect = row.querySelector(".isolate-rule-operator");
-        const valueSelect = row.querySelector(".isolate-rule-value");
-        if (fieldSelect) fieldSelect.value = clause.field;
-        if (operatorSelect) operatorSelect.value = clause.operator;
-        if (valueSelect) valueSelect.value = clause.value;
-      });
-    }
-
-    const activeClauses = normalizedClauses.filter(clause => clause.active);
-    const active = activeClauses.length > 0;
-    const expression = isolateRulesExpression(activeClauses, isolateCombineMode);
-    return {
-      active,
-      available: true,
-      combineMode: isolateCombineMode,
-      combineLabel: ISOLATE_COMBINE_LABEL[isolateCombineMode] || ISOLATE_COMBINE_LABEL.all,
-      clauses: normalizedClauses,
-      activeClauses,
-      expression,
-    };
-  }
-
-  function isolateClauseMatches(record, isolateClause) {
-    if (!isolateClause || !isolateClause.field || !isolateClause.value) return true;
-    const value = previousRunsFieldValue(record, isolateClause.field);
-    return evaluatePreviousRunsFilterOperator(
-      value,
-      isolateClause.operator,
-      isolateClause.value
-    );
-  }
-
-  function isolateRecordMatches(record, isolateState) {
-    if (!isolateState || !isolateState.active) return true;
-    const clauses = Array.isArray(isolateState.activeClauses) ? isolateState.activeClauses : [];
-    if (!clauses.length) return true;
-    if (isolateState.combineMode === "any") {
-      return clauses.some(clause => isolateClauseMatches(record, clause));
-    }
-    return clauses.every(clause => isolateClauseMatches(record, clause));
-  }
-
-  function isolateNumericMean(records, fieldName) {
-    const values = records
-      .map(record => maybeNumber(previousRunsFieldValue(record, fieldName)))
-      .filter(value => value != null);
-    if (!values.length) return null;
-    return mean(values);
-  }
-
-  function signedNumber(value, digits) {
-    if (value == null || !Number.isFinite(value)) return "-";
-    const rounded = Number(value).toFixed(digits);
-    if (Number(value) > 0) return "+" + rounded;
-    return rounded;
-  }
-
-  function isolateMetricComparisons(baselineRecords, isolatedRecords) {
-    const seen = new Set();
-    const orderedFields = [];
-
-    function addField(fieldName) {
-      const key = String(fieldName || "").trim();
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      orderedFields.push(key);
-    }
-
-    ISOLATE_METRIC_PREFERRED.forEach(addField);
-    previousRunsFieldOptions.forEach(addField);
-
-    const comparisons = [];
-    orderedFields.forEach(fieldName => {
-      const baselineMean = isolateNumericMean(baselineRecords, fieldName);
-      const isolateMean = isolateNumericMean(isolatedRecords, fieldName);
-      if (baselineMean == null || isolateMean == null) return;
-
-      const deltaAbs = isolateMean - baselineMean;
-      const deltaPct = Math.abs(baselineMean) > 1e-12
-        ? (deltaAbs / Math.abs(baselineMean)) * 100
-        : null;
-      const scoreField = PREVIOUS_RUNS_SCORE_FIELDS.has(fieldName);
-      const effect = scoreField
-        ? Math.abs(deltaAbs) * 100
-        : Math.abs(deltaPct != null ? deltaPct : deltaAbs);
-      comparisons.push({
-        field: fieldName,
-        baselineMean,
-        isolateMean,
-        deltaAbs,
-        deltaPct,
-        scoreField,
-        effect,
-      });
-    });
-
-    comparisons.sort((a, b) => b.effect - a.effect);
-    return comparisons;
-  }
-
-  function renderIsolateInsightsPanel(context) {
-    const host = document.getElementById("isolate-insights");
-    const status = document.getElementById("isolate-status");
-    if (!host || !status) return;
-
-    if (!context.available) {
-      status.textContent = "No isolate candidates are available in the current run set.";
-      host.innerHTML = '<p class="empty-note">Try broadening the date/category filters, then pick a field to isolate.</p>';
-      return;
-    }
-
-    if (context.pausedByTable) {
-      status.textContent = "Table column filters were edited after isolate. Edit Isolate For X to sync isolate rules back into table filters.";
-      host.innerHTML =
-        "<p>Saved isolate rules are not currently synced into the table filters.</p>" +
-        "<p>Current isolate expression: " + esc(context.expression || "none") + ".</p>" +
-        "<p>Edit any isolate rule (or combine mode) to reapply isolate as column filters.</p>";
-      return;
-    }
-
-    if (!context.active) {
-      status.textContent = "Add one or more isolate rules, then pick values to isolate a slice.";
-      host.innerHTML = "<p>When active, isolate rules are written into table column filters and compared with all currently visible rows.</p>";
-      return;
-    }
-
-    const isolatedRows = context.isolatedRecords || [];
-    const baselineRows = context.baselineRecords || [];
-    const ratio = baselineRows.length > 0
-      ? (isolatedRows.length / baselineRows.length) * 100
-      : 0;
-    status.textContent =
-      "Isolating " +
-      (context.expression || "current rules") +
-      ". " +
-      isolatedRows.length +
-      " / " +
-      baselineRows.length +
-      " rows (" +
-      ratio.toFixed(1) +
-      "%).";
-
-    if (!isolatedRows.length) {
-      host.innerHTML = "<p>No rows match the current isolate rules after current filters.</p>";
-      return;
-    }
-
-    const comparisons = isolateMetricComparisons(baselineRows, isolatedRows);
-    const quality = comparisons.find(item => item.field === "strict_accuracy")
-      || comparisons.find(item => item.field === "macro_f1_excluding_other")
-      || comparisons.find(item => item.scoreField);
-    const token = comparisons.find(item => /token/i.test(item.field));
-    const runtime = comparisons.find(item => /seconds|runtime|duration|latency/i.test(item.field));
-
-    const bullets = [];
-    if (quality) {
-      const qualityLabel = isolateFieldLabel(quality.field);
-      bullets.push(
-        qualityLabel +
-        ": isolated avg " +
-        (quality.isolateMean * 100).toFixed(2) +
-        "% vs baseline " +
-        (quality.baselineMean * 100).toFixed(2) +
-        "% (" +
-        signedNumber(quality.deltaAbs * 100, 2) +
-        " pts)."
-      );
-    }
-    if (quality && token) {
-      bullets.push(
-        "Quality vs tokens: " +
-        signedNumber(quality.deltaAbs * 100, 2) +
-        " pts on " +
-        isolateFieldLabel(quality.field) +
-        ", token usage " +
-        signedNumber(token.deltaPct, 1) +
-        "% (" +
-        isolateFieldLabel(token.field) +
-        ")."
-      );
-    } else if (quality && runtime) {
-      bullets.push(
-        "Quality vs runtime: " +
-        signedNumber(quality.deltaAbs * 100, 2) +
-        " pts on " +
-        isolateFieldLabel(quality.field) +
-        ", runtime " +
-        signedNumber(runtime.deltaPct, 1) +
-        "% (" +
-        isolateFieldLabel(runtime.field) +
-        ")."
-      );
-    }
-
-    comparisons.slice(0, 6).forEach(item => {
-      const label = isolateFieldLabel(item.field);
-      if (item.scoreField) {
-        bullets.push(
-          label +
-          ": " +
-          (item.isolateMean * 100).toFixed(2) +
-          "% vs " +
-          (item.baselineMean * 100).toFixed(2) +
-          "% (" +
-          signedNumber(item.deltaAbs * 100, 2) +
-          " pts, " +
-          signedNumber(item.deltaPct, 1) +
-          "%)."
-        );
-        return;
-      }
-      const baselineText = fmtMaybe(item.baselineMean, 3);
-      const isolateText = fmtMaybe(item.isolateMean, 3);
-      const changeText = item.deltaPct == null
-        ? signedNumber(item.deltaAbs, 3)
-        : signedNumber(item.deltaPct, 1) + "%";
-      bullets.push(label + ": " + isolateText + " vs " + baselineText + " (" + changeText + ").");
-    });
-
-    const uniqueBullets = [];
-    const seenBullets = new Set();
-    bullets.forEach(line => {
-      const key = String(line || "").trim();
-      if (!key || seenBullets.has(key)) return;
-      seenBullets.add(key);
-      uniqueBullets.push(key);
-    });
-    host.innerHTML =
-      "<p>Baseline uses all currently visible rows before isolate filtering.</p>" +
-      "<p>Rule logic: match " + esc(context.combineLabel || "all rules") + ".</p>" +
-      '<ul class="isolate-insight-list">' +
-      uniqueBullets.map(line => "<li>" + esc(line) + "</li>").join("") +
-      "</ul>";
   }
 
   function previousRunsRecordsMatchingOtherFilters(excludedField) {
@@ -7615,12 +6713,7 @@ _JS = """\
         field: String(previousRunsSortField || "run_timestamp"),
         direction: previousRunsSortDirection === "asc" ? "asc" : "desc",
       },
-      isolate: {
-        mode: normalizeIsolateCombineMode(isolateCombineMode),
-        clauses: normalizeIsolateClauseList(isolateClauses),
-      },
       compare_control: normalizeCompareControlState(compareControlState),
-      filter_control_source: normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource),
     });
   }
 
@@ -7680,18 +6773,7 @@ _JS = """\
       );
     });
 
-    isolateCombineMode = normalizeIsolateCombineMode(preset.isolate.mode);
-    isolateClauses = normalizeIsolateClauseList(preset.isolate.clauses);
     compareControlState = normalizeCompareControlState(preset.compare_control);
-    previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(
-      preset.filter_control_source
-    );
-    if (
-      previousRunsFilterControlSource === "isolate" &&
-      isolateClauseListHasActiveSelection(isolateClauses)
-    ) {
-      applyIsolateRulesToTableFilters({ markControlSource: false });
-    }
 
     closePreviousRunsColumnFilterEditor();
     setupPreviousRunsGlobalFilterModeControl();
@@ -8051,10 +7133,7 @@ _JS = """\
     const allRecords = quickFiltered.records;
     const quickFilterLabels = activePreviousRunsQuickFilterLabels(quickFiltered.context.enabled);
     const quickFiltersText = quickFilterLabels.length ? quickFilterLabels.join("; ") : "none";
-    const filterControlSource = normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource);
-    previousRunsFilterControlSource = filterControlSource;
     if (!allRecords.length) {
-      const emptyIsolateState = syncIsolateControls([]);
       const activeExpression = activePreviousRunsColumnFilters()
         .map(filter => {
           const meta = previousRunsColumnMeta(filter.field);
@@ -8066,23 +7145,10 @@ _JS = """\
         matched: 0,
         expression: activeExpression || "(none)",
         quick_filters_text: quickFiltersText,
-        isolate_text: "",
-        filter_control_source: filterControlSource,
-        isolate_has_rules: false,
         column_filter_global_mode: normalizePreviousRunsColumnFilterGlobalMode(
           previousRunsColumnFilterGlobalMode
         ),
         error: null,
-      });
-      renderIsolateInsightsPanel({
-        available: emptyIsolateState.available,
-        active: false,
-        baselineRecords: [],
-        isolatedRecords: [],
-        combineLabel: emptyIsolateState.combineLabel || "all rules",
-        expression: "",
-        controlSource: filterControlSource,
-        pausedByTable: false,
       });
       renderCompareControlPanel({
         records: [],
@@ -8095,37 +7161,16 @@ _JS = """\
     }
 
     const compiled = compilePreviousRunsFilterPredicate();
-    const tableFilteredRecords = compiled.error
+    const matchedRecords = compiled.error
       ? allRecords
       : allRecords.filter(compiled.predicate);
-    const isolateState = syncIsolateControls(allRecords);
-    const isolateFilteredRecords = isolateState.active
-      ? allRecords.filter(record => isolateRecordMatches(record, isolateState))
-      : allRecords;
-    const useIsolateControl = filterControlSource === "isolate";
-    const matchedRecords = tableFilteredRecords;
     updatePreviousRunsFilterStatus({
       total: rawRecords.length,
       matched: matchedRecords.length,
       expression: compiled.expression,
       quick_filters_text: quickFiltersText,
-      isolate_text: isolateState.active
-        ? (isolateState.expression || "")
-        : "",
-      filter_control_source: filterControlSource,
-      isolate_has_rules: isolateState.active,
       column_filter_global_mode: compiled.global_mode,
       error: compiled.error,
-    });
-    renderIsolateInsightsPanel({
-      available: isolateState.available,
-      active: useIsolateControl && isolateState.active,
-      baselineRecords: allRecords,
-      isolatedRecords: isolateFilteredRecords,
-      combineLabel: isolateState.combineLabel || "all rules",
-      expression: isolateState.expression || "",
-      controlSource: filterControlSource,
-      pausedByTable: !useIsolateControl && isolateState.active,
     });
     renderCompareControlPanel({
       records: matchedRecords,
@@ -8303,17 +7348,6 @@ _JS = """\
     const filtersPart = activeFilters.length
       ? " Active filters: " + result.expression + "."
       : " Active filters: none.";
-    const isolatePart = result.isolate_text
-      ? " Isolate: " + result.isolate_text + "."
-      : " Isolate: none.";
-    const controlSource = normalizePreviousRunsFilterControlSource(result.filter_control_source);
-    const controlPart = controlSource === "isolate" && result.isolate_has_rules
-      ? " Control: isolate synced to table filters."
-      : (
-        result.isolate_has_rules
-          ? " Control: table filters (isolate rules saved)."
-          : " Control: table filters."
-      );
     const globalMode = normalizePreviousRunsColumnFilterGlobalMode(
       result.column_filter_global_mode
     );
@@ -8327,8 +7361,6 @@ _JS = """\
         header +
         quickFiltersPart +
         filtersPart +
-        isolatePart +
-        controlPart +
         globalModePart +
         " Filter error: " +
         result.error +
@@ -8337,9 +7369,7 @@ _JS = """\
       status.classList.add("filter-error");
       return;
     }
-    status.textContent = (
-      header + quickFiltersPart + filtersPart + isolatePart + controlPart + globalModePart
-    );
+    status.textContent = header + quickFiltersPart + filtersPart + globalModePart;
     status.classList.remove("filter-error");
   }
 
@@ -9611,7 +8641,6 @@ _JS = """\
             event.preventDefault();
             event.stopPropagation();
             removePreviousRunsColumnFilterAt(fieldName, clauseIndex);
-            previousRunsFilterControlSource = "table";
             renderAll();
           });
           summaryItem.appendChild(summaryRemoveBtn);
@@ -9675,7 +8704,6 @@ _JS = """\
           modeBtn.addEventListener("click", () => {
             if (!hasActiveFilters) return;
             setPreviousRunsColumnFilterMode(fieldName, modeValue);
-            previousRunsFilterControlSource = "table";
             renderAll();
           });
           modeButtons.appendChild(modeBtn);
@@ -9699,7 +8727,6 @@ _JS = """\
             removeBtn.setAttribute("aria-label", "Remove filter " + String(clauseIndex + 1));
             removeBtn.addEventListener("click", () => {
               removePreviousRunsColumnFilterAt(fieldName, clauseIndex);
-              previousRunsFilterControlSource = "table";
               renderAll();
             });
             row.appendChild(removeBtn);
@@ -9812,7 +8839,6 @@ _JS = """\
 
         function applyFilterAndClose() {
           addPreviousRunsColumnFilter(fieldName, operatorSelect.value || "contains", valueInput.value || "");
-          previousRunsFilterControlSource = "table";
           closePreviousRunsColumnFilterEditor();
           renderAll();
         }
@@ -9869,7 +8895,6 @@ _JS = """\
         clearBtn.disabled = !hasActiveFilters;
         clearBtn.addEventListener("click", () => {
           clearPreviousRunsColumnFilter(fieldName);
-          previousRunsFilterControlSource = "table";
           closePreviousRunsColumnFilterEditor();
           renderAll();
         });
