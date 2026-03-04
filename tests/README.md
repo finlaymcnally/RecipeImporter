@@ -38,6 +38,15 @@ source .venv/bin/activate
 pytest -m smoke
 pytest -m "not slow"
 pytest -m "<domain> and not slow"
+
+# CLI structure split
+pytest tests/cli/test_cli_output_structure_fast.py
+pytest tests/cli/test_cli_output_structure_text_fast.py
+pytest tests/cli/test_cli_output_structure_slow.py
+
+# Dashboard split
+pytest tests/analytics/test_stats_dashboard.py
+pytest tests/analytics/test_stats_dashboard_slow.py
 ```
 
 Default output is intentionally compact, and this is enforced in `tests/conftest.py`

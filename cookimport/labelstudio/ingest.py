@@ -1641,6 +1641,7 @@ def generate_pred_run_artifacts(
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
+    codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
@@ -1735,6 +1736,10 @@ def generate_pred_run_artifacts(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_pass3_skip_pass2_ok = _coerce_bool(
+        codex_farm_pass3_skip_pass2_ok,
+        default=True,
+    )
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
@@ -1811,6 +1816,7 @@ def generate_pred_run_artifacts(
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
         codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         all_epub=path.suffix.lower() == ".epub",
@@ -3311,6 +3317,7 @@ def run_labelstudio_import(
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
     codex_farm_context_blocks: int = 30,
+    codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     processed_output_root: Path | None = None,
@@ -3415,6 +3422,7 @@ def run_labelstudio_import(
         codex_farm_pipeline_pass2=codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=codex_farm_pipeline_pass3,
         codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_pass3_skip_pass2_ok=codex_farm_pass3_skip_pass2_ok,
         codex_farm_recipe_mode=codex_farm_recipe_mode,
         codex_farm_failure_mode=codex_farm_failure_mode,
         processed_output_root=processed_output_root,

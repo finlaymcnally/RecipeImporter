@@ -78,9 +78,9 @@ Report/model plumbing:
 
 - `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1` without env-gate coercion.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
-- Interactive run setup asks `Use Codex Farm recipe pipeline for this run?` (default `Yes`) and then asks model/reasoning overrides when enabled.
+- Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla.
 - Interactive all-method setup asks `Include Codex Farm permutations?` (default `Yes`); single/single-profile modes rely only on chosen run settings.
-- Global defaults remain deterministic with `llm_recipe_pipeline=off`.
+- Global defaults now use the top-tier profile (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`).
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 - Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
@@ -334,7 +334,7 @@ Current-contract additions:
 
 ### 2026-02-28_03.17.29 Codex Farm opt-in command pattern
 - Source: `docs/understandings/2026-02-28_03.17.29-codex-farm-opt-in-command-pattern.md`
-- Keep global defaults deterministic (`llm_recipe_pipeline=off`); enable Codex Farm per command/profile.
+- Historical note (superseded): global defaults were previously deterministic (`llm_recipe_pipeline=off`) before top-tier defaults were promoted.
 - Absolute `codex_farm_cmd` paths avoid PATH fragility when Codex Farm is outside shell defaults.
 
 ### 2026-02-28_03.19.48 interactive Codex Farm gate and launcher
@@ -696,3 +696,16 @@ Current LLM contracts reinforced by this batch:
 - Codexfarm terminal failure classes (`no last agent message`, `content_filter`, missing full_text blocks) now have explicit recovery/fallback seams and should be debugged through those contracts first.
 - Pass3 routing/skip policy and canonical line-role hardening changes are coupled; treat them as one system when evaluating quality/runtime tradeoffs.
 - Single-offline codex failures that do not reproduce in vanilla should first check block/payload shape guardrails before prompt/pipeline rewrites.
+
+## 2026-03-04 merged understandings digest (top-tier profile vs pass3-skip control plane)
+
+Merged source note:
+- `2026-03-04_01.06.17-top-tier-profile-vs-pass3-skip-env-boundary.md`
+
+Current LLM contracts reinforced:
+- Interactive top-tier profile selection controls pipeline/splitter settings (`llm_recipe_pipeline`, `line_role_pipeline`, `atomic_block_splitter`) through `RunSettings`.
+- Pass3 pass2-ok skip policy is not a persisted run-settings field; it remains orchestrator policy controlled by runtime env/default evaluation.
+- Effective pass3 skip behavior must be debugged in codex-farm orchestrator policy (`_pass3_skip_pass2_ok_enabled()`), not in profile resolver payloads.
+
+Anti-loop reminder:
+- If pass3 volume changes unexpectedly while profiles stay fixed, inspect env/default orchestrator policy before editing run-settings profiles.

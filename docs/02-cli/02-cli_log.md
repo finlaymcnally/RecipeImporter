@@ -1347,3 +1347,62 @@ Discovery:
 - `_inject_worker_summary_lines(...)` already receives codex worker task payloads; adding `N left` from `latest_counter` to `active tasks (...)` keeps remaining work visible on a dedicated row.
 
 ````
+
+### 2026-03-04 understandings consolidation (interactive top-tier setting source control)
+
+Merged source notes:
+- `docs/understandings/2026-03-04_00.33.51-single-profile-codex-line-role-setting-source.md`
+- `docs/understandings/2026-03-04_00.44.22-interactive-top-tier-default-run-settings-source-of-truth.md`
+- `docs/understandings/2026-03-04_00.49.14-interactive-winner-harmonization-for-codex-line-role.md`
+
+Problem lineage preserved:
+- A concrete regression run (`2026-03-03_23.27.32`) showed `llm_recipe_pipeline=codex-farm-3pass-v1` with `line_role_pipeline=off` and `atomic_block_splitter=off`.
+- Root cause was settings reuse and partial toggling behavior (codex toggle changed only llm pipeline), not benchmark scorer drift.
+- Saved quality-suite winner payloads can carry stale off/off/off knobs and bypass fallback defaults if not normalized.
+
+Durable decisions captured:
+- Interactive benchmark/import settings now resolve through one automatic top-tier profile flow.
+- Post-resolution harmonization enforces the coupled codex trio regardless of source (saved winner or built-in fallback):
+  - `llm_recipe_pipeline=codex-farm-3pass-v1`
+  - `line_role_pipeline=codex-line-role-v1`
+  - `atomic_block_splitter=atomic-v1`
+
+Anti-loop reminders:
+- When a run quality drop is observed, inspect resolved `RunSettings` payload/hash first.
+- Do not assume codex pipeline implies line-role/atomic are enabled unless harmonization was applied.
+
+### 2026-03-04 understandings consolidation (two top-tier profile families)
+
+Merged source note:
+- `docs/understandings/2026-03-04_01.20.00-interactive-two-top-tier-profiles-codex-vs-vanilla.md`
+
+Problem captured:
+- One forced codex-harmonized automatic profile removed stale-menu drift but also removed a deterministic baseline operating path.
+
+Durable decision:
+- Interactive resolver exposes exactly two automatic top-tier profile families:
+  - CodexFarm top-tier (winner-first + codex harmonization).
+  - Vanilla top-tier (codex-off deterministic baseline with deterministic line-role/atomic + EPUB defaults).
+
+Anti-loop reminder:
+- Preserve two-profile deterministic choice; do not restore broad profile branches to recover codex-vs-vanilla comparison capability.
+
+### 2026-03-04 docs/tasks consolidation (top-tier default run-settings resolver)
+
+Merged source task file:
+- `docs/tasks/2026-03-04_00.44.22-top-tier-default-run-settings.md`
+
+Problem captured:
+- Interactive import/benchmark still exposed multi-profile menu choice, allowing stale low-quality combinations (notably codex ON with line-role/atomic OFF).
+
+Durable decisions/outcomes:
+- Removed interactive chooser behavior from routine import/benchmark flow.
+- Centralized deterministic resolution in `choose_run_settings(...)`.
+- Resolver contract: winner-first, baseline fallback second, with codex+line-role+atomic preserved in baseline.
+
+Verification evidence preserved from task:
+- `. .venv/bin/activate && pytest tests/cli/test_c3imp_interactive_menu.py -q`
+- Updated tests assert winner usage, fallback behavior, and absence of chooser/codex-prompt callbacks.
+
+Anti-loop reminder:
+- Reintroducing manual profile-picking should be treated as an explicit behavior change with new regression evidence, not an ad-hoc tweak.

@@ -252,12 +252,10 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
-            "menu should not be shown"
+            "top-tier menu should not be shown when codex confirm prompt is available"
         ),
         back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: pytest.fail(
-            "codex yes/no prompt should not be shown"
-        ),
+        prompt_confirm=lambda *_args, **_kwargs: True,
         prompt_text=lambda *_args, **_kwargs: pytest.fail(
             "codex model prompt should not be shown"
         ),
@@ -294,9 +292,10 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
-            "menu should not be shown"
+            "top-tier menu should not be shown when codex confirm prompt is available"
         ),
         back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
     )
 
     assert selected is not None
@@ -334,14 +333,95 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
-            "menu should not be shown"
+            "top-tier menu should not be shown when codex confirm prompt is available"
         ),
         back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
     )
 
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
     assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
+
+
+def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    winner_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+            "atomic_block_splitter": "atomic-v1",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "semantic_v1",
+        },
+        warn_context="test qualitysuite winner settings",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: winner_settings,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: pytest.fail(
+            "top-tier menu should not be shown when codex confirm prompt is available"
+        ),
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: False,
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "off"
+    assert selected.line_role_pipeline.value == "deterministic-v1"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.epub_unstructured_html_parser_version.value == "v1"
+    assert selected.epub_unstructured_preprocess_mode.value == "br_split_v1"
+    assert selected.epub_unstructured_skip_headers_footers is False
+
+
+def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: pytest.fail(
+            "winner lookup should not run when codex is disabled"
+        ),
+    )
+    seen_default: dict[str, bool] = {}
+
+    def _prompt_confirm(*_args, **kwargs):
+        seen_default["value"] = bool(kwargs.get("default"))
+        return kwargs.get("default")
+
+    selected = run_settings_flow.choose_run_settings(
+        kind="benchmark",
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: pytest.fail(
+            "top-tier menu should not be shown when codex confirm prompt is available"
+        ),
+        back_action=object(),
+        prompt_confirm=_prompt_confirm,
+    )
+
+    assert seen_default["value"] is False
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "off"
+    assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
 
 

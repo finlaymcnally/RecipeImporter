@@ -2454,10 +2454,15 @@ section h3 {
 #previous-runs-column-reset:hover {
   border-color: #c7d0d9;
 }
+#previous-runs-section {
+  overflow-x: hidden;
+}
 .compare-control-panel {
   margin: 0;
   background: #fbfcf7;
   border: 1px solid #dde5cf;
+  min-width: 0;
+  max-width: 100%;
 }
 .previous-runs-sections {
   display: grid;
@@ -2472,6 +2477,7 @@ section h3 {
   background: #fbfcff;
   padding: 0.62rem 0.72rem;
   min-width: 0;
+  overflow-x: hidden;
 }
 .previous-runs-subsection > h3 {
   margin: 0 0 0.35rem;
@@ -2590,10 +2596,17 @@ section h3 {
   border-radius: 8px;
   background: #fff;
   padding: 0.48rem 0.62rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .compare-control-results p {
   margin: 0.2rem 0;
   font-size: 0.81rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .compare-control-results ul {
   margin: 0.25rem 0 0.05rem 1rem;
@@ -2602,6 +2615,8 @@ section h3 {
 .compare-control-results li {
   margin: 0.15rem 0;
   font-size: 0.79rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .compare-control-discovery-list {
   display: grid;
@@ -2615,6 +2630,8 @@ section h3 {
   padding: 0.34rem 0.48rem;
   cursor: pointer;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .compare-control-discovery-card:hover {
   border-color: #b4c59f;
@@ -3865,6 +3882,7 @@ _JS = """\
   let previousRunsSelectedPreset = "";
   let previousRunsSortField = "run_timestamp";
   let previousRunsSortDirection = "desc";
+  let benchmarkTrendChartsByHostId = Object.create(null);
   function compareControlDefaultState() {
     return {
       outcome_field: "strict_accuracy",
@@ -3975,6 +3993,8 @@ _JS = """\
     PREVIOUS_RUNS_COLUMN_FILTER_MODES
   );
   const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;
+  const DASHBOARD_TABLE_COLUMN_MIN_WIDTH = 72;
+  const DASHBOARD_TABLE_COLUMN_MAX_WIDTH = 1200;
   const PREVIOUS_RUNS_PRESET_NAME_MAX = 80;
   const PREVIOUS_RUNS_PRESET_MAX_COUNT = 40;
   const PREVIOUS_RUNS_DEFAULT_COLUMNS = [
@@ -4217,6 +4237,15 @@ _JS = """\
     }
   }
 
+  function normalizeDashboardColumnWidth(value) {
+    const width = Number(value);
+    if (!Number.isFinite(width) || width <= 0) return null;
+    return Math.max(
+      DASHBOARD_TABLE_COLUMN_MIN_WIDTH,
+      Math.min(DASHBOARD_TABLE_COLUMN_MAX_WIDTH, width)
+    );
+  }
+
   function sanitizeColumnWidthsMap(rawMap) {
     if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) {
       return Object.create(null);
@@ -4225,9 +4254,9 @@ _JS = """\
     Object.keys(rawMap).forEach(columnKey => {
       const key = String(columnKey || "").trim();
       if (!key) return;
-      const width = Number(rawMap[columnKey]);
-      if (!Number.isFinite(width) || width <= 0) return;
-      next[key] = Math.max(72, width);
+      const width = normalizeDashboardColumnWidth(rawMap[columnKey]);
+      if (width == null) return;
+      next[key] = width;
     });
     return next;
   }
@@ -4253,22 +4282,20 @@ _JS = """\
     if (!table || !column) return null;
     const rawMap = dashboardTableColumnWidths[table];
     if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) return null;
-    const width = Number(rawMap[column]);
-    if (!Number.isFinite(width) || width <= 0) return null;
-    return Math.max(72, width);
+    return normalizeDashboardColumnWidth(rawMap[column]);
   }
 
   function setDashboardTableColumnWidth(tableKey, columnKey, width) {
     const table = String(tableKey || "").trim();
     const column = String(columnKey || "").trim();
-    const nextWidth = Number(width);
-    if (!table || !column || !Number.isFinite(nextWidth) || nextWidth <= 0) return;
+    const nextWidth = normalizeDashboardColumnWidth(width);
+    if (!table || !column || nextWidth == null) return;
     let rawMap = dashboardTableColumnWidths[table];
     if (!rawMap || typeof rawMap !== "object" || Array.isArray(rawMap)) {
       rawMap = Object.create(null);
       dashboardTableColumnWidths[table] = rawMap;
     }
-    rawMap[column] = Math.max(72, nextWidth);
+    rawMap[column] = nextWidth;
   }
 
   function clearDashboardTableColumnWidths(tableKey) {
@@ -4716,9 +4743,9 @@ _JS = """\
     Object.keys(previousRunsColumnWidths).forEach(fieldName => {
       const key = String(fieldName || "").trim();
       if (!key) return;
-      const width = Number(previousRunsColumnWidths[fieldName]);
-      if (!Number.isFinite(width) || width <= 0) return;
-      columnWidths[key] = Math.max(72, width);
+      const width = normalizeDashboardColumnWidth(previousRunsColumnWidths[fieldName]);
+      if (width == null) return;
+      columnWidths[key] = width;
       setDashboardTableColumnWidth("previous-runs-table", key, width);
     });
     const tableColumnWidths = sanitizeDashboardTableColumnWidths(dashboardTableColumnWidths);
@@ -7246,9 +7273,9 @@ _JS = """\
     Object.keys(previousRunsColumnWidths).forEach(fieldName => {
       const key = String(fieldName || "").trim();
       if (!key) return;
-      const width = Number(previousRunsColumnWidths[fieldName]);
-      if (!Number.isFinite(width) || width <= 0) return;
-      columnWidths[key] = Math.max(72, width);
+      const width = normalizeDashboardColumnWidth(previousRunsColumnWidths[fieldName]);
+      if (width == null) return;
+      columnWidths[key] = width;
     });
     return sanitizePreviousRunsPresetState({
       visible_columns: visibleColumns,
@@ -8041,11 +8068,15 @@ _JS = """\
         event.stopPropagation();
         const startX = event.clientX;
         const startWidth = col.getBoundingClientRect().width || cell.getBoundingClientRect().width;
-        const minWidth = 72;
+        const minWidth = DASHBOARD_TABLE_COLUMN_MIN_WIDTH;
+        const maxWidth = DASHBOARD_TABLE_COLUMN_MAX_WIDTH;
         document.body.classList.add("dashboard-table-resizing");
 
         const onMove = moveEvent => {
-          const nextWidth = Math.max(minWidth, startWidth + (moveEvent.clientX - startX));
+          const nextWidth = Math.max(
+            minWidth,
+            Math.min(maxWidth, startWidth + (moveEvent.clientX - startX))
+          );
           col.style.width = nextWidth + "px";
           setDashboardTableColumnWidth(tableKey, columnKey, nextWidth);
         };
@@ -8118,6 +8149,20 @@ _JS = """\
       window.Highcharts &&
       typeof window.Highcharts.stockChart === "function"
     );
+  }
+
+  function destroyBenchmarkTrendChartHost(hostId) {
+    const key = String(hostId || "").trim();
+    if (!key) return;
+    const existingChart = benchmarkTrendChartsByHostId[key];
+    if (existingChart && typeof existingChart.destroy === "function") {
+      try {
+        existingChart.destroy();
+      } catch (error) {
+        // Ignore destroy failures from stale/incomplete chart instances.
+      }
+    }
+    delete benchmarkTrendChartsByHostId[key];
   }
 
   function hasHighchartsAreaRange() {
@@ -8478,6 +8523,7 @@ _JS = """\
     const emptyReason = String((config && config.emptyReason) || "").trim();
 
     if (pointCount === 0) {
+      destroyBenchmarkTrendChartHost(hostId);
       chartHost.innerHTML = "";
       if (fallback) {
         fallback.hidden = false;
@@ -8493,6 +8539,7 @@ _JS = """\
     }
 
     if (!hasHighchartsStock()) {
+      destroyBenchmarkTrendChartHost(hostId);
       chartHost.innerHTML = "";
       if (fallback) {
         fallback.hidden = false;
@@ -8513,7 +8560,9 @@ _JS = """\
     if (timelineMin != null) xAxisConfig.min = timelineMin;
     if (timelineMax != null) xAxisConfig.max = timelineMax;
 
-    window.Highcharts.stockChart(hostId, {
+    destroyBenchmarkTrendChartHost(hostId);
+    chartHost.innerHTML = "";
+    const nextChart = window.Highcharts.stockChart(hostId, {
       chart: {
         height: 800,
       },
@@ -8592,6 +8641,9 @@ _JS = """\
       },
       series: trendSeries,
     });
+    if (nextChart && typeof nextChart.destroy === "function") {
+      benchmarkTrendChartsByHostId[hostId] = nextChart;
+    }
   }
 
   function renderBenchmarkTrendChart() {
@@ -9178,9 +9230,9 @@ _JS = """\
       const draftState = currentPreviousRunsColumnFilterDraft(fieldName);
       const col = document.createElement("col");
       col.dataset.columnKey = fieldName;
-      const width = Number(previousRunsColumnWidths[fieldName]);
-      const persistedWidth = Number.isFinite(width)
-        ? Math.max(72, width)
+      const width = normalizeDashboardColumnWidth(previousRunsColumnWidths[fieldName]);
+      const persistedWidth = width != null
+        ? width
         : dashboardTableColumnWidth(previousRunsTableKey, fieldName);
       if (persistedWidth != null) {
         previousRunsColumnWidths[fieldName] = persistedWidth;
@@ -9272,11 +9324,15 @@ _JS = """\
         event.stopPropagation();
         const startX = event.clientX;
         const startWidth = th.getBoundingClientRect().width;
-        const minWidth = 72;
+        const minWidth = DASHBOARD_TABLE_COLUMN_MIN_WIDTH;
+        const maxWidth = DASHBOARD_TABLE_COLUMN_MAX_WIDTH;
         document.body.classList.add("previous-runs-resizing");
 
         const onMove = moveEvent => {
-          const nextWidth = Math.max(minWidth, startWidth + (moveEvent.clientX - startX));
+          const nextWidth = Math.max(
+            minWidth,
+            Math.min(maxWidth, startWidth + (moveEvent.clientX - startX))
+          );
           previousRunsColumnWidths[fieldName] = nextWidth;
           setDashboardTableColumnWidth(previousRunsTableKey, fieldName, nextWidth);
           th.style.width = nextWidth + "px";

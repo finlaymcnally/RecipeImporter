@@ -5671,3 +5671,34 @@ Anti-loop reminders from this consolidation:
 - If locator coverage regresses, inspect alias + derived-root fallback wiring before touching payload generators.
 - Keep OG-vs-execplan audits paired with regenerated sample bundles; stale sample artifacts created most false gap signals in this batch.
 
+
+### 2026-03-04 understandings consolidation (single-profile planning, auth-constrained validation, GC durability)
+
+Merged source notes:
+- `docs/understandings/2026-03-04_00.15.28-feedback-milestone5-auth-constrained-validation.md`
+- `docs/understandings/2026-03-04_00.20.31-single-profile-group-upload-bundle-seams.md`
+- `docs/understandings/2026-03-04_00.27.26-single-profile-codex-vs-vanilla-variant-planning.md`
+- `docs/understandings/2026-03-04_00.30.46-single-profile-vs-single-offline-sea-regression-context.md`
+- `docs/understandings/2026-03-04_00.36.14-bench-gc-csv-read-only.md`
+- `docs/understandings/2026-03-04_01.09.30-one-top-tier-profile-run-data-signal.md`
+
+Problem lineage preserved:
+- Milestone-5 feedback validation encountered codex websocket/auth `403` failures; codex fallback mode still produced benchmark artifacts but without pass telemetry rows.
+- Single-profile matched-book flow previously bypassed single-offline variant planning, so codex-selected runs were not guaranteed to produce per-book vanilla+codex paired artifacts.
+- A high-visibility perceived regression (SeaAndSmoke) was traced to profile/settings drift (`line_role_pipeline=off`, `atomic_block_splitter=off`) instead of pure model decline.
+- `bench gc` previously mutated benchmark CSV (hydration/prune), which complicated history-as-audit behavior.
+
+Durable decisions/outcomes:
+- Treat fallback-mode benchmark roots as valid quality evidence under auth constraints; keep telemetry-missing interpretation explicit.
+- Reuse `_interactive_single_offline_variants` for single-profile matched-book paths to preserve deterministic paired planning.
+- Keep GC read-only for benchmark CSV history; require pre-existing durable evidence before run-root pruning.
+- Keep upload-bundle group-mode size control explicit (high-level-only artifact curation + per-run sampled detail budget) for multi-book roots.
+
+Evidence anchors preserved from source notes:
+- Fallback codex run root: `data/golden/benchmark-vs-golden/2026-03-04_00.10.29_feedbackexec_codex_fallback`.
+- Speed compare pass under auth-constrained session: comparison root `data/golden/bench/speed/comparisons/2026-03-04_00.10.12`.
+- Recursive run-data audit showed codex+line-role+atomic materially stronger than off/off/off and codex-without-line-role on available sample.
+
+Anti-loop reminders:
+- Do not conclude model regression before confirming resolved run settings and variant-plan shape.
+- Do not couple GC cleanup behavior to CSV mutation; durable checks must stay read-only.

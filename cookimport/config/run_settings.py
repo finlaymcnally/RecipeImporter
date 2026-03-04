@@ -88,6 +88,7 @@ _SUMMARY_ORDER = (
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
+    "codex_farm_pass3_skip_pass2_ok",
     "codex_farm_pipeline_pass4_knowledge",
     "codex_farm_pipeline_pass5_tags",
     "codex_farm_context_blocks",
@@ -1068,6 +1069,18 @@ class RunSettings(BaseModel):
             description="codex-farm pipeline id used for final draft generation (pass3).",
         ),
     )
+    codex_farm_pass3_skip_pass2_ok: bool = Field(
+        default=True,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass3 Skip Pass2-OK",
+            order=138,
+            description=(
+                "When true, skip pass3 LLM calls for low-risk pass2-ok rows and use "
+                "deterministic promotion."
+            ),
+        ),
+    )
     codex_farm_pipeline_pass4_knowledge: str = Field(
         default="recipe.knowledge.v1",
         json_schema_extra=_ui_meta(
@@ -1553,6 +1566,7 @@ def build_run_settings(
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
+    codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_pipeline_pass5_tags: str = "recipe.tags.v1",
     codex_farm_context_blocks: int = 30,
@@ -1688,6 +1702,7 @@ def build_run_settings(
             "codex_farm_pipeline_pass3": (
                 str(codex_farm_pipeline_pass3).strip() or "recipe.final.v1"
             ),
+            "codex_farm_pass3_skip_pass2_ok": bool(codex_farm_pass3_skip_pass2_ok),
             "codex_farm_pipeline_pass4_knowledge": (
                 str(codex_farm_pipeline_pass4_knowledge).strip()
                 or "recipe.knowledge.v1"

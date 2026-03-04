@@ -2240,3 +2240,19 @@ Anti-loop reminders from this consolidation:
 - For codexfarm nonzero/no-message failures, check runner recovery/content-filter classifications before changing model or prompt contracts.
 - For full_text block absence failures, preserve the line-to-block synthesis fallback path unless replacement proves equivalent on benchmark replay evidence.
 
+
+### 2026-03-04 understandings consolidation (profile settings vs pass3 skip runtime policy)
+
+Merged source note:
+- `docs/understandings/2026-03-04_01.06.17-top-tier-profile-vs-pass3-skip-env-boundary.md`
+
+Problem captured:
+- Operators can misattribute pass3 call-volume changes to profile selection even when profile payloads are unchanged.
+
+Durable decision:
+- Keep a strict boundary between:
+  - run-settings profile control plane (pipeline/splitter knobs), and
+  - codex orchestrator runtime policy plane (pass3 pass2-ok skip env/default policy).
+
+Anti-loop reminder:
+- Debug pass3 skip behavior in orchestrator env/default evaluation first; do not add pseudo pass3-skip keys to profile payloads unless the architecture intentionally changes.

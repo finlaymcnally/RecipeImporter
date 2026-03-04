@@ -542,6 +542,212 @@ process.stdout.write(JSON.stringify(payload));
     return json.loads(completed.stdout.strip())
 
 
+def _run_benchmark_trend_host_rerender_harness(js_path: Path) -> dict[str, object]:
+    """Run generated dashboard JS and verify trend host render behavior across re-renders."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for benchmark trend host rerender harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__trendHostHarness = {
+    renderBenchmarkTrendChartHost,
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__trendHostHarness;
+if (!hooks) throw new Error("Trend host harness exports were not attached");
+
+const elements = {
+  "benchmark-trend-chart": {
+    innerHTML: "",
+    textContent: "",
+    hidden: false,
+  },
+  "benchmark-trend-fallback": {
+    innerHTML: "",
+    textContent: "",
+    hidden: true,
+  },
+};
+globalThis.document = {
+  getElementById: (id) => Object.prototype.hasOwnProperty.call(elements, id) ? elements[id] : null,
+};
+const stockChartCalls = [];
+globalThis.window = {
+  Highcharts: {
+    stockChart: (hostId, options) => {
+      const host = elements[hostId];
+      const beforeInnerHTML = String(host.innerHTML || "");
+      stockChartCalls.push({
+        host_id: String(hostId || ""),
+        before_is_empty: beforeInnerHTML.length === 0,
+        title: options && options.title ? String(options.title.text || "") : "",
+      });
+      host.innerHTML = beforeInnerHTML + "<div class='mock-highcharts-host'></div>";
+      return {
+        destroy: () => {
+          host.innerHTML = "";
+        },
+      };
+    },
+    dateFormat: () => "",
+  },
+};
+
+const trendSeries = [
+  {
+    name: "strict_accuracy",
+    data: [
+      {
+        x: Date.parse("2026-03-01T10:00:00Z"),
+        y: 0.9,
+        custom: { runGroupKey: "2026-03-01_10.00.00", runGroupLabel: "2026-03-01_10.00.00" },
+      },
+    ],
+  },
+];
+const config = {
+  hostId: "benchmark-trend-chart",
+  fallbackId: "benchmark-trend-fallback",
+  records: [],
+  trendSeries,
+  totalRows: 1,
+  chartTitle: "Harness Trend",
+};
+hooks.renderBenchmarkTrendChartHost(config);
+hooks.renderBenchmarkTrendChartHost(config);
+
+const payload = {
+  stockchart_calls: stockChartCalls.length,
+  first_before_empty: stockChartCalls.length > 0 ? Boolean(stockChartCalls[0].before_is_empty) : null,
+  second_before_empty: stockChartCalls.length > 1 ? Boolean(stockChartCalls[1].before_is_empty) : null,
+  final_host_markup_length: String(elements["benchmark-trend-chart"].innerHTML || "").length,
+};
+process.stdout.write(JSON.stringify(payload));
+"""
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Benchmark trend host rerender harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_previous_runs_pixel_overflow_harness(html_path: Path) -> dict[str, object]:
+    """Measure Previous Runs horizontal overflow in real browser pixels across rerenders."""
+    playwright_sync_api = pytest.importorskip("playwright.sync_api")
+    with playwright_sync_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except Exception as exc:  # pragma: no cover - environment-specific browser install issues
+            pytest.skip(f"chromium launch unavailable for pixel harness: {exc}")
+        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+
+        highcharts_stub = (
+            "window.Highcharts = window.Highcharts || {};\n"
+            "window.Highcharts.stockChart = window.Highcharts.stockChart || function(){"
+            "  return { destroy: function(){} };"
+            "};\n"
+            "window.Highcharts.setOptions = window.Highcharts.setOptions || function(){};\n"
+            "window.Highcharts.dateFormat = window.Highcharts.dateFormat || function(){ return ''; };\n"
+            "window.Highcharts.seriesTypes = window.Highcharts.seriesTypes || {};\n"
+            "window.Highcharts.seriesTypes.arearange = window.Highcharts.seriesTypes.arearange || function(){};\n"
+        )
+
+        def _fulfill_highcharts(route) -> None:
+            route.fulfill(
+                status=200,
+                content_type="application/javascript",
+                body=highcharts_stub,
+            )
+
+        page.route("**/*highstock.js*", _fulfill_highcharts)
+        page.route("**/*highcharts-more.js*", _fulfill_highcharts)
+
+        page.goto(html_path.as_uri(), wait_until="networkidle", timeout=120000)
+        page.wait_for_timeout(1200)
+
+        page.select_option("#compare-control-view-mode", "raw")
+        page.wait_for_timeout(300)
+
+        compare_candidates = page.evaluate(
+            """() => Array.from(
+                document.querySelectorAll("#compare-control-compare-field option")
+            ).map(opt => String(opt.value || "").trim()).filter(Boolean)"""
+        )
+        preferred = [
+            "source_file",
+            "source_label",
+            "artifact_dir",
+            "run_config.scenario_key",
+            "run_config_hash",
+        ]
+        selected = [field for field in preferred if field in compare_candidates]
+        if len(selected) < 2:
+            browser.close()
+            pytest.skip("pixel harness could not find two categorical compare fields")
+
+        def _sample(tag: str) -> dict[str, int | str]:
+            return page.evaluate(
+                """(tag) => {
+                    const section = document.getElementById("previous-runs-section");
+                    const root = document.documentElement;
+                    return {
+                      tag,
+                      doc_client: Number(root.clientWidth || 0),
+                      doc_scroll: Number(root.scrollWidth || 0),
+                      section_client: Number(section ? section.clientWidth : 0),
+                      section_scroll: Number(section ? section.scrollWidth : 0),
+                    };
+                }""",
+                tag,
+            )
+
+        samples = [_sample("initial")]
+        for index in range(8):
+            page.select_option("#compare-control-compare-field", selected[index % 2])
+            page.wait_for_timeout(220)
+            samples.append(_sample(f"cycle_{index}"))
+
+        browser.close()
+
+    doc_overflows = [max(0, row["doc_scroll"] - row["doc_client"]) for row in samples]
+    section_overflows = [
+        max(0, row["section_scroll"] - row["section_client"])
+        for row in samples
+    ]
+    doc_scroll_values = [row["doc_scroll"] for row in samples]
+    return {
+        "samples": samples,
+        "max_doc_overflow_px": max(doc_overflows) if doc_overflows else 0,
+        "max_section_overflow_px": max(section_overflows) if section_overflows else 0,
+        "max_doc_scroll_delta_px": (
+            max(doc_scroll_values) - min(doc_scroll_values)
+            if doc_scroll_values
+            else 0
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Schema tests
 # ---------------------------------------------------------------------------
@@ -1658,6 +1864,16 @@ class TestRenderer:
         assert 'class="isolate-rule-value isolate-rule-value-input"' not in js
         assert "function syncIsolateControls(records)" not in js
 
+    def test_dashboard_js_clamps_persisted_table_column_widths(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        assert "const DASHBOARD_TABLE_COLUMN_MIN_WIDTH = 72;" in js
+        assert "const DASHBOARD_TABLE_COLUMN_MAX_WIDTH = 1200;" in js
+        assert "function normalizeDashboardColumnWidth(value)" in js
+        assert "Math.min(DASHBOARD_TABLE_COLUMN_MAX_WIDTH, width)" in js
+        assert "Math.min(maxWidth, startWidth + (moveEvent.clientX - startX))" in js
+
     def test_compare_control_controlled_categorical_standardizes_strata(self, tmp_path):
         dash_dir = tmp_path / "dash"
         render_dashboard(dash_dir, DashboardData())
@@ -2249,6 +2465,46 @@ class TestRenderer:
         assert result["token_vanilla_series_points"] == 1
         assert result["token_codex_series_points"] == 1
 
+    def test_benchmark_trend_host_rerender_starts_from_clean_host(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_benchmark_trend_host_rerender_harness(js_path)
+        assert result["stockchart_calls"] == 2
+        assert result["first_before_empty"] is True
+        assert result["second_before_empty"] is True
+
+    def test_previous_runs_stays_within_viewport_pixels_after_rerenders(self, tmp_path):
+        benchmark_records = []
+        for index in range(72):
+            benchmark_records.append(
+                BenchmarkRecord(
+                    run_timestamp=f"2026-03-01T10:{index % 60:02d}:00",
+                    run_dir=f"/tmp/runs/{index}",
+                    file_name=f"book_{index}.pdf",
+                    strict_accuracy=0.5 + ((index % 10) * 0.01),
+                    macro_f1_excluding_other=0.4 + ((index % 7) * 0.01),
+                    source_file=(f"source_group_{index % 4}_" * 36) + str(index),
+                    source_label=(f"label_group_{index % 5}_" * 22) + str(index),
+                    artifact_dir=(
+                        "/tmp/golden/benchmark-vs-golden/"
+                        + ("cookbook_slug_" * 16)
+                        + f"/2026-03-01_10.00.00/single-offline-benchmark/book_{index % 3}"
+                        + f"/2026-03-01_10.{index % 60:02d}.00/"
+                        + ("codexfarm" if index % 2 else "vanilla")
+                    ),
+                    run_category="benchmark_eval",
+                    importer_name="pdfplumber",
+                    run_config={"scenario_key": (f"scenario_{index % 3}_" * 24) + str(index)},
+                )
+            )
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData(benchmark_records=benchmark_records))
+        result = _run_previous_runs_pixel_overflow_harness(dash_dir / "index.html")
+        assert result["max_doc_overflow_px"] <= 2
+        assert result["max_section_overflow_px"] <= 2
+        assert result["max_doc_scroll_delta_px"] <= 2
+
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
@@ -2265,6 +2521,8 @@ class TestRenderer:
         assert ".previous-runs-presets-popup {" not in css
         assert ".previous-runs-sections {" in css
         assert ".previous-runs-subsection {" in css
+        assert "#previous-runs-section {" in css
+        assert "overflow-x: hidden;" in css
         previous_runs_sections_block = re.search(
             r"\.previous-runs-sections \{([^}]*)\}",
             css,
@@ -2280,6 +2538,15 @@ class TestRenderer:
         assert previous_runs_subsection_block is not None
         assert "min-width: 0;" in previous_runs_subsection_block.group(1)
         assert ".compare-control-panel {" in css
+        compare_control_results_block = re.search(
+            r"\.compare-control-results \{([^}]*)\}",
+            css,
+            re.DOTALL,
+        )
+        assert compare_control_results_block is not None
+        compare_results_css = compare_control_results_block.group(1)
+        assert "overflow-wrap: anywhere;" in compare_results_css
+        assert "word-break: break-word;" in compare_results_css
         assert ".compare-control-controls {" in css
         assert ".compare-control-results {" in css
         assert "#previous-runs-clear-all-filters {" in css

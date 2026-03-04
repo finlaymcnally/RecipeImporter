@@ -615,3 +615,67 @@ Current analytics contracts reinforced by this batch:
 - Backend compare-control parity (`run`/`agent`/`insights`) is part of the maintained contract, not an optional side tool.
 - Discovery/analysis modes remain distinct (`discover` for field finding, `raw`/`controlled` for inference) and this wording should stay explicit in UI/docs.
 - Per-label and compare-control run selectors should remain state-backed and deterministic across reload/preset restores.
+
+## 2026-03-04 merged understandings digest (trend controls, history roots, layout/rerender stability)
+
+Merged source notes (timestamp order):
+- `2026-03-04_00.14.17-per-label-missing-variant-zero-coercion.md`
+- `2026-03-04_00.17.57-benchmark-trend-run-group-token-selection.md`
+- `2026-03-04_00.21.08-compare-control-secondary-constant-zero.md`
+- `2026-03-04_00.38.37-codexfarm-pass3-token-trend-query.md`
+- `2026-03-04_00.41.49-previous-runs-two-section-two-chart-layout.md`
+- `2026-03-04_00.44.24-dashboard-trend-field-selection-contract.md`
+- `2026-03-04_00.48.32-history-root-repo-local-vs-external.md`
+- `2026-03-04_00.50.58-previous-runs-grid-min-content-width-leak.md`
+- `2026-03-04_00.58.21-benchmark-trend-host-rerender-cleanup.md`
+
+Current analytics contracts reinforced:
+- Missing comparison-variant per-label values must render as `-`, not coerced `0.0000` values.
+- Trend run-group extraction must prefer the shared benchmark run token after `benchmark-vs-golden` to keep paired variant x-axis alignment stable.
+- Compare/control secondary metric selection must require numeric variation so constant side-metrics are suppressed.
+- Trend UI now supports state-backed arbitrary numeric field selection (`Trend fields` checklist, `trend_fields` persisted in UI state).
+- Previous Runs layout uses two subsection cards with two chart hosts sharing one filtered-row pool (`benchmark-trend-chart`, `compare-control-trend-chart`).
+- Trend host redraws must destroy/clear existing chart instances before re-render to avoid cumulative markup/width growth.
+- History root behavior is repo-aware: repo-local outputs use `<repo>/.history`, external outputs keep sibling `.history`; compatibility reads of older locations remain required.
+
+Operator query contract preserved:
+- Pass-level codex token trend checks should read `llmCodexFarm.process_runs.pass{1,2,3}.telemetry.rows[*].tokens_total` from report JSON artifacts and compare over run timestamps.
+
+Anti-loop reminders:
+- If paired trend points drift, inspect run-group token extraction before touching chart plotting logic.
+- If trend panels grow/duplicate after repeated filter changes, inspect host-destroy/host-clear sequencing first.
+- If dashboard history appears missing after output-root changes, verify history-root resolution and fallback-read probes before changing collector logic.
+
+## 2026-03-04 merged understandings digest (pixel overflow containment seam)
+
+Merged source note:
+- `2026-03-04_01.06.35-previous-runs-pixel-overflow-source.md`
+
+Current analytics/UI containment contract reinforced:
+- Previous Runs page-level horizontal growth can come from long unwrapped Compare & Control tokens, not only chart/table widths.
+- Section-level containment must keep overflow local:
+  - hide horizontal overflow at previous-runs section/subsection containers,
+  - enable aggressive wrapping in compare/control result text (`overflow-wrap: anywhere`, `word-break: break-word`).
+- Local table scrolling remains the approved path for wide tabular content.
+
+Anti-loop reminder:
+- If rightward growth recurs, check page-level `scrollWidth - clientWidth` and long-token wrapping behavior before altering trend chart sizing.
+
+## 2026-03-04 docs/tasks merge digest (trend-field controls + overflow/rerender containment)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_00.44.24-dashboard-trend-arbitrary-fields.md`
+- `docs/tasks/2026-03-04_00.50.57-previous-runs-rightward-growth-containment.md`
+- `docs/tasks/2026-03-04_00.58.20-benchmark-trend-host-rerender-cleanup.md`
+- `docs/tasks/2026-03-04_01.06.34-previous-runs-pixel-overflow-guard.md`
+
+Current analytics contracts reinforced:
+- Trend chart series are no longer fixed to two metrics; users can add/remove any number of numeric trend fields via state-backed controls.
+- Trend behavior must preserve paired variant split, shared run-group x-axis alignment, and overlay rendering regardless of selected fields.
+- Previous Runs layout containment is a section-level contract (`minmax(0, 1fr)` grid constraints + `min-width: 0` guards + overflow containment), while wide tables remain locally scrollable.
+- Trend host rerenders must clear/destroy prior host-specific chart instances before redraw/fallback transitions.
+- Pixel-level overflow checks are valid regression anchors for page-growth issues; compare/control long-token wrapping is required to prevent page-level horizontal expansion.
+
+Anti-loop reminders:
+- If trend series regress after UI tweaks, check selected-field normalization/state persistence first.
+- If rightward growth returns, inspect both host cleanup lifecycle and long-token wrapping before altering table min-width contracts.

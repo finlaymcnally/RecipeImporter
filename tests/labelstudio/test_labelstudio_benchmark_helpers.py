@@ -2662,6 +2662,15 @@ def test_interactive_benchmark_uses_golden_output_roots(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+            "epub_extractor": "beautifulsoup",
+        },
+        warn_context="test interactive benchmark vanilla defaults",
+    )
     menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
     mode_prompts: list[list[str]] = []
 
@@ -2682,7 +2691,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
     monkeypatch.setattr(
         cli,
         "choose_run_settings",
-        lambda **kwargs: kwargs["global_defaults"],
+        lambda **_kwargs: selected_benchmark_settings,
     )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
 
@@ -2729,6 +2738,15 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+            "epub_extractor": "beautifulsoup",
+        },
+        warn_context="test interactive benchmark vanilla defaults",
+    )
     menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
@@ -2741,7 +2759,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     monkeypatch.setattr(
         cli,
         "choose_run_settings",
-        lambda **kwargs: kwargs["global_defaults"],
+        lambda **_kwargs: selected_benchmark_settings,
     )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(
@@ -2832,6 +2850,14 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
     mode_prompt_count = 0
     mode_titles: list[str] = []
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+        },
+        warn_context="test interactive benchmark vanilla defaults",
+    )
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
         nonlocal mode_prompt_count
@@ -2846,7 +2872,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     monkeypatch.setattr(
         cli,
         "choose_run_settings",
-        lambda **kwargs: kwargs["global_defaults"],
+        lambda **_kwargs: selected_benchmark_settings,
     )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
     monkeypatch.setattr(

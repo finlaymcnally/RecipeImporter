@@ -886,3 +886,16 @@ Benchmark evidence preserved from merged task docs:
 Anti-loop reminders from this task batch:
 - If title recall drops to zero again, inspect allowlist reachability and low-confidence escalation behavior before prompt-only tuning.
 - If instruction->ingredient confusion reappears, inspect atomizer quantity splitting order/guards before changing canonical label thresholds.
+
+## 2026-03-04 merged understandings digest (canonical line-role milestone 2 closure)
+
+Merged source note:
+- `2026-03-04_00.16.32-feedback-milestone2-gap-closure.md`
+
+Current parsing contracts reinforced:
+- `RECIPE_TITLE` detection in canonical line-role now requires contextual support when available; compact title-like rows without supportive next-line structure should not be auto-promoted.
+- `YIELD_LINE` detection now requires strict yield-header validation; prose fragments with yield-ish words must demote to structural fallback labels.
+- Yield fallback routing remains context-aware (`INSTRUCTION_LINE` / `RECIPE_NOTES` / `OTHER`) with ingredient rescue preserved for obvious ingredient rows.
+- Regression anchors for this closure:
+  - `test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction`
+  - `test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_title`

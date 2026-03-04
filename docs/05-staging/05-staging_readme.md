@@ -293,7 +293,8 @@ Code pointers:
 
 Core tests to keep green when touching staging:
 
-- `tests/cli/test_cli_output_structure.py`
+- `tests/cli/test_cli_output_structure_text_fast.py`
+- `tests/cli/test_cli_output_structure_slow.py`
 - `tests/staging/test_draft_v1_staging_alignment.py`
 - `tests/staging/test_draft_v1_lowercase.py`
 - `tests/staging/test_draft_v1_variants.py`
@@ -452,3 +453,16 @@ Key staging contracts to keep:
 
 Chronological merged source notes:
 - 2026-03-02_20.39.37-stage-run-summary-human-friendly: Stage runs now emit a quick per-folder summary artifact and terminal digest for fast human inspection.
+
+## 2026-03-04 merged understandings digest (run summary markdown gating)
+
+Merged source note:
+- `2026-03-04_00.53.46-stage-run-summary-markdown-gating.md`
+
+Current staging contracts reinforced:
+- `run_summary.json` is always written as the machine-readable run summary artifact.
+- `run_summary.md` is conditional and must be suppressed when stage markdown sidecars are disabled (for example `--no-write-markdown`).
+- Terminal quick-summary output should report the summary artifact path that actually exists under current markdown settings.
+
+Anti-loop reminder:
+- If `--no-write-markdown` still emits markdown summary artifacts, inspect `_write_stage_run_summary` markdown gating before changing stage-output orchestration.

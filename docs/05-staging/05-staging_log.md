@@ -520,3 +520,19 @@ Added a stage-end digest built from per-file reports:
 
 `run_manifest.json` now includes `run_summary_json` and `run_summary_md` artifact pointers when those files exist.
 
+
+### 2026-03-04 understandings consolidation (stage run summary markdown suppression)
+
+Merged source note:
+- `docs/understandings/2026-03-04_00.53.46-stage-run-summary-markdown-gating.md`
+
+Problem captured:
+- `stage --no-write-markdown` is supposed to suppress markdown sidecars, but `run_summary.md` can leak if summary writing bypasses markdown gating.
+
+Durable decisions/outcomes:
+- Keep `run_summary.json` always-on for machine-readable run metadata.
+- Gate `run_summary.md` on the stage markdown flag.
+- Terminal summary path should follow the emitted artifact (`run_summary.json` when markdown is off).
+
+Anti-loop reminder:
+- Treat markdown suppression as a staging-output contract; do not special-case `run_summary.md` outside markdown policy.

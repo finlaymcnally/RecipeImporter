@@ -106,10 +106,20 @@ Menu numbering and shortcuts:
 
 `Settings` edits global defaults in `cookimport.json`.
 
-Interactive `Import` and benchmark runs (single-offline + matched-sets) now skip the per-run chooser and resolve one automatic `top-tier default` profile from `choose_run_settings(...)`:
-- use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
-- otherwise use built-in baseline defaults (`quality-first` EPUB stack + `llm_recipe_pipeline=codex-farm-3pass-v1` + `line_role_pipeline=codex-line-role-v1` + `atomic_block_splitter=atomic-v1`).
-- regardless of source, harmonize benchmark pipeline knobs to top-tier (`codex-farm + codex-line-role + atomic-v1`) to prevent stale winner snapshots from silently forcing `off/off`.
+Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
+- `Use Codex Farm recipe pipeline for this run?`
+  - default is inferred from global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`),
+  - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can force either profile and bypass the prompt.
+
+Resolved profile families:
+- `CodexFarm automatic top-tier`:
+  - use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
+  - otherwise use built-in codex top-tier baseline (`quality-first` EPUB stack + codex recipe/line-role/atomic enabled),
+  - then harmonize to codex top-tier pipeline knobs (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`).
+- `Vanilla automatic top-tier`:
+  - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`),
+  - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
+  - EPUB parsing baseline pinned to `unstructured + v1 + br_split_v1 + skip_headers=false`.
 
 Config keys and defaults:
 
@@ -132,8 +142,8 @@ Config keys and defaults:
 - `benchmark_sequence_matcher` (default `dmp`; canonical-text matcher for benchmark/eval runs)
 - `epub_extractor` (default `unstructured`)
 - `epub_unstructured_html_parser_version` (default `v1`)
-- `epub_unstructured_skip_headers_footers` (default `false`)
-- `epub_unstructured_preprocess_mode` (default `br_split_v1`)
+- `epub_unstructured_skip_headers_footers` (default `true`)
+- `epub_unstructured_preprocess_mode` (default `semantic_v1`)
 - `table_extraction` (default `off`)
 - `section_detector_backend` (default `legacy`)
 - `multi_recipe_splitter` (default `legacy`)
@@ -179,7 +189,7 @@ Config keys and defaults:
 - `pdf_pages_per_job` (default `50`)
 - `epub_spine_items_per_job` (default `10`)
 - `warm_models` (default `false`)
-- `llm_recipe_pipeline` (default `off`)
+- `llm_recipe_pipeline` (default `codex-farm-3pass-v1`)
 - `llm_knowledge_pipeline` (default `off`)
 - `llm_tags_pipeline` (default `off`)
 - `codex_farm_cmd` (default `codex-farm`)
@@ -242,7 +252,7 @@ Developer note:
 `Import` steps:
 
 1. Prompt for `Import All` or one selected file from top-level `data/input`.
-2. Resolve one automatic top-tier run-settings profile (no per-run settings picker and no codex yes/no prompt in this flow).
+2. Select one automatic top-tier profile family (`CodexFarm` or `Vanilla`) and resolve its deterministic run-settings profile (no full profile chooser and no codex yes/no prompt in this flow).
 3. Applies selected EPUB env vars:
    - `C3IMP_EPUB_EXTRACTOR`
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
@@ -334,7 +344,7 @@ Interactive benchmark now has a mode submenu before execution:
    - `Single config, selected matched sets: Pick which matched books to run`
    - `Single config, all matched sets: Repeat one config for every matched golden set`
 2. Single offline path:
-   - resolves one automatic top-tier run profile (same resolver used by interactive import),
+   - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
@@ -363,7 +373,7 @@ Interactive benchmark now has a mode submenu before execution:
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/<variant>/`.
 3. Single-profile matched-sets path:
-   - uses the same automatic top-tier run profile resolver as single-offline (no run-settings picker in this flow),
+   - uses the same compact automatic top-tier profile selector as single-offline,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
    - selected-matched mode lets you toggle specific books and run only that subset (or choose `Run all matched books`),
    - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
@@ -485,8 +495,8 @@ Options:
 - `--write-markdown / --no-write-markdown` (default write): write markdown sidecar artifacts (`sections.md`, `tips.md`, `topic_candidates.md`, `chunks.md`, `tables.md`).
 - `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for importer runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
-- `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
-- `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default enabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
+- `--epub-unstructured-preprocess-mode TEXT` (default `semantic_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `--table-extraction TEXT` (default `off`): `off|on` deterministic table detection/export and table-aware chunking.
 - `--recipe-scorer-backend TEXT` (default `heuristic_v1`): recipe-likeness scorer backend.
 - `--recipe-score-gold-min FLOAT` (default `0.75`): minimum score for `gold` tier.
@@ -507,7 +517,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `codex-farm-3pass-v1`): `off|codex-farm-3pass-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
@@ -892,8 +902,8 @@ Options:
 - `--epub-spine-items-per-job INTEGER>=1` (default `10`): EPUB shard size.
 - `--epub-extractor TEXT` (default `unstructured`): default-enabled values are `unstructured|beautifulsoup`; `markdown|markitdown` are rejected unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`. Exported to `C3IMP_EPUB_EXTRACTOR` for prediction import runtime.
 - `--epub-unstructured-html-parser-version TEXT` (default `v1`): `v1|v2`; exported to `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`.
-- `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default disabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
-- `--epub-unstructured-preprocess-mode TEXT` (default `br_split_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
+- `--epub-unstructured-skip-headers-footers / --no-epub-unstructured-skip-headers-footers` (default enabled): exported to `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`.
+- `--epub-unstructured-preprocess-mode TEXT` (default `semantic_v1`): `none|br_split_v1|semantic_v1`; exported to `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`.
 - `--recipe-scorer-backend TEXT` (default `heuristic_v1`): recipe-likeness scorer backend.
 - `--recipe-score-gold-min FLOAT` (default `0.75`): minimum score for `gold` tier.
 - `--recipe-score-silver-min FLOAT` (default `0.55`): minimum score for `silver` tier.
@@ -913,7 +923,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `codex-farm-3pass-v1`): `off|codex-farm-3pass-v1`.
 - `--codex-farm-recipe-mode TEXT` (default `extract`): `extract|benchmark`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
@@ -1654,8 +1664,51 @@ Merged source notes (chronological):
 
 ## 2026-03-04 merged understandings digest (interactive top-tier defaults)
 
-- `2026-03-04_00.44.22` `interactive-top-tier-default-run-settings-source-of-truth`: Interactive import/benchmark run settings now resolve from one deterministic top-tier profile source and no longer prompt a profile menu.
-- Current resolver contract in `choose_run_settings(...)`:
-  - prefer saved `quality-suite winner` settings when available,
-  - otherwise fall back to built-in top-tier baseline (`quality-first` EPUB stack + codex recipe/line-role/atomic enabled),
-  - then harmonize the codex/line-role/atomic trio so stale winner files cannot drift interactive runs back to `off/off`.
+- `2026-03-04_00.44.22` `interactive-top-tier-default-run-settings-source-of-truth`: single-profile resolver milestone that removed the old global/preferred/last/edit chooser.
+- `2026-03-04_01.20.00` `interactive-two-top-tier-profiles-codex-vs-vanilla`: interactive import/benchmark now expose exactly two automatic top-tier profile families (`CodexFarm`, `Vanilla`) with deterministic harmonization per profile.
+
+## 2026-03-04 merged understandings digest (stale benchmark settings + winner harmonization)
+
+Merged source notes (timestamp order):
+- `2026-03-04_00.33.51-single-profile-codex-line-role-setting-source.md`
+- `2026-03-04_00.44.22-interactive-top-tier-default-run-settings-source-of-truth.md`
+- `2026-03-04_00.49.14-interactive-winner-harmonization-for-codex-line-role.md`
+
+Current CLI contracts reinforced by this batch:
+- Interactive run-settings resolution is deterministic and top-tier-first; avoid reintroducing broad profile pickers that can silently reuse stale low-quality profiles.
+- Codex-vs-vanilla intent is captured by a single `Use Codex Farm recipe pipeline for this run?` prompt (with env override support), not a separate profile-family chooser.
+- `llm_recipe_pipeline` must not be treated as an implicit proxy for `line_role_pipeline` / `atomic_block_splitter`; harmonization must explicitly set all three knobs together.
+- Saved quality-suite winner settings can remain stale in history files, so post-resolution harmonization is required even when winner settings are loaded.
+
+Anti-loop reminders:
+- If a benchmark/import run shows codex ON with line-role or atomic OFF, debug `choose_run_settings(...)` harmonization first.
+- If quality appears regressed in single-profile mode, verify resolved settings/hash before changing parsing/scoring logic.
+
+## 2026-03-04 merged understandings digest (two automatic top-tier profiles)
+
+Merged source note:
+- `2026-03-04_01.20.00-interactive-two-top-tier-profiles-codex-vs-vanilla.md`
+
+Current CLI contract reinforced:
+- Interactive run-settings selection stays compact and deterministic while preserving codex-vs-vanilla intent through a single codex on/off prompt that maps to two automatic profile families:
+  - CodexFarm automatic top-tier.
+  - Vanilla automatic top-tier.
+- This keeps the old wide profile picker removed while restoring an explicit apples-to-apples baseline path.
+
+Anti-loop reminder:
+- Avoid adding back broad manual profile menus to solve codex-vs-vanilla choice; keep that choice in the two-profile automatic selector.
+
+## 2026-03-04 docs/tasks merge digest (interactive top-tier resolver)
+
+Merged source task file:
+- `docs/tasks/2026-03-04_00.44.22-top-tier-default-run-settings.md`
+
+Current CLI contract reinforced:
+- Interactive import/benchmark flows should not show a run-settings profile picker for routine execution.
+- `choose_run_settings(...)` acts as a deterministic resolver:
+  - prefer saved quality-suite winner settings when present,
+  - otherwise use built-in top-tier baseline.
+- Deterministic baseline keeps codex recipe + codex line-role + atomic splitter enabled.
+
+Anti-loop reminder:
+- If stale low-quality setting combos reappear, verify chooser removal and resolver path usage before changing benchmark/scoring logic.

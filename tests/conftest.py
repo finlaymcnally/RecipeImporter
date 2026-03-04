@@ -25,7 +25,9 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_cleaning_epub.py": ("parsing",),
     "test_cli_limits.py": ("cli",),
     "test_cli_llm_flags.py": ("cli", "llm"),
-    "test_cli_output_structure.py": ("cli", "staging", "ingestion"),
+    "test_cli_output_structure_fast.py": ("cli", "llm", "labelstudio"),
+    "test_cli_output_structure_text_fast.py": ("cli", "staging", "ingestion"),
+    "test_cli_output_structure_slow.py": ("cli", "staging", "ingestion"),
     "test_run_settings_adapters.py": ("cli",),
     "test_codex_farm_contracts.py": ("llm",),
     "test_codex_farm_knowledge_orchestrator.py": ("llm",),
@@ -89,6 +91,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_recipesage_importer.py": ("ingestion",),
     "test_run_manifest_parity.py": ("staging", "llm"),
     "test_run_settings.py": ("llm", "cli"),
+    "test_section_detector.py": ("parsing",),
     "test_section_outputs.py": ("staging", "parsing"),
     "test_segmentation_metrics.py": ("bench",),
     "test_sequence_matcher_dropin_parity.py": ("bench",),
@@ -99,6 +102,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_schemaorg_ingest.py": ("parsing",),
     "test_split_merge_status.py": ("staging", "bench"),
     "test_stats_dashboard.py": ("analytics",),
+    "test_stats_dashboard_slow.py": ("analytics",),
     "test_stage_block_predictions.py": ("staging", "bench"),
     "test_stage_progress_dashboard.py": ("cli", "staging"),
     "test_step_ingredient_linking.py": ("parsing",),
@@ -117,19 +121,10 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
 }
 
 _SLOW_FILES = {
-    "test_bench.py",
-    "test_cli_output_structure.py",
+    "test_cli_output_structure_slow.py",
     "test_codex_farm_orchestrator.py",
-    "test_epub_extraction_quickwins.py",
-    "test_epub_importer.py",
     "test_labelstudio_benchmark_helpers.py",
-    "test_labelstudio_freeform.py",
-    "test_labelstudio_ingest_parallel.py",
-    "test_labelstudio_prelabel.py",
-    "test_phase1_manual.py",
-    "test_stats_dashboard.py",
-    "test_tagging.py",
-    "test_unstructured_adapter.py",
+    "test_stats_dashboard_slow.py",
 }
 
 _SMOKE_FILES = {

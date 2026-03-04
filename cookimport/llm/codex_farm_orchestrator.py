@@ -162,6 +162,7 @@ def run_codex_farm_recipe_pipeline(
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
     pipelines = _resolve_pipeline_ids(run_settings)
     pass1_pattern_hints_enabled = _pass1_pattern_hints_enabled()
+    pass3_skip_pass2_ok_enabled = _pass3_skip_pass2_ok_enabled(run_settings=run_settings)
     output_schema_paths: dict[str, str] = {}
     transport_audits: dict[str, dict[str, Any]] = {}
     evidence_normalizations: dict[str, dict[str, Any]] = {}
@@ -217,7 +218,7 @@ def run_codex_farm_recipe_pipeline(
             "transport": {"audits": {}, "mismatches": []},
             "evidence_normalization": {"recipes": {}},
             "pass3_policy": {
-                "pass2_ok_deterministic_skip_enabled": _pass3_skip_pass2_ok_enabled(),
+                "pass2_ok_deterministic_skip_enabled": pass3_skip_pass2_ok_enabled,
                 "pass2_ok_min_non_placeholder_instructions": (
                     _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS
                 ),
@@ -524,7 +525,10 @@ def run_codex_farm_recipe_pipeline(
             continue
         if state.pass3_status in {"error", "fallback"}:
             continue
-        should_run_pass3, routing_reason = _should_run_pass3_llm(state=state)
+        should_run_pass3, routing_reason = _should_run_pass3_llm(
+            state=state,
+            pass3_skip_pass2_ok_enabled=pass3_skip_pass2_ok_enabled,
+        )
         state.pass3_routing_reason = routing_reason
         if should_run_pass3:
             state.pass3_execution_mode = "llm"
@@ -732,6 +736,7 @@ def run_codex_farm_recipe_pipeline(
         output_schema_paths=output_schema_paths,
         process_runs=process_runs,
         pass1_pattern_hints_enabled=pass1_pattern_hints_enabled,
+        pass3_skip_pass2_ok_enabled=pass3_skip_pass2_ok_enabled,
         transport_audits=transport_audits,
         evidence_normalizations=evidence_normalizations,
     )
@@ -819,6 +824,7 @@ def _build_llm_manifest(
     output_schema_paths: dict[str, str],
     process_runs: dict[str, dict[str, Any]],
     pass1_pattern_hints_enabled: bool,
+    pass3_skip_pass2_ok_enabled: bool,
     transport_audits: dict[str, dict[str, Any]],
     evidence_normalizations: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
@@ -964,7 +970,7 @@ def _build_llm_manifest(
         },
         "evidence_normalization": {"recipes": dict(evidence_normalizations)},
         "pass3_policy": {
-            "pass2_ok_deterministic_skip_enabled": _pass3_skip_pass2_ok_enabled(),
+            "pass2_ok_deterministic_skip_enabled": pass3_skip_pass2_ok_enabled,
             "pass2_ok_min_non_placeholder_instructions": (
                 _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS
             ),
@@ -1066,10 +1072,10 @@ def _pass1_pattern_hints_enabled() -> bool:
     return _env_flag_enabled(_PASS1_PATTERN_HINTS_ENV)
 
 
-def _pass3_skip_pass2_ok_enabled() -> bool:
+def _pass3_skip_pass2_ok_enabled(*, run_settings: RunSettings) -> bool:
     raw_value = os.environ.get(_PASS3_SKIP_PASS2_OK_ENV)
     if raw_value is None or not str(raw_value).strip():
-        return True
+        return bool(run_settings.codex_farm_pass3_skip_pass2_ok)
     normalized = str(raw_value).strip().lower()
     return normalized not in {"0", "false", "no", "off"}
 
@@ -1767,7 +1773,11 @@ def _build_pass3_utility_signal_for_pass2_ok(
     }
 
 
-def _should_run_pass3_llm(*, state: _RecipeState) -> tuple[bool, str]:
+def _should_run_pass3_llm(
+    *,
+    state: _RecipeState,
+    pass3_skip_pass2_ok_enabled: bool,
+) -> tuple[bool, str]:
     if state.pass2_output is None:
         return False, "pass2_output_missing"
     if state.pass2_status == "ok":
@@ -1776,11 +1786,11 @@ def _should_run_pass3_llm(*, state: _RecipeState) -> tuple[bool, str]:
                 output=state.pass2_output,
                 canonical_text=state.canonical_text,
             )
-        if _pass3_skip_pass2_ok_enabled() and bool(
+        if pass3_skip_pass2_ok_enabled and bool(
             state.pass3_utility_signal.get("deterministic_low_risk")
         ):
             return False, "pass2_ok_high_confidence_deterministic"
-        if _pass3_skip_pass2_ok_enabled():
+        if pass3_skip_pass2_ok_enabled:
             return True, "pass2_ok_requires_llm"
         return True, "pass2_ok"
     if state.pass2_status != "degraded":

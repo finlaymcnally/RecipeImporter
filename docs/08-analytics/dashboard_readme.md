@@ -169,6 +169,8 @@ Notes:
   - `Compare & Control` includes a `Reset` action to return panel controls to their default state (`discover`, default outcome field, no compare/hold/split/selected groups).
   - `Previous Runs` is split into two subsection cards: `History Table & Trend` and `Compare & Control Analysis`.
   - Previous Runs subsection layout is explicitly width-contained (`minmax(0, 1fr)` + child `min-width: 0`) so wide controls/tables stay inside local horizontal scrollers instead of expanding the whole dashboard to the right.
+  - `#previous-runs-section`/subsections now enforce horizontal containment, and Compare & Control rendered text wraps long unbroken tokens (`overflow-wrap:anywhere`) to avoid page-level rightward overflow when categorical values are very long.
+  - Persisted dashboard table column widths are clamped/sanitized (`72..1200px`) across load/save/drag paths, so stale browser UI-state cannot inflate Previous Runs width indefinitely.
   - Raw categorical compare now includes optional per-group secondary means (runtime/token/cost style numeric fields when present) alongside outcome means.
   - Compare/control secondary means skip constant-valued fields (for example all-zero benchmark timing columns), so `Group outcome means` shows only varying side metrics.
   - Controlled mode uses exact hold-constant strata and reports comparable coverage (`used rows / candidate rows`, `used strata / total strata`) so confounding is visible. Categorical controlled means are stratum-standardized (shared stratum weights) rather than per-group-mix weighted.
@@ -176,6 +178,7 @@ Notes:
   - `Filter to subset` in `Compare & Control` writes selected categorical groups into existing `Previous Runs` column filters (same filter engine; no second filter path).
   - `Previous Runs` column filters now support a global `Across columns` mode (`AND` / `OR`) in addition to per-column stack modes.
   - Both `Benchmark Score Trend` Highcharts panels (history section + compare/control clone) use fixed 800px chart/container heights to avoid browser reflow loops that can cause gradual chart height growth.
+  - Trend-chart rerenders now destroy/clear prior host chart instances before redraw so repeated filter/state updates do not accumulate host markup or rightward width drift over time.
   - Trend charts now include a `Trend fields` checklist (`Select all` / `Clear`) so you can add/remove any number of numeric benchmark fields. Default selection remains `strict_accuracy` + `macro_f1_excluding_other`.
   - A `Quick Filters` section sits between the trend chart and table:
     - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.

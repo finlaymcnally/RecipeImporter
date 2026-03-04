@@ -2604,3 +2604,95 @@ Anti-loop reminders from this consolidation:
 - If someone suggests reintroducing isolate behavior, check the isolate-removal seam/audit notes first; this path was intentionally removed to reduce split-brain UX/state.
 - If controlled categorical output looks counterintuitive, inspect strata coverage and weighting assumptions before changing formulas.
 
+
+### 2026-03-04 understandings consolidation (trend field controls, run-group alignment, host stability)
+
+Merged source notes:
+- `docs/understandings/2026-03-04_00.14.17-per-label-missing-variant-zero-coercion.md`
+- `docs/understandings/2026-03-04_00.17.57-benchmark-trend-run-group-token-selection.md`
+- `docs/understandings/2026-03-04_00.21.08-compare-control-secondary-constant-zero.md`
+- `docs/understandings/2026-03-04_00.38.37-codexfarm-pass3-token-trend-query.md`
+- `docs/understandings/2026-03-04_00.41.49-previous-runs-two-section-two-chart-layout.md`
+- `docs/understandings/2026-03-04_00.44.24-dashboard-trend-field-selection-contract.md`
+- `docs/understandings/2026-03-04_00.48.32-history-root-repo-local-vs-external.md`
+- `docs/understandings/2026-03-04_00.50.58-previous-runs-grid-min-content-width-leak.md`
+- `docs/understandings/2026-03-04_00.58.21-benchmark-trend-host-rerender-cleanup.md`
+
+Problem lineage preserved:
+- Per-label comparison point-value mode could coerce missing variant values to zero because empty strings parsed as `0`.
+- Trend run-group extraction fallback could select variant-local timestamps and split paired points horizontally.
+- Compare/control secondary means could include constant all-zero timing fields, creating misleading `0.000` summaries.
+- Previous Runs layout evolution required two chart hosts over one filtered row pool; single-host render path was insufficient.
+- Trend chart rerenders could accumulate host markup if previous chart instances were not explicitly destroyed/cleared.
+- History roots required a repo-local policy shift to keep `.history` trackable while preserving external-output behavior.
+
+Durable decisions/outcomes:
+- Missing comparison variant metrics now render as `-` (no zero coercion).
+- Run-group timestamp extraction now prefers first timestamp token after `benchmark-vs-golden`; fallback order is `artifact_dir` -> `run_dir` -> `report_path` -> row timestamp.
+- Compare/control secondary field selection now requires measurable variation (`max-min > 1e-12`).
+- Trend rendering is host-aware (`renderBenchmarkTrendChartHost(config)`) and reused for both trend chart hosts.
+- Trend series selection is now state-backed and arbitrary-field capable via `trend_fields` persistence.
+- Trend host rendering now does scoped destroy/clear before redraw and fallback transitions.
+- History root resolution now distinguishes repo-local outputs from external outputs and keeps compatibility reads for prior locations.
+
+Operational query preserved:
+- For codex pass-token investigations, sum `llmCodexFarm.process_runs.pass*.telemetry.rows[*].tokens_total` per pass from `*.excel_import_report.json` and compare by run timestamp.
+
+Anti-loop reminders:
+- For paired-series x-axis drift, inspect run-group extraction before series or Highcharts config changes.
+- For chart growth/duplicate artifacts, inspect host cleanup lifecycle before CSS layout adjustments.
+- For missing history rows after output-root changes, inspect `history_root_for_output` and fallback-read probes before collector rewrites.
+
+### 2026-03-04 understandings consolidation (pixel overflow source and containment)
+
+Merged source note:
+- `docs/understandings/2026-03-04_01.06.35-previous-runs-pixel-overflow-source.md`
+
+Problem captured:
+- Previous Runs rightward growth reproduced as page-level horizontal overflow (`document.scrollWidth - clientWidth`), with long unwrapped compare/control token values as a primary contributor.
+
+Durable decisions/outcomes:
+- Keep overflow containment at section boundaries for Previous Runs containers.
+- Keep compare/control output text wrapping aggressive enough to prevent long token spillover.
+- Preserve local table scrollers for intentionally wide table content.
+
+Anti-loop reminder:
+- Use pixel overflow probes first when diagnosing rightward growth; do not assume chart rerendering is the sole source.
+
+### 2026-03-04 docs/tasks consolidation (trend arbitrary fields + rightward-growth hardening)
+
+Merged source task files:
+- `docs/tasks/2026-03-04_00.44.24-dashboard-trend-arbitrary-fields.md`
+- `docs/tasks/2026-03-04_00.50.57-previous-runs-rightward-growth-containment.md`
+- `docs/tasks/2026-03-04_00.58.20-benchmark-trend-host-rerender-cleanup.md`
+- `docs/tasks/2026-03-04_01.06.34-previous-runs-pixel-overflow-guard.md`
+
+Problem lineage preserved:
+- Trend charts were hardcoded to two metrics and could not be operator-configured.
+- Previous Runs could grow rightward due to grid min-content pressure and later due to page-level overflow from long compare/control tokens.
+- Trend host rerenders did not guarantee clean host state before redraw, allowing cumulative markup/width symptoms.
+
+Durable decisions/outcomes:
+- Added state-backed arbitrary trend-field selection controls and persisted `trend_fields` in dashboard UI state.
+- Kept shared trend-series builder semantics across both chart hosts while preserving paired-variant and run-group contracts.
+- Applied section/grid containment (`minmax(0, 1fr)`, `min-width: 0`, local overflow boundaries) rather than shrinking intentional table min-width contracts.
+- Added host-scoped chart-instance cleanup in rerender path (destroy + clear before redraw/fallback).
+- Added page-level overflow hardening for compare/control outputs (`overflow-wrap: anywhere`, `word-break: break-word`) and container overflow constraints.
+
+Verification evidence preserved from tasks:
+- Trend arbitrary fields task: `pytest tests/analytics/test_stats_dashboard.py` -> `69 passed in 8.62s`.
+- Rightward-growth containment task:
+  - targeted css test: `2 passed, 67 deselected in 0.85s`.
+  - full file: `69 passed in 9.38s`.
+- Host rerender cleanup task:
+  - red before fix: `1 failed, 69 deselected` (`second_before_empty=False`).
+  - green targeted: `1 passed, 69 deselected in 0.42s`.
+  - green subset/full: `3 passed, 67 deselected in 1.06s`; `70 passed in 8.96s`.
+- Pixel overflow guard task:
+  - red before fix: `1 failed, 70 deselected` (`max_doc_overflow_px=2195`).
+  - green targeted/subset/full: `1 passed, 70 deselected in 5.13s`; `3 passed, 68 deselected in 5.74s`; `71 passed in 14.14s`.
+
+Anti-loop reminders:
+- Keep red/green harnesses for rerender cleanliness and pixel overflow; these caught regressions invisible to static CSS checks.
+- Do not “fix” rightward growth by removing table readability min-width; containment belongs in wrapper/grid policy.
+- For two-host trend issues, debug host-id-scoped lifecycle and shared-series pipeline together.

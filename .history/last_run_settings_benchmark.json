@@ -16,8 +16,8 @@
     "epub_spine_items_per_job": 10,
     "epub_split_workers": 7,
     "epub_unstructured_html_parser_version": "v1",
-    "epub_unstructured_preprocess_mode": "br_split_v1",
-    "epub_unstructured_skip_headers_footers": false,
+    "epub_unstructured_preprocess_mode": "semantic_v1",
+    "epub_unstructured_skip_headers_footers": true,
     "ingredient_missing_unit_policy": "null",
     "ingredient_packaging_mode": "off",
     "ingredient_parser_backend": "ingredient_parser_nlp",
@@ -67,6 +67,6 @@
     "web_schema_policy": "prefer_schema",
     "workers": 7
   },
-  "saved_at": "2026-03-04T00:49:33",
+  "saved_at": "2026-03-04T01:12:00",
   "schema_version": 1
 }

@@ -412,6 +412,7 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
     "codex_farm_context_blocks",
+    "codex_farm_pass3_skip_pass2_ok",
     "codex_farm_failure_mode",
 )
 SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
@@ -421,6 +422,7 @@ SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
     "codex_farm_context_blocks",
+    "codex_farm_pass3_skip_pass2_ok",
     "codex_farm_failure_mode",
 )
 SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_FIELDS = tuple(

@@ -39,6 +39,13 @@ Primary test folders:
 Active layout exceptions and support assets:
 
 - `tests/test_eval_freeform_practical_metrics.py` remains at `tests/` root and is marker-tagged as both `labelstudio` and `bench`.
+- CLI output-structure coverage is split into:
+  - `tests/cli/test_cli_output_structure_fast.py` (fast default-surface contract checks via settings/signatures, no full stage run),
+  - `tests/cli/test_cli_output_structure_text_fast.py` (text-focused fast structure checks with `--llm-recipe-pipeline off`),
+  - `tests/cli/test_cli_output_structure_slow.py` (EPUB-heavy checks).
+- Stats dashboard coverage is split into:
+  - `tests/analytics/test_stats_dashboard.py` (fast renderer/schema/collector coverage),
+  - `tests/analytics/test_stats_dashboard_slow.py` (browser pixel-overflow rerender harness).
 - `tests/fixtures/*` holds fixture generators and binary fixture assets used by tests.
 - `tests/tagging_gold/*` holds tagging gold fixtures used by tagging tests.
 
@@ -72,6 +79,11 @@ Common run patterns:
 - `. .venv/bin/activate && pytest -m smoke`
 - `. .venv/bin/activate && pytest -m "ingestion and not slow" --collect-only`
 - `. .venv/bin/activate && pytest tests/labelstudio -m "labelstudio and not slow" --collect-only`
+- `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_fast.py`
+- `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_text_fast.py`
+- `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_slow.py`
+- `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
+- `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard_slow.py`
 - `./scripts/test-suite.sh smoke`
 - `./scripts/test-suite.sh fast`
 - `./scripts/test-suite.sh domain <domain>`
@@ -128,3 +140,34 @@ Current-contract additions:
 
 Anti-loop rule:
 - Before changing testing docs/contracts, verify `tests/conftest.py` marker mapping and compact-output enforcement behavior first.
+
+## 2026-03-04 merged understandings digest (CLI output-structure fast/slow split)
+
+Merged source notes:
+- `2026-03-04_01.03.03-cli-output-structure-fast-slow-split.md`
+- `2026-03-04_01.04.31-cli-output-structure-fast-default-surface-contract.md`
+
+Current testing contracts reinforced:
+- CLI output-structure coverage is intentionally split into:
+  - fast default/shape checks (`tests/cli/test_cli_output_structure_fast.py`),
+  - slower EPUB-heavy integration checks (`tests/cli/test_cli_output_structure_slow.py`).
+- Fast structure tests must avoid codex runtime drift by asserting defaults/signatures/settings loaders rather than triggering full codex-backed stage runs.
+- Slow-path coverage should remain explicitly marked/isolated so routine CLI test loops stay fast (`-m "cli and not slow"`).
+
+Anti-loop reminder:
+- If CLI structure tests slow down after default changes, move default-contract assertions into fast signature/settings tests before broadening slow integration scope.
+
+## 2026-03-04 docs/tasks merge digest (CLI output-structure test split)
+
+Merged source task file:
+- `docs/tasks/2026-03-04_01.08.41-cli-output-structure-test-split.md`
+
+Current testing contract reinforced:
+- CLI output-structure coverage remains split by cost/signal:
+  - `test_cli_output_structure_fast.py` for default-contract/surface checks,
+  - `test_cli_output_structure_text_fast.py` for fast structure checks,
+  - `test_cli_output_structure_slow.py` for EPUB-heavy checks.
+- Slow marker assignment should stay narrow (only slow EPUB-heavy file), so `-m "cli and not slow"` remains a fast operator loop.
+
+Anti-loop reminder:
+- When CLI defaults evolve, prefer extending fast signature/settings assertions before adding expensive integration paths to default loops.

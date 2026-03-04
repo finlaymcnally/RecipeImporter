@@ -892,3 +892,22 @@ Evidence preserved:
 - SeaAndSmoke benchmark rerun recorded in task:
   - `data/golden/benchmark-vs-golden/2026-03-03_19.41.28_seaandsmoke-next-buckets/`
 - Baseline comparison in task showed strong bucket reductions (`68 -> 18`, `36 -> 5`, `26 -> 0`) with macro/strict improvements.
+
+### 2026-03-04 understandings consolidation (canonical milestone-2 gap closure)
+
+Merged source note:
+- `docs/understandings/2026-03-04_00.16.32-feedback-milestone2-gap-closure.md`
+
+Problem captured:
+- Canonical line-role still had two deterministic failure seams: title overcalls without neighboring structural support, and non-header yield phrases promoted as real yield rows.
+
+Durable decisions/outcomes:
+- Title classification now routes through contextual validation (`_looks_recipe_title_with_context`) so isolated title-like lines without supportive flow are downgraded.
+- Yield detection now enforces strict header validation (`_looks_strict_yield_header`) and uses `_yield_fallback_label` for prose-like fragments.
+- Fallback labeling remains evidence-based (`INSTRUCTION_LINE` / `RECIPE_NOTES` / `OTHER`) while ingredient rescue remains enabled for strong ingredient evidence.
+
+Regression evidence captured in source note:
+- Added targeted tests in `tests/parsing/test_canonical_line_roles.py` for both seams.
+
+Anti-loop reminder:
+- If yield/title regressions reappear, inspect contextual/strict guards before prompt or threshold tuning.

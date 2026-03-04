@@ -260,7 +260,7 @@ Quality leaderboard (`bench quality-leaderboard`) artifacts include:
 - `pareto_frontier.json`, `pareto_frontier.csv`
 - `winner_run_settings.json`, `winner_dimensions.json`
 - optional (when `--by-source-extension`): `leaderboard_by_source_extension.json`, `leaderboard_by_source_extension.csv`
-- interactive profile side effect: winner run settings are also saved to `.history/qualitysuite_winner_run_settings.json` for repo-local outputs, and interactive import/benchmark now auto-prefer this file as the top-tier default profile source.
+- interactive profile side effect: winner run settings are also saved to `.history/qualitysuite_winner_run_settings.json` for repo-local outputs; interactive import/benchmark use this winner file as the preferred source when `CodexFarm automatic top-tier` is selected.
 - default output root: `<quality_run_dir>/leaderboards/<experiment_id>/<timestamp>/`
 
 Quality comparison (`bench quality-compare`) artifacts include:
@@ -1780,3 +1780,29 @@ Current benchmark contracts reinforced by this batch:
 - Upload-bundle audit/OG comparison notes should be treated as bundle-regeneration-sensitive; stale samples can misrepresent current code behavior.
 - Benchmark setting propagation (interactive run settings -> variant normalization -> downstream artifacts) must remain explicit and traceable.
 - QualitySuite-to-Compare-Control bridge artifacts are part of the benchmark handoff workflow for agent-driven investigation.
+
+## 2026-03-04 merged understandings digest (single-profile variants, GC durability, constrained codex validation)
+
+Merged source notes (timestamp order):
+- `2026-03-04_00.15.28-feedback-milestone5-auth-constrained-validation.md`
+- `2026-03-04_00.20.31-single-profile-group-upload-bundle-seams.md`
+- `2026-03-04_00.27.26-single-profile-codex-vs-vanilla-variant-planning.md`
+- `2026-03-04_00.30.46-single-profile-vs-single-offline-sea-regression-context.md`
+- `2026-03-04_00.36.14-bench-gc-csv-read-only.md`
+- `2026-03-04_01.09.30-one-top-tier-profile-run-data-signal.md`
+
+Current benchmark contracts reinforced:
+- In auth-constrained codex environments, fallback-mode benchmark runs can still produce valid eval artifacts while pass-level codex telemetry remains empty; treat eval quality and call-runtime telemetry as separate signals.
+- Single-profile matched-book flows should reuse single-offline variant planning so codex-selected runs execute paired `vanilla` then `codexfarm` per book.
+- Apparent quality regressions across runs must be compared against effective settings first (especially line-role/atomic state), not interpreted as like-for-like model degradation.
+- `bench gc` must remain read-only for benchmark CSV history and only prune run roots when durable retention can be confirmed from already-present durable rows.
+- Group upload bundle assembly for multi-book roots should keep size budgets explicit and avoid recursive artifact sweeps in high-level-only mode.
+
+Run-data signal preserved from merged audit:
+- Codex + line-role + atomic showed strong aggregate uplift versus off/off/off and codex-without-line-role in the audited recursive benchmark sample.
+- Parser stack signal is mixed by book, so parser/extractor defaults should be treated as book-sensitive and revisited with broader coverage.
+
+Anti-loop reminders:
+- If codex fallback runs show `call_count=0`, do not treat that as benchmark failure; check eval artifacts first.
+- If SeaAndSmoke-like regressions appear, verify settings hash and variant plan before scorer or prompt changes.
+- If GC seems “not cleaning enough,” confirm durable benchmark evidence exists before considering retention-policy changes.
