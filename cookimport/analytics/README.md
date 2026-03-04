@@ -2,7 +2,7 @@ Performance reporting utilities live here.
 Durable analytics caveats/contracts live in `cookimport/analytics/CONVENTIONS.md`.
 
 - Reads per-run conversion reports and prints one-line, per-file timing summaries.
-- Appends run history to `data/.history/performance_history.csv` for easy trending.
+- Appends run history to canonical history root (`history_csv_for_output(...)`; default `.history/performance_history.csv` for repo-local outputs) for easy trending.
 - Invoked by `cookimport perf-report` and auto-runs after `cookimport stage`.
 - Includes `cookimport benchmark-csv-backfill` to patch older benchmark rows from manifest/report artifacts.
 - CSV-writing CLI flows now also auto-refresh dashboard artifacts under the same `.history/dashboard` root (best effort).
@@ -26,13 +26,13 @@ Dashboard UX rule:
 - Any new metric shown in the dashboard should come with a plain-English description (tooltips and/or an on-page help/glossary). See `cookimport/analytics/CONVENTIONS.md`.
 
 Data sources (read-only):
-- `data/.history/performance_history.csv` (primary for stage records)
+- `.history/performance_history.csv` (primary for repo-local stage records)
 - `data/output/<timestamp>/*.excel_import_report.json` (fallback with `--scan-reports`)
 - `data/golden/benchmark-vs-golden/*/eval_report.json` (benchmarks)
 - benchmark enrichment from `manifest.json` / `coverage.json` at eval root or `prediction-run/`
   (includes source/importer/run-config context when available)
 
-Output: `data/.history/dashboard/` (configurable via `--out-dir`)
+Output: `.history/dashboard/` for repo-local outputs (configurable via `--out-dir`)
 - Main `index.html` diagnostics now includes a latest benchmark runtime card (model/thinking/pipeline when available).
 - Main `index.html` diagnostics runtime `Token use` now uses compact `k`/`m` display for large token values.
 - Main `index.html` `Previous Runs` now includes `AI Model + Effort` and source-slug fallbacks when `source_file` is missing.
@@ -41,9 +41,9 @@ Output: `data/.history/dashboard/` (configurable via `--out-dir`)
 - Codex model/effort is backfilled from benchmark manifest `llm_codex_farm` runtime payloads when run-config omits those fields.
 - Benchmark runtime model/effort now falls back to prediction-run manifest `llm_codex_farm` telemetry when run-config values are unset/default.
 - For grouped all-method runs, writes run-level summary pages under `all-method-benchmark/`:
-  - `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html`
+  - `.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (repo-local default)
 - Per-book detail pages live in the same all-method subfolder:
-  - `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`
+  - `.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (repo-local default)
 - No standalone `all-method-benchmark/index.html` page is generated; entry is via main-page `Previous Runs` timestamp links.
 - Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`; run-level pages aggregate those per-book groups by run folder.
 - Run-summary pages include config-level charts plus per-cookbook average bar/radar sections (averaged across all configs per source) before config and per-book tables.

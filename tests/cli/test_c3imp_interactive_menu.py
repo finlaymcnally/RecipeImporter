@@ -227,152 +227,19 @@ def test_load_settings_errors_on_legacy_sequence_matcher(
         cli._load_settings()
 
 
-def test_choose_run_settings_returns_saved_preferred_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    preferred_settings = cli.RunSettings.from_dict(
-        {
-            "epub_extractor": "beautifulsoup",
-            "instruction_step_segmentation_policy": "off",
-        },
-        warn_context="test preferred settings",
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: preferred_settings,
-    )
-
-    captured_choice_values: list[str] = []
-
-    def fake_menu_select(*_args, choices, **_kwargs):
-        for choice in choices:
-            if isinstance(choice, questionary.Separator):
-                continue
-            captured_choice_values.append(str(choice.value))
-        return "preferred"
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="import",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=fake_menu_select,
-        back_action=object(),
-    )
-
-    assert selected is not None
-    assert selected.to_run_config_dict() == preferred_settings.to_run_config_dict()
-    assert "preferred" in captured_choice_values
-    assert "quality_first_winner_stack" in captured_choice_values
-
-
-def test_choose_run_settings_builds_default_preferred_when_unsaved(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "preferred",
-        back_action=object(),
-    )
-
-    assert selected is not None
-    assert selected.epub_extractor.value == "beautifulsoup"
-    assert selected.instruction_step_segmentation_policy.value == "off"
-
-
-def test_choose_run_settings_builds_quality_first_winner_stack(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict(
-        {
-            "epub_extractor": "beautifulsoup",
-            "epub_unstructured_html_parser_version": "v2",
-            "epub_unstructured_preprocess_mode": "none",
-            "epub_unstructured_skip_headers_footers": False,
-        },
-        warn_context="test global defaults",
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="import",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "quality_first_winner_stack",
-        back_action=object(),
-    )
-
-    assert selected is not None
-    assert selected.epub_extractor.value == "unstructured"
-    assert selected.epub_unstructured_html_parser_version.value == "v1"
-    assert selected.epub_unstructured_preprocess_mode.value == "semantic_v1"
-    assert selected.epub_unstructured_skip_headers_footers is True
-
-
-def test_choose_run_settings_returns_saved_qualitysuite_winner_settings(
+def test_choose_run_settings_uses_saved_qualitysuite_winner(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+            "atomic_block_splitter": "atomic-v1",
             "epub_extractor": "unstructured",
-            "epub_unstructured_html_parser_version": "v2",
-            "epub_unstructured_preprocess_mode": "semantic_v1",
         },
         warn_context="test qualitysuite winner settings",
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
         run_settings_flow,
@@ -384,309 +251,37 @@ def test_choose_run_settings_returns_saved_qualitysuite_winner_settings(
         kind="benchmark",
         global_defaults=global_defaults,
         output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "qualitysuite_winner",
+        menu_select=lambda *_args, **_kwargs: pytest.fail(
+            "menu should not be shown"
+        ),
         back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: pytest.fail(
+            "codex yes/no prompt should not be shown"
+        ),
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "codex model prompt should not be shown"
+        ),
     )
 
     assert selected is not None
     assert selected.to_run_config_dict() == winner_settings.to_run_config_dict()
 
 
-def test_choose_run_settings_prompt_can_enable_codex_for_run(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="import",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "global",
-        back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: True,
-    )
-
-    assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
-
-
-def test_choose_run_settings_prompt_defaults_codex_to_yes(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    captured_default: list[bool] = []
-
-    def fake_confirm(*_args, **_kwargs):
-        captured_default.append(bool(_kwargs.get("default")))
-        return True
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="import",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "global",
-        back_action=object(),
-        prompt_confirm=fake_confirm,
-    )
-
-    assert selected is not None
-    assert captured_default == [True]
-    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
-
-
-def test_choose_run_settings_prompt_collects_codex_model_and_reasoning(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    menu_answers = iter(["global", "gpt-5.2", "high"])
-
-    def fake_menu_select(*_args, **_kwargs):
-        return next(menu_answers)
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=fake_menu_select,
-        back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: pytest.fail(
-            "prompt_text should not be used for non-custom codex model selection"
-        ),
-    )
-
-    assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
-    assert selected.codex_farm_model == "gpt-5.2"
-    assert selected.codex_farm_reasoning_effort is not None
-    assert selected.codex_farm_reasoning_effort.value == "high"
-
-
-def test_choose_run_settings_prompt_model_cancel_returns_none(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    menu_answers = iter(["global", None])
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="import",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: next(menu_answers),
-        back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: pytest.fail(
-            "prompt_text should not be used when model picker is cancelled"
-        ),
-    )
-
-    assert selected is None
-
-
-def test_choose_run_settings_prompt_reasoning_back_returns_none(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    back_action = object()
-    menu_answers = iter(["global", "gpt-5.2", back_action])
-
-    def fake_menu_select(*_args, **_kwargs):
-        return next(menu_answers)
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=fake_menu_select,
-        back_action=back_action,
-        prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: pytest.fail(
-            "prompt_text should not be used for non-custom codex model selection"
-        ),
-    )
-
-    assert selected is None
-
-
-def test_choose_run_settings_prompt_custom_codex_model_and_reasoning(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    menu_answers = iter(["global", "__custom__", "high"])
-
-    def fake_menu_select(*_args, **_kwargs):
-        return next(menu_answers)
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=fake_menu_select,
-        back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: "gpt-5.3-codex",
-    )
-
-    assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
-    assert selected.codex_farm_model == "gpt-5.3-codex"
-    assert selected.codex_farm_reasoning_effort is not None
-    assert selected.codex_farm_reasoning_effort.value == "high"
-
-
-def test_choose_run_settings_prompt_can_disable_codex_for_run(
+def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {
+            "epub_extractor": "beautifulsoup",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "none",
+            "epub_unstructured_skip_headers_footers": False,
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+        },
         warn_context="test global defaults",
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-
-    selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
-        global_defaults=global_defaults,
-        output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "global",
-        back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: False,
-    )
-
-    assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "off"
-
-
-def test_choose_run_settings_prompt_enables_codex_without_env_gate(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    monkeypatch.delenv("COOKIMPORT_ALLOW_CODEX_FARM", raising=False)
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
         run_settings_flow,
@@ -698,46 +293,56 @@ def test_choose_run_settings_prompt_enables_codex_without_env_gate(
         kind="import",
         global_defaults=global_defaults,
         output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "global",
+        menu_select=lambda *_args, **_kwargs: pytest.fail(
+            "menu should not be shown"
+        ),
         back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: True,
     )
 
     assert selected is not None
+    assert selected.epub_extractor.value == "unstructured"
+    assert selected.epub_unstructured_html_parser_version.value == "v1"
+    assert selected.epub_unstructured_preprocess_mode.value == "semantic_v1"
+    assert selected.epub_unstructured_skip_headers_footers is True
     assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
 
 
-def test_choose_run_settings_prompt_cancel_returns_none(
+def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_last_run_settings",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        run_settings_flow,
-        "load_preferred_run_settings",
-        lambda *_args, **_kwargs: None,
+    stale_winner_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+            "epub_extractor": "unstructured",
+        },
+        warn_context="test stale qualitysuite winner settings",
     )
     monkeypatch.setattr(
         run_settings_flow,
         "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: None,
+        lambda *_args, **_kwargs: stale_winner_settings,
     )
 
     selected = run_settings_flow.choose_run_settings(
         kind="benchmark",
         global_defaults=global_defaults,
         output_dir=tmp_path,
-        menu_select=lambda *_args, **_kwargs: "global",
+        menu_select=lambda *_args, **_kwargs: pytest.fail(
+            "menu should not be shown"
+        ),
         back_action=object(),
-        prompt_confirm=lambda *_args, **_kwargs: None,
     )
 
-    assert selected is None
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
 
 
 def test_preferred_run_settings_roundtrip(tmp_path) -> None:

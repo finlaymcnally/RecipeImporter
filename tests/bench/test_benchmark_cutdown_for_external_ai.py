@@ -2102,6 +2102,115 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
     assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
+def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    target_bundle_size_bytes = 200_000
+
+    def _make_wrong_rows() -> list[dict[str, object]]:
+        return [
+            {
+                "line_index": index,
+                "gold_label": "INGREDIENT_LINE",
+                "pred_label": "RECIPE_NOTES",
+                "line_text": f"Line {index} " + ("x" * 64),
+            }
+            for index in range(1, 121)
+        ]
+
+    single_root = tmp_path / "single-profile-benchmark-single"
+    _make_run_record(
+        module,
+        run_root=single_root,
+        run_id="2026-03-04_10.00.00",
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=_make_wrong_rows(),
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    single_bundle_dir = single_root / "upload_bundle_v1"
+    single_metadata = module.build_upload_bundle_for_existing_output(
+        source_dir=single_root,
+        output_dir=single_bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+        high_level_only=True,
+        target_bundle_size_bytes=target_bundle_size_bytes,
+    )
+
+    multi_root = tmp_path / "single-profile-benchmark-multi"
+    for index in range(1, 4):
+        _make_run_record(
+            module,
+            run_root=multi_root,
+            run_id=f"2026-03-04_10.0{index}.00",
+            llm_recipe_pipeline="codex-farm-3pass-v1",
+            line_role_pipeline="codex-line-role-v1",
+            wrong_label_rows=_make_wrong_rows(),
+            full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        )
+    multi_bundle_dir = multi_root / "upload_bundle_v1"
+    multi_metadata = module.build_upload_bundle_for_existing_output(
+        source_dir=multi_root,
+        output_dir=multi_bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+        high_level_only=True,
+        target_bundle_size_bytes=target_bundle_size_bytes,
+    )
+
+    def _load_group_packet(bundle_dir: Path) -> dict[str, object]:
+        payload_rows = _read_jsonl(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+        group_path = (
+            f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/"
+            f"{module.GROUP_UPLOAD_BUNDLE_GROUP_PACKET_FILE_NAME}"
+        )
+        group_row = next(
+            row for row in payload_rows if str(row.get("path") or "") == group_path
+        )
+        content_json = group_row.get("content_json")
+        assert isinstance(content_json, dict)
+        return content_json
+
+    single_packet = _load_group_packet(single_bundle_dir)
+    multi_packet = _load_group_packet(multi_bundle_dir)
+
+    single_sample_count = int(
+        (single_packet.get("runs") or [{}])[0].get("sampled_wrong_line_count") or 0
+    )
+    multi_sample_counts = [
+        int(row.get("sampled_wrong_line_count") or 0)
+        for row in (multi_packet.get("runs") or [])
+        if isinstance(row, dict)
+    ]
+    assert single_sample_count > 0
+    assert multi_sample_counts
+    assert (
+        int(single_packet.get("per_run_sample_budget_bytes") or 0)
+        > int(multi_packet.get("per_run_sample_budget_bytes") or 0)
+    )
+    assert max(multi_sample_counts) <= single_sample_count
+
+    single_index_payload = _read_json(single_bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    multi_index_payload = _read_json(multi_bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    single_group_summary = single_index_payload["analysis"]["group_high_level"]
+    multi_group_summary = multi_index_payload["analysis"]["group_high_level"]
+    assert single_group_summary["enabled"] is True
+    assert multi_group_summary["enabled"] is True
+    assert int(single_group_summary["target_bundle_size_bytes"]) == target_bundle_size_bytes
+    assert int(multi_group_summary["target_bundle_size_bytes"]) == target_bundle_size_bytes
+    assert single_metadata["high_level_only"] is True
+    assert multi_metadata["high_level_only"] is True
+
+    multi_artifact_paths = {
+        str(row.get("path") or "")
+        for row in multi_index_payload.get("artifact_index", [])
+        if isinstance(row, dict)
+    }
+    assert not any(path.endswith("full_prompt_log.jsonl") for path in multi_artifact_paths)
+
+
 def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
     tmp_path: Path,
 ) -> None:

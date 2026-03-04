@@ -332,6 +332,57 @@ const controlled = hooks.analyzeCompareControlCategoricalControlled(
   "compare_group",
   ["stratum"]
 );
+const secondaryRecords = [
+  {
+    strict_accuracy: 0.61,
+    compare_group: "A",
+    benchmark_total_seconds: 0.0,
+    benchmark_prediction_seconds: 0.0,
+    benchmark_evaluation_seconds: 0.0,
+    tokens_input: 800,
+    tokens_cached_input: 100,
+    tokens_output: 80,
+    tokens_total: 1100,
+  },
+  {
+    strict_accuracy: 0.62,
+    compare_group: "A",
+    benchmark_total_seconds: 0.0,
+    benchmark_prediction_seconds: 0.0,
+    benchmark_evaluation_seconds: 0.0,
+    tokens_input: 900,
+    tokens_cached_input: 120,
+    tokens_output: 90,
+    tokens_total: 1200,
+  },
+  {
+    strict_accuracy: 0.58,
+    compare_group: "B",
+    benchmark_total_seconds: 0.0,
+    benchmark_prediction_seconds: 0.0,
+    benchmark_evaluation_seconds: 0.0,
+    tokens_input: 700,
+    tokens_cached_input: 90,
+    tokens_output: 70,
+    tokens_total: 900,
+  },
+  {
+    strict_accuracy: 0.57,
+    compare_group: "B",
+    benchmark_total_seconds: 0.0,
+    benchmark_prediction_seconds: 0.0,
+    benchmark_evaluation_seconds: 0.0,
+    tokens_input: 650,
+    tokens_cached_input: 80,
+    tokens_output: 65,
+    tokens_total: 800,
+  },
+];
+const secondaryAnalysis = hooks.analyzeCompareControlCategoricalRaw(
+  secondaryRecords,
+  "strict_accuracy",
+  "compare_group"
+);
 
 function toGroupMap(groups) {
   const out = Object.create(null);
@@ -365,6 +416,9 @@ const payload = {
   subset_clause_count: filterClauses.length,
   subset_clause_values: filterClauses.map(clause => String((clause && clause.value) || "")),
   subset_clause_operators: filterClauses.map(clause => String((clause && clause.operator) || "")),
+  secondary_fields: Array.isArray(secondaryAnalysis.secondary_fields)
+    ? secondaryAnalysis.secondary_fields.slice()
+    : [],
 };
 hooks.setCompareControlStateForHarness({
   outcome_field: "strict_accuracy",
@@ -387,6 +441,101 @@ process.stdout.write(JSON.stringify(payload));
     if completed.returncode != 0:
         raise AssertionError(
             "Compare/control behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_benchmark_trend_alignment_harness(
+    js_path: Path,
+    records: list[dict[str, object]],
+    trend_fields: list[str] | None = None,
+) -> dict[str, object]:
+    """Run generated dashboard JS benchmark trend-series alignment checks in Node."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for benchmark trend behavior harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__trendHarness = {
+    benchmarkRunGroupInfo,
+    buildBenchmarkTrendSeries,
+    setBenchmarkTrendSelectedFields,
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__trendHarness;
+if (!hooks) throw new Error("Trend harness exports were not attached");
+
+const records = __RECORDS_JSON__;
+const trendFields = __TREND_FIELDS_JSON__;
+if (Array.isArray(trendFields) && typeof hooks.setBenchmarkTrendSelectedFields === "function") {
+  hooks.setBenchmarkTrendSelectedFields(trendFields, {
+    allow_empty: true,
+    available_fields: trendFields,
+  });
+}
+const series = hooks.buildBenchmarkTrendSeries(records);
+
+function findSeries(name) {
+  return series.find(item => item && String(item.name || "") === name) || null;
+}
+
+function firstX(name) {
+  const item = findSeries(name);
+  if (!item || !Array.isArray(item.data) || !item.data.length) return null;
+  const point = item.data[0];
+  if (!point) return null;
+  const x = Number(point.x);
+  return Number.isFinite(x) ? x : null;
+}
+
+const vanillaSeries = findSeries("strict_accuracy (vanilla)");
+const codexSeries = findSeries("strict_accuracy (codexfarm)");
+const tokenVanillaSeries = findSeries("tokens_total (vanilla)");
+const tokenCodexSeries = findSeries("tokens_total (codexfarm)");
+const vanillaRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/vanilla"));
+const codexRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/codexfarm"));
+const vanillaGroup = vanillaRecord ? hooks.benchmarkRunGroupInfo(vanillaRecord) : null;
+const codexGroup = codexRecord ? hooks.benchmarkRunGroupInfo(codexRecord) : null;
+
+const payload = {
+  vanilla_x: firstX("strict_accuracy (vanilla)"),
+  codex_x: firstX("strict_accuracy (codexfarm)"),
+  vanilla_series_points: vanillaSeries && Array.isArray(vanillaSeries.data) ? vanillaSeries.data.length : 0,
+  codex_series_points: codexSeries && Array.isArray(codexSeries.data) ? codexSeries.data.length : 0,
+  token_vanilla_series_points: tokenVanillaSeries && Array.isArray(tokenVanillaSeries.data) ? tokenVanillaSeries.data.length : 0,
+  token_codex_series_points: tokenCodexSeries && Array.isArray(tokenCodexSeries.data) ? tokenCodexSeries.data.length : 0,
+  vanilla_run_group_key: vanillaGroup ? String(vanillaGroup.runGroupKey || "") : "",
+  codex_run_group_key: codexGroup ? String(codexGroup.runGroupKey || "") : "",
+  selected_fields: Array.isArray(trendFields) ? trendFields : [],
+};
+process.stdout.write(JSON.stringify(payload));
+"""
+    harness = harness.replace("__RECORDS_JSON__", json.dumps(records))
+    harness = harness.replace("__TREND_FIELDS_JSON__", json.dumps(trend_fields))
+    completed = subprocess.run(
+      [node, "-e", harness, str(js_path)],
+      capture_output=True,
+      text=True,
+      check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Benchmark trend behavior harness failed.\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
@@ -1443,6 +1592,14 @@ class TestRenderer:
         assert 'id="compare-control-reset"' in html
         assert 'id="compare-control-status"' in html
         assert 'id="compare-control-results"' in html
+        assert 'id="compare-control-analysis-section"' in html
+        assert 'id="compare-control-trend-chart"' in html
+        assert 'id="compare-control-trend-fallback"' in html
+        assert 'id="previous-runs-history-panel"' in html
+        assert 'id="benchmark-trend-field-checklist"' in html
+        assert 'id="benchmark-trend-select-all"' in html
+        assert 'id="benchmark-trend-clear"' in html
+        assert 'id="benchmark-trend-fields-status"' in html
         assert 'id="quick-filters-panel"' in html
         assert 'id="quick-filters-advanced"' not in html
         assert 'id="previous-runs-presets-toggle"' not in html
@@ -1536,6 +1693,20 @@ class TestRenderer:
         assert reset_state.get("selected_groups") == []
         assert reset_state.get("view_mode") == "discover"
         assert reset_state.get("outcome_field") == "strict_accuracy"
+
+    def test_compare_control_secondary_fields_skip_constant_zero_metrics(
+        self, tmp_path
+    ):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_compare_control_behavior_harness(js_path)
+        secondary_fields = set(result.get("secondary_fields") or [])
+        assert "benchmark_total_seconds" not in secondary_fields
+        assert "benchmark_prediction_seconds" not in secondary_fields
+        assert "benchmark_evaluation_seconds" not in secondary_fields
+        assert "all_token_use" in secondary_fields
+        assert "tokens_total" in secondary_fields
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -1692,6 +1863,16 @@ class TestRenderer:
         assert "const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;" in js
         assert 'let perLabelRunGroupKey = "__default_most_recent__";' in js
         assert 'const PER_LABEL_RUN_GROUP_DEFAULT_KEY = "__default_most_recent__";' in js
+        assert "const BENCHMARK_TREND_DEFAULT_FIELDS = [" in js
+        assert "const BENCHMARK_TREND_PREFERRED_FIELDS = [" in js
+        assert "const BENCHMARK_TREND_COLOR_OVERRIDES = {" in js
+        assert "let benchmarkTrendFieldOptions = [];" in js
+        assert "let benchmarkTrendSelectedFields = null;" in js
+        assert "function normalizeBenchmarkTrendFieldList(values, options)" in js
+        assert "function setupBenchmarkTrendFieldControls()" in js
+        assert "function renderBenchmarkTrendFieldControls()" in js
+        assert "function setBenchmarkTrendSelectedFields(nextFields, options)" in js
+        assert "trend_fields: normalizeBenchmarkTrendFieldList(" in js
         assert '"source_label"' in js
         assert '"ai_model"' in js
         assert '"ai_effort"' in js
@@ -1955,7 +2136,10 @@ class TestRenderer:
         assert "window.Highcharts.setOptions({" in js
         assert "mouseWheel: {" in js
         assert "enabled: HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED" in js
-        assert 'window.Highcharts.stockChart("benchmark-trend-chart", {' in js
+        assert "function renderBenchmarkTrendChartHost(config)" in js
+        assert "window.Highcharts.stockChart(hostId, {" in js
+        assert 'hostId: "benchmark-trend-chart"' in js
+        assert 'hostId: "compare-control-trend-chart"' in js
         assert "chart: {" in js
         assert "height: 800," in js
         assert "rangeSelector: {" in js
@@ -1964,6 +2148,8 @@ class TestRenderer:
         assert "const allRunTimestamps = sorted" in js
         assert "const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;" in js
         assert "const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;" in js
+        assert "const emptyReason = selectedTrendFields.length" in js
+        assert "No trend fields selected. Pick one or more fields above." in js
         assert "const xAxisConfig = {" in js
         assert "if (timelineMin != null) xAxisConfig.min = timelineMin;" in js
         assert "if (timelineMax != null) xAxisConfig.max = timelineMax;" in js
@@ -1979,6 +2165,8 @@ class TestRenderer:
         assert "function withTrendOverlays(baseSeriesList)" in js
         assert "function isTrendOverlaySeries(series)" in js
         assert "function buildBenchmarkTrendSeries(records)" in js
+        assert "function benchmarkTrendMetricColors(metricKey, metricIndex)" in js
+        assert "function benchmarkTrendShiftHexColor(baseColor, shift)" in js
         assert "const hasPairedVariants =" in js
         assert 'name: metric.key + " (" + variant + ")"' in js
         assert "series: trendSeries," in js
@@ -1995,6 +2183,72 @@ class TestRenderer:
         assert "runGroupLabel" in js
         assert "&#9679;" in js
 
+    def test_benchmark_trend_pairs_variant_points_on_same_run_group_x_axis(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        records = [
+            {
+                "run_timestamp": "2026-03-01T10:01:00",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.01.00/vanilla"
+                ),
+                "strict_accuracy": 0.42,
+            },
+            {
+                "run_timestamp": "2026-03-01T10:06:00",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.06.00/codexfarm"
+                ),
+                "strict_accuracy": 0.58,
+            },
+        ]
+        result = _run_benchmark_trend_alignment_harness(js_path, records)
+        assert result["vanilla_series_points"] == 1
+        assert result["codex_series_points"] == 1
+        assert result["vanilla_run_group_key"] == "2026-03-01_10.00.00"
+        assert result["codex_run_group_key"] == "2026-03-01_10.00.00"
+        assert result["vanilla_x"] == result["codex_x"]
+
+    def test_benchmark_trend_supports_arbitrary_selected_numeric_fields(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        records = [
+            {
+                "run_timestamp": "2026-03-01T10:01:00",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.01.00/vanilla"
+                ),
+                "tokens_total": 1500,
+            },
+            {
+                "run_timestamp": "2026-03-01T10:06:00",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
+                    "2026-03-01_10.06.00/codexfarm"
+                ),
+                "tokens_total": 2300,
+            },
+        ]
+        result = _run_benchmark_trend_alignment_harness(
+            js_path,
+            records,
+            trend_fields=["tokens_total"],
+        )
+        assert result["selected_fields"] == ["tokens_total"]
+        assert result["vanilla_series_points"] == 0
+        assert result["codex_series_points"] == 0
+        assert result["token_vanilla_series_points"] == 1
+        assert result["token_codex_series_points"] == 1
+
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
@@ -2009,7 +2263,22 @@ class TestRenderer:
         assert ".quick-filters-presets-control {" not in css
         assert ".previous-runs-presets-toggle {" not in css
         assert ".previous-runs-presets-popup {" not in css
-        assert ".previous-runs-analysis-panels {" in css
+        assert ".previous-runs-sections {" in css
+        assert ".previous-runs-subsection {" in css
+        previous_runs_sections_block = re.search(
+            r"\.previous-runs-sections \{([^}]*)\}",
+            css,
+            re.DOTALL,
+        )
+        assert previous_runs_sections_block is not None
+        assert "grid-template-columns: minmax(0, 1fr);" in previous_runs_sections_block.group(1)
+        previous_runs_subsection_block = re.search(
+            r"\.previous-runs-subsection \{([^}]*)\}",
+            css,
+            re.DOTALL,
+        )
+        assert previous_runs_subsection_block is not None
+        assert "min-width: 0;" in previous_runs_subsection_block.group(1)
         assert ".compare-control-panel {" in css
         assert ".compare-control-controls {" in css
         assert ".compare-control-results {" in css

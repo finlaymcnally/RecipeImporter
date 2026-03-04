@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -16,7 +15,7 @@ from cookimport.cli import _prune_benchmark_outputs, app
 runner = CliRunner()
 
 
-def _write_history_row(csv_path: Path, run_dir: Path) -> None:
+def _write_history_row(csv_path: Path, run_dir: Path, *, report_path: Path | None = None) -> None:
     row = {field: "" for field in _CSV_FIELDS}
     row.update(
         {
@@ -27,8 +26,17 @@ def _write_history_row(csv_path: Path, run_dir: Path) -> None:
             "file_name": "book.epub",
             "precision": "0.1",
             "recall": "0.2",
+            "strict_accuracy": "0.42",
+            "macro_f1_excluding_other": "0.33",
+            "boundary_correct": "4",
+            "boundary_over": "1",
+            "boundary_under": "2",
+            "boundary_partial": "0",
+            "per_label_json": '[{"gold_total":2,"label":"INGREDIENT_LINE","precision":0.1,"pred_total":3,"recall":0.2}]',
         }
     )
+    if report_path is not None:
+        row["report_path"] = str(report_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
@@ -98,7 +106,7 @@ def test_benchmark_gc_dry_run_keeps_files_unchanged(tmp_path: Path) -> None:
     assert new_run.exists()
 
 
-def test_benchmark_gc_apply_hydrates_csv_then_prunes_runs(tmp_path: Path) -> None:
+def test_benchmark_gc_apply_prunes_runs_without_mutating_csv(tmp_path: Path) -> None:
     run_dir = tmp_path / "golden" / "bench" / "quality" / "runs" / "2026-02-01_10.00.00"
     _write_eval_report(run_dir)
     (run_dir / "payload.bin").write_bytes(b"y" * 512)
@@ -118,11 +126,9 @@ def test_benchmark_gc_apply_hydrates_csv_then_prunes_runs(tmp_path: Path) -> Non
 
     assert result.pruned_run_roots == 1
     assert result.history_rows_scanned == 1
-    assert result.history_rows_updated == 1
+    assert result.history_rows_updated == 0
     assert result.history_rows_pruned == 0
-    assert result.history_backup_path is not None
-    backup_path = Path(result.history_backup_path)
-    assert backup_path.exists()
+    assert result.history_backup_path is None
     assert not run_dir.exists()
 
     with csv_path.open("r", newline="", encoding="utf-8") as fh:
@@ -133,7 +139,7 @@ def test_benchmark_gc_apply_hydrates_csv_then_prunes_runs(tmp_path: Path) -> Non
     assert row["boundary_correct"] == "4"
 
 
-def test_benchmark_gc_apply_prune_writes_backup_without_history_rewrite(
+def test_benchmark_gc_apply_prune_keeps_csv_unchanged_when_already_durable(
     tmp_path: Path,
 ) -> None:
     run_dir = tmp_path / "golden" / "bench" / "quality" / "runs" / "2026-02-01_10.00.00"
@@ -172,9 +178,7 @@ def test_benchmark_gc_apply_prune_writes_backup_without_history_rewrite(
     assert result.pruned_run_roots == 1
     assert result.history_rows_updated == 0
     assert result.history_rows_pruned == 0
-    assert result.history_backup_path is not None
-    backup_path = Path(result.history_backup_path)
-    assert backup_path.exists()
+    assert result.history_backup_path is None
     assert not run_dir.exists()
 
 
@@ -224,7 +228,7 @@ def test_benchmark_gc_apply_with_unmatched_history_keeps_unconfirmed_runs(
     assert run_dir.exists()
 
 
-def test_benchmark_gc_apply_is_idempotent_and_backup_timestamp_format(
+def test_benchmark_gc_apply_is_idempotent_without_csv_backup_or_mutation(
     tmp_path: Path,
 ) -> None:
     run_dir = tmp_path / "golden" / "bench" / "quality" / "runs" / "2026-02-01_10.00.00"
@@ -242,12 +246,9 @@ def test_benchmark_gc_apply_is_idempotent_and_backup_timestamp_format(
         drop_speed_artifacts=False,
     )
     assert first.pruned_run_roots == 1
-    assert first.history_backup_path is not None
-    backup_name = Path(first.history_backup_path).name
-    assert re.fullmatch(
-        r"performance_history\.\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}\.gc\.bak\.csv",
-        backup_name,
-    )
+    assert first.history_rows_updated == 0
+    assert first.history_rows_pruned == 0
+    assert first.history_backup_path is None
 
     second = run_benchmark_gc(
         golden_root=tmp_path / "golden",
@@ -295,7 +296,9 @@ def test_benchmark_gc_preserves_dashboard_rows_after_prune(tmp_path: Path) -> No
     assert len(record.per_label) == 1
 
 
-def test_benchmark_gc_prunes_stale_deleted_rows_without_metrics(tmp_path: Path) -> None:
+def test_benchmark_gc_keeps_unconfirmed_runs_when_history_rows_lack_durable_metrics(
+    tmp_path: Path,
+) -> None:
     run_dir = tmp_path / "golden" / "bench" / "quality" / "runs" / "2026-02-01_10.00.00"
     _write_eval_report(run_dir)
     output_root = tmp_path / "output"
@@ -329,12 +332,15 @@ def test_benchmark_gc_prunes_stale_deleted_rows_without_metrics(tmp_path: Path) 
         drop_speed_artifacts=False,
     )
 
-    assert result.pruned_run_roots == 1
-    assert result.history_rows_pruned == 1
+    assert result.pruned_run_roots == 0
+    assert result.skipped_unconfirmed_run_roots == 1
+    assert result.history_rows_pruned == 0
+    assert run_dir.exists()
     with csv_path.open("r", newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
-    assert len(rows) == 1
+    assert len(rows) == 2
     assert rows[0]["run_dir"] == str(run_dir)
+    assert rows[1]["run_dir"] == str(run_dir / "config_001")
 
 
 def test_benchmark_gc_drop_speed_artifacts_overrides_keep_policy(tmp_path: Path) -> None:
@@ -443,21 +449,7 @@ def test_benchmark_gc_can_prune_labelstudio_processed_outputs_when_confirmed(
     processed_report.write_text("{}", encoding="utf-8")
 
     csv_path = tmp_path / ".history" / "performance_history.csv"
-    _write_history_rows(
-        csv_path,
-        [
-            {
-                "run_timestamp": "2026-02-16T15:00:00",
-                "run_dir": str(eval_dir),
-                "run_category": "benchmark_eval",
-                "eval_scope": "freeform-spans",
-                "file_name": "book.epub",
-                "precision": "0.1",
-                "recall": "0.2",
-                "report_path": str(processed_report),
-            }
-        ],
-    )
+    _write_history_row(csv_path, eval_dir, report_path=processed_report)
 
     result = run_benchmark_gc(
         golden_root=tmp_path / "golden",

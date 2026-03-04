@@ -11,6 +11,7 @@ from cookimport.analytics.perf_report import (
     append_history_csv,
     resolve_run_dir,
 )
+from cookimport.paths import HISTORY_ROOT, OUTPUT_ROOT, history_csv_for_output, history_root_for_output
 
 
 def _make_perf_row(index: int, run_dir: Path) -> PerfRow:
@@ -157,6 +158,17 @@ def test_append_benchmark_csv_parallel_writes_keep_valid_rows(tmp_path: Path) ->
         rows = list(csv.DictReader(handle))
     assert len(rows) == worker_count * rows_per_worker
     assert all(row.get("run_category") == "benchmark_eval" for row in rows)
+
+
+def test_history_root_for_repo_local_output_is_repo_history_root() -> None:
+    assert history_root_for_output(OUTPUT_ROOT) == HISTORY_ROOT
+    assert history_csv_for_output(OUTPUT_ROOT) == HISTORY_ROOT / "performance_history.csv"
+
+
+def test_history_root_for_external_output_uses_output_parent(tmp_path: Path) -> None:
+    output_root = tmp_path / "output"
+    assert history_root_for_output(output_root) == tmp_path / ".history"
+    assert history_csv_for_output(output_root) == tmp_path / ".history" / "performance_history.csv"
 
 
 def test_collect_all_method_timing_summary_from_report_payloads(tmp_path: Path) -> None:

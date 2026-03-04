@@ -470,7 +470,7 @@ Reporting/perf:
 - Report includes `llmCodexFarm` status payload (recipe pipeline stays `off` unless run settings enable it).
 - Report can include `outputStats` (counts/bytes/largest files by category).
 - Stage appends per-file summary rows into:
-  - `data/.history/performance_history.csv`
+  - `.history/performance_history.csv` (repo-local default)
 
 Provenance and IDs:
 - Provenance stores original source filename (with extension).

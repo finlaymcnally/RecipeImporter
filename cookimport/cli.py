@@ -281,6 +281,7 @@ SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
 SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
+BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 40 * 1024 * 1024
 BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
     "upload_bundle_overview.md",
     "upload_bundle_index.json",
@@ -587,6 +588,11 @@ def _infer_output_root_from_history_csv(csv_path: Path) -> Path | None:
         return None
     if csv_path.parent.name != ".history":
         return None
+    try:
+        if csv_path.parent.resolve(strict=False) == HISTORY_ROOT.resolve(strict=False):
+            return Path(DEFAULT_OUTPUT)
+    except OSError:
+        pass
     return csv_path.parent.parent / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
 
 
@@ -2457,12 +2463,29 @@ def _interactive_single_profile_all_matched_benchmark(
         typer.secho("No books selected. Single-profile benchmark cancelled.", fg=typer.colors.YELLOW)
         return False
 
+    variants = _interactive_single_offline_variants(selected_benchmark_settings)
+    if not variants:
+        typer.secho("No single-profile benchmark variants were planned.", fg=typer.colors.YELLOW)
+        return False
+    runs_per_target = len(variants)
+    total_planned_runs = len(targets) * runs_per_target
+    variant_labels = ", ".join(slug for slug, _settings in variants)
+
     typer.secho(
         f"Matched golden sets: {len(all_targets)}",
         fg=typer.colors.CYAN,
     )
     if allow_subset_selection:
         typer.secho(f"Selected matched books: {len(targets)}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Single-profile benchmark variants per book: {variant_labels}",
+        fg=typer.colors.CYAN,
+    )
+    if runs_per_target > 1:
+        typer.secho(
+            "Codex selected: each book will run vanilla first, then codexfarm.",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
     skipped_color = typer.colors.YELLOW if unmatched_targets else typer.colors.BRIGHT_BLACK
     typer.secho(
         f"Skipped golden sets: {len(unmatched_targets)}",
@@ -2476,7 +2499,7 @@ def _interactive_single_profile_all_matched_benchmark(
     typer.secho(
         (
             "Single-profile benchmark will run "
-            f"{len(targets)} configurations across {len(targets)} {scope_label}."
+            f"{total_planned_runs} configurations across {len(targets)} {scope_label}."
         ),
         fg=typer.colors.CYAN,
     )
@@ -2495,7 +2518,7 @@ def _interactive_single_profile_all_matched_benchmark(
 
     proceed = _prompt_confirm(
         (
-            f"Proceed with {len(targets)} benchmark runs across "
+            f"Proceed with {total_planned_runs} benchmark runs across "
             f"{len(targets)} {scope_label}?"
         ),
         default=False,
@@ -2511,16 +2534,18 @@ def _interactive_single_profile_all_matched_benchmark(
         / "single-profile-benchmark"
     )
 
-    base_kwargs = build_benchmark_call_kwargs_from_run_settings(
-        selected_benchmark_settings,
-        output_dir=_golden_benchmark_root(),
-        eval_output_dir=single_profile_root,
-        eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-        execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
-        no_upload=True,
-        write_markdown=write_markdown,
-        write_label_studio_tasks=write_label_studio_tasks,
-    )
+    variant_call_defaults: dict[str, dict[str, Any]] = {}
+    for variant_slug, variant_settings in variants:
+        variant_call_defaults[variant_slug] = build_benchmark_call_kwargs_from_run_settings(
+            variant_settings,
+            output_dir=_golden_benchmark_root(),
+            eval_output_dir=single_profile_root,
+            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+            execution_mode=BENCHMARK_EXECUTION_MODE_LEGACY,
+            no_upload=True,
+            write_markdown=write_markdown,
+            write_label_studio_tasks=write_label_studio_tasks,
+        )
 
     failures: list[tuple[AllMethodTarget, str]] = []
     total_targets = len(targets)
@@ -2547,8 +2572,10 @@ def _interactive_single_profile_all_matched_benchmark(
         split_phase_slots = 1
         split_phase_gate_dir = single_profile_root / ".split_phase_slots"
         split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+        scheduler_variant_slug = variants[0][0]
+        scheduler_kwargs = variant_call_defaults.get(scheduler_variant_slug, {})
         for key in ("workers", "pdf_split_workers", "epub_split_workers"):
-            scaled_worker_overrides[key] = _scale_parallel_workers(base_kwargs.get(key))
+            scaled_worker_overrides[key] = _scale_parallel_workers(scheduler_kwargs.get(key))
         typer.secho(
             (
                 "Single-profile scheduler: "
@@ -2561,45 +2588,108 @@ def _interactive_single_profile_all_matched_benchmark(
 
     def _run_single_profile_target(
         index: int, target: AllMethodTarget
-    ) -> tuple[AllMethodTarget, str | None, Path | None]:
+    ) -> tuple[AllMethodTarget, str | None, Path | None, Path | None]:
         target_slug = f"{index:02d}_{slugify_name(target.source_file.stem)}"
         target_eval_output = single_profile_root / target_slug
         target_processed_output = single_profile_processed_root / target_slug
-        target_kwargs = dict(base_kwargs)
-        target_kwargs.update(
-            {
-                "gold_spans": target.gold_spans_path,
-                "source_file": target.source_file,
-                "eval_output_dir": target_eval_output,
-                "processed_output_dir": target_processed_output,
-            }
-        )
-        if scaled_worker_overrides:
-            target_kwargs.update(scaled_worker_overrides)
-        split_status_label = (
-            f"Single-profile split gate {index}/{total_targets}: "
-            f"{target.source_file_name}"
-            if split_phase_slots is not None
-            else None
-        )
+        variant_eval_outputs: dict[str, Path] = {}
+        variant_errors: list[str] = []
+        source_file_for_comparison: str | None = None
+        for variant_index, (variant_slug, _variant_settings) in enumerate(
+            variants, start=1
+        ):
+            variant_kwargs = dict(variant_call_defaults.get(variant_slug, {}))
+            variant_eval_output = (
+                target_eval_output / variant_slug
+                if runs_per_target > 1
+                else target_eval_output
+            )
+            variant_processed_output = (
+                target_processed_output / variant_slug
+                if runs_per_target > 1
+                else target_processed_output
+            )
+            variant_kwargs.update(
+                {
+                    "gold_spans": target.gold_spans_path,
+                    "source_file": target.source_file,
+                    "eval_output_dir": variant_eval_output,
+                    "processed_output_dir": variant_processed_output,
+                }
+            )
+            if scaled_worker_overrides:
+                variant_kwargs.update(scaled_worker_overrides)
+            split_status_label = None
+            if split_phase_slots is not None:
+                split_status_label = (
+                    f"Single-profile split gate {index}/{total_targets}: "
+                    f"{target.source_file_name}"
+                )
+                if runs_per_target > 1:
+                    split_status_label = (
+                        f"Single-profile split gate {index}/{total_targets} "
+                        f"variant {variant_index}/{runs_per_target} "
+                        f"({variant_slug}): {target.source_file_name}"
+                    )
+            try:
+                with _benchmark_split_phase_overrides(
+                    split_phase_slots=split_phase_slots,
+                    split_phase_gate_dir=split_phase_gate_dir,
+                    split_phase_status_label=split_status_label,
+                ):
+                    labelstudio_benchmark(**variant_kwargs)
+                variant_eval_outputs[variant_slug] = variant_eval_output
+                source_file = _load_single_offline_source_path(variant_eval_output)
+                if source_file and not source_file_for_comparison:
+                    source_file_for_comparison = source_file
+            except typer.Exit as exc:
+                exit_code = int(getattr(exc, "exit_code", 1))
+                variant_errors.append(f"{variant_slug}=exit code {exit_code}")
+            except Exception as exc:  # noqa: BLE001
+                variant_errors.append(f"{variant_slug}={exc}")
+
+        comparison_json_path: Path | None = None
+        if (
+            runs_per_target > 1
+            and "vanilla" in variant_eval_outputs
+            and "codexfarm" in variant_eval_outputs
+        ):
+            comparison_paths = _write_single_offline_comparison_artifacts(
+                run_timestamp=benchmark_eval_output.name,
+                session_root=target_eval_output,
+                source_file=source_file_for_comparison or str(target.source_file),
+                codex_eval_output_dir=variant_eval_outputs["codexfarm"],
+                vanilla_eval_output_dir=variant_eval_outputs["vanilla"],
+                write_markdown=write_markdown,
+                write_starter_pack=False,
+            )
+            if comparison_paths is not None:
+                comparison_json_path = comparison_paths[0]
+
         try:
-            with _benchmark_split_phase_overrides(
-                split_phase_slots=split_phase_slots,
-                split_phase_gate_dir=split_phase_gate_dir,
-                split_phase_status_label=split_status_label,
-            ):
-                labelstudio_benchmark(**target_kwargs)
             upload_bundle_dir = _write_benchmark_upload_bundle(
                 source_root=target_eval_output,
                 output_dir=target_eval_output / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
                 suppress_summary=False,
             )
-            return target, None, upload_bundle_dir
         except typer.Exit as exc:
             exit_code = int(getattr(exc, "exit_code", 1))
-            return target, f"exit code {exit_code}", None
+            reason = "; ".join(variant_errors) if variant_errors else ""
+            failure_reason = reason.strip()
+            if failure_reason:
+                failure_reason += "; "
+            failure_reason += f"upload bundle exit code {exit_code}"
+            return target, failure_reason, None, comparison_json_path
         except Exception as exc:  # noqa: BLE001
-            return target, str(exc), None
+            reason = "; ".join(variant_errors) if variant_errors else ""
+            failure_reason = reason.strip()
+            if failure_reason:
+                failure_reason += "; "
+            failure_reason += f"upload bundle error: {exc}"
+            return target, failure_reason, None, comparison_json_path
+
+        failure_reason = "; ".join(variant_errors) if variant_errors else None
+        return target, failure_reason, upload_bundle_dir, comparison_json_path
 
     target_index_pairs = list(enumerate(targets, start=1))
     for index, target in target_index_pairs:
@@ -2607,6 +2697,7 @@ def _interactive_single_profile_all_matched_benchmark(
             (
                 f"Single-profile benchmark {index}/{total_targets}: "
                 f"{target.source_file_name}"
+                f"{' (vanilla + codexfarm)' if runs_per_target > 1 else ''}"
             ),
             fg=typer.colors.CYAN,
         )
@@ -2617,7 +2708,9 @@ def _interactive_single_profile_all_matched_benchmark(
             for index, target in target_index_pairs
         ]
     else:
-        completed_results: list[tuple[AllMethodTarget, str | None, Path | None]] = []
+        completed_results: list[
+            tuple[AllMethodTarget, str | None, Path | None, Path | None]
+        ] = []
         with ThreadPoolExecutor(max_workers=max_parallel_targets) as executor:
             futures = [
                 executor.submit(_run_single_profile_target, index, target)
@@ -2626,10 +2719,15 @@ def _interactive_single_profile_all_matched_benchmark(
             for future in as_completed(futures):
                 completed_results.append(future.result())
 
-    for target, failure_reason, upload_bundle_dir in completed_results:
+    for target, failure_reason, upload_bundle_dir, comparison_json_path in completed_results:
         if upload_bundle_dir is not None:
             typer.secho(
                 f"External-AI upload bundle: {upload_bundle_dir}",
+                fg=typer.colors.CYAN,
+            )
+        if comparison_json_path is not None:
+            typer.secho(
+                f"Codex-vs-vanilla comparison: {comparison_json_path}",
                 fg=typer.colors.CYAN,
             )
         if failure_reason is None:
@@ -2642,6 +2740,20 @@ def _interactive_single_profile_all_matched_benchmark(
             ),
             fg=typer.colors.YELLOW,
         )
+
+    if total_targets > 1:
+        group_upload_bundle_dir = _write_benchmark_upload_bundle(
+            source_root=single_profile_root,
+            output_dir=single_profile_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+            suppress_summary=False,
+            high_level_only=True,
+            target_bundle_size_bytes=BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES,
+        )
+        if group_upload_bundle_dir is not None:
+            typer.secho(
+                f"External-AI group upload bundle: {group_upload_bundle_dir}",
+                fg=typer.colors.CYAN,
+            )
 
     succeeded = total_targets - len(failures)
     summary_color = typer.colors.GREEN if not failures else typer.colors.YELLOW
@@ -3775,6 +3887,8 @@ def _write_benchmark_upload_bundle(
     source_root: Path,
     output_dir: Path,
     suppress_summary: bool,
+    high_level_only: bool = False,
+    target_bundle_size_bytes: int | None = None,
 ) -> Path | None:
     build_upload_bundle_for_existing_output = None
 
@@ -3827,6 +3941,16 @@ def _write_benchmark_upload_bundle(
         return None
 
     try:
+        build_upload_bundle_for_existing_output(
+            source_dir=source_root,
+            output_dir=output_dir,
+            overwrite=True,
+            prune_output_dir=False,
+            high_level_only=high_level_only,
+            target_bundle_size_bytes=target_bundle_size_bytes,
+        )
+    except TypeError:
+        # Backward compatibility if an older helper is loaded.
         build_upload_bundle_for_existing_output(
             source_dir=source_root,
             output_dir=output_dir,
@@ -21640,6 +21764,7 @@ def _write_stage_run_summary(
     requested_path: Path,
     run_config: dict[str, Any],
     errors: list[str],
+    write_markdown: bool = True,
 ) -> dict[str, Any] | None:
     payload = _build_stage_run_summary_payload(
         run_root=run_root,
@@ -21667,77 +21792,80 @@ def _write_stage_run_summary(
     totals = payload.get("totals", {})
     major_settings = payload.get("major_settings", {})
     codex = payload.get("codex_farm", {})
-    md_lines = [
-        f"# Stage run summary",
-        f"Run: {payload.get('run_dir')}",
-        f"Requested: {payload.get('requested_path')}",
-        "",
-        "## Books",
-    ]
-    if payload.get("books"):
-        for book in payload.get("books", []):
-            md_lines.append(
-                "- {name}: {recipes} recipes, {tips} tips, {tip_candidates} tip candidates, {topic_candidates} topic candidates".format(
-                    name=book.get("book_name") or book.get("book_slug") or "unknown",
-                    recipes=book.get("recipes", 0),
-                    tips=book.get("tips", 0),
-                    tip_candidates=book.get("tip_candidates", 0),
-                    topic_candidates=book.get("topic_candidates", 0),
-                )
-            )
-    else:
-        md_lines.append("- none")
-
-    md_lines.extend(
-        [
+    if write_markdown:
+        md_lines = [
+            f"# Stage run summary",
+            f"Run: {payload.get('run_dir')}",
+            f"Requested: {payload.get('requested_path')}",
             "",
-            "## Major settings",
-            f"- Codex-farm recipe pipeline: {codex.get('recipe_pipeline')}",
-            f"- Codex-farm knowledge pipeline: {codex.get('knowledge_pipeline')}",
-            f"- Codex-farm tags pipeline: {codex.get('tags_pipeline')}",
-            f"- workers: {major_settings.get('workers')}",
-            f"- effective_workers: {major_settings.get('effective_workers')}",
-            f"- epub_extractor: {major_settings.get('epub_extractor')}",
-            f"- table_extraction: {major_settings.get('table_extraction')}",
-            "",
-            "## Topline metrics",
-            "- total recipes: {recipes}".format(recipes=totals.get("recipes", 0)),
-            "- total tips: {tips}".format(tips=totals.get("tips", 0)),
-            "- total tip candidates: {tip_candidates}".format(
-                tip_candidates=totals.get("tip_candidates", 0)
-            ),
-            "- total topic candidates: {topic_candidates}".format(
-                topic_candidates=totals.get("topic_candidates", 0)
-            ),
-            "- total standalone blocks: {standalone_blocks}".format(
-                standalone_blocks=totals.get("standalone_blocks", 0)
-            ),
-            "- total standalone topic blocks: {standalone_topic_blocks}".format(
-                standalone_topic_blocks=totals.get("standalone_topic_blocks", 0)
-            ),
-            "- timing total/parsing/writing/ocr: {total}/{parsing}/{writing}/{ocr}".format(
-                total=_fmt_s(totals.get("total_seconds")),
-                parsing=_fmt_s(totals.get("parsing_seconds")),
-                writing=_fmt_s(totals.get("writing_seconds")),
-                ocr=_fmt_s(totals.get("ocr_seconds")),
-            ),
-            "",
-            f"## Files",
-            f"- reports: {payload.get('totals', {}).get('files_with_reports', 0)}",
-            f"- errors: {payload.get('error_count', 0)}",
+            "## Books",
         ]
-    )
+        if payload.get("books"):
+            for book in payload.get("books", []):
+                md_lines.append(
+                    "- {name}: {recipes} recipes, {tips} tips, {tip_candidates} tip candidates, {topic_candidates} topic candidates".format(
+                        name=book.get("book_name") or book.get("book_slug") or "unknown",
+                        recipes=book.get("recipes", 0),
+                        tips=book.get("tips", 0),
+                        tip_candidates=book.get("tip_candidates", 0),
+                        topic_candidates=book.get("topic_candidates", 0),
+                    )
+                )
+        else:
+            md_lines.append("- none")
 
-    try:
-        run_summary_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-    except OSError:
-        logger.warning("Failed to write %s", run_summary_md)
-        return payload
+        md_lines.extend(
+            [
+                "",
+                "## Major settings",
+                f"- Codex-farm recipe pipeline: {codex.get('recipe_pipeline')}",
+                f"- Codex-farm knowledge pipeline: {codex.get('knowledge_pipeline')}",
+                f"- Codex-farm tags pipeline: {codex.get('tags_pipeline')}",
+                f"- workers: {major_settings.get('workers')}",
+                f"- effective_workers: {major_settings.get('effective_workers')}",
+                f"- epub_extractor: {major_settings.get('epub_extractor')}",
+                f"- table_extraction: {major_settings.get('table_extraction')}",
+                "",
+                "## Topline metrics",
+                "- total recipes: {recipes}".format(recipes=totals.get("recipes", 0)),
+                "- total tips: {tips}".format(tips=totals.get("tips", 0)),
+                "- total tip candidates: {tip_candidates}".format(
+                    tip_candidates=totals.get("tip_candidates", 0)
+                ),
+                "- total topic candidates: {topic_candidates}".format(
+                    topic_candidates=totals.get("topic_candidates", 0)
+                ),
+                "- total standalone blocks: {standalone_blocks}".format(
+                    standalone_blocks=totals.get("standalone_blocks", 0)
+                ),
+                "- total standalone topic blocks: {standalone_topic_blocks}".format(
+                    standalone_topic_blocks=totals.get("standalone_topic_blocks", 0)
+                ),
+                "- timing total/parsing/writing/ocr: {total}/{parsing}/{writing}/{ocr}".format(
+                    total=_fmt_s(totals.get("total_seconds")),
+                    parsing=_fmt_s(totals.get("parsing_seconds")),
+                    writing=_fmt_s(totals.get("writing_seconds")),
+                    ocr=_fmt_s(totals.get("ocr_seconds")),
+                ),
+                "",
+                f"## Files",
+                f"- reports: {payload.get('totals', {}).get('files_with_reports', 0)}",
+                f"- errors: {payload.get('error_count', 0)}",
+            ]
+        )
+
+        try:
+            run_summary_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+        except OSError:
+            logger.warning("Failed to write %s", run_summary_md)
+            return payload
+    else:
+        run_summary_md.unlink(missing_ok=True)
 
     return payload
 
 
-def _print_stage_summary(payload: dict[str, Any]) -> None:
+def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True) -> None:
     books = payload.get("books")
     if not isinstance(books, list):
         return
@@ -21753,10 +21881,11 @@ def _print_stage_summary(payload: dict[str, Any]) -> None:
     codex = payload.get("codex_farm", {})
     major_settings = payload.get("major_settings", {})
     run_root = str(payload.get("run_root") or "").strip()
+    run_summary_name = "run_summary.md" if write_markdown else "run_summary.json"
     run_summary_path = (
-        str(Path(run_root) / "run_summary.md")
+        str(Path(run_root) / run_summary_name)
         if run_root
-        else f"{payload.get('run_dir')}/run_summary.md"
+        else f"{payload.get('run_dir')}/{run_summary_name}"
     )
 
     typer.secho("\nQuick run summary:", fg=typer.colors.CYAN)
@@ -24262,9 +24391,10 @@ def stage(
         requested_path=path,
         run_config=run_config,
         errors=errors,
+        write_markdown=write_markdown,
     )
     if stage_run_summary is not None:
-        _print_stage_summary(stage_run_summary)
+        _print_stage_summary(stage_run_summary, write_markdown=write_markdown)
 
     _write_stage_run_manifest(
         run_root=out,
@@ -28840,7 +28970,7 @@ def bench_gc(
         help="Preview only by default; pass --apply to delete artifacts.",
     ),
 ) -> None:
-    """Garbage-collect old benchmark artifacts while preserving CSV history metrics."""
+    """Garbage-collect old benchmark artifacts without mutating history CSV."""
     from cookimport.bench.artifact_gc import run_benchmark_gc
 
     result = run_benchmark_gc(
@@ -28885,6 +29015,7 @@ def bench_gc(
     typer.echo(f"history rows scanned: {result.history_rows_scanned}")
     typer.echo(f"history rows updated: {result.history_rows_updated}")
     typer.echo(f"history rows pruned: {result.history_rows_pruned}")
+    typer.echo("history csv mutation: disabled")
 
     if result.history_backup_path is not None:
         typer.echo(f"wrote backup: {result.history_backup_path}")
@@ -29769,7 +29900,7 @@ def bench_quality_leaderboard(
             save_qualitysuite_winner_run_settings(Path(DEFAULT_OUTPUT), winner_settings)
             typer.secho(
                 "Saved quality-suite winner profile: "
-                f"{Path(DEFAULT_OUTPUT) / '.history' / 'qualitysuite_winner_run_settings.json'}",
+                f"{history_root_for_output(Path(DEFAULT_OUTPUT)) / 'qualitysuite_winner_run_settings.json'}",
                 fg=typer.colors.BRIGHT_BLACK,
             )
         except Exception as exc:  # noqa: BLE001

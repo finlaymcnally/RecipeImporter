@@ -99,7 +99,7 @@ Defaults in `cookimport/cli.py`:
 - `DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO = data/golden/sent-to-labelstudio`
 - `DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO = data/golden/pulled-from-labelstudio`
 - `DEFAULT_GOLDEN_BENCHMARK = data/golden/benchmark-vs-golden`
-- `DEFAULT_HISTORY = data/.history`
+- `DEFAULT_HISTORY = .history`
 - `DEFAULT_BENCH_SUITES = data/golden/bench/suites`
 - `DEFAULT_BENCH_RUNS = data/golden/bench/runs`
 - `DEFAULT_BENCH_SPEED_ROOT = data/golden/bench/speed`
@@ -114,7 +114,7 @@ Command defaults:
 - `labelstudio-export --output-dir` default: `data/golden/pulled-from-labelstudio`
 - `labelstudio-benchmark --output-dir` default: `data/golden/benchmark-vs-golden`
 - `labelstudio-benchmark --processed-output-dir` default: `data/output`
-- `stats-dashboard --out-dir` default: `data/.history/dashboard`
+- `stats-dashboard --out-dir` default: `.history/dashboard`
 
 Interactive defaults:
 - settings `output_dir` defaults to `data/output` and drives interactive stage target.
@@ -243,8 +243,8 @@ Manifest responsibilities:
 - key artifact pointers needed to trace stage/prediction/eval relationships without reading internals
 
 History-root rule:
-- stage history writes append to `<stage --out parent>/.history/performance_history.csv`
-- benchmark history writes append to `<processed_output_dir parent>/.history/performance_history.csv`
+- for repo-local outputs (default `data/output`), stage/benchmark history writes append to `<repo>/.history/performance_history.csv`
+- for external output roots (for example `/tmp/out`), history writes append to `<output_root parent>/.history/performance_history.csv`
 
 Path helper rule:
 - canonical helper is `history_csv_for_output(output_root)` in `cookimport/paths.py`; `cookimport.analytics.perf_report.history_path(...)` delegates to that helper.

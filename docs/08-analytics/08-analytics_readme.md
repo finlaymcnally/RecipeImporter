@@ -21,14 +21,14 @@ This README intentionally documents only active behavior. Historical implementat
 
 2. Cross-run history CSV
 - Artifact: `performance_history.csv`
-- Default location for default output root (`data/output`): `data/.history/performance_history.csv`
+- Default location for default output root (`data/output`): `.history/performance_history.csv`
 - Producer paths:
   - stage/perf-report appenders (`append_history_csv`)
   - benchmark appenders (`append_benchmark_csv`)
   - one-off patch command (`benchmark-csv-backfill`)
 
 3. Static dashboard site
-- Default root: `data/.history/dashboard`
+- Default root: `.history/dashboard`
 - Main page: `index.html`
 - Standalone all-method pages:
   - `all-method-benchmark/all-method-benchmark-run__<run_ts>.html`
@@ -85,9 +85,10 @@ Split-merge note:
 
 History root rule (important):
 - History is resolved from output root using `history_csv_for_output(output_root)`.
-- Path is `output_root.parent / ".history" / "performance_history.csv"`.
+- Repo-local output roots (for example `data/output`) resolve to `<repo>/.history/performance_history.csv`.
+- External output roots resolve to `output_root.parent / ".history" / "performance_history.csv"`.
 - Example: output root `/tmp/out` writes history at `/tmp/.history/performance_history.csv`.
-- Collector compatibility read path: if canonical history CSV is missing, collector also probes legacy `<output_root>/.history/performance_history.csv`.
+- Collector compatibility read path: if canonical history CSV is missing, collector also probes previous canonical `<output_root parent>/.history/performance_history.csv` and legacy `<output_root>/.history/performance_history.csv`.
 - Collector also scans nested `<output_root>/**/.history/performance_history.csv` files for supplemental benchmark rows (used by nested benchmark processed-output layouts).
 
 Stage/import rows (`run_category=stage_import` or `labelstudio_import`):
@@ -111,7 +112,7 @@ Compatibility behavior:
 - Appenders auto-expand older CSV headers to current schema before writing.
 - CSV append operations use inter-process file locking to reduce concurrent write corruption.
 - Benchmark readers collapse strict/practical aliases only when explicit benchmark metrics exist (`strict_accuracy`, `macro_f1_excluding_other`); legacy split precision/recall/practical fields are preserved when explicit metrics are absent.
-- `bench gc` hydrates missing benchmark durability fields before deletion and skips run-root pruning when matching durable benchmark history rows cannot be confirmed.
+- `bench gc` is read-only for `performance_history.csv`: it does not hydrate/rewrite/prune rows, and skips run-root pruning when durable benchmark retention cannot be confirmed from existing durable CSV rows.
 
 ### 3.3 Dashboard artifacts and data sources
 
@@ -189,6 +190,7 @@ Benchmark scan details:
 - Diagnostics layout is fixed 2-up on desktop: `Benchmark Runtime` and `Boundary Classification` each occupy 50% width on the first row, with `Per-Label Breakdown` full-width below (mobile collapses to one column).
 - Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`) with compact `k`/`m` display for large values.
 - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns. Comparison columns can be shown as signed deltas or raw point values via an in-card `Point value` checkbox; delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
+- Per-label comparison cells now render `-` when the comparison variant metric is missing (instead of coercing to `0.0000` in point-value mode).
 - Per-label diagnostics now include a run-group selector beside the title (`Default - most recent` + all available run timestamps) so the table can auto-follow latest runs or be pinned to a chosen timestamp.
 - Per-label diagnostics expose a `Rolling N` selector; rolling codexfarm/vanilla comparison columns use that selected N and render under a shared dynamic `<N>-run Rolling <Mode>:` header with metric+variant subcolumns.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
@@ -207,6 +209,10 @@ Benchmark scan details:
   - `discover`: ranks likely driver fields from currently visible rows.
   - `raw`: direct categorical/numeric association metrics on visible rows; categorical output includes optional secondary means for runtime/token/cost-style numeric fields when available.
   - `controlled`: exact hold-constant strata metrics with explicit comparable-coverage reporting and weak-coverage warning text when comparable rows/strata are thin; categorical controlled means are stratum-standardized (shared stratum weights) to reduce confounded group-mix effects.
+- Compare/control secondary metrics now skip constant-valued fields (including all-zero timing columns) so per-group summaries avoid misleading `0.000` side stats.
+- `Previous Runs` now renders as two UI subsections:
+  - `History Table & Trend` (primary trend chart + quick filters + table),
+  - `Compare & Control Analysis` (compare/control panel + second trend-chart clone over the same filtered row set).
 - `Compare & Control` also has a `Reset` action that restores default panel state without touching table filters.
 - `Compare & Control` supports optional split-by segmentation (categorical buckets or equal-count numeric bins plus missing bucket).
 - `Filter to subset` from `Compare & Control` writes selected categorical groups into existing table column filters (no separate filter engine).
@@ -220,6 +226,7 @@ Benchmark scan details:
 - `Previous Runs` table keeps horizontal scrolling with a fixed minimum table width, and the viewport stays at about 10 visible-row height (even when filtered result count is lower) before vertical scrolling.
 - Clicking a `Previous Runs` table header now toggles sort direction for that column (`A→Z` / `Z→A`; numeric/date-aware where possible).
 - Benchmark trend chart timestamps are rendered in browser-local time (`Highcharts time.useUTC=false`).
+- Benchmark trend field selection is now checklist-based (`Trend fields` with `Select all` / `Clear`) and accepts any number of numeric benchmark fields.
 - Benchmark trend score series are rendered as scatter points so only discrete run timestamps are shown (no connected interpolation line for raw points); each plotted series also gets a dashed linear trendline with a same-color `±1σ` deviation band.
 - When paired single-offline variants are present, benchmark trend chart splits metric series by variant (`vanilla` vs `codexfarm`) so each pair is plotted separately.
 - Paired variants now use one shared x-axis timestamp per benchmark run-group (artifact timestamp token preferred, row timestamp fallback), preventing same-run horizontal drift between `vanilla` and `codexfarm`.
@@ -325,7 +332,7 @@ Current-contract additions:
 - Analytics ownership covers telemetry artifact persistence and dashboard collector/renderer behavior, including command-side history appenders in `labelstudio-eval` and `labelstudio-benchmark`.
 - Main dashboard index contract remains intentionally reduced to `Diagnostics (Latest Benchmark)` and `Previous Runs`.
 - Legacy throughput/filter/KPI main-index branches are retired behavior and should stay historical-only.
-- Compatibility fallback for legacy history path lookup (`<output_root>/.history/performance_history.csv`) and stale all-method root-page cleanup are active renderer/collector hygiene rules.
+- Compatibility fallbacks for prior history locations (`<output_root parent>/.history/performance_history.csv`, `<output_root>/.history/performance_history.csv`) and stale all-method root-page cleanup are active renderer/collector hygiene rules.
 
 Anti-loop rule:
 - If analytics docs and UI disagree, verify tests (`tests/analytics/test_stats_dashboard.py`) and current collector/render code before restoring retired UI branches.
@@ -393,7 +400,7 @@ Current dashboard interaction contract:
   - no-data fallback text when rows have no trend points,
   - offline/CDN failure fallback text when Highcharts is unavailable,
   - table rendering remains usable regardless of chart state.
-- Trend series contract currently includes: `strict_accuracy`, `macro_f1_excluding_other`.
+- Trend series defaults are `strict_accuracy` and `macro_f1_excluding_other`, but users can now add/remove any numeric benchmark field from the trend field checklist.
 - Timestamp parsing must continue to accept both `YYYY-MM-DD_HH.MM.SS` and ISO-style strings so historical rows sort correctly.
 - Y-axis score bounds are intentionally fixed to `0..1` for comparability across runs.
 
@@ -455,7 +462,7 @@ Merged source notes:
 - `docs/understandings/2026-03-02_23.22.43-dashboard-history-cull-legacy-benchmark-rows.md`
 
 Current analytics contracts to keep:
-- Trend points use explicit benchmark metrics (`strict_accuracy`, `macro_f1_excluding_other`) only, but chart x-axis bounds should still be initialized from the full filtered timestamp span so timeline coverage matches `Previous Runs`.
+- Trend points follow the selected numeric trend fields (defaulting to `strict_accuracy` + `macro_f1_excluding_other`), and chart x-axis bounds should still be initialized from the full filtered timestamp span so timeline coverage matches `Previous Runs`.
 - Legacy benchmark rows with null explicit metrics are valid history rows and should remain visible in table/filter contexts.
 - When dashboard history is intentionally culled to current artifact paradigms, remove stale benchmark CSV rows that point to legacy pytest/tmp/eval-vs-pipeline paths.
 - CSV pruning alone is not enough if old benchmark run folders still exist on disk; collector behavior and artifact retention policy must stay aligned.

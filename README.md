@@ -78,7 +78,7 @@ START
     |-- Label Studio task-generation runs: `data/golden/sent-to-labelstudio/<YYYY-MM-DD_HH.MM.SS>/labelstudio/<book_slug>/`
     |-- Label Studio exports: `data/golden/pulled-from-labelstudio/<project_slug>/exports/`
     |-- Benchmark/eval runs: `data/golden/benchmark-vs-golden/<YYYY-MM-DD_HH.MM.SS>/`
-    `-- Shared history + dashboard: `data/.history/`
+    `-- Shared history + dashboard: `.history/` (repo-local outputs)
 ```
 
 > README goal (for humans and future AIs editing this file)
@@ -219,7 +219,7 @@ Main Menu ("What would you like to do?")
 |   `-- All-method: uses global benchmark defaults, then runs offline permutations
 |
 |-- Dashboard: Build lifetime stats dashboard HTML
-|   `-- Writes to <output_dir_parent>/.history/dashboard/
+|   `-- Writes to .history/dashboard/ for repo-local outputs
 |
 |-- Settings: Change worker/OCR/output defaults
 |   `-- Settings Configuration
@@ -393,7 +393,7 @@ Evaluate vs freeform gold: Generate predictions and compare to your labels
 
 ### Generate Dashboard
 
-This builds a static HTML dashboard of run history under `<output_dir_parent>/.history/dashboard/`.
+This builds a static HTML dashboard of run history under `.history/dashboard/` (repo-local outputs).
 
 No additional prompt is shown for this action, and interactive mode does not auto-open a browser.
 

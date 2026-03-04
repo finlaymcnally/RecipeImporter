@@ -31,6 +31,13 @@ def _legacy_store_path(kind: RunSettingsKind, output_dir: Path) -> Path:
     return output_dir / ".history" / _STORE_FILENAMES[kind]
 
 
+def _legacy_store_paths(kind: RunSettingsKind, output_dir: Path) -> tuple[Path, ...]:
+    return (
+        _legacy_store_path(kind, output_dir),
+        output_dir.parent / ".history" / _STORE_FILENAMES[kind],
+    )
+
+
 def _preferred_store_path(output_dir: Path) -> Path:
     return history_root_for_output(output_dir) / _PREFERRED_STORE_FILENAME
 
@@ -39,12 +46,26 @@ def _legacy_preferred_store_path(output_dir: Path) -> Path:
     return output_dir / ".history" / _PREFERRED_STORE_FILENAME
 
 
+def _legacy_preferred_store_paths(output_dir: Path) -> tuple[Path, ...]:
+    return (
+        _legacy_preferred_store_path(output_dir),
+        output_dir.parent / ".history" / _PREFERRED_STORE_FILENAME,
+    )
+
+
 def _qualitysuite_winner_store_path(output_dir: Path) -> Path:
     return history_root_for_output(output_dir) / _QUALITYSUITE_WINNER_STORE_FILENAME
 
 
 def _legacy_qualitysuite_winner_store_path(output_dir: Path) -> Path:
     return output_dir / ".history" / _QUALITYSUITE_WINNER_STORE_FILENAME
+
+
+def _legacy_qualitysuite_winner_store_paths(output_dir: Path) -> tuple[Path, ...]:
+    return (
+        _legacy_qualitysuite_winner_store_path(output_dir),
+        output_dir.parent / ".history" / _QUALITYSUITE_WINNER_STORE_FILENAME,
+    )
 
 
 def _load_run_settings_file(path: Path, *, warn_context: str) -> RunSettings | None:
@@ -72,9 +93,10 @@ def load_last_run_settings(
 ) -> RunSettings | None:
     path = _store_path(kind, output_dir)
     if not path.is_file():
-        legacy = _legacy_store_path(kind, output_dir)
-        if legacy.is_file():
-            path = legacy
+        for legacy in _legacy_store_paths(kind, output_dir):
+            if legacy.is_file():
+                path = legacy
+                break
         else:
             return None
 
@@ -107,9 +129,10 @@ def save_last_run_settings(
 def load_preferred_run_settings(output_dir: Path) -> RunSettings | None:
     path = _preferred_store_path(output_dir)
     if not path.is_file():
-        legacy = _legacy_preferred_store_path(output_dir)
-        if legacy.is_file():
-            path = legacy
+        for legacy in _legacy_preferred_store_paths(output_dir):
+            if legacy.is_file():
+                path = legacy
+                break
         else:
             return None
     return _load_run_settings_file(path, warn_context="preferred")
@@ -137,9 +160,10 @@ def save_preferred_run_settings(
 def load_qualitysuite_winner_run_settings(output_dir: Path) -> RunSettings | None:
     path = _qualitysuite_winner_store_path(output_dir)
     if not path.is_file():
-        legacy = _legacy_qualitysuite_winner_store_path(output_dir)
-        if legacy.is_file():
-            path = legacy
+        for legacy in _legacy_qualitysuite_winner_store_paths(output_dir):
+            if legacy.is_file():
+                path = legacy
+                break
         else:
             return None
     return _load_run_settings_file(path, warn_context="qualitysuite winner")

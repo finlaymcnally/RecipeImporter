@@ -5,7 +5,7 @@ All collectors are **read-only** – they never write into ``data/output`` or
 
 Primary data sources
 --------------------
-* ``data/.history/performance_history.csv`` (stage/import + benchmark trends)
+* ``<repo>/.history/performance_history.csv`` (stage/import + benchmark trends)
 * nested ``<output_root>/**/.history/performance_history.csv`` benchmark rows
   (supplemental benchmark history written by nested benchmark workflows)
 
@@ -2000,9 +2000,16 @@ def collect_dashboard_data(
     # -- Stage + benchmark records from CSV --
     csv_path = history_csv_for_output(output_root)
     if not csv_path.exists():
-        legacy_csv_path = output_root / ".history" / "performance_history.csv"
-        if legacy_csv_path.exists():
-            csv_path = legacy_csv_path
+        legacy_candidates = (
+            output_root.expanduser().parent / ".history" / "performance_history.csv",
+            output_root / ".history" / "performance_history.csv",
+        )
+        for legacy_csv_path in legacy_candidates:
+            if legacy_csv_path == csv_path:
+                continue
+            if legacy_csv_path.exists():
+                csv_path = legacy_csv_path
+                break
     stage_records: list[StageRecord] = []
     csv_bench_records: list[BenchmarkRecord] = []
 

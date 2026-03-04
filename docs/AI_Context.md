@@ -153,11 +153,13 @@ Main artifacts:
 
 Stage runs summarize and append history rows to:
 
-- `<stage_output_parent>/.history/performance_history.csv`
+- `history_csv_for_output(<stage_output_root>)`
+  - default repo-local path: `.history/performance_history.csv`
+  - external output-root path: `<stage_output_parent>/.history/performance_history.csv`
 
 Dashboard output:
 
-- `cookimport stats-dashboard` writes to `data/.history/dashboard` by default
+- `cookimport stats-dashboard` writes to `.history/dashboard` by default for repo-local outputs
 - emits `index.html` + local assets + embedded inline JSON fallback for `file://` usage.
 
 ### 5.3 Label Studio / benchmark artifacts

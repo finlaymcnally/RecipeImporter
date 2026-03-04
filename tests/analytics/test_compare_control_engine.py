@@ -148,6 +148,56 @@ def test_controlled_categorical_standardizes_strata() -> None:
     assert controlled["total_strata"] == 2
 
 
+def test_secondary_metrics_skip_constant_fields() -> None:
+    records = [
+        {
+            "strict_accuracy": 0.60,
+            "compare_group": "A",
+            "benchmark_total_seconds": 0.0,
+            "benchmark_prediction_seconds": 0.0,
+            "benchmark_evaluation_seconds": 0.0,
+            "tokens_total": 1000,
+        },
+        {
+            "strict_accuracy": 0.62,
+            "compare_group": "A",
+            "benchmark_total_seconds": 0.0,
+            "benchmark_prediction_seconds": 0.0,
+            "benchmark_evaluation_seconds": 0.0,
+            "tokens_total": 1200,
+        },
+        {
+            "strict_accuracy": 0.58,
+            "compare_group": "B",
+            "benchmark_total_seconds": 0.0,
+            "benchmark_prediction_seconds": 0.0,
+            "benchmark_evaluation_seconds": 0.0,
+            "tokens_total": 800,
+        },
+        {
+            "strict_accuracy": 0.57,
+            "compare_group": "B",
+            "benchmark_total_seconds": 0.0,
+            "benchmark_prediction_seconds": 0.0,
+            "benchmark_evaluation_seconds": 0.0,
+            "tokens_total": 900,
+        },
+    ]
+    field_options = engine.collect_benchmark_field_paths(records)
+    raw = engine.analyze_compare_control_categorical_raw(
+        records,
+        "strict_accuracy",
+        "compare_group",
+        field_options,
+    )
+    secondary_fields = set(raw["secondary_fields"])
+    assert "benchmark_total_seconds" not in secondary_fields
+    assert "benchmark_prediction_seconds" not in secondary_fields
+    assert "benchmark_evaluation_seconds" not in secondary_fields
+    assert "all_token_use" in secondary_fields
+    assert "tokens_total" in secondary_fields
+
+
 def test_apply_filters_invalid_regex_returns_structured_error() -> None:
     records = [{"strict_accuracy": 0.5, "compare_group": "codexfarm"}]
     with pytest.raises(engine.CompareControlError) as exc_info:

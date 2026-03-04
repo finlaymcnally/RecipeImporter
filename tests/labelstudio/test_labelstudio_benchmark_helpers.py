@@ -2662,7 +2662,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
     mode_prompts: list[list[str]] = []
 
     def fake_menu_select(prompt: str, *_args, **_kwargs):
@@ -2729,7 +2729,7 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
 
     monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
@@ -2829,7 +2829,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text("{}\n", encoding="utf-8")
 
-    menu_answers = iter(["labelstudio_benchmark", "single_offline", "global", "exit"])
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
     mode_prompt_count = 0
     mode_titles: list[str] = []
 
@@ -10872,6 +10872,192 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     )
 
 
+def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_per_book(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="gold-a",
+        ),
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.11.11"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test single-profile codex",
+    )
+
+    benchmark_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cli,
+        "labelstudio_benchmark",
+        lambda **kwargs: benchmark_calls.append(kwargs),
+    )
+
+    comparison_calls: list[dict[str, object]] = []
+
+    def _fake_write_single_offline_comparison_artifacts(**kwargs):
+        comparison_calls.append(dict(kwargs))
+        session_root = kwargs["session_root"]
+        assert isinstance(session_root, Path)
+        return session_root / "codex_vs_vanilla_comparison.json", None
+
+    monkeypatch.setattr(
+        cli,
+        "_write_single_offline_comparison_artifacts",
+        _fake_write_single_offline_comparison_artifacts,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 2
+    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-farm-3pass-v1",
+    ]
+    assert [call["line_role_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-line-role-v1",
+    ]
+    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
+        "off",
+        "atomic-v1",
+    ]
+    assert [call["eval_output_dir"] for call in benchmark_calls] == [
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla",
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codexfarm",
+    ]
+    assert [call["processed_output_dir"] for call in benchmark_calls] == [
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-profile-benchmark"
+        / "01_book_a"
+        / "vanilla",
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-profile-benchmark"
+        / "01_book_a"
+        / "codexfarm",
+    ]
+
+    assert len(comparison_calls) == 1
+    assert comparison_calls[0]["run_timestamp"] == benchmark_eval_output.name
+    assert comparison_calls[0]["session_root"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a"
+    )
+    assert comparison_calls[0]["source_file"] == str(source_a)
+    assert comparison_calls[0]["vanilla_eval_output_dir"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla"
+    )
+    assert comparison_calls[0]["codex_eval_output_dir"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codexfarm"
+    )
+
+
+def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b = tmp_path / "Book B.docx"
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="gold-a",
+        ),
+        cli.AllMethodTarget(
+            gold_spans_path=gold_b,
+            source_file=source_b,
+            source_file_name=source_b.name,
+            gold_display="gold-b",
+        ),
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-03-04_10.00.00"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict({}, warn_context="test")
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", lambda **_kwargs: None)
+    upload_bundle_calls: list[dict[str, object]] = []
+
+    def _fake_write_benchmark_upload_bundle(**kwargs):
+        upload_bundle_calls.append(dict(kwargs))
+        return kwargs.get("output_dir")
+
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        _fake_write_benchmark_upload_bundle,
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert completed is True
+    assert len(upload_bundle_calls) == 3
+    group_call = next(
+        call
+        for call in upload_bundle_calls
+        if call.get("source_root")
+        == (benchmark_eval_output / "single-profile-benchmark")
+    )
+    assert group_call.get("high_level_only") is True
+    assert group_call.get("target_bundle_size_bytes") == (
+        cli.BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES
+    )
+
+
 def test_interactive_single_profile_selected_matched_benchmark_runs_selected_targets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -10947,6 +11133,94 @@ def test_interactive_single_profile_selected_matched_benchmark_runs_selected_tar
         / "single-profile-benchmark"
         / "01_book_b"
     )
+
+
+def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selected_book(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b = tmp_path / "Book B.docx"
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="gold-a",
+        ),
+        cli.AllMethodTarget(
+            gold_spans_path=gold_b,
+            source_file=source_b,
+            source_file_name=source_b.name,
+            gold_display="gold-b",
+        ),
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    selection_answers = iter([1, "__run_selected__"])
+    monkeypatch.setattr(
+        cli,
+        "_menu_select",
+        lambda *_args, **_kwargs: next(selection_answers),
+    )
+    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.22.22"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test single-profile selected codex",
+    )
+
+    benchmark_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cli,
+        "labelstudio_benchmark",
+        lambda **kwargs: benchmark_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_write_single_offline_comparison_artifacts",
+        lambda **kwargs: (kwargs["session_root"] / "codex_vs_vanilla_comparison.json", None),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+        allow_subset_selection=True,
+    )
+
+    assert completed is True
+    assert len(benchmark_calls) == 2
+    assert [call["source_file"] for call in benchmark_calls] == [source_b, source_b]
+    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-farm-3pass-v1",
+    ]
+    assert [call["eval_output_dir"] for call in benchmark_calls] == [
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "vanilla",
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "codexfarm",
+    ]
 
 
 def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settings(

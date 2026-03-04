@@ -1,0 +1,8 @@
+*
+!.gitignore
+!README.md
+!performance_history.csv
+!last_run_settings_import.json
+!last_run_settings_benchmark.json
+!preferred_run_settings.json
+!qualitysuite_winner_run_settings.json

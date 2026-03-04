@@ -31,7 +31,7 @@ Current scoring surfaces:
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
-- `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is confirmed from CSV rows.
+- `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is already present in CSV rows, and `bench gc` does not mutate `performance_history.csv`.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`. By default, it also emits an AI-agent bridge under `<run_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
@@ -98,7 +98,7 @@ Interactive `single_offline` now writes into one session root:
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
   - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
-- dashboard refresh is deferred until the full single-offline variant batch completes, then the lifetime dashboard is regenerated at `data/.history/dashboard` (using the configured output root) so `Previous Runs` updates without a manual dashboard rebuild.
+- dashboard refresh is deferred until the full single-offline variant batch completes, then the lifetime dashboard is regenerated at `.history/dashboard` for repo-local outputs (using the configured output root) so `Previous Runs` updates without a manual dashboard rebuild.
 - all-method deferred refreshes (global queue batch, legacy multi-source batch, and source-batch refreshes) also target the lifetime dashboard path for the configured output root, rather than nested per-run `.history/dashboard` folders.
 - paired success can optionally generate a blended first-look starter pack
   in-place when `COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK=1`:
@@ -116,6 +116,17 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
+- interactive single-profile selected/all-matched runs now use the same variant planner as single-offline:
+  - when run settings keep `llm_recipe_pipeline=off`, each selected book runs one `vanilla` eval at `.../single-profile-benchmark/<index_source_slug>/`
+  - when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`, each selected book runs paired variants at:
+    - `.../single-profile-benchmark/<index_source_slug>/vanilla`
+    - `.../single-profile-benchmark/<index_source_slug>/codexfarm`
+  - paired books write `.../single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json` only when both variants succeed
+- multi-book interactive single-profile runs also write one group-level 3-file upload bundle at:
+  - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_overview.md`
+  - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
+  - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
+  - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
 - interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
@@ -219,9 +230,8 @@ Speed comparison (`bench speed-compare`) artifacts include:
 - comparison payload includes `baseline_run_settings_hash`, `candidate_run_settings_hash`, `settings_match`, and mismatch-verdict metadata.
 
 Benchmark GC (`bench gc`) artifacts/side effects include:
-- timestamped history backup before apply-time mutation when history CSV exists: `performance_history.<YYYY-MM-DD_HH.MM.SS>.gc.bak.csv`
-- optional CSV hydration for benchmark rows (`per_label_json` plus strict/macro/boundary fallback fields) before deletion
-- conditional stale-row prune for deleted run roots when benchmark rows have no durable metrics
+- no CSV rewrite/backup/prune side effects (`performance_history.csv` is read-only for GC)
+- run-root prune confirmation from benchmark history rows with durable CSV metrics already present
 - policy summary in CLI output (`kept/pruned counts`, `estimated reclaim`, `history rows updated/pruned`)
 - keep/pin sentinels: any run root containing `.gc_keep*`, `.keep`, or `.pinned` is never pruned by `bench gc` (use `cookimport bench pin <run_dir>` to create `.gc_keep.<timestamp>.txt`)
 
@@ -250,7 +260,7 @@ Quality leaderboard (`bench quality-leaderboard`) artifacts include:
 - `pareto_frontier.json`, `pareto_frontier.csv`
 - `winner_run_settings.json`, `winner_dimensions.json`
 - optional (when `--by-source-extension`): `leaderboard_by_source_extension.json`, `leaderboard_by_source_extension.csv`
-- interactive profile side effect: winner run settings are also saved to `data/.history/qualitysuite_winner_run_settings.json` for `Run with quality-suite winner (...)` menu selection.
+- interactive profile side effect: winner run settings are also saved to `.history/qualitysuite_winner_run_settings.json` for repo-local outputs, and interactive import/benchmark now auto-prefer this file as the top-tier default profile source.
 - default output root: `<quality_run_dir>/leaderboards/<experiment_id>/<timestamp>/`
 
 Quality comparison (`bench quality-compare`) artifacts include:
@@ -562,7 +572,7 @@ Source merged from:
 Profile scope (captured from Feb 25-26 run roots):
 - stage runs and single benchmark runs (`labelstudio-benchmark`)
 - all-method benchmark runs and source-level scheduler telemetry
-- run-local reports/histories (not only top-level `data/.history/performance_history.csv`)
+- run-local reports/histories (not only top-level `.history/performance_history.csv` for repo-local outputs)
 
 High-signal runtime findings retained:
 - Stage-block benchmark runs were prediction/conversion-bound in this sample:
@@ -582,7 +592,7 @@ Durable interpretation guidance:
 - `stage` split merge and benchmark prediction split merge are separate implementations (`_merge_split_jobs` vs `_merge_parallel_results`) and can drift independently.
 
 Telemetry anti-loop checks from this profile:
-- Top-level `data/.history/performance_history.csv` did not contain complete production telemetry for this window; run-local artifacts were the reliable source.
+- Top-level `.history/performance_history.csv` (repo-local default) did not contain complete production telemetry for this window; run-local artifacts were the reliable source.
 - Processed stage reports in this window often lacked populated timing blocks, so stage wall-time inference came from benchmark prediction timings.
 - If all-method appears "slow but underutilized," verify canonical eval-tail behavior before retuning split/admission knobs.
 
@@ -862,14 +872,14 @@ Current-contract additions from this audit pack:
 
 ### 2026-02-28_03.04.14 qualitysuite profile save and cache boundaries
 - Source: `docs/understandings/2026-02-28_03.04.14-qualitysuite-profile-save-and-cache-boundaries.md`
-- Preferred profile path: `data/.history/preferred_run_settings.json`.
+- Preferred profile path: `.history/preferred_run_settings.json` (repo-local default).
 - Quality artifacts root: `data/golden/bench/quality/runs/<timestamp>/...` with leaderboard outputs under `leaderboards/<experiment_id>/<timestamp>/...`.
 - Cache reuse boundary remains evaluation-aligned (alignment/eval-signature cache); new config variants still re-run prediction/import.
 
 ### 2026-02-28_03.08.55 quality leaderboard winner profile source of truth
 - Source: `docs/understandings/2026-02-28_03.08.55-quality-leaderboard-winner-profile-source-of-truth.md`
 - Winner settings should prefer `run_manifest.run_config.prediction_run_config` (when present) to match scored variant dimensions.
-- `bench quality-leaderboard` now persists winner profile to `data/.history/qualitysuite_winner_run_settings.json` for interactive chooser reuse.
+- `bench quality-leaderboard` now persists winner profile to `.history/qualitysuite_winner_run_settings.json` (repo-local default) for interactive chooser reuse.
 
 ## 2026-02-28 migrated understandings batch (03:25-03:59)
 
@@ -1511,11 +1521,9 @@ Current benchmark contracts to keep:
   - stage-block loader default can keep HOWTO remap behavior,
   - canonical-text path must disable HOWTO remap so `HOWTO_SECTION` totals/confusion remain real.
 - Benchmark GC durability is CSV-first with safety guards:
-  - persist durable benchmark fields in CSV (`per_label_json`, strict/macro/boundary),
-  - hydrate missing durable fields from `eval_report.json` before prune,
-  - only delete run roots when durable-history confirmation passes,
-  - create timestamped backup `performance_history.<YYYY-MM-DD_HH.MM.SS>.gc.bak.csv` before mutating history,
-  - when pruning, keep durable benchmark rows and remove stale non-durable rows referencing deleted roots.
+- persist durable benchmark fields in CSV (`per_label_json`, strict/macro/boundary),
+- only delete run roots when durable-history confirmation passes from existing durable CSV rows,
+- do not mutate benchmark history CSV during GC (no hydration writes, no stale-row deletion, no backup rewrite path).
 - Benchmark artifact cleanup must align disk and CSV views:
   - if old run folders remain, dashboard scanners can still surface old benchmark dates,
   - after folder deletion, re-prune benchmark CSV paths to existing artifacts.
@@ -1547,9 +1555,8 @@ Source:
 - `docs/understandings/2026-03-02_23.56.48-benchmark-gc-backup-on-history-write-only.md`
 
 Current contract reminder:
-- `bench gc` writes a timestamped history CSV backup before apply-time deletion/rewrite when history CSV exists.
-- This includes artifact pruning cases where matching benchmark rows are already durable and no CSV row rewrite is needed.
-- If no mutation is applied (for example, no confirmed run roots and no row rewrites), no new backup is written.
+- `bench gc` no longer mutates history CSV and does not write `*.gc.bak.csv` backups.
+- GC uses history rows to confirm durable benchmark retention before deleting run roots.
 
 ### 2026-03-02_23.58.00 benchmark cutdown causality artifacts and span bridge
 
@@ -1616,7 +1623,7 @@ Current contract additions/reminders:
 - QualitySuite mixed-format behavior is extension-keyed (`source_extension`, including the leading dot), reports `format_counts` and `selected_format_counts`, and supports explicit format filtering via `bench quality-discover --formats .pdf,.epub`.
 - Representative suite selection is extension-aware under caps; `quality_representative_v2` seeds extension diversity before strata fill when `--max-targets` is constrained.
 - Quality leaderboard keeps global outputs as default and emits per-format artifacts only when `--by-source-extension` is requested.
-- `bench gc` is the supported retention workflow: dry-run by default, apply mode with timestamped backups, CSV hydration (`per_label_json` and strict/macro/boundary fallbacks), and confirmed-durable-history guardrails before deleting run roots.
+- `bench gc` is the supported retention workflow: dry-run by default, apply mode for artifact deletion only, confirmed-durable-history guardrails before deleting run roots, and no CSV mutation path.
 - Dashboard benchmark history is CSV-first; report scanning is opt-in (`--scan-benchmark-reports`) with fallback scan only when benchmark CSV rows are absent.
 - External-AI cutdown contract includes deterministic additive failure diagnostics (`wrong_label_lines.with_context.full.jsonl.gz`, `preprocess_trace_failures.jsonl.gz`) and explicit fallback statuses instead of package failure when upstream trace artifacts are missing.
 - Root cutdown outputs carry project-context pointers/hash fields in `process_manifest.json` and `comparison_summary.json`, and root `README.md` includes one deterministic `## Project Context Digest` section inherited into flattened summary output.
@@ -1696,7 +1703,7 @@ Merged source task files (timestamp/file order):
 
 Current benchmark contracts added/confirmed:
 - Codex progress spinner output remains ETA-safe but now surfaces a stable human-readable `stage:` line instead of raw pipeline IDs.
-- Single-offline and all-method deferred dashboard refreshes must target the lifetime dashboard path (`<output_root parent>/.history/dashboard`) via explicit refresh-target plumbing.
+- Single-offline and all-method deferred dashboard refreshes must target the lifetime dashboard path (`history_root_for_output(output_root)/dashboard`) via explicit refresh-target plumbing.
 - Paired single-offline sessions restore in-place flattened summary output (`benchmark_summary.md`) and expose it in comparison metadata when available.
 - Auto-prune stays transient-only; normal interactive single-offline artifacts are retained, and prune must run after CSV append.
 - Starter-pack fallback module loading must register loaded script modules in `sys.modules` before `exec_module()` so dataclass/type resolution works in fallback import mode.
@@ -1706,7 +1713,7 @@ Current benchmark contracts added/confirmed:
 - Upload bundle call/runtime analysis must distinguish observed cost vs estimated fallback cost, accept multiple candidate-label payload shapes, and expose explicit generalization-readiness fields.
 
 Anti-loop reminders from this task batch:
-- If benchmark says dashboard refreshed but `data/.history/dashboard` is stale, inspect refresh target wiring (`dashboard_out_dir` / `dashboard_output_root`) before touching analytics render code.
+- If benchmark says dashboard refreshed but `.history/dashboard` (repo-local default) is stale, inspect refresh target wiring (`dashboard_out_dir` / `dashboard_output_root`) before touching analytics render code.
 - If interactive outputs disappear after a run, verify prune classifier scope before changing artifact writers.
 - If upload bundle `candidate_label_signal.available` or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage.
 

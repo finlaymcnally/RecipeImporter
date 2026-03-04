@@ -1,7 +1,7 @@
 ---
 summary: "How the stats dashboard is built, what data it reads, and what files it writes."
 read_when:
-  - When you need to know how data/.history/dashboard/index.html is generated
+  - When you need to know how .history/dashboard/index.html is generated
   - When debugging missing stats in the dashboard
 ---
 
@@ -9,8 +9,8 @@ read_when:
 
 ## What this generates
 
-`cookimport stats-dashboard` builds a static dashboard rooted at `data/.history/dashboard/`.
-Main entry point: `data/.history/dashboard/index.html`.
+`cookimport stats-dashboard` builds a static dashboard rooted at `.history/dashboard/`.
+Main entry point: `.history/dashboard/index.html`.
 
 ## How To Use The Dashboard UI
 
@@ -31,9 +31,10 @@ Backend parity note:
 
 ### Primary source (stage + benchmark rows from CSV)
 
-`<output_root parent>/.history/performance_history.csv` (default `<output_root>` is `data/output`)
+`<repo>/.history/performance_history.csv` (default for repo-local `<output_root>` such as `data/output`)
 
 Collector compatibility fallback:
+- If canonical history CSV is missing, collector probes previous canonical `<output_root parent>/.history/performance_history.csv`.
 - If canonical history CSV is missing, collector also probes legacy `<output_root>/.history/performance_history.csv`.
 - Benchmark rows can also be supplemented from nested benchmark history CSV files under `<output_root>/**/.history/performance_history.csv` (used by nested benchmark processed-output layouts).
 
@@ -47,8 +48,8 @@ This CSV is populated by:
 - optional one-off repair command for older benchmark rows:
   - `benchmark-csv-backfill` (patches missing benchmark `recipes/report_path/file_name`, run-config runtime metadata, and `tokens_*` usage columns from manifests)
 - After successful CSV writes, these commands now auto-refresh dashboard artifacts under the same history root (`.history/dashboard`) in best-effort mode.
-- All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites; deferred all-method refreshes now target `history_root_for_output(output_root)/dashboard` (usually `data/.history/dashboard`) instead of nested run-local dashboard snapshots.
-- Interactive single-offline benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes, targeting the lifetime dashboard path (`history_root_for_output(output_root)/dashboard`, usually `data/.history/dashboard`).
+- All-method benchmark internals suppress per-config refreshes and refresh once per source batch to avoid concurrent dashboard rewrites; deferred all-method refreshes now target `history_root_for_output(output_root)/dashboard` (usually `.history/dashboard` for repo-local outputs) instead of nested run-local dashboard snapshots.
+- Interactive single-offline benchmark suppresses per-variant refreshes and refreshes once after the full variant batch completes, targeting the lifetime dashboard path (`history_root_for_output(output_root)/dashboard`, usually `.history/dashboard` for repo-local outputs).
 
 ### Stage-report fallback/supplement
 
@@ -69,7 +70,7 @@ Collector mode:
 - benchmark CSV writes now persist Codex token usage columns (`tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`) when available from prediction manifests
 - CSV benchmark rows also backfill missing codex model/effort from adjacent benchmark manifests (`manifest.json` / `prediction-run/manifest.json`) so `AI Model` / `AI Effort` columns stay populated without full report scanning
 - recursive benchmark JSON scan is opt-in via `--scan-benchmark-reports` (automatic fallback when no benchmark CSV rows are available)
-- benchmark history rows remain dashboard-visible after `bench gc --apply` because GC now refuses to prune run roots without confirmed durable CSV metrics
+- benchmark history rows remain dashboard-visible after `bench gc --apply` because GC does not mutate/prune benchmark CSV history and refuses run-root pruning without confirmed durable retention
 
 Optional enrichment files in each eval directory:
 
@@ -90,17 +91,17 @@ Manifest enrichment now includes benchmark run context used by the dashboard:
 
 ## Where dashboard stats are saved
 
-Default `--out-dir` is `data/.history/dashboard`.
+Default `--out-dir` is `.history/dashboard`.
 
 The renderer writes:
 
-- `data/.history/dashboard/index.html`
-- `data/.history/dashboard/assets/dashboard_data.json`
-- `data/.history/dashboard/assets/dashboard_ui_state.json` (program-side Previous Runs UI state when served)
-- `data/.history/dashboard/assets/dashboard.js`
-- `data/.history/dashboard/assets/style.css`
-- `data/.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep, when present)
-- `data/.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book config breakdown pages, when present)
+- `.history/dashboard/index.html`
+- `.history/dashboard/assets/dashboard_data.json`
+- `.history/dashboard/assets/dashboard_ui_state.json` (program-side Previous Runs UI state when served)
+- `.history/dashboard/assets/dashboard.js`
+- `.history/dashboard/assets/style.css`
+- `.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (one run summary page per all-method sweep, when present)
+- `.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (per-book config breakdown pages, when present)
 
 Notes:
 
@@ -110,7 +111,7 @@ Notes:
 - All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by benchmark sweep paths:
   - `all-method-benchmark/<source_slug>/config_*`
   - `single-profile-benchmark/<source_slug>`
-  (CSV-first; no extra dashboard-only metric store). The hierarchy is run summary -> per-book detail, and all pages are written under `data/.history/dashboard/all-method-benchmark/`.
+  (CSV-first; no extra dashboard-only metric store). The hierarchy is run summary -> per-book detail, and all pages are written under `.history/dashboard/all-method-benchmark/`.
 - `single-offline-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
@@ -132,6 +133,7 @@ Notes:
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
   - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and let you switch the comparison columns between signed deltas and raw point values using an in-card `Point value` checkbox. Delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
+  - Per-label comparison cells now show `-` when a comparison variant value is missing; they no longer coerce missing values to `0.0000` in point-value mode.
   - Per-label diagnostics include a run selector beside the card title with `Default - most recent` plus every available run-group timestamp, so you can pin the table to an older run or keep it auto-following the latest run.
   - Per-label diagnostics include a small `Rolling N` selector in-card; rolling codexfarm/vanilla comparison columns sit under one shared dynamic group header (`<N>-run Rolling <Mode>:`), with per-column labels reduced to metric + variant.
   - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + comparison columns.
@@ -165,12 +167,16 @@ Notes:
   - Do not set `position: relative` on `#previous-runs-table th`; that overrides sticky header positioning and causes row-offset overlap artifacts.
   - `Compare & Control` in `Previous Runs` scores discovery candidates when no compare field is selected, supports raw vs controlled analysis, and can split results by an optional field.
   - `Compare & Control` includes a `Reset` action to return panel controls to their default state (`discover`, default outcome field, no compare/hold/split/selected groups).
+  - `Previous Runs` is split into two subsection cards: `History Table & Trend` and `Compare & Control Analysis`.
+  - Previous Runs subsection layout is explicitly width-contained (`minmax(0, 1fr)` + child `min-width: 0`) so wide controls/tables stay inside local horizontal scrollers instead of expanding the whole dashboard to the right.
   - Raw categorical compare now includes optional per-group secondary means (runtime/token/cost style numeric fields when present) alongside outcome means.
+  - Compare/control secondary means skip constant-valued fields (for example all-zero benchmark timing columns), so `Group outcome means` shows only varying side metrics.
   - Controlled mode uses exact hold-constant strata and reports comparable coverage (`used rows / candidate rows`, `used strata / total strata`) so confounding is visible. Categorical controlled means are stratum-standardized (shared stratum weights) rather than per-group-mix weighted.
   - Controlled mode now emits explicit weak-coverage warning text when comparable row/strata coverage is thin, so controlled estimates are treated as directional.
   - `Filter to subset` in `Compare & Control` writes selected categorical groups into existing `Previous Runs` column filters (same filter engine; no second filter path).
   - `Previous Runs` column filters now support a global `Across columns` mode (`AND` / `OR`) in addition to per-column stack modes.
-  - The `Benchmark Score Trend` Highcharts panel uses a fixed 800px chart/container height to avoid browser reflow loops that can cause gradual chart height growth.
+  - Both `Benchmark Score Trend` Highcharts panels (history section + compare/control clone) use fixed 800px chart/container heights to avoid browser reflow loops that can cause gradual chart height growth.
+  - Trend charts now include a `Trend fields` checklist (`Select all` / `Clear`) so you can add/remove any number of numeric benchmark fields. Default selection remains `strict_accuracy` + `macro_f1_excluding_other`.
   - A `Quick Filters` section sits between the trend chart and table:
     - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.
     - `Exclude AI test/smoke benchmark runs` remains available mainly as a legacy cleanup toggle for older saved dashboard payloads.
@@ -179,6 +185,7 @@ Notes:
   - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed linear trendlines and matching-color `±1σ` deviation bands.
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
   - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
+  - Trend run-group timestamp extraction now checks `artifact_dir`, `run_dir`, and `report_path`; when `benchmark-vs-golden` appears in a path, it uses the first timestamp token after that marker so deeper variant-local timestamp folders do not shift paired `codexfarm`/`vanilla` points onto different x positions.
   - Hovering any trend point shows one run-level tooltip card with local run timestamp and all visible series values for that run group (instead of per-point coordinate tooltips).
   - The `Benchmark Score Trend` range selector defaults to `All`, so older benchmark history is visible on first load instead of starting on a short recent window.
   - The trend chart x-axis is initialized from the full filtered `Previous Runs` timestamp span (including rows without explicit score points), so timeline dates stay aligned with the table.
@@ -203,7 +210,7 @@ Benchmark token note:
 - Backfill can patch missing `tokens_*` columns from nearby prediction manifests when telemetry rows exist.
 
 Benchmark metrics note:
-- `Previous Runs` and benchmark trend chart use explicit metric names: `strict_accuracy` and `macro_f1_excluding_other`.
+- `Previous Runs` still highlights explicit benchmark metrics (`strict_accuracy`, `macro_f1_excluding_other`) by default, but trend charts can now plot any selected numeric benchmark field.
 - Dashboard collector populates explicit metrics from new eval-report keys directly and falls back to legacy alias fields for historical artifacts.
 - Main dashboard does not include an all-method run-index section; all-method access is through `Previous Runs` timestamp links to run-summary pages.
 - All-method pages prefer reading `all_method_benchmark_report.json` (when present) so the dashboard can list all configured variants even when evaluation results were reused and not every `config_*/eval_report.json` exists.
@@ -243,7 +250,7 @@ Useful options:
 
 ## Known gotcha
 
-`cookimport stats-dashboard` reads stage/import history primarily from `<output_root parent>/.history/performance_history.csv`.
+`cookimport stats-dashboard` reads stage/import history primarily from `history_csv_for_output(<output_root>)` (default `.history/performance_history.csv` for repo-local outputs).
 
 `dashboard_render.py` embeds JS/CSS as Python string templates; regex escapes in JS literals must stay double-escaped in Python (for example `\\s`) to avoid `SyntaxWarning` and preserve valid emitted JS.
 

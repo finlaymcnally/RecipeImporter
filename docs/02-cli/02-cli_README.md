@@ -106,7 +106,10 @@ Menu numbering and shortcuts:
 
 `Settings` edits global defaults in `cookimport.json`.
 
-Interactive `Import` and benchmark runs (single-offline + all-method) include a per-run chooser (`global defaults` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last run` / `change run settings`) so experiments do not mutate global defaults.
+Interactive `Import` and benchmark runs (single-offline + matched-sets) now skip the per-run chooser and resolve one automatic `top-tier default` profile from `choose_run_settings(...)`:
+- use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
+- otherwise use built-in baseline defaults (`quality-first` EPUB stack + `llm_recipe_pipeline=codex-farm-3pass-v1` + `line_role_pipeline=codex-line-role-v1` + `atomic_block_splitter=atomic-v1`).
+- regardless of source, harmonize benchmark pipeline knobs to top-tier (`codex-farm + codex-line-role + atomic-v1`) to prevent stale winner snapshots from silently forcing `off/off`.
 
 Config keys and defaults:
 
@@ -239,32 +242,21 @@ Developer note:
 `Import` steps:
 
 1. Prompt for `Import All` or one selected file from top-level `data/input`.
-2. Show `Run settings` mode picker:
-   - `Run with global defaults`
-   - `Run with preferred format`
-   - `Run with quality-first winner stack`
-   - `Run with quality-suite winner` (saved leaderboard winner settings when available; written to `data/.history/qualitysuite_winner_run_settings.json`)
-   - `Run with last import settings` when available
-   - `Change run settings...` (full-screen arrow-key editor)
-   - The picker shows compact identifiers (hashes) instead of a full settings dump.
-3. Ask `Use Codex Farm recipe pipeline for this run?` (default `Yes`).
-   - If enabled for this run, also ask:
-   - `Codex Farm model override` picker (`keep current`, `pipeline default`, discovered models from `codex-farm models list --json`, or `custom model id...`)
-   - `Codex Farm reasoning effort override` (`pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
-4. Applies selected EPUB env vars:
+2. Resolve one automatic top-tier run-settings profile (no per-run settings picker and no codex yes/no prompt in this flow).
+3. Applies selected EPUB env vars:
    - `C3IMP_EPUB_EXTRACTOR`
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
-5. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
+4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
    - When Codex Farm recipe/knowledge/tag passes run, stage now also writes prompt-debug artifacts under `<run_folder>/codexfarm/`:
    - `prompt_request_response_log.txt`
    - `full_prompt_log.jsonl`
    - `prompt_type_samples_from_full_prompt_log.md`
-6. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_import.json` after a successful run.
-7. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
-8. Prints `Outputs written to: <run_folder>`.
-9. Returns to the main menu after successful import.
+5. Saves selected settings to `history_root_for_output(output_dir)/last_run_settings_import.json` after a successful run.
+6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
+7. Prints `Outputs written to: <run_folder>`.
+8. Returns to the main menu after successful import.
 
 ### [E] Label Studio Import Flow
 
@@ -342,8 +334,8 @@ Interactive benchmark now has a mode submenu before execution:
    - `Single config, selected matched sets: Pick which matched books to run`
    - `Single config, all matched sets: Repeat one config for every matched golden set`
 2. Single offline path:
-   - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) using compact hash labels.
-   - resolves Codex usage from selected run settings (`llm_recipe_pipeline`),
+   - resolves one automatic top-tier run profile (same resolver used by interactive import),
+   - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
      - `single-offline-benchmark/<source_slug>/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
@@ -371,26 +363,36 @@ Interactive benchmark now has a mode submenu before execution:
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/<variant>/`.
 3. Single-profile matched-sets path:
-   - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) with compact labels,
-   - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
-   - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
+   - uses the same automatic top-tier run profile resolver as single-offline (no run-settings picker in this flow),
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
    - selected-matched mode lets you toggle specific books and run only that subset (or choose `Run all matched books`),
    - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
      (set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` to disable summaries, and `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=1` to keep task JSONL).
    - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?` or `... across N selected matched books?`, default `No`),
-   - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
+   - normalizes variants from the selected run settings:
+     - when `llm_recipe_pipeline=off`, runs one `vanilla` variant per selected book under `single-profile-benchmark/<index_source_slug>/`,
+     - when `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants per selected book:
+       - `single-profile-benchmark/<index_source_slug>/vanilla` first (`llm_recipe_pipeline=off`, deterministic-only),
+       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`),
+   - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
+     - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
+   - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
    - when 2+ books are selected, runs up to three books concurrently (`parallel books=3`),
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
    - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
    - continues when an individual source fails and prints a failure summary at the end,
-   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/`,
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codexfarm`),
    - writes a dedicated 3-file upload folder per target eval root:
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
+   - multi-book runs also write one shared 3-file group upload folder:
+     - `single-profile-benchmark/upload_bundle_v1/upload_bundle_overview.md`
+     - `single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
+     - `single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
+     - group mode targets ~40MB and automatically lowers per-book sampled detail as selected-book count increases.
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
-4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile matched-sets runs.
+4. Saves selected settings to `history_root_for_output(output_dir)/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile matched-sets runs.
 5. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
@@ -399,7 +401,7 @@ For re-scoring an existing prediction run directly, use `cookimport labelstudio-
 
 1. Runs `stats-dashboard` using the interactive `output_dir` setting as `--output-root`.
 2. Uses `open_browser=False` in interactive mode (no browser auto-open prompt).
-3. Writes dashboard files to `<output_dir_parent>/.history/dashboard`.
+3. Writes dashboard files to `history_root_for_output(output_dir)/dashboard`.
 4. Returns to the main menu on completion.
 
 Note:
@@ -454,7 +456,7 @@ cookimport labelstudio-benchmark --help
 Stages one file or all files under a folder (recursive for folder input). Always creates a timestamped run folder under `--out` using format `YYYY-MM-DD_HH.MM.SS`.
 Each stage run folder includes `run_manifest.json` for source/config/artifact traceability.
 Each stage run folder also includes `processing_timeseries.jsonl` (status snapshots + CPU utilization samples).
-After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `<out parent>/.history/dashboard` (best effort).
+After stage history CSV append, the CLI also auto-refreshes dashboard artifacts under `history_root_for_output(<out>)/dashboard` (best effort).
 Stage job worker fallback order is `process -> subprocess-backed workers -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to subprocess-backed worker concurrency.
 Use `--require-process-workers` to fail fast instead of using any fallback backend.
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
@@ -633,7 +635,7 @@ What it does:
 
 Options:
 
-- `--out-dir PATH` (default `data/output`): used to resolve default CSV path (`<out-dir parent>/.history/performance_history.csv`).
+- `--out-dir PATH` (default `data/output`): used to resolve default CSV path (`.history/performance_history.csv` for repo-local outputs; `<out-dir parent>/.history/performance_history.csv` for external outputs).
 - `--history-csv PATH`: explicit CSV path override.
 - `--dry-run` (default `false`): report how many rows would be patched without writing.
 
@@ -645,7 +647,7 @@ Options:
 
 - `--output-root PATH` (default `data/output`): staged import root.
 - `--golden-root PATH` (default `data/golden`): benchmark/golden artifacts root.
-- `--out-dir PATH` (default `data/.history/dashboard`): dashboard output directory.
+- `--out-dir PATH` (default `.history/dashboard`): dashboard output directory.
 - `--open` (default `false`): opens generated HTML in default browser.
 - `--serve` (default `false`): serve dashboard over local HTTP and enable program-side UI-state sync (`assets/dashboard_ui_state.json`).
 - `--host TEXT` (default `127.0.0.1`): host interface for `--serve`.
@@ -1414,7 +1416,7 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 - Source: `docs/understandings/2026-02-28_02.25.24-interactive-run-settings-preferred-option-wiring.md`
 - `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` is the single interactive run-settings chooser for import and benchmark flows.
 - Interactive all-method benchmark now uses that same chooser path (it no longer bypasses directly to global defaults).
-- Preferred profile persistence stays isolated in `data/.history/preferred_run_settings.json` so non-`RunSettings` keys from `cookimport.json` do not leak into chooser payloads.
+- Preferred profile persistence stays isolated in `.history/preferred_run_settings.json` (for default repo-local output) so non-`RunSettings` keys from `cookimport.json` do not leak into chooser payloads.
 - Last-run snapshots remain per-flow (`import` and `benchmark`) via `cookimport/config/last_run_store.py`.
 
 ## 2026-02-28 migrated understandings batch (03:37-03:57)
@@ -1605,7 +1607,7 @@ This batch consolidates CLI/interactive benchmark notes that were previously sca
 
 Key CLI contracts to keep:
 - Spinner rendering is intentionally a compact boxed panel for worker-heavy runs; plain progress is environment-aware and should stay low-noise.
-- Interactive benchmark menu and run-settings selection are intentionally compacted for operator speed (hash labels instead of full JSON dumps).
+- Interactive benchmark keeps the mode picker, but run-settings profile selection is now automatic top-tier resolution (no per-run settings picker).
 - All-method benchmark was intentionally removed from the interactive top-level benchmark menu in this cycle.
 - Keep codex-farm progress summaries human-readable (`active` worker labels + concise status updates) without flooding the terminal.
 - `_run_with_progress_status(...)` indentation/control-flow is regression-sensitive; one bad indent can crash imports immediately.
@@ -1648,3 +1650,11 @@ Merged source notes (chronological):
 - `2026-03-03_13.12.17-spinner-panel-truncation-preserves-eta-suffix.md`: Live benchmark spinner line truncation should preserve ETA/avg suffix visibility.
 - `2026-03-03_13.28.55-codex-spinner-stage-readable-pass-labels.md`: Codex-farm spinner status should surface a readable pass label and explicit stage row.
 - `2026-03-03_17.34.31-spinner-active-tasks-left-counter-source.md`: Codex benchmark spinner can surface remaining tasks from the parsed task X/Y counter in the worker summary row.
+
+## 2026-03-04 merged understandings digest (interactive top-tier defaults)
+
+- `2026-03-04_00.44.22` `interactive-top-tier-default-run-settings-source-of-truth`: Interactive import/benchmark run settings now resolve from one deterministic top-tier profile source and no longer prompt a profile menu.
+- Current resolver contract in `choose_run_settings(...)`:
+  - prefer saved `quality-suite winner` settings when available,
+  - otherwise fall back to built-in top-tier baseline (`quality-first` EPUB stack + codex recipe/line-role/atomic enabled),
+  - then harmonize the codex/line-role/atomic trio so stale winner files cannot drift interactive runs back to `off/off`.

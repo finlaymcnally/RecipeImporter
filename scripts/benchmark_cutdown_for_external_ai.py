@@ -51,6 +51,13 @@ DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
 DEFAULT_TARGETED_PROMPT_CASES = 10
 ALIGNMENT_HEALTHY_COVERAGE_MIN = 0.98
 ALIGNMENT_HEALTHY_MATCH_RATIO_MIN = 0.98
+GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 40 * 1024 * 1024
+GROUP_UPLOAD_BUNDLE_RESERVED_BYTES = 3 * 1024 * 1024
+GROUP_UPLOAD_BUNDLE_ROOT_ARTIFACT_BUDGET_SHARE = 0.8
+GROUP_UPLOAD_BUNDLE_MIN_ARTIFACT_BUDGET_BYTES = 4 * 1024 * 1024
+GROUP_UPLOAD_BUNDLE_GROUP_PACKET_FILE_NAME = "group_high_level_packet.json"
+GROUP_UPLOAD_BUNDLE_MIN_WRONG_LINE_SAMPLES_PER_RUN = 1
+GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN = 240
 UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION = 2
 UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD = 0.90
 UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING = {
@@ -98,6 +105,21 @@ ROOT_METADATA_FILES = (
     "per_recipe_or_per_span_breakdown.json",
     "targeted_prompt_cases.md",
     "label_policy_adjudication_notes.md",
+)
+GROUP_UPLOAD_BUNDLE_ROOT_PRIORITY_FILES = (
+    "run_index.json",
+    "comparison_summary.json",
+    "process_manifest.json",
+    "README.md",
+    "changed_lines.codex_vs_vanilla.jsonl",
+    "per_recipe_or_per_span_breakdown.json",
+    "targeted_prompt_cases.md",
+    "label_policy_adjudication_notes.md",
+)
+GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES: tuple[tuple[str, bool], ...] = (
+    ("run_manifest.json", True),
+    ("eval_report.json", False),
+    ("need_to_know_summary.json", False),
 )
 UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "upload_bundle_overview.md"
 UPLOAD_BUNDLE_INDEX_FILE_NAME = "upload_bundle_index.json"
@@ -5804,6 +5826,265 @@ def _upload_bundle_load_json_object(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _json_size_bytes(value: Any) -> int:
+    try:
+        return len(json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _upload_bundle_select_high_level_artifact_paths(
+    *,
+    source_root: Path,
+    discovered_run_dirs: list[Path],
+    target_bundle_size_bytes: int,
+) -> tuple[list[Path], dict[str, Any]]:
+    target_bytes = max(int(target_bundle_size_bytes), 1)
+    minimum_budget_bytes = min(GROUP_UPLOAD_BUNDLE_MIN_ARTIFACT_BUDGET_BYTES, target_bytes)
+    artifact_budget_bytes = max(
+        int(target_bytes * GROUP_UPLOAD_BUNDLE_ROOT_ARTIFACT_BUDGET_SHARE),
+        minimum_budget_bytes,
+    )
+    artifact_budget_bytes = min(artifact_budget_bytes, target_bytes)
+    selected: list[Path] = []
+    selected_set: set[Path] = set()
+    selected_bytes = 0
+
+    def _path_size(path: Path) -> int:
+        try:
+            return int(path.stat().st_size)
+        except OSError:
+            return 0
+
+    def _append_if_allowed(path: Path, *, required: bool) -> bool:
+        nonlocal selected_bytes
+        if path in selected_set or not path.is_file():
+            return False
+        path_bytes = _path_size(path)
+        if not required and selected_bytes + path_bytes > artifact_budget_bytes:
+            return False
+        selected.append(path)
+        selected_set.add(path)
+        selected_bytes += path_bytes
+        return True
+
+    for relative_path in GROUP_UPLOAD_BUNDLE_ROOT_PRIORITY_FILES:
+        _append_if_allowed(source_root / relative_path, required=False)
+
+    included_run_rows: list[dict[str, Any]] = []
+    for run_dir in discovered_run_dirs:
+        run_rel = ""
+        try:
+            run_rel = str(run_dir.relative_to(source_root).as_posix())
+        except ValueError:
+            run_rel = run_dir.name
+        included_files: list[str] = []
+        for file_name, required in GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES:
+            candidate = run_dir / file_name
+            if _append_if_allowed(candidate, required=required):
+                included_files.append(file_name)
+        included_run_rows.append(
+            {
+                "run_dir": run_rel,
+                "included_files": included_files,
+            }
+        )
+
+    metadata = {
+        "mode": "high_level_only",
+        "target_bundle_size_bytes": target_bytes,
+        "artifact_budget_bytes": artifact_budget_bytes,
+        "selected_artifact_count": len(selected),
+        "selected_artifact_bytes": selected_bytes,
+        "discovered_run_count": len(discovered_run_dirs),
+        "per_run_included_files": included_run_rows,
+    }
+    return selected, metadata
+
+
+def _upload_bundle_build_group_high_level_packet(
+    *,
+    source_root: Path,
+    discovered_run_dirs: list[Path],
+    run_rows: list[dict[str, Any]],
+    run_diagnostics: list[dict[str, Any]],
+    target_bundle_size_bytes: int,
+    payload_bytes_before_packet: int,
+    artifact_selection: dict[str, Any],
+) -> dict[str, Any]:
+    run_row_by_id: dict[str, dict[str, Any]] = {}
+    run_row_by_subdir: dict[str, dict[str, Any]] = {}
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        run_id = str(row.get("run_id") or "").strip()
+        if run_id:
+            run_row_by_id.setdefault(run_id, row)
+        output_subdir = str(row.get("output_subdir") or "").strip()
+        if output_subdir:
+            run_row_by_subdir.setdefault(output_subdir, row)
+
+    run_diag_by_id: dict[str, dict[str, Any]] = {}
+    run_diag_by_subdir: dict[str, dict[str, Any]] = {}
+    for row in run_diagnostics:
+        if not isinstance(row, dict):
+            continue
+        run_id = str(row.get("run_id") or "").strip()
+        if run_id:
+            run_diag_by_id.setdefault(run_id, row)
+        output_subdir = str(row.get("output_subdir") or "").strip()
+        if output_subdir:
+            run_diag_by_subdir.setdefault(output_subdir, row)
+
+    run_payloads: list[dict[str, Any]] = []
+    run_count = len(discovered_run_dirs)
+    target_bytes = max(int(target_bundle_size_bytes), 1)
+    reserved_bytes = min(
+        max(GROUP_UPLOAD_BUNDLE_RESERVED_BYTES, target_bytes // 8),
+        max(target_bytes // 2, 1),
+    )
+    budget_for_samples = max(target_bytes - int(payload_bytes_before_packet) - reserved_bytes, 0)
+    per_run_sample_budget_bytes = (
+        max(budget_for_samples // run_count, 0) if run_count > 0 else 0
+    )
+
+    sampled_wrong_line_rows_total = 0
+    sampled_wrong_line_bytes_total = 0
+    runs_with_sampled_rows = 0
+
+    for run_dir in discovered_run_dirs:
+        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
+        eval_report = _upload_bundle_load_json_object(run_dir / "eval_report.json")
+        run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
+        try:
+            output_subdir = str(run_dir.relative_to(source_root).as_posix())
+        except ValueError:
+            output_subdir = run_dir.name
+
+        run_row = run_row_by_id.get(run_id) or run_row_by_subdir.get(output_subdir) or {}
+        run_diag = run_diag_by_id.get(run_id) or run_diag_by_subdir.get(output_subdir) or {}
+        source_payload = (
+            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+        )
+        source_path = source_payload.get("path") if isinstance(source_payload, dict) else None
+        source_file = source_path if isinstance(source_path, str) else None
+
+        wrong_line_candidates: list[dict[str, Any]] = []
+        wrong_line_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
+        for row in wrong_line_rows:
+            if not isinstance(row, dict):
+                continue
+            line_index = _coerce_int(row.get("line_index"))
+            if line_index is None:
+                continue
+            text_value = ""
+            for key in ("current_line", "line_text", "text"):
+                candidate_text = row.get(key)
+                if isinstance(candidate_text, str) and candidate_text.strip():
+                    text_value = candidate_text.strip()
+                    break
+            wrong_line_candidates.append(
+                {
+                    "line_index": int(line_index),
+                    "recipe_id": str(row.get("recipe_id") or ""),
+                    "gold_label": str(row.get("gold_label") or ""),
+                    "pred_label": str(row.get("pred_label") or ""),
+                    "line_excerpt": _excerpt(text_value, max_len=160),
+                }
+            )
+
+        wrong_line_samples: list[dict[str, Any]] = []
+        if wrong_line_candidates and per_run_sample_budget_bytes > 0:
+            probe_rows = wrong_line_candidates[: min(12, len(wrong_line_candidates))]
+            average_row_bytes = max(
+                int(sum(_json_size_bytes(item) for item in probe_rows) / max(len(probe_rows), 1)),
+                1,
+            )
+            max_rows_by_budget = max(per_run_sample_budget_bytes // average_row_bytes, 0)
+            max_rows = min(
+                len(wrong_line_candidates),
+                GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN,
+            )
+            if max_rows_by_budget > 0:
+                max_rows = min(max_rows, int(max_rows_by_budget))
+            if max_rows <= 0:
+                max_rows = min(
+                    GROUP_UPLOAD_BUNDLE_MIN_WRONG_LINE_SAMPLES_PER_RUN,
+                    len(wrong_line_candidates),
+                )
+            wrong_line_samples = _sample_rows_evenly(wrong_line_candidates, max_rows)
+            while (
+                len(wrong_line_samples) > 1
+                and _json_size_bytes(wrong_line_samples) > per_run_sample_budget_bytes
+            ):
+                wrong_line_samples = wrong_line_samples[:-1]
+
+        sampled_wrong_line_rows_total += len(wrong_line_samples)
+        sampled_wrong_line_bytes_total += _json_size_bytes(wrong_line_samples)
+        if wrong_line_samples:
+            runs_with_sampled_rows += 1
+
+        run_payloads.append(
+            {
+                "run_id": run_id,
+                "output_subdir": output_subdir,
+                "source_file": _source_file_name(source_file),
+                "llm_recipe_pipeline": str(
+                    run_row.get("llm_recipe_pipeline")
+                    or ((run_manifest.get("run_config") or {}).get("llm_recipe_pipeline"))
+                    or "unknown"
+                ),
+                "line_role_pipeline": str(
+                    run_row.get("line_role_pipeline")
+                    or ((run_manifest.get("run_config") or {}).get("line_role_pipeline"))
+                    or "off"
+                ),
+                "overall_line_accuracy": _coerce_float(
+                    run_row.get("overall_line_accuracy")
+                    if isinstance(run_row, dict)
+                    else eval_report.get("overall_line_accuracy")
+                ),
+                "macro_f1_excluding_other": _coerce_float(
+                    run_row.get("macro_f1_excluding_other")
+                    if isinstance(run_row, dict)
+                    else eval_report.get("macro_f1_excluding_other")
+                ),
+                "practical_f1": _coerce_float(
+                    run_row.get("practical_f1")
+                    if isinstance(run_row, dict)
+                    else eval_report.get("practical_f1")
+                ),
+                "full_prompt_log_status": str(
+                    run_diag.get("full_prompt_log_status")
+                    if isinstance(run_diag, dict)
+                    else run_row.get("full_prompt_log_status")
+                    or "unknown"
+                ),
+                "wrong_line_total": len(wrong_line_rows),
+                "sampled_wrong_line_count": len(wrong_line_samples),
+                "sampled_wrong_lines": wrong_line_samples,
+            }
+        )
+
+    return {
+        "schema_version": "upload_bundle_group_high_level.v1",
+        "generated_at": _timestamp_now(),
+        "source_root": str(source_root),
+        "run_count": run_count,
+        "target_bundle_size_bytes": target_bytes,
+        "target_bundle_size_mb": round(target_bytes / (1024 * 1024), 3),
+        "payload_bytes_before_group_packet": int(payload_bytes_before_packet),
+        "reserved_bytes_for_index_overview": reserved_bytes,
+        "budget_for_group_samples_bytes": budget_for_samples,
+        "per_run_sample_budget_bytes": per_run_sample_budget_bytes,
+        "artifact_selection": artifact_selection,
+        "runs_with_sampled_rows": runs_with_sampled_rows,
+        "sampled_wrong_line_rows_total": sampled_wrong_line_rows_total,
+        "sampled_wrong_line_bytes_total": sampled_wrong_line_bytes_total,
+        "runs": run_payloads,
+    }
+
+
 def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
     run_index_payload = _upload_bundle_load_json_object(source_root / "run_index.json")
     comparison_summary_payload = _upload_bundle_load_json_object(
@@ -9089,10 +9370,17 @@ def _write_upload_bundle_three_files(
     *,
     output_dir: Path,
     source_dir: Path | None = None,
+    high_level_only: bool = False,
+    target_bundle_size_bytes: int | None = None,
 ) -> dict[str, Any]:
     source_root = source_dir.resolve() if isinstance(source_dir, Path) else output_dir.resolve()
     output_root = output_dir.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    group_target_size_bytes = (
+        max(int(target_bundle_size_bytes), 1)
+        if high_level_only and target_bundle_size_bytes is not None
+        else GROUP_UPLOAD_BUNDLE_TARGET_BYTES
+    )
 
     context = _upload_bundle_build_context(source_root=source_root)
     run_index_payload = context.get("run_index_payload", {})
@@ -9121,6 +9409,15 @@ def _write_upload_bundle_three_files(
     starter_pack_physical_present = bool(context.get("starter_pack_present"))
     discovered_run_dirs = context.get("discovered_run_dirs")
     discovered_run_dirs = discovered_run_dirs if isinstance(discovered_run_dirs, list) else []
+    group_artifact_selection: dict[str, Any] = {
+        "mode": "full",
+        "target_bundle_size_bytes": None,
+        "artifact_budget_bytes": None,
+        "selected_artifact_count": None,
+        "selected_artifact_bytes": None,
+        "discovered_run_count": len(discovered_run_dirs),
+        "per_run_included_files": [],
+    }
 
     run_output_dirs = {
         str(row.get("output_subdir") or "")
@@ -9128,22 +9425,31 @@ def _write_upload_bundle_three_files(
         if isinstance(row, dict) and str(row.get("output_subdir") or "")
     }
 
-    artifact_paths: list[Path] = []
-    excluded = set(UPLOAD_BUNDLE_FILE_NAMES)
-    for path in sorted(source_root.rglob("*")):
-        if not path.is_file():
-            continue
-        if source_root == output_root:
-            if path.parent == output_root and path.name in excluded:
+    if high_level_only:
+        selected_paths, selection_meta = _upload_bundle_select_high_level_artifact_paths(
+            source_root=source_root,
+            discovered_run_dirs=discovered_run_dirs,
+            target_bundle_size_bytes=group_target_size_bytes,
+        )
+        artifact_paths = list(selected_paths)
+        group_artifact_selection = dict(selection_meta)
+    else:
+        artifact_paths = []
+        excluded = set(UPLOAD_BUNDLE_FILE_NAMES)
+        for path in sorted(source_root.rglob("*")):
+            if not path.is_file():
                 continue
-        elif path.is_relative_to(output_root):
-            # Avoid recursively bundling previously written bundle files when the
-            # bundle output lives inside the source tree.
-            continue
-        relative_path = str(path.relative_to(source_root).as_posix())
-        if relative_path in excluded:
-            continue
-        artifact_paths.append(path)
+            if source_root == output_root:
+                if path.parent == output_root and path.name in excluded:
+                    continue
+            elif path.is_relative_to(output_root):
+                # Avoid recursively bundling previously written bundle files when the
+                # bundle output lives inside the source tree.
+                continue
+            relative_path = str(path.relative_to(source_root).as_posix())
+            if relative_path in excluded:
+                continue
+            artifact_paths.append(path)
 
     payload_path = output_root / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
     artifact_index: list[dict[str, Any]] = []
@@ -9558,6 +9864,9 @@ def _write_upload_bundle_three_files(
         "run_index_json": f"{derived_root_prefix}/run_index.json",
         "comparison_summary_json": f"{derived_root_prefix}/comparison_summary.json",
         "process_manifest_json": f"{derived_root_prefix}/process_manifest.json",
+        "group_high_level_packet_json": (
+            f"{derived_root_prefix}/{GROUP_UPLOAD_BUNDLE_GROUP_PACKET_FILE_NAME}"
+        ),
         "changed_lines_jsonl": f"{derived_root_prefix}/{CHANGED_LINES_FILE_NAME}",
         "per_recipe_breakdown_json": f"{derived_root_prefix}/{PER_RECIPE_BREAKDOWN_FILE_NAME}",
         "targeted_prompt_cases_md": f"{derived_root_prefix}/{TARGETED_PROMPT_CASES_FILE_NAME}",
@@ -9739,6 +10048,93 @@ def _write_upload_bundle_three_files(
         content_type="json",
         content_json=derived_starter_manifest,
     )
+
+    group_high_level_packet_summary: dict[str, Any] = {
+        "enabled": bool(high_level_only),
+        "target_bundle_size_bytes": (
+            int(group_target_size_bytes) if high_level_only else None
+        ),
+        "target_bundle_size_mb": (
+            round(group_target_size_bytes / (1024 * 1024), 3)
+            if high_level_only
+            else None
+        ),
+        "artifact_selection": group_artifact_selection,
+        "run_count": len(discovered_run_dirs),
+        "runs_with_sampled_rows": 0,
+        "sampled_wrong_line_rows_total": 0,
+        "sampled_wrong_line_bytes_total": 0,
+    }
+    if high_level_only:
+        payload_bytes_before_group_packet = 0
+        try:
+            payload_bytes_before_group_packet = int(payload_path.stat().st_size)
+        except OSError:
+            payload_bytes_before_group_packet = 0
+        group_high_level_packet = _upload_bundle_build_group_high_level_packet(
+            source_root=source_root,
+            discovered_run_dirs=discovered_run_dirs,
+            run_rows=run_rows,
+            run_diagnostics=run_diagnostics,
+            target_bundle_size_bytes=group_target_size_bytes,
+            payload_bytes_before_packet=payload_bytes_before_group_packet,
+            artifact_selection=group_artifact_selection,
+        )
+        _append_virtual_payload_row(
+            path=derived_root_paths["group_high_level_packet_json"],
+            content_type="json",
+            content_json=group_high_level_packet,
+        )
+        group_high_level_packet_summary = {
+            "enabled": True,
+            "target_bundle_size_bytes": int(
+                group_high_level_packet.get("target_bundle_size_bytes")
+                or group_target_size_bytes
+            ),
+            "target_bundle_size_mb": _coerce_float(
+                group_high_level_packet.get("target_bundle_size_mb")
+            ),
+            "payload_bytes_before_group_packet": int(
+                _coerce_int(group_high_level_packet.get("payload_bytes_before_group_packet"))
+                or payload_bytes_before_group_packet
+            ),
+            "reserved_bytes_for_index_overview": int(
+                _coerce_int(group_high_level_packet.get("reserved_bytes_for_index_overview"))
+                or 0
+            ),
+            "budget_for_group_samples_bytes": int(
+                _coerce_int(group_high_level_packet.get("budget_for_group_samples_bytes"))
+                or 0
+            ),
+            "per_run_sample_budget_bytes": int(
+                _coerce_int(group_high_level_packet.get("per_run_sample_budget_bytes"))
+                or 0
+            ),
+            "artifact_selection": group_artifact_selection,
+            "run_count": int(_coerce_int(group_high_level_packet.get("run_count")) or 0),
+            "runs_with_sampled_rows": int(
+                _coerce_int(group_high_level_packet.get("runs_with_sampled_rows")) or 0
+            ),
+            "sampled_wrong_line_rows_total": int(
+                _coerce_int(group_high_level_packet.get("sampled_wrong_line_rows_total")) or 0
+            ),
+            "sampled_wrong_line_bytes_total": int(
+                _coerce_int(group_high_level_packet.get("sampled_wrong_line_bytes_total")) or 0
+            ),
+        }
+    else:
+        _append_virtual_payload_row(
+            path=derived_root_paths["group_high_level_packet_json"],
+            content_type="json",
+            content_json={
+                "schema_version": "upload_bundle_group_high_level.v1",
+                "generated_at": _timestamp_now(),
+                "enabled": False,
+                "reason": "group_high_level_mode_disabled",
+                "target_bundle_size_bytes": None,
+                "run_count": len(discovered_run_dirs),
+            },
+        )
 
     alias_metadata = _upload_bundle_build_alias_metadata(
         artifact_index=artifact_index,
@@ -9950,6 +10346,10 @@ def _write_upload_bundle_three_files(
             "process_manifest_json": _payload_locator(
                 paths=("process_manifest.json", derived_root_paths["process_manifest_json"]),
                 basenames=("process_manifest.json",),
+            ),
+            "group_high_level_packet_json": _payload_locator(
+                paths=(derived_root_paths["group_high_level_packet_json"],),
+                basenames=(GROUP_UPLOAD_BUNDLE_GROUP_PACKET_FILE_NAME,),
             ),
             "changed_lines_jsonl": _payload_locator(
                 paths=(
@@ -10195,6 +10595,25 @@ def _write_upload_bundle_three_files(
         )
     )
 
+    default_initial_views = [
+        "topline",
+        "self_check",
+        "analysis.triage_packet",
+        "analysis.net_error_blame_summary",
+        "analysis.config_version_metadata",
+        "analysis.per_label_metrics",
+        "analysis.per_recipe_breakdown",
+        "analysis.stage_separated_comparison",
+        "analysis.failure_ledger",
+        "analysis.regression_casebook",
+        "analysis.changed_lines_stratified_sample",
+        "analysis.low_confidence_changed_lines_packet",
+        "analysis.call_inventory_runtime",
+        "analysis.line_role_confidence_or_candidates",
+    ]
+    if high_level_only:
+        default_initial_views.insert(2, "analysis.group_high_level")
+
     index_payload = {
         "bundle_version": "upload_bundle.v1",
         "generated_at": _timestamp_now(),
@@ -10222,28 +10641,14 @@ def _write_upload_bundle_three_files(
                 UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
                 UPLOAD_BUNDLE_INDEX_FILE_NAME,
             ],
-            "default_initial_views": [
-                "topline",
-                "self_check",
-                "analysis.triage_packet",
-                "analysis.net_error_blame_summary",
-                "analysis.config_version_metadata",
-                "analysis.per_label_metrics",
-                "analysis.per_recipe_breakdown",
-                "analysis.stage_separated_comparison",
-                "analysis.failure_ledger",
-                "analysis.regression_casebook",
-                "analysis.changed_lines_stratified_sample",
-                "analysis.low_confidence_changed_lines_packet",
-                "analysis.call_inventory_runtime",
-                "analysis.line_role_confidence_or_candidates",
-            ],
+            "default_initial_views": default_initial_views,
             "root_paths": [
                 "README.md",
                 "run_index.json",
                 "comparison_summary.json",
                 "codex_vs_vanilla_comparison.json",
                 "process_manifest.json",
+                derived_root_paths["group_high_level_packet_json"],
                 CHANGED_LINES_FILE_NAME,
                 PER_RECIPE_BREAKDOWN_FILE_NAME,
                 TARGETED_PROMPT_CASES_FILE_NAME,
@@ -10296,6 +10701,7 @@ def _write_upload_bundle_three_files(
             "triage_packet": triage_packet_summary,
             "net_error_blame_summary": net_error_blame_summary,
             "config_version_metadata": config_version_metadata,
+            "group_high_level": group_high_level_packet_summary,
             "per_label_metrics": per_label_metrics,
             "top_confusion_deltas": _aggregate_confusion_deltas(
                 {"pairs": comparison_pairs},
@@ -10387,6 +10793,46 @@ def _write_upload_bundle_three_files(
             "",
         ]
     )
+    if high_level_only:
+        overview_lines.extend(
+            [
+                "## Group High-Level Budget",
+                "",
+                (
+                    "- target_bundle_size_mb: "
+                    f"{_serialize_float(_coerce_float(group_high_level_packet_summary.get('target_bundle_size_mb')))}"
+                ),
+                (
+                    "- target_bundle_size_bytes: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('target_bundle_size_bytes')) or 0)}"
+                ),
+                (
+                    "- payload_bytes_before_group_packet: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('payload_bytes_before_group_packet')) or 0)}"
+                ),
+                (
+                    "- budget_for_group_samples_bytes: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('budget_for_group_samples_bytes')) or 0)}"
+                ),
+                (
+                    "- per_run_sample_budget_bytes: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('per_run_sample_budget_bytes')) or 0)}"
+                ),
+                (
+                    "- runs_with_sampled_rows: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('runs_with_sampled_rows')) or 0)}"
+                ),
+                (
+                    "- sampled_wrong_line_rows_total: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('sampled_wrong_line_rows_total')) or 0)}"
+                ),
+                (
+                    "- sampled_wrong_line_bytes_total: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('sampled_wrong_line_bytes_total')) or 0)}"
+                ),
+                "",
+            ]
+        )
 
     overview_lines.extend(
         [
@@ -10639,12 +11085,16 @@ def build_upload_bundle_for_existing_output(
     output_dir: Path | None = None,
     overwrite: bool = True,
     prune_output_dir: bool = False,
+    high_level_only: bool = False,
+    target_bundle_size_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Build a 3-file external-AI upload bundle from an existing artifact tree.
 
     When `output_dir` is omitted, files are written alongside the source tree.
     When `prune_output_dir` is true and output equals source, only the 3 upload
-    files are retained in that folder.
+    files are retained in that folder. Set `high_level_only=True` to emit a
+    size-budgeted group bundle (target bytes controlled by
+    `target_bundle_size_bytes`).
     """
 
     source_root = source_dir.resolve()
@@ -10664,12 +11114,20 @@ def build_upload_bundle_for_existing_output(
     bundle_metadata = _write_upload_bundle_three_files(
         output_dir=output_root,
         source_dir=source_root,
+        high_level_only=high_level_only,
+        target_bundle_size_bytes=target_bundle_size_bytes,
     )
     if prune_output_dir and output_root == source_root:
         _prune_output_to_upload_bundle_files(output_dir=output_root)
 
     bundle_metadata["source_dir"] = str(source_root)
     bundle_metadata["output_dir"] = str(output_root)
+    bundle_metadata["high_level_only"] = bool(high_level_only)
+    bundle_metadata["target_bundle_size_bytes"] = (
+        int(target_bundle_size_bytes)
+        if target_bundle_size_bytes is not None
+        else None
+    )
     return bundle_metadata
 
 

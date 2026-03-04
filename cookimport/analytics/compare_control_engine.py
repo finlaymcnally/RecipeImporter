@@ -1182,10 +1182,24 @@ def _compare_control_secondary_metric_fields(
         if field_name not in preferred_set and not COMPARE_CONTROL_SECONDARY_FIELD_PATTERN.search(field_name):
             continue
         numeric_count = 0
+        numeric_min: float | None = None
+        numeric_max: float | None = None
         for record in records:
-            if maybe_number(previous_runs_field_value(record, field_name)) is not None:
-                numeric_count += 1
+            numeric_value = maybe_number(previous_runs_field_value(record, field_name))
+            if numeric_value is None:
+                continue
+            numeric_count += 1
+            if numeric_min is None or numeric_value < numeric_min:
+                numeric_min = numeric_value
+            if numeric_max is None or numeric_value > numeric_max:
+                numeric_max = numeric_value
         if numeric_count < 2:
+            continue
+        if (
+            numeric_min is not None
+            and numeric_max is not None
+            and abs(numeric_max - numeric_min) <= 1e-12
+        ):
             continue
         selected.append(field_name)
         if len(selected) >= COMPARE_CONTROL_SECONDARY_MAX_FIELDS:

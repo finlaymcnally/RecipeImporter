@@ -2100,49 +2100,31 @@ _HTML = """\
 	        </ul>
 	      </section>
 	    </details>
-	    <div class="previous-runs-top-grid">
-	      <div class="previous-runs-analysis-panels">
-	        <section id="compare-control-panel" class="compare-control-panel">
-          <h3>Compare &amp; Control</h3>
-          <p class="section-note">Use visible rows to find likely drivers, compare one field, hold confounders constant, and push selected groups into table filters.</p>
-          <div class="compare-control-controls">
-            <label for="compare-control-view-mode">View</label>
-            <select id="compare-control-view-mode">
-              <option value="discover">discover</option>
-              <option value="raw">raw</option>
-              <option value="controlled">controlled</option>
-            </select>
-            <label for="compare-control-outcome-field">Outcome</label>
-            <select id="compare-control-outcome-field"></select>
-            <label for="compare-control-compare-field">Compare by</label>
-            <select id="compare-control-compare-field"></select>
-            <label for="compare-control-split-field">Split by</label>
-            <select id="compare-control-split-field"></select>
-          </div>
-          <div class="compare-control-hold">
-            <span class="compare-control-hold-label">Hold constant</span>
-            <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
-          </div>
-          <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
-          <div class="compare-control-actions">
-            <button id="compare-control-filter-subset" type="button">Filter to subset</button>
-            <button id="compare-control-clear-selection" type="button">Clear groups</button>
-            <button id="compare-control-reset" type="button">Reset</button>
-          </div>
-          <p id="compare-control-status" class="section-note"></p>
-          <div id="compare-control-results" class="compare-control-results"></div>
-        </section>
-      </div>
-      <div class="trend-chart-wrap">
-        <h3>Benchmark Score Trend</h3>
-        <p class="section-note">Interactive time-series view of benchmark quality metrics (same chart tech as the git-stats dashboards).</p>
-        <div id="benchmark-trend-chart" class="highcharts-host" aria-label="Benchmark score trend chart"></div>
-        <p id="benchmark-trend-fallback" class="empty-note" hidden></p>
-      </div>
-    </div>
+	    <div class="previous-runs-sections">
+	      <section id="previous-runs-history-panel" class="previous-runs-subsection">
+	        <h3>History Table &amp; Trend</h3>
+	        <p class="section-note">Use this section for row filtering, trend review, and table-level drilldown.</p>
+	        <div class="trend-chart-wrap">
+	          <h4>Benchmark Score Trend</h4>
+	          <p class="section-note">Interactive time-series view of benchmark quality metrics (same chart tech as the git-stats dashboards).</p>
+	          <div class="benchmark-trend-fields">
+	            <div class="benchmark-trend-fields-head">
+	              <h5>Trend fields</h5>
+	              <div class="benchmark-trend-fields-actions">
+	                <button id="benchmark-trend-select-all" type="button">Select all</button>
+	                <button id="benchmark-trend-clear" type="button">Clear</button>
+	              </div>
+	            </div>
+	            <p class="section-note">Add/remove any numeric benchmark field. The chart supports any number of selected fields.</p>
+	            <div id="benchmark-trend-field-checklist" class="benchmark-trend-field-checklist"></div>
+	            <p id="benchmark-trend-fields-status" class="section-note"></p>
+	          </div>
+	          <div id="benchmark-trend-chart" class="highcharts-host" aria-label="Benchmark score trend chart"></div>
+	          <p id="benchmark-trend-fallback" class="empty-note" hidden></p>
+	        </div>
     <section id="quick-filters-panel" class="quick-filters-panel">
-      <h3>Quick Filters</h3>
-      <p class="section-note">Fast toggles for benchmark focus.</p>
+	      <h3>Quick Filters</h3>
+	      <p class="section-note">Fast toggles for benchmark focus.</p>
       <div class="quick-filters-list">
         <label for="quick-filter-official-only">
           <input id="quick-filter-official-only" type="checkbox" checked>
@@ -2172,9 +2154,9 @@ _HTML = """\
         </section>
         <button id="previous-runs-clear-all-filters" type="button">Clear all filters</button>
       </div>
-      <p id="quick-filters-status" class="section-note"></p>
-    </section>
-    <div class="table-wrap table-scroll">
+	      <p id="quick-filters-status" class="section-note"></p>
+	    </section>
+	    <div class="table-wrap table-scroll">
       <div class="previous-runs-columns-control">
         <button
           id="previous-runs-columns-toggle"
@@ -2201,7 +2183,7 @@ _HTML = """\
           </div>
         </div>
       </div>
-      <table id="previous-runs-table">
+	      <table id="previous-runs-table">
         <colgroup></colgroup>
         <thead>
           <tr class="previous-runs-header-row"></tr>
@@ -2209,9 +2191,50 @@ _HTML = """\
           <tr class="previous-runs-filter-spacer-row"></tr>
         </thead>
         <tbody></tbody>
-      </table>
+	      </table>
+	    </div>
+      </section>
+      <section id="compare-control-analysis-section" class="previous-runs-subsection">
+        <h3>Compare &amp; Control Analysis</h3>
+        <p class="section-note">Use visible rows to find likely drivers, compare one field, hold confounders constant, and push selected groups into table filters.</p>
+        <section id="compare-control-panel" class="compare-control-panel">
+          <h3>Compare &amp; Control</h3>
+          <div class="compare-control-controls">
+            <label for="compare-control-view-mode">View</label>
+            <select id="compare-control-view-mode">
+              <option value="discover">discover</option>
+              <option value="raw">raw</option>
+              <option value="controlled">controlled</option>
+            </select>
+            <label for="compare-control-outcome-field">Outcome</label>
+            <select id="compare-control-outcome-field"></select>
+            <label for="compare-control-compare-field">Compare by</label>
+            <select id="compare-control-compare-field"></select>
+            <label for="compare-control-split-field">Split by</label>
+            <select id="compare-control-split-field"></select>
+          </div>
+          <div class="compare-control-hold">
+            <span class="compare-control-hold-label">Hold constant</span>
+            <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
+          </div>
+          <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
+          <div class="compare-control-actions">
+            <button id="compare-control-filter-subset" type="button">Filter to subset</button>
+            <button id="compare-control-clear-selection" type="button">Clear groups</button>
+            <button id="compare-control-reset" type="button">Reset</button>
+          </div>
+          <p id="compare-control-status" class="section-note"></p>
+          <div id="compare-control-results" class="compare-control-results"></div>
+        </section>
+        <div class="trend-chart-wrap compare-control-trend-wrap">
+          <h4>Compare &amp; Control Score Trend</h4>
+          <p class="section-note">Second interactive trend chart for compare/control analysis context.</p>
+          <div id="compare-control-trend-chart" class="highcharts-host" aria-label="Compare and control score trend chart"></div>
+          <p id="compare-control-trend-fallback" class="empty-note" hidden></p>
+        </div>
+      </section>
     </div>
-  </section>
+	  </section>
 </main>
 
 <footer>Generated by <code>cookimport stats-dashboard</code></footer>
@@ -2432,27 +2455,40 @@ section h3 {
   border-color: #c7d0d9;
 }
 .compare-control-panel {
-  margin: 0.75rem 0 0.9rem;
+  margin: 0;
   background: #fbfcf7;
   border: 1px solid #dde5cf;
 }
-.previous-runs-top-grid {
+.previous-runs-sections {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
-  align-items: start;
   margin: 0.5rem 0 0.9rem;
+  min-width: 0;
 }
-.previous-runs-analysis-panels {
-  display: grid;
-  gap: 0.7rem;
+.previous-runs-subsection {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fbfcff;
+  padding: 0.62rem 0.72rem;
+  min-width: 0;
 }
-.previous-runs-top-grid .compare-control-panel,
-.previous-runs-top-grid .trend-chart-wrap {
-  margin: 0;
+.previous-runs-subsection > h3 {
+  margin: 0 0 0.35rem;
+  color: #355471;
+}
+.previous-runs-subsection > .section-note {
+  margin: 0 0 0.55rem;
+}
+#compare-control-analysis-section {
+  background: #f8fbf6;
+  border-color: #d7e3cf;
+}
+#compare-control-analysis-section > h3 {
+  color: #4a6438;
 }
 .compare-control-panel h3 {
-  margin-top: 0;
+  margin: 0 0 0.5rem;
   color: #4a6438;
 }
 .compare-control-controls {
@@ -2473,6 +2509,8 @@ section h3 {
 #compare-control-outcome-field,
 #compare-control-compare-field,
 #compare-control-split-field {
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
@@ -2618,10 +2656,70 @@ section h3 {
   vertical-align: middle;
 }
 .trend-chart-wrap {
-  margin: 0.5rem 0 0.85rem;
+  margin: 0.4rem 0 0.7rem;
+  min-width: 0;
+}
+.trend-chart-wrap h4 {
+  margin: 0;
+  color: #355471;
+  font-size: 0.94rem;
+}
+.benchmark-trend-fields {
+  margin: 0.2rem 0 0.52rem;
+  padding: 0.48rem 0.55rem;
+  border: 1px solid #d4e1ef;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.benchmark-trend-fields-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+.benchmark-trend-fields-head h5 {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #2b557d;
+}
+.benchmark-trend-fields-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+}
+.benchmark-trend-fields-actions button {
+  font-size: 0.71rem;
+  padding: 0.12rem 0.42rem;
+}
+.benchmark-trend-field-checklist {
+  margin-top: 0.28rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.25rem 0.5rem;
+  max-height: 9.2rem;
+  overflow: auto;
+  padding-right: 0.18rem;
+}
+.benchmark-trend-field-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  font-size: 0.76rem;
+  color: var(--text);
+}
+.benchmark-trend-field-option input[type="checkbox"] {
+  width: 0.9rem;
+  height: 0.9rem;
+  accent-color: var(--accent2);
+}
+#benchmark-trend-fields-status {
+  margin: 0.35rem 0 0;
+}
+.compare-control-trend-wrap h4 {
+  color: #4a6438;
 }
 .quick-filters-panel {
-  margin: 0.55rem 0 0.85rem;
+  margin: 0.52rem 0 0.7rem;
   background: #f8fbf6;
   border: 1px solid #d7e3cf;
 }
@@ -2663,6 +2761,8 @@ section h3 {
 }
 .highcharts-host {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: 800px;
   min-height: 720px;
   border: 1px solid var(--border);
@@ -2673,6 +2773,8 @@ section h3 {
 .table-wrap {
   overflow-x: auto;
   position: relative;
+  min-width: 0;
+  max-width: 100%;
 }
 .previous-runs-columns-control {
   position: absolute;
@@ -3703,9 +3805,6 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .previous-runs-columns-popup {
     width: min(280px, calc(100vw - 1.3rem));
   }
-  .previous-runs-top-grid {
-    grid-template-columns: 1fr;
-  }
   .compare-control-controls {
     grid-template-columns: 1fr;
   }
@@ -3752,6 +3851,8 @@ _JS = """\
     official_full_golden_only: true,
   };
   let previousRunsFieldOptions = [];
+  let benchmarkTrendFieldOptions = [];
+  let benchmarkTrendSelectedFields = null;
   let previousRunsVisibleColumns = [];
   let previousRunsColumnWidths = Object.create(null);
   let dashboardTableColumnWidths = Object.create(null);
@@ -3791,6 +3892,62 @@ _JS = """\
   const PER_LABEL_ROLLING_WINDOW_MIN = 1;
   const PER_LABEL_ROLLING_WINDOW_MAX = 50;
   const PER_LABEL_RUN_GROUP_DEFAULT_KEY = "__default_most_recent__";
+  const BENCHMARK_TREND_DEFAULT_FIELDS = [
+    "strict_accuracy",
+    "macro_f1_excluding_other",
+  ];
+  const BENCHMARK_TREND_PREFERRED_FIELDS = [
+    "strict_accuracy",
+    "macro_f1_excluding_other",
+    "precision",
+    "recall",
+    "f1",
+    "practical_f1",
+    "supported_precision",
+    "supported_recall",
+    "supported_practical_precision",
+    "supported_practical_recall",
+    "supported_practical_f1",
+    "gold_total",
+    "gold_matched",
+    "recipes",
+    "all_token_use",
+    "tokens_total",
+    "tokens_input",
+    "tokens_cached_input",
+    "tokens_output",
+    "tokens_reasoning",
+    "benchmark_total_seconds",
+    "benchmark_prediction_seconds",
+    "benchmark_evaluation_seconds",
+    "benchmark_artifact_write_seconds",
+  ];
+  const BENCHMARK_TREND_COLOR_OVERRIDES = {
+    strict_accuracy: {
+      default: "#1f5ea8",
+      vanilla: "#7daee8",
+      codexfarm: "#1f5ea8",
+      other: "#7f96b3",
+    },
+    macro_f1_excluding_other: {
+      default: "#127a52",
+      vanilla: "#55b895",
+      codexfarm: "#127a52",
+      other: "#6ea08c",
+    },
+  };
+  const BENCHMARK_TREND_BASE_COLORS = [
+    "#1f5ea8",
+    "#127a52",
+    "#a44717",
+    "#8a3ea6",
+    "#3b7c84",
+    "#7a6335",
+    "#6b5fb2",
+    "#2c8c5f",
+    "#9d4b6a",
+    "#5a6f8a",
+  ];
   const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [
     ["contains", "contains"],
     ["not_contains", "does not contain"],
@@ -3927,6 +4084,22 @@ _JS = """\
     "supported_practical_precision",
     "supported_practical_recall",
     "supported_practical_f1",
+  ]);
+  const BENCHMARK_TREND_SKIP_FIELDS = new Set([
+    "run_timestamp",
+    "artifact_dir",
+    "artifact_dir_basename",
+    "report_path",
+    "run_dir",
+    "file_name",
+    "source_file",
+    "source_file_basename",
+    "source_label",
+    "importer_name",
+    "run_config_hash",
+    "run_config_summary",
+    "per_label_json",
+    "per_label",
   ]);
   const ANALYSIS_FIELD_PREFERRED = [
     "source_label",
@@ -4129,6 +4302,44 @@ _JS = """\
     if (!key) return PER_LABEL_RUN_GROUP_DEFAULT_KEY;
     if (key === PER_LABEL_RUN_GROUP_DEFAULT_KEY) return PER_LABEL_RUN_GROUP_DEFAULT_KEY;
     return key;
+  }
+
+  function normalizeBenchmarkTrendFieldList(values, options) {
+    const opts = options && typeof options === "object" && !Array.isArray(options)
+      ? options
+      : Object.create(null);
+    const allowEmpty = Boolean(opts.allow_empty);
+    const availableRaw = Array.isArray(opts.available_fields)
+      ? opts.available_fields
+      : benchmarkTrendFieldOptions;
+    const available = uniqueStringList(availableRaw);
+    const availableSet = new Set(available);
+    const fromExplicitValues = Array.isArray(values);
+    const seed = fromExplicitValues ? values : BENCHMARK_TREND_DEFAULT_FIELDS;
+    const normalized = [];
+    const seen = new Set();
+    seed.forEach(fieldName => {
+      const key = String(fieldName || "").trim();
+      if (!key || seen.has(key)) return;
+      if (availableSet.size && !availableSet.has(key)) return;
+      seen.add(key);
+      normalized.push(key);
+    });
+    if (normalized.length) return normalized;
+    if (allowEmpty && fromExplicitValues) return [];
+
+    const fallback = [];
+    const fallbackSeen = new Set();
+    BENCHMARK_TREND_DEFAULT_FIELDS.forEach(fieldName => {
+      if (!fieldName || fallbackSeen.has(fieldName)) return;
+      if (availableSet.size && !availableSet.has(fieldName)) return;
+      fallbackSeen.add(fieldName);
+      fallback.push(fieldName);
+    });
+    if (!fallback.length && available.length) {
+      fallback.push(available[0]);
+    }
+    return fallback;
   }
 
   function normalizeCompareControlViewMode(value) {
@@ -4366,6 +4577,12 @@ _JS = """\
         previousRuns.per_label_run_group_key
       );
     }
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "trend_fields")) {
+      benchmarkTrendSelectedFields = normalizeBenchmarkTrendFieldList(
+        previousRuns.trend_fields,
+        { allow_empty: true }
+      );
+    }
 
     const rawColumnWidths = previousRuns.column_widths;
     if (rawColumnWidths && typeof rawColumnWidths === "object" && !Array.isArray(rawColumnWidths)) {
@@ -4468,6 +4685,7 @@ _JS = """\
           setupPreviousRunsGlobalFilterModeControl();
           setupCompareControlControls();
           setupPerLabelControls();
+          setupBenchmarkTrendFieldControls();
           renderPreviousRunsColumnEditor();
           renderAll();
         } finally {
@@ -4537,6 +4755,10 @@ _JS = """\
         per_label_rolling_window_size: normalizePerLabelRollingWindowSize(perLabelRollingWindowSize),
         per_label_comparison_mode: normalizePerLabelComparisonMode(perLabelComparisonMode),
         per_label_run_group_key: normalizePerLabelRunGroupKey(perLabelRunGroupKey),
+        trend_fields: normalizeBenchmarkTrendFieldList(
+          benchmarkTrendSelectedFields,
+          { allow_empty: true }
+        ),
         column_widths: columnWidths,
         sort: {
           field: String(previousRunsSortField || "run_timestamp"),
@@ -4990,6 +5212,7 @@ _JS = """\
 
   function setupPreviousRunsFilters() {
     previousRunsFieldOptions = collectBenchmarkFieldPaths();
+    setupBenchmarkTrendFieldControls();
     setupPerLabelControls();
     ensurePreviousRunsColumns();
     setupPreviousRunsColumnsControls();
@@ -5059,6 +5282,135 @@ _JS = """\
         officialOnly.dataset.bound = "1";
       }
     }
+  }
+
+  function setBenchmarkTrendSelectedFields(nextFields, options) {
+    const opts = options && typeof options === "object" && !Array.isArray(options)
+      ? options
+      : Object.create(null);
+    benchmarkTrendSelectedFields = normalizeBenchmarkTrendFieldList(
+      nextFields,
+      {
+        allow_empty: Boolean(opts.allow_empty),
+        available_fields: Array.isArray(opts.available_fields)
+          ? opts.available_fields
+          : benchmarkTrendFieldOptions,
+      },
+    );
+    return benchmarkTrendSelectedFields.slice();
+  }
+
+  function setupBenchmarkTrendFieldControls() {
+    benchmarkTrendFieldOptions = collectBenchmarkTrendFieldPaths();
+    const hasExplicitSelection = Array.isArray(benchmarkTrendSelectedFields);
+    setBenchmarkTrendSelectedFields(
+      benchmarkTrendSelectedFields,
+      {
+        allow_empty: hasExplicitSelection,
+        available_fields: benchmarkTrendFieldOptions,
+      },
+    );
+    renderBenchmarkTrendFieldControls();
+
+    const selectAllBtn = document.getElementById("benchmark-trend-select-all");
+    if (selectAllBtn && !selectAllBtn.dataset.bound) {
+      selectAllBtn.addEventListener("click", () => {
+        setBenchmarkTrendSelectedFields(
+          benchmarkTrendFieldOptions,
+          { allow_empty: false, available_fields: benchmarkTrendFieldOptions },
+        );
+        renderBenchmarkTrendFieldControls();
+        renderBenchmarkTrendChart();
+        persistDashboardUiState();
+      });
+      selectAllBtn.dataset.bound = "1";
+    }
+    const clearBtn = document.getElementById("benchmark-trend-clear");
+    if (clearBtn && !clearBtn.dataset.bound) {
+      clearBtn.addEventListener("click", () => {
+        setBenchmarkTrendSelectedFields(
+          [],
+          { allow_empty: true, available_fields: benchmarkTrendFieldOptions },
+        );
+        renderBenchmarkTrendFieldControls();
+        renderBenchmarkTrendChart();
+        persistDashboardUiState();
+      });
+      clearBtn.dataset.bound = "1";
+    }
+  }
+
+  function renderBenchmarkTrendFieldControls() {
+    const host = document.getElementById("benchmark-trend-field-checklist");
+    const status = document.getElementById("benchmark-trend-fields-status");
+    const selectAllBtn = document.getElementById("benchmark-trend-select-all");
+    const clearBtn = document.getElementById("benchmark-trend-clear");
+    if (!host) return;
+    host.innerHTML = "";
+
+    const options = Array.isArray(benchmarkTrendFieldOptions)
+      ? benchmarkTrendFieldOptions
+      : [];
+    const selected = new Set(
+      setBenchmarkTrendSelectedFields(
+        benchmarkTrendSelectedFields,
+        {
+          allow_empty: Array.isArray(benchmarkTrendSelectedFields),
+          available_fields: options,
+        },
+      ),
+    );
+
+    if (!options.length) {
+      host.innerHTML = '<p class="compare-control-inline-note">No numeric benchmark fields are available in this dashboard payload.</p>';
+      if (status) {
+        status.textContent = "No numeric benchmark fields available.";
+      }
+      if (selectAllBtn) selectAllBtn.disabled = true;
+      if (clearBtn) clearBtn.disabled = true;
+      return;
+    }
+
+    options.forEach(fieldName => {
+      const row = document.createElement("label");
+      row.className = "benchmark-trend-field-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = fieldName;
+      checkbox.checked = selected.has(fieldName);
+      checkbox.addEventListener("change", () => {
+        const next = benchmarkTrendSelectedFields.slice();
+        const idx = next.indexOf(fieldName);
+        if (checkbox.checked) {
+          if (idx === -1) next.push(fieldName);
+        } else if (idx >= 0) {
+          next.splice(idx, 1);
+        }
+        setBenchmarkTrendSelectedFields(
+          next,
+          { allow_empty: true, available_fields: benchmarkTrendFieldOptions },
+        );
+        renderBenchmarkTrendFieldControls();
+        renderBenchmarkTrendChart();
+        persistDashboardUiState();
+      });
+      row.appendChild(checkbox);
+
+      const labelText = document.createElement("span");
+      labelText.textContent = benchmarkTrendFieldLabel(fieldName);
+      row.appendChild(labelText);
+      host.appendChild(row);
+    });
+
+    if (status) {
+      if (selected.size === 0) {
+        status.textContent = "No fields selected. Check one or more fields to plot them.";
+      } else {
+        status.textContent = "Plotting " + selected.size + " field(s).";
+      }
+    }
+    if (selectAllBtn) selectAllBtn.disabled = selected.size >= options.length;
+    if (clearBtn) clearBtn.disabled = selected.size === 0;
   }
 
   function previousRunsAvailableColumnFields() {
@@ -5895,12 +6247,23 @@ _JS = """\
         continue;
       }
       let numericCount = 0;
+      let numericMin = null;
+      let numericMax = null;
       records.forEach(record => {
-        if (maybeNumber(previousRunsFieldValue(record, fieldName)) != null) {
-          numericCount += 1;
-        }
+        const numericValue = maybeNumber(previousRunsFieldValue(record, fieldName));
+        if (numericValue == null) return;
+        numericCount += 1;
+        if (numericMin == null || numericValue < numericMin) numericMin = numericValue;
+        if (numericMax == null || numericValue > numericMax) numericMax = numericValue;
       });
       if (numericCount < 2) continue;
+      if (
+        numericMin != null &&
+        numericMax != null &&
+        Math.abs(numericMax - numericMin) <= 1e-12
+      ) {
+        continue;
+      }
       selected.push(fieldName);
       if (selected.length >= COMPARE_CONTROL_SECONDARY_MAX_FIELDS) break;
     }
@@ -7283,6 +7646,58 @@ _JS = """\
     return ordered;
   }
 
+  function benchmarkTrendFieldHasNumericValues(fieldName) {
+    if (!fieldName) return false;
+    const records = Array.isArray(DATA && DATA.benchmark_records)
+      ? DATA.benchmark_records
+      : [];
+    for (let i = 0; i < records.length; i += 1) {
+      const numeric = maybeNumber(previousRunsFieldValue(records[i], fieldName));
+      if (numeric != null) return true;
+    }
+    return false;
+  }
+
+  function collectBenchmarkTrendFieldPaths() {
+    const discovered = new Set();
+    BENCHMARK_TREND_DEFAULT_FIELDS.forEach(fieldName => discovered.add(fieldName));
+    PREVIOUS_RUNS_SCORE_FIELDS.forEach(fieldName => discovered.add(fieldName));
+    previousRunsFieldOptions.forEach(fieldName => discovered.add(fieldName));
+    discovered.add("all_token_use");
+    discovered.add("tokens_total");
+    discovered.add("tokens_input");
+    discovered.add("tokens_cached_input");
+    discovered.add("tokens_output");
+    discovered.add("tokens_reasoning");
+
+    const defaultSet = new Set(BENCHMARK_TREND_DEFAULT_FIELDS);
+    const numericFields = Array.from(discovered)
+      .map(fieldName => String(fieldName || "").trim())
+      .filter(Boolean)
+      .filter(fieldName => !BENCHMARK_TREND_SKIP_FIELDS.has(fieldName))
+      .filter(fieldName => defaultSet.has(fieldName) || benchmarkTrendFieldHasNumericValues(fieldName));
+
+    const ordered = [];
+    const seen = new Set();
+    BENCHMARK_TREND_PREFERRED_FIELDS.forEach(fieldName => {
+      if (!numericFields.includes(fieldName) || seen.has(fieldName)) return;
+      seen.add(fieldName);
+      ordered.push(fieldName);
+    });
+    numericFields
+      .sort((left, right) => left.localeCompare(right))
+      .forEach(fieldName => {
+        if (seen.has(fieldName)) return;
+        seen.add(fieldName);
+        ordered.push(fieldName);
+      });
+    return ordered;
+  }
+
+  function benchmarkTrendFieldLabel(fieldName) {
+    return analysisFieldLabel(fieldName);
+  }
+
   function addFlattenedFieldPaths(value, prefix, output, depth) {
     if (depth > 4) {
       if (prefix) output.add(prefix);
@@ -7736,30 +8151,44 @@ _JS = """\
 
   function benchmarkRunGroupInfo(record) {
     const fallbackTimestamp = String((record && record.run_timestamp) || "").trim();
-    const rawPath = String((record && record.artifact_dir) || "")
-      .trim()
-      .replace(/\\\\/g, "/");
+    const rawPathCandidates = [
+      String((record && record.artifact_dir) || "").trim(),
+      String((record && record.run_dir) || "").trim(),
+      String((record && record.report_path) || "").trim(),
+    ]
+      .filter(value => value)
+      .map(value => value.replace(/\\\\/g, "/"));
     let runToken = "";
-    if (rawPath) {
+    for (let p = 0; p < rawPathCandidates.length; p++) {
+      const rawPath = rawPathCandidates[p];
       const parts = rawPath.split("/").filter(Boolean);
-      for (let i = 0; i < parts.length - 1; i++) {
+      for (let i = 0; i < parts.length; i++) {
         const segment = String(parts[i] || "").toLowerCase();
         if (segment !== "benchmark-vs-golden") continue;
-        const candidate = String(parts[i + 1] || "");
-        if (!isTimestampTokenText(candidate)) continue;
-        runToken = candidate;
-        break;
+        for (let j = i + 1; j < parts.length; j++) {
+          const candidate = String(parts[j] || "");
+          if (!isTimestampTokenText(candidate)) continue;
+          runToken = candidate;
+          break;
+        }
+        if (runToken) break;
+      }
+      if (runToken) break;
+    }
+    if (!runToken) {
+      for (let p = 0; p < rawPathCandidates.length; p++) {
+        const rawPath = rawPathCandidates[p];
+        const parts = rawPath.split("/").filter(Boolean);
+        for (let i = 0; i < parts.length; i++) {
+          const candidate = String(parts[i] || "");
+          if (!isTimestampTokenText(candidate)) continue;
+          runToken = candidate;
+          break;
+        }
+        if (runToken) break;
       }
     }
-    if (!runToken && rawPath) {
-      const parts = rawPath.split("/").filter(Boolean);
-      for (let i = parts.length - 1; i >= 0; i--) {
-        const candidate = String(parts[i] || "");
-        if (!isTimestampTokenText(candidate)) continue;
-        runToken = candidate;
-        break;
-      }
-    }
+    const rawPath = rawPathCandidates[0] || "";
     const runGroupLabel = runToken || fallbackTimestamp || "-";
     const runGroupKey = runToken || fallbackTimestamp || rawPath || "-";
     const runGroupTimestampText = runToken || fallbackTimestamp || "";
@@ -7785,10 +8214,8 @@ _JS = """\
       .map(record => {
         if (!record) return null;
         if (variantKey && benchmarkVariantForRecord(record) !== variantKey) return null;
-        const value = record[metricKey];
-        if (value == null) return null;
-        const parsedValue = Number(value);
-        if (!Number.isFinite(parsedValue)) return null;
+        const parsedValue = maybeNumber(previousRunsFieldValue(record, metricKey));
+        if (parsedValue == null) return null;
         const runGroup = benchmarkRunGroupInfo(record);
         const xMs = benchmarkRunGroupXAxisTimestampMs(record, runGroup);
         if (xMs == null) return null;
@@ -7944,27 +8371,44 @@ _JS = """\
     return Boolean(custom.isTrendOverlay);
   }
 
-  function buildBenchmarkTrendSeries(records) {
-    const metricDefs = [
-      {
-        key: "strict_accuracy",
-        colors: {
-          default: "#1f5ea8",
-          vanilla: "#7daee8",
-          codexfarm: "#1f5ea8",
-          other: "#7f96b3",
-        },
-      },
-      {
-        key: "macro_f1_excluding_other",
-        colors: {
-          default: "#127a52",
-          vanilla: "#55b895",
-          codexfarm: "#127a52",
-          other: "#6ea08c",
-        },
-      },
+  function benchmarkTrendShiftHexColor(baseColor, shift) {
+    const match = String(baseColor || "").trim().match(/^#([0-9a-fA-F]{6})$/);
+    if (!match) return String(baseColor || "");
+    const raw = match[1];
+    function next(start) {
+      const parsed = Number.parseInt(raw.slice(start, start + 2), 16);
+      if (!Number.isFinite(parsed)) return "00";
+      const clamped = Math.max(0, Math.min(255, parsed + shift));
+      return clamped.toString(16).padStart(2, "0");
+    }
+    return "#" + next(0) + next(2) + next(4);
+  }
+
+  function benchmarkTrendMetricColors(metricKey, metricIndex) {
+    if (Object.prototype.hasOwnProperty.call(BENCHMARK_TREND_COLOR_OVERRIDES, metricKey)) {
+      return BENCHMARK_TREND_COLOR_OVERRIDES[metricKey];
+    }
+    const base = BENCHMARK_TREND_BASE_COLORS[
+      Math.abs(Number(metricIndex || 0)) % BENCHMARK_TREND_BASE_COLORS.length
     ];
+    return {
+      default: base,
+      vanilla: benchmarkTrendShiftHexColor(base, 58),
+      codexfarm: base,
+      other: benchmarkTrendShiftHexColor(base, 20),
+    };
+  }
+
+  function buildBenchmarkTrendSeries(records) {
+    const metricKeys = normalizeBenchmarkTrendFieldList(
+      benchmarkTrendSelectedFields,
+      { allow_empty: Array.isArray(benchmarkTrendSelectedFields) },
+    );
+    if (!metricKeys.length) return [];
+    const metricDefs = metricKeys.map((key, index) => ({
+      key,
+      colors: benchmarkTrendMetricColors(key, index),
+    }));
     const variantOrder = ["vanilla", "codexfarm", "other"];
     const presentVariants = new Set(
       records.map(record => benchmarkVariantForRecord(record))
@@ -8015,35 +8459,31 @@ _JS = """\
     return withTrendOverlays(baseSeries);
   }
 
-  function renderBenchmarkTrendChart() {
-    const chartHost = document.getElementById("benchmark-trend-chart");
+  function renderBenchmarkTrendChartHost(config) {
+    const hostId = String((config && config.hostId) || "").trim();
+    if (!hostId) return;
+    const chartHost = document.getElementById(hostId);
     if (!chartHost) return;
-    const fallback = document.getElementById("benchmark-trend-fallback");
-    const filterResult = currentPreviousRunsFilterResult();
-    const records = filterResult.records;
-    const sorted = [...records].sort((a, b) =>
-      compareRunTimestampAsc(a.run_timestamp, b.run_timestamp)
-    );
-    const trendSeries = buildBenchmarkTrendSeries(sorted);
-    const allRunTimestamps = sorted
-      .map(record => {
-        const ts = parseTs(record.run_timestamp);
-        return ts ? ts.getTime() : null;
-      })
-      .filter(value => value != null)
-      .sort((a, b) => a - b);
-    const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;
-    const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;
+    const fallback = document.getElementById(String((config && config.fallbackId) || ""));
+    const records = Array.isArray(config && config.records) ? config.records : [];
+    const trendSeries = Array.isArray(config && config.trendSeries) ? config.trendSeries : [];
+    const timelineMin = config && config.timelineMin != null ? config.timelineMin : null;
+    const timelineMax = config && config.timelineMax != null ? config.timelineMax : null;
     const pointCount = trendSeries.reduce(
       (total, series) => total + (series.data ? series.data.length : 0),
       0,
     );
+    const totalRows = Number((config && config.totalRows) || 0);
+    const chartTitle = String((config && config.chartTitle) || "Explicit Benchmark Score Trends");
+    const emptyReason = String((config && config.emptyReason) || "").trim();
 
     if (pointCount === 0) {
       chartHost.innerHTML = "";
       if (fallback) {
         fallback.hidden = false;
-        if (filterResult.total > 0 && records.length === 0) {
+        if (emptyReason) {
+          fallback.textContent = emptyReason;
+        } else if (totalRows > 0 && records.length === 0) {
           fallback.textContent = "No benchmark rows match the current Previous Runs filters.";
         } else {
           fallback.textContent = "No benchmark score points available yet.";
@@ -8057,7 +8497,7 @@ _JS = """\
       if (fallback) {
         fallback.hidden = false;
         fallback.textContent =
-          "Highcharts did not load, so the interactive trend chart is unavailable. The run table is still usable below.";
+          "Highcharts did not load, so the interactive trend chart is unavailable.";
       }
       return;
     }
@@ -8073,12 +8513,12 @@ _JS = """\
     if (timelineMin != null) xAxisConfig.min = timelineMin;
     if (timelineMax != null) xAxisConfig.max = timelineMax;
 
-    window.Highcharts.stockChart("benchmark-trend-chart", {
+    window.Highcharts.stockChart(hostId, {
       chart: {
         height: 800,
       },
       credits: { enabled: false },
-      title: { text: "Explicit Benchmark Score Trends" },
+      title: { text: chartTitle },
       legend: { enabled: true },
       rangeSelector: {
         // Start on full history so default chart span matches long-run table context.
@@ -8151,6 +8591,60 @@ _JS = """\
         },
       },
       series: trendSeries,
+    });
+  }
+
+  function renderBenchmarkTrendChart() {
+    const filterResult = currentPreviousRunsFilterResult();
+    const records = filterResult.records;
+    const sorted = [...records].sort((a, b) =>
+      compareRunTimestampAsc(a.run_timestamp, b.run_timestamp)
+    );
+    const selectedTrendFields = setBenchmarkTrendSelectedFields(
+      benchmarkTrendSelectedFields,
+      {
+        allow_empty: Array.isArray(benchmarkTrendSelectedFields),
+        available_fields: benchmarkTrendFieldOptions,
+      },
+    );
+    const allRunTimestamps = sorted
+      .map(record => {
+        const ts = parseTs(record.run_timestamp);
+        return ts ? ts.getTime() : null;
+      })
+      .filter(value => value != null)
+      .sort((a, b) => a - b);
+    const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;
+    const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;
+    const trendSeries = selectedTrendFields.length
+      ? buildBenchmarkTrendSeries(sorted)
+      : [];
+    const emptyReason = selectedTrendFields.length
+      ? ""
+      : "No trend fields selected. Pick one or more fields above.";
+
+    renderBenchmarkTrendChartHost({
+      hostId: "benchmark-trend-chart",
+      fallbackId: "benchmark-trend-fallback",
+      records: sorted,
+      totalRows: filterResult.total,
+      trendSeries,
+      timelineMin,
+      timelineMax,
+      chartTitle: "Explicit Benchmark Score Trends",
+      emptyReason,
+    });
+
+    renderBenchmarkTrendChartHost({
+      hostId: "compare-control-trend-chart",
+      fallbackId: "compare-control-trend-fallback",
+      records: sorted,
+      totalRows: filterResult.total,
+      trendSeries,
+      timelineMin,
+      timelineMax,
+      chartTitle: "Compare/Control Benchmark Score Trends",
+      emptyReason,
     });
   }
 

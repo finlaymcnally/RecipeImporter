@@ -102,9 +102,10 @@ Per workbook (slugified file stem):
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).
 
-Outside run root (`data/output/.history/`):
+Outside run root (`.history/` for repo-local output roots):
 
 - `performance_history.csv` is appended after stage runs when perf summary generation succeeds.
+- For external output roots (for example `/tmp/out`), history remains `<output_root parent>/.history/performance_history.csv`.
 
 Code pointers (prefer these over line numbers, which drift often):
 

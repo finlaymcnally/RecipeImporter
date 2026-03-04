@@ -26,7 +26,7 @@ Scope guard: this plan is benchmark and diagnostics work only. It must not enabl
 - [x] (2026-03-03_23.40.12) Captured Milestone 1 baseline evidence in `docs/understandings/2026-03-03_23.40.12-feedback-exec-baseline.md` (fresh vanilla run, codex auth-failed attempt, paired successful codex reference, confusion-family counts, pass3 token-share/runtime, starter-pack inventory).
 - [x] (2026-03-03_23.37.00) Verified deterministic line-role guardrails and selective pass3 routing seams are already active in current code and protected by passing targeted tests (`tests/parsing/test_canonical_line_roles.py`, `tests/llm/test_codex_farm_orchestrator.py`).
 - [x] (2026-03-03_23.39.00) Replaced starter-pack CSV-first triage contract with JSONL-first artifacts, added first-class blame/config/low-confidence/baseline-parity files, and retained legacy CSV compatibility loading for existing outputs.
-- [ ] Re-run benchmark + speed checks; update docs and this plan with final outcomes. (Completed: fresh vanilla benchmark run + fresh cutdown/upload-bundle artifact validation + targeted test suites. Remaining: authenticated fresh codex benchmark rerun and speed-compare flow only if runtime knobs are changed.)
+- [x] (2026-03-04_00.14.57) Re-ran benchmark and speed validation: fresh vanilla benchmark (`2026-03-04_00.08.07_feedbackexec_vanilla`), fresh codex benchmark path (`2026-03-04_00.10.29_feedbackexec_codex_fallback` with `--codex-farm-failure-mode fallback`), and full speed-discover/run/run/compare flow (`2026-03-04_00.09.35_feedbackexec_suite.json`, runs `2026-03-04_00.09.49` vs `2026-03-04_00.09.59`, compare `2026-03-04_00.10.12` PASS).
 
 ## Surprises & Discoveries
 
@@ -44,6 +44,9 @@ Scope guard: this plan is benchmark and diagnostics work only. It must not enabl
 
 - Observation: Fresh codex baseline command failed in this environment because codex auth/websocket access was unavailable.
   Evidence: benchmark run `2026-03-03_23.28.30_feedbackexec_codex` failed with pass1 errors and `HTTP 403 Forbidden` websocket/auth messages from codex CLI telemetry.
+
+- Observation: In this cycle, codex-farm pass1 still emitted widespread websocket/auth failures; using `--codex-farm-failure-mode fallback` allowed a fresh codex benchmark root to complete for artifact-level validation, while direct pass-level token/runtime telemetry remained unavailable.
+  Evidence: failed run `2026-03-04_00.08.27_feedbackexec_codex` exited on pass1 auth errors; fallback run `2026-03-04_00.10.29_feedbackexec_codex_fallback` completed with upload bundle + line-role diagnostics, and `analysis.call_inventory_runtime.summary` reports `call_count=0`.
 
 ## Decision Log
 
@@ -67,9 +70,11 @@ Scope guard: this plan is benchmark and diagnostics work only. It must not enabl
 
 Implemented state: starter-pack/upload-bundle contract now ships JSONL-first triage (`01_recipe_triage.jsonl`) plus first-class triage packet, net-error blame summary, config/version metadata, low-confidence changed-lines packet, and baseline-trace parity file; upload-bundle locators/default views resolve these directly, and legacy CSV roots remain readable via compatibility fallback.
 
-Validation completed: targeted parsing/llm/bench suites passed in `.venv`, and fresh candidate cutdown/upload-bundle generation produced non-CSV starter-pack artifacts at `data/golden/benchmark-vs-golden/2026-03-03_23.39.33_feedbackexec_candidate_cutdown_upload`.
+Validation completed: targeted parsing/llm/bench suites passed in `.venv`; fresh benchmark roots were produced at `data/golden/benchmark-vs-golden/2026-03-04_00.08.07_feedbackexec_vanilla` and `data/golden/benchmark-vs-golden/2026-03-04_00.10.29_feedbackexec_codex_fallback`; speed regression comparison passed at `data/golden/bench/speed/comparisons/2026-03-04_00.10.12`.
 
-Remaining gap: a fresh codex benchmark rerun from this session could not complete due codex auth/websocket 403 failures, so Milestone-5 codex rerun evidence must be re-run in an authenticated environment.
+Measured outcomes from fresh roots: overall line accuracy improved from `0.3966` (vanilla) to `0.7849` (codex-fallback root with deterministic fallback safety); macro F1 excluding OTHER improved from `0.3405` to `0.5903`; line-role diagnostics reported zero `TIME_LINE` predictions with active yield sanitization tags (`sanitized_yield_to_instruction`, `sanitized_yield_non_header`).
+
+Residual risk: direct codex pass token/runtime share evidence is still constrained by external auth/websocket failures (`HTTP 403 Forbidden`), so upload-bundle runtime summary for the fresh codex-fallback root reports no call telemetry.
 
 ## Context and Orientation
 
@@ -230,3 +235,5 @@ Any renamed starter-pack artifact must include compatibility loading in upload-b
 (2026-03-03_23.40.12) Added Milestone-1 baseline evidence links and confusion/runtime inventory notes; documented codex auth failure blocker and fallback codex reference pairing.
 
 (2026-03-03_23.41.00) Marked Milestone-4 contract work implemented: starter-pack JSONL triage, first-class blame/config/low-confidence/parity artifacts, upload-bundle locator updates, legacy CSV compatibility loading, and targeted test validation.
+
+(2026-03-04_00.14.57) Closed Milestone-5 validation with fresh benchmark + speed artifacts, recorded final metrics, and documented codex auth-constrained runtime telemetry caveat for this environment.

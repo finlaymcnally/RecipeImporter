@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
-import json
 import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from cookimport.analytics.perf_report import _CSV_FIELDS
 from cookimport.paths import history_csv_for_output
 
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
@@ -112,7 +109,6 @@ def run_benchmark_gc(
     if csv_path.is_file():
         rows = _load_history_rows(csv_path)
         history_rows_scanned = len(rows)
-        history_rows_updated = _hydrate_benchmark_history_rows(rows, warnings=warnings)
         history_rows_available = True
     else:
         if not pruned_by_policy:
@@ -155,20 +151,6 @@ def run_benchmark_gc(
                     "Skipped pruning processed output root without history confirmation: "
                     f"{candidate}"
                 )
-
-    if history_rows_available and rows:
-        history_rows_pruned, rows = _prune_stale_deleted_run_rows(
-            rows,
-            deleted_roots=tuple(run.path for run in confirmed_pruned),
-        )
-        should_write_history_rows = history_rows_updated > 0 or history_rows_pruned > 0
-        should_backup_history = should_write_history_rows or bool(confirmed_pruned)
-        if not dry_run and should_backup_history:
-            if history_backup_path is None:
-                history_backup = _write_backup(csv_path)
-                history_backup_path = str(history_backup)
-        if not dry_run and should_write_history_rows:
-            _write_history_rows(csv_path, rows)
 
     reclaimed_bytes = 0
     for run in confirmed_pruned:
@@ -375,22 +357,6 @@ def _load_history_rows(csv_path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def _write_history_rows(csv_path: Path, rows: list[dict[str, str]]) -> None:
-    with csv_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({field: row.get(field, "") for field in _CSV_FIELDS})
-
-
-def _write_backup(csv_path: Path) -> Path:
-    timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-    backup_name = f"{csv_path.stem}.{timestamp}.gc.bak{csv_path.suffix}"
-    backup_path = csv_path.with_name(backup_name)
-    shutil.copy2(csv_path, backup_path)
-    return backup_path
-
-
 def _normalize_run_path_candidates(path_text: str) -> list[Path]:
     run_dir = Path(path_text).expanduser()
     candidates = [run_dir]
@@ -427,242 +393,12 @@ def _run_root_has_durable_history(rows: list[dict[str, str]], run_root: Path) ->
     for row in rows:
         if str(row.get("run_category") or "") not in _BENCHMARK_CATEGORIES:
             continue
-        if not _row_has_durable_metrics(row):
-            continue
         run_dir_text = str(row.get("run_dir") or "").strip()
         if not run_dir_text:
+            continue
+        if not _row_has_durable_metrics(row):
             continue
         for candidate in _normalize_run_path_candidates(run_dir_text):
             if _is_under_root(candidate, run_root):
                 return True
     return False
-
-
-def _prune_stale_deleted_run_rows(
-    rows: list[dict[str, str]],
-    *,
-    deleted_roots: tuple[Path, ...],
-) -> tuple[int, list[dict[str, str]]]:
-    if not deleted_roots:
-        return (0, rows)
-    kept_rows: list[dict[str, str]] = []
-    pruned_count = 0
-    for row in rows:
-        if str(row.get("run_category") or "") not in _BENCHMARK_CATEGORIES:
-            kept_rows.append(row)
-            continue
-
-        run_dir_text = str(row.get("run_dir") or "").strip()
-        if not run_dir_text:
-            kept_rows.append(row)
-            continue
-
-        references_deleted_root = False
-        for candidate in _normalize_run_path_candidates(run_dir_text):
-            if any(_is_under_root(candidate, root) for root in deleted_roots):
-                references_deleted_root = True
-                break
-        if not references_deleted_root:
-            kept_rows.append(row)
-            continue
-        if _row_has_durable_metrics(row):
-            kept_rows.append(row)
-            continue
-        pruned_count += 1
-    return (pruned_count, kept_rows)
-
-
-def _hydrate_benchmark_history_rows(
-    rows: list[dict[str, str]],
-    *,
-    warnings: list[str],
-) -> int:
-    updates = 0
-    eval_report_cache: dict[str, dict[str, Any] | None] = {}
-
-    for row in rows:
-        if str(row.get("run_category") or "") not in _BENCHMARK_CATEGORIES:
-            continue
-
-        run_dir_text = str(row.get("run_dir") or "").strip()
-        if not run_dir_text:
-            continue
-
-        report_payload = _load_eval_report_for_run_dir(
-            run_dir_text,
-            warnings=warnings,
-            cache=eval_report_cache,
-        )
-        if not isinstance(report_payload, dict):
-            continue
-
-        row_updated = False
-
-        if not str(row.get("per_label_json") or "").strip():
-            serialized = _serialize_per_label_json(report_payload.get("per_label"))
-            if serialized:
-                row["per_label_json"] = serialized
-                row_updated = True
-
-        strict_accuracy = _metric_value(report_payload, "strict_accuracy")
-        if strict_accuracy is not None and not str(row.get("strict_accuracy") or "").strip():
-            row["strict_accuracy"] = _render_float(strict_accuracy)
-            row_updated = True
-
-        macro_f1 = _metric_value(report_payload, "macro_f1_excluding_other")
-        if (
-            macro_f1 is not None
-            and not str(row.get("macro_f1_excluding_other") or "").strip()
-        ):
-            row["macro_f1_excluding_other"] = _render_float(macro_f1)
-            row_updated = True
-
-        boundary = report_payload.get("boundary")
-        if isinstance(boundary, dict):
-            for boundary_key, column_name in (
-                ("correct", "boundary_correct"),
-                ("over", "boundary_over"),
-                ("under", "boundary_under"),
-                ("partial", "boundary_partial"),
-            ):
-                if str(row.get(column_name) or "").strip():
-                    continue
-                boundary_value = _coerce_int(boundary.get(boundary_key))
-                if boundary_value is None:
-                    continue
-                row[column_name] = str(boundary_value)
-                row_updated = True
-
-        if row_updated:
-            updates += 1
-
-    return updates
-
-
-def _load_eval_report_for_run_dir(
-    run_dir_text: str,
-    *,
-    warnings: list[str],
-    cache: dict[str, dict[str, Any] | None],
-) -> dict[str, Any] | None:
-    cache_key = run_dir_text
-    if cache_key in cache:
-        return cache[cache_key]
-
-    run_dir = Path(run_dir_text).expanduser()
-    candidates = [run_dir / "eval_report.json"]
-    if not run_dir.is_absolute():
-        candidates.append(Path.cwd() / run_dir / "eval_report.json")
-
-    for candidate in candidates:
-        try:
-            if not candidate.is_file():
-                continue
-        except OSError:
-            continue
-        try:
-            payload = json.loads(candidate.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            warnings.append(f"Malformed eval report {candidate}: {exc}")
-            continue
-        if isinstance(payload, dict):
-            cache[cache_key] = payload
-            return payload
-    cache[cache_key] = None
-    return None
-
-
-def _serialize_per_label_json(per_label_payload: Any) -> str:
-    if not isinstance(per_label_payload, dict):
-        return ""
-    rows: list[dict[str, Any]] = []
-    for label, metrics in sorted(per_label_payload.items()):
-        if not isinstance(metrics, dict):
-            continue
-        label_name = str(label or "").strip()
-        if not label_name:
-            continue
-        rows.append(
-            {
-                "label": label_name,
-                "precision": _coerce_float(metrics.get("precision")),
-                "recall": _coerce_float(metrics.get("recall")),
-                "gold_total": _coerce_int(metrics.get("gold_total")),
-                "pred_total": _coerce_int(metrics.get("pred_total")),
-            }
-        )
-    if not rows:
-        return ""
-    return json.dumps(rows, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
-
-
-def _metric_value(report: dict[str, Any], metric_name: str) -> float | None:
-    if metric_name == "strict_accuracy":
-        for key in (
-            "strict_accuracy",
-            "overall_line_accuracy",
-            "overall_block_accuracy",
-            "accuracy",
-        ):
-            value = _coerce_float(report.get(key))
-            if value is not None:
-                return value
-        precision = _coerce_float(report.get("precision"))
-        recall = _coerce_float(report.get("recall"))
-        f1 = _coerce_float(report.get("f1"))
-        if (
-            precision is not None
-            and recall is not None
-            and f1 is not None
-            and abs(precision - recall) <= 1e-9
-            and abs(recall - f1) <= 1e-9
-        ):
-            return precision
-        return None
-
-    if metric_name == "macro_f1_excluding_other":
-        explicit = _coerce_float(report.get("macro_f1_excluding_other"))
-        if explicit is not None:
-            return explicit
-        practical_f1 = _coerce_float(report.get("practical_f1"))
-        if practical_f1 is not None:
-            return practical_f1
-        practical_precision = _coerce_float(report.get("practical_precision"))
-        practical_recall = _coerce_float(report.get("practical_recall"))
-        if (
-            practical_precision is not None
-            and practical_recall is not None
-            and (practical_precision + practical_recall) > 0
-        ):
-            return (
-                2 * practical_precision * practical_recall
-                / (practical_precision + practical_recall)
-            )
-        return None
-
-    return _coerce_float(report.get(metric_name))
-
-
-def _coerce_float(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    if parsed != parsed:
-        return None
-    return parsed
-
-
-def _coerce_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _render_float(value: float) -> str:
-    return f"{value:.12g}"
