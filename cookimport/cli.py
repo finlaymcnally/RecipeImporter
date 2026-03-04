@@ -939,8 +939,11 @@ def _load_settings() -> Dict[str, Any]:
         ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: True,
         "epub_extractor": "unstructured",
         "epub_unstructured_html_parser_version": "v1",
-        "epub_unstructured_skip_headers_footers": False,
-        "epub_unstructured_preprocess_mode": "br_split_v1",
+        "epub_unstructured_skip_headers_footers": True,
+        "epub_unstructured_preprocess_mode": "semantic_v1",
+        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+        "line_role_pipeline": "codex-line-role-v1",
+        "atomic_block_splitter": "atomic-v1",
         "benchmark_sequence_matcher": "dmp",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
@@ -1393,14 +1396,14 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 questionary.Choice(
                     (
                         "Unstructured Skip Headers/Footers: "
-                        f"{'Yes' if current_settings.get('epub_unstructured_skip_headers_footers', False) else 'No'}"
+                        f"{'Yes' if current_settings.get('epub_unstructured_skip_headers_footers', True) else 'No'}"
                     ),
                     value="epub_unstructured_skip_headers_footers",
                 ),
                 questionary.Choice(
                     (
                         "Unstructured EPUB Preprocess: "
-                        f"{current_settings.get('epub_unstructured_preprocess_mode', 'br_split_v1')} - none/br_split_v1/semantic_v1"
+                        f"{current_settings.get('epub_unstructured_preprocess_mode', 'semantic_v1')} - none/br_split_v1/semantic_v1"
                     ),
                     value="epub_unstructured_preprocess_mode",
                 ),
@@ -1741,7 +1744,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 default=bool(
                     current_settings.get(
                         "epub_unstructured_skip_headers_footers",
-                        False,
+                        True,
                     )
                 ),
             )
@@ -1755,7 +1758,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 choices=["none", "br_split_v1", "semantic_v1"],
                 default=current_settings.get(
                     "epub_unstructured_preprocess_mode",
-                    "br_split_v1",
+                    "semantic_v1",
                 ),
                 menu_help=(
                     "none keeps raw HTML; br_split_v1 splits BR-separated paragraphs "
@@ -22618,12 +22621,12 @@ def stage(
         help="Unstructured HTML parser version for EPUB extraction: v1 or v2.",
     ),
     epub_unstructured_skip_headers_footers: bool = typer.Option(
-        False,
+        True,
         "--epub-unstructured-skip-headers-footers/--no-epub-unstructured-skip-headers-footers",
         help="Enable Unstructured skip_headers_and_footers for EPUB HTML partitioning.",
     ),
     epub_unstructured_preprocess_mode: str = typer.Option(
-        "br_split_v1",
+        "semantic_v1",
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     ),
@@ -22832,7 +22835,7 @@ def stage(
         help="Soft minimum instruction lines used by scoring/gating.",
     ),
     llm_recipe_pipeline: str = typer.Option(
-        "off",
+        "codex-farm-3pass-v1",
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
@@ -25468,7 +25471,7 @@ def labelstudio_import(
         ),
     ),
     llm_recipe_pipeline: str = typer.Option(
-        "off",
+        "codex-farm-3pass-v1",
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
@@ -26393,11 +26396,11 @@ def labelstudio_benchmark(
     epub_unstructured_skip_headers_footers: Annotated[bool, typer.Option(
         "--epub-unstructured-skip-headers-footers/--no-epub-unstructured-skip-headers-footers",
         help="Enable Unstructured skip_headers_and_footers for EPUB HTML partitioning.",
-    )] = False,
+    )] = True,
     epub_unstructured_preprocess_mode: Annotated[str, typer.Option(
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
-    )] = "br_split_v1",
+    )] = "semantic_v1",
     section_detector_backend: Annotated[str, typer.Option(
         "--section-detector-backend",
         help="Section detector backend: legacy or shared_v1.",
@@ -26569,21 +26572,21 @@ def labelstudio_benchmark(
             "Recipe codex-farm parsing correction pipeline. "
             "Values: off or codex-farm-3pass-v1."
         ),
-    )] = "off",
+    )] = "codex-farm-3pass-v1",
     atomic_block_splitter: Annotated[str, typer.Option(
         "--atomic-block-splitter",
         help=(
             "Optional deterministic mixed-block atomization mode for benchmark "
             "line-role experiments: off or atomic-v1."
         ),
-    )] = "off",
+    )] = "atomic-v1",
     line_role_pipeline: Annotated[str, typer.Option(
         "--line-role-pipeline",
         help=(
             "Optional canonical line-role labeling pipeline for benchmark "
             "experiments: off, deterministic-v1, or codex-line-role-v1."
         ),
-    )] = "off",
+    )] = "codex-line-role-v1",
     line_role_gated: Annotated[bool, typer.Option(
         "--line-role-gated/--no-line-role-gated",
         help=(

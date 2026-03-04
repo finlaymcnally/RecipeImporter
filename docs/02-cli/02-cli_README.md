@@ -460,7 +460,8 @@ After stage history CSV append, the CLI also auto-refreshes dashboard artifacts 
 Stage job worker fallback order is `process -> subprocess-backed workers -> thread -> serial`; if process workers are denied in sandboxed runtimes, stage emits a warning that it switched to subprocess-backed worker concurrency.
 Use `--require-process-workers` to fail fast instead of using any fallback backend.
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
-Stage completion also prints a compact `Quick run summary` block (books, codex-farm on/off state, selected major settings, topline metrics) and writes it to `<run_dir>/run_summary.md` and `<run_dir>/run_summary.json`.
+Stage completion also prints a compact `Quick run summary` block (books, codex-farm on/off state, selected major settings, topline metrics) and always writes `<run_dir>/run_summary.json`.
+When `--write-markdown` is enabled (default), stage also writes `<run_dir>/run_summary.md`; `--no-write-markdown` suppresses the markdown summary file.
 
 Arguments:
 

@@ -428,7 +428,7 @@ class RunSettings(BaseModel):
         ),
     )
     epub_unstructured_skip_headers_footers: bool = Field(
-        default=False,
+        default=True,
         json_schema_extra=_ui_meta(
             group="Extraction",
             label="Unstructured Skip Headers/Footers",
@@ -437,7 +437,7 @@ class RunSettings(BaseModel):
         ),
     )
     epub_unstructured_preprocess_mode: UnstructuredPreprocessMode = Field(
-        default=UnstructuredPreprocessMode.br_split_v1,
+        default=UnstructuredPreprocessMode.semantic_v1,
         json_schema_extra=_ui_meta(
             group="Extraction",
             label="Unstructured EPUB Preprocess",
@@ -919,7 +919,7 @@ class RunSettings(BaseModel):
         ),
     )
     llm_recipe_pipeline: LlmRecipePipeline = Field(
-        default=LlmRecipePipeline.off,
+        default=LlmRecipePipeline.codex_farm_3pass_v1,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Recipe LLM Pipeline",
@@ -930,7 +930,7 @@ class RunSettings(BaseModel):
         ),
     )
     atomic_block_splitter: AtomicBlockSplitter = Field(
-        default=AtomicBlockSplitter.off,
+        default=AtomicBlockSplitter.atomic_v1,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Atomic Block Splitter",
@@ -942,7 +942,7 @@ class RunSettings(BaseModel):
         ),
     )
     line_role_pipeline: LineRolePipeline = Field(
-        default=LineRolePipeline.off,
+        default=LineRolePipeline.codex_line_role_v1,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Line Role Pipeline",
@@ -1470,10 +1470,10 @@ def build_run_settings(
     epub_unstructured_html_parser_version: (
         str | UnstructuredHtmlParserVersion
     ) = UnstructuredHtmlParserVersion.v1,
-    epub_unstructured_skip_headers_footers: bool = False,
+    epub_unstructured_skip_headers_footers: bool = True,
     epub_unstructured_preprocess_mode: (
         str | UnstructuredPreprocessMode
-    ) = UnstructuredPreprocessMode.br_split_v1,
+    ) = UnstructuredPreprocessMode.semantic_v1,
     ocr_device: str | OcrDevice,
     pdf_ocr_policy: str | PdfOcrPolicy = PdfOcrPolicy.auto,
     ocr_batch_size: int,
@@ -1539,9 +1539,9 @@ def build_run_settings(
     recipe_score_bronze_min: float = 0.35,
     recipe_score_min_ingredient_lines: int = 1,
     recipe_score_min_instruction_lines: int = 1,
-    llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
-    atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
-    line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
+    llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.codex_farm_3pass_v1,
+    atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.atomic_v1,
+    line_role_pipeline: str | LineRolePipeline = LineRolePipeline.codex_line_role_v1,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,

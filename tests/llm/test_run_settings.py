@@ -19,8 +19,8 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert (
         settings.to_run_config_dict()["epub_unstructured_html_parser_version"] == "v1"
     )
-    assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is False
-    assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "br_split_v1"
+    assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is True
+    assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "semantic_v1"
     assert settings.to_run_config_dict()["table_extraction"] == "off"
     assert settings.to_run_config_dict()["section_detector_backend"] == "legacy"
     assert settings.to_run_config_dict()["multi_recipe_splitter"] == "legacy"
@@ -52,9 +52,9 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["p6_emit_metadata_debug"] is False
     assert settings.to_run_config_dict()["pdf_ocr_policy"] == "auto"
     assert settings.to_run_config_dict()["pdf_column_gap_ratio"] == 0.12
-    assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "off"
-    assert settings.to_run_config_dict()["atomic_block_splitter"] == "off"
-    assert settings.to_run_config_dict()["line_role_pipeline"] == "off"
+    assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert settings.to_run_config_dict()["atomic_block_splitter"] == "atomic-v1"
+    assert settings.to_run_config_dict()["line_role_pipeline"] == "codex-line-role-v1"
     assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
     assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
     assert settings.to_run_config_dict()["codex_farm_recipe_mode"] == "extract"

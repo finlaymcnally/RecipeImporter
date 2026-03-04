@@ -96,7 +96,7 @@ Per workbook (slugified file stem):
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 - `run_summary.json` at run root (machine-readable per-run digest: books, major settings, codex-farm mode, topline metrics)
-- `run_summary.md` at run root (human-readable quick digest for folder-level inspection)
+- `run_summary.md` at run root (human-readable quick digest; written only when `stage --write-markdown` is enabled)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)
 
 Report contract note:
@@ -446,7 +446,7 @@ Anti-loop notes:
 This batch consolidates staging run-summary behavior discovered during benchmark/stage operability work.
 
 Key staging contracts to keep:
-- Stage runs emit both `run_summary.json` and human-readable `run_summary.md` at the run root for quick triage.
+- Stage runs always emit `run_summary.json`; human-readable `run_summary.md` is emitted only when markdown sidecars are enabled.
 - The summary intentionally reports high-signal identity/settings/count fields first so humans and agents can inspect run health without deep artifact drilling.
 - Keep summary writing best-effort and deterministic; it is now part of fast operator feedback loops.
 
