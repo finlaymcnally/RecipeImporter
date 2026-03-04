@@ -217,7 +217,14 @@ def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(cli.ALL_METHOD_CODEX_FARM_UNLOCK_ENV, "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+        },
+        warn_context="test",
+    )
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
         source_file=Path("book.epub"),
@@ -3832,129 +3839,3 @@ def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_sour
         / "all-method-benchmark"
     )
     assert captured["dashboard_output_root"] == processed_output_root
-
-
-def test_interactive_benchmark_all_method_mode_routes_to_runner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    menu_answers = iter(["labelstudio_benchmark", "all_method", "exit"])
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(cli, "_load_settings", lambda: {})
-    chosen_settings = cli.RunSettings.from_dict(
-        {
-            "epub_extractor": "beautifulsoup",
-            "instruction_step_segmentation_policy": "off",
-        },
-        warn_context="test all-method chooser",
-    )
-    monkeypatch.setattr(
-        cli,
-        "choose_run_settings",
-        lambda **_kwargs: chosen_settings,
-    )
-    monkeypatch.setattr(
-        cli,
-        "save_last_run_settings",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("All-method mode should not overwrite last benchmark settings.")
-        ),
-    )
-    monkeypatch.setattr(
-        cli,
-        "_resolve_interactive_labelstudio_settings",
-        lambda _settings: (_ for _ in ()).throw(
-            AssertionError("All-method mode should not resolve Label Studio credentials.")
-        ),
-    )
-
-    captured: dict[str, object] = {}
-
-    def fake_interactive_all_method_benchmark(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(
-        cli,
-        "_interactive_all_method_benchmark",
-        fake_interactive_all_method_benchmark,
-    )
-
-    with pytest.raises(cli.typer.Exit):
-        cli._interactive_mode()
-
-    assert isinstance(captured.get("selected_benchmark_settings"), cli.RunSettings)
-    assert (
-        captured["selected_benchmark_settings"].to_run_config_dict()
-        == chosen_settings.to_run_config_dict()
-    )
-    assert captured["processed_output_root"] == cli.DEFAULT_INTERACTIVE_OUTPUT
-
-
-def test_interactive_benchmark_all_method_mode_uses_scheduler_limits_from_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    menu_answers = iter(["labelstudio_benchmark", "all_method", "exit"])
-    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
-    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(
-        cli,
-        "_load_settings",
-        lambda: {
-            cli.ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: "4",
-            cli.ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: "6",
-            cli.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY: 3,
-            cli.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY: "5",
-            cli.ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY: "120",
-            cli.ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY: "2",
-            cli.ALL_METHOD_WING_BACKLOG_SETTING_KEY: "5",
-            cli.ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: "false",
-        },
-    )
-    monkeypatch.setattr(
-        cli,
-        "choose_run_settings",
-        lambda **_kwargs: cli.RunSettings.from_dict(
-            {
-                "epub_extractor": "beautifulsoup",
-                "instruction_step_segmentation_policy": "off",
-            },
-            warn_context="test all-method chooser",
-        ),
-    )
-    monkeypatch.setattr(
-        cli,
-        "save_last_run_settings",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("All-method mode should not overwrite last benchmark settings.")
-        ),
-    )
-    monkeypatch.setattr(
-        cli,
-        "_resolve_interactive_labelstudio_settings",
-        lambda _settings: (_ for _ in ()).throw(
-            AssertionError("All-method mode should not resolve Label Studio credentials.")
-        ),
-    )
-
-    captured: dict[str, object] = {}
-
-    def fake_interactive_all_method_benchmark(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(
-        cli,
-        "_interactive_all_method_benchmark",
-        fake_interactive_all_method_benchmark,
-    )
-
-    with pytest.raises(cli.typer.Exit):
-        cli._interactive_mode()
-
-    assert captured["max_parallel_sources"] == 4
-    assert captured["max_inflight_pipelines"] == 6
-    assert captured["max_concurrent_split_phases"] == 3
-    assert captured["max_eval_tail_pipelines"] == 5
-    assert captured["config_timeout_seconds"] == 120
-    assert captured["retry_failed_configs"] == 2
-    assert captured["wing_backlog_target"] == 5
-    assert captured["smart_scheduler"] is False

@@ -51,7 +51,6 @@ cookimport/bench/speed_runner.py
 cookimport/bench/speed_suite.py
 cookimport/cli_ui/__init__.py
 cookimport/cli_ui/run_settings_flow.py
-cookimport/cli_ui/toggle_editor.py
 cookimport/config/__init__.py
 cookimport/config/last_run_store.py
 cookimport/config/run_settings.py

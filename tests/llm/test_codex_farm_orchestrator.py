@@ -169,6 +169,7 @@ def _build_run_settings(
     *,
     failure_mode: str = "fail",
     pass3_skip_pass2_ok: bool = True,
+    pass1_pattern_hints_enabled: bool = False,
 ) -> RunSettings:
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -180,6 +181,7 @@ def _build_run_settings(
             "codex_farm_context_blocks": 3,
             "codex_farm_failure_mode": failure_mode,
             "codex_farm_pass3_skip_pass2_ok": pass3_skip_pass2_ok,
+            "codex_farm_pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
         }
     )
 
@@ -265,16 +267,14 @@ def test_orchestrator_runs_pass3_for_low_risk_pass2_ok_when_policy_disabled_in_r
     assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is False
 
 
-def test_orchestrator_env_override_can_enable_pass3_skip_when_run_settings_disable_it(
+def test_orchestrator_skips_pass3_for_low_risk_pass2_ok_when_policy_enabled_in_run_settings(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK", "1")
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
-    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=False)
+    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=True)
     result = _build_conversion_result(source)
     result.raw_artifacts[0].content["blocks"][3]["text"] = (
         "Toast slowly until deeply golden and crisp on both sides."
@@ -1033,13 +1033,10 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
     assert apply_result.llm_report["pipelines"] == manifest["pipelines"]
 
 
-def test_pass1_pattern_hints_default_off_and_env_gated(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_pass1_pattern_hints_follow_run_settings(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
-    settings = _build_run_settings(tmp_path / "pack")
+    settings_off = _build_run_settings(tmp_path / "pack-off")
 
     result_off = _build_conversion_result(source)
     result_off.recipes[0].provenance["location"]["pattern_flags"] = [
@@ -1055,7 +1052,7 @@ def test_pass1_pattern_hints_default_off_and_env_gated(
     ]
     apply_off = run_codex_farm_recipe_pipeline(
         conversion_result=result_off,
-        run_settings=settings,
+        run_settings=settings_off,
         run_root=tmp_path / "run-off",
         workbook_slug="book",
         runner=FakeCodexFarmRunner(),
@@ -1068,7 +1065,10 @@ def test_pass1_pattern_hints_default_off_and_env_gated(
     assert pass1_payload_off["pattern_hints"] == []
     assert apply_off.llm_report["pass1_pattern_hints_enabled"] is False
 
-    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS", "1")
+    settings_on = _build_run_settings(
+        tmp_path / "pack-on",
+        pass1_pattern_hints_enabled=True,
+    )
     result_on = _build_conversion_result(source)
     result_on.recipes[0].provenance["location"]["pattern_flags"] = [
         "toc_like_cluster",
@@ -1083,7 +1083,7 @@ def test_pass1_pattern_hints_default_off_and_env_gated(
     ]
     apply_on = run_codex_farm_recipe_pipeline(
         conversion_result=result_on,
-        run_settings=settings,
+        run_settings=settings_on,
         run_root=tmp_path / "run-on",
         workbook_slug="book",
         runner=FakeCodexFarmRunner(),
@@ -1130,7 +1130,6 @@ def test_orchestrator_recipe_level_failures_fallback_without_crashing(tmp_path: 
     assert apply_result.final_overrides_by_recipe_id == {}
     assert len(apply_result.updated_conversion_result.recipes) == 1
     assert apply_result.llm_report["counts"]["pass2_errors"] == 1
-
 
 
 

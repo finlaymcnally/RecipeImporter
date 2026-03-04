@@ -78,8 +78,8 @@ Report/model plumbing:
 
 - `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1` without env-gate coercion.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
-- Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla.
-- Interactive all-method setup asks `Include Codex Farm permutations?` (default `Yes`); single/single-profile modes rely only on chosen run settings.
+- Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
+- Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
 - Global defaults now use the top-tier profile (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`).
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
@@ -91,7 +91,7 @@ Report/model plumbing:
 
 - Pass1 recipe chunking input contract supports optional `pattern_hints` (`cookimport/llm/codex_farm_contracts.py`).
 - Prompt contract marks `pattern_hints` as advisory only and never a replacement for block evidence (`llm_pipelines/prompts/recipe.chunking.v1.prompt.md`).
-- Runtime wiring is default-off and explicitly gated by env var `COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS` in `cookimport/llm/codex_farm_orchestrator.py`.
+- Runtime wiring is controlled by run settings via `codex_farm_pass1_pattern_hints_enabled` (default `false`) in `cookimport/llm/codex_farm_orchestrator.py`.
 - This handoff is metadata-only; it does not enable AI parsing/cleaning in EPUB/PDF ingestion.
 
 ## Pass2 Transport Audit + Evidence Normalization
@@ -128,11 +128,9 @@ Report/model plumbing:
 - Pass2-ok deterministic promotion now defaults to enabled and skips pass3 only
   when the utility signal is low-risk
   (`pass3_routing_reason=pass2_ok_high_confidence_deterministic`).
-- Override control is settings-first with optional env override:
+- Override control is run-settings only:
   - `run_settings.codex_farm_pass3_skip_pass2_ok` (default `true`) controls pass2-ok
-    deterministic skip behavior,
-  - `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK` can still force behavior for a runtime
-    when explicitly set (`0|false|no|off` disables skip; truthy enables skip).
+    deterministic skip behavior.
 - Manifest counts now include pass2-ok routing utility counters:
   `pass3_pass2_ok_utility_rows`, `pass3_pass2_ok_skip_candidates`,
   `pass3_pass2_ok_deterministic_skips`, `pass3_pass2_ok_llm_calls`.
@@ -169,9 +167,8 @@ Report/model plumbing:
 ### 2026-02-28_03.37.51 unlock interactive llm recipe pipeline option
 
 - Source task: `docs/tasks/2026-02-28_03.37.51-unlock-interactive-llm-recipe-pipeline-option.md`
-- `run_settings_ui_specs()` now always includes `llm_recipe_pipeline=off|codex-farm-3pass-v1`.
-- `Change run settings...` no longer hides codex-farm based on env state.
-- This removed a repeated UX mismatch where runtime accepted codex values but editor choices hid them.
+- Historical note: this was tied to the retired full-screen run-settings editor path.
+- Current interactive control point is the two-profile top-tier chooser (`CodexFarm`/`Vanilla`).
 
 ### 2026-02-28_04.05.00 codex-farm always-on in interactive and normalizers
 
@@ -179,7 +176,7 @@ Report/model plumbing:
 - Recipe codex-farm normalization is ungated in `RunSettings`, CLI, and Label Studio ingest paths.
 - Interactive defaults now bias to codex-enabled runs:
   - per-run chooser prompt default `Yes`,
-  - all-method permutations prompt default `Yes`.
+  - Vanilla remains one explicit prompt choice away.
 - Bench/stage behavior remains explicit opt-in at command/profile level (`--include-codex-farm` and run-settings choices); no implicit global always-on execution.
 
 ### 2026-02-28_09.26.29 codex-farm connection contract alignment
@@ -368,10 +365,10 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Codex behavior can drift when only one surface is edited.
 - Four runtime surfaces must stay aligned:
   1. `RunSettings.from_dict(...)` coercion/normalization.
-  2. `run_settings_ui_specs()` interactive enum choices.
+  2. `cookimport/cli_ui/run_settings_flow.py` interactive top-tier chooser.
   3. `cookimport/cli.py:_normalize_llm_recipe_pipeline(...)`.
   4. `cookimport/cli.py:_resolve_all_method_codex_choice(...)`.
-- Prompt defaults (chooser/all-method yes/no) are independent from those normalization surfaces.
+- Prompt defaults are independent from those normalization surfaces.
 
 ### 2026-02-28_04.11.09 docs-task merge codex gating drift
 - Source: `docs/understandings/2026-02-28_04.11.09-docs-task-merge-codex-gating-drift.md`
@@ -633,7 +630,7 @@ Current LLM contracts added/confirmed:
   - `pass3_execution_mode`
   - `pass3_routing_reason`
 - Soft-degraded low-risk rows can deterministically promote without pass3 LLM calls while preserving existing pass status enums.
-- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts; pass2-ok skip is default-on via run settings (`codex_farm_pass3_skip_pass2_ok=true`) with optional env override (`COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`).
+- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts; pass2-ok skip is default-on via run settings (`codex_farm_pass3_skip_pass2_ok=true`).
 
 Validation/evidence highlights preserved from merged tasks:
 - `Pro3` merged verification transcript includes replayed SeaAndSmoke transport cases (`c0,c6,c7,c8,c9,c12`) with exact-match transport and zero outside-span fallback prompt joins.
@@ -657,9 +654,7 @@ Merged source task file:
 
 Current LLM-side contracts to keep:
 - ProFeedback follow-up scope was benchmark/evaluation only (no default-ingestion enablement changes).
-- Pass3 ROI controls now include pass2-ok utility instrumentation plus deterministic skip policy guarded by:
-  - `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`
-  - task evidence showed substantial pass3 load reduction when enabled, with no quality regression in the cited SeaAndSmoke reruns.
+- Pass3 ROI controls now include pass2-ok utility instrumentation plus deterministic skip policy via run settings (`codex_farm_pass3_skip_pass2_ok`); task evidence showed substantial pass3 load reduction when enabled, with no quality regression in cited SeaAndSmoke reruns.
 - Routing observability should remain additive and explicit in manifests (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason` plus pass2-ok utility fields).
 - Candidate-label surfacing is now expected end-to-end:
   - line-role predictions include candidate-label payloads,
@@ -685,7 +680,7 @@ Merged source notes (timestamp order):
 - `2026-03-03_23.08.45-saltfat-codex-single-offline-collapse.md`: SaltFat cutdown codex single-offline collapse: atomic split fragmentation + strict chunk parse fallback + outside-span title/howto rule overfire.
 - `2026-03-03_23.48.18-feedback-ogplan-code-audit-gaps.md`: Audit result: feedback OG plan is mostly implemented, but deterministic line-role refinements and Milestone-5 validation remain partially incomplete.
 - `2026-03-03_23.50.30-codex-farm-no-last-agent-message-recovery-seam.md`: Codex-farm runner seam for recovering from no-last-agent-message chunk failures without aborting full pass runs.
-- `2026-03-03_23.53.16-feedback-og-gap-closure-routing-and-line-role.md`: Gap-closure implementation note: canonical line-role sanitizer adds TIME_LINE demotion + neighbor ingredient rescue; pass2-ok selective pass3 skip is now default-on with env opt-out.
+- `2026-03-03_23.53.16-feedback-og-gap-closure-routing-and-line-role.md`: Gap-closure implementation note: canonical line-role sanitizer adds TIME_LINE demotion + neighbor ingredient rescue; pass2-ok selective pass3 skip is now default-on.
 - `2026-03-03_23.55.30-codex-no-last-agent-message-content-filter-root-cause.md`: Root cause of codex-farm `no last agent message` on DinnerFor2 pass2: provider `content_filter` stream failures prevent final assistant message emission.
 - `2026-03-03_23.58.37-single-offline-codexfarm-full-text-block-guard.md`: Single-offline codexfarm variant can fail immediately when cached conversion payload has `full_text` lines/text but no `blocks` list.
 - `2026-03-04_00.01.53-codexfarm-content-filter-terminal-classification.md`: [missing frontmatter summary]
@@ -702,11 +697,16 @@ Current LLM contracts reinforced by this batch:
 
 Merged source note:
 - `2026-03-04_01.06.17-top-tier-profile-vs-pass3-skip-env-boundary.md`
+- `2026-03-04_01.31.25-top-tier-pass3-skip-profile-baseline-boundary.md`
 
 Current LLM contracts reinforced:
 - Interactive top-tier profile selection controls pipeline/splitter settings (`llm_recipe_pipeline`, `line_role_pipeline`, `atomic_block_splitter`) through `RunSettings`.
+- Built-in codex and vanilla top-tier baselines explicitly pin `codex_farm_pass1_pattern_hints_enabled=false`.
+- Built-in codex and vanilla top-tier baselines explicitly pin `codex_farm_pass3_skip_pass2_ok=true`.
+- Codex winner-run harmonization intentionally does not overwrite winner-provided `codex_farm_pass1_pattern_hints_enabled`.
+- Codex winner-run harmonization intentionally does not overwrite winner-provided `codex_farm_pass3_skip_pass2_ok`.
 - Pass3 pass2-ok skip policy is a persisted run-settings field (`codex_farm_pass3_skip_pass2_ok`) and is now profile/QualitySuite-tunable.
-- Runtime env override remains available through `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`.
+- Pass1 pattern hints policy is a persisted run-settings field (`codex_farm_pass1_pattern_hints_enabled`) and is profile/QualitySuite-tunable.
 
 Anti-loop reminder:
-- If pass3 volume changes unexpectedly while profiles stay fixed, inspect both run settings and env override state before editing profile patches.
+- If pass3 volume changes unexpectedly while profiles stay fixed, inspect run-settings values before editing profile patches.

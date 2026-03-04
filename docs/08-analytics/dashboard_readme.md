@@ -179,6 +179,7 @@ Notes:
   - `Previous Runs` column filters now support a global `Across columns` mode (`AND` / `OR`) in addition to per-column stack modes.
   - Both `Benchmark Score Trend` Highcharts panels (history section + compare/control clone) use fixed 800px chart/container heights to avoid browser reflow loops that can cause gradual chart height growth.
   - Trend-chart rerenders now destroy/clear prior host chart instances before redraw so repeated filter/state updates do not accumulate host markup or rightward width drift over time.
+  - Trend host renders now pass explicit chart width from measured host width, preventing slow host-level horizontal drift across periodic rerenders.
   - Trend charts now include a `Trend fields` checklist (`Select all` / `Clear`) so you can add/remove any number of numeric benchmark fields. Default selection remains `strict_accuracy` + `macro_f1_excluding_other`.
   - A `Quick Filters` section sits between the trend chart and table:
     - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.

@@ -56,6 +56,7 @@ def test_run_settings_hash_and_summary_are_stable() -> None:
     assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
     assert settings.to_run_config_dict()["codex_farm_recipe_mode"] == "extract"
     assert settings.to_run_config_dict()["codex_farm_cmd"] == "codex-farm"
+    assert settings.to_run_config_dict()["codex_farm_pass1_pattern_hints_enabled"] is False
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass1"] == "recipe.chunking.v1"
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass2"] == "recipe.schemaorg.v1"
     assert settings.to_run_config_dict()["codex_farm_pipeline_pass3"] == "recipe.final.v1"

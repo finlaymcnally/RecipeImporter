@@ -246,6 +246,7 @@ Main-process merge status callback contract:
 
 - Status text is phase-counted as `merge phase X/Y: <label>`.
 - Phase totals are deterministic for a run and include optional chunk-write phase when chunk sources exist.
+- Stage live status panels now use shared slot gating (`COOKIMPORT_LIVE_STATUS_SLOTS`, default `1`); when no live slot is available, stage falls back to plain status lines instead of raising a live-display error.
 
 Code pointers:
 

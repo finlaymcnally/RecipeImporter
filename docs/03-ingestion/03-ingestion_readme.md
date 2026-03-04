@@ -680,4 +680,4 @@ Current ingestion-side contract reinforced by this task:
 - Suppressed text is never dropped silently; it remains in `non_recipe_blocks` with traceable pattern metadata.
 - Raw diagnostics artifact is required for debugging drift: `pattern_diagnostics.json`.
 - Warning keys (`pattern_toc_like_cluster_detected`, `pattern_duplicate_title_flow_detected`, `pattern_overlap_duplicate_candidates_resolved`) are part of expected report/debug output.
-- Optional Codex Farm pass1 `pattern_hints` handoff remains metadata-only and default-off (`COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS`); this does not enable AI parsing/cleanup during ingestion.
+- Optional Codex Farm pass1 `pattern_hints` handoff remains metadata-only and default-off (`codex_farm_pass1_pattern_hints_enabled=false`); this does not enable AI parsing/cleanup during ingestion.

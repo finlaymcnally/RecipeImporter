@@ -28,35 +28,13 @@ Interactive file discovery and direct staging intentionally differ:
 - Interactive typed prompts in CLI flows should use `_prompt_text`, `_prompt_confirm`, or `_prompt_password` so `Esc` consistently maps to one-level back/cancel behavior.
 - Questionary `text/password/confirm` prompts expose merged key bindings (`_MergedKeyBindings`) at runtime; `Esc` overrides must be attached via `merge_key_bindings(...)` (not `.add(...)` on `application.key_bindings`).
 - Freeform interactive segment sizing (`segment_blocks`, `segment_overlap`, `segment_focus_blocks`, `target_task_count`) should route through `_prompt_freeform_segment_settings(...)` so `Esc` walks back one field instead of dropping to main menu.
-- Interactive Import and interactive benchmark single-offline mode go through a per-run settings chooser (`global defaults`, `last run settings`, `change run settings`) before execution.
-- Interactive benchmark (`labelstudio_benchmark`) now has a mode submenu:
-  - single offline mode (default first choice): one local evaluate run with `no_upload=True` (no Label Studio credential resolution, no upload),
-  - all-method mode: offline permutation sweep (no Label Studio credential resolution, no upload).
-- Interactive benchmark modes (`single_offline` and `all_method`) should run `labelstudio-benchmark` in `canonical-text` eval mode so one freeform gold export can compare extractor/config permutations without block-index parity.
-- Interactive benchmark asks for mode first; only single-offline mode shows the benchmark run-settings chooser.
-- Interactive all-method benchmark must use global benchmark defaults directly, and should not overwrite `last_run_settings_benchmark` snapshots.
-- Interactive all-method benchmark must ask scope (`Single golden set` vs `All golden sets with matching input files`), print planned run counts before execution, default Codex Farm inclusion prompt to `No`, and require explicit proceed confirmation before running N configs.
-- Interactive all-method benchmark scheduler defaults are bounded (`inflight pipelines=4`, `split-phase slots=4`), and scheduler controls are configurable via `cookimport.json` keys:
-  - `all_method_max_parallel_sources`
-  - `all_method_max_inflight_pipelines`
-  - `all_method_max_split_phase_slots`
-  - `all_method_max_eval_tail_pipelines`
-  - `all_method_wing_backlog_target`
-  - `all_method_smart_scheduler`
-  - `all_method_config_timeout_seconds`
-  - `all_method_retry_failed_configs`
-- Interactive all-method benchmark should print resolved scheduler mode/limits before final confirmation, including source parallelism configured/effective, configured/effective inflight, split slots, wing backlog target, smart tail buffer, timeout, and retry settings.
-- Interactive all-method benchmark should render one persistent spinner dashboard (book queue + overall source/config counters + current task) and suppress per-config `labelstudio-benchmark` completion dumps while the sweep is running.
-- Interactive all-method spinner/dashboard task output should include a scheduler snapshot line: `scheduler heavy X/Y | wing Z | eval E | active A | pending P`.
-- All-method spinner `current config` should track active config slots in parallel mode; when multiple configs are active, render a range (`current configs A-B/N`) instead of a stale last-submitted slug.
-- For multi-active `current configs` states, render per-config worker detail lines (`config NN: <phase> | <slug>`) so active slot activity remains visible.
-- All-matched all-method spinner queue should support multiple simultaneously running sources (`[>]` rows), with summary line `active sources: N`.
-- All-method dashboard snapshots (`overall source ... | config ...` + `queue:`) are already fully-rendered spinner payloads; upstream wrappers must not nest them into `task:` text. When an inbound snapshot is stale/partial, wrappers should rerender from shared dashboard state before emitting.
-- Split-slot acquire/wait/release telemetry in all-method worker configs should stay callback-driven; subprocess configs must not emit raw stdout `print(...)` slot lines while the outer spinner is active.
-- For multi-line spinner payloads (all-method dashboard snapshots), ETA/elapsed suffix decoration belongs on the first summary line, not the trailing `task:` line.
-- All-method scheduler phase telemetry should be persisted per config under `<source_root>/.scheduler_events/config_###.jsonl` so parent scheduling and post-run metrics can infer `prep`, `split_wait`, `split_active`, and `post` occupancy.
-- All-matched all-method source hint order is: run `manifest.json` `source_file` -> first non-empty `freeform_span_labels.jsonl` row `source_file` -> first non-empty `freeform_segment_manifest.jsonl` row `source_file`.
-- All-matched all-method runs must persist one combined summary report at `<benchmark_eval_output>/all-method-benchmark/all_method_benchmark_multi_source_report.{json,md}` in addition to per-source reports.
+- Interactive Import and interactive benchmark modes go through one shared two-profile chooser (`CodexFarm automatic top-tier` / `Vanilla automatic top-tier`) before execution.
+- Interactive benchmark (`labelstudio_benchmark`) has three offline modes only:
+  - `single_offline`
+  - `single_offline_selected_matched`
+  - `single_offline_all_matched`
+- Interactive benchmark modes always run local canonical-text evaluation (`no_upload=True`), without Label Studio credential resolution/upload.
+- All-method benchmarking remains available only as a non-interactive CLI path; interactive menu flow should not route to `_interactive_all_method_benchmark`.
 - Benchmark eval report contracts should use explicit metrics: strict accuracy (`strict_accuracy`, plus `overall_block_accuracy`/`overall_line_accuracy`) and `macro_f1_excluding_other`. Analytics/history consumers may derive legacy strict/practical aliases when reading older artifacts.
 - Benchmark upload should pass `auto_project_name_on_scope_mismatch=True` into `run_labelstudio_import(...)` so auto-named benchmark projects recover by suffixing project titles instead of failing on prior freeform/canonical scope collisions.
 - Typer command functions that are called directly from Python (interactive helpers/tests) must keep runtime defaults as plain Python values, typically via `Annotated[..., typer.Option(...)] = <default>`; avoid relying on `param: T = typer.Option(...)` defaults in those call paths.

@@ -54,7 +54,7 @@ Legend:
   |
   +--> [F] Label Studio export ------------> run_labelstudio_export(...) -> [C]
   |
-  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single offline run OR all-method offline sweep) -> [C]
+  +--> [H] Benchmark vs freeform gold -----> mode picker ------------------> (single offline OR selected/all matched single-profile) -> [C]
   |
   +--> [I] Generate dashboard -------------> stats-dashboard -------------> [C]
   |
@@ -110,16 +110,25 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Use Codex Farm recipe pipeline for this run?`
   - default is inferred from global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`),
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can force either profile and bypass the prompt.
+- when codex is selected, chooser then asks:
+  - `Codex Farm model override (blank for pipeline default)`
+  - `Codex Farm reasoning effort override` (`Pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 
 Resolved profile families:
 - `CodexFarm automatic top-tier`:
   - use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
   - otherwise use built-in codex top-tier baseline (`quality-first` EPUB stack + codex recipe/line-role/atomic enabled),
+  - built-in codex fallback baseline pins `codex_farm_pass1_pattern_hints_enabled=false`,
+  - built-in codex fallback baseline pins `codex_farm_pass3_skip_pass2_ok=true`,
   - then harmonize to codex top-tier pipeline knobs (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`).
+  - winner-provided `codex_farm_pass1_pattern_hints_enabled` remains tunable and is not overwritten by codex harmonization.
+  - winner-provided `codex_farm_pass3_skip_pass2_ok` remains tunable and is not overwritten by codex harmonization.
 - `Vanilla automatic top-tier`:
   - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`),
   - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
   - EPUB parsing baseline pinned to `unstructured + v1 + br_split_v1 + skip_headers=false`.
+  - vanilla baseline explicitly pins `codex_farm_pass1_pattern_hints_enabled=false` (inert while `llm_recipe_pipeline=off`).
+  - vanilla baseline explicitly pins `codex_farm_pass3_skip_pass2_ok=true` (inert while `llm_recipe_pipeline=off`).
 
 Config keys and defaults:
 
@@ -196,8 +205,10 @@ Config keys and defaults:
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
 - `codex_farm_pipeline_pass1` (default `recipe.chunking.v1`)
+- `codex_farm_pass1_pattern_hints_enabled` (default `false`)
 - `codex_farm_pipeline_pass2` (default `recipe.schemaorg.v1`)
 - `codex_farm_pipeline_pass3` (default `recipe.final.v1`)
+- `codex_farm_pass3_skip_pass2_ok` (default `true`)
 - `codex_farm_pipeline_pass4_knowledge` (default `recipe.knowledge.v1`)
 - `codex_farm_pipeline_pass5_tags` (default `recipe.tags.v1`)
 - `codex_farm_context_blocks` (default `30`)
@@ -240,8 +251,7 @@ What each setting affects:
 - `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`.
 
 Developer note:
-- Per-run toggle definitions live in `cookimport/config/run_settings.py`. Add new fields there with `ui_*` metadata so the interactive editor picks them up automatically.
-- The full-screen run-settings editor auto-scrolls to keep the selected row visible when the settings list exceeds terminal height.
+- Per-run setting definitions live in `cookimport/config/run_settings.py`. Interactive top-tier chooser logic lives in `cookimport/cli_ui/run_settings_flow.py`; keep import and benchmark aligned there.
 - `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
 - `stats_dashboard(...)` is also called directly from interactive helpers; it must coerce Typer `OptionInfo` defaults (`--serve/--host/--port` and related flags) before branching into serve mode.
 - Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge/tags pipeline toggles, pass4/pass5 pipeline IDs, and related context/catalog settings), not a partial subset.
@@ -263,10 +273,9 @@ Developer note:
    - `prompt_request_response_log.txt`
    - `full_prompt_log.jsonl`
    - `prompt_type_samples_from_full_prompt_log.md`
-5. Saves selected settings to `history_root_for_output(output_dir)/last_run_settings_import.json` after a successful run.
-6. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
-7. Prints `Outputs written to: <run_folder>`.
-8. Returns to the main menu after successful import.
+5. Uses `limit` only if `C3IMP_LIMIT` was set before entering interactive mode.
+6. Prints `Outputs written to: <run_folder>`.
+7. Returns to the main menu after successful import.
 
 ### [E] Label Studio Import Flow
 
@@ -390,6 +399,7 @@ Interactive benchmark now has a mode submenu before execution:
    - when 2+ books are selected, runs up to three books concurrently (`parallel books=3`),
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
    - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
+   - concurrent single-profile runs request up to two live spinner panels (`COOKIMPORT_LIVE_STATUS_SLOTS=2` override for this path); extra concurrent runs fall back to plain status lines instead of failing with Rich live-display conflicts,
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codexfarm`),
    - writes a dedicated 3-file upload folder per target eval root:
@@ -402,8 +412,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
      - group mode targets ~40MB and automatically lowers per-book sampled detail as selected-book count increases.
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
-4. Saves selected settings to `history_root_for_output(output_dir)/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile matched-sets runs.
-5. Returns to the main menu on completion.
+4. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
 
@@ -847,8 +856,7 @@ Behavior note:
   - `--predictions-in` skips generation and evaluates from a prior record JSONL.
   - `--predictions-in` and `--predictions-out` are mutually exclusive.
 - Re-scoring an old prediction run without regeneration is still done with `cookimport labelstudio-eval --pred-run ... --gold-spans ...`.
-- Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or `all method`).
-- Interactive all-method mode always uses `canonical-text` eval mode.
+- Interactive mode (`cookimport` -> Benchmark) always runs offline benchmark generation/eval (`single offline` or single-profile matched-set modes).
 - Successful runs persist benchmark timing under `eval_report.json` `timing`, including prediction/evaluation/write/history subphase timings and checkpoints.
 - Benchmark spinner telemetry is also persisted per phase:
   - `<eval_output_dir>/processing_timeseries_prediction.jsonl`
@@ -1243,7 +1251,7 @@ When introducing a new processing option, complete all four surfaces together:
 
 1. Definition + selection:
 - Add it to `RunSettings` in `cookimport/config/run_settings.py` (metadata, canonical builder, summary order when needed).
-- Ensure interactive selector/editor surfaces (`cookimport/cli_ui/run_settings_flow.py`, `cookimport/cli_ui/toggle_editor.py`) expose it.
+- Ensure interactive selector surface (`cookimport/cli_ui/run_settings_flow.py`) exposes it when relevant to top-tier profile resolution.
 - Update `compute_effective_workers(...)` when the option changes split capability or effective parallelism.
 
 2. Runtime propagation:
@@ -1285,14 +1293,13 @@ Important implementation constraints:
 
 What shipped and where to look:
 - Canonical settings model and summary/hash source of truth: `cookimport/config/run_settings.py`.
-- Interactive run-settings mode picker (global defaults / last run / edit): `cookimport/cli_ui/run_settings_flow.py`.
-- Full-screen toggle-table editor: `cookimport/cli_ui/toggle_editor.py`.
-- Last-run snapshots per operation (`import` vs `benchmark`): `cookimport/config/last_run_store.py`.
+- Interactive two-profile top-tier chooser: `cookimport/cli_ui/run_settings_flow.py`.
+- Quality-suite winner snapshot persistence: `cookimport/config/last_run_store.py`.
 
 Durable behavior:
-- Interactive Import and interactive Benchmark upload always route through a run-settings choice before launching conversion.
+- Interactive Import and interactive Benchmark flows always route through a top-tier profile choice before launching conversion.
 - Every run-producing path persists structured `runConfig` plus `runConfigHash` and `runConfigSummary` into report/history surfaces.
-- Eval-only benchmark mode intentionally bypasses run-settings persistence because no extraction pipeline runs.
+- Eval-only benchmark mode intentionally bypasses run-settings selection because no extraction pipeline runs.
 
 Anti-loop notes:
 - If a new knob appears in the editor but not in report/CSV/dashboard metadata, wiring is incomplete.
@@ -1312,15 +1319,8 @@ Operational examples to preserve:
 
 ### 2026-02-22 benchmark run-settings editor scroll fix (`docs/tasks/2026-02-22_19.12.59 - benchmark-run-settings-editor-scroll.md`)
 
-Durable editor behavior:
-- The full-screen toggle editor must expose a cursor position tied to the selected row so prompt_toolkit can auto-scroll.
-- Focus should stay on the body window while navigating rows.
-- Existing keybindings (`Up/Down/Left/Right`, save/cancel) are preserved.
-
-Regression anchors:
-- `tests/test_toggle_editor.py`
-- `tests/test_run_settings.py`
-- `tests/test_c3imp_interactive_menu.py`
+Historical note:
+- The old full-screen toggle editor path was retired when interactive run selection simplified to the two automatic top-tier profiles.
 
 ## Merged Understandings Batch (2026-02-23 cleanup)
 
@@ -1337,11 +1337,8 @@ Durable rules:
 
 ### Run-settings editor viewport contract
 
-Merged source:
-- `docs/understandings/2026-02-22_19.12.59-run-settings-editor-scroll-contract.md`
-
-Durable rules:
-- `toggle_editor` body control must expose selected-row cursor mapping (`get_cursor_position`) and keep body focus so prompt_toolkit viewport scrolling follows row movement.
+Historical note:
+- The viewport contract applied to the retired `toggle_editor` path and is kept only for context on earlier interactive UX iterations.
 
 ### Spinner ETA and worker telemetry contract
 
@@ -1425,18 +1422,17 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 
 ### 2026-02-28_02.25.24 interactive run-settings preferred option wiring
 - Source: `docs/understandings/2026-02-28_02.25.24-interactive-run-settings-preferred-option-wiring.md`
-- `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` is the single interactive run-settings chooser for import and benchmark flows.
-- Interactive all-method benchmark now uses that same chooser path (it no longer bypasses directly to global defaults).
-- Preferred profile persistence stays isolated in `.history/preferred_run_settings.json` (for default repo-local output) so non-`RunSettings` keys from `cookimport.json` do not leak into chooser payloads.
-- Last-run snapshots remain per-flow (`import` and `benchmark`) via `cookimport/config/last_run_store.py`.
+- `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` is the single interactive top-tier chooser for import and benchmark flows.
+- Interactive chooser surface is now exactly two families: `CodexFarm automatic top-tier` and `Vanilla automatic top-tier`.
+- Quality-suite winner persistence remains in `.history/qualitysuite_winner_run_settings.json` for codex profile resolution.
 
 ## 2026-02-28 migrated understandings batch (03:37-03:57)
 
 The items below were merged from `docs/understandings` in timestamp order and folded into CLI current-state guidance.
 
 ### 2026-02-28_03.37.41 interactive run-settings codex option gating
-- Interactive `Change run settings` enum choices come from `run_settings_ui_specs()`.
-- `llm_recipe_pipeline=codex-farm-3pass-v1` appears in the editor without env gating (alongside `off`).
+- Interactive codex behavior is controlled by the two-profile top-tier chooser.
+- `CodexFarm automatic top-tier` always resolves to codex-enabled recipe/line-role/atomic settings without env gating.
 
 ### 2026-02-28_03.44.53 single-profile benchmark codex prompt expectations
 - Single-profile benchmark flow does not show the all-method-only `Include Codex Farm permutations?` prompt.
@@ -1444,11 +1440,11 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 
 ### 2026-02-28_03.52.23 shared chooser is the common codex hook
 - Both interactive import and interactive benchmark run through `choose_run_settings(...)`.
-- Shared codex prompts belong there for consistent behavior across import, single benchmark, single-profile all-matched benchmark, and all-method setup.
+- Shared codex prompts belong there for consistent behavior across import and interactive benchmark single-profile modes.
 
 ### 2026-02-28_03.57.17 codex toggle must include model/reasoning follow-up
-- A yes/no codex toggle alone is incomplete for operator workflow.
-- When codex is effective for this run, chooser should also prompt for optional model override and reasoning effort override in the same flow.
+- Current chooser intentionally keeps this compact: one codex/vanilla profile selection without extra model/effort prompts.
+- Model/effort overrides stay available through settings/CLI flags instead of interactive chooser follow-up.
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 
@@ -1676,7 +1672,7 @@ Merged source notes (timestamp order):
 
 Current CLI contracts reinforced by this batch:
 - Interactive run-settings resolution is deterministic and top-tier-first; avoid reintroducing broad profile pickers that can silently reuse stale low-quality profiles.
-- Codex-vs-vanilla intent is captured by a single `Use Codex Farm recipe pipeline for this run?` prompt (with env override support), not a separate profile-family chooser.
+- Codex-vs-vanilla intent is captured by the top-level `Use Codex Farm recipe pipeline for this run?` prompt (with env override support), and codex-enabled runs immediately collect model/effort overrides in the same chooser flow.
 - `llm_recipe_pipeline` must not be treated as an implicit proxy for `line_role_pipeline` / `atomic_block_splitter`; harmonization must explicitly set all three knobs together.
 - Saved quality-suite winner settings can remain stale in history files, so post-resolution harmonization is required even when winner settings are loaded.
 

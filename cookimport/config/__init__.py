@@ -14,8 +14,8 @@ from .run_settings import (
     run_settings_ui_specs,
 )
 from .last_run_store import (
-    load_last_run_settings,
-    save_last_run_settings,
+    load_qualitysuite_winner_run_settings,
+    save_qualitysuite_winner_run_settings,
 )
 from .run_settings_adapters import (
     build_benchmark_call_kwargs_from_run_settings,
@@ -34,8 +34,8 @@ __all__ = [
     "build_run_settings",
     "compute_effective_workers",
     "run_settings_ui_specs",
-    "load_last_run_settings",
-    "save_last_run_settings",
+    "load_qualitysuite_winner_run_settings",
+    "save_qualitysuite_winner_run_settings",
     "build_stage_call_kwargs_from_run_settings",
     "build_benchmark_call_kwargs_from_run_settings",
 ]

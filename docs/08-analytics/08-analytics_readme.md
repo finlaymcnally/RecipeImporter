@@ -636,6 +636,7 @@ Current analytics contracts reinforced:
 - Trend UI now supports state-backed arbitrary numeric field selection (`Trend fields` checklist, `trend_fields` persisted in UI state).
 - Previous Runs layout uses two subsection cards with two chart hosts sharing one filtered-row pool (`benchmark-trend-chart`, `compare-control-trend-chart`).
 - Trend host redraws must destroy/clear existing chart instances before re-render to avoid cumulative markup/width growth.
+- Trend host redraws now also pin Highcharts `chart.width` to measured host width so timed rerenders cannot slowly widen host internals.
 - History root behavior is repo-aware: repo-local outputs use `<repo>/.history`, external outputs keep sibling `.history`; compatibility reads of older locations remain required.
 
 Operator query contract preserved:
@@ -674,6 +675,7 @@ Current analytics contracts reinforced:
 - Trend behavior must preserve paired variant split, shared run-group x-axis alignment, and overlay rendering regardless of selected fields.
 - Previous Runs layout containment is a section-level contract (`minmax(0, 1fr)` grid constraints + `min-width: 0` guards + overflow containment), while wide tables remain locally scrollable.
 - Trend host rerenders must clear/destroy prior host-specific chart instances before redraw/fallback transitions.
+- Trend drift regressions may hide at host level (`host.scrollWidth` growth) even when page-level `document.scrollWidth` remains stable; include host-level drift probes.
 - Pixel-level overflow checks are valid regression anchors for page-growth issues; compare/control long-token wrapping is required to prevent page-level horizontal expansion.
 
 Anti-loop reminders:

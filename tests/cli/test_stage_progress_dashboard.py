@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -273,5 +274,48 @@ def test_stage_live_progress_updates_use_shared_status_snapshot(
     assert any(
         "simple_text.txt" in message and "recipes" in message
         for message in printed_messages
+    )
+    assert "Staged 1 file(s)." in result.output
+
+
+def test_stage_live_progress_falls_back_to_plain_when_live_slot_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_file = tmp_path / "simple_text.txt"
+    source_file.write_text("hello world", encoding="utf-8")
+    output_root = tmp_path / "output"
+
+    @contextmanager
+    def _deny_live_slot(_slot_limit: int):
+        yield False
+
+    monkeypatch.setattr(cli, "_acquire_live_status_slot", _deny_live_slot)
+    monkeypatch.setattr(cli, "console", _PlainConsole())
+    _install_fake_stage_pipeline(monkeypatch, source_file)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "stage",
+            str(source_file),
+            "--out",
+            str(output_root),
+            "--workers",
+            "1",
+            "--pdf-split-workers",
+            "1",
+            "--epub-split-workers",
+            "1",
+            "--llm-tags-pipeline",
+            "off",
+        ],
+        env={"COOKIMPORT_PLAIN_PROGRESS": "0"},
+    )
+
+    assert result.exit_code == 0
+    assert (
+        "overall jobs 1/1 | imported 1 | active_workers 0 | pending 0 | errors 0"
+        in result.output
     )
     assert "Staged 1 file(s)." in result.output

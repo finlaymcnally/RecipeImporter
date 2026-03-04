@@ -225,6 +225,51 @@ def test_load_settings_errors_on_legacy_sequence_matcher(
         cli._load_settings()
 
 
+def test_load_settings_migrates_legacy_epub_extractor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config_path = tmp_path / "cookimport.json"
+    config_path.write_text(
+        json.dumps({"epub_extractor": "legacy"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    with caplog.at_level("WARNING", logger="cookimport.cli"):
+        settings = cli._load_settings()
+
+    assert settings["epub_extractor"] == "beautifulsoup"
+    assert (
+        "Migrating epub_extractor=legacy to beautifulsoup in cookimport.json."
+        in caplog.text
+    )
+
+
+def test_load_settings_migrates_auto_epub_extractor_to_unstructured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config_path = tmp_path / "cookimport.json"
+    config_path.write_text(
+        json.dumps({"epub_extractor": "auto"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    with caplog.at_level("WARNING", logger="cookimport.cli"):
+        settings = cli._load_settings()
+
+    assert settings["epub_extractor"] == "unstructured"
+    assert (
+        "Forcing epub_extractor=unstructured in cookimport.json because auto "
+        "extractor mode was removed."
+        in caplog.text
+    )
+
+
 def test_choose_run_settings_uses_saved_qualitysuite_winner(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -269,6 +314,8 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_preprocess_mode": "none",
             "epub_unstructured_skip_headers_footers": False,
+            "codex_farm_pass1_pattern_hints_enabled": True,
+            "codex_farm_pass3_skip_pass2_ok": False,
             "llm_recipe_pipeline": "off",
             "line_role_pipeline": "off",
             "atomic_block_splitter": "off",
@@ -299,6 +346,8 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
     assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
     assert selected.line_role_pipeline.value == "codex-line-role-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.codex_farm_pass1_pattern_hints_enabled is False
+    assert selected.codex_farm_pass3_skip_pass2_ok is True
 
 
 def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs(
@@ -311,6 +360,8 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
             "llm_recipe_pipeline": "off",
             "line_role_pipeline": "off",
             "atomic_block_splitter": "off",
+            "codex_farm_pass1_pattern_hints_enabled": True,
+            "codex_farm_pass3_skip_pass2_ok": False,
             "epub_extractor": "unstructured",
         },
         warn_context="test stale qualitysuite winner settings",
@@ -335,13 +386,21 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
     assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
     assert selected.line_role_pipeline.value == "codex-line-role-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.codex_farm_pass1_pattern_hints_enabled is True
+    assert selected.codex_farm_pass3_skip_pass2_ok is False
 
 
 def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    global_defaults = cli.RunSettings.from_dict(
+        {
+            "codex_farm_pass1_pattern_hints_enabled": True,
+            "codex_farm_pass3_skip_pass2_ok": False,
+        },
+        warn_context="test global defaults",
+    )
     winner_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
@@ -375,6 +434,8 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     assert selected.epub_unstructured_html_parser_version.value == "v1"
     assert selected.epub_unstructured_preprocess_mode.value == "br_split_v1"
     assert selected.epub_unstructured_skip_headers_footers is False
+    assert selected.codex_farm_pass1_pattern_hints_enabled is False
+    assert selected.codex_farm_pass3_skip_pass2_ok is True
 
 
 def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
@@ -413,6 +474,66 @@ def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
     assert selected.llm_recipe_pipeline.value == "off"
     assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
+
+
+def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    effort_prompt_seen: dict[str, bool] = {"value": False}
+
+    def _menu_select(message, *args, **kwargs):
+        if message == "Codex Farm reasoning effort override:":
+            effort_prompt_seen["value"] = True
+            return "high"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: "gpt-5-codex",
+        prompt_codex_ai_settings=True,
+    )
+
+    assert selected is not None
+    assert effort_prompt_seen["value"] is True
+    assert selected.codex_farm_model == "gpt-5-codex"
+    assert selected.codex_farm_reasoning_effort == "high"
+
+
+def test_choose_run_settings_codex_ai_settings_prompt_cancel_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda *_args, **_kwargs: pytest.fail(
+            "effort menu should not run after model prompt cancel"
+        ),
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: None,
+        prompt_codex_ai_settings=True,
+    )
+
+    assert selected is None
 
 
 def test_qualitysuite_winner_run_settings_roundtrip(tmp_path) -> None:

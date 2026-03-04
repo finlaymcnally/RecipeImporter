@@ -51,13 +51,27 @@ pytest tests/analytics/test_stats_dashboard_slow.py
 # Label Studio benchmark-helper split
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py
+
+# Label Studio prelabel split
+pytest tests/labelstudio/test_labelstudio_prelabel.py
+pytest tests/labelstudio/test_labelstudio_prelabel_codex_cli.py
 
 # Codex orchestrator split
 pytest tests/llm/test_codex_farm_orchestrator.py
 pytest tests/llm/test_codex_farm_orchestrator_runner_transport.py
 pytest tests/llm/test_codex_farm_orchestrator_stage_integration.py
+
+# Bench CLI split
+pytest tests/bench/test_bench.py
+pytest tests/bench/test_bench_speed_cli.py
+pytest tests/bench/test_bench_quality_cli.py
+
+# Step ingredient linking split
+pytest tests/parsing/test_step_ingredient_linking.py
+pytest tests/parsing/test_step_ingredient_linking_semantic.py
 ```
 
 Default output is intentionally compact, and this is enforced in `tests/conftest.py`

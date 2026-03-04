@@ -89,6 +89,9 @@ def build_stage_call_kwargs_from_run_settings(
         "codex_farm_cmd": settings.codex_farm_cmd,
         "codex_farm_root": settings.codex_farm_root,
         "codex_farm_workspace_root": settings.codex_farm_workspace_root,
+        "codex_farm_pass1_pattern_hints_enabled": (
+            settings.codex_farm_pass1_pattern_hints_enabled
+        ),
         "codex_farm_pipeline_pass1": settings.codex_farm_pipeline_pass1,
         "codex_farm_pipeline_pass2": settings.codex_farm_pipeline_pass2,
         "codex_farm_pipeline_pass3": settings.codex_farm_pipeline_pass3,
@@ -202,6 +205,9 @@ def build_benchmark_call_kwargs_from_run_settings(
         "codex_farm_model": settings.codex_farm_model,
         "codex_farm_root": settings.codex_farm_root,
         "codex_farm_workspace_root": settings.codex_farm_workspace_root,
+        "codex_farm_pass1_pattern_hints_enabled": (
+            settings.codex_farm_pass1_pattern_hints_enabled
+        ),
         "codex_farm_pipeline_pass1": settings.codex_farm_pipeline_pass1,
         "codex_farm_pipeline_pass2": settings.codex_farm_pipeline_pass2,
         "codex_farm_pipeline_pass3": settings.codex_farm_pipeline_pass3,

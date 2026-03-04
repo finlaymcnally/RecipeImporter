@@ -10,7 +10,7 @@
   "all_method_config_timeout_seconds": 600,
   "all_method_retry_failed_configs": 0,
   "all_method_smart_scheduler": true,
-  "epub_extractor": "legacy",
+  "epub_extractor": "unstructured",
   "ocr_device": "auto",
   "ocr_batch_size": 1,
   "codex_farm_cmd": "/home/mcnal/projects/shared/CodexFarm/.venv/bin/codex-farm",

@@ -49,12 +49,23 @@ Active layout exceptions and support assets:
 - Label Studio benchmark-helper coverage is split into:
   - `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (general interactive/export/discovery flows),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py` (benchmark eval/payload contracts),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py` (progress/status/dashboard rendering contracts),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py` (all-method scheduler internals),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py` (single-profile matched-book flows).
+- Label Studio prelabel coverage is split into:
+  - `tests/labelstudio/test_labelstudio_prelabel.py` (block/span labeling + prompt template contracts),
+  - `tests/labelstudio/test_labelstudio_prelabel_codex_cli.py` (codex CLI command/config/usage/account contracts).
 - Codex orchestrator coverage is split into:
   - `tests/llm/test_codex_farm_orchestrator.py` (orchestrator policy behavior),
   - `tests/llm/test_codex_farm_orchestrator_runner_transport.py` (subprocess runner + CLI transport contracts),
   - `tests/llm/test_codex_farm_orchestrator_stage_integration.py` (stage seam integration tests).
+- Bench CLI coverage is split into:
+  - `tests/bench/test_bench.py` (aggregate/noise/cost helper contracts),
+  - `tests/bench/test_bench_speed_cli.py` (speed discover/run/compare CLI wiring),
+  - `tests/bench/test_bench_quality_cli.py` (quality discover/run/compare/leaderboard CLI wiring).
+- Step ingredient linking coverage is split into:
+  - `tests/parsing/test_step_ingredient_linking.py` (core assignment/split logic),
+  - `tests/parsing/test_step_ingredient_linking_semantic.py` (semantic/fuzzy/collective matching).
 - `tests/fixtures/*` holds fixture generators and binary fixture assets used by tests.
 - `tests/tagging_gold/*` holds tagging gold fixtures used by tagging tests.
 
@@ -95,11 +106,19 @@ Common run patterns:
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard_slow.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_prelabel.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_prelabel_codex_cli.py`
 - `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator.py`
 - `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator_runner_transport.py`
 - `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator_stage_integration.py`
+- `. .venv/bin/activate && pytest tests/bench/test_bench.py`
+- `. .venv/bin/activate && pytest tests/bench/test_bench_speed_cli.py`
+- `. .venv/bin/activate && pytest tests/bench/test_bench_quality_cli.py`
+- `. .venv/bin/activate && pytest tests/parsing/test_step_ingredient_linking.py`
+- `. .venv/bin/activate && pytest tests/parsing/test_step_ingredient_linking_semantic.py`
 - `./scripts/test-suite.sh smoke`
 - `./scripts/test-suite.sh fast`
 - `./scripts/test-suite.sh domain <domain>`

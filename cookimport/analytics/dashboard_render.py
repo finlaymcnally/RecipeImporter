@@ -8554,6 +8554,24 @@ _JS = """\
       fallback.textContent = "";
     }
 
+    const measuredHostWidth = Math.floor(
+      Number(chartHost.clientWidth || 0) ||
+      Number(
+        typeof chartHost.getBoundingClientRect === "function"
+          ? chartHost.getBoundingClientRect().width
+          : 0
+      )
+    );
+    const chartWidth = (
+      Number.isFinite(measuredHostWidth) && measuredHostWidth > 0
+    ) ? measuredHostWidth : null;
+    const chartConfig = {
+      height: 800,
+    };
+    if (chartWidth != null) {
+      chartConfig.width = chartWidth;
+    }
+
     const xAxisConfig = {
       type: "datetime",
     };
@@ -8563,9 +8581,7 @@ _JS = """\
     destroyBenchmarkTrendChartHost(hostId);
     chartHost.innerHTML = "";
     const nextChart = window.Highcharts.stockChart(hostId, {
-      chart: {
-        height: 800,
-      },
+      chart: chartConfig,
       credits: { enabled: false },
       title: { text: chartTitle },
       legend: { enabled: true },

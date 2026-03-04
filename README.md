@@ -14,7 +14,7 @@ START
 |-- Choose workflow
 |   |-- A) Stage/import pipeline (writes cookbook outputs)
 |   |   |-- File selection: Import All / one file
-|   |   |-- Run settings mode: global defaults / last import / one-run custom
+|   |   |-- Run profile: `CodexFarm automatic top-tier` or `Vanilla automatic top-tier`
 |   |   |-- Optional runtime toggles: warm models, OCR device, EPUB extractor, split sizes/workers, optional codex-farm recipe/knowledge passes
 |   |   `-- Per-file execution path
 |   |       |-- `.xlsx` / `.xlsm` (Excel importer)
@@ -31,13 +31,12 @@ START
 |   |       |   |   `-- no  -> single conversion -> write once
 |   |       |   `-- OCR path (`auto`/`cpu`/`cuda`/`mps`) used when scanned/image pages need OCR
 |   |       `-- `.epub` (EPUB importer)
-|   |           |-- Extractor requested: `unstructured` | `legacy` | `markdown` | `auto` | `markitdown`
-|   |           |   |-- `auto` -> deterministic pre-selection -> effective extractor + auto artifact
+|   |           |-- Extractor requested: `unstructured` | `beautifulsoup` | `markitdown`
 |   |           |   `-- effective extractor runs
 |   |           |-- Split eligible?
-|   |           |   |-- `unstructured` / `legacy` / `markdown` + split settings -> parallel spine jobs -> merge
+|   |           |   |-- `unstructured` / `beautifulsoup` + split settings -> parallel spine jobs -> merge
 |   |           |   `-- `markitdown` -> whole-book conversion (no spine split)
-|   |           `-- write outputs + report (auto-selection fields when auto is used)
+|   |           `-- write outputs + report
 |   |
 |   |-- B) EPUB debug race (EPUB only)
 |   |   `-- choose EPUB -> choose output folder -> choose candidate extractors -> race report
@@ -185,9 +184,8 @@ Main Menu ("What would you like to do?")
 |   |   |-- Import all: Process every supported file
 |   |   `-- <pick one file>
 |   |-- Run settings
-|   |   |-- Run with global defaults (...)
-|   |   |-- Run with last import settings (...) (disabled until you have a successful import)
-|   |   `-- Change run settings... (one-run editor; does not change global defaults)
+|   |   |-- CodexFarm automatic top-tier (recommended)
+|   |   `-- Vanilla automatic top-tier
 |   `-- Outputs written to: <output_dir>/<YYYY-MM-DD_HH.MM.SS>/
 |
 |-- Label Studio upload: Create labeling tasks (uploads)
@@ -214,9 +212,11 @@ Main Menu ("What would you like to do?")
 |   `-- If writing: confirm creating new annotations in Label Studio
 |
 |-- Evaluate vs freeform gold: Generate predictions and compare to your labels
-|   |-- Choose mode: single offline or all-method offline
-|   |-- Single offline: choose benchmark run settings, then run one local eval
-|   `-- All-method: uses global benchmark defaults, then runs offline permutations
+|   |-- Choose mode:
+|   |   |-- Single offline eval
+|   |   |-- Single config, selected matched sets
+|   |   `-- Single config, all matched sets
+|   `-- Choose top-tier run profile, then run local eval(s)
 |
 |-- Dashboard: Build lifetime stats dashboard HTML
 |   `-- Writes to .history/dashboard/ for repo-local outputs
@@ -243,18 +243,12 @@ Sub-prompts you will see:
    - **Import All**: processes every supported file in `data/input/`
    - Or pick one file: runs the import for that file only
 2. **Run settings**
-   - **Run with global defaults**: uses your saved defaults (from `cookimport.json`)
-   - **Run with last import settings**: repeats the settings from your last successful import
-   - **Change run settings...**: lets you experiment for this run only (it does not change your global defaults)
-3. If you choose **Change run settings...**, a full-screen editor opens.
-   - Up/Down moves between settings.
-   - Left/Right changes a value.
-   - Enter lets you type an exact value.
-   - `S` saves and starts the run; `Q`/Esc cancels.
+   - **CodexFarm automatic top-tier**: winner-preferred codex profile
+   - **Vanilla automatic top-tier**: deterministic non-codex profile
 
 ### Settings (Change Your Defaults)
 
-This edits your saved defaults and writes them to `cookimport.json`. It affects future imports and benchmark runs that use global defaults (including all-method benchmark mode).
+This edits your saved defaults and writes them to `cookimport.json`. It affects future imports and benchmark runs.
 
 Sub-menu options (Settings Configuration):
 - **Workers**: how many files/jobs to process in parallel (higher = faster, but uses more CPU/RAM)
@@ -369,9 +363,9 @@ Use this to compare pipeline predictions against your freeform "gold" labels.
 Sub-prompts you will see:
 - Choose benchmark mode:
   - single offline: one local prediction+eval run (`no_upload=True`)
-  - all-method offline: multi-configuration sweep with summary reports
-- Single offline mode asks for benchmark run settings (global / last / edit).
-- All-method mode skips the run-settings chooser and uses your current global benchmark defaults.
+  - single config, selected matched sets: apply one profile to selected matched books
+  - single config, all matched sets: apply one profile to all matched books
+- These interactive benchmark modes use the same top-tier profile chooser as import.
 - Interactive benchmark does not resolve Label Studio credentials and does not upload.
 
 If you need to re-score an existing prediction run without regeneration, use:
@@ -383,11 +377,14 @@ Choice tree (Evaluate):
 Evaluate vs freeform gold: Generate predictions and compare to your labels
 |-- Choose mode
 |   |-- Single offline
-|   |   |-- Choose benchmark run settings
+|   |   |-- Choose top-tier profile
 |   |   `-- Run local prediction + eval (no upload)
-|   `-- All-method offline
-|       |-- Uses global benchmark defaults
-|       `-- Run all-method offline sweep + summary
+|   |-- Single config, selected matched sets
+|   |   |-- Choose top-tier profile
+|   |   `-- Run selected matched books
+|   `-- Single config, all matched sets
+|       |-- Choose top-tier profile
+|       `-- Run all matched books
 `-- Return to main menu
 ```
 
@@ -404,9 +401,8 @@ No additional prompt is shown for this action, and interactive mode does not aut
 3. Choose **Stage: Convert files from data/input into cookbook outputs**.
 4. Choose **Import All** or pick a single file.
 5. Choose which settings to use for this run:
-   - Use global defaults
-   - Reuse the last run's settings
-   - Change run settings (recommended when experimenting)
+   - CodexFarm automatic top-tier
+   - Vanilla automatic top-tier
 6. Wait for completion.
 7. At the end, the tool prints an "Outputs written to:" path.
 
@@ -455,7 +451,7 @@ Common defaults to tweak:
 
 ### B) Change settings for just one run (recommended for experiments)
 
-When you start an import, choose the "Change run settings" option. This lets you try settings without permanently changing your defaults.
+When you start an import, choose which automatic top-tier profile to use for that run. This does not modify `cookimport.json`.
 
 ### C) Choose an EPUB extractor (simple guidance)
 

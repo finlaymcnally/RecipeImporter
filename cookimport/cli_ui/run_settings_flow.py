@@ -14,6 +14,7 @@ from cookimport.config.run_settings import RunSettings
 TopTierProfileKind = Literal["codexfarm", "vanilla"]
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
+PromptText = Callable[..., Any]
 _QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
     "epub_extractor": "unstructured",
     "epub_unstructured_html_parser_version": "v1",
@@ -25,12 +26,18 @@ _TOP_TIER_DEFAULT_PATCH: dict[str, Any] = {
     "line_role_pipeline": "codex-line-role-v1",
     "atomic_block_splitter": "atomic-v1",
 }
+_TOP_TIER_BASELINE_ONLY_PATCH: dict[str, Any] = {
+    "codex_farm_pass1_pattern_hints_enabled": False,
+    "codex_farm_pass3_skip_pass2_ok": True,
+}
 _VANILLA_TOP_TIER_PATCH: dict[str, Any] = {
     "llm_recipe_pipeline": "off",
     "llm_knowledge_pipeline": "off",
     "llm_tags_pipeline": "off",
     "line_role_pipeline": "deterministic-v1",
     "atomic_block_splitter": "atomic-v1",
+    "codex_farm_pass1_pattern_hints_enabled": False,
+    "codex_farm_pass3_skip_pass2_ok": True,
     "epub_extractor": "unstructured",
     "epub_unstructured_html_parser_version": "v1",
     "epub_unstructured_preprocess_mode": "br_split_v1",
@@ -81,6 +88,7 @@ def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
     payload = global_defaults.to_run_config_dict()
     payload.update(_QUALITY_FIRST_WINNER_STACK_PATCH)
     payload.update(_TOP_TIER_DEFAULT_PATCH)
+    payload.update(_TOP_TIER_BASELINE_ONLY_PATCH)
     return RunSettings.from_dict(
         payload,
         warn_context="top-tier default run settings",
@@ -168,6 +176,58 @@ def _choose_top_tier_profile(
     return _normalize_top_tier_profile(selection) or "codexfarm"
 
 
+def _choose_codex_ai_settings(
+    *,
+    selected_settings: RunSettings,
+    menu_select: MenuSelect,
+    back_action: Any,
+    prompt_text: PromptText | None,
+) -> RunSettings | None:
+    model_prompt: Any = ""
+    if prompt_text is not None:
+        model_prompt = prompt_text(
+            "Codex Farm model override (blank for pipeline default):",
+            default=str(selected_settings.codex_farm_model or ""),
+        )
+        if model_prompt is None:
+            return None
+    model_override = (
+        str(model_prompt).strip() or None
+        if prompt_text is not None
+        else selected_settings.codex_farm_model
+    )
+    effort_default = (
+        str(selected_settings.codex_farm_reasoning_effort)
+        if selected_settings.codex_farm_reasoning_effort is not None
+        else "__default__"
+    )
+    effort_choice = menu_select(
+        "Codex Farm reasoning effort override:",
+        menu_help="Blank uses pipeline default. Affects all codex-farm passes.",
+        default=effort_default,
+        choices=[
+            questionary.Choice("Pipeline default", value="__default__"),
+            questionary.Choice("none", value="none"),
+            questionary.Choice("minimal", value="minimal"),
+            questionary.Choice("low", value="low"),
+            questionary.Choice("medium", value="medium"),
+            questionary.Choice("high", value="high"),
+            questionary.Choice("xhigh", value="xhigh"),
+        ],
+    )
+    if effort_choice in {None, back_action}:
+        return None
+    reasoning_effort_override = (
+        None if effort_choice == "__default__" else str(effort_choice)
+    )
+    return selected_settings.model_copy(
+        update={
+            "codex_farm_model": model_override,
+            "codex_farm_reasoning_effort": reasoning_effort_override,
+        }
+    )
+
+
 def choose_run_settings(
     *,
     global_defaults: RunSettings,
@@ -175,6 +235,8 @@ def choose_run_settings(
     menu_select: MenuSelect,
     back_action: Any,
     prompt_confirm: PromptConfirm | None = None,
+    prompt_text: PromptText | None = None,
+    prompt_codex_ai_settings: bool = False,
 ) -> RunSettings | None:
     """Resolve one interactive top-tier run profile family."""
 
@@ -201,4 +263,13 @@ def choose_run_settings(
         profile=selected_profile,
         warn_context="interactive top-tier pipeline harmonization",
     )
+    if selected_profile == "codexfarm" and prompt_codex_ai_settings:
+        selected_settings = _choose_codex_ai_settings(
+            selected_settings=selected_settings,
+            menu_select=menu_select,
+            back_action=back_action,
+            prompt_text=prompt_text,
+        )
+        if selected_settings is None:
+            return None
     return _rate_limit_workers(selected_settings)

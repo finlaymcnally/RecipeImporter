@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import json
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -743,6 +745,154 @@ def _run_previous_runs_pixel_overflow_harness(html_path: Path) -> dict[str, obje
         "max_doc_scroll_delta_px": (
             max(doc_scroll_values) - min(doc_scroll_values)
             if doc_scroll_values
+            else 0
+        ),
+    }
+
+
+def _run_benchmark_trend_host_width_drift_harness(
+    html_path: Path,
+) -> dict[str, object]:
+    """Measure benchmark trend host horizontal drift across timed rerenders."""
+    dashboard_state_server = pytest.importorskip("cookimport.analytics.dashboard_state_server")
+    playwright_sync_api = pytest.importorskip("playwright.sync_api")
+
+    start_dashboard_server = dashboard_state_server.start_dashboard_server
+    server, url = start_dashboard_server(
+        dashboard_dir=html_path.parent,
+        host="127.0.0.1",
+        port=0,
+    )
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    state_request_counter = {"count": 0}
+    try:
+        with playwright_sync_api.sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except Exception as exc:  # pragma: no cover - environment-specific browser install issues
+                pytest.skip(f"chromium launch unavailable for trend host drift harness: {exc}")
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+
+            highcharts_stub = (
+                "window.Highcharts = window.Highcharts || {};\n"
+                "window.Highcharts.__renderCount = window.Highcharts.__renderCount || 0;\n"
+                "window.Highcharts.stockChart = function(hostId, config){\n"
+                "  window.Highcharts.__renderCount += 1;\n"
+                "  var host = document.getElementById(hostId);\n"
+                "  if (host) {\n"
+                "    var configured = Number(config && config.chart && config.chart.width);\n"
+                "    var width = (Number.isFinite(configured) && configured > 0)\n"
+                "      ? configured\n"
+                "      : (900 + (window.Highcharts.__renderCount * 120));\n"
+                "    host.innerHTML = '<div class=\"highcharts-container\" style=\"width:' + width + 'px\">'\n"
+                "      + '<svg width=\"' + width + '\" height=\"760\" style=\"display:block;width:' + width + 'px;height:760px\"></svg>'\n"
+                "      + '</div>';\n"
+                "  }\n"
+                "  return { destroy: function(){} };\n"
+                "};\n"
+                "window.Highcharts.setOptions = window.Highcharts.setOptions || function(){};\n"
+                "window.Highcharts.dateFormat = window.Highcharts.dateFormat || function(){ return ''; };\n"
+                "window.Highcharts.seriesTypes = window.Highcharts.seriesTypes || {};\n"
+                "window.Highcharts.seriesTypes.arearange = window.Highcharts.seriesTypes.arearange || function(){};\n"
+            )
+
+            def _fulfill_highcharts(route) -> None:
+                route.fulfill(
+                    status=200,
+                    content_type="application/javascript",
+                    body=highcharts_stub,
+                )
+
+            def _fulfill_ui_state(route) -> None:
+                state_request_counter["count"] += 1
+                saved_at = (
+                    dt.datetime(2099, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+                    + dt.timedelta(seconds=state_request_counter["count"])
+                ).isoformat().replace("+00:00", "Z")
+                payload = {
+                    "version": 1,
+                    "saved_at": saved_at,
+                    "previous_runs": {
+                        "quick_filters": {
+                            "exclude_ai_tests": False,
+                            "official_full_golden_only": False,
+                        }
+                    },
+                }
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(payload),
+                )
+
+            page.route("**/*highstock.js*", _fulfill_highcharts)
+            page.route("**/*highcharts-more.js*", _fulfill_highcharts)
+            page.route("**/assets/dashboard_ui_state.json", _fulfill_ui_state)
+
+            page.goto(url, wait_until="domcontentloaded", timeout=120000)
+            page.wait_for_timeout(1500)
+
+            samples = []
+            for index in range(5):
+                samples.append(
+                    page.evaluate(
+                        """(index) => {
+                            const trend = document.getElementById("benchmark-trend-chart");
+                            const compareControl = document.getElementById("compare-control-trend-chart");
+                            return {
+                              index,
+                              render_count: Number(
+                                window.Highcharts && window.Highcharts.__renderCount
+                                  ? window.Highcharts.__renderCount
+                                  : 0
+                              ),
+                              trend_client: Number(trend ? trend.clientWidth : 0),
+                              trend_scroll: Number(trend ? trend.scrollWidth : 0),
+                              compare_client: Number(compareControl ? compareControl.clientWidth : 0),
+                              compare_scroll: Number(compareControl ? compareControl.scrollWidth : 0),
+                            };
+                        }""",
+                        index,
+                    )
+                )
+                if index < 4:
+                    page.wait_for_timeout(5000)
+
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2)
+
+    trend_overflows = [
+        max(0, sample["trend_scroll"] - sample["trend_client"])
+        for sample in samples
+    ]
+    compare_overflows = [
+        max(0, sample["compare_scroll"] - sample["compare_client"])
+        for sample in samples
+    ]
+    trend_scroll_values = [sample["trend_scroll"] for sample in samples]
+    compare_scroll_values = [sample["compare_scroll"] for sample in samples]
+    render_counts = [sample["render_count"] for sample in samples]
+    return {
+        "samples": samples,
+        "state_request_count": state_request_counter["count"],
+        "highcharts_render_count": max(render_counts) if render_counts else 0,
+        "max_trend_host_overflow_px": max(trend_overflows) if trend_overflows else 0,
+        "max_compare_control_host_overflow_px": (
+            max(compare_overflows) if compare_overflows else 0
+        ),
+        "trend_host_scroll_delta_px": (
+            max(trend_scroll_values) - min(trend_scroll_values)
+            if trend_scroll_values
+            else 0
+        ),
+        "compare_control_host_scroll_delta_px": (
+            max(compare_scroll_values) - min(compare_scroll_values)
+            if compare_scroll_values
             else 0
         ),
     }

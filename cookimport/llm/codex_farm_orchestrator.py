@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,9 +44,7 @@ DEFAULT_PASS3_PIPELINE_ID = "recipe.final.v1"
 PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
 PASS2_PIPELINE_ID = DEFAULT_PASS2_PIPELINE_ID
 PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
-_PASS1_PATTERN_HINTS_ENV = "COOKIMPORT_CODEX_FARM_PASS1_PATTERN_HINTS"
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
-_PASS3_SKIP_PASS2_OK_ENV = "COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK"
 _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS = 2
 _PASS3_PASS2_OK_MIN_CANONICAL_CHARS = 80
 
@@ -161,8 +158,8 @@ def run_codex_farm_recipe_pipeline(
     source_hash = _resolve_source_hash(conversion_result)
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
     pipelines = _resolve_pipeline_ids(run_settings)
-    pass1_pattern_hints_enabled = _pass1_pattern_hints_enabled()
-    pass3_skip_pass2_ok_enabled = _pass3_skip_pass2_ok_enabled(run_settings=run_settings)
+    pass1_pattern_hints_enabled = bool(run_settings.codex_farm_pass1_pattern_hints_enabled)
+    pass3_skip_pass2_ok_enabled = bool(run_settings.codex_farm_pass3_skip_pass2_ok)
     output_schema_paths: dict[str, str] = {}
     transport_audits: dict[str, dict[str, Any]] = {}
     evidence_normalizations: dict[str, dict[str, Any]] = {}
@@ -1066,24 +1063,6 @@ def _recipe_location(recipe: RecipeCandidate) -> dict[str, Any]:
         provenance["location"] = location
         recipe.provenance = provenance
     return location
-
-
-def _pass1_pattern_hints_enabled() -> bool:
-    return _env_flag_enabled(_PASS1_PATTERN_HINTS_ENV)
-
-
-def _pass3_skip_pass2_ok_enabled(*, run_settings: RunSettings) -> bool:
-    raw_value = os.environ.get(_PASS3_SKIP_PASS2_OK_ENV)
-    if raw_value is None or not str(raw_value).strip():
-        return bool(run_settings.codex_farm_pass3_skip_pass2_ok)
-    normalized = str(raw_value).strip().lower()
-    return normalized not in {"0", "false", "no", "off"}
-
-
-def _env_flag_enabled(env_name: str) -> bool:
-    raw_value = os.environ.get(env_name, "")
-    normalized = str(raw_value).strip().lower()
-    return normalized in {"1", "true", "yes", "on"}
 
 
 def _pattern_hints_for_state(state: _RecipeState) -> list[PatternHint]:

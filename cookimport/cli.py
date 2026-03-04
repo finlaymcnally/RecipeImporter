@@ -407,6 +407,7 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "web_schema_min_instruction_steps",
     "llm_recipe_pipeline",
     "codex_farm_cmd",
+    "codex_farm_pass1_pattern_hints_enabled",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
@@ -417,6 +418,7 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
 SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
     "llm_recipe_pipeline",
     "codex_farm_cmd",
+    "codex_farm_pass1_pattern_hints_enabled",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
@@ -496,6 +498,7 @@ _STATUS_ETA_BOOTSTRAP_MIN_SECONDS = 1.0
 _STATUS_ALL_METHOD_STALL_MIN_SECONDS = 1.0
 _STATUS_ALL_METHOD_STALL_MULTIPLIER = 2.0
 _STATUS_PLAIN_PROGRESS_ENV = "COOKIMPORT_PLAIN_PROGRESS"
+_STATUS_LIVE_SLOTS_ENV = "COOKIMPORT_LIVE_STATUS_SLOTS"
 _STATUS_ENV_TRUE_VALUES = {"1", "true", "yes", "on"}
 _STATUS_ENV_FALSE_VALUES = {"0", "false", "no", "off"}
 _STATUS_AGENT_HINT_ENV_KEYS = (
@@ -527,6 +530,10 @@ _BENCHMARK_SUPPRESS_OUTPUT_PRUNE: ContextVar[bool] = ContextVar(
     "_BENCHMARK_SUPPRESS_OUTPUT_PRUNE",
     default=False,
 )
+_BENCHMARK_LIVE_STATUS_SLOTS: ContextVar[int | None] = ContextVar(
+    "_BENCHMARK_LIVE_STATUS_SLOTS",
+    default=None,
+)
 _INTERACTIVE_CLI_ACTIVE: ContextVar[bool] = ContextVar(
     "_INTERACTIVE_CLI_ACTIVE",
     default=False,
@@ -553,6 +560,10 @@ _LAST_FAIL_MESSAGE: ContextVar[str | None] = ContextVar(
     "_LAST_FAIL_MESSAGE",
     default=None,
 )
+_LIVE_STATUS_SLOT_LOCK = threading.Lock()
+_LIVE_STATUS_SLOT_ACTIVE = 0
+_LIVE_STATUS_SLOT_MAX_DEFAULT = 1
+_LIVE_STATUS_SLOT_MAX_HARD_CAP = 8
 
 
 def _golden_sent_to_labelstudio_root() -> Path:
@@ -991,7 +1002,17 @@ def _load_settings() -> Dict[str, Any]:
         )
         normalized_extractor = _coerce_configured_epub_extractor(raw_extractor)
         if raw_extractor != normalized_extractor:
-            if is_policy_locked_epub_extractor_name(raw_extractor):
+            if raw_extractor == "legacy":
+                logger.warning(
+                    "Migrating epub_extractor=legacy to beautifulsoup in cookimport.json."
+                )
+            elif raw_extractor == "auto":
+                logger.warning(
+                    "Forcing epub_extractor=unstructured in cookimport.json because auto "
+                    "extractor mode was removed. Ignoring value %r.",
+                    raw_extractor,
+                )
+            elif is_policy_locked_epub_extractor_name(raw_extractor):
                 logger.warning(
                     "Forcing epub_extractor=unstructured in cookimport.json because "
                     "markdown extractors are policy-locked off. Set %s=1 to "
@@ -1239,6 +1260,10 @@ def _all_method_default_parallel_sources_from_cpu() -> int:
 
 def _coerce_configured_epub_extractor(value: Any) -> str:
     normalized = normalize_epub_extractor_name(value or "unstructured")
+    if normalized == "legacy":
+        return "beautifulsoup"
+    if normalized == "auto":
+        return "unstructured"
     if normalized not in EPUB_EXTRACTOR_CANONICAL_SET:
         return "unstructured"
     if is_policy_locked_epub_extractor_name(normalized):
@@ -2641,7 +2666,10 @@ def _interactive_single_profile_all_matched_benchmark(
                     split_phase_gate_dir=split_phase_gate_dir,
                     split_phase_status_label=split_status_label,
                 ):
-                    labelstudio_benchmark(**variant_kwargs)
+                    with _benchmark_progress_overrides(
+                        live_status_slots=2 if max_parallel_targets > 1 else None,
+                    ):
+                        labelstudio_benchmark(**variant_kwargs)
                 variant_eval_outputs[variant_slug] = variant_eval_output
                 source_file = _load_single_offline_source_path(variant_eval_output)
                 if source_file and not source_file_for_comparison:
@@ -6055,6 +6083,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
+                prompt_text=_prompt_text,
+                prompt_codex_ai_settings=True,
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -6531,6 +6561,8 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
+                prompt_text=_prompt_text,
+                prompt_codex_ai_settings=True,
             )
             if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -7700,6 +7732,65 @@ def _should_default_plain_progress_for_agent() -> bool:
     return False
 
 
+def _normalize_live_status_slots(value: Any) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = _LIVE_STATUS_SLOT_MAX_DEFAULT
+    if normalized < 1:
+        return _LIVE_STATUS_SLOT_MAX_DEFAULT
+    return min(_LIVE_STATUS_SLOT_MAX_HARD_CAP, normalized)
+
+
+def _read_live_status_slots_from_env() -> int:
+    raw_value = _read_status_env_flag(_STATUS_LIVE_SLOTS_ENV)
+    if raw_value == "":
+        return _LIVE_STATUS_SLOT_MAX_DEFAULT
+    return _normalize_live_status_slots(raw_value)
+
+
+def _effective_live_status_slots() -> int:
+    override = _BENCHMARK_LIVE_STATUS_SLOTS.get()
+    if override is not None:
+        return _normalize_live_status_slots(override)
+    return _read_live_status_slots_from_env()
+
+
+@contextmanager
+def _acquire_live_status_slot(slot_limit: int) -> Iterable[bool]:
+    global _LIVE_STATUS_SLOT_ACTIVE
+    normalized_limit = _normalize_live_status_slots(slot_limit)
+    acquired = False
+    with _LIVE_STATUS_SLOT_LOCK:
+        if _LIVE_STATUS_SLOT_ACTIVE < normalized_limit:
+            _LIVE_STATUS_SLOT_ACTIVE += 1
+            acquired = True
+    try:
+        yield acquired
+    finally:
+        if not acquired:
+            return
+        with _LIVE_STATUS_SLOT_LOCK:
+            _LIVE_STATUS_SLOT_ACTIVE = max(0, _LIVE_STATUS_SLOT_ACTIVE - 1)
+
+
+def _resolve_live_status_console(*, live_status_slots: int) -> Any:
+    if live_status_slots <= 1:
+        return console
+    if not isinstance(console, Console):
+        return console
+    width_value = getattr(console, "width", None)
+    width = width_value if isinstance(width_value, int) and width_value > 0 else None
+    return Console(
+        file=getattr(console, "file", None),
+        force_terminal=bool(console.is_terminal),
+        color_system=console.color_system,
+        width=width,
+        soft_wrap=bool(getattr(console, "soft_wrap", False)),
+        markup=bool(getattr(console, "_markup", True)),
+    )
+
+
 def _format_processing_time(elapsed_seconds: float) -> str:
     total_seconds = max(0, int(round(elapsed_seconds)))
     hours, remainder = divmod(total_seconds, 3600)
@@ -7882,6 +7973,7 @@ def _run_with_progress_status(
     force_live_status: bool | None = None,
 ) -> _StatusReturn:
     status_started_at = time.monotonic()
+    live_status_slots = _effective_live_status_slots()
     supports_live_status = (
         bool(force_live_status)
         if force_live_status is not None
@@ -8461,51 +8553,57 @@ def _run_with_progress_status(
     if not supports_live_status:
         return _run_plain()
 
-    with console.status(
-        render(),
-        spinner="dots",
-        spinner_style=_PROGRESS_BLUE_STYLE,
-        refresh_per_second=4.0,
-    ) as status:
-        _emit_timeseries(event="started", force=True)
-
-        def tick() -> None:
-            while True:
-                with state_lock:
-                    message_snapshot = latest_message
-                    worker_snapshot = worker_dashboard_adapter.snapshot_workers()[0]
-                interval = float(tick_seconds)
-                if (
-                    (worker_snapshot > 0 or "\n" in (message_snapshot or ""))
-                    and interval >= 0.5
-                ):
-                    interval = max(interval, 5.0)
-                if stop_event.wait(max(0.05, interval)):
-                    return
-                now = time.monotonic()
-                status.update(render(now))
-                _emit_timeseries(event="tick", now=now)
-
-        ticker = threading.Thread(
-            target=tick,
-            name="cli-status-progress-ticker",
-            daemon=True,
+    with _acquire_live_status_slot(live_status_slots) as live_slot_acquired:
+        if not live_slot_acquired:
+            return _run_plain()
+        status_console = _resolve_live_status_console(
+            live_status_slots=live_status_slots
         )
-        ticker.start()
+        with status_console.status(
+            render(),
+            spinner="dots",
+            spinner_style=_PROGRESS_BLUE_STYLE,
+            refresh_per_second=4.0,
+        ) as status:
+            _emit_timeseries(event="started", force=True)
 
-        def update_progress(msg: str) -> None:
-            changed, now = _update_progress_common(msg)
-            if not changed:
-                return
-            status.update(render(now))
-            _emit_timeseries(event="update", now=now)
+            def tick() -> None:
+                while True:
+                    with state_lock:
+                        message_snapshot = latest_message
+                        worker_snapshot = worker_dashboard_adapter.snapshot_workers()[0]
+                    interval = float(tick_seconds)
+                    if (
+                        (worker_snapshot > 0 or "\n" in (message_snapshot or ""))
+                        and interval >= 0.5
+                    ):
+                        interval = max(interval, 5.0)
+                    if stop_event.wait(max(0.05, interval)):
+                        return
+                    now = time.monotonic()
+                    status.update(render(now))
+                    _emit_timeseries(event="tick", now=now)
 
-        try:
-            return run(update_progress)
-        finally:
-            stop_event.set()
-            ticker.join(timeout=max(0.2, float(tick_seconds) * 2))
-            _emit_timeseries(event="finished", force=True)
+            ticker = threading.Thread(
+                target=tick,
+                name="cli-status-progress-ticker",
+                daemon=True,
+            )
+            ticker.start()
+
+            def update_progress(msg: str) -> None:
+                changed, now = _update_progress_common(msg)
+                if not changed:
+                    return
+                status.update(render(now))
+                _emit_timeseries(event="update", now=now)
+
+            try:
+                return run(update_progress)
+            finally:
+                stop_event.set()
+                ticker.join(timeout=max(0.2, float(tick_seconds) * 2))
+                _emit_timeseries(event="finished", force=True)
 
 
 @contextmanager
@@ -8516,6 +8614,7 @@ def _benchmark_progress_overrides(
     suppress_spinner: bool = False,
     suppress_dashboard_refresh: bool = False,
     suppress_output_prune: bool = False,
+    live_status_slots: int | None = None,
 ) -> Iterable[None]:
     progress_token = _BENCHMARK_PROGRESS_CALLBACK.set(progress_callback)
     summary_token = _BENCHMARK_SUPPRESS_SUMMARY.set(bool(suppress_summary))
@@ -8526,6 +8625,11 @@ def _benchmark_progress_overrides(
     output_prune_token = _BENCHMARK_SUPPRESS_OUTPUT_PRUNE.set(
         bool(suppress_output_prune)
     )
+    live_slots_token = _BENCHMARK_LIVE_STATUS_SLOTS.set(
+        _normalize_live_status_slots(live_status_slots)
+        if live_status_slots is not None
+        else None
+    )
     try:
         yield
     finally:
@@ -8534,6 +8638,7 @@ def _benchmark_progress_overrides(
         _BENCHMARK_SUPPRESS_SPINNER.reset(spinner_token)
         _BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.reset(dashboard_refresh_token)
         _BENCHMARK_SUPPRESS_OUTPUT_PRUNE.reset(output_prune_token)
+        _BENCHMARK_LIVE_STATUS_SLOTS.reset(live_slots_token)
 
 
 @contextmanager
@@ -21666,6 +21771,9 @@ def _build_stage_run_summary_payload(
             "pass4_knowledge": run_config.get("codex_farm_pipeline_pass4_knowledge"),
             "pass5_tags": run_config.get("codex_farm_pipeline_pass5_tags"),
             "context_blocks": run_config.get("codex_farm_context_blocks"),
+            "pass1_pattern_hints_enabled": run_config.get(
+                "codex_farm_pass1_pattern_hints_enabled"
+            ),
             "pass3_skip_pass2_ok": run_config.get("codex_farm_pass3_skip_pass2_ok"),
             "knowledge_context_blocks": run_config.get("codex_farm_knowledge_context_blocks"),
         },
@@ -22781,6 +22889,14 @@ def stage(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     ),
+    codex_farm_pass1_pattern_hints_enabled: bool = typer.Option(
+        False,
+        "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
+        help=(
+            "Include deterministic pattern metadata hints in pass1 bundles "
+            "for advisory boundary context."
+        ),
+    ),
     codex_farm_pipeline_pass1: str = typer.Option(
         "recipe.chunking.v1",
         "--codex-farm-pipeline-pass1",
@@ -22942,6 +23058,9 @@ def stage(
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
+    codex_farm_pass1_pattern_hints_enabled = _unwrap_typer_option_default(
+        codex_farm_pass1_pattern_hints_enabled
+    )
     codex_farm_pipeline_pass1 = _unwrap_typer_option_default(codex_farm_pipeline_pass1)
     codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
     codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
@@ -23214,6 +23333,9 @@ def stage(
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pass1_pattern_hints_enabled=bool(
+            codex_farm_pass1_pattern_hints_enabled
+        ),
         codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
@@ -24103,6 +24225,7 @@ def stage(
 
     stage_worker_backend_effective = "serial"
     stage_worker_resolution_messages: list[str] = []
+
     def _run_jobs() -> None:
         nonlocal stage_worker_backend_effective
         nonlocal stage_worker_resolution_messages
@@ -24158,32 +24281,45 @@ def stage(
             finally:
                 shutdown_executor(executor, wait=True, cancel_futures=False)
 
+    stage_live_status_slots = _effective_live_status_slots()
+
     try:
         _emit_stage_progress_snapshot(force=True)
         if _supports_live_status:
-            with console.status(_build_stage_progress_snapshot(), spinner="dots", refresh_per_second=4.0) as status:
-                stage_status_widget = status
-                stage_status_console = status.console
-                _emit_stage_progress_snapshot(force=True)
+            with _acquire_live_status_slot(stage_live_status_slots) as live_slot_acquired:
+                if live_slot_acquired:
+                    stage_live_console = _resolve_live_status_console(
+                        live_status_slots=stage_live_status_slots
+                    )
+                    with stage_live_console.status(
+                        _build_stage_progress_snapshot(),
+                        spinner="dots",
+                        refresh_per_second=4.0,
+                    ) as status:
+                        stage_status_widget = status
+                        stage_status_console = status.console
+                        _emit_stage_progress_snapshot(force=True)
 
-                def _tick() -> None:
-                    while not stop_event.wait(max(0.05, _STATUS_TICK_SECONDS)):
-                        now = time.monotonic()
-                        _emit_stage_progress_snapshot(now=now)
-                        _write_stage_timeseries(event="tick", now=now)
+                        def _tick() -> None:
+                            while not stop_event.wait(max(0.05, _STATUS_TICK_SECONDS)):
+                                now = time.monotonic()
+                                _emit_stage_progress_snapshot(now=now)
+                                _write_stage_timeseries(event="tick", now=now)
 
-                ticker = threading.Thread(
-                    target=_tick,
-                    name="stage-progress-ticker",
-                    daemon=True,
-                )
-                ticker.start()
+                        ticker = threading.Thread(
+                            target=_tick,
+                            name="stage-progress-ticker",
+                            daemon=True,
+                        )
+                        ticker.start()
 
-                try:
+                        try:
+                            _run_jobs()
+                        finally:
+                            stop_event.set()
+                            ticker.join(timeout=max(0.2, float(_STATUS_TICK_SECONDS) * 2))
+                else:
                     _run_jobs()
-                finally:
-                    stop_event.set()
-                    ticker.join(timeout=max(0.2, float(_STATUS_TICK_SECONDS) * 2))
         else:
             _run_jobs()
     finally:
@@ -25419,6 +25555,14 @@ def labelstudio_import(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     ),
+    codex_farm_pass1_pattern_hints_enabled: bool = typer.Option(
+        False,
+        "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
+        help=(
+            "Include deterministic pattern metadata hints in pass1 bundles "
+            "for advisory boundary context."
+        ),
+    ),
     codex_farm_pipeline_pass1: str = typer.Option(
         "recipe.chunking.v1",
         "--codex-farm-pipeline-pass1",
@@ -25483,6 +25627,9 @@ def labelstudio_import(
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
+    codex_farm_pass1_pattern_hints_enabled = _unwrap_typer_option_default(
+        codex_farm_pass1_pattern_hints_enabled
+    )
     codex_farm_pipeline_pass1 = _unwrap_typer_option_default(codex_farm_pipeline_pass1)
     codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
     codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
@@ -25574,6 +25721,9 @@ def labelstudio_import(
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
+                codex_farm_pass1_pattern_hints_enabled=bool(
+                    codex_farm_pass1_pattern_hints_enabled
+                ),
                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
@@ -26567,6 +26717,13 @@ def labelstudio_benchmark(
             "When omitted, codex-farm pipeline codex_cd_mode decides."
         ),
     )] = None,
+    codex_farm_pass1_pattern_hints_enabled: Annotated[bool, typer.Option(
+        "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
+        help=(
+            "Include deterministic pattern metadata hints in pass1 bundles "
+            "for advisory boundary context."
+        ),
+    )] = False,
     codex_farm_pipeline_pass1: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass1",
         help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
@@ -26786,6 +26943,9 @@ def labelstudio_benchmark(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_pass1_pattern_hints_enabled = bool(
+        codex_farm_pass1_pattern_hints_enabled
+    )
     selected_codex_farm_pass3_skip_pass2_ok = bool(codex_farm_pass3_skip_pass2_ok)
     selected_codex_farm_model = (
         str(codex_farm_model or "").strip() or None
@@ -26949,6 +27109,9 @@ def labelstudio_benchmark(
                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
+                codex_farm_pass1_pattern_hints_enabled=(
+                    selected_codex_farm_pass1_pattern_hints_enabled
+                ),
                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
@@ -27073,6 +27236,9 @@ def labelstudio_benchmark(
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                                 codex_farm_root=codex_farm_root,
                                 codex_farm_workspace_root=codex_farm_workspace_root,
+                                codex_farm_pass1_pattern_hints_enabled=(
+                                    selected_codex_farm_pass1_pattern_hints_enabled
+                                ),
                                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
@@ -27182,6 +27348,9 @@ def labelstudio_benchmark(
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                             codex_farm_root=codex_farm_root,
                             codex_farm_workspace_root=codex_farm_workspace_root,
+                            codex_farm_pass1_pattern_hints_enabled=(
+                                selected_codex_farm_pass1_pattern_hints_enabled
+                            ),
                             codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                             codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                             codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
@@ -27466,6 +27635,9 @@ def labelstudio_benchmark(
             "line_role_gated": bool(line_role_gated),
             "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
             "codex_farm_cmd": codex_farm_cmd,
+            "codex_farm_pass1_pattern_hints_enabled": (
+                selected_codex_farm_pass1_pattern_hints_enabled
+            ),
             "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
             "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
             "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
@@ -28137,6 +28309,9 @@ def labelstudio_benchmark(
         "line_role_gated": bool(line_role_gated),
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
+        "codex_farm_pass1_pattern_hints_enabled": (
+            selected_codex_farm_pass1_pattern_hints_enabled
+        ),
         "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
         "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
         "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,

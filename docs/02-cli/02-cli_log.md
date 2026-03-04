@@ -1406,3 +1406,17 @@ Verification evidence preserved from task:
 
 Anti-loop reminder:
 - Reintroducing manual profile-picking should be treated as an explicit behavior change with new regression evidence, not an ad-hoc tweak.
+
+### 2026-03-04_01.49.43 legacy EPUB extractor migration parity
+
+- Interactive config load path in `cookimport/cli.py::_load_settings()` now treats stored `epub_extractor=legacy` as an explicit migration to `beautifulsoup` (warning: migration), matching `RunSettings.from_dict(...)` behavior.
+- This removes misleading generic "stored value not supported" warnings for legacy configs and preserves backward compatibility semantics.
+- Added regression coverage in `tests/cli/test_c3imp_interactive_menu.py::test_load_settings_migrates_legacy_epub_extractor`.
+
+### 2026-03-04_01.56.50 EPUB extractor migration parity follow-up (`auto`)
+
+- Extended interactive `cookimport.json` migration parity in `cookimport/cli.py::_load_settings()`:
+  - `epub_extractor=legacy` => explicit migration warning + `beautifulsoup`.
+  - `epub_extractor=auto` => explicit removal warning + `unstructured`.
+- Keeps startup warning semantics aligned with `RunSettings.from_dict(...)` migration behavior.
+- Added regression coverage in `tests/cli/test_c3imp_interactive_menu.py::test_load_settings_migrates_auto_epub_extractor_to_unstructured`.

@@ -166,6 +166,7 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "llm_knowledge_pipeline",
         "llm_tags_pipeline",
         "codex_farm_cmd",
+        "codex_farm_pass1_pattern_hints_enabled",
         "codex_farm_pipeline_pass1",
         "codex_farm_pipeline_pass2",
         "codex_farm_pipeline_pass3",

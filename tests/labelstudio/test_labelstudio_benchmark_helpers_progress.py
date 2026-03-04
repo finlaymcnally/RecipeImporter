@@ -1,0 +1,954 @@
+from __future__ import annotations
+
+import tests.labelstudio.test_labelstudio_benchmark_helpers as _base
+
+# Reuse shared imports/helpers from the base benchmark helpers module.
+globals().update({
+    name: value
+    for name, value in _base.__dict__.items()
+    if not name.startswith("test_")
+    and not (name.startswith("__") and name.endswith("__"))
+})
+
+def test_format_status_progress_message_appends_elapsed_after_threshold() -> None:
+    assert (
+        cli._format_status_progress_message(
+            "Working on upload...",
+            elapsed_seconds=9,
+            elapsed_threshold_seconds=10,
+        )
+        == "Working on upload..."
+    )
+    assert (
+        cli._format_status_progress_message(
+            "Working on upload...",
+            elapsed_seconds=10,
+            elapsed_threshold_seconds=10,
+        )
+        == "Working on upload... (10s)"
+    )
+
+
+def test_format_status_progress_message_appends_eta_and_average() -> None:
+    assert (
+        cli._format_status_progress_message(
+            "Running freeform prelabeling... task 4/10",
+            elapsed_seconds=3,
+            elapsed_threshold_seconds=10,
+            eta_seconds=18,
+            avg_seconds_per_task=3.0,
+        )
+        == "Running freeform prelabeling... task 4/10 (eta 18s, avg 3s/task)"
+    )
+    assert (
+        cli._format_status_progress_message(
+            "Running freeform prelabeling... task 4/10",
+            elapsed_seconds=12,
+            elapsed_threshold_seconds=10,
+            eta_seconds=18,
+            avg_seconds_per_task=3.0,
+        )
+        == "Running freeform prelabeling... task 4/10 (eta 18s, avg 3s/task, 12s)"
+    )
+
+
+def test_format_status_progress_message_appends_eta_to_top_line_for_multiline_payload() -> None:
+    message = (
+        "overall source 3/7 | config 58/91\n"
+        "current source: AMatterOfTasteCUTDOWN.epub (13 of 15 configs; ok 13, fail 0)\n"
+        "task: scheduler heavy 0/2 | wing 1 | eval 0 | active 2 | pending 0"
+    )
+    assert cli._format_status_progress_message(
+        message,
+        elapsed_seconds=3,
+        elapsed_threshold_seconds=10,
+        eta_seconds=174,
+        avg_seconds_per_task=5.3,
+    ) == (
+        "overall source 3/7 | config 58/91 (eta 2m 54s, avg 5.3s/task)\n"
+        "current source: AMatterOfTasteCUTDOWN.epub (13 of 15 configs; ok 13, fail 0)\n"
+        "task: scheduler heavy 0/2 | wing 1 | eval 0 | active 2 | pending 0"
+    )
+
+
+def test_extract_progress_counter_uses_right_most_counter() -> None:
+    assert cli._extract_progress_counter("item 1/5 [book] task 3/12") == (3, 12)
+    dashboard_snapshot = (
+        "overall source 0/7 | config 0/91\n"
+        "current source: SeaAndSmokeCUTDOWN.epub (0 of 15 configs; ok 0, fail 0)\n"
+        "current config 4/15: extractor_unstructured__parser_v1__skiphf_true__pre_none\n"
+        "queue:\n"
+        "  [>] SeaAndSmokeCUTDOWN.epub - 0 of 15 (ok 0, fail 0)\n"
+        "task: overall source 0/7 | config 0/91 current config 4/15"
+    )
+    assert cli._extract_progress_counter(dashboard_snapshot) == (0, 91)
+    assert cli._extract_progress_counter("Phase done.") is None
+
+
+def test_extract_all_method_dashboard_metrics_from_task_line() -> None:
+    message = (
+        "overall source 5/7 | config 71/91\n"
+        "current source: saltfatacidheatCUTDOWN.epub (10 of 15 configs; ok 10, fail 0)\n"
+        "queue:\n"
+        "  [>] saltfatacidheatCUTDOWN.epub - 10 of 15 (ok 10, fail 0)\n"
+        "task: scheduler heavy 0/4 | wing 0 | eval 5 | active 5 | pending 0"
+    )
+    assert cli._extract_all_method_dashboard_metrics(message) == {
+        "wing": 0,
+        "eval": 5,
+        "active": 5,
+        "pending": 0,
+    }
+
+
+def test_recent_rate_average_seconds_per_task_uses_weighted_last_five_steps() -> None:
+    samples: deque[tuple[float, int]] = deque(
+        [
+            (8.0, 2),  # older: 4s/task, 4s/task
+            (6.0, 1),  # older: 6s/task
+            (9.0, 3),  # newest: 3s/task x3
+        ]
+    )
+    # Most recent five steps: 3,3,3,6,4 with weights 30/20/20/20/10.
+    expected = (3.0 * 0.30 + 3.0 * 0.20 + 3.0 * 0.20 + 6.0 * 0.20 + 4.0 * 0.10) / 1.0
+    assert cli._recent_rate_average_seconds_per_task(samples) == pytest.approx(expected)
+
+
+def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    def _snapshot(completed: int) -> str:
+        return (
+            f"overall source 1/1 | config {completed}/10\n"
+            "current source: thefoodlabCUTDOWN.epub (2 of 10 configs; ok 2, fail 0)\n"
+            "queue:\n"
+            "  [>] thefoodlabCUTDOWN.epub - 2 of 10 (ok 2, fail 0)\n"
+            "task: scheduler heavy 0/4 | wing 0 | eval 5 | active 5 | pending 0"
+        )
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(_snapshot(1))
+        time.sleep(0.08)
+        update_progress(_snapshot(2))
+        # Simulate a long eval tail with no additional completions.
+        time.sleep(1.6)
+        update_progress(_snapshot(2))
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    eta_seconds = [
+        int(match.group(1))
+        for message in capture.messages
+        if "overall source 1/1 | config 2/10" in message
+        for match in [re.search(r"eta (\d+)s", message)]
+        if match is not None
+    ]
+    assert eta_seconds, "Expected ETA on all-method progress line"
+    assert max(eta_seconds) >= 2
+
+
+def test_run_with_progress_status_defaults_to_plain_for_agent_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _GuardConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+
+        def status(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("Live status should not be used in agent env default mode.")
+
+    monkeypatch.setenv("CODEX_CI", "1")
+    monkeypatch.delenv("COOKIMPORT_PLAIN_PROGRESS", raising=False)
+    monkeypatch.setattr(cli, "console", _GuardConsole())
+    plain_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: plain_messages.append(str(message)),
+    )
+
+    def _run(update_progress):
+        update_progress("Quality suite task 1/2")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running bench quality suite...",
+        progress_prefix="Bench quality",
+        run=_run,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "Bench quality: Quality suite task 1/2" in message for message in plain_messages
+    )
+
+
+def test_run_with_progress_status_agent_plain_default_allows_explicit_live_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+
+        def __init__(self) -> None:
+            self.status_calls = 0
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.status_calls += 1
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setenv("CODEX_CI", "1")
+    monkeypatch.setenv("COOKIMPORT_PLAIN_PROGRESS", "0")
+    monkeypatch.setattr(cli, "console", capture)
+
+    def _run(update_progress):
+        update_progress("Quality suite task 1/2")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running bench quality suite...",
+        progress_prefix="Bench quality",
+        run=_run,
+        tick_seconds=0.05,
+    )
+
+    assert result == {"ok": True}
+    assert capture.status_calls == 1
+    assert any(
+        "Bench quality: Quality suite task 1/2" in message for message in capture.messages
+    )
+
+
+def test_run_with_progress_status_falls_back_to_plain_when_live_slots_are_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+
+        def __init__(self) -> None:
+            self.status_calls = 0
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.status_calls += 1
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+    monkeypatch.setenv("COOKIMPORT_PLAIN_PROGRESS", "0")
+    monkeypatch.setenv("COOKIMPORT_LIVE_STATUS_SLOTS", "1")
+    plain_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: plain_messages.append(str(message)),
+    )
+
+    release_first = threading.Event()
+    first_started = threading.Event()
+    first_result: dict[str, object] = {}
+    first_errors: list[Exception] = []
+
+    def _run_first(update_progress):
+        update_progress("Benchmark task 1/1")
+        first_started.set()
+        assert release_first.wait(timeout=2.0)
+        return {"ok": True}
+
+    def _invoke_first() -> None:
+        try:
+            first_result["value"] = cli._run_with_progress_status(
+                initial_status="Running benchmark...",
+                progress_prefix="Bench",
+                run=_run_first,
+                tick_seconds=0.05,
+                force_live_status=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            first_errors.append(exc)
+
+    first_thread = threading.Thread(target=_invoke_first, daemon=True)
+    first_thread.start()
+    assert first_started.wait(timeout=1.0)
+
+    second_result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Bench",
+        run=lambda update_progress: (
+            update_progress("Benchmark task 1/1") or {"ok": True}
+        ),
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    release_first.set()
+    first_thread.join(timeout=2.0)
+    assert not first_errors
+    assert first_result.get("value") == {"ok": True}
+    assert second_result == {"ok": True}
+    assert capture.status_calls == 1
+    assert any("Bench: Benchmark task 1/1" in message for message in plain_messages)
+
+
+def test_run_with_progress_status_shows_elapsed_for_long_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    recorded: list[str] = []
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Extracting candidate 46/46...")
+        time.sleep(1.2)
+        recorded.append("done")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=1,
+        tick_seconds=0.1,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert recorded == ["done"]
+    assert any(
+        "Import: Extracting candidate 46/46... (" in message and "s)" in message
+        for message in capture.messages
+    )
+
+
+def test_run_with_progress_status_shows_eta_for_xy_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Running freeform prelabeling... task 1/4")
+        time.sleep(0.12)
+        update_progress("Running freeform prelabeling... task 2/4")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "Import: Running freeform prelabeling... task 2/4 (eta " in message
+        and "avg " in message
+        and "s/task" in message
+        for message in capture.messages
+    )
+
+
+def test_run_with_progress_status_bootstraps_eta_when_first_counter_starts_above_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Benchmark import task 2/4")
+        time.sleep(1.2)
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("Benchmark: Benchmark import task 2/4 (eta " in message for message in capture.messages)
+
+
+def test_run_with_progress_status_writes_processing_timeseries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+    telemetry_path = tmp_path / "processing_timeseries.jsonl"
+
+    def _run(update_progress):
+        update_progress("Preparing task 1/2")
+        time.sleep(0.06)
+        update_progress("Preparing task 2/2")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        telemetry_path=telemetry_path,
+        telemetry_heartbeat_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert telemetry_path.exists()
+    rows = [
+        json.loads(line)
+        for line in telemetry_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows
+    assert rows[0]["event"] == "started"
+    assert rows[-1]["event"] == "finished"
+    assert any(row.get("task_current") == 2 for row in rows)
+    assert any("cpu_utilization_pct" in row for row in rows)
+
+
+def test_run_with_progress_status_renders_worker_activity_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("Running freeform prelabeling... task 1/4 (workers=2)")
+        update_progress(format_worker_activity(1, 2, "task 1/4 blocks 0-39"))
+        update_progress(format_worker_activity(2, 2, "task 2/4 blocks 40-79"))
+        update_progress("Running freeform prelabeling... task 2/4 (workers=2)")
+        update_progress(format_worker_activity_reset())
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "worker 01: task 1/4 blocks 0-39" in message
+        and "worker 02: task 2/4 blocks 40-79" in message
+        for message in capture.messages
+    )
+    assert "worker 01:" not in capture.messages[-1]
+
+
+def test_run_with_progress_status_clamps_live_box_width_to_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 72
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+
+    long_task = (
+        "r0011_urn_recipeimport_epub_"
+        "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c11.json"
+    )
+
+    def _run(update_progress):
+        update_progress(
+            "codex-farm recipe.final.v1 task 4/19 | running 8 | "
+            f"active [{long_task}]"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Benchmark import (SeaAndSmokeCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    borders = [
+        border
+        for message in capture.messages
+        for border in re.findall(r"\+[+-]+\+", message)
+    ]
+    assert borders
+    assert max(len(border) for border in borders) <= capture.width - 2
+
+
+def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 72
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+
+    long_task = (
+        "r0017_urn_recipeimport_epub_"
+        "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c11.json"
+    )
+
+    def _run(update_progress):
+        update_progress(
+            "codex-farm recipe.final.v1 task 1/4 | running 3 | "
+            f"active [{long_task}]"
+        )
+        time.sleep(0.8)
+        update_progress(
+            "codex-farm recipe.final.v1 task 2/4 | running 3 | "
+            f"active [{long_task}]"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Benchmark import (SeaAndSmokeCUTDOWN.epub)",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "Benchmark import" in message and "(eta " in message and "avg " in message
+        for message in capture.messages
+    )
+
+
+def test_run_with_progress_status_humanizes_codex_stage_in_live_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 86
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+
+    def _run(update_progress):
+        update_progress(
+            "codex-farm recipe.schemaorg.v1 task 2/9 | running 2 | "
+            "active [r0002.json, r0007.json]"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Benchmark import (SeaAndSmokeCUTDOWN.epub)",
+        run=_run,
+        elapsed_threshold_seconds=60,
+        tick_seconds=0.05,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("stage: pass2 schemaorg" in message for message in capture.messages)
+    assert any(
+        "codex-farm pass2 schemaorg" in message and "task" in message
+        for message in capture.messages
+    )
+    assert any("active tasks (2/2, 7 left)" in message for message in capture.messages)
+
+
+def test_all_method_dashboard_current_config_tracks_active_parallel_configs() -> None:
+    source = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy/book.epub"),
+        source_file_name="book.epub",
+        gold_display="dummy",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            dimensions={"epub_extractor": "unstructured"},
+        )
+        for _ in range(3)
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants([(source, variants)])
+    dashboard.start_source(0)
+    dashboard.start_config(
+        source_index=0,
+        config_index=1,
+        config_total=3,
+        config_slug="config-one",
+    )
+    dashboard.start_config(
+        source_index=0,
+        config_index=2,
+        config_total=3,
+        config_slug="config-two",
+    )
+    dashboard.set_config_phase(source_index=0, config_index=1, phase="split_active")
+    dashboard.set_config_phase(source_index=0, config_index=2, phase="evaluate")
+    render_parallel = dashboard.render()
+    assert "current configs 1-2/3 (2 active)" in render_parallel
+    assert "active config workers:" in render_parallel
+    assert "  config 01: split active | config-one" in render_parallel
+    assert "  config 02: evaluate | config-two" in render_parallel
+
+    dashboard.complete_config(source_index=0, success=True, config_index=1)
+    render_single_active = dashboard.render()
+    assert "current config 2/3: config-two" in render_single_active
+
+    dashboard.complete_config(source_index=0, success=True, config_index=2)
+    render_queued = dashboard.render()
+    assert "current config 3/3: <queued>" in render_queued
+
+    dashboard.start_config(
+        source_index=0,
+        config_index=3,
+        config_total=3,
+        config_slug="config-three",
+    )
+    dashboard.complete_config(source_index=0, success=True, config_index=3)
+    render_done = dashboard.render()
+    assert "current config " not in render_done
+
+
+def test_all_method_dashboard_renders_multiple_running_sources() -> None:
+    source_a = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy-a/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy-a/book-a.epub"),
+        source_file_name="book-a.epub",
+        gold_display="dummy-a",
+    )
+    source_b = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy-b/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy-b/book-b.epub"),
+        source_file_name="book-b.epub",
+        gold_display="dummy-b",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            dimensions={"epub_extractor": "unstructured"},
+        )
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants(
+        [
+            (source_a, variants),
+            (source_b, variants),
+        ]
+    )
+    dashboard.start_source(0)
+    dashboard.start_source(1)
+
+    rendered = dashboard.render()
+    assert "active sources: 2" in rendered
+    assert "  [>] book-a.epub" in rendered
+    assert "  [>] book-b.epub" in rendered
+
+
+def test_run_with_progress_status_escapes_dashboard_markers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress("queue:\n  [x] done row")
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("\\[x]" in message for message in capture.messages)
+

@@ -1637,6 +1637,7 @@ def generate_pred_run_artifacts(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
+    codex_farm_pass1_pattern_hints_enabled: bool = False,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
@@ -1736,6 +1737,10 @@ def generate_pred_run_artifacts(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_pass1_pattern_hints_enabled = _coerce_bool(
+        codex_farm_pass1_pattern_hints_enabled,
+        default=False,
+    )
     selected_codex_farm_pass3_skip_pass2_ok = _coerce_bool(
         codex_farm_pass3_skip_pass2_ok,
         default=True,
@@ -1812,6 +1817,9 @@ def generate_pred_run_artifacts(
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pass1_pattern_hints_enabled=(
+            selected_codex_farm_pass1_pattern_hints_enabled
+        ),
         codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
@@ -3313,6 +3321,7 @@ def run_labelstudio_import(
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
+    codex_farm_pass1_pattern_hints_enabled: bool = False,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
@@ -3418,6 +3427,7 @@ def run_labelstudio_import(
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
+        codex_farm_pass1_pattern_hints_enabled=codex_farm_pass1_pattern_hints_enabled,
         codex_farm_pipeline_pass1=codex_farm_pipeline_pass1,
         codex_farm_pipeline_pass2=codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=codex_farm_pipeline_pass3,

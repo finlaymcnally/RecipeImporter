@@ -131,6 +131,58 @@ Verification:
 - `. .venv/bin/activate && pytest -m slow --collect-only -q tests/llm`
   - collects policy + runner transport modules; stage seam module is excluded.
 
+## 2026-03-04_01.33.59 modular split pass for prelabel, step-linking, and bench CLI tests
+
+Problem captured:
+- Three large files still mixed distinct seams, slowing focused triage loops:
+  - `tests/labelstudio/test_labelstudio_prelabel.py` (prompt/span contracts mixed with codex CLI account/config/provider contracts),
+  - `tests/parsing/test_step_ingredient_linking.py` (core assignment logic mixed with semantic/fuzzy/collective matching),
+  - `tests/bench/test_bench.py` (bench helper/noise/cost tests mixed with speed/quality CLI wiring tests).
+
+Changes made:
+- Split prelabel tests into:
+  - `tests/labelstudio/test_labelstudio_prelabel.py` (17 tests, prompt/span/task contracts),
+  - `tests/labelstudio/test_labelstudio_prelabel_codex_cli.py` (19 tests, codex CLI contracts).
+- Split step ingredient linking tests into:
+  - `tests/parsing/test_step_ingredient_linking.py` (16 tests, core assignment/split heuristics),
+  - `tests/parsing/test_step_ingredient_linking_semantic.py` (15 tests, semantic/fuzzy/collective matching).
+- Split bench tests into:
+  - `tests/bench/test_bench.py` (11 tests, aggregate/noise/cost/offline-determinism helpers),
+  - `tests/bench/test_bench_speed_cli.py` (9 tests, speed discover/run/compare CLI wiring),
+  - `tests/bench/test_bench_quality_cli.py` (11 tests, quality discover/run/compare/leaderboard wiring).
+- Updated `tests/conftest.py` marker map for all four new files.
+
+Verification:
+- `. .venv/bin/activate && pytest --collect-only -q tests/labelstudio/test_labelstudio_prelabel.py tests/labelstudio/test_labelstudio_prelabel_codex_cli.py tests/parsing/test_step_ingredient_linking.py tests/parsing/test_step_ingredient_linking_semantic.py tests/bench/test_bench.py tests/bench/test_bench_speed_cli.py tests/bench/test_bench_quality_cli.py`
+  - collects `17 + 19 + 16 + 15 + 11 + 9 + 11`.
+- `. .venv/bin/activate && pytest tests/bench/test_bench.py::test_aggregate_metrics_empty tests/bench/test_bench_speed_cli.py::test_bench_speed_run_wires_runner tests/bench/test_bench_quality_cli.py::test_bench_quality_run_wires_runner tests/labelstudio/test_labelstudio_prelabel.py::test_prelabel_prompt_uses_file_templates tests/labelstudio/test_labelstudio_prelabel_codex_cli.py::test_codex_provider_retries_plain_codex_with_exec tests/parsing/test_step_ingredient_linking.py::test_split_language_allows_multi_step tests/parsing/test_step_ingredient_linking_semantic.py::test_synonym_green_onion_match`
+  - `7 passed, 1 warning in 2.17s`.
+- `. .venv/bin/activate && pytest -m 'bench and not slow' --collect-only -q tests/bench/test_bench.py tests/bench/test_bench_speed_cli.py tests/bench/test_bench_quality_cli.py`
+  - collects `11 + 9 + 11`.
+- `. .venv/bin/activate && pytest -m 'labelstudio and llm and not slow' --collect-only -q tests/labelstudio/test_labelstudio_prelabel.py tests/labelstudio/test_labelstudio_prelabel_codex_cli.py`
+  - collects `17 + 19`.
+
+## 2026-03-04_01.36.47 labelstudio benchmark-helper progress/status split
+
+Problem captured:
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py` still bundled progress/status/dashboard rendering contracts with general interactive/export flows.
+- This made it harder to run only live progress rendering tests when triaging all-method dashboard behavior.
+
+Changes made:
+- Moved progress/status/dashboard tests into:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py` (20 tests).
+- Kept remaining general flows in:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (55 tests).
+- Updated `tests/conftest.py` marker mapping for the new split file.
+
+Verification:
+- `. .venv/bin/activate && pytest --collect-only -q tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
+  - collects `55 + 20`.
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py::test_labelstudio_import_prints_processing_time tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py::test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta`
+  - `2 passed, 1 warning in 3.79s`.
+- `. .venv/bin/activate && pytest -m 'labelstudio and bench and not slow' --collect-only -q tests/labelstudio/test_labelstudio_benchmark_helpers.py tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
+  - collects `55 + 20`.
+
 ## Durable History (Still Relevant)
 
 ### 2026-02-22_22.58.41 - modular low-noise tests

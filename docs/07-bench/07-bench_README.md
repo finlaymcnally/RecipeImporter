@@ -28,7 +28,7 @@ Current scoring surfaces:
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`). Supports bounded task-level fanout via `--max-parallel-tasks` (auto mode when omitted: `min(total_tasks, cpu_count, 4)`) and crash-safe resume via `--resume-run-dir`. Use `--require-process-workers` to fail fast when stage/all-method internals cannot establish process workers.
 - Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run`. Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
-- Codex Farm pass3 selective-skip policy is now a run-settings lever (`codex_farm_pass3_skip_pass2_ok`, default `true`), so QualitySuite `run_settings_patch` experiments can optimize it without orchestrator/env changes.
+- Codex Farm routing levers are run-settings knobs (`codex_farm_pass3_skip_pass2_ok`, default `true`; `codex_farm_pass1_pattern_hints_enabled`, default `false`), so QualitySuite `run_settings_patch` experiments can optimize them without orchestrator/env toggles.
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
@@ -77,7 +77,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   `COOKIMPORT_BENCH_SINGLE_OFFLINE_WRITE_STARTER_PACK=1` (default `0`) so
   the default session contract can stay upload-bundle-first.
 
-Interactive benchmark flows (`single_offline`, `single_offline_all_matched`, `all_method`) stay offline and use canonical-text scoring.
+Interactive benchmark flows (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`) stay offline and use canonical-text scoring.
 `labelstudio-benchmark compare` evaluates named gates (`sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates) and writes timestamped reports under `data/golden/benchmark-vs-golden/comparisons/<timestamp>/`.
 
 Debug artifact mode checks in compare are resolved by metadata first and inferred from artifacts when metadata is absent. If the pipeline intent cannot be confirmed, the command emits explicit warnings in both CLI output and comparison artifacts and skips benchmark-only checks by design.
@@ -128,6 +128,7 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
+- interactive single-profile multi-book runs now request two live spinner slots (`COOKIMPORT_LIVE_STATUS_SLOTS=2` for that path) and automatically fall back to plain progress when slots are exhausted, preventing Rich live-display collisions.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
 - interactive `C3imp` benchmark menu runs force prune suppression, so menu-generated benchmark outputs are never auto-pruned.
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
@@ -873,7 +874,7 @@ Current-contract additions from this audit pack:
 
 ### 2026-02-28_03.04.14 qualitysuite profile save and cache boundaries
 - Source: `docs/understandings/2026-02-28_03.04.14-qualitysuite-profile-save-and-cache-boundaries.md`
-- Preferred profile path: `.history/preferred_run_settings.json` (repo-local default).
+- Interactive codex winner profile path: `.history/qualitysuite_winner_run_settings.json` (repo-local default).
 - Quality artifacts root: `data/golden/bench/quality/runs/<timestamp>/...` with leaderboard outputs under `leaderboards/<experiment_id>/<timestamp>/...`.
 - Cache reuse boundary remains evaluation-aligned (alignment/eval-signature cache); new config variants still re-run prediction/import.
 
@@ -898,8 +899,8 @@ The items below were merged from `docs/understandings` in timestamp order and fo
   - total: `6 * 11 * 13 + 1 * 11 * 1 = 869`.
 - Optional dependency presence changes sweep payload count (for that run: `pint` present; `pysbd`/`quantulum3` absent).
 
-### 2026-02-28_03.27.17 preferred-profile is a seed, not a one-config lock
-- Interactive `Run with preferred format` seeds base `RunSettings`; all-method variant expansion still runs.
+### 2026-02-28_03.27.17 top-tier profile is a seed, not a one-config lock
+- Interactive selected top-tier profile seeds base `RunSettings`; all-method variant expansion still runs.
 - Example mix `6` EPUB + `1` DOCX yields `79` configs (`78` EPUB variants + `1` DOCX variant), not `7`.
 
 ### 2026-02-28_03.30.47 quality-run helpfulness workflow for deterministic sweeps
