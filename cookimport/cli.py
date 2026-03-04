@@ -48,7 +48,6 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from cookimport.cli_ui.run_settings_flow import choose_run_settings
 from cookimport.config.last_run_store import (
-    save_last_run_settings,
     save_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import (
@@ -6051,14 +6050,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 warn_context="interactive global settings",
             )
             selected_run_settings = choose_run_settings(
-                kind="import",
                 global_defaults=global_run_settings,
                 output_dir=output_folder,
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
-                prompt_text=_prompt_text,
-                show_summary=False,
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -6091,7 +6087,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             else:
                 run_folder = stage(path=selection, **common_args)
 
-            save_last_run_settings("import", output_folder, selected_run_settings)
             typer.secho(f"\nOutputs written to: {run_folder}", fg=typer.colors.CYAN)
             continue
 
@@ -6531,14 +6526,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 warn_context="interactive benchmark global settings",
             )
             selected_benchmark_settings = choose_run_settings(
-                kind="benchmark",
                 global_defaults=benchmark_defaults,
                 output_dir=output_folder,
                 menu_select=_menu_select,
                 back_action=BACK_ACTION,
                 prompt_confirm=_prompt_confirm,
-                prompt_text=_prompt_text,
-                show_summary=False,
             )
             if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -6563,7 +6555,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             )
 
             if benchmark_mode == "single_offline":
-                completed = _interactive_single_offline_benchmark(
+                _interactive_single_offline_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
@@ -6571,15 +6563,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                     write_starter_pack=benchmark_write_single_offline_starter_pack,
                 )
-                if completed:
-                    save_last_run_settings(
-                        "benchmark", output_folder, selected_benchmark_settings
-                    )
             elif benchmark_mode in {
                 "single_offline_selected_matched",
                 "single_offline_all_matched",
             }:
-                completed = _interactive_single_profile_all_matched_benchmark(
+                _interactive_single_profile_all_matched_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
@@ -6589,86 +6577,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                         benchmark_mode == "single_offline_selected_matched"
                     ),
                 )
-                if completed:
-                    save_last_run_settings(
-                        "benchmark", output_folder, selected_benchmark_settings
-                    )
-            elif benchmark_mode == "all_method":
-                _interactive_all_method_benchmark(
-                    selected_benchmark_settings=selected_benchmark_settings,
-                    benchmark_eval_output=benchmark_eval_output,
-                    processed_output_root=output_folder,
-                    max_parallel_sources=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY,
-                        fallback=_all_method_default_parallel_sources_from_cpu(),
-                    ),
-                    max_inflight_pipelines=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_MAX_INFLIGHT_SETTING_KEY,
-                        fallback=ALL_METHOD_MAX_INFLIGHT_DEFAULT,
-                    ),
-                    max_concurrent_split_phases=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                        fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-                    ),
-                    max_eval_tail_pipelines=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY,
-                        fallback=_resolve_positive_int_setting(
-                            settings,
-                            key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                            fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-                        ),
-                    ),
-                    config_timeout_seconds=_resolve_non_negative_int_setting(
-                        settings,
-                        key=ALL_METHOD_CONFIG_TIMEOUT_SETTING_KEY,
-                        fallback=ALL_METHOD_CONFIG_TIMEOUT_SECONDS_DEFAULT,
-                    ),
-                    retry_failed_configs=_resolve_non_negative_int_setting(
-                        settings,
-                        key=ALL_METHOD_RETRY_FAILED_CONFIGS_SETTING_KEY,
-                        fallback=ALL_METHOD_RETRY_FAILED_CONFIGS_DEFAULT,
-                    ),
-                    scheduler_scope=_normalize_all_method_scheduler_scope(
-                        settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
-                    ),
-                    source_scheduling=_normalize_all_method_source_scheduling(
-                        settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY)
-                    ),
-                    source_shard_threshold_seconds=_resolve_positive_float_setting(
-                        settings,
-                        key=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_SETTING_KEY,
-                        fallback=ALL_METHOD_SOURCE_SHARD_THRESHOLD_SECONDS_DEFAULT,
-                    ),
-                    source_shard_max_parts=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_SETTING_KEY,
-                        fallback=ALL_METHOD_SOURCE_SHARD_MAX_PARTS_DEFAULT,
-                    ),
-                    source_shard_min_variants=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_SETTING_KEY,
-                        fallback=ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT,
-                    ),
-                    wing_backlog_target=_resolve_positive_int_setting(
-                        settings,
-                        key=ALL_METHOD_WING_BACKLOG_SETTING_KEY,
-                        fallback=_resolve_positive_int_setting(
-                            settings,
-                            key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                            fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-                        ),
-                    ),
-                    smart_scheduler=_coerce_bool_setting(
-                        settings.get(ALL_METHOD_SMART_SCHEDULER_SETTING_KEY),
-                        default=True,
-                    ),
-                )
-            # Legacy "all method benchmark" mode is intentionally not offered in the
-            # interactive menu anymore.
             continue
 
 
@@ -21758,6 +21666,7 @@ def _build_stage_run_summary_payload(
             "pass4_knowledge": run_config.get("codex_farm_pipeline_pass4_knowledge"),
             "pass5_tags": run_config.get("codex_farm_pipeline_pass5_tags"),
             "context_blocks": run_config.get("codex_farm_context_blocks"),
+            "pass3_skip_pass2_ok": run_config.get("codex_farm_pass3_skip_pass2_ok"),
             "knowledge_context_blocks": run_config.get("codex_farm_knowledge_context_blocks"),
         },
     }
@@ -22903,6 +22812,14 @@ def stage(
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
     ),
+    codex_farm_pass3_skip_pass2_ok: bool = typer.Option(
+        True,
+        "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
+        help=(
+            "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
+            "deterministically."
+        ),
+    ),
     codex_farm_knowledge_context_blocks: int = typer.Option(
         12,
         "--codex-farm-knowledge-context-blocks",
@@ -23035,6 +22952,9 @@ def stage(
         codex_farm_pipeline_pass5_tags
     )
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
+    codex_farm_pass3_skip_pass2_ok = _unwrap_typer_option_default(
+        codex_farm_pass3_skip_pass2_ok
+    )
     codex_farm_knowledge_context_blocks = _unwrap_typer_option_default(
         codex_farm_knowledge_context_blocks
     )
@@ -23300,6 +23220,7 @@ def stage(
         codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
         codex_farm_pipeline_pass5_tags=selected_codex_farm_pipeline_pass5_tags,
         codex_farm_context_blocks=codex_farm_context_blocks,
+        codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         tag_catalog_json=selected_tag_catalog_json,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -25519,6 +25440,14 @@ def labelstudio_import(
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
     ),
+    codex_farm_pass3_skip_pass2_ok: bool = typer.Option(
+        True,
+        "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
+        help=(
+            "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
+            "deterministically."
+        ),
+    ),
     codex_farm_failure_mode: str = typer.Option(
         "fail",
         "--codex-farm-failure-mode",
@@ -25558,6 +25487,9 @@ def labelstudio_import(
     codex_farm_pipeline_pass2 = _unwrap_typer_option_default(codex_farm_pipeline_pass2)
     codex_farm_pipeline_pass3 = _unwrap_typer_option_default(codex_farm_pipeline_pass3)
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
+    codex_farm_pass3_skip_pass2_ok = _unwrap_typer_option_default(
+        codex_farm_pass3_skip_pass2_ok
+    )
     codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
 
     _require_labelstudio_write_consent(allow_labelstudio_write)
@@ -25646,6 +25578,7 @@ def labelstudio_import(
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
+                codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_labelstudio_write=True,
             ),
@@ -26651,6 +26584,13 @@ def labelstudio_benchmark(
         min=0,
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
     )] = 30,
+    codex_farm_pass3_skip_pass2_ok: Annotated[bool, typer.Option(
+        "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
+        help=(
+            "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
+            "deterministically."
+        ),
+    )] = True,
     codex_farm_failure_mode: Annotated[str, typer.Option(
         "--codex-farm-failure-mode",
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
@@ -26846,6 +26786,7 @@ def labelstudio_benchmark(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
+    selected_codex_farm_pass3_skip_pass2_ok = bool(codex_farm_pass3_skip_pass2_ok)
     selected_codex_farm_model = (
         str(codex_farm_model or "").strip() or None
     )
@@ -27012,6 +26953,7 @@ def labelstudio_benchmark(
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
+                codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 all_epub=selected_source.suffix.lower() == ".epub",
@@ -27135,6 +27077,9 @@ def labelstudio_benchmark(
                                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                                 codex_farm_context_blocks=codex_farm_context_blocks,
+                                codex_farm_pass3_skip_pass2_ok=(
+                                    selected_codex_farm_pass3_skip_pass2_ok
+                                ),
                                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                                 processed_output_root=processed_output_dir,
@@ -27241,6 +27186,9 @@ def labelstudio_benchmark(
                             codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                             codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                             codex_farm_context_blocks=codex_farm_context_blocks,
+                            codex_farm_pass3_skip_pass2_ok=(
+                                selected_codex_farm_pass3_skip_pass2_ok
+                            ),
                             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
                             processed_output_root=processed_output_dir,
@@ -27522,6 +27470,7 @@ def labelstudio_benchmark(
             "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
             "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
             "codex_farm_context_blocks": codex_farm_context_blocks,
+            "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
             "codex_farm_failure_mode": selected_codex_farm_failure_mode,
             "stage_block_predictions_path": str(stage_predictions_path),
         }
@@ -28192,6 +28141,7 @@ def labelstudio_benchmark(
         "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
         "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
         "codex_farm_context_blocks": codex_farm_context_blocks,
+        "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
         "stage_block_predictions_path": str(stage_predictions_path),
     }

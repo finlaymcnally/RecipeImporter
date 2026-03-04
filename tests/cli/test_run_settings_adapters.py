@@ -34,6 +34,7 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
         p6_emit_metadata_debug=True,
         pdf_ocr_policy="always",
         pdf_column_gap_ratio=0.2,
+        codex_farm_pass3_skip_pass2_ok=False,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -68,6 +69,7 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_emit_metadata_debug"] is True
     assert kwargs["pdf_ocr_policy"] == "always"
     assert kwargs["pdf_column_gap_ratio"] == 0.2
+    assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
@@ -100,6 +102,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         codex_farm_recipe_mode="benchmark",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
+        codex_farm_pass3_skip_pass2_ok=False,
     )
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -141,3 +144,4 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"
+    assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False

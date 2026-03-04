@@ -32,6 +32,8 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_codex_farm_contracts.py": ("llm",),
     "test_codex_farm_knowledge_orchestrator.py": ("llm",),
     "test_codex_farm_orchestrator.py": ("llm",),
+    "test_codex_farm_orchestrator_runner_transport.py": ("llm",),
+    "test_codex_farm_orchestrator_stage_integration.py": ("llm",),
     "test_codex_farm_transport.py": ("llm",),
     "test_codex_bridge_projection_policy.py": ("bench",),
     "test_evidence_normalizer.py": ("llm",),
@@ -58,6 +60,9 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_knowledge_output_ingest.py": ("llm",),
     "test_knowledge_writer.py": ("llm",),
     "test_labelstudio_benchmark_helpers.py": ("labelstudio", "bench", "cli"),
+    "test_labelstudio_benchmark_helpers_eval_payload.py": ("labelstudio", "bench", "cli"),
+    "test_labelstudio_benchmark_helpers_scheduler.py": ("labelstudio", "bench", "cli"),
+    "test_labelstudio_benchmark_helpers_single_profile.py": ("labelstudio", "bench", "cli"),
     "test_labelstudio_export.py": ("labelstudio",),
     "test_labelstudio_freeform.py": ("labelstudio",),
     "test_labelstudio_import_naming.py": ("labelstudio",),
@@ -113,7 +118,6 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_tip_extraction.py": ("parsing",),
     "test_tip_recipe_notes.py": ("parsing",),
     "test_tip_writer.py": ("staging", "parsing"),
-    "test_toggle_editor.py": ("cli",),
     "test_progress_dashboard.py": ("core",),
     "test_unstructured_adapter.py": ("ingestion",),
     "test_webschema_importer.py": ("ingestion",),
@@ -123,7 +127,9 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
 _SLOW_FILES = {
     "test_cli_output_structure_slow.py",
     "test_codex_farm_orchestrator.py",
-    "test_labelstudio_benchmark_helpers.py",
+    "test_codex_farm_orchestrator_runner_transport.py",
+    "test_labelstudio_benchmark_helpers_eval_payload.py",
+    "test_labelstudio_benchmark_helpers_scheduler.py",
     "test_stats_dashboard_slow.py",
 }
 

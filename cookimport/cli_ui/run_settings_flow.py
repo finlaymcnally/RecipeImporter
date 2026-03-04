@@ -11,11 +11,9 @@ from cookimport.config.last_run_store import (
 )
 from cookimport.config.run_settings import RunSettings
 
-RunSettingsKind = Literal["import", "benchmark"]
 TopTierProfileKind = Literal["codexfarm", "vanilla"]
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
-PromptText = Callable[..., Any]
 _QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
     "epub_extractor": "unstructured",
     "epub_unstructured_html_parser_version": "v1",
@@ -172,20 +170,13 @@ def _choose_top_tier_profile(
 
 def choose_run_settings(
     *,
-    kind: RunSettingsKind,
     global_defaults: RunSettings,
     output_dir: Path,
     menu_select: MenuSelect,
     back_action: Any,
-    show_summary: bool = True,
     prompt_confirm: PromptConfirm | None = None,
-    prompt_text: PromptText | None = None,
 ) -> RunSettings | None:
     """Resolve one interactive top-tier run profile family."""
-
-    _ = kind
-    _ = show_summary
-    _ = prompt_text
 
     selected_profile = _choose_top_tier_profile(
         menu_select=menu_select,

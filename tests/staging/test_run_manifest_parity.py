@@ -102,6 +102,8 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
             "10",
             "--epub-extractor",
             "unstructured",
+            "--llm-recipe-pipeline",
+            "off",
         ],
     )
     assert stage_result.exit_code == 0
@@ -127,6 +129,7 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         ocr_device="auto",
         ocr_batch_size=1,
         warm_models=False,
+        llm_recipe_pipeline="off",
     )
     pred_run = Path(pred_result["run_root"])
 
@@ -169,6 +172,7 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "codex_farm_pipeline_pass4_knowledge",
         "codex_farm_pipeline_pass5_tags",
         "codex_farm_context_blocks",
+        "codex_farm_pass3_skip_pass2_ok",
         "codex_farm_knowledge_context_blocks",
         "tag_catalog_json",
         "codex_farm_failure_mode",

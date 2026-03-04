@@ -85,6 +85,7 @@ _SUMMARY_ORDER = (
     "codex_farm_cmd",
     "codex_farm_model",
     "codex_farm_reasoning_effort",
+    "codex_farm_pass1_pattern_hints_enabled",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
@@ -1042,6 +1043,18 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    codex_farm_pass1_pattern_hints_enabled: bool = Field(
+        default=False,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Farm Pass1 Pattern Hints",
+            order=136,
+            description=(
+                "Include deterministic pattern metadata hints in pass1 bundles "
+                "for advisory recipe-boundary context."
+            ),
+        ),
+    )
     codex_farm_pipeline_pass1: str = Field(
         default="recipe.chunking.v1",
         json_schema_extra=_ui_meta(
@@ -1563,6 +1576,7 @@ def build_run_settings(
     codex_farm_reasoning_effort: str | CodexReasoningEffort | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
+    codex_farm_pass1_pattern_hints_enabled: bool = False,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.v1",
@@ -1692,6 +1706,9 @@ def build_run_settings(
                 str(codex_farm_workspace_root)
                 if codex_farm_workspace_root is not None
                 else None
+            ),
+            "codex_farm_pass1_pattern_hints_enabled": bool(
+                codex_farm_pass1_pattern_hints_enabled
             ),
             "codex_farm_pipeline_pass1": (
                 str(codex_farm_pipeline_pass1).strip() or "recipe.chunking.v1"

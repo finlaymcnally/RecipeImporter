@@ -14,9 +14,7 @@ from prompt_toolkit.output import DummyOutput
 from cookimport import cli
 from cookimport.cli_ui import run_settings_flow
 from cookimport.config.last_run_store import (
-    load_preferred_run_settings,
     load_qualitysuite_winner_run_settings,
-    save_preferred_run_settings,
     save_qualitysuite_winner_run_settings,
 )
 from cookimport import entrypoint
@@ -248,7 +246,6 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
     )
 
     selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
@@ -256,9 +253,6 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
         ),
         back_action=object(),
         prompt_confirm=lambda *_args, **_kwargs: True,
-        prompt_text=lambda *_args, **_kwargs: pytest.fail(
-            "codex model prompt should not be shown"
-        ),
     )
 
     assert selected is not None
@@ -288,7 +282,6 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
     )
 
     selected = run_settings_flow.choose_run_settings(
-        kind="import",
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
@@ -329,7 +322,6 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
     )
 
     selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
@@ -367,7 +359,6 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     )
 
     selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
@@ -408,7 +399,6 @@ def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
         return kwargs.get("default")
 
     selected = run_settings_flow.choose_run_settings(
-        kind="benchmark",
         global_defaults=global_defaults,
         output_dir=tmp_path,
         menu_select=lambda *_args, **_kwargs: pytest.fail(
@@ -423,24 +413,6 @@ def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
     assert selected.llm_recipe_pipeline.value == "off"
     assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
-
-
-def test_preferred_run_settings_roundtrip(tmp_path) -> None:
-    output_dir = tmp_path / "output"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    preferred_settings = cli.RunSettings.from_dict(
-        {
-            "epub_extractor": "beautifulsoup",
-            "instruction_step_segmentation_policy": "off",
-        },
-        warn_context="test preferred roundtrip",
-    )
-
-    save_preferred_run_settings(output_dir, preferred_settings)
-    loaded = load_preferred_run_settings(output_dir)
-
-    assert loaded is not None
-    assert loaded.to_run_config_dict() == preferred_settings.to_run_config_dict()
 
 
 def test_qualitysuite_winner_run_settings_roundtrip(tmp_path) -> None:
@@ -494,7 +466,6 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
     monkeypatch.setattr(cli, "choose_run_settings", lambda **_kwargs: selected_settings)
-    monkeypatch.setattr(cli, "save_last_run_settings", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli, "stage", fake_stage)
 
     with pytest.raises(typer.Exit):

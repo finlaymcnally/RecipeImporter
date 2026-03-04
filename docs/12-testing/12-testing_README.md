@@ -46,6 +46,15 @@ Active layout exceptions and support assets:
 - Stats dashboard coverage is split into:
   - `tests/analytics/test_stats_dashboard.py` (fast renderer/schema/collector coverage),
   - `tests/analytics/test_stats_dashboard_slow.py` (browser pixel-overflow rerender harness).
+- Label Studio benchmark-helper coverage is split into:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (general interactive/export/discovery flows),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py` (benchmark eval/payload contracts),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py` (all-method scheduler internals),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py` (single-profile matched-book flows).
+- Codex orchestrator coverage is split into:
+  - `tests/llm/test_codex_farm_orchestrator.py` (orchestrator policy behavior),
+  - `tests/llm/test_codex_farm_orchestrator_runner_transport.py` (subprocess runner + CLI transport contracts),
+  - `tests/llm/test_codex_farm_orchestrator_stage_integration.py` (stage seam integration tests).
 - `tests/fixtures/*` holds fixture generators and binary fixture assets used by tests.
 - `tests/tagging_gold/*` holds tagging gold fixtures used by tagging tests.
 
@@ -84,6 +93,13 @@ Common run patterns:
 - `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_slow.py`
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard_slow.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
+- `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator.py`
+- `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator_runner_transport.py`
+- `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator_stage_integration.py`
 - `./scripts/test-suite.sh smoke`
 - `./scripts/test-suite.sh fast`
 - `./scripts/test-suite.sh domain <domain>`

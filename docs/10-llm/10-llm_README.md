@@ -128,10 +128,11 @@ Report/model plumbing:
 - Pass2-ok deterministic promotion now defaults to enabled and skips pass3 only
   when the utility signal is low-risk
   (`pass3_routing_reason=pass2_ok_high_confidence_deterministic`).
-- Override control is still env-driven:
-  - set `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=0|false|no|off` to force pass3
-    on pass2-ok rows,
-  - set truthy values (or leave unset) to keep selective skip behavior enabled.
+- Override control is settings-first with optional env override:
+  - `run_settings.codex_farm_pass3_skip_pass2_ok` (default `true`) controls pass2-ok
+    deterministic skip behavior,
+  - `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK` can still force behavior for a runtime
+    when explicitly set (`0|false|no|off` disables skip; truthy enables skip).
 - Manifest counts now include pass2-ok routing utility counters:
   `pass3_pass2_ok_utility_rows`, `pass3_pass2_ok_skip_candidates`,
   `pass3_pass2_ok_deterministic_skips`, `pass3_pass2_ok_llm_calls`.
@@ -632,7 +633,7 @@ Current LLM contracts added/confirmed:
   - `pass3_execution_mode`
   - `pass3_routing_reason`
 - Soft-degraded low-risk rows can deterministically promote without pass3 LLM calls while preserving existing pass status enums.
-- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts; pass2-ok skip is default-on with env opt-out via `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=0|false|no|off`.
+- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts; pass2-ok skip is default-on via run settings (`codex_farm_pass3_skip_pass2_ok=true`) with optional env override (`COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`).
 
 Validation/evidence highlights preserved from merged tasks:
 - `Pro3` merged verification transcript includes replayed SeaAndSmoke transport cases (`c0,c6,c7,c8,c9,c12`) with exact-match transport and zero outside-span fallback prompt joins.
@@ -704,8 +705,8 @@ Merged source note:
 
 Current LLM contracts reinforced:
 - Interactive top-tier profile selection controls pipeline/splitter settings (`llm_recipe_pipeline`, `line_role_pipeline`, `atomic_block_splitter`) through `RunSettings`.
-- Pass3 pass2-ok skip policy is not a persisted run-settings field; it remains orchestrator policy controlled by runtime env/default evaluation.
-- Effective pass3 skip behavior must be debugged in codex-farm orchestrator policy (`_pass3_skip_pass2_ok_enabled()`), not in profile resolver payloads.
+- Pass3 pass2-ok skip policy is a persisted run-settings field (`codex_farm_pass3_skip_pass2_ok`) and is now profile/QualitySuite-tunable.
+- Runtime env override remains available through `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK`.
 
 Anti-loop reminder:
-- If pass3 volume changes unexpectedly while profiles stay fixed, inspect env/default orchestrator policy before editing run-settings profiles.
+- If pass3 volume changes unexpectedly while profiles stay fixed, inspect both run settings and env override state before editing profile patches.

@@ -79,6 +79,58 @@ Verification:
 - `. .venv/bin/activate && pytest -m slow --collect-only -q`
   - collects only the four high-cost files listed above.
 
+## 2026-03-04_01.22.00 labelstudio benchmark-helper modular split (eval vs scheduler vs single-profile)
+
+Problem captured:
+- `tests/labelstudio/test_labelstudio_benchmark_helpers.py` still mixed large benchmark concerns in one file, making focused runs harder.
+- Fast triage needed explicit seams for:
+  - benchmark eval payload contract assertions,
+  - all-method scheduler internals,
+  - single-profile matched-book orchestration flows.
+
+Changes made:
+- Split tests into dedicated modules:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py` (26 tests),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py` (66 tests),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py` (7 tests).
+- Kept remaining general flows in `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (75 tests).
+- Updated `tests/conftest.py` marker mapping for all new files.
+- Re-scoped slow labeling to heavy benchmark-helper modules:
+  - `test_labelstudio_benchmark_helpers_eval_payload.py`
+  - `test_labelstudio_benchmark_helpers_scheduler.py`
+
+Verification:
+- `. .venv/bin/activate && pytest --collect-only -q tests/labelstudio/test_labelstudio_benchmark_helpers*.py`
+  - `75 + 26 + 66 + 7` tests collected across split modules.
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py::test_labelstudio_benchmark_direct_call_uses_real_defaults tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py::test_build_all_method_variants_non_epub_single_variant tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py::test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner`
+  - `3 passed, 1 warning in 2.19s`
+- `. .venv/bin/activate && pytest -m slow --collect-only -q tests/labelstudio`
+  - slow scope now isolates eval-payload + scheduler helper modules.
+
+## 2026-03-04_01.25.56 codex orchestrator modular split (policy vs runner transport vs stage seam)
+
+Problem captured:
+- `tests/llm/test_codex_farm_orchestrator.py` mixed three concerns in one module:
+  - orchestrator policy behavior,
+  - subprocess runner/transport contracts,
+  - stage seam integration.
+
+Changes made:
+- Split into dedicated modules:
+  - `tests/llm/test_codex_farm_orchestrator.py` (policy),
+  - `tests/llm/test_codex_farm_orchestrator_runner_transport.py` (runner transport),
+  - `tests/llm/test_codex_farm_orchestrator_stage_integration.py` (stage seam).
+- Updated `tests/conftest.py` marker map for new files.
+- Added runner-transport split module to `slow` slice; stage seam split module remains non-slow for focused fast checks.
+
+Verification:
+- `. .venv/bin/activate && pytest --collect-only -q tests/llm/test_codex_farm_orchestrator.py tests/llm/test_codex_farm_orchestrator_runner_transport.py tests/llm/test_codex_farm_orchestrator_stage_integration.py`
+  - `16 + 15 + 3` tests collected.
+- `. .venv/bin/activate && pytest tests/llm/test_codex_farm_orchestrator.py::test_orchestrator_gates_pass3_when_pass2_degraded_missing_instruction_evidence tests/llm/test_codex_farm_orchestrator_runner_transport.py::test_subprocess_runner_reports_missing_binary tests/llm/test_codex_farm_orchestrator_stage_integration.py::test_orchestrator_runs_three_passes_and_writes_manifest`
+  - `3 passed, 1 warning in 2.15s`.
+- `. .venv/bin/activate && pytest -m slow --collect-only -q tests/llm`
+  - collects policy + runner transport modules; stage seam module is excluded.
+
 ## Durable History (Still Relevant)
 
 ### 2026-02-22_22.58.41 - modular low-noise tests
