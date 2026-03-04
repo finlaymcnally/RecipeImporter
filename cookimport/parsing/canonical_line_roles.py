@@ -98,6 +98,12 @@ _FIRST_PERSON_RE = re.compile(
     r"\b(?:i|i'm|i'd|i've|my|me|we|we're|our)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_KNOWLEDGE_CUE_RE = re.compile(
+    r"\b(?:conduct heat|heat transfer|this means|which means|in other words|"
+    r"for example|for instance|as a rule|in general|rule of thumb|ratio|"
+    r"temperature|emulsion)\b",
+    re.IGNORECASE,
+)
 _CODEX_LOW_CONFIDENCE_THRESHOLD = 0.90
 
 
@@ -315,7 +321,13 @@ def _deterministic_label(
     ):
         if _looks_narrative_prose(candidate.text):
             return "OTHER", 0.74, ["outside_recipe_narrative"]
-        return "KNOWLEDGE", 0.9, ["outside_recipe_span", "prose_like"]
+        if _looks_explicit_knowledge_cue(candidate.text):
+            return "KNOWLEDGE", 0.9, [
+                "outside_recipe_span",
+                "prose_like",
+                "explicit_knowledge_cue",
+            ]
+        return "OTHER", 0.72, ["outside_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
         return "YIELD_LINE", 0.99, ["yield_prefix"]
     if "howto_heading" in tags:
@@ -341,7 +353,15 @@ def _deterministic_label(
         if _looks_recipe_title(candidate.text):
             return "RECIPE_TITLE", 0.79, ["title_like", "outside_recipe_span"]
         if _looks_prose(candidate.text):
-            return "KNOWLEDGE", 0.86, ["outside_recipe_span", "prose_like"]
+            if _looks_narrative_prose(candidate.text):
+                return "OTHER", 0.7, ["outside_recipe_narrative", "outside_recipe_span"]
+            if _looks_explicit_knowledge_cue(candidate.text):
+                return "KNOWLEDGE", 0.86, [
+                    "outside_recipe_span",
+                    "prose_like",
+                    "explicit_knowledge_cue",
+                ]
+            return "OTHER", 0.66, ["outside_recipe_span", "prose_default_other"]
         return "OTHER", 0.65, ["outside_recipe_span"]
     if "RECIPE_TITLE" in candidate.candidate_labels and _looks_recipe_title(candidate.text):
         return "RECIPE_TITLE", 0.8, ["title_like"]
@@ -750,6 +770,13 @@ def _looks_narrative_prose(text: str) -> bool:
     if any(lowered.startswith(prefix) for prefix in _NON_RECIPE_PROSE_PREFIXES):
         return True
     return bool(_FIRST_PERSON_RE.search(stripped) and not _RECIPE_CONTEXT_RE.search(stripped))
+
+
+def _looks_explicit_knowledge_cue(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    return bool(_EXPLICIT_KNOWLEDGE_CUE_RE.search(stripped))
 
 
 def _parse_codex_line_role_response(

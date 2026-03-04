@@ -96,6 +96,7 @@ UPLOAD_BUNDLE_FILE_NAMES = (
     UPLOAD_BUNDLE_INDEX_FILE_NAME,
     UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
 )
+UPLOAD_BUNDLE_DERIVED_DIR_NAME = "_upload_bundle_derived"
 STARTER_PACK_DIR_NAME = "starter_pack_v1"
 STARTER_PACK_README_FILE_NAME = "README.md"
 STARTER_PACK_TRIAGE_FILE_NAME = "01_recipe_triage.csv"
@@ -157,6 +158,10 @@ STARTER_PACK_TRIAGE_HEADER = (
     "pass1_clamped_block_loss_count",
     "pass1_clamped_block_loss_ratio",
     "pass2_degradation_reasons",
+    "pass2_degradation_severity",
+    "pass2_promotion_policy",
+    "pass3_execution_mode",
+    "pass3_routing_reason",
     "pass3_fallback_reason",
     "transport_mismatch",
     "transport_mismatch_reasons",
@@ -2250,6 +2255,18 @@ def _load_llm_manifest_recipe_diagnostics(
                 "pass2_degradation_reasons": _coerce_str_list(
                     recipe_payload.get("pass2_degradation_reasons")
                 ),
+                "pass2_degradation_severity": str(
+                    recipe_payload.get("pass2_degradation_severity") or ""
+                ).strip(),
+                "pass2_promotion_policy": str(
+                    recipe_payload.get("pass2_promotion_policy") or ""
+                ).strip(),
+                "pass3_execution_mode": str(
+                    recipe_payload.get("pass3_execution_mode") or ""
+                ).strip(),
+                "pass3_routing_reason": str(
+                    recipe_payload.get("pass3_routing_reason") or ""
+                ).strip(),
                 "pass3_fallback_reason": str(recipe_payload.get("pass3_fallback_reason") or "").strip(),
                 "transport_mismatch": _coerce_bool(transport_audit.get("mismatch")),
                 "transport_mismatch_reasons": _coerce_str_list(
@@ -3877,6 +3894,18 @@ def _build_pair_diagnostics(
             _normalize_warning_bucket_reason(reason)
             for reason in _coerce_str_list(manifest_diagnostics.get("pass2_degradation_reasons"))
         ]
+        pass2_degradation_severity = str(
+            manifest_diagnostics.get("pass2_degradation_severity") or ""
+        ).strip()
+        pass2_promotion_policy = str(
+            manifest_diagnostics.get("pass2_promotion_policy") or ""
+        ).strip()
+        pass3_execution_mode = str(
+            manifest_diagnostics.get("pass3_execution_mode") or ""
+        ).strip()
+        pass3_routing_reason = str(
+            manifest_diagnostics.get("pass3_routing_reason") or ""
+        ).strip()
         pass3_fallback_reason = str(manifest_diagnostics.get("pass3_fallback_reason") or "")
         transport_mismatch = _coerce_bool(manifest_diagnostics.get("transport_mismatch"))
         transport_mismatch_reasons = _coerce_str_list(
@@ -3939,6 +3968,10 @@ def _build_pair_diagnostics(
                 "pass1_clamped_block_loss_count": pass1_clamped_block_loss_count,
                 "pass1_clamped_block_loss_ratio": pass1_clamped_block_loss_ratio,
                 "pass2_degradation_reasons": pass2_degradation_reasons,
+                "pass2_degradation_severity": pass2_degradation_severity,
+                "pass2_promotion_policy": pass2_promotion_policy,
+                "pass3_execution_mode": pass3_execution_mode,
+                "pass3_routing_reason": pass3_routing_reason,
                 "pass3_fallback_reason": pass3_fallback_reason,
                 "transport_mismatch": transport_mismatch,
                 "transport_mismatch_reasons": transport_mismatch_reasons,
@@ -4413,13 +4446,19 @@ def _build_warning_and_trace_summary(
     pass1_status_counts: Counter[str] = Counter()
     pass2_status_counts: Counter[str] = Counter()
     pass3_status_counts: Counter[str] = Counter()
+    pass2_severity_counts: Counter[str] = Counter()
+    pass3_execution_mode_counts: Counter[str] = Counter()
     for row in recipe_triage_rows:
         pass1_status = str(row.get("pass1_status") or "").strip() or "missing"
         pass2_status = str(row.get("pass2_status") or "").strip() or "missing"
         pass3_status = str(row.get("pass3_status") or "").strip() or "missing"
+        pass2_severity = str(row.get("pass2_degradation_severity") or "").strip() or "missing"
+        pass3_execution_mode = str(row.get("pass3_execution_mode") or "").strip() or "missing"
         pass1_status_counts[pass1_status] += 1
         pass2_status_counts[pass2_status] += 1
         pass3_status_counts[pass3_status] += 1
+        pass2_severity_counts[pass2_severity] += 1
+        pass3_execution_mode_counts[pass3_execution_mode] += 1
     return {
         "warnings_by_pass": _counter_to_sorted_dict(warnings_by_pass),
         "warning_buckets": _counter_to_sorted_dict(warning_buckets),
@@ -4433,6 +4472,10 @@ def _build_warning_and_trace_summary(
             "pass2": _counter_to_sorted_dict(pass2_status_counts),
             "pass3": _counter_to_sorted_dict(pass3_status_counts),
         },
+        "pass2_degradation_severity_counts": _counter_to_sorted_dict(pass2_severity_counts),
+        "pass3_execution_mode_counts": _counter_to_sorted_dict(
+            pass3_execution_mode_counts
+        ),
         "outside_span_wrong_line_count": len(outside_span_trace_rows),
         "outside_span_trace_status_counts": _counter_to_sorted_dict(outside_span_trace_status_counts),
         "outside_span_warning_bucket_counts": _counter_to_sorted_dict(
@@ -4619,6 +4662,15 @@ def _bridge_anomaly_summary(row: dict[str, Any]) -> str:
     degradation_reasons = _serialize_pipe_list(_coerce_str_list(row.get("pass2_degradation_reasons")))
     if degradation_reasons:
         chunks.append(f"pass2_degradation_reasons={degradation_reasons}")
+    pass2_severity = str(row.get("pass2_degradation_severity") or "").strip()
+    if pass2_severity:
+        chunks.append(f"pass2_severity={pass2_severity}")
+    pass2_policy = str(row.get("pass2_promotion_policy") or "").strip()
+    if pass2_policy:
+        chunks.append(f"pass2_policy={pass2_policy}")
+    pass3_execution_mode = str(row.get("pass3_execution_mode") or "").strip()
+    if pass3_execution_mode:
+        chunks.append(f"pass3_mode={pass3_execution_mode}")
     if str(row.get("pass3_fallback_reason") or "").strip():
         chunks.append("pass3_fallback=true")
     if _coerce_bool(row.get("transport_mismatch")) is True:
@@ -4643,11 +4695,20 @@ def _warning_summary_for_recipe(row: dict[str, Any]) -> str:
     pass2_degradation_reasons = _serialize_pipe_list(_coerce_str_list(row.get("pass2_degradation_reasons")))
     if pass2_degradation_reasons:
         chunks.append(f"pass2_degradation: {pass2_degradation_reasons}")
+    pass2_severity = str(row.get("pass2_degradation_severity") or "").strip()
+    if pass2_severity:
+        chunks.append(f"pass2_severity: {pass2_severity}")
+    pass2_policy = str(row.get("pass2_promotion_policy") or "").strip()
+    if pass2_policy:
+        chunks.append(f"pass2_policy: {pass2_policy}")
     pass3_warning_count = int(_coerce_int(row.get("pass3_warning_count")) or 0)
     if pass3_warning_count > 0:
         chunks.append(
             f"pass3({pass3_warning_count}): {_serialize_pipe_list(_coerce_str_list(row.get('pass3_warning_buckets')))}"
         )
+    pass3_execution_mode = str(row.get("pass3_execution_mode") or "").strip()
+    if pass3_execution_mode:
+        chunks.append(f"pass3_mode: {pass3_execution_mode}")
     if str(row.get("pass3_fallback_reason") or "").strip():
         chunks.append("pass3_fallback: yes")
     return "; ".join(chunks) if chunks else "none"
@@ -4701,6 +4762,8 @@ def _build_selected_recipe_packets(
             "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
             "warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
             "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
+            "degradation_severity": str(row.get("pass2_degradation_severity") or ""),
+            "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
             "extracted_ingredient_count": int(
                 _coerce_int(row.get("pass2_extracted_ingredient_count")) or 0
             ),
@@ -4716,6 +4779,8 @@ def _build_selected_recipe_packets(
             "empty_mapping": bool(row.get("pass3_empty_mapping")),
             "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
             "warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
+            "execution_mode": str(row.get("pass3_execution_mode") or ""),
+            "routing_reason": str(row.get("pass3_routing_reason") or ""),
             "fallback_reason": str(row.get("pass3_fallback_reason") or ""),
         }
         transport_summary = {
@@ -4798,6 +4863,8 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                     f"status={packet.get('pass2_summary', {}).get('status')} "
                     f"input_block_count={packet.get('pass2_summary', {}).get('input_block_count')} "
                     f"warning_count={packet.get('pass2_summary', {}).get('warning_count')} "
+                    f"severity={packet.get('pass2_summary', {}).get('degradation_severity')} "
+                    f"policy={packet.get('pass2_summary', {}).get('promotion_policy')} "
                     "degradation_reasons="
                     f"{_serialize_pipe_list(packet.get('pass2_summary', {}).get('degradation_reasons') or []) or 'none'}"
                 ),
@@ -4805,6 +4872,8 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                     "- pass3: "
                     f"call_id={packet.get('pass3_summary', {}).get('call_id')} "
                     f"status={packet.get('pass3_summary', {}).get('status')} "
+                    f"mode={packet.get('pass3_summary', {}).get('execution_mode')} "
+                    f"route={packet.get('pass3_summary', {}).get('routing_reason')} "
                     f"mapping_count={packet.get('pass3_summary', {}).get('mapping_count')} "
                     f"empty_mapping={packet.get('pass3_summary', {}).get('empty_mapping')} "
                     "fallback="
@@ -5041,6 +5110,12 @@ def _write_starter_pack_v1(
                     "pass2_degradation_reasons": _serialize_pipe_list(
                         _coerce_str_list(row.get("pass2_degradation_reasons"))
                     ),
+                    "pass2_degradation_severity": str(
+                        row.get("pass2_degradation_severity") or ""
+                    ),
+                    "pass2_promotion_policy": str(row.get("pass2_promotion_policy") or ""),
+                    "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
+                    "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
                     "pass3_fallback_reason": str(row.get("pass3_fallback_reason") or ""),
                     "transport_mismatch": (
                         ""
@@ -5149,6 +5224,10 @@ def _write_starter_pack_v1(
                 row.get("pass1_clamped_block_loss_ratio")
             ),
             "pass2_degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
+            "pass2_degradation_severity": str(row.get("pass2_degradation_severity") or ""),
+            "pass2_promotion_policy": str(row.get("pass2_promotion_policy") or ""),
+            "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
+            "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
             "pass3_fallback_reason": str(row.get("pass3_fallback_reason") or ""),
             "transport_mismatch": _coerce_bool(row.get("transport_mismatch")),
             "transport_mismatch_reasons": _coerce_str_list(
@@ -6424,6 +6503,10 @@ def _upload_bundle_build_call_runtime_inventory(
         for row in enriched_rows
         if _coerce_float(row.get("cost_usd")) is not None
     ]
+    calls_with_cost = len(cost_values)
+    cost_coverage_ratio = (
+        round(calls_with_cost / len(enriched_rows), 6) if enriched_rows else 0.0
+    )
     by_pass: dict[str, dict[str, Any]] = {}
     pass_names = sorted(
         {
@@ -6453,9 +6536,11 @@ def _upload_bundle_build_call_runtime_inventory(
             for row in pass_rows
             if _coerce_float(row.get("cost_usd")) is not None
         ]
+        pass_calls_with_cost = len(pass_cost)
         by_pass[pass_name] = {
             "call_count": len(pass_rows),
             "calls_with_runtime": len(pass_duration),
+            "calls_with_cost": pass_calls_with_cost,
             "avg_duration_ms": (
                 round(sum(pass_duration) / len(pass_duration), 3)
                 if pass_duration
@@ -6464,6 +6549,9 @@ def _upload_bundle_build_call_runtime_inventory(
             "total_tokens": int(sum(pass_tokens)) if pass_tokens else None,
             "total_cost_usd": (
                 round(float(sum(pass_cost)), 8) if pass_cost else None
+            ),
+            "cost_coverage_ratio": (
+                round(pass_calls_with_cost / len(pass_rows), 6) if pass_rows else 0.0
             ),
         }
 
@@ -6496,6 +6584,7 @@ def _upload_bundle_build_call_runtime_inventory(
         "summary": {
             "call_count": len(enriched_rows),
             "calls_with_runtime": len(duration_values),
+            "calls_with_cost": calls_with_cost,
             "total_duration_ms": int(sum(duration_values)) if duration_values else None,
             "avg_duration_ms": (
                 round(sum(duration_values) / len(duration_values), 3)
@@ -6506,6 +6595,20 @@ def _upload_bundle_build_call_runtime_inventory(
             "total_cost_usd": (
                 round(float(sum(cost_values)), 8) if cost_values else None
             ),
+            "cost_coverage_ratio": cost_coverage_ratio,
+            "cost_signal": {
+                "available": calls_with_cost > 0,
+                "calls_with_cost": calls_with_cost,
+                "coverage_ratio": cost_coverage_ratio,
+                "unavailable_reason": (
+                    ""
+                    if calls_with_cost > 0
+                    else (
+                        "request telemetry does not include recognized cost fields "
+                        "(cost_usd/total_cost_usd/estimated_cost_usd)"
+                    )
+                ),
+            },
             "by_pass": by_pass,
         },
         "top_slowest_calls": top_slowest,
@@ -6880,6 +6983,10 @@ def _upload_bundle_build_stage_separated_comparison(
                 },
                 "pass2_stage": {
                     "status": str(row.get("pass2_status") or ""),
+                    "degradation_severity": str(
+                        row.get("pass2_degradation_severity") or ""
+                    ),
+                    "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
                     "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
                     "warning_buckets": _coerce_str_list(
                         row.get("pass2_warning_buckets")
@@ -6893,6 +7000,8 @@ def _upload_bundle_build_stage_separated_comparison(
                 },
                 "pass3_stage": {
                     "status": str(row.get("pass3_status") or ""),
+                    "execution_mode": str(row.get("pass3_execution_mode") or ""),
+                    "routing_reason": str(row.get("pass3_routing_reason") or ""),
                     "empty_mapping": bool(row.get("pass3_empty_mapping")),
                     "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
                     "warning_buckets": _coerce_str_list(
@@ -6910,6 +7019,14 @@ def _upload_bundle_build_stage_separated_comparison(
                     "pass1_status": str(row.get("pass1_status") or ""),
                     "pass2_status": str(row.get("pass2_status") or ""),
                     "pass3_status": str(row.get("pass3_status") or ""),
+                    "pass2_degradation_severity": str(
+                        row.get("pass2_degradation_severity") or ""
+                    ),
+                    "pass2_promotion_policy": str(
+                        row.get("pass2_promotion_policy") or ""
+                    ),
+                    "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
+                    "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
                 },
             }
         )
@@ -7008,7 +7125,7 @@ def _write_upload_bundle_three_files(
     run_dir_by_id = run_dir_by_id if isinstance(run_dir_by_id, dict) else {}
     advertised_counts = context.get("advertised_counts")
     advertised_counts = advertised_counts if isinstance(advertised_counts, dict) else {}
-    starter_pack_present = bool(context.get("starter_pack_present"))
+    starter_pack_physical_present = bool(context.get("starter_pack_present"))
     discovered_run_dirs = context.get("discovered_run_dirs")
     discovered_run_dirs = discovered_run_dirs if isinstance(discovered_run_dirs, list) else []
 
@@ -7117,6 +7234,150 @@ def _write_upload_bundle_three_files(
         and str(row.get("path") or "")
         and _coerce_int(row.get("payload_row")) is not None
     }
+    artifact_paths_by_basename: dict[str, list[str]] = defaultdict(list)
+    for artifact_path in artifact_row_lookup:
+        basename = artifact_path.rsplit("/", 1)[-1]
+        if basename:
+            artifact_paths_by_basename[basename].append(artifact_path)
+
+    def _best_locator_path(paths: list[str]) -> str | None:
+        if not paths:
+            return None
+        ranked = sorted(
+            paths,
+            key=lambda value: (
+                value.count("/"),
+                len(value),
+                value,
+            ),
+        )
+        return ranked[0]
+
+    def _rows_to_csv_text(
+        rows: list[dict[str, Any]],
+        *,
+        preferred_fieldnames: tuple[str, ...] = (),
+    ) -> str:
+        fieldnames: list[str] = []
+        seen: set[str] = set()
+        for name in preferred_fieldnames:
+            key = str(name or "")
+            if key and key not in seen:
+                seen.add(key)
+                fieldnames.append(key)
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key in row.keys():
+                key_text = str(key or "")
+                if key_text and key_text not in seen:
+                    seen.add(key_text)
+                    fieldnames.append(key_text)
+
+        if not fieldnames:
+            return ""
+
+        def _csv_value(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, ensure_ascii=False)
+            return str(value)
+
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            writer.writerow({field: _csv_value(row.get(field)) for field in fieldnames})
+        return buffer.getvalue()
+
+    def _append_virtual_payload_row(
+        *,
+        path: str,
+        content_type: str,
+        content_json: dict[str, Any] | None = None,
+        content_jsonl_rows: list[dict[str, Any]] | None = None,
+        content_text: str | None = None,
+    ) -> None:
+        relative_path = str(path or "").strip()
+        if not relative_path or relative_path in artifact_row_lookup:
+            return
+
+        payload_row_number = len(artifact_index) + 1
+        payload_row: dict[str, Any] = {
+            "path": relative_path,
+            "content_type": content_type,
+            "category": "derived_artifact",
+            "run_subdir": None,
+        }
+        parsed_mode = "base64"
+        raw_bytes = b""
+
+        if content_type == "json":
+            json_payload = content_json if isinstance(content_json, dict) else {}
+            raw_text = json.dumps(json_payload, ensure_ascii=False, sort_keys=True)
+            raw_bytes = raw_text.encode("utf-8")
+            payload_row["content_json"] = json_payload
+            parsed_mode = "json"
+        elif content_type == "jsonl":
+            rows_payload = (
+                [row for row in content_jsonl_rows if isinstance(row, dict)]
+                if isinstance(content_jsonl_rows, list)
+                else []
+            )
+            raw_text = "".join(
+                f"{json.dumps(row, ensure_ascii=False, sort_keys=True)}\n"
+                for row in rows_payload
+            )
+            raw_bytes = raw_text.encode("utf-8")
+            payload_row["content_jsonl_rows"] = rows_payload
+            parsed_mode = "jsonl"
+        elif content_type == "csv":
+            text_payload = str(content_text or "")
+            raw_bytes = text_payload.encode("utf-8")
+            payload_row["content_text"] = text_payload
+            payload_row["content_csv"] = _upload_bundle_parse_csv_text(text_payload)
+            parsed_mode = "csv_plus_text"
+        elif content_type in {"markdown", "text"}:
+            text_payload = str(content_text or "")
+            raw_bytes = text_payload.encode("utf-8")
+            payload_row["content_text"] = text_payload
+            parsed_mode = "utf8_text"
+        else:
+            base64_payload = base64.b64encode(str(content_text or "").encode("utf-8")).decode(
+                "ascii"
+            )
+            raw_bytes = base64.b64decode(base64_payload.encode("ascii"))
+            payload_row["content_base64"] = base64_payload
+            parsed_mode = "base64"
+
+        sha256 = hashlib.sha256(raw_bytes).hexdigest()
+        payload_row["bytes"] = len(raw_bytes)
+        payload_row["sha256"] = sha256
+        payload_row["parsed_mode"] = parsed_mode
+
+        with payload_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload_row, ensure_ascii=False))
+            handle.write("\n")
+
+        artifact_index.append(
+            {
+                "path": relative_path,
+                "payload_row": payload_row_number,
+                "content_type": content_type,
+                "category": "derived_artifact",
+                "run_subdir": None,
+                "bytes": len(raw_bytes),
+                "sha256": sha256,
+                "parsed_mode": parsed_mode,
+            }
+        )
+        artifact_row_lookup[relative_path] = payload_row_number
+        basename = relative_path.rsplit("/", 1)[-1]
+        if basename:
+            artifact_paths_by_basename[basename].append(relative_path)
 
     run_diagnostics: list[dict[str, Any]] = []
     for row in run_rows:
@@ -7225,6 +7486,162 @@ def _write_upload_bundle_three_files(
     changed_line_stratified = _upload_bundle_build_changed_line_stratified_sample(
         changed_line_rows
     )
+    derived_root_prefix = f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root"
+    derived_starter_prefix = f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{STARTER_PACK_DIR_NAME}"
+    derived_root_paths = {
+        "run_index_json": f"{derived_root_prefix}/run_index.json",
+        "comparison_summary_json": f"{derived_root_prefix}/comparison_summary.json",
+        "process_manifest_json": f"{derived_root_prefix}/process_manifest.json",
+        "changed_lines_jsonl": f"{derived_root_prefix}/{CHANGED_LINES_FILE_NAME}",
+        "per_recipe_breakdown_json": f"{derived_root_prefix}/{PER_RECIPE_BREAKDOWN_FILE_NAME}",
+        "targeted_prompt_cases_md": f"{derived_root_prefix}/{TARGETED_PROMPT_CASES_FILE_NAME}",
+        "label_policy_notes_md": f"{derived_root_prefix}/{LABEL_POLICY_NOTES_FILE_NAME}",
+    }
+    derived_starter_paths = {
+        "triage_csv": f"{derived_starter_prefix}/{STARTER_PACK_TRIAGE_FILE_NAME}",
+        "call_inventory_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_CALL_INVENTORY_FILE_NAME}",
+        "changed_lines_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}",
+        "warning_trace_summary_json": (
+            f"{derived_starter_prefix}/{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}"
+        ),
+        "bridge_summary_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME}",
+        "selected_packets_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_SELECTED_PACKETS_FILE_NAME}",
+        "casebook_md": f"{derived_starter_prefix}/{STARTER_PACK_CASEBOOK_FILE_NAME}",
+        "manifest_json": f"{derived_starter_prefix}/{STARTER_PACK_MANIFEST_FILE_NAME}",
+    }
+
+    sorted_recipe_triage_rows = sorted(
+        [row for row in recipe_triage_rows if isinstance(row, dict)],
+        key=lambda row: (
+            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
+            str(row.get("recipe_id") or ""),
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+        ),
+    )
+    derived_warning_trace_summary = _build_warning_and_trace_summary(
+        call_inventory_rows=call_inventory_rows,
+        recipe_triage_rows=recipe_triage_rows,
+        outside_span_trace_rows=[],
+    )
+    derived_bridge_summary_rows = [dict(row) for row in sorted_recipe_triage_rows]
+    derived_starter_manifest = (
+        dict(starter_manifest_payload)
+        if isinstance(starter_manifest_payload, dict) and starter_manifest_payload
+        else {
+            "schema_version": "starter_pack_manifest.derived.v1",
+            "generated_at": _timestamp_now(),
+            "source_dir": str(source_root),
+            "derived_from_upload_bundle": True,
+            "row_counts": {
+                "recipe_triage_rows": len(sorted_recipe_triage_rows),
+                "call_inventory_rows": len(call_inventory_rows),
+                "changed_lines_rows": len(changed_line_rows),
+                "selected_packets": len(selected_packets),
+            },
+        }
+    )
+
+    _append_virtual_payload_row(
+        path=derived_root_paths["run_index_json"],
+        content_type="json",
+        content_json={
+            "schema_version": "upload_bundle_derived_run_index.v1",
+            "runs": [dict(row) for row in run_rows if isinstance(row, dict)],
+        },
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["comparison_summary_json"],
+        content_type="json",
+        content_json={
+            "schema_version": "upload_bundle_derived_comparison_summary.v1",
+            "pairs": [dict(row) for row in comparison_pairs if isinstance(row, dict)],
+            "changed_lines_total": len(changed_line_rows),
+        },
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["process_manifest_json"],
+        content_type="json",
+        content_json=(
+            dict(process_manifest_payload)
+            if isinstance(process_manifest_payload, dict) and process_manifest_payload
+            else {
+                "schema_version": "upload_bundle_derived_process_manifest.v1",
+                "generated_at": _timestamp_now(),
+                "source_dir": str(source_root),
+                "upload_bundle_context_only": True,
+            }
+        ),
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["changed_lines_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[row for row in changed_line_rows if isinstance(row, dict)],
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["per_recipe_breakdown_json"],
+        content_type="json",
+        content_json={
+            "schema_version": "upload_bundle_derived_per_recipe_breakdown.v1",
+            "pair_breakdown_count": len(pair_breakdown_rows),
+            "pairs": [dict(row) for row in pair_breakdown_rows if isinstance(row, dict)],
+        },
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["targeted_prompt_cases_md"],
+        content_type="markdown",
+        content_text=_render_starter_pack_casebook(regression_casebook.get("packets") or []),
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["label_policy_notes_md"],
+        content_type="markdown",
+        content_text=_render_starter_pack_label_policy(),
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["triage_csv"],
+        content_type="csv",
+        content_text=_rows_to_csv_text(
+            sorted_recipe_triage_rows,
+            preferred_fieldnames=tuple(STARTER_PACK_TRIAGE_HEADER),
+        ),
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["call_inventory_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[row for row in call_inventory_rows if isinstance(row, dict)],
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["changed_lines_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[row for row in changed_line_rows if isinstance(row, dict)],
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["warning_trace_summary_json"],
+        content_type="json",
+        content_json=derived_warning_trace_summary,
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["bridge_summary_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=derived_bridge_summary_rows,
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["selected_packets_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[row for row in selected_packets if isinstance(row, dict)],
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["casebook_md"],
+        content_type="markdown",
+        content_text=_render_starter_pack_casebook(selected_packets),
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["manifest_json"],
+        content_type="json",
+        content_json=derived_starter_manifest,
+    )
+
     alias_metadata = _upload_bundle_build_alias_metadata(
         artifact_index=artifact_index,
         starter_manifest_payload=starter_manifest_payload,
@@ -7284,7 +7701,8 @@ def _write_upload_bundle_three_files(
     }
 
     self_check = {
-        "starter_pack_present": starter_pack_present,
+        "starter_pack_present": starter_pack_physical_present,
+        "starter_pack_physical_dir_present": starter_pack_physical_present,
         "run_count_verified": run_count_match,
         "pair_count_verified": pair_count_match,
         "changed_lines_verified": changed_lines_match,
@@ -7319,11 +7737,24 @@ def _write_upload_bundle_three_files(
         lowered = path.lower()
         return any(marker in lowered for marker in heavy_markers)
 
-    def _payload_locator(path: str) -> dict[str, Any] | None:
-        payload_row = artifact_row_lookup.get(path)
-        if payload_row is None:
-            return None
-        return {"path": path, "payload_row": int(payload_row)}
+    def _payload_locator(
+        *,
+        paths: tuple[str, ...] = (),
+        basenames: tuple[str, ...] = (),
+    ) -> dict[str, Any] | None:
+        for path in paths:
+            payload_row = artifact_row_lookup.get(path)
+            if payload_row is not None:
+                return {"path": path, "payload_row": int(payload_row)}
+        for basename in basenames:
+            candidate_paths = artifact_paths_by_basename.get(basename, [])
+            best_path = _best_locator_path(candidate_paths)
+            if best_path is None:
+                continue
+            payload_row = artifact_row_lookup.get(best_path)
+            if payload_row is not None:
+                return {"path": best_path, "payload_row": int(payload_row)}
+        return None
 
     heavy_artifact_locators = [
         {
@@ -7344,44 +7775,179 @@ def _write_upload_bundle_three_files(
         )
     )
 
+    per_run_summary_locators = [
+        {
+            "run_id": str(item.get("run_id") or ""),
+            "summary": _payload_locator(
+                paths=(
+                    str(item.get("need_to_know_summary_path") or ""),
+                    (
+                        f"{str(item.get('output_subdir') or '').strip()}/run_manifest.json"
+                        if str(item.get("output_subdir") or "").strip()
+                        else ""
+                    ),
+                    (
+                        f"{str(item.get('output_subdir') or '').strip()}/eval_report.json"
+                        if str(item.get("output_subdir") or "").strip()
+                        else ""
+                    ),
+                ),
+            ),
+        }
+        for item in run_diagnostics
+        if isinstance(item, dict) and str(item.get("need_to_know_summary_path") or "")
+    ]
+
     row_locators = {
         "root_files": {
-            "run_index_json": _payload_locator("run_index.json"),
-            "comparison_summary_json": _payload_locator("comparison_summary.json"),
-            "process_manifest_json": _payload_locator("process_manifest.json"),
-            "changed_lines_jsonl": _payload_locator(CHANGED_LINES_FILE_NAME),
-            "per_recipe_breakdown_json": _payload_locator(PER_RECIPE_BREAKDOWN_FILE_NAME),
-            "targeted_prompt_cases_md": _payload_locator(TARGETED_PROMPT_CASES_FILE_NAME),
-            "label_policy_notes_md": _payload_locator(LABEL_POLICY_NOTES_FILE_NAME),
+            "run_index_json": _payload_locator(
+                paths=("run_index.json", derived_root_paths["run_index_json"]),
+                basenames=("run_index.json",),
+            ),
+            "comparison_summary_json": _payload_locator(
+                paths=(
+                    "comparison_summary.json",
+                    "codex_vs_vanilla_comparison.json",
+                    derived_root_paths["comparison_summary_json"],
+                ),
+                basenames=("comparison_summary.json", "codex_vs_vanilla_comparison.json"),
+            ),
+            "process_manifest_json": _payload_locator(
+                paths=("process_manifest.json", derived_root_paths["process_manifest_json"]),
+                basenames=("process_manifest.json",),
+            ),
+            "changed_lines_jsonl": _payload_locator(
+                paths=(
+                    CHANGED_LINES_FILE_NAME,
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}",
+                    derived_root_paths["changed_lines_jsonl"],
+                    derived_starter_paths["changed_lines_jsonl"],
+                ),
+                basenames=(
+                    CHANGED_LINES_FILE_NAME.rsplit("/", 1)[-1],
+                    STARTER_PACK_CHANGED_LINES_FILE_NAME,
+                ),
+            ),
+            "per_recipe_breakdown_json": _payload_locator(
+                paths=(
+                    PER_RECIPE_BREAKDOWN_FILE_NAME,
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}",
+                    derived_root_paths["per_recipe_breakdown_json"],
+                ),
+                basenames=(
+                    PER_RECIPE_BREAKDOWN_FILE_NAME.rsplit("/", 1)[-1],
+                    STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
+                ),
+            ),
+            "targeted_prompt_cases_md": _payload_locator(
+                paths=(
+                    TARGETED_PROMPT_CASES_FILE_NAME,
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CASEBOOK_FILE_NAME}",
+                    derived_root_paths["targeted_prompt_cases_md"],
+                    derived_starter_paths["casebook_md"],
+                ),
+                basenames=(
+                    TARGETED_PROMPT_CASES_FILE_NAME.rsplit("/", 1)[-1],
+                    STARTER_PACK_CASEBOOK_FILE_NAME,
+                ),
+            ),
+            "label_policy_notes_md": _payload_locator(
+                paths=(
+                    LABEL_POLICY_NOTES_FILE_NAME,
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LABEL_POLICY_FILE_NAME}",
+                    derived_root_paths["label_policy_notes_md"],
+                ),
+                basenames=(
+                    LABEL_POLICY_NOTES_FILE_NAME.rsplit("/", 1)[-1],
+                    STARTER_PACK_LABEL_POLICY_FILE_NAME,
+                ),
+            ),
         },
         "starter_pack": {
             "triage_csv": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}",
+                    derived_starter_paths["triage_csv"],
+                )
             ),
             "call_inventory_jsonl": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CALL_INVENTORY_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CALL_INVENTORY_FILE_NAME}",
+                    derived_starter_paths["call_inventory_jsonl"],
+                )
             ),
             "changed_lines_jsonl": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}",
+                    derived_starter_paths["changed_lines_jsonl"],
+                )
             ),
             "warning_trace_summary_json": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}",
+                    derived_starter_paths["warning_trace_summary_json"],
+                )
             ),
             "bridge_summary_jsonl": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME}",
+                    derived_starter_paths["bridge_summary_jsonl"],
+                )
             ),
             "selected_packets_jsonl": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_SELECTED_PACKETS_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_SELECTED_PACKETS_FILE_NAME}",
+                    derived_starter_paths["selected_packets_jsonl"],
+                )
             ),
             "casebook_md": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CASEBOOK_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CASEBOOK_FILE_NAME}",
+                    derived_starter_paths["casebook_md"],
+                )
             ),
             "manifest_json": _payload_locator(
-                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}"
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}",
+                    derived_starter_paths["manifest_json"],
+                )
             ),
         },
+        "per_run_summaries": per_run_summary_locators,
         "deprioritized_heavy_artifacts": heavy_artifact_locators[:80],
     }
+
+    starter_pack_locators = row_locators.get("starter_pack")
+    starter_pack_locators = (
+        starter_pack_locators if isinstance(starter_pack_locators, dict) else {}
+    )
+    starter_pack_effective_present = any(
+        isinstance(value, dict) for value in starter_pack_locators.values()
+    )
+    self_check["starter_pack_present"] = starter_pack_effective_present
+
+    critical_root_locators = row_locators.get("root_files")
+    critical_root_locators = (
+        critical_root_locators if isinstance(critical_root_locators, dict) else {}
+    )
+    critical_locator_values: list[Any] = list(critical_root_locators.values())
+    per_run_locator_rows = row_locators.get("per_run_summaries")
+    if isinstance(per_run_locator_rows, list):
+        for row in per_run_locator_rows:
+            if not isinstance(row, dict):
+                continue
+            critical_locator_values.append(row.get("summary"))
+    critical_row_locator_total = len(critical_locator_values)
+    critical_row_locator_populated = sum(
+        1 for value in critical_locator_values if isinstance(value, dict)
+    )
+    self_check["critical_row_locators_populated"] = critical_row_locator_populated
+    self_check["critical_row_locators_total"] = critical_row_locator_total
+    self_check["critical_row_locators_coverage_ratio"] = (
+        round(critical_row_locator_populated / critical_row_locator_total, 6)
+        if critical_row_locator_total > 0
+        else 0.0
+    )
 
     pair_inventory = []
     for pair in comparison_pairs:
@@ -7463,6 +8029,7 @@ def _write_upload_bundle_three_files(
                 "README.md",
                 "run_index.json",
                 "comparison_summary.json",
+                "codex_vs_vanilla_comparison.json",
                 "process_manifest.json",
                 CHANGED_LINES_FILE_NAME,
                 PER_RECIPE_BREAKDOWN_FILE_NAME,
@@ -7549,6 +8116,10 @@ def _write_upload_bundle_three_files(
                 f"{'true' if self_check['starter_pack_present'] else 'false'}"
             ),
             (
+                "- starter_pack_physical_dir_present: "
+                f"{'true' if self_check['starter_pack_physical_dir_present'] else 'false'}"
+            ),
+            (
                 "- pair_count_verified: "
                 f"{'true' if self_check['pair_count_verified'] else 'false'}"
             ),
@@ -7576,6 +8147,43 @@ def _write_upload_bundle_three_files(
             "- changed-lines stratified sample",
             "- call inventory with latency/tokens/cost",
             "- line-role confidence (and candidate-label signal when present)",
+            "",
+        ]
+    )
+
+    cost_signal = (
+        call_runtime_inventory.get("summary")
+        if isinstance(call_runtime_inventory.get("summary"), dict)
+        else {}
+    )
+    cost_signal = cost_signal.get("cost_signal") if isinstance(cost_signal, dict) else {}
+    cost_signal = cost_signal if isinstance(cost_signal, dict) else {}
+    candidate_signal = (
+        line_role_signal_summary.get("candidate_label_signal")
+        if isinstance(line_role_signal_summary, dict)
+        else {}
+    )
+    candidate_signal = candidate_signal if isinstance(candidate_signal, dict) else {}
+    overview_lines.extend(
+        [
+            "## Availability Notes",
+            "",
+            (
+                "- call_cost_available: "
+                f"{'true' if bool(cost_signal.get('available')) else 'false'}"
+            ),
+            (
+                "- call_cost_coverage_ratio: "
+                f"{_serialize_float(_coerce_float(cost_signal.get('coverage_ratio')))}"
+            ),
+            (
+                "- line_role_candidate_labels_available: "
+                f"{'true' if bool(candidate_signal.get('available')) else 'false'}"
+            ),
+            (
+                "- critical_row_locator_coverage_ratio: "
+                f"{_serialize_float(_coerce_float(self_check.get('critical_row_locators_coverage_ratio')))}"
+            ),
             "",
         ]
     )

@@ -90,6 +90,10 @@ class _RecipeState:
     pass3_fallback_reason: str | None = None
     pass2_output: Pass2SchemaOrgOutput | None = None
     pass2_degradation_reasons: list[str] = field(default_factory=list)
+    pass2_degradation_severity: str | None = None
+    pass2_promotion_policy: str | None = None
+    pass3_execution_mode: str | None = None
+    pass3_routing_reason: str | None = None
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -178,11 +182,15 @@ def run_codex_farm_recipe_pipeline(
                 "recipes_total": 0,
                 "pass1_inputs": 0,
                 "pass2_inputs": 0,
+                "pass2_degraded_soft": 0,
+                "pass2_degraded_hard": 0,
                 "pass3_inputs": 0,
                 "transport_audits": 0,
                 "transport_mismatches": 0,
                 "evidence_normalization_logs": 0,
                 "pass3_fallback": 0,
+                "pass3_execution_mode_llm": 0,
+                "pass3_execution_mode_deterministic": 0,
             },
             "timing": {"pass1_seconds": 0.0, "pass2_seconds": 0.0, "pass3_seconds": 0.0},
             "paths": _paths_payload(
@@ -351,9 +359,12 @@ def run_codex_farm_recipe_pipeline(
         )
         if transport_audit["mismatch"]:
             state.pass2_status = "error"
+            state.pass2_promotion_policy = "pass2_error"
             if run_settings.codex_farm_failure_mode.value == "fallback":
                 state.pass3_status = "fallback"
                 state.pass3_fallback_reason = "transport_invariant_failed"
+                state.pass3_execution_mode = "deterministic"
+                state.pass3_routing_reason = "transport_invariant_failed"
             state.errors.append(
                 "transport_invariant_failed: pass1/pass2 effective selection diverged from pass2 payload."
             )
@@ -370,6 +381,7 @@ def run_codex_farm_recipe_pipeline(
         state.canonical_text = canonical_text
         if not canonical_text:
             state.pass2_status = "error"
+            state.pass2_promotion_policy = "pass2_error"
             state.errors.append("pass2 input empty after pass1 boundary/exclusion application.")
             continue
         normalization_payload = normalize_pass2_evidence(included_blocks)
@@ -432,12 +444,14 @@ def run_codex_farm_recipe_pipeline(
         out_path = pass2_out_dir / state.bundle_name
         if not out_path.exists():
             state.pass2_status = "error"
+            state.pass2_promotion_policy = "pass2_error"
             state.errors.append("missing pass2 output bundle.")
             continue
         try:
             output = load_contract_json(out_path, Pass2SchemaOrgOutput)
         except Exception as exc:  # noqa: BLE001
             state.pass2_status = "error"
+            state.pass2_promotion_policy = "pass2_error"
             state.errors.append(f"invalid pass2 output: {exc}")
             continue
         state.pass2_output = output
@@ -454,26 +468,88 @@ def run_codex_farm_recipe_pipeline(
         state.pass2_degradation_reasons = pass2_degradation_reasons
         if pass2_degradation_reasons:
             state.pass2_status = "degraded"
+            state.pass2_degradation_severity = _pass2_degradation_severity(
+                pass2_degradation_reasons
+            )
             state.warnings.extend(
                 f"pass2 degraded: {reason}" for reason in pass2_degradation_reasons
             )
-            state.pass3_status = "fallback"
-            state.pass3_fallback_reason = (
-                "pass2 degraded: " + "; ".join(pass2_degradation_reasons)
-            )
-            state.warnings.append(
-                _recipe_scoped_failure_mode_note(
-                    mode=run_settings.codex_farm_failure_mode.value,
-                    reason="pass2 degraded",
+            if state.pass2_degradation_severity == "hard":
+                state.pass2_promotion_policy = "hard_fallback"
+                state.pass3_status = "fallback"
+                state.pass3_fallback_reason = (
+                    "pass2 degraded: " + "; ".join(pass2_degradation_reasons)
                 )
-            )
+                state.pass3_execution_mode = "deterministic"
+                state.pass3_routing_reason = "pass2_hard_degradation_forced_fallback"
+                state.warnings.append(
+                    _recipe_scoped_failure_mode_note(
+                        mode=run_settings.codex_farm_failure_mode.value,
+                        reason="pass2 degraded",
+                    )
+                )
+            else:
+                state.pass2_promotion_policy = "soft_degradation_selective_pass3"
         else:
             state.pass2_status = "ok"
+            state.pass2_degradation_severity = "none"
+            state.pass2_promotion_policy = "pass2_ok"
         intermediate_overrides[state.recipe_id] = dict(output.schemaorg_recipe)
 
     # Pass 3
-    pass3_states = [state for state in states if state.pass2_status == "ok" and state.pass2_output]
-    for state in pass3_states:
+    pass3_llm_states: list[_RecipeState] = []
+    pass3_deterministic_states: list[_RecipeState] = []
+    for state in states:
+        if state.pass2_output is None:
+            continue
+        if state.pass3_status in {"error", "fallback"}:
+            continue
+        should_run_pass3, routing_reason = _should_run_pass3_llm(state=state)
+        state.pass3_routing_reason = routing_reason
+        if should_run_pass3:
+            state.pass3_execution_mode = "llm"
+            if state.pass2_status == "degraded":
+                state.pass2_promotion_policy = "soft_degradation_llm_pass3"
+            elif state.pass2_status == "ok":
+                state.pass2_promotion_policy = "pass2_ok_llm_pass3"
+            pass3_llm_states.append(state)
+        else:
+            state.pass3_execution_mode = "deterministic"
+            if (
+                state.pass2_status == "degraded"
+                and state.pass2_degradation_severity == "soft"
+            ):
+                state.pass2_promotion_policy = (
+                    "soft_degradation_deterministic_promotion"
+                )
+            pass3_deterministic_states.append(state)
+
+    for state in pass3_deterministic_states:
+        fallback_payload = _build_pass3_deterministic_fallback_payload(state=state)
+        if fallback_payload is None:
+            state.pass3_status = "error"
+            state.errors.append("pass3 deterministic promotion draft_v1 could not be generated.")
+            continue
+        try:
+            fallback_model = RecipeDraftV1.model_validate(fallback_payload)
+        except Exception as exc:  # noqa: BLE001
+            state.pass3_status = "error"
+            state.errors.append(
+                f"pass3 deterministic promotion draft_v1 validation failed: {exc}"
+            )
+            continue
+        state.pass3_status = "ok"
+        state.warnings.append(
+            "pass3 skipped; deterministic promotion applied "
+            f"({state.pass3_routing_reason or 'deterministic_path'})."
+        )
+        final_overrides[state.recipe_id] = fallback_model.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
+
+    for state in pass3_llm_states:
         assert state.pass2_output is not None
         pass3_input = Pass3FinalDraftInput(
             recipe_id=state.recipe_id,
@@ -503,7 +579,7 @@ def run_codex_farm_recipe_pipeline(
         if pass3_payload is not None:
             process_runs["pass3"] = pass3_payload
         pass_timing["pass3_seconds"] = round(time.perf_counter() - pass3_started, 3)
-    for state in pass3_states:
+    for state in pass3_llm_states:
         out_path = pass3_out_dir / state.bundle_name
         pass3_error: str | None = None
         pass3_warnings: list[str] = []
@@ -568,6 +644,7 @@ def run_codex_farm_recipe_pipeline(
             if pass3_error:
                 state.errors.append(pass3_error)
             state.pass3_status = "fallback"
+            state.pass3_execution_mode = "llm_then_deterministic_fallback"
             state.pass3_fallback_reason = pass3_error
             state.warnings.extend(pass3_warnings)
             state.warnings.append(
@@ -603,6 +680,8 @@ def run_codex_farm_recipe_pipeline(
             state.pass3_status = "error"
             state.errors.append(f"pass3 fallback draft_v1 validation failed: {exc}")
             continue
+        if not state.pass3_execution_mode:
+            state.pass3_execution_mode = "deterministic"
         final_overrides[state.recipe_id] = fallback_model.model_dump(
             mode="json",
             by_alias=True,
@@ -735,6 +814,14 @@ def _build_llm_manifest(
             row["evidence_normalization"] = dict(normalization_row)
         if state.pass2_degradation_reasons:
             row["pass2_degradation_reasons"] = list(state.pass2_degradation_reasons)
+        if state.pass2_degradation_severity:
+            row["pass2_degradation_severity"] = state.pass2_degradation_severity
+        if state.pass2_promotion_policy:
+            row["pass2_promotion_policy"] = state.pass2_promotion_policy
+        if state.pass3_execution_mode:
+            row["pass3_execution_mode"] = state.pass3_execution_mode
+        if state.pass3_routing_reason:
+            row["pass3_routing_reason"] = state.pass3_routing_reason
         if state.pass3_fallback_reason:
             row["pass3_fallback_reason"] = state.pass3_fallback_reason
         if isinstance(state.pass1_span_loss_metrics, dict):
@@ -756,11 +843,31 @@ def _build_llm_manifest(
         "pass2_inputs": len(list(pass2_in_dir.glob("*.json"))),
         "pass2_ok": sum(1 for state in states if state.pass2_status == "ok"),
         "pass2_degraded": sum(1 for state in states if state.pass2_status == "degraded"),
+        "pass2_degraded_soft": sum(
+            1
+            for state in states
+            if state.pass2_status == "degraded"
+            and state.pass2_degradation_severity == "soft"
+        ),
+        "pass2_degraded_hard": sum(
+            1
+            for state in states
+            if state.pass2_status == "degraded"
+            and state.pass2_degradation_severity == "hard"
+        ),
         "pass2_errors": sum(1 for state in states if state.pass2_status == "error"),
         "pass3_inputs": len(list(pass3_in_dir.glob("*.json"))),
         "pass3_ok": sum(1 for state in states if state.pass3_status == "ok"),
         "pass3_fallback": sum(1 for state in states if state.pass3_status == "fallback"),
         "pass3_errors": sum(1 for state in states if state.pass3_status == "error"),
+        "pass3_execution_mode_llm": sum(
+            1
+            for state in states
+            if state.pass3_execution_mode in {"llm", "llm_then_deterministic_fallback"}
+        ),
+        "pass3_execution_mode_deterministic": sum(
+            1 for state in states if state.pass3_execution_mode == "deterministic"
+        ),
         "transport_audits": len(transport_audits),
         "transport_mismatches": len(mismatch_recipe_ids),
         "evidence_normalization_logs": len(evidence_normalizations),
@@ -1415,6 +1522,9 @@ _PASS2_DEGRADING_WARNING_BUCKETS = {
     "ingredient_fragment",
     "page_or_layout_artifact",
 }
+_PASS2_SOFT_DEGRADATION_REASONS = {
+    "warning_bucket:page_or_layout_artifact",
+}
 
 
 def _normalized_nonempty_texts(values: list[str]) -> list[str]:
@@ -1501,6 +1611,54 @@ def _pass2_degradation_reasons(
         if bucket in _PASS2_DEGRADING_WARNING_BUCKETS:
             reasons.append(f"warning_bucket:{bucket}")
     return reasons
+
+
+def _pass2_degradation_severity(reasons: list[str]) -> str:
+    normalized = [str(reason).strip() for reason in reasons if str(reason).strip()]
+    if not normalized:
+        return "none"
+    if all(reason in _PASS2_SOFT_DEGRADATION_REASONS for reason in normalized):
+        return "soft"
+    return "hard"
+
+
+def _has_non_placeholder_pass2_instructions(output: Pass2SchemaOrgOutput) -> bool:
+    for instruction in output.extracted_instructions:
+        text = str(instruction).strip()
+        if text and not _is_placeholder_instruction(text):
+            return True
+    return False
+
+
+def _is_soft_degradation_low_risk_for_deterministic(
+    output: Pass2SchemaOrgOutput,
+) -> bool:
+    if not _has_non_placeholder_pass2_instructions(output):
+        return False
+    ingredient_count = sum(
+        1 for item in output.extracted_ingredients if str(item).strip()
+    )
+    if ingredient_count > 0:
+        return True
+    schema_name = str(output.schemaorg_recipe.get("name") or "").strip()
+    return bool(schema_name)
+
+
+def _should_run_pass3_llm(*, state: _RecipeState) -> tuple[bool, str]:
+    if state.pass2_output is None:
+        return False, "pass2_output_missing"
+    if state.pass2_status == "ok":
+        return True, "pass2_ok"
+    if state.pass2_status != "degraded":
+        return False, "pass2_not_eligible"
+    severity = state.pass2_degradation_severity or _pass2_degradation_severity(
+        state.pass2_degradation_reasons
+    )
+    if severity == "hard":
+        return False, "pass2_hard_degradation"
+    if _is_soft_degradation_low_risk_for_deterministic(state.pass2_output):
+        return False, "pass2_soft_degradation_low_risk"
+    return True, "pass2_soft_degradation_needs_llm"
 
 
 def _pass3_low_quality_reasons(

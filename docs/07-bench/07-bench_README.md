@@ -184,7 +184,10 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
 - `upload_bundle_index.json` includes verified topline/self-check booleans (`starter_pack_present`, `pair_count_verified`, `changed_lines_verified`, `topline_consistent`) and corrects counts from discovered run artifacts when advertised root summaries are stale or missing.
 - default index views prioritize first-pass triage (`per_label_metrics`, `per_recipe_breakdown`, `stage_separated_comparison`, `failure_ledger`, compact regression casebook, stratified changed-line samples, call runtime/tokens/cost summary, line-role confidence signals) with payload row locators.
+- call-runtime summaries expose `cost_signal` availability/coverage fields so missing per-call cost data is explicit instead of implied by null totals.
+- row locators now include basename fallback resolution (for example, mapping comparison-summary lookups to `codex_vs_vanilla_comparison.json` when that is the available root artifact) plus critical locator coverage counters in `self_check`.
 - heavy/raw artifacts (full prompt logs, raw llm manifests, transport traces, split-cache blobs) remain lossless in payload but are marked as deprioritized for default reading; alias metadata groups equivalent artifacts to reduce duplicate navigation.
+- Starter-pack triage rows now carry pass2/pass3 routing diagnostics when present in `llm_manifest` (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason`).
 
 ### 3.4 Speed/quality artifacts
 

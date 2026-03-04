@@ -463,6 +463,7 @@ Gates include:
 - Compact all-caps title-like rows are disambiguated to `HOWTO_SECTION` when neighboring lines indicate an internal component/subsection flow and the next line is not a yield boundary.
 - `TIME_LINE` is only used for primary time metadata; instruction lines that mention duration stay `INSTRUCTION_LINE`.
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
+- Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
 - Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
 - Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
 - Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).

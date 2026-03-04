@@ -115,7 +115,13 @@ Report/model plumbing:
   - pass2 degradation counts/reasons (`pass2_degraded`, per-recipe `pass2_degradation_reasons`),
   - evidence-normalization row summaries/counts,
   - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output).
-- Pass3 promotion is now gated by pass2 evidence quality: degraded pass2 rows skip pass3 LLM calls and go directly through deterministic fallback.
+- Pass2 degradation is now severity-scoped before pass3 routing:
+  - hard degradation (`missing_instructions`, placeholder-only instruction evidence, or non-soft warning buckets) still fail-closes to deterministic fallback (`pass3_status=fallback`);
+  - soft degradation (`warning_bucket:page_or_layout_artifact` only) stays `pass2_status=degraded` but is eligible for selective pass3 routing.
+- Pass3 routing now records additive metadata per recipe in `llm_manifest`:
+  - `pass2_degradation_severity`, `pass2_promotion_policy`,
+  - `pass3_execution_mode`, `pass3_routing_reason`.
+- Selective soft-degradation routing defaults to deterministic promotion for low-risk rows (non-placeholder instruction evidence present), producing `pass3_status=ok` with `pass3_execution_mode=deterministic` and no pass3 LLM call.
 - Pass2 degradation warning bucket naming is now layout-specific for page-marker noise (`warning_bucket:page_or_layout_artifact`) instead of OCR-specific wording.
 - Deterministic fallback now starts from the existing `state.recipe` candidate, then applies guarded pass2 enrichments when instruction/ingredient evidence is non-empty and non-placeholder.
 - When pass3 returns placeholder-only steps but pass2 contains non-placeholder extracted instructions, orchestrator now repairs steps from pass2 evidence before low-quality rejection.

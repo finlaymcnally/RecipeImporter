@@ -162,7 +162,28 @@ def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_note
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label != "RECIPE_NOTES"
+    assert predictions[0].label == "OTHER"
+
+
+def test_label_atomic_lines_outside_recipe_prose_defaults_to_other_without_knowledge_cue() -> None:
+    blocks = [
+        {
+            "block_id": "block:narrative:1",
+            "block_index": 1,
+            "text": (
+                "The chapter opens with a short story about market mornings, and "
+                "the prose lingers on scene-setting details before any recipe starts."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
 
 
 def test_label_atomic_lines_outside_recipe_food_note_prose_is_recipe_notes() -> None:

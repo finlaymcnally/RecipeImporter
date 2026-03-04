@@ -202,7 +202,11 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["pass1_ok"] == 1
     assert manifest["counts"]["pass2_degraded"] == 0
+    assert manifest["counts"]["pass2_degraded_soft"] == 0
+    assert manifest["counts"]["pass2_degraded_hard"] == 0
     assert manifest["counts"]["pass3_ok"] == 1
+    assert manifest["counts"]["pass3_execution_mode_llm"] == 1
+    assert manifest["counts"]["pass3_execution_mode_deterministic"] == 0
     assert manifest["counts"]["transport_audits"] == 1
     assert manifest["counts"]["transport_mismatches"] == 0
     assert manifest["counts"]["evidence_normalization_logs"] == 1
@@ -219,6 +223,11 @@ def test_orchestrator_runs_three_passes_and_writes_manifest(tmp_path: Path) -> N
     assert recipe_metrics["clamped_block_loss_count"] == 0
     assert recipe_metrics["clamped_block_loss_ratio"] == 0.0
     assert recipe_metrics["boundaries_clamped"] is False
+    recipe_row = manifest["recipes"][result.recipes[0].identifier]
+    assert recipe_row["pass2_degradation_severity"] == "none"
+    assert recipe_row["pass2_promotion_policy"] == "pass2_ok_llm_pass3"
+    assert recipe_row["pass3_execution_mode"] == "llm"
+    assert recipe_row["pass3_routing_reason"] == "pass2_ok"
 
 
 def test_orchestrator_records_pass1_span_loss_metrics_when_midpoint_clamp_shrinks_span(
@@ -494,8 +503,11 @@ def test_orchestrator_gates_pass3_when_pass2_degraded_missing_instruction_eviden
     )
 
     assert apply_result.llm_report["counts"]["pass2_degraded"] == 1
+    assert apply_result.llm_report["counts"]["pass2_degraded_hard"] == 1
+    assert apply_result.llm_report["counts"]["pass2_degraded_soft"] == 0
     assert apply_result.llm_report["counts"]["pass3_inputs"] == 0
     assert apply_result.llm_report["counts"]["pass3_fallback"] == 1
+    assert apply_result.llm_report["counts"]["pass3_execution_mode_deterministic"] == 1
 
     recipe_id = result.recipes[0].identifier
     assert recipe_id is not None
@@ -505,9 +517,83 @@ def test_orchestrator_gates_pass3_when_pass2_degraded_missing_instruction_eviden
     assert recipe_row["pass2"] == "degraded"
     assert recipe_row["pass3"] == "fallback"
     assert "missing_instructions" in recipe_row["pass3_fallback_reason"]
+    assert recipe_row["pass2_degradation_severity"] == "hard"
+    assert recipe_row["pass2_promotion_policy"] == "hard_fallback"
+    assert recipe_row["pass3_execution_mode"] == "deterministic"
+    assert recipe_row["pass3_routing_reason"] == "pass2_hard_degradation_forced_fallback"
 
     fallback_steps = apply_result.final_overrides_by_recipe_id[recipe_id]["steps"]
     assert any(step.get("instruction") == "Toast the bread." for step in fallback_steps)
+
+
+def test_orchestrator_soft_degradation_uses_deterministic_promotion_without_pass3_call(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": ["Page marker artifact detected in scanned footer."],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Should not run"},
+                    "steps": [{"instruction": "Should not run", "ingredient_lines": []}],
+                },
+                "ingredient_step_mapping": {"0": [0]},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID]
+    assert apply_result.llm_report["counts"]["pass2_degraded"] == 1
+    assert apply_result.llm_report["counts"]["pass2_degraded_soft"] == 1
+    assert apply_result.llm_report["counts"]["pass2_degraded_hard"] == 0
+    assert apply_result.llm_report["counts"]["pass3_inputs"] == 0
+    assert apply_result.llm_report["counts"]["pass3_ok"] == 1
+    assert apply_result.llm_report["counts"]["pass3_fallback"] == 0
+    assert apply_result.llm_report["counts"]["pass3_execution_mode_deterministic"] == 1
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass2"] == "degraded"
+    assert recipe_row["pass2_degradation_severity"] == "soft"
+    assert recipe_row["pass2_promotion_policy"] == "soft_degradation_deterministic_promotion"
+    assert recipe_row["pass3"] == "ok"
+    assert recipe_row["pass3_execution_mode"] == "deterministic"
+    assert recipe_row["pass3_routing_reason"] == "pass2_soft_degradation_low_risk"
+    assert "pass3_fallback_reason" not in recipe_row
 
 
 def test_orchestrator_repairs_placeholder_only_pass3_steps_from_pass2_instructions(

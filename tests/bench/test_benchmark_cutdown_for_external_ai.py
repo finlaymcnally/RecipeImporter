@@ -496,6 +496,10 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
                     "clamped_block_loss_ratio": 0.5,
                 },
                 "pass2_degradation_reasons": ["missing_instructions"],
+                "pass2_degradation_severity": "hard",
+                "pass2_promotion_policy": "hard_fallback",
+                "pass3_execution_mode": "deterministic",
+                "pass3_routing_reason": "pass2_hard_degradation_forced_fallback",
                 "pass3_fallback_reason": "pass3 output rejected as low quality",
                 "transport_audit": {
                     "mismatch": True,
@@ -530,6 +534,10 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
     assert triage_row["pass1_clamped_block_loss_count"] == 2
     assert triage_row["pass1_clamped_block_loss_ratio"] == 0.5
     assert triage_row["pass2_degradation_reasons"] == ["missing_instructions"]
+    assert triage_row["pass2_degradation_severity"] == "hard"
+    assert triage_row["pass2_promotion_policy"] == "hard_fallback"
+    assert triage_row["pass3_execution_mode"] == "deterministic"
+    assert triage_row["pass3_routing_reason"] == "pass2_hard_degradation_forced_fallback"
     assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
     assert triage_row["transport_mismatch"] is True
     assert triage_row["transport_mismatch_reasons"] == ["missing_payload_blocks"]
@@ -547,6 +555,8 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
     assert summary["pass3_fallback_recipe_count"] == 1
     assert summary["transport_mismatch_recipe_count"] == 1
     assert summary["pass1_clamped_loss_recipe_count"] == 1
+    assert summary["pass2_degradation_severity_counts"]["hard"] == 1
+    assert summary["pass3_execution_mode_counts"]["deterministic"] == 1
 
 
 def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> None:
@@ -968,6 +978,10 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
                     "missing_instructions",
                     "ocr_or_page_artifact",
                 ],
+                "pass2_degradation_severity": "hard",
+                "pass2_promotion_policy": "hard_fallback",
+                "pass3_execution_mode": "deterministic",
+                "pass3_routing_reason": "pass2_hard_degradation_forced_fallback",
                 "pass3_fallback_reason": "pass3 output rejected as low quality",
                 "transport_audit": {
                     "mismatch": True,
@@ -1210,6 +1224,10 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
                     "missing_instructions",
                     "ocr_or_page_artifact",
                 ],
+                "pass2_degradation_severity": "hard",
+                "pass2_promotion_policy": "hard_fallback",
+                "pass3_execution_mode": "deterministic",
+                "pass3_routing_reason": "pass2_hard_degradation_forced_fallback",
                 "pass3_fallback_reason": "pass3 output rejected as low quality",
                 "transport_audit": {
                     "mismatch": True,
@@ -1294,6 +1312,10 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     assert triage_row["pass1_clamped_block_loss_count"] == "3"
     assert triage_row["pass1_clamped_block_loss_ratio"] == "0.250000"
     assert triage_row["pass2_degradation_reasons"] == "missing_instructions|page_or_layout_artifact"
+    assert triage_row["pass2_degradation_severity"] == "hard"
+    assert triage_row["pass2_promotion_policy"] == "hard_fallback"
+    assert triage_row["pass3_execution_mode"] == "deterministic"
+    assert triage_row["pass3_routing_reason"] == "pass2_hard_degradation_forced_fallback"
     assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
     assert triage_row["transport_mismatch"] == "true"
     assert triage_row["transport_mismatch_reasons"] == "missing_payload_blocks"
@@ -1338,6 +1360,13 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         "missing_instructions",
         "page_or_layout_artifact",
     ]
+    assert first_packet["pass2_summary"]["degradation_severity"] == "hard"
+    assert first_packet["pass2_summary"]["promotion_policy"] == "hard_fallback"
+    assert first_packet["pass3_summary"]["execution_mode"] == "deterministic"
+    assert (
+        first_packet["pass3_summary"]["routing_reason"]
+        == "pass2_hard_degradation_forced_fallback"
+    )
     assert first_packet["pass3_summary"]["fallback_reason"] == "pass3 output rejected as low quality"
     assert first_packet["transport_summary"]["mismatch"] is True
 
@@ -1508,6 +1537,10 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
         full_prompt_rows=None,
     )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
 
     bundle_dir = session_root / "upload_bundle_v1"
     metadata = module.build_upload_bundle_for_existing_output(
@@ -1541,19 +1574,47 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert set(
         [
             "starter_pack_present",
+            "starter_pack_physical_dir_present",
             "pair_count_verified",
             "changed_lines_verified",
             "topline_consistent",
         ]
     ).issubset(self_check.keys())
+    assert self_check["starter_pack_present"] is True
+    assert self_check["starter_pack_physical_dir_present"] is False
     assert isinstance(index_payload.get("analysis"), dict)
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
+    runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
+    assert isinstance(runtime_summary.get("cost_signal"), dict)
+    assert runtime_summary["cost_signal"]["available"] is False
+    assert (
+        "recognized cost fields"
+        in str(runtime_summary["cost_signal"]["unavailable_reason"])
+    )
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
-    assert isinstance(navigation_payload.get("row_locators"), dict)
+    row_locators = navigation_payload.get("row_locators")
+    assert isinstance(row_locators, dict)
+    root_locators = row_locators.get("root_files")
+    assert isinstance(root_locators, dict)
+    assert all(isinstance(locator, dict) for locator in root_locators.values())
+    comparison_locator = root_locators.get("comparison_summary_json")
+    assert isinstance(comparison_locator, dict)
+    assert comparison_locator.get("path") in {
+        "codex_vs_vanilla_comparison.json",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/comparison_summary.json",
+    }
+    starter_locators = row_locators.get("starter_pack")
+    assert isinstance(starter_locators, dict)
+    assert all(isinstance(locator, dict) for locator in starter_locators.values())
+    derived_root_run_index = (
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/run_index.json"
+    )
+    assert derived_root_run_index in artifact_paths
+    assert float(self_check.get("critical_row_locators_coverage_ratio") or 0.0) >= 0.9
 
 
 def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
@@ -1604,6 +1665,49 @@ def test_build_upload_bundle_self_check_flags_inconsistent_advertised_topline(
     assert self_check["pair_count_verified"] is False
     assert self_check["changed_lines_verified"] is False
     assert self_check["topline_consistent"] is False
+    assert self_check["critical_row_locators_populated"] >= 1
+
+
+def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "2026-03-03_10.22.00"
+    baseline_run_id = "2026-03-03_10.21.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    self_check = index_payload["self_check"]
+    coverage = float(self_check.get("critical_row_locators_coverage_ratio") or 0.0)
+    # Keep a small floor so future changes don't silently null out every critical locator.
+    assert coverage >= 0.14
 
 
 def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:
