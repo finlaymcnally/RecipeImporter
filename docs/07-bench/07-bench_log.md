@@ -5915,3 +5915,214 @@ Durable outcomes:
 
 Anti-loop reminder:
 - If multi-book spinner output becomes noisy again, verify outer-shared-dashboard wiring before changing callback payload text.
+
+## 2026-03-04 docs/understandings consolidation (processing-quality recovery + upload/follow-up artifacts)
+
+### 2026-03-04_09.53.49 single-profile benchmark follow-up artifact map
+
+Source:
+- `docs/understandings/2026-03-04_09.53.49-single-profile-benchmark-follow-up-artifact-map.md`
+
+Problem captured:
+- Needed a deterministic map from one `upload_bundle_v1` to reviewer-ready follow-up packets without rerunning expensive benchmark flows.
+
+Durable findings:
+- Changed-line rows come from `_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl` (4136 rows in sampled run).
+- Recipe triage/stage-reasoning rows come from `_upload_bundle_derived/root/01_recipe_triage.packet.jsonl` plus `analysis.stage_separated_comparison` in bundle index.
+- Call telemetry rows come from `_upload_bundle_derived/starter_pack_v1/02_call_inventory.jsonl` (434 calls in sampled run) and `analysis.call_inventory_runtime` summary.
+- Low-confidence packet can be empty on sampled artifacts; usable packet can be rebuilt by joining changed lines to per-book `line-role-pipeline/line_role_predictions.jsonl`.
+- Recipe-level prompt traces remain recoverable from per-book `codexfarm/codexfarm/full_prompt_log.jsonl` joins.
+
+Anti-loop note:
+- Candidate-label margins are still unavailable (only candidate sets + confidence); mark margin unavailable explicitly instead of deriving synthetic margins.
+
+### 2026-03-04_10.00.33 multi-book run-level upload bundle discovery
+
+Source:
+- `docs/understandings/2026-03-04_10.00.33-upload-bundle-multi-book-run-level.md`
+
+Problem captured:
+- Multi-book group upload bundles were vulnerable to run-id collisions across books (`vanilla`/`codexfarm`) and could cross-wire diagnostics/runtime lookups.
+
+Durable decisions:
+- Normalize derived run rows to source-root-relative `output_subdir`.
+- Prefer output-subdir run-dir lookup over run-id-only lookup for diagnostics/locators.
+- Keep runtime + low-confidence collectors source-aware and iterate all discovered run dirs.
+- Show scorecard/ablation/outside-span/chapter-page/runtime/top-regression-trace views only for true multi-book bundles.
+
+### 2026-03-04_10.01.12 processing-quality recovery implementation findings
+
+Source:
+- `docs/understandings/2026-03-04_10.01.12-processing-quality-reliability-recovery-implementation-findings.md`
+
+Problem captured:
+- Needed reliable closure for report truth drift, stage-block extra-gold mismatches under extractor drift, and standalone narrative tip/topic noise.
+
+Durable findings:
+- Adaptive gold remap requires deterministic tie-break (`score`, distance, index order) plus hard safety gates (coverage + ambiguity).
+- Report totals are derived values and must be finalized from `ConversionResult` at write time.
+- Narrative noise filtering improved from deterministic reason tagging (`toc_noise`, `cross_reference_noise`, `intro_narrative`, `duplicate_title_carryover`) plus long-block splitting diagnostics.
+
+Key evidence surfaces preserved:
+- `cookimport/bench/eval_stage_blocks.py`: `gold_adaptation_diagnostics.json`, `gold_conflicts.jsonl`, `gold_adaptation_applied` warning.
+- `cookimport/core/reporting.py` + `cookimport/labelstudio/ingest.py`: report-totals mismatch diagnostics artifact emission.
+- `cookimport/plugins/epub.py`: `standalone_tip_filter_diagnostics` artifact + warning summary.
+
+### 2026-03-04_10.06.29 OG-plan vs implementation gap review
+
+Source:
+- `docs/understandings/2026-03-04_10.06.29-ogplan-vs-implementation-gap-review.md`
+
+Problem captured:
+- Early recovery audit showed that several OG milestone claims were only partially evidenced.
+
+Gaps recorded at this stage:
+- No seaandsmoke-specific anomaly evidence packet tied to explicit source artifacts.
+- No explicit segmentation-driven vs classification-driven codex-vs-vanilla attribution outputs.
+- No reproducible closure packet with before/after validation matrix references.
+
+Anti-loop note:
+- Keep this as historical midpoint context; later 2026-03-04 entries close these specific evidence gaps.
+
+### 2026-03-04_10.13.40 group upload bundle full prompt-log retention
+
+Source:
+- `docs/understandings/2026-03-04_10.13.40-group-upload-bundle-full-prompt-log-retention.md`
+
+Problem captured:
+- `high_level_only` selection (`GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES`) dropped per-run `full_prompt_log.jsonl` from payload despite availability during generation.
+
+Durable decisions:
+- Keep high-level bundle selection flow unchanged.
+- Resolve each run’s full prompt log via `_resolve_full_prompt_log_path(...)`.
+- Retain only prompt logs inside source root.
+- Keep retained prompt logs marked heavy/deprioritized in navigation.
+
+### 2026-03-04_10.16.23 seaandsmoke anomaly packet
+
+Source:
+- `docs/understandings/2026-03-04_10.16.23-seaandsmoke-anomaly-packet.md`
+
+Problem captured:
+- Needed explicit seaandsmoke anomaly evidence with current-vs-baseline metrics and mitigation linkage.
+
+Durable evidence preserved:
+- Canonical-text current run (`2026-03-04_06.58.16`):
+  - vanilla `overall_block_accuracy=0.430252`, `macro_f1_excluding_other=0.411714`, `wrong_label_lines=339`
+  - codexfarm `overall_block_accuracy=0.751261`, `macro_f1_excluding_other=0.502510`, `wrong_label_lines=148`
+- Error-shape snapshot showed dominant vanilla confusions as structural-to-knowledge leakage (`INGREDIENT_LINE/INSTRUCTION_LINE -> KNOWLEDGE`).
+- Explicit stage-block segmentation comparison from validation matrix root `2026-03-04_10.40.04-validation-matrix`:
+  - current method: segmentation micro `f1=0.034364` (`tp=5`, `fp=166`, `fn=115`)
+  - baseline method: segmentation micro `f1=0.243750` (`tp=39`, `fp=161`, `fn=81`)
+
+Mitigation linkage preserved:
+- Deterministic standalone filters in EPUB importer + long-block splitting; control-book no-regression checks retained.
+- Regression/control tests retained in parsing and ingestion suites.
+
+### 2026-03-04_10.16.24 processing-quality recovery results packet
+
+Source:
+- `docs/understandings/2026-03-04_10.16.24-processing-quality-recovery-results.md`
+
+Problem captured:
+- Needed concrete closure packet tying OG gap list to code/test artifacts.
+
+Durable outcomes:
+- Added codex-vs-vanilla attribution diagnostics (likely-driver classification + segmentation/classification deltas + remap deltas).
+- Added seaandsmoke anomaly packet artifact linkage.
+- Added seaandsmoke regression/control tests and importer-level improvement proof test.
+- Aligned draft alias normalization behavior to preserve explicit aliases and derive only missing/null aliases.
+- Expanded report-total mismatch diagnostics coverage to include implicit default-zero rewrites.
+
+Validation snapshot preserved:
+- Targeted pytest slices for benchmark helper diagnostics, staging alias normalization, seaandsmoke filtering behavior, and ingest report mismatch diagnostics were executed in `.venv`.
+
+### 2026-03-04_10.29.57 OG processing-recovery review refresh
+
+Source:
+- `docs/understandings/2026-03-04_10.29.57-ogplan-processing-recovery-review-refresh.md`
+
+Problem captured:
+- Midpoint refresh confirmed major implementations but still flagged remaining OG-intent evidence gaps.
+
+Durable context retained:
+- Implemented: report finalization, adaptive remap, writer alias normalization, standalone filtering diagnostics, codex-vs-vanilla attribution diagnostics.
+- Remaining-at-that-time deltas: missing explicit seaandsmoke stage-block comparison in packet, mismatch diagnostics limited to prepopulated non-zero totals, limited validation breadth.
+
+Anti-loop note:
+- This entry is historical context only; later 11.12.26 and 11.30.25 entries supersede these deltas.
+
+### 2026-03-04_10.35.00 follow-up bundle 2 locator + prompt joins
+
+Source:
+- `docs/understandings/2026-03-04_10.35.00-follow-up-bundle2-locator-prompt-joins.md`
+
+Problem captured:
+- Atomic line-role rows in follow-up bundle lacked base spine/page metadata.
+
+Durable decisions:
+- Join `prediction-run/line-role-pipeline/extracted_archive.json` rows back to `prediction-run/extracted_archive.json` via `source_block_index` to restore spine metadata.
+- Inline prompt excerpts should come from `codexfarm/full_prompt_log.jsonl` and prefer `pass2`, then `pass3`, then `pass1` for reviewer portability.
+- Top regression packet selection for this follow-up uses negative `delta_codex_minus_baseline` from triage packet JSONL.
+
+### 2026-03-04_10.53.04 benchmark prune / stage-block defaults / split-merge guard
+
+Source:
+- `docs/understandings/2026-03-04_10.53.04-benchmark-prune-stageblock-splitmerge-guard.md`
+
+Problem captured:
+- Three regressions blocked final OG closure:
+  - transient benchmark prune deleting pytest temp eval fixtures,
+  - stage-block mode inheriting top-tier line-role/atomic defaults,
+  - `_merge_split_jobs(..., run_config=None)` triggering codex paths in direct test calls.
+
+Durable fixes:
+- `_prune_benchmark_outputs(...)` bypasses prune for pytest temp eval roots.
+- `labelstudio_benchmark(..., eval_mode=stage-blocks)` forces `line_role_pipeline=off`, `atomic_block_splitter=off`.
+- `_merge_split_jobs(...)` gates LLM recipe/knowledge execution behind explicit `run_config` presence.
+
+Validation evidence preserved:
+- Targeted failing subset: `29 passed, 1 warning`.
+- Broader touched-surface suite: `779 passed, 1 warning in 66.23s`.
+
+### 2026-03-04_11.01.48 OG processing-recovery audit
+
+Source:
+- `docs/understandings/2026-03-04_11.01.48-ogplan-processing-recovery-audit.md`
+
+Problem captured:
+- Audit pass reconciling OG intent vs implemented code after initial closure work.
+
+Findings at this stage:
+- Confirmed Milestones 1,2,4,5,6 in code.
+- Remaining-at-that-time concerns: canonical-text-only seaandsmoke packet references, mismatch diagnostics scope for implicit defaults, and before/after mitigation attribution strength.
+
+### 2026-03-04_11.12.26 OG gap-closure implementation
+
+Source:
+- `docs/understandings/2026-03-04_11.12.26-ogplan-gap-closure-implementation.md`
+
+Problem captured:
+- Needed explicit closure for the remaining 11.01.48 gap list.
+
+Durable outcomes:
+- `finalize_report_totals(...)` now emits mismatch diagnostics for any pre-finalization drift, including implicit default-zero totals.
+- Ingest regression coverage updated to assert diagnostic artifact + warning for implicit defaults.
+- Seaandsmoke packet now includes explicit stage-block current-vs-baseline segmentation metrics from validation matrix artifacts.
+- Importer-level proof test added for narrative-filtering reduction in standalone tip/topic extraction.
+
+### 2026-03-04_11.30.25 OG processing-recovery final audit
+
+Source:
+- `docs/understandings/2026-03-04_11.30.25-ogplan-processing-recovery-gap-review-final.md`
+
+Problem captured:
+- Final verification that OG processing-quality milestones are fully closed in code/tests.
+
+Durable conclusion:
+- Verified milestone implementations across reporting finalization, adaptive remap, seaandsmoke mitigation controls/tests, writer alias normalization, and codex-vs-vanilla attribution diagnostics.
+- Focused `.venv` validation slice passed.
+- Final audit verdict: no remaining OG-plan implementation gaps.
+
+Anti-loop note:
+- When processing-quality closure is questioned, start from this final audit entry before reopening earlier partial-gap threads.

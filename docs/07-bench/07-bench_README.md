@@ -1898,3 +1898,40 @@ Current benchmark progress contracts reinforced:
 - Spinner worker summary should suppress pure zero-worker rows.
 - Historical single-vs-multi inflight env wrappers are retained as context only; shared ingest defaults are the active policy seam.
 - Parallel single-profile multi-book runs should render one shared outer spinner dashboard with inner per-book spinner suppression.
+
+## 2026-03-04 merged understandings digest (processing-quality recovery + follow-up bundle packets)
+
+Merged source notes (timestamp order):
+- `2026-03-04_09.53.49-single-profile-benchmark-follow-up-artifact-map.md`
+- `2026-03-04_10.00.33-upload-bundle-multi-book-run-level.md`
+- `2026-03-04_10.01.12-processing-quality-reliability-recovery-implementation-findings.md`
+- `2026-03-04_10.06.29-ogplan-vs-implementation-gap-review.md`
+- `2026-03-04_10.13.40-group-upload-bundle-full-prompt-log-retention.md`
+- `2026-03-04_10.16.23-seaandsmoke-anomaly-packet.md`
+- `2026-03-04_10.16.24-processing-quality-recovery-results.md`
+- `2026-03-04_10.29.57-ogplan-processing-recovery-review-refresh.md`
+- `2026-03-04_10.35.00-follow-up-bundle2-locator-prompt-joins.md`
+- `2026-03-04_10.53.04-benchmark-prune-stageblock-splitmerge-guard.md`
+- `2026-03-04_11.01.48-ogplan-processing-recovery-audit.md`
+- `2026-03-04_11.12.26-ogplan-gap-closure-implementation.md`
+- `2026-03-04_11.30.25-ogplan-processing-recovery-gap-review-final.md`
+
+Current benchmark contracts reinforced:
+- Group multi-book upload bundles must be source-aware at run-row level (`output_subdir`-aware lookup) so repeated variant IDs (`vanilla`, `codexfarm`) do not collide across books.
+- High-level-only group bundles still retain per-run `full_prompt_log.jsonl` payload rows (deprioritized for navigation, not dropped).
+- Follow-up packet joins for atomic line-role rows must map `source_block_index` from `prediction-run/line-role-pipeline/extracted_archive.json` back through base `prediction-run/extracted_archive.json` to restore spine/page metadata.
+- Existing upload bundles are sufficient to build changed-line, triage, runtime/cost, and prompt-trace reviewer packets without rerunning benchmarks.
+- Candidate label margins are still unavailable in current line-role artifacts; follow-up packets should mark margin as unavailable instead of inferring it.
+- Stage-block benchmark mode enforces deterministic stage controls: `line_role_pipeline=off` and `atomic_block_splitter=off`.
+- Transient benchmark prune excludes pytest temp eval fixtures so helper tests can inspect retained artifacts post-run.
+- Processing-quality recovery closure state is now:
+  - report-total mismatch diagnostics emit for all pre-finalization drift (including implicit default-zero rewrites),
+  - adaptive stage-block gold remap is guarded/diagnosed (`off|auto|force`, coverage/ambiguity controls),
+  - seaandsmoke anomaly packet includes explicit stage-block current-vs-baseline segmentation metrics,
+  - codex-vs-vanilla comparison outputs include explicit segmentation/classification attribution deltas,
+  - no remaining OG processing-quality implementation gaps were found in the final 2026-03-04 audit pass.
+
+Anti-loop reminders:
+- If group upload-bundle locators/runtime look wrong, check source-aware run-dir resolution before changing triage packet builders.
+- If stage-block runs unexpectedly use line-role/atomic behavior, inspect effective eval-mode normalization before touching scorer logic.
+- If processing-quality closure questions re-open, compare against the final audit note first (`2026-03-04_11.30.25`) before replaying already-closed milestone debates.

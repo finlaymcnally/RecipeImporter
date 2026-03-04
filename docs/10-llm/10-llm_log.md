@@ -2289,3 +2289,93 @@ Merged source notes (timestamp order):
 Anti-loop reminders:
 - If pass1/pass3 behavior drifts, inspect resolved settings payload first; do not re-add implicit env toggles to orchestrator policy logic.
 - When benchmarking, keep benchmark runner env controls distinct from pass-policy knobs to avoid mixed control-plane debugging.
+
+## 2026-03-04 docs/understandings consolidation (Profeedback safety gates + pass1 eligibility hardening)
+
+### 2026-03-04_09.59.00 Profeedback ExecPlan code-gap scan
+
+Source:
+- `docs/understandings/2026-03-04_09.59.00-profeedback-execplan-code-gap-scan.md`
+
+Problem captured:
+- Needed code-grounded triage of OG Profeedback plan ideas before writing the executable plan.
+
+Durable findings:
+- Pass3 low-quality/empty fallback was already implemented in orchestrator runtime.
+- Canonical line-role prompt negatives + deterministic outside-span sanitization were already in place.
+- Main unresolved runtime gaps at scan time:
+  - no runtime do-no-harm acceptance arbitration for codex line-role overrides,
+  - no structural evidence floor in pass1 eligibility before pass2.
+
+### 2026-03-04_10.28.11 Profeedback2 vs OG ExecPlan coverage map
+
+Source:
+- `docs/understandings/2026-03-04_10.28.11-profeedback2-vs-execplan-coverage-map.md`
+
+Problem captured:
+- Needed deduped map between `Profeedback2.md` recommendations and existing OG Profeedback milestones.
+
+Durable findings:
+- Milestones 1-5 already covered core safety asks: do-no-harm gate, outside-span containment, inside-span-first low-confidence behavior, pass1 eligibility, pass2 pruning, ablation matrix.
+- Partial representation noted for explicit chapter/page metadata usage in milestone wording.
+- Intentional out-of-scope items captured: telemetry naming cleanup and extra `empty_mapping` finalizer changes.
+
+### 2026-03-04_10.31.54 Profeedback line-role + pass1 gate implementation findings
+
+Source:
+- `docs/understandings/2026-03-04_10.31.54-profeedback-line-role-pass1-gates-implementation-findings.md`
+
+Problem captured:
+- Needed durable record of what actually landed for runtime do-no-harm and pass1 eligibility.
+
+Durable outcomes:
+- `cookimport/parsing/canonical_line_roles.py` now runs codex do-no-harm arbitration after sanitization.
+- Outside-span policy tightened:
+  - `HOWTO_SECTION` hard-denied outside spans,
+  - outside-span title/variant requires compact-heading shape + nearby structural evidence,
+  - outside-span instruction/ingredient requires local evidence or is downgraded.
+- Outside-span low-confidence codex escalation is default-off.
+- Line-role codex runs now emit:
+  - `line-role-pipeline/do_no_harm_diagnostics.json`
+  - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
+- `cookimport/llm/codex_farm_orchestrator.py` pass1 eligibility score bands are active (`proceed`/`clamp`/`drop`) with persisted eligibility telemetry fields.
+
+Validation anchors preserved:
+- `tests/parsing/test_canonical_line_roles.py`
+- `tests/llm/test_codex_farm_orchestrator.py`
+- `tests/labelstudio/test_canonical_line_projection.py`
+
+### 2026-03-04_11.11.52 pass1 eligibility chapter/page negative evidence
+
+Source:
+- `docs/understandings/2026-03-04_11.11.52-pass1-eligibility-chapter-page-negative-evidence.md`
+
+Problem captured:
+- Chapter/page metadata was previously implicit in prose-dominance behavior and not auditable as explicit eligibility signal.
+
+Durable outcomes:
+- Pass1 eligibility now consumes chapter/page metadata as explicit negative evidence.
+- Added score component telemetry fields:
+  - `chapter_page_negative_evidence_high`
+  - `chapter_page_negative_hits`
+  - `chapter_page_negative_score`
+- Added reason tag: `chapter_page_metadata_negative_evidence_high`.
+- Test anchor:
+  - `tests/llm/test_codex_farm_orchestrator.py::test_orchestrator_pass1_eligibility_uses_chapter_page_negative_metadata`
+
+### 2026-03-04_11.14.01 Profeedback OG vs completed/code gap audit
+
+Source:
+- `docs/understandings/2026-03-04_11.14.01-profeedback-og-vs-completed-code-gap-audit.md`
+
+Problem captured:
+- Reconciled OG Profeedback plan intent against completed execplan claims and live code/tests.
+
+Gap-state findings captured at this point:
+- OG milestone wording required explicit chapter/page metadata negative evidence and kept Milestone 3 partial, while completed plan still marked it complete.
+- Pass1 eligibility test failed at this time because instruction-verb detection missed `toast`, causing `drop` vs expected `clamp`.
+- `labelstudio-benchmark compare` accepted only all-method roots at this time, not run-level `eval_report.json` paths.
+- Milestone-5 full-stack codex acceptance remained partially unmet due auth-constrained fallback-mode runs.
+
+Anti-loop note:
+- Treat this as timestamped midpoint evidence. Follow-up compare-root + `toast` fix landed in later docs (`2026-03-04_11.33.00`) and should be checked before reopening these exact failure threads.

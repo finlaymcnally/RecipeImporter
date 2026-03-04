@@ -738,3 +738,26 @@ Current LLM contracts reinforced:
 
 Anti-loop reminder:
 - If pass1 hinting or pass3 volume changes while profile choice appears unchanged, inspect resolved RunSettings payload values before editing orchestrator routing logic.
+
+## 2026-03-04 merged understandings digest (Profeedback gap scan, gating hardening, Milestone-5 blockers)
+
+Merged source notes (timestamp order):
+- `2026-03-04_09.59.00-profeedback-execplan-code-gap-scan.md`
+- `2026-03-04_10.28.11-profeedback2-vs-execplan-coverage-map.md`
+- `2026-03-04_10.31.54-profeedback-line-role-pass1-gates-implementation-findings.md`
+- `2026-03-04_11.11.52-pass1-eligibility-chapter-page-negative-evidence.md`
+- `2026-03-04_11.14.01-profeedback-og-vs-completed-code-gap-audit.md`
+
+Current LLM/line-role contracts reinforced:
+- Runtime do-no-harm arbitration for codex line-role is active post-sanitization, with explicit outside-span containment rules and diagnostics artifacts (`do_no_harm_diagnostics.json`, `do_no_harm_changed_rows.jsonl`).
+- Outside-span low-confidence escalation is default-off; opt-in remains `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION`.
+- Pass1 eligibility is an explicit score-gated pre-pass2 contract, with persisted score/reason/component telemetry and diagnostics artifact output.
+- Pass1 eligibility now treats chapter/page metadata as explicit negative evidence (`chapter_page_negative_score=-2` when triggered).
+- Profeedback2 coverage check result: core safety milestones are represented in OG plan; telemetry naming cleanup and some finalizer naming topics were intentionally out of scope.
+
+Open-context reminder from this batch:
+- Historical audit at `2026-03-04_11.14.01` captured a transient gap state (`toast` imperative miss and compare-root acceptance gap) before the follow-up fix pass landed in later docs/tests.
+
+Anti-loop reminders:
+- If pass1 clamp/drop behavior regresses, inspect `eligibility_score_components` and chapter/page metadata fields before modifying prompt/schema layers.
+- If outside-span contamination resurfaces, inspect do-no-harm artifacts first rather than retuning benchmark gates.
