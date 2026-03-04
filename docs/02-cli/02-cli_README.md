@@ -1541,3 +1541,14 @@ Current contract additions:
 
 - `2026-03-03_12.18.43` `benchmark-spinner-panel-width-clamp`: Benchmark/import live spinner panel width must clamp to terminal width to avoid long-task overflow.
 - `2026-03-03_12.20.00` `spinner-eta-weighted-window-bootstrap`: Spinner ETA gaps came from first-seen counters lacking increment history; ETA now uses weighted last-5 steps with a bootstrap fallback.
+
+
+## 2026-03-03 merged understandings digest (docs/understandings cleanup)
+
+This section consolidates notes that were previously in `docs/understandings`.
+Detailed chronology and preserved deep notes are in `02-cli_log.md`.
+
+Merged source notes (chronological):
+- `2026-03-03_13.12.17-spinner-panel-truncation-preserves-eta-suffix.md`: Live benchmark spinner line truncation should preserve ETA/avg suffix visibility.
+- `2026-03-03_13.28.55-codex-spinner-stage-readable-pass-labels.md`: Codex-farm spinner status should surface a readable pass label and explicit stage row.
+- `2026-03-03_17.34.31-spinner-active-tasks-left-counter-source.md`: Codex benchmark spinner can surface remaining tasks from the parsed task X/Y counter in the worker summary row.

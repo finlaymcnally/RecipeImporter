@@ -675,3 +675,169 @@ Durable decision:
 
 Why retained:
 - Prevents repeated regressions where narrative paragraphs degrade canonical line-role benchmark precision.
+
+
+## 2026-03-03 docs/understandings consolidation batch
+
+The entries below were merged from `docs/understandings` in timestamp order before source-file cleanup.
+
+### 2026-03-03_16.23.15-line-role-title-note-regression-root-cause
+
+Source:
+- `docs/understandings/2026-03-03_16.23.15-line-role-title-note-regression-root-cause.md`
+
+Summary:
+- Why SeaAndSmoke single-offline codex run can improve strict accuracy but crater macro-F1: line-role title/note failure modes.
+
+Preserved source note:
+
+````md
+---
+summary: "Why SeaAndSmoke single-offline codex run can improve strict accuracy but crater macro-F1: line-role title/note failure modes."
+---
+
+Context
+- Run inspected: `data/golden/benchmark-vs-golden/2026-03-03_15.52.28/single-offline-benchmark/seaandsmokecutdown/codexfarm`.
+- Key symptom: codex strict accuracy increased, but macro-F1 dropped due title/note regressions.
+
+Findings
+- The user-facing prompt bundle under `.../codexfarm/codexfarm/` is for recipe pass1/2/3 extraction prompts, not canonical line-role label prompts.
+- Canonical line-role labeling uses `llm_pipelines/prompts/canonical-line-role-v1.prompt.md` and `cookimport/parsing/canonical_line_roles.py`.
+- For many recipe-title lines, `AtomicLineCandidate.candidate_labels` do not include `RECIPE_TITLE`:
+  - Inside recipe span fallback: `['OTHER', 'KNOWLEDGE']`.
+  - Outside recipe span fallback: `['KNOWLEDGE', 'OTHER']`.
+- Codex line-role response is strictly validated against per-line allowlist (`label_outside_allowlist` check), so if `RECIPE_TITLE` is not in allowlist, model cannot output it even if prompt intent is clear.
+- Deterministic title detection outside recipe span (`_deterministic_label` -> `RECIPE_TITLE`, confidence `0.79`) is then often escalated to codex because confidence `< 0.90`; escalation can discard a plausible deterministic title and route to an allowlist that omits `RECIPE_TITLE`.
+- `RECIPE_NOTES` often gets forced to `INSTRUCTION_LINE` by heuristics:
+  - `_is_instruction_sentence` returns true for lines with `.` and >= 8 words, which catches many narrative note paragraphs.
+  - Deterministic confidence then high (`0.95`), so codex escalation is skipped and line stays instruction-like.
+- Prompt example imbalance exists for line-role prompt:
+  - Includes explicit all-caps `RECIPE_VARIANT` example.
+  - No explicit positive `RECIPE_TITLE` example.
+
+Observed run-level effect
+- Gold `RECIPE_TITLE` lines: 21; codex predicted `RECIPE_TITLE`: 0.
+- Gold `RECIPE_NOTES` lines: 11; codex correct: 1.
+- A majority of wrong title/note decisions were rule-decided, not codex-decided.
+
+Implication
+- Current behavior is less "LLM ignored prompt" and more "pipeline constrained the label space + heuristic preclassification prevented recovery".
+
+````
+
+### 2026-03-03_16.38.03-canonical-line-role-title-note-fix-implementation
+
+Source:
+- `docs/understandings/2026-03-03_16.38.03-canonical-line-role-title-note-fix-implementation.md`
+
+Summary:
+- Canonical line-role fix implementation notes: title allowlist reachability, deterministic title hold, note-vs-instruction heuristic tightening, and serving/yield split guard.
+
+Preserved source note:
+
+````md
+---
+summary: "Canonical line-role fix implementation notes: title allowlist reachability, deterministic title hold, note-vs-instruction heuristic tightening, and serving/yield split guard."
+read_when:
+  - "When debugging missing RECIPE_TITLE predictions in codex-line-role-v1 runs"
+  - "When note prose lines are misclassified as INSTRUCTION_LINE or split into false YIELD_LINE tails"
+---
+
+Context
+- Scope: `cookimport/parsing/recipe_block_atomizer.py`, `cookimport/parsing/canonical_line_roles.py`, `llm_pipelines/prompts/canonical-line-role-v1.prompt.md`.
+- Trigger: SeaAndSmoke run showed title/note regression concentrated in canonical line-role stage.
+
+What changed
+- Atomizer now emits `RECIPE_TITLE` candidates for heading-like title lines before fallback (`title_like` tag), instead of dropping into generic `OTHER/KNOWLEDGE`.
+- Canonical allowlist now auto-adds `RECIPE_TITLE` for title-like lines even if upstream candidate labels omitted it.
+- Low-confidence escalation now keeps deterministic `RECIPE_TITLE` decisions on rule path (no codex escalation-away of title).
+- Note-like prose is explicitly recognized (`note_like_prose`) and routed toward `RECIPE_NOTES` instead of broad instruction-sentence fallback.
+- Instruction-sentence heuristic now requires instruction cues for long prose, reducing false instruction tags.
+- Yield regex changed from `servings?` to `servings` in both atomizer and canonical rules to avoid splitting prose on standalone `serving` (for example, “before serving ...”).
+- Canonical line-role prompt now includes an explicit `RECIPE_TITLE` few-shot example (`A PORRIDGE OF LOVAGE STEMS`).
+
+Verification
+- Targeted parsing suites pass:
+  - `tests/parsing/test_recipe_block_atomizer.py`
+  - `tests/parsing/test_canonical_line_roles.py`
+- Added regression tests cover:
+  - title candidate reachability inside recipe spans,
+  - codex allowlist path returning `RECIPE_TITLE`,
+  - deterministic low-confidence title no-escalation behavior,
+  - note-like prose preferring `RECIPE_NOTES`.
+
+````
+
+### 2026-03-03_19.21.23-canonical-next-error-buckets
+
+Source:
+- `docs/understandings/2026-03-03_19.21.23-canonical-next-error-buckets.md`
+
+Summary:
+- Post-fix canonical line-role diagnosis: next highest-impact buckets are ingredient recall misses, title-vs-howto overcalls, and quantity-fragment atomization artifacts.
+
+Preserved source note:
+
+````md
+---
+summary: "Post-fix canonical line-role diagnosis: next highest-impact buckets are ingredient recall misses, title-vs-howto overcalls, and quantity-fragment atomization artifacts."
+read_when:
+  - "When planning the next canonical line-role quality pass after 2026-03-03_18.31.00 benchmark run."
+  - "When choosing whether to prioritize prompt tuning or deterministic rule/atomizer fixes."
+---
+
+Context
+- Run analyzed: `data/golden/benchmark-vs-golden/2026-03-03_18.31.00/single-offline-benchmark/seaandsmokecutdown/codexfarm`.
+- Topline improved strongly (`strict_accuracy=0.5916`, `macro_f1_excluding_other=0.4684`), but confusion matrix still has large deterministic error pockets.
+
+Findings
+- Most remaining wrong lines are deterministic decisions:
+  - wrong lines: 243
+  - `decided_by=rule`: 193
+  - `decided_by=codex`: 50
+- Highest-impact confusion buckets:
+  1) `INGREDIENT_LINE -> OTHER`: 68
+  2) `HOWTO_SECTION -> RECIPE_TITLE`: 36
+  3) `INSTRUCTION_LINE -> INGREDIENT_LINE`: 26
+- Ingredient miss profile (`INGREDIENT_LINE -> OTHER`) is strongly short quantity-led:
+  - 59/68 start with quantity pattern
+  - 64/68 are short lines (<=10 words)
+- Title overcall profile includes many subsection-like all-caps headings:
+  - examples: `JUNIPER VINEGAR`, `CURED VENISON`, `SHIITAKE STOCK`
+  - gold marks these as `HOWTO_SECTION` in recipe flow.
+- Atomization artifacts still exist where instruction prose is split into quantity-ish fragments that then trigger ingredient labeling.
+
+Implication
+- Next gains should focus on deterministic candidate/rule shaping and atomizer split guards, not primarily prompt tuning.
+
+````
+
+### 2026-03-03_19.45.44-canonical-quantity-split-and-subheading-context-guards
+
+Source:
+- `docs/understandings/2026-03-03_19.45.44-canonical-quantity-split-and-subheading-context-guards.md`
+
+Summary:
+- Canonical line-role quality gains came from blocking instruction-prose quantity splitting and using neighbor context to treat compact title-like rows as HOWTO_SECTION when they are internal subsections.
+
+Preserved source note:
+
+````md
+---
+summary: "Canonical line-role quality gains came from blocking instruction-prose quantity splitting and using neighbor context to treat compact title-like rows as HOWTO_SECTION when they are internal subsections."
+read_when:
+  - "When debugging canonical INSTRUCTION_LINE->INGREDIENT_LINE errors caused by atomizer quantity fragments."
+  - "When tuning RECIPE_TITLE vs HOWTO_SECTION disambiguation for compact all-caps component headings."
+---
+
+Findings
+- The largest instruction false positives came from atomizer quantity splitting on instruction prose with mixed measurements (for example `1 quart/1 L`, `2 cups/475 g`), which produced fragment rows (`2 cups/`, `2 L container...`) later labeled as ingredients.
+- Ingredient recall misses (`INGREDIENT_LINE -> OTHER`) were concentrated in short quantity-led rows without explicit unit tokens (`1 fresh bay leaf`, `8 thin slices ...`) that did not match the old noun/unit-only ingredient gate.
+- `HOWTO_SECTION -> RECIPE_TITLE` overcalls clustered on compact all-caps headings followed by procedural sentences (`AGING THE DUCK`, `PRAWN STOCK`), not on recipe-start title rows followed by yield lines.
+
+Implementation contract
+- In `recipe_block_atomizer`, keep quantity segments whole when they are instruction-like prose or when splitting would create broken dual-unit fragments.
+- In `recipe_block_atomizer`, allow short quantity-led ingredient shape detection with time/prose negatives.
+- In `canonical_line_roles`, prefer `HOWTO_SECTION` for compact title-like headings only when neighbor context indicates an internal subsection (and do not apply this when the next line is a yield boundary).
+
+````

@@ -2019,19 +2019,50 @@ _HTML = """\
       </section>
     </details>
     <div class="previous-runs-top-grid">
-      <section id="isolate-panel" class="isolate-panel">
-        <h3>Isolate For X</h3>
-        <p class="section-note">Stack one or more field + logic + value rules to isolate matching runs. Isolate rules now write directly into table column filters, including cross-column OR when using <strong>any rule (OR)</strong>.</p>
-        <div class="isolate-controls">
-          <label for="isolate-combine">Match</label>
-          <select id="isolate-combine"></select>
-          <button id="isolate-add" type="button">Add rule</button>
-          <button id="isolate-clear" type="button">Clear all</button>
-        </div>
-        <div id="isolate-rules" class="isolate-rules"></div>
-        <p id="isolate-status" class="section-note"></p>
-        <div id="isolate-insights" class="isolate-insights"></div>
-      </section>
+      <div class="previous-runs-analysis-panels">
+        <section id="isolate-panel" class="isolate-panel">
+          <h3>Isolate For X</h3>
+          <p class="section-note">Stack one or more field + logic + value rules to isolate matching runs. Isolate rules now write directly into table column filters, including cross-column OR when using <strong>any rule (OR)</strong>.</p>
+          <div class="isolate-controls">
+            <label for="isolate-combine">Match</label>
+            <select id="isolate-combine"></select>
+            <button id="isolate-add" type="button">Add rule</button>
+            <button id="isolate-clear" type="button">Clear all</button>
+          </div>
+          <div id="isolate-rules" class="isolate-rules"></div>
+          <p id="isolate-status" class="section-note"></p>
+          <div id="isolate-insights" class="isolate-insights"></div>
+        </section>
+        <section id="compare-control-panel" class="compare-control-panel">
+          <h3>Compare &amp; Control</h3>
+          <p class="section-note">Use visible rows to find likely drivers, compare one field, hold confounders constant, and push selected groups into table filters.</p>
+          <div class="compare-control-controls">
+            <label for="compare-control-view-mode">View</label>
+            <select id="compare-control-view-mode">
+              <option value="discover">discover</option>
+              <option value="raw">raw</option>
+              <option value="controlled">controlled</option>
+            </select>
+            <label for="compare-control-outcome-field">Outcome</label>
+            <select id="compare-control-outcome-field"></select>
+            <label for="compare-control-compare-field">Compare by</label>
+            <select id="compare-control-compare-field"></select>
+            <label for="compare-control-split-field">Split by</label>
+            <select id="compare-control-split-field"></select>
+          </div>
+          <div class="compare-control-hold">
+            <span class="compare-control-hold-label">Hold constant</span>
+            <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
+          </div>
+          <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
+          <div class="compare-control-actions">
+            <button id="compare-control-filter-subset" type="button">Filter to subset</button>
+            <button id="compare-control-clear-selection" type="button">Clear groups</button>
+          </div>
+          <p id="compare-control-status" class="section-note"></p>
+          <div id="compare-control-results" class="compare-control-results"></div>
+        </section>
+      </div>
       <div class="trend-chart-wrap">
         <h3>Benchmark Score Trend</h3>
         <p class="section-note">Interactive time-series view of benchmark quality metrics (same chart tech as the git-stats dashboards).</p>
@@ -2334,6 +2365,11 @@ section h3 {
   margin: 0.75rem 0 0.9rem;
   background: #f8fbff;
 }
+.compare-control-panel {
+  margin: 0.75rem 0 0.9rem;
+  background: #fbfcf7;
+  border: 1px solid #dde5cf;
+}
 .previous-runs-top-grid {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
@@ -2341,18 +2377,33 @@ section h3 {
   align-items: start;
   margin: 0.5rem 0 0.9rem;
 }
+.previous-runs-analysis-panels {
+  display: grid;
+  gap: 0.7rem;
+}
 .previous-runs-top-grid .isolate-panel,
+.previous-runs-top-grid .compare-control-panel,
 .previous-runs-top-grid .trend-chart-wrap {
   margin: 0;
 }
 .isolate-panel h3 {
   margin-top: 0;
 }
+.compare-control-panel h3 {
+  margin-top: 0;
+  color: #4a6438;
+}
 .isolate-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.42rem;
+}
+.compare-control-controls {
+  display: grid;
+  grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
+  gap: 0.32rem 0.45rem;
+  align-items: center;
 }
 .isolate-controls label {
   color: var(--muted);
@@ -2361,10 +2412,22 @@ section h3 {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+.compare-control-controls label,
+.compare-control-hold-label {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 #isolate-combine,
 .isolate-rule-field,
 .isolate-rule-operator,
-.isolate-rule-value {
+.isolate-rule-value,
+#compare-control-view-mode,
+#compare-control-outcome-field,
+#compare-control-compare-field,
+#compare-control-split-field {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
@@ -2388,6 +2451,25 @@ section h3 {
 #isolate-add:hover,
 #isolate-clear:hover {
   border-color: #c7d0d9;
+}
+#compare-control-filter-subset,
+#compare-control-clear-selection {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f6f9fc;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.77rem;
+  padding: 0.18rem 0.62rem;
+}
+#compare-control-filter-subset:hover,
+#compare-control-clear-selection:hover {
+  border-color: #c7d0d9;
+}
+#compare-control-filter-subset:disabled,
+#compare-control-clear-selection:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 .isolate-rules {
   display: grid;
@@ -2438,6 +2520,93 @@ section h3 {
   margin: 0.17rem 0;
   font-size: 0.8rem;
   color: var(--text);
+}
+.compare-control-hold {
+  margin-top: 0.5rem;
+}
+.compare-control-hold-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.24rem 0.5rem;
+  margin-top: 0.24rem;
+}
+.compare-control-hold-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.76rem;
+  color: var(--text);
+}
+.compare-control-hold-item input[type="checkbox"] {
+  margin: 0;
+}
+.compare-control-group-selection {
+  margin-top: 0.5rem;
+}
+.compare-control-group-selection-list {
+  display: grid;
+  gap: 0.21rem;
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+.compare-control-group-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  font-size: 0.76rem;
+  color: var(--text);
+}
+.compare-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.52rem;
+}
+.compare-control-results {
+  border: 1px dashed #ccd9c1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.48rem 0.62rem;
+}
+.compare-control-results p {
+  margin: 0.2rem 0;
+  font-size: 0.81rem;
+}
+.compare-control-results ul {
+  margin: 0.25rem 0 0.05rem 1rem;
+  padding: 0;
+}
+.compare-control-results li {
+  margin: 0.15rem 0;
+  font-size: 0.79rem;
+}
+.compare-control-discovery-list {
+  display: grid;
+  gap: 0.26rem;
+}
+.compare-control-discovery-card {
+  border: 1px solid #d8e2cb;
+  border-radius: 7px;
+  background: #f9fcf3;
+  text-align: left;
+  padding: 0.34rem 0.48rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.compare-control-discovery-card:hover {
+  border-color: #b4c59f;
+}
+.compare-control-discovery-card .score {
+  color: #466832;
+  font-weight: 600;
+}
+.compare-control-split-list {
+  margin-top: 0.36rem;
+}
+.compare-control-inline-note {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .chart-container { width: 100%; overflow-x: auto; min-height: 120px; }
@@ -3517,7 +3686,16 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .isolate-controls {
     align-items: stretch;
   }
+  .compare-control-controls {
+    grid-template-columns: 1fr;
+  }
   #isolate-combine {
+    width: 100%;
+  }
+  #compare-control-view-mode,
+  #compare-control-outcome-field,
+  #compare-control-compare-field,
+  #compare-control-split-field {
     width: 100%;
   }
   .isolate-rule-row {
@@ -3526,6 +3704,9 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   }
   .isolate-controls label {
     margin-top: 0.1rem;
+  }
+  .compare-control-hold-fields {
+    grid-template-columns: 1fr;
   }
   .quick-filters-list {
     flex-direction: column;
@@ -3576,6 +3757,16 @@ _JS = """\
   let previousRunsFilterControlSource = "table";
   let isolateClauses = [];
   let isolateCombineMode = "all";
+  let compareControlState = {
+    outcome_field: "strict_accuracy",
+    compare_field: "",
+    hold_constant_fields: [],
+    split_field: "",
+    view_mode: "discover",
+    selected_groups: [],
+  };
+  let compareControlStatusMessage = "";
+  let compareControlStatusIsError = false;
   let perLabelRollingWindowSize = 10;
   let perLabelComparisonMode = "delta";
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
@@ -3793,6 +3984,28 @@ _JS = """\
     all: "all rules",
     any: "any rule",
   };
+  const COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy";
+  const COMPARE_CONTROL_VIEW_MODES = new Set(["discover", "raw", "controlled"]);
+  const COMPARE_CONTROL_OUTCOME_PREFERRED = [
+    "strict_accuracy",
+    "macro_f1_excluding_other",
+    "precision",
+    "recall",
+    "f1",
+    "practical_f1",
+    "supported_practical_f1",
+  ];
+  const COMPARE_CONTROL_FIELD_SKIP = new Set([
+    "artifact_dir",
+    "artifact_dir_basename",
+    "run_dir",
+    "report_path",
+    "run_timestamp",
+    "run_config_summary",
+    "run_config_hash",
+    "per_label_json",
+    "per_label",
+  ]);
   const TABLE_COLLAPSE_DEFAULT_ROWS = {
     "recent-runs": 8,
     "file-trend-table": 8,
@@ -3965,6 +4178,37 @@ _JS = """\
     return key === "point_value" ? "point_value" : "delta";
   }
 
+  function normalizeCompareControlViewMode(value) {
+    const key = String(value || "discover").trim().toLowerCase();
+    return COMPARE_CONTROL_VIEW_MODES.has(key) ? key : "discover";
+  }
+
+  function uniqueStringList(values) {
+    const seen = new Set();
+    const ordered = [];
+    (Array.isArray(values) ? values : []).forEach(value => {
+      const key = String(value || "").trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      ordered.push(key);
+    });
+    return ordered;
+  }
+
+  function normalizeCompareControlState(rawState) {
+    const source = rawState && typeof rawState === "object" && !Array.isArray(rawState)
+      ? rawState
+      : Object.create(null);
+    return {
+      outcome_field: String(source.outcome_field || COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD).trim() || COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD,
+      compare_field: String(source.compare_field || "").trim(),
+      hold_constant_fields: uniqueStringList(source.hold_constant_fields),
+      split_field: String(source.split_field || "").trim(),
+      view_mode: normalizeCompareControlViewMode(source.view_mode),
+      selected_groups: uniqueStringList(source.selected_groups),
+    };
+  }
+
   function normalizeIsolateClause(rawClause) {
     if (!rawClause || typeof rawClause !== "object" || Array.isArray(rawClause)) {
       return {
@@ -4056,6 +4300,7 @@ _JS = """\
       isolate.mode = normalizeIsolateCombineMode(rawIsolate.mode);
       isolate.clauses = normalizeIsolateClauseList(rawIsolate.clauses);
     }
+    const compareControl = normalizeCompareControlState(rawPreset.compare_control);
     const filterControlSource = Object.prototype.hasOwnProperty.call(rawPreset, "filter_control_source")
       ? normalizePreviousRunsFilterControlSource(rawPreset.filter_control_source)
       : (isolateClauseListHasActiveSelection(isolate.clauses) ? "isolate" : "table");
@@ -4071,6 +4316,7 @@ _JS = """\
       column_widths: sanitizeColumnWidthsMap(rawPreset.column_widths),
       sort,
       isolate,
+      compare_control: compareControl,
       filter_control_source: filterControlSource,
     };
   }
@@ -4219,6 +4465,11 @@ _JS = """\
         }
       }
     }
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "compare_control")) {
+      compareControlState = normalizeCompareControlState(previousRuns.compare_control);
+    } else {
+      compareControlState = normalizeCompareControlState(compareControlState);
+    }
     const rawFilterControlSource = previousRuns.filter_control_source;
     if (Object.prototype.hasOwnProperty.call(previousRuns, "filter_control_source")) {
       previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(rawFilterControlSource);
@@ -4302,6 +4553,7 @@ _JS = """\
         try {
           setupPreviousRunsQuickFilters();
           setupPreviousRunsGlobalFilterModeControl();
+          setupCompareControlControls();
           setupPerLabelControls();
           renderPreviousRunsColumnEditor();
           renderAll();
@@ -4384,6 +4636,7 @@ _JS = """\
             value: String((clause && clause.value) || ""),
           })),
         },
+        compare_control: normalizeCompareControlState(compareControlState),
         filter_control_source: normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource),
         selected_preset: selectedPresetName,
       },
@@ -4842,6 +5095,7 @@ _JS = """\
     setupPreviousRunsGlobalFilterModeControl();
     setupPreviousRunsPresetControls();
     setupIsolateControls();
+    setupCompareControlControls();
     const clearBtn = document.getElementById("previous-runs-clear-filters");
     if (clearBtn && !clearBtn.dataset.bound) {
       clearBtn.addEventListener("click", () => {
@@ -5413,6 +5667,1098 @@ _JS = """\
       });
       rulesHost.dataset.bound = "1";
     }
+  }
+
+  function setupCompareControlControls() {
+    const panel = document.getElementById("compare-control-panel");
+    const viewMode = document.getElementById("compare-control-view-mode");
+    const outcomeField = document.getElementById("compare-control-outcome-field");
+    const compareField = document.getElementById("compare-control-compare-field");
+    const splitField = document.getElementById("compare-control-split-field");
+    const holdFields = document.getElementById("compare-control-hold-fields");
+    const groupSelection = document.getElementById("compare-control-group-selection");
+    const results = document.getElementById("compare-control-results");
+    const filterSubset = document.getElementById("compare-control-filter-subset");
+    const clearSelection = document.getElementById("compare-control-clear-selection");
+    if (
+      !panel ||
+      !viewMode ||
+      !outcomeField ||
+      !compareField ||
+      !splitField ||
+      !holdFields ||
+      !groupSelection ||
+      !results ||
+      !filterSubset ||
+      !clearSelection
+    ) {
+      return;
+    }
+
+    if (!viewMode.dataset.bound) {
+      viewMode.addEventListener("change", () => {
+        compareControlState.view_mode = normalizeCompareControlViewMode(viewMode.value);
+        renderAll();
+      });
+      viewMode.dataset.bound = "1";
+    }
+    if (!outcomeField.dataset.bound) {
+      outcomeField.addEventListener("change", () => {
+        compareControlState.outcome_field = String(outcomeField.value || "").trim();
+        renderAll();
+      });
+      outcomeField.dataset.bound = "1";
+    }
+    if (!compareField.dataset.bound) {
+      compareField.addEventListener("change", () => {
+        compareControlState.compare_field = String(compareField.value || "").trim();
+        compareControlState.selected_groups = [];
+        if (!compareControlState.compare_field) {
+          compareControlState.view_mode = "discover";
+        }
+        renderAll();
+      });
+      compareField.dataset.bound = "1";
+    }
+    if (!splitField.dataset.bound) {
+      splitField.addEventListener("change", () => {
+        compareControlState.split_field = String(splitField.value || "").trim();
+        renderAll();
+      });
+      splitField.dataset.bound = "1";
+    }
+    if (!holdFields.dataset.bound) {
+      holdFields.addEventListener("change", event => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (!target.classList.contains("compare-control-hold-checkbox")) return;
+        const fieldName = String(target.value || "").trim();
+        if (!fieldName) return;
+        const current = new Set(uniqueStringList(compareControlState.hold_constant_fields));
+        if (target.checked) {
+          current.add(fieldName);
+        } else {
+          current.delete(fieldName);
+        }
+        compareControlState.hold_constant_fields = Array.from(current);
+        renderAll();
+      });
+      holdFields.dataset.bound = "1";
+    }
+    if (!groupSelection.dataset.bound) {
+      groupSelection.addEventListener("change", event => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (!target.classList.contains("compare-control-group-checkbox")) return;
+        const groupKey = String(target.value || "").trim();
+        if (!groupKey) return;
+        const current = new Set(uniqueStringList(compareControlState.selected_groups));
+        if (target.checked) {
+          current.add(groupKey);
+        } else {
+          current.delete(groupKey);
+        }
+        compareControlState.selected_groups = Array.from(current);
+        renderAll();
+      });
+      groupSelection.dataset.bound = "1";
+    }
+    if (!results.dataset.bound) {
+      results.addEventListener("click", event => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const card = target.closest(".compare-control-discovery-card");
+        if (!(card instanceof HTMLElement)) return;
+        const fieldName = String(card.getAttribute("data-compare-field") || "").trim();
+        if (!fieldName) return;
+        compareControlState.compare_field = fieldName;
+        compareControlState.view_mode = "raw";
+        compareControlState.selected_groups = [];
+        compareControlStatusMessage = "Selected " + fieldName + " from discovery.";
+        compareControlStatusIsError = false;
+        renderAll();
+      });
+      results.dataset.bound = "1";
+    }
+    if (!filterSubset.dataset.bound) {
+      filterSubset.addEventListener("click", () => {
+        const applied = syncCompareControlSelectionToTableFilters();
+        compareControlStatusMessage = applied.message;
+        compareControlStatusIsError = !applied.applied;
+        renderAll();
+      });
+      filterSubset.dataset.bound = "1";
+    }
+    if (!clearSelection.dataset.bound) {
+      clearSelection.addEventListener("click", () => {
+        compareControlState.selected_groups = [];
+        compareControlStatusMessage = "Cleared selected groups.";
+        compareControlStatusIsError = false;
+        renderAll();
+      });
+      clearSelection.dataset.bound = "1";
+    }
+  }
+
+  function compareControlFieldLabel(fieldName) {
+    return isolateFieldLabel(fieldName);
+  }
+
+  function compareControlFieldSortValue(fieldInfo) {
+    if (!fieldInfo) return 0;
+    return Number(fieldInfo.non_empty_count || 0);
+  }
+
+  function buildCompareControlFieldCatalog(records) {
+    const byField = Object.create(null);
+    const orderedFields = [];
+    const seen = new Set();
+
+    function considerField(fieldName) {
+      const key = String(fieldName || "").trim();
+      if (!key || seen.has(key) || COMPARE_CONTROL_FIELD_SKIP.has(key)) return;
+      seen.add(key);
+      const valueCounts = Object.create(null);
+      const numericValues = [];
+      let nonEmpty = 0;
+      let numericCount = 0;
+      records.forEach(record => {
+        const rawValue = previousRunsFieldValue(record, key);
+        if (isEmptyRuleValue(rawValue)) return;
+        const comparableKey = isolateComparableValue(rawValue);
+        if (!Object.prototype.hasOwnProperty.call(valueCounts, comparableKey)) {
+          valueCounts[comparableKey] = {
+            key: comparableKey,
+            label: isolateDisplayValue(rawValue, comparableKey),
+            count: 0,
+          };
+        }
+        valueCounts[comparableKey].count += 1;
+        nonEmpty += 1;
+        const numeric = maybeNumber(rawValue);
+        if (numeric != null) {
+          numericCount += 1;
+          numericValues.push(numeric);
+        }
+      });
+      const categories = Object.values(valueCounts).sort((left, right) => {
+        if (right.count !== left.count) return right.count - left.count;
+        return String(left.label).localeCompare(String(right.label), undefined, { numeric: true });
+      });
+      const distinctCount = categories.length;
+      if (distinctCount < 2) return;
+      const numeric = nonEmpty > 0 && numericCount === nonEmpty;
+      const info = {
+        field: key,
+        label: compareControlFieldLabel(key),
+        numeric,
+        non_empty_count: nonEmpty,
+        distinct_count: distinctCount,
+        categories: numeric ? [] : categories.slice(0, 120),
+        numeric_min: numericValues.length ? Math.min(...numericValues) : null,
+        numeric_max: numericValues.length ? Math.max(...numericValues) : null,
+      };
+      byField[key] = info;
+      orderedFields.push(info);
+    }
+
+    COMPARE_CONTROL_OUTCOME_PREFERRED.forEach(considerField);
+    ISOLATE_FIELD_PREFERRED.forEach(considerField);
+    PREVIOUS_RUNS_DEFAULT_COLUMNS.forEach(considerField);
+    previousRunsFieldOptions.forEach(considerField);
+    orderedFields.sort((left, right) => {
+      const sizeGap = compareControlFieldSortValue(right) - compareControlFieldSortValue(left);
+      if (sizeGap !== 0) return sizeGap;
+      return String(left.label || left.field).localeCompare(
+        String(right.label || right.field),
+        undefined,
+        { numeric: true },
+      );
+    });
+    const numericFields = orderedFields.filter(field => field.numeric);
+    const categoricalFields = orderedFields.filter(field => !field.numeric);
+    return {
+      fields: orderedFields,
+      by_field: byField,
+      numeric_fields: numericFields,
+      categorical_fields: categoricalFields,
+    };
+  }
+
+  function chooseDefaultCompareOutcome(catalog) {
+    const byField = (catalog && catalog.by_field) || Object.create(null);
+    for (const fieldName of COMPARE_CONTROL_OUTCOME_PREFERRED) {
+      const info = byField[fieldName];
+      if (info && info.numeric) return fieldName;
+    }
+    const numericField = (catalog && catalog.numeric_fields || []).find(Boolean);
+    if (numericField) return numericField.field;
+    return COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD;
+  }
+
+  function normalizeCompareControlStateForCatalog(rawState, catalog) {
+    const state = normalizeCompareControlState(rawState);
+    const byField = (catalog && catalog.by_field) || Object.create(null);
+    const defaultOutcome = chooseDefaultCompareOutcome(catalog);
+    if (!byField[state.outcome_field] || !byField[state.outcome_field].numeric) {
+      state.outcome_field = defaultOutcome;
+    }
+    if (state.compare_field && !byField[state.compare_field]) {
+      state.compare_field = "";
+    }
+    if (state.compare_field === state.outcome_field) {
+      state.compare_field = "";
+    }
+    state.hold_constant_fields = state.hold_constant_fields.filter(fieldName => (
+      byField[fieldName] &&
+      fieldName !== state.outcome_field &&
+      fieldName !== state.compare_field
+    ));
+    if (!byField[state.split_field] || state.split_field === state.outcome_field || state.split_field === state.compare_field) {
+      state.split_field = "";
+    }
+    if (!state.compare_field) {
+      state.view_mode = "discover";
+      state.selected_groups = [];
+    } else {
+      state.view_mode = normalizeCompareControlViewMode(state.view_mode);
+      const compareField = byField[state.compare_field];
+      if (!compareField || compareField.numeric) {
+        state.selected_groups = [];
+      } else {
+        const allowed = new Set(
+          (compareField.categories || [])
+            .map(entry => String(entry.key || "").trim())
+            .filter(Boolean)
+            .filter(value => value !== "__EMPTY__")
+        );
+        state.selected_groups = state.selected_groups.filter(value => allowed.has(value));
+      }
+    }
+    return state;
+  }
+
+  function compareControlPairs(records, outcomeField, compareField) {
+    const pairs = [];
+    records.forEach(record => {
+      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
+      const compare = maybeNumber(previousRunsFieldValue(record, compareField));
+      if (outcome == null || compare == null) return;
+      pairs.push({ x: compare, y: outcome, record });
+    });
+    return pairs;
+  }
+
+  function rankWithTies(values) {
+    const indexed = values
+      .map((value, index) => ({ value, index }))
+      .sort((left, right) => left.value - right.value);
+    const ranks = new Array(values.length);
+    let idx = 0;
+    while (idx < indexed.length) {
+      let end = idx;
+      while (end + 1 < indexed.length && indexed[end + 1].value === indexed[idx].value) {
+        end += 1;
+      }
+      const rank = (idx + end + 2) / 2;
+      for (let pos = idx; pos <= end; pos += 1) {
+        ranks[indexed[pos].index] = rank;
+      }
+      idx = end + 1;
+    }
+    return ranks;
+  }
+
+  function pearsonCorrelation(xs, ys) {
+    if (!Array.isArray(xs) || !Array.isArray(ys) || xs.length !== ys.length || xs.length < 2) {
+      return null;
+    }
+    const meanX = mean(xs);
+    const meanY = mean(ys);
+    if (meanX == null || meanY == null) return null;
+    let sumXY = 0;
+    let sumXX = 0;
+    let sumYY = 0;
+    for (let idx = 0; idx < xs.length; idx += 1) {
+      const dx = xs[idx] - meanX;
+      const dy = ys[idx] - meanY;
+      sumXY += dx * dy;
+      sumXX += dx * dx;
+      sumYY += dy * dy;
+    }
+    if (sumXX <= 0 || sumYY <= 0) return null;
+    return sumXY / Math.sqrt(sumXX * sumYY);
+  }
+
+  function spearmanCorrelation(xs, ys) {
+    if (!Array.isArray(xs) || !Array.isArray(ys) || xs.length !== ys.length || xs.length < 2) {
+      return null;
+    }
+    const rankX = rankWithTies(xs);
+    const rankY = rankWithTies(ys);
+    return pearsonCorrelation(rankX, rankY);
+  }
+
+  function linearRegressionFromPairs(pairs) {
+    if (!Array.isArray(pairs) || pairs.length < 2) {
+      return {
+        slope: null,
+        intercept: null,
+        r_squared: null,
+        pearson: null,
+      };
+    }
+    const xs = pairs.map(pair => pair.x);
+    const ys = pairs.map(pair => pair.y);
+    const meanX = mean(xs);
+    const meanY = mean(ys);
+    if (meanX == null || meanY == null) {
+      return {
+        slope: null,
+        intercept: null,
+        r_squared: null,
+        pearson: null,
+      };
+    }
+    let sumXX = 0;
+    let sumXY = 0;
+    for (let idx = 0; idx < pairs.length; idx += 1) {
+      const dx = pairs[idx].x - meanX;
+      sumXX += dx * dx;
+      sumXY += dx * (pairs[idx].y - meanY);
+    }
+    if (sumXX <= 0) {
+      return {
+        slope: 0,
+        intercept: meanY,
+        r_squared: 0,
+        pearson: 0,
+      };
+    }
+    const slope = sumXY / sumXX;
+    const intercept = meanY - (slope * meanX);
+    const pearson = pearsonCorrelation(xs, ys);
+    const rSquared = pearson == null ? null : pearson * pearson;
+    return {
+      slope,
+      intercept,
+      r_squared: rSquared,
+      pearson,
+    };
+  }
+
+  function equalCountBinsFromPairs(pairs, maxBins) {
+    const sorted = Array.isArray(pairs)
+      ? pairs
+        .filter(pair => pair && Number.isFinite(pair.x) && Number.isFinite(pair.y))
+        .sort((left, right) => left.x - right.x)
+      : [];
+    if (!sorted.length) return [];
+    const targetBins = Math.max(1, Math.min(Number(maxBins) || 5, sorted.length));
+    const binSize = Math.max(1, Math.ceil(sorted.length / targetBins));
+    const bins = [];
+    for (let start = 0; start < sorted.length; start += binSize) {
+      const chunk = sorted.slice(start, start + binSize);
+      const xs = chunk.map(item => item.x);
+      const ys = chunk.map(item => item.y);
+      bins.push({
+        x_min: xs[0],
+        x_max: xs[xs.length - 1],
+        x_mean: mean(xs),
+        y_mean: mean(ys),
+        count: chunk.length,
+      });
+    }
+    return bins;
+  }
+
+  function equalCountBinsFromValues(values, maxBins) {
+    const sorted = Array.isArray(values)
+      ? values
+        .filter(value => Number.isFinite(value))
+        .sort((left, right) => left - right)
+      : [];
+    if (!sorted.length) return [];
+    const targetBins = Math.max(1, Math.min(Number(maxBins) || 4, sorted.length));
+    const binSize = Math.max(1, Math.ceil(sorted.length / targetBins));
+    const bins = [];
+    for (let start = 0; start < sorted.length; start += binSize) {
+      const chunk = sorted.slice(start, start + binSize);
+      bins.push({
+        min: chunk[0],
+        max: chunk[chunk.length - 1],
+        mean: mean(chunk),
+        count: chunk.length,
+      });
+    }
+    return bins;
+  }
+
+  function analyzeCompareControlCategoricalRaw(records, outcomeField, compareField) {
+    const groupsByKey = Object.create(null);
+    let usedRows = 0;
+    records.forEach(record => {
+      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
+      if (outcome == null) return;
+      const rawCompareValue = previousRunsFieldValue(record, compareField);
+      const groupKey = isolateComparableValue(rawCompareValue);
+      if (groupKey === "__EMPTY__") return;
+      if (!Object.prototype.hasOwnProperty.call(groupsByKey, groupKey)) {
+        groupsByKey[groupKey] = {
+          key: groupKey,
+          label: isolateDisplayValue(rawCompareValue, groupKey),
+          count: 0,
+          outcome_sum: 0,
+        };
+      }
+      groupsByKey[groupKey].count += 1;
+      groupsByKey[groupKey].outcome_sum += outcome;
+      usedRows += 1;
+    });
+    const groups = Object.values(groupsByKey)
+      .map(group => ({
+        key: group.key,
+        label: group.label,
+        count: group.count,
+        outcome_mean: group.count > 0 ? group.outcome_sum / group.count : null,
+      }))
+      .sort((left, right) => {
+        if (right.count !== left.count) return right.count - left.count;
+        return String(left.label).localeCompare(String(right.label), undefined, { numeric: true });
+      });
+    return {
+      type: "categorical",
+      groups,
+      used_rows: usedRows,
+      candidate_rows: records.length,
+    };
+  }
+
+  function analyzeCompareControlNumericRaw(records, outcomeField, compareField) {
+    const pairs = compareControlPairs(records, outcomeField, compareField);
+    const regression = linearRegressionFromPairs(pairs);
+    const xs = pairs.map(pair => pair.x);
+    const ys = pairs.map(pair => pair.y);
+    const spearman = spearmanCorrelation(xs, ys);
+    const bins = equalCountBinsFromPairs(pairs, 5);
+    return {
+      type: "numeric",
+      used_rows: pairs.length,
+      candidate_rows: records.length,
+      slope: regression.slope,
+      intercept: regression.intercept,
+      r_squared: regression.r_squared,
+      spearman,
+      bins,
+    };
+  }
+
+  function analyzeCompareControlCategoricalControlled(records, outcomeField, compareField, holdFields) {
+    const hold = uniqueStringList(holdFields);
+    if (!hold.length) {
+      const raw = analyzeCompareControlCategoricalRaw(records, outcomeField, compareField);
+      return {
+        ...raw,
+        used_strata: 0,
+        total_strata: 0,
+        hold_fields: hold,
+      };
+    }
+
+    const strata = Object.create(null);
+    records.forEach(record => {
+      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
+      if (outcome == null) return;
+      const rawCompare = previousRunsFieldValue(record, compareField);
+      const groupKey = isolateComparableValue(rawCompare);
+      if (groupKey === "__EMPTY__") return;
+      const stratumKey = hold
+        .map(fieldName => isolateComparableValue(previousRunsFieldValue(record, fieldName)))
+        .join("||");
+      if (!Object.prototype.hasOwnProperty.call(strata, stratumKey)) {
+        strata[stratumKey] = Object.create(null);
+      }
+      if (!Object.prototype.hasOwnProperty.call(strata[stratumKey], groupKey)) {
+        strata[stratumKey][groupKey] = {
+          key: groupKey,
+          label: isolateDisplayValue(rawCompare, groupKey),
+          count: 0,
+          outcome_sum: 0,
+        };
+      }
+      const group = strata[stratumKey][groupKey];
+      group.count += 1;
+      group.outcome_sum += outcome;
+    });
+
+    const weightedGroups = Object.create(null);
+    let usedRows = 0;
+    let usedStrata = 0;
+    const totalStrata = Object.keys(strata).length;
+    Object.keys(strata).forEach(stratumKey => {
+      const groups = Object.values(strata[stratumKey]);
+      if (groups.length < 2) return;
+      usedStrata += 1;
+      groups.forEach(group => {
+        if (!Object.prototype.hasOwnProperty.call(weightedGroups, group.key)) {
+          weightedGroups[group.key] = {
+            key: group.key,
+            label: group.label,
+            weighted_sum: 0,
+            weight: 0,
+            count: 0,
+          };
+        }
+        const meanOutcome = group.count > 0 ? group.outcome_sum / group.count : null;
+        if (meanOutcome == null) return;
+        weightedGroups[group.key].weighted_sum += meanOutcome * group.count;
+        weightedGroups[group.key].weight += group.count;
+        weightedGroups[group.key].count += group.count;
+        usedRows += group.count;
+      });
+    });
+    const groups = Object.values(weightedGroups)
+      .map(group => ({
+        key: group.key,
+        label: group.label,
+        count: group.count,
+        outcome_mean: group.weight > 0 ? group.weighted_sum / group.weight : null,
+      }))
+      .sort((left, right) => {
+        if (right.count !== left.count) return right.count - left.count;
+        return String(left.label).localeCompare(String(right.label), undefined, { numeric: true });
+      });
+    return {
+      type: "categorical",
+      groups,
+      used_rows: usedRows,
+      candidate_rows: records.length,
+      used_strata: usedStrata,
+      total_strata: totalStrata,
+      hold_fields: hold,
+    };
+  }
+
+  function analyzeCompareControlNumericControlled(records, outcomeField, compareField, holdFields) {
+    const hold = uniqueStringList(holdFields);
+    if (!hold.length) {
+      const raw = analyzeCompareControlNumericRaw(records, outcomeField, compareField);
+      return {
+        ...raw,
+        used_strata: 0,
+        total_strata: 0,
+        hold_fields: hold,
+      };
+    }
+
+    const strata = Object.create(null);
+    records.forEach(record => {
+      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
+      const compare = maybeNumber(previousRunsFieldValue(record, compareField));
+      if (outcome == null || compare == null) return;
+      const stratumKey = hold
+        .map(fieldName => isolateComparableValue(previousRunsFieldValue(record, fieldName)))
+        .join("||");
+      if (!Object.prototype.hasOwnProperty.call(strata, stratumKey)) {
+        strata[stratumKey] = [];
+      }
+      strata[stratumKey].push({ x: compare, y: outcome });
+    });
+
+    let usedStrata = 0;
+    const centeredPairs = [];
+    const totalStrata = Object.keys(strata).length;
+    Object.keys(strata).forEach(stratumKey => {
+      const rows = strata[stratumKey];
+      if (!rows || rows.length < 2) return;
+      const meanX = mean(rows.map(row => row.x));
+      const meanY = mean(rows.map(row => row.y));
+      if (meanX == null || meanY == null) return;
+      const distinctX = new Set(rows.map(row => row.x)).size;
+      if (distinctX < 2) return;
+      usedStrata += 1;
+      rows.forEach(row => {
+        centeredPairs.push({
+          x: row.x - meanX,
+          y: row.y - meanY,
+        });
+      });
+    });
+
+    const regression = linearRegressionFromPairs(centeredPairs);
+    const xs = centeredPairs.map(pair => pair.x);
+    const ys = centeredPairs.map(pair => pair.y);
+    const spearman = spearmanCorrelation(xs, ys);
+    return {
+      type: "numeric",
+      used_rows: centeredPairs.length,
+      candidate_rows: records.length,
+      used_strata: usedStrata,
+      total_strata: totalStrata,
+      hold_fields: hold,
+      slope: regression.slope,
+      intercept: regression.intercept,
+      r_squared: regression.r_squared,
+      spearman,
+      bins: [],
+    };
+  }
+
+  function analyzeCompareControlDiscovery(records, outcomeField, catalog) {
+    const totalRows = Array.isArray(records) ? records.length : 0;
+    const byField = (catalog && catalog.by_field) || Object.create(null);
+    const scored = [];
+    Object.keys(byField).forEach(fieldName => {
+      if (fieldName === outcomeField) return;
+      const fieldInfo = byField[fieldName];
+      if (!fieldInfo) return;
+      let strength = null;
+      let summary = "";
+      let coverageRatio = 0;
+      if (fieldInfo.numeric) {
+        const analysis = analyzeCompareControlNumericRaw(records, outcomeField, fieldName);
+        coverageRatio = totalRows > 0 ? analysis.used_rows / totalRows : 0;
+        const corrStrength = analysis.spearman == null ? 0 : Math.abs(analysis.spearman);
+        const slopeStrength = analysis.slope == null ? 0 : Math.abs(analysis.slope);
+        strength = corrStrength + Math.min(1, slopeStrength);
+        summary =
+          "Spearman " + fmtMaybe(analysis.spearman, 3) +
+          ", R² " + fmtMaybe(analysis.r_squared, 3);
+      } else {
+        const analysis = analyzeCompareControlCategoricalRaw(records, outcomeField, fieldName);
+        coverageRatio = totalRows > 0 ? analysis.used_rows / totalRows : 0;
+        if (analysis.groups.length < 2) return;
+        const means = analysis.groups
+          .map(group => maybeNumber(group.outcome_mean))
+          .filter(value => value != null);
+        if (!means.length) return;
+        const minMean = Math.min(...means);
+        const maxMean = Math.max(...means);
+        strength = Math.abs(maxMean - minMean) * 100;
+        const topGroup = analysis.groups[0];
+        summary = topGroup
+          ? ("Top group: " + topGroup.label + " (" + fmtMaybe(topGroup.outcome_mean, 3) + ")")
+          : "";
+      }
+      const finalScore = Number.isFinite(strength) ? strength * Math.max(0.2, coverageRatio) : 0;
+      scored.push({
+        field: fieldName,
+        field_label: fieldInfo.label,
+        numeric: fieldInfo.numeric,
+        coverage_ratio: coverageRatio,
+        score: finalScore,
+        summary,
+      });
+    });
+    scored.sort((left, right) => right.score - left.score);
+    return scored.slice(0, 10);
+  }
+
+  function compareControlSplitSegments(records, splitField, catalog) {
+    const byField = (catalog && catalog.by_field) || Object.create(null);
+    const splitInfo = byField[splitField];
+    if (!splitInfo) return [];
+    if (splitInfo.numeric) {
+      const numericValues = records
+        .map(record => maybeNumber(previousRunsFieldValue(record, splitField)))
+        .filter(value => value != null);
+      const bins = equalCountBinsFromValues(numericValues, 4);
+      if (!bins.length) return [];
+      const segments = bins.map((bin, idx) => ({
+        key: "bin_" + idx,
+        label: fmtMaybe(bin.min, 3) + " to " + fmtMaybe(bin.max, 3),
+        records: records.filter(record => {
+          const value = maybeNumber(previousRunsFieldValue(record, splitField));
+          if (value == null) return false;
+          if (idx === bins.length - 1) return value >= bin.min && value <= bin.max;
+          return value >= bin.min && value < bin.max;
+        }),
+      }));
+      const missing = records.filter(record => (
+        maybeNumber(previousRunsFieldValue(record, splitField)) == null
+      ));
+      if (missing.length) {
+        segments.push({
+          key: "missing",
+          label: "(missing)",
+          records: missing,
+        });
+      }
+      return segments.filter(segment => segment.records.length > 0).slice(0, 8);
+    }
+    const byGroup = Object.create(null);
+    records.forEach(record => {
+      const rawValue = previousRunsFieldValue(record, splitField);
+      const key = isolateComparableValue(rawValue);
+      const label = isolateDisplayValue(rawValue, key);
+      if (!Object.prototype.hasOwnProperty.call(byGroup, key)) {
+        byGroup[key] = {
+          key,
+          label,
+          records: [],
+        };
+      }
+      byGroup[key].records.push(record);
+    });
+    return Object.values(byGroup)
+      .sort((left, right) => {
+        if (right.records.length !== left.records.length) {
+          return right.records.length - left.records.length;
+        }
+        return String(left.label).localeCompare(String(right.label), undefined, { numeric: true });
+      })
+      .slice(0, 8);
+  }
+
+  function compareControlSegmentSummary(records, state, catalog) {
+    if (!Array.isArray(records) || !records.length || !state.compare_field) return "-";
+    const compareInfo = catalog.by_field[state.compare_field];
+    if (!compareInfo) return "-";
+    if (compareInfo.numeric) {
+      const numeric = state.view_mode === "controlled"
+        ? analyzeCompareControlNumericControlled(
+          records,
+          state.outcome_field,
+          state.compare_field,
+          state.hold_constant_fields,
+        )
+        : analyzeCompareControlNumericRaw(records, state.outcome_field, state.compare_field);
+      return (
+        "slope " + fmtMaybe(numeric.slope, 4) +
+        ", Spearman " + fmtMaybe(numeric.spearman, 3)
+      );
+    }
+    const categorical = state.view_mode === "controlled"
+      ? analyzeCompareControlCategoricalControlled(
+        records,
+        state.outcome_field,
+        state.compare_field,
+        state.hold_constant_fields,
+      )
+      : analyzeCompareControlCategoricalRaw(records, state.outcome_field, state.compare_field);
+    if (!categorical.groups.length) return "-";
+    const top = categorical.groups[0];
+    return top.label + ": " + fmtMaybe(top.outcome_mean, 3);
+  }
+
+  function renderCompareControlPanel(context) {
+    const panel = document.getElementById("compare-control-panel");
+    const statusNode = document.getElementById("compare-control-status");
+    const resultsNode = document.getElementById("compare-control-results");
+    const viewModeNode = document.getElementById("compare-control-view-mode");
+    const outcomeNode = document.getElementById("compare-control-outcome-field");
+    const compareNode = document.getElementById("compare-control-compare-field");
+    const splitNode = document.getElementById("compare-control-split-field");
+    const holdNode = document.getElementById("compare-control-hold-fields");
+    const groupNode = document.getElementById("compare-control-group-selection");
+    const filterSubset = document.getElementById("compare-control-filter-subset");
+    const clearSelection = document.getElementById("compare-control-clear-selection");
+    if (
+      !panel ||
+      !statusNode ||
+      !resultsNode ||
+      !viewModeNode ||
+      !outcomeNode ||
+      !compareNode ||
+      !splitNode ||
+      !holdNode ||
+      !groupNode ||
+      !filterSubset ||
+      !clearSelection
+    ) {
+      return;
+    }
+
+    const records = Array.isArray(context && context.records) ? context.records : [];
+    const catalog = buildCompareControlFieldCatalog(records);
+    compareControlState = normalizeCompareControlStateForCatalog(compareControlState, catalog);
+    const state = compareControlState;
+
+    viewModeNode.value = state.view_mode;
+    outcomeNode.innerHTML = (catalog.numeric_fields || [])
+      .map(field => (
+        '<option value="' + esc(field.field) + '">' + esc(field.label) + "</option>"
+      ))
+      .join("");
+    if (!outcomeNode.innerHTML) {
+      outcomeNode.innerHTML = '<option value="">(no numeric outcome)</option>';
+    }
+    if (state.outcome_field && catalog.by_field[state.outcome_field]) {
+      outcomeNode.value = state.outcome_field;
+    }
+
+    const compareOptions = [
+      '<option value="">(discover best candidates)</option>',
+      ...(catalog.fields || []).map(field => (
+        '<option value="' + esc(field.field) + '">' +
+        esc(field.label + (field.numeric ? " [numeric]" : "")) +
+        "</option>"
+      )),
+    ];
+    compareNode.innerHTML = compareOptions.join("");
+    compareNode.value = state.compare_field;
+
+    const splitOptions = [
+      '<option value="">(none)</option>',
+      ...(catalog.fields || [])
+        .filter(field => field.field !== state.compare_field && field.field !== state.outcome_field)
+        .map(field => (
+          '<option value="' + esc(field.field) + '">' +
+          esc(field.label + (field.numeric ? " [numeric]" : "")) +
+          "</option>"
+        )),
+    ];
+    splitNode.innerHTML = splitOptions.join("");
+    splitNode.value = state.split_field;
+
+    const holdCandidates = (catalog.fields || [])
+      .filter(field => field.field !== state.compare_field && field.field !== state.outcome_field)
+      .slice(0, 20);
+    if (!holdCandidates.length) {
+      holdNode.innerHTML = '<span class="compare-control-inline-note">No hold-constant fields available.</span>';
+    } else {
+      holdNode.innerHTML = holdCandidates
+        .map(field => {
+          const checked = state.hold_constant_fields.includes(field.field) ? " checked" : "";
+          return (
+            '<label class="compare-control-hold-item">' +
+              '<input class="compare-control-hold-checkbox" type="checkbox" value="' + esc(field.field) + '"' + checked + ">" +
+              esc(field.label) +
+            "</label>"
+          );
+        })
+        .join("");
+    }
+
+    if (!records.length) {
+      statusNode.textContent = "No visible benchmark rows after current filters.";
+      resultsNode.innerHTML = '<p class="empty-note">Broaden Previous Runs filters, then compare fields here.</p>';
+      groupNode.innerHTML = "";
+      filterSubset.disabled = true;
+      clearSelection.disabled = true;
+      return;
+    }
+    if (!catalog.numeric_fields.length) {
+      statusNode.textContent = "No numeric outcome fields available in current rows.";
+      resultsNode.innerHTML = '<p class="empty-note">Need at least one numeric metric to run Compare &amp; Control.</p>';
+      groupNode.innerHTML = "";
+      filterSubset.disabled = true;
+      clearSelection.disabled = true;
+      return;
+    }
+
+    const compareInfo = catalog.by_field[state.compare_field];
+    const selectedGroups = uniqueStringList(state.selected_groups);
+    const coverageBase = records.length;
+    let htmlParts = [];
+    let statusText = "";
+    let statusIsError = false;
+
+    if (!state.compare_field || state.view_mode === "discover" || !compareInfo) {
+      const discovery = analyzeCompareControlDiscovery(records, state.outcome_field, catalog);
+      statusText =
+        "Discovery view over " + records.length + " visible rows. Click a field card to compare.";
+      if (!discovery.length) {
+        htmlParts.push("<p>No candidate fields had enough variation for discovery scoring.</p>");
+      } else {
+        htmlParts.push('<div class="compare-control-discovery-list">');
+        discovery.forEach(item => {
+          htmlParts.push(
+            '<button class="compare-control-discovery-card" type="button" data-compare-field="' + esc(item.field) + '">' +
+              "<strong>" + esc(item.field_label) + "</strong> " +
+              '<span class="score">score ' + esc(fmtMaybe(item.score, 3)) + "</span>" +
+              "<br>" +
+              '<span class="compare-control-inline-note">' +
+                esc(item.summary + " | coverage " + (item.coverage_ratio * 100).toFixed(1) + "%") +
+              "</span>" +
+            "</button>"
+          );
+        });
+        htmlParts.push("</div>");
+      }
+      groupNode.innerHTML = "";
+      filterSubset.disabled = true;
+      clearSelection.disabled = true;
+    } else if (compareInfo.numeric) {
+      groupNode.innerHTML = '<p class="compare-control-inline-note">Group subset selection is available for categorical compare fields.</p>';
+      filterSubset.disabled = true;
+      clearSelection.disabled = true;
+      const analysis = state.view_mode === "controlled"
+        ? analyzeCompareControlNumericControlled(
+          records,
+          state.outcome_field,
+          state.compare_field,
+          state.hold_constant_fields,
+        )
+        : analyzeCompareControlNumericRaw(records, state.outcome_field, state.compare_field);
+      const coverage = coverageBase > 0 ? (analysis.used_rows / coverageBase) * 100 : 0;
+      statusText =
+        (state.view_mode === "controlled" ? "Controlled" : "Raw") +
+        " numeric compare on " +
+        analysis.used_rows +
+        " / " +
+        coverageBase +
+        " rows (" +
+        coverage.toFixed(1) +
+        "% coverage).";
+      if (state.view_mode === "controlled") {
+        statusText +=
+          " Comparable strata: " +
+          analysis.used_strata +
+          " / " +
+          analysis.total_strata +
+          ".";
+      }
+      htmlParts.push("<p><strong>Slope:</strong> " + esc(fmtMaybe(analysis.slope, 5)) + "</p>");
+      htmlParts.push("<p><strong>R²:</strong> " + esc(fmtMaybe(analysis.r_squared, 4)) + "</p>");
+      htmlParts.push("<p><strong>Spearman:</strong> " + esc(fmtMaybe(analysis.spearman, 4)) + "</p>");
+      if (analysis.bins && analysis.bins.length) {
+        htmlParts.push("<p><strong>Equal-count bins:</strong></p><ul>");
+        analysis.bins.forEach(bin => {
+          htmlParts.push(
+            "<li>" +
+            esc(
+              fmtMaybe(bin.x_min, 3) +
+              " to " +
+              fmtMaybe(bin.x_max, 3) +
+              " (" +
+              bin.count +
+              " rows): outcome avg " +
+              fmtMaybe(bin.y_mean, 4)
+            ) +
+            "</li>"
+          );
+        });
+        htmlParts.push("</ul>");
+      }
+    } else {
+      const groupOptions = compareInfo.categories || [];
+      groupNode.innerHTML = groupOptions.length
+        ? (
+          '<p class="compare-control-inline-note">Select groups, then use <strong>Filter to subset</strong> to write table filters.</p>' +
+          '<div class="compare-control-group-selection-list">' +
+          groupOptions
+            .map(group => {
+              if (group.key === "__EMPTY__") return "";
+              const checked = selectedGroups.includes(group.key) ? " checked" : "";
+              return (
+                '<label class="compare-control-group-option">' +
+                  '<input class="compare-control-group-checkbox" type="checkbox" value="' + esc(group.key) + '"' + checked + ">" +
+                  esc(group.label + " (" + group.count + ")") +
+                "</label>"
+              );
+            })
+            .join("") +
+          "</div>"
+        )
+        : '<p class="compare-control-inline-note">No groups available for selection.</p>';
+      filterSubset.disabled = selectedGroups.length === 0;
+      clearSelection.disabled = selectedGroups.length === 0;
+      const analysis = state.view_mode === "controlled"
+        ? analyzeCompareControlCategoricalControlled(
+          records,
+          state.outcome_field,
+          state.compare_field,
+          state.hold_constant_fields,
+        )
+        : analyzeCompareControlCategoricalRaw(records, state.outcome_field, state.compare_field);
+      const coverage = coverageBase > 0 ? (analysis.used_rows / coverageBase) * 100 : 0;
+      statusText =
+        (state.view_mode === "controlled" ? "Controlled" : "Raw") +
+        " categorical compare on " +
+        analysis.used_rows +
+        " / " +
+        coverageBase +
+        " rows (" +
+        coverage.toFixed(1) +
+        "% coverage).";
+      if (state.view_mode === "controlled") {
+        statusText +=
+          " Comparable strata: " +
+          analysis.used_strata +
+          " / " +
+          analysis.total_strata +
+          ".";
+      }
+      if (!analysis.groups.length) {
+        htmlParts.push("<p>No comparable groups found with the current controls.</p>");
+      } else {
+        htmlParts.push("<p><strong>Group outcome means:</strong></p><ul>");
+        analysis.groups.slice(0, 12).forEach(group => {
+          htmlParts.push(
+            "<li>" +
+            esc(group.label + ": avg " + fmtMaybe(group.outcome_mean, 4) + " (" + group.count + " rows)") +
+            "</li>"
+          );
+        });
+        htmlParts.push("</ul>");
+      }
+    }
+
+    if (state.split_field) {
+      const segments = compareControlSplitSegments(records, state.split_field, catalog);
+      if (segments.length) {
+        htmlParts.push('<div class="compare-control-split-list"><p><strong>Split by ' + esc(compareControlFieldLabel(state.split_field)) + ":</strong></p><ul>");
+        segments.forEach(segment => {
+          const summary = compareControlSegmentSummary(segment.records, state, catalog);
+          htmlParts.push(
+            "<li>" +
+            esc(segment.label + " (" + segment.records.length + " rows): " + summary) +
+            "</li>"
+          );
+        });
+        htmlParts.push("</ul></div>");
+      }
+    }
+
+    if (compareControlStatusMessage) {
+      const prefix = compareControlStatusIsError ? "Compare/Control: " : "";
+      statusText = prefix + compareControlStatusMessage + (statusText ? " " + statusText : "");
+      statusIsError = compareControlStatusIsError;
+      compareControlStatusMessage = "";
+      compareControlStatusIsError = false;
+    }
+    statusNode.textContent = statusText || "Compare & Control ready.";
+    statusNode.classList.toggle("error", Boolean(statusIsError));
+    resultsNode.innerHTML = htmlParts.join("");
+  }
+
+  function syncCompareControlSelectionToTableFilters() {
+    const state = normalizeCompareControlState(compareControlState);
+    const compareField = String(state.compare_field || "").trim();
+    const selectedGroups = uniqueStringList(state.selected_groups)
+      .filter(value => value && value !== "__EMPTY__");
+    if (!compareField) {
+      return {
+        applied: false,
+        message: "Pick a categorical compare field first.",
+      };
+    }
+    if (!selectedGroups.length) {
+      return {
+        applied: false,
+        message: "Select one or more groups before filtering to subset.",
+      };
+    }
+    const clauses = selectedGroups.map(value => ({
+      operator: "eq",
+      value,
+    }));
+    const applied = setPreviousRunsColumnFilterClauses(compareField, clauses);
+    if (!applied) {
+      return {
+        applied: false,
+        message: "Could not write selected groups into table filters.",
+      };
+    }
+    setPreviousRunsColumnFilterMode(compareField, "or");
+    previousRunsFilterControlSource = "table";
+    closePreviousRunsColumnFilterEditor();
+    compareControlState.selected_groups = selectedGroups;
+    return {
+      applied: true,
+      message: "Filter to subset wrote " + selectedGroups.length + " clauses into Previous Runs table filters.",
+    };
   }
 
   function isolateComparableValue(value) {
@@ -6084,6 +7430,7 @@ _JS = """\
         mode: normalizeIsolateCombineMode(isolateCombineMode),
         clauses: normalizeIsolateClauseList(isolateClauses),
       },
+      compare_control: normalizeCompareControlState(compareControlState),
       filter_control_source: normalizePreviousRunsFilterControlSource(previousRunsFilterControlSource),
     });
   }
@@ -6146,6 +7493,7 @@ _JS = """\
 
     isolateCombineMode = normalizeIsolateCombineMode(preset.isolate.mode);
     isolateClauses = normalizeIsolateClauseList(preset.isolate.clauses);
+    compareControlState = normalizeCompareControlState(preset.compare_control);
     previousRunsFilterControlSource = normalizePreviousRunsFilterControlSource(
       preset.filter_control_source
     );
@@ -6547,6 +7895,9 @@ _JS = """\
       controlSource: filterControlSource,
         pausedByTable: false,
       });
+      renderCompareControlPanel({
+        records: [],
+      });
       return {
         records: [],
         total: rawRecords.length,
@@ -6586,6 +7937,9 @@ _JS = """\
       expression: isolateState.expression || "",
       controlSource: filterControlSource,
       pausedByTable: !useIsolateControl && isolateState.active,
+    });
+    renderCompareControlPanel({
+      records: matchedRecords,
     });
     return {
       records: matchedRecords,

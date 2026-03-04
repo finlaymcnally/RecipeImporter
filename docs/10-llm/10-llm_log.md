@@ -1097,3 +1097,685 @@ Milestone-5 evidence preserved in task:
 
 Anti-loop note:
 - A clean transport audit does not imply metric promotion readiness; keep transport-fix verification and benchmark-promotion criteria as separate gates.
+
+
+## 2026-03-03 docs/understandings consolidation batch
+
+The entries below were merged from `docs/understandings` in timestamp order before source-file cleanup.
+
+### 2026-03-03_13.10.03-pro3-ogplan-vs-code-audit
+
+Source:
+- `docs/understandings/2026-03-03_13.10.03-pro3-ogplan-vs-code-audit.md`
+
+Summary:
+- Audit note for Pro3 OG plan vs runtime implementation and completed ExecPlan claims.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit note for Pro3 OG plan vs runtime implementation and completed ExecPlan claims."
+read_when:
+  - "When validating Pro3 completion claims against code behavior."
+  - "When deciding whether remaining Pro3 work is implementation or documentation-only."
+---
+
+# Pro3 OG Plan vs Code Audit (2026-03-03)
+
+Scope reviewed:
+- `docs/plans/OGplan/Pro3.md` (original intent)
+- runtime modules and tests listed in Pro3
+- `docs/plans/Pro3.md` (completed ExecPlan)
+
+Key discovery:
+- Core Pro3 mechanics are implemented and verified in code/tests (transport helper, pass2 degradation gating, fallback re-anchor, outside-span prompt-join hardening, URN span flag preservation, replay script).
+- Follow-up at 2026-03-03 13:22 America/Toronto closed the remaining metric gap: per-recipe `pass1_span_loss_metrics` now emits raw-vs-clamped span counts and loss ratio in `llm_manifest.json`.
+
+Why it matters:
+- Pro3 completion status is now aligned with OG intent for both behavior and observability.
+
+````
+
+### 2026-03-03_13.22.30-pro3-pass1-span-loss-metrics-surface
+
+Source:
+- `docs/understandings/2026-03-03_13.22.30-pro3-pass1-span-loss-metrics-surface.md`
+
+Summary:
+- Pro3 span-loss observability now records raw-vs-clamped pass1 span metrics per recipe.
+
+Preserved source note:
+
+````md
+---
+summary: "Pro3 span-loss observability now records raw-vs-clamped pass1 span metrics per recipe."
+read_when:
+  - "When auditing pass1 midpoint clamp impact in codex-farm manifests."
+  - "When OG Pro3 review asks whether raw-vs-clamped span-loss metrics are implemented."
+---
+
+# Pro3 pass1 span-loss metrics surface
+
+`run_codex_farm_recipe_pipeline` now stores pass1 raw boundaries before midpoint clamping and emits per-recipe `pass1_span_loss_metrics` in `llm_manifest.json`.
+
+Metric payload records raw/clamped start+end, raw/clamped span counts, lost-block count, and loss ratio. This closes the OG Pro3 observability gap where clamping impact existed behaviorally but was not surfaced as a first-class manifest field.
+
+````
+
+### 2026-03-03_13.51.55-pro3-overlap-clamp-and-pass3-placeholder-repair
+
+Source:
+- `docs/understandings/2026-03-03_13.51.55-pro3-overlap-clamp-and-pass3-placeholder-repair.md`
+
+Summary:
+- Quality-first Pro3 follow-up: overlap-only pass1 clamp and pass3 placeholder-step repair from pass2 evidence.
+
+Preserved source note:
+
+````md
+---
+summary: "Quality-first Pro3 follow-up: overlap-only pass1 clamp and pass3 placeholder-step repair from pass2 evidence."
+read_when:
+  - "When codex runs show large pass1 clamped block loss and many pass2 missing-instructions degradations."
+  - "When pass3 outputs collapse to placeholder-only instructions despite usable pass2 extracted instructions."
+---
+
+# Pro3 quality-first follow-up
+
+Observed Sea single-offline runs showed large pass1 clamp loss and high pass3 fallback rates. Two targeted changes landed:
+
+1. Pass1 boundary clamping now resolves actual overlap between recipe spans and splits overlap windows at midpoint, instead of enforcing heuristic midpoint partitions that could aggressively shrink evidence windows.
+2. Pass3 placeholder-only drafts are now repaired from pass2 extracted instructions (when non-placeholder instruction evidence exists) before low-quality rejection.
+
+Outcome in code contracts:
+- Transport/audit invariants remain strict.
+- Clamping still prevents overlap but is less destructive to pass1-selected evidence.
+- Placeholder collapse no longer forces avoidable pass3 fallback when pass2 evidence is usable.
+
+````
+
+### 2026-03-03_14.27.12-seaandsmoke-codexfarm-failure-root-causes
+
+Source:
+- `docs/understandings/2026-03-03_14.27.12-seaandsmoke-codexfarm-failure-root-causes.md`
+
+Summary:
+- Root-cause diagnosis of codexfarm fallback-heavy behavior in SeaAndSmokeCUTDOWN single-offline run 2026-03-03_13.37.54.
+
+Preserved source note:
+
+````md
+---
+summary: "Root-cause diagnosis of codexfarm fallback-heavy behavior in SeaAndSmokeCUTDOWN single-offline run 2026-03-03_13.37.54."
+read_when:
+  - When codexfarm recipe runs show high pass3 fallback counts
+  - When pass2 reports missing_instructions despite apparent recipe evidence
+  - When codex-vs-vanilla benchmark quality regresses
+---
+
+# Findings
+
+- Run inspected: `data/golden/benchmark-vs-golden/2026-03-03_13.37.54/single-offline-benchmark/seaandsmokecutdown`.
+- CodexFarm run had `pass2_degraded=7`, `pass3_fallback=14`, `pass3_ok=4` in `llm_manifest.json`.
+
+## Root cause A: pass1 clamp dropped evidence aggressively
+
+- `pass1_span_loss_metrics` shows large clamped losses on 16/18 recipes (194 blocks total lost).
+- Raw pass1 spans were mostly non-overlapping, but clamped spans still shrank for almost every recipe.
+- The degraded recipes (`c2,c4,c6,c7,c8,c12,c16`) all had `missing_instructions`; several had instruction blocks just beyond the clamped end.
+- Example: `c8` raw span `356..402` was clamped to `356..379` (lost 23 blocks), and dropped lines include explicit cooking instructions (`TO SERVE`, processing/heat/reduce steps).
+
+## Root cause B: pass3 output-shape mismatch triggered placeholder rejection
+
+- All 7 pass3 low-quality rejections were `draft_v1 step instructions are placeholder-only`.
+- For those recipes, pass3 `draft_v1` payload was often schema-like (`instructions` or `recipeInstructions`) instead of draft shape (`steps`).
+- Because `steps` was absent, normalization injected placeholder step text (`See original recipe for details.`), then low-quality guardrails rejected it.
+- This happened even when pass2 already had strong instruction evidence (e.g., `c0` had 7 extracted instructions).
+
+## Secondary contributing factor
+
+- Run config had `line_role_pipeline=off`, so line-label benchmark scoring did not receive direct LLM line-role assistance.
+- This does not explain fallback behavior, but it explains why label metrics did not benefit from a separate LLM line-role path.
+
+# Fix targets
+
+- Keep pass1 clamping overlap-only (do not shrink non-overlapping spans).
+- Repair pass3 placeholder-only steps from pass2 extracted instructions before rejection.
+- Continue capturing `pass1_span_loss_metrics` and track `pass2_degraded` + `pass3_fallback` deltas in follow-up benchmark runs.
+
+````
+
+### 2026-03-03_14.57.52-codex-contract-json-repair-for-stringified-objects
+
+Source:
+- `docs/understandings/2026-03-03_14.57.52-codex-contract-json-repair-for-stringified-objects.md`
+
+Summary:
+- Codex farm contract parsing can fail on malformed stringified JSON objects; bounded repair recovers common artifacts.
+
+Preserved source note:
+
+````md
+---
+summary: "Codex farm contract parsing can fail on malformed stringified JSON objects; bounded repair recovers common artifacts."
+read_when:
+  - "When pass2/pass3 bundles fail with schemaorg_recipe or draft_v1 JSON-object validation errors"
+  - "When llm_manifest shows pass2_errors from invalid pass2 output despite usable extracted fields"
+---
+
+# Discovery
+
+In the SeaAndSmokeCUTDOWN single-offline run `2026-03-03_14.34.08`, several pass2 and one pass3 output bundle carried object fields as malformed JSON strings (instead of proper objects). Typical artifacts included:
+
+- missing/mismatched closing `]` / `}`
+- raw control bytes in string content (including `\x00`)
+- null-hex artifacts like `\x00e9` in words (e.g. `saut\x00e9`)
+- extra text around otherwise valid JSON object content
+
+These caused `Pass2SchemaOrgOutput` / `Pass3FinalDraftOutput` validation to fail before orchestration quality gates could run.
+
+# What Changed
+
+`cookimport/llm/codex_farm_contracts.py` now applies bounded repair when object fields are provided as strings:
+
+1. normalize common artifacts (control-byte cleanup, `\x00hh` repair, trailing-comma cleanup)
+2. rebalance JSON bracket/brace structure with quote-aware scanning
+3. attempt first-object extraction via `JSONDecoder.raw_decode` if full parse still fails
+
+If repaired payload still cannot deserialize to an object, validation still fails.
+
+# Verified
+
+- `pytest tests/llm/test_codex_farm_contracts.py` (new malformed-string cases)
+- `pytest tests/llm/test_codex_farm_orchestrator.py`
+- direct replay load of previously failing artifacts from `2026-03-03_14.34.08` now validates for pass2 `c1,c3,c5,c6,c16` and pass3 `c4`.
+
+````
+
+### 2026-03-03_15.25.41-pass3-schema-v-missing-legacy-draft-shapes
+
+Source:
+- `docs/understandings/2026-03-03_15.25.41-pass3-schema-v-missing-legacy-draft-shapes.md`
+
+Summary:
+- Pass3 schema_v validation fallbacks were driven by legacy draft_v1 object shapes, not empty evidence.
+
+Preserved source note:
+
+````md
+---
+summary: "Pass3 schema_v validation fallbacks were driven by legacy draft_v1 object shapes, not empty evidence."
+read_when:
+  - "When llm_manifest shows many pass3 fallbacks with draft_v1 schema_v missing."
+  - "When pass3 output contains name/instructions or schema.org payloads instead of RecipeDraftV1."
+---
+
+# Discovery
+
+In SeaAndSmoke single-offline run `2026-03-03_15.07.45`, the dominant pass3 fallback class (`schema_v` missing) came from `draft_v1` payload shape drift.
+
+Observed pass3 `draft_v1` payload variants:
+
+- legacy recipe shape (`name`, `ingredients`, `instructions`)
+- schema.org-only shape (`name`, `recipeInstructions`, `recipeIngredient`)
+- pass2-like shape (`schemaorg_recipe`, `extracted_instructions`)
+
+These payloads often still contained usable title/instruction evidence, but failed strict `RecipeDraftV1` validation because `schema_v`/`recipe.title`/`steps[].instruction` were not arranged in draft-v1 form.
+
+# Decision
+
+Normalize/coerce pass3 `draft_v1` payloads in orchestrator before validation:
+
+- default `schema_v` to `1` when missing/invalid
+- derive `recipe.title` from recipe/title/name/schemaorg name fields
+- derive `steps` from existing `steps`, `instructions`, `recipeInstructions`, `extracted_instructions`, or `schemaorg_recipe.recipeInstructions`
+
+Strict quality gates and deterministic fallback policy remain unchanged.
+
+````
+
+### 2026-03-03_15.40.00-pass2-missing-instructions-root-cause-report
+
+Source:
+- `docs/understandings/2026-03-03_15.40.00-pass2-missing-instructions-root-cause-report.md`
+
+Summary:
+- Root-cause report for pass2 missing_instructions degradation in SeaAndSmokeCUTDOWN codexfarm run (2026-03-03_13.37.54).
+
+Preserved source note:
+
+````md
+---
+summary: "Root-cause report for pass2 missing_instructions degradation in SeaAndSmokeCUTDOWN codexfarm run (2026-03-03_13.37.54)."
+read_when:
+  - "Investigating codex-farm runs where pass2_degraded or pass3_fallback are high"
+  - "Comparing pre-fix midpoint clamp behavior to overlap-only clamp behavior"
+---
+
+# Pass2 Missing-Instructions Root Cause Report
+
+## Scope
+- Run timestamp: `2026-03-03_13.37.54`
+- Benchmark: `single-offline-benchmark/seaandsmokecutdown`
+- Variant: `codexfarm`
+- Manifest: `data/golden/benchmark-vs-golden/2026-03-03_13.37.54/single-offline-benchmark/seaandsmokecutdown/codexfarm/prediction-run/raw/llm/seaandsmokecutdown/llm_manifest.json`
+
+## Executive Summary
+Pass2 degraded 7 recipes because `extracted_instructions` was empty for those recipe bundles, producing degradation reason `missing_instructions`. The orchestrator then marks those recipes degraded and forces recipe-level fallback before pass3. Most of the degraded bundles had strong evidence-loss from pass1 clamping in this run, and one also had OCR/page-artifact warning signals.
+
+## Confirmed Signals
+- `counts.pass2_degraded = 7`
+- `counts.pass3_fallback = 14`
+- `pass3 fallback reasons` distribution:
+  - `7x` pass3 low-quality rejection: placeholder-only steps
+  - `6x` pass2 degraded: missing_instructions
+  - `1x` pass2 degraded: missing_instructions + `warning_bucket:ocr_or_page_artifact`
+
+## Why `pass2_degraded=7` Happened
+In this run, the 7 degraded pass2 inputs were dominated by title/story/ingredients/`SERVES` content, with no usable instruction lines in canonical evidence. Pass2 warnings repeatedly state variants of "No explicit ... instructions are present in the evidence/source".
+
+The degraded recipe IDs were:
+- `...:c2`
+- `...:c4`
+- `...:c6`
+- `...:c7`
+- `...:c8`
+- `...:c12`
+- `...:c16`
+
+## Evidence-Loss Correlation (Pass1 Clamp)
+This run used the older midpoint-cross clamp behavior (warning text in manifest: `pass1 boundaries clamped to prevent overlap/cross-midpoint drift.`). Span-loss metrics for degraded recipes show substantial truncation:
+
+- `c2` raw `133-172` -> clamped `133-156` (lost `16` blocks)
+- `c8` raw `356-402` -> clamped `356-379` (lost `23` blocks)
+- `c12` raw `490-512` -> clamped `490-498` (lost `14` blocks)
+
+Aggregate comparison in this run:
+- degraded recipes average clamped loss: `13.86` blocks
+- pass2-ok recipes average clamped loss: `8.82` blocks
+
+This is correlational, but consistent with instruction evidence being truncated out of pass2 input for affected bundles.
+
+## OCR/Page-Artifact Contribution
+One degraded recipe (`c8`) included `warning_bucket:ocr_or_page_artifact`, alongside split/page-marker artifacts in evidence. This likely further reduced instruction extraction reliability for that bundle.
+
+## Orchestrator Behavior (By Design)
+The fail-safe is behaving as implemented:
+1. If pass2 has no instructions, `_pass2_degradation_reasons` adds `missing_instructions`.
+2. Any pass2 degradation marks recipe as `degraded` and sets pass3 to `fallback` path.
+3. Recipe-level fallback payload is generated deterministically.
+
+So the observed behavior is not random regression; it is an expected consequence of missing/truncated instruction evidence under current guardrails.
+
+## Current Status Relative to This Incident
+Two targeted fixes were implemented after this run:
+- overlap-only pass1 clamp (to preserve non-overlapping evidence)
+- pass3 placeholder-step repair from pass2 extracted instructions
+
+The incident run predates those fixes, so a fresh rerun is required to measure impact on:
+- `pass2_degraded` count
+- `pass3_fallback` count
+- per-recipe span-loss metrics
+
+````
+
+### 2026-03-03_15.44.35-pass2-warning-bucket-page-layout-naming
+
+Source:
+- `docs/understandings/2026-03-03_15.44.35-pass2-warning-bucket-page-layout-naming.md`
+
+Summary:
+- Pass2 warning bucket label was renamed to page/layout-specific wording while preserving legacy compatibility in cutdown tooling.
+
+Preserved source note:
+
+````md
+---
+summary: "Pass2 warning bucket label was renamed to page/layout-specific wording while preserving legacy compatibility in cutdown tooling."
+read_when:
+  - "When pass2 degraded reasons mention page-marker artifacts in EPUB sources."
+  - "When reconciling old ocr_or_page_artifact runs with new manifests."
+---
+
+# Discovery
+
+`warning_bucket:ocr_or_page_artifact` was misleading for EPUB-heavy runs where the issue is usually page-marker/layout residue, not OCR itself.
+
+# What changed
+
+- Codex orchestrator now emits `warning_bucket:page_or_layout_artifact`.
+- Benchmark cutdown tooling canonicalizes both old and new names to `page_or_layout_artifact` for consistent reporting across historical and new manifests.
+
+# Boundary
+
+This is a naming/diagnostic-contract change only. The degrade gate behavior is unchanged.
+
+````
+
+### 2026-03-03_17.12.05-single-offline-codexfarm-pass2-timeout-failure
+
+Source:
+- `docs/understandings/2026-03-03_17.12.05-single-offline-codexfarm-pass2-timeout-failure.md`
+
+Summary:
+- Single-offline codexfarm variant failed in pass2 because three tasks hit the 180s codex timeout across all retries.
+
+Preserved source note:
+
+````md
+---
+summary: "Single-offline codexfarm variant failed in pass2 because three tasks hit the 180s codex timeout across all retries."
+read_when:
+  - "When single-offline benchmark shows codexfarm failed for recipe.schemaorg.v1 with exit code 1"
+  - "When deciding whether to increase pass2 timeout or disable codexfarm for benchmark runs"
+---
+
+## Discovery
+
+Run `2026-03-03_16.40.36` (`seaandsmokecutdown`) succeeded for `vanilla` and failed for `codexfarm` only.
+
+Failure details from runner error:
+- `run_id=0aebb0d8a73644e78c77355005fc9144`
+- `pipeline=recipe.schemaorg.v1` (pass2)
+- `process_exit_code=1`, `subprocess_exit=1`
+- `failure_categories=timeout:21`
+- `first_error=codex exec timed out after 180s`
+
+CodexFarm run-errors payload confirms exactly 3 failed tasks (`r0002`, `r0008`, `r0014`), each with:
+- `attempts=3`
+- `execution_attempts=3`
+- `error=codex exec timed out after 180s`
+
+Config source of timeout:
+- `llm_pipelines/pipelines/recipe.schemaorg.v1.json` has `"codex_timeout_seconds": 180`.
+
+Operational note:
+- This is not a full benchmark crash; single-offline runner completed with `1/2` variants successful and skipped codex-vs-vanilla comparison because codexfarm failed.
+
+````
+
+### 2026-03-03_18.09.09-single-offline-codexfarm-pass3-timeout-failure
+
+Source:
+- `docs/understandings/2026-03-03_18.09.09-single-offline-codexfarm-pass3-timeout-failure.md`
+
+Summary:
+- Single-offline codexfarm variant failed in pass3 because every task hit the 180s codex timeout across retries.
+
+Preserved source note:
+
+````md
+---
+summary: "Single-offline codexfarm variant failed in pass3 because every task hit the 180s codex timeout across retries."
+read_when:
+  - "When single-offline benchmark shows codexfarm failed for recipe.final.v1 with exit code 1."
+  - "When run errors report timeout-only failure_categories and no pass3 out files."
+---
+
+## Discovery
+
+Run `2026-03-03_17.18.02` (`seaandsmokecutdown`) succeeded for `vanilla` and failed for `codexfarm` only.
+
+Failure details from runner error:
+- `run_id=fee9de2234c34e95bc62888838247877`
+- `pipeline=recipe.final.v1` (pass3)
+- `process_exit_code=1`, `subprocess_exit=1`
+- `telemetry_rows=48`
+- `failure_categories=timeout:48`
+- `first_error=codex exec timed out after 180s`
+
+Telemetry evidence:
+- Pass3 started with `16` tasks.
+- Pass3 ended with `errors 16` and `done 0`.
+- `var/codex_exec_activity.csv` rows for this run show `attempt_index=1..3` and `failure_category=timeout` for each task (`16 * 3 = 48` rows).
+
+Operational note:
+- This is a partial benchmark result, not a full benchmark crash; single-offline completed with `1/2` variant runs and skipped codex-vs-vanilla comparison because codexfarm failed.
+
+````
+
+### 2026-03-03_18.18.54-llm-timeout-default-surfaces-expanded
+
+Source:
+- `docs/understandings/2026-03-03_18.18.54-llm-timeout-default-surfaces-expanded.md`
+
+Summary:
+- LLM timeout defaults include prelabel preflight, line-role fallback, and optional pass4/pass5 pipeline specs in addition to benchmark pass settings.
+
+Preserved source note:
+
+````md
+---
+summary: "LLM timeout defaults include prelabel preflight, line-role fallback, and optional pass4/pass5 pipeline specs in addition to benchmark pass settings."
+read_when:
+  - "When changing the project-wide default timeout policy for LLM-backed calls."
+  - "When validating that no LLM call path still uses legacy 30/120/180/300 second defaults."
+---
+
+LLM timeout defaults are spread across multiple subsystems, not just benchmark pass pipelines:
+
+- CLI/Label Studio prelabel defaults (`DEFAULT_PRELABEL_TIMEOUT_SECONDS`, ingest function defaults, and `--prelabel-timeout-seconds`) set provider call timeout policy.
+- Prelabel model-access preflight is its own LLM probe and had a historical 30-second cap in the ingest call path (`min(30, prelabel_timeout_seconds)`), which must be removed to honor global timeout policy.
+- Canonical line-role Codex fallback has an independent default timeout argument in `cookimport/parsing/canonical_line_roles.py`.
+- Codex-farm pipeline specs for optional pass4/pass5 (`recipe.knowledge.v1`, `recipe.tags.v1`) have their own `codex_timeout_seconds` defaults and need to be aligned with pass1/pass2/pass3.
+
+With these surfaces aligned, LLM-touching defaults are uniformly 600 seconds unless a command/runtime override is supplied.
+
+````
+
+### 2026-03-03_20.07.02-feedback-relevance-after-canonical-guards
+
+Source:
+- `docs/understandings/2026-03-03_20.07.02-feedback-relevance-after-canonical-guards.md`
+
+Summary:
+- Post-18.31 feedback relevance check after canonical guard updates: line-role bucket critique is partially outdated, while fallback gating and runtime-cost concerns remain active.
+
+Preserved source note:
+
+````md
+---
+summary: "Post-18.31 feedback relevance check after canonical guard updates: line-role bucket critique is partially outdated, while fallback gating and runtime-cost concerns remain active."
+read_when:
+  - "When revisiting external feedback that was based on SeaAndSmoke run 2026-03-03_18.31.00."
+  - "When deciding whether to prioritize line-role policy work versus pass2/pass3 gating and runtime controls."
+---
+
+# Discovery
+
+Compared the original benchmark run (`2026-03-03_18.31.00`) against later runs (`2026-03-03_19.41.28_seaandsmoke-next-buckets`, `2026-03-03_19.51.01`) plus current `codex_farm_contracts`/`codex_farm_orchestrator` behavior.
+
+# What is now outdated
+
+- The largest line-role miss buckets cited from `18.31.00` were materially reduced after canonical guard changes:
+  - `INGREDIENT_LINE -> OTHER`: `68 -> 21`
+  - `HOWTO_SECTION -> RECIPE_TITLE`: `36 -> 6`
+  - `INSTRUCTION_LINE -> INGREDIENT_LINE`: `26 -> 1`
+- The specific Romano-beans pass3 JSON failure class is no longer present in the latest paired run (`c9` moved from `pass3=fallback` to `pass3=ok`), and contract parsing now includes bounded JSON-object repair in `cookimport/llm/codex_farm_contracts.py`.
+
+# What is still relevant
+
+- Runtime cost concern remains strong:
+  - `18.31.00` codex prediction time: `151.97s` vs vanilla `9.68s`
+  - `19.51.01` codex prediction time: `264.81s` vs vanilla `9.71s`
+- Pass2 degradation policy is still fail-closed for `page_or_layout_artifact` and still drives fallback:
+  - `18.31.00`: `pass2_degraded=8`, `pass3_fallback=9`
+  - `19.51.01`: `pass2_degraded=5`, `pass3_fallback=5`
+  - all current fallback reasons are still `pass2 degraded: warning_bucket:page_or_layout_artifact`
+- Narrative outside-span confusion remains a live bucket (`OTHER -> RECIPE_NOTES`, `OTHER -> KNOWLEDGE`) even after the canonical improvements.
+
+
+````
+
+### 2026-03-03_20.31.33-codexfarm-soft-gating-plan-rebaseline
+
+Source:
+- `docs/understandings/2026-03-03_20.31.33-codexfarm-soft-gating-plan-rebaseline.md`
+
+Summary:
+- ExecPlan rebaseline discovery: current codex-farm seams still hard-gate degraded pass2 rows, while latest SeaAndSmoke artifacts shifted fallback reasons and model/runtime profile.
+
+Preserved source note:
+
+````md
+---
+summary: "ExecPlan rebaseline discovery: current codex-farm seams still hard-gate degraded pass2 rows, while latest SeaAndSmoke artifacts shifted fallback reasons and model/runtime profile."
+read_when:
+  - "When revising the soft-gating/selective-pass3 ExecPlan against current runtime code and artifacts."
+  - "When baseline run IDs or codex model drift make runtime comparisons ambiguous."
+---
+
+# Discovery
+
+While reworking `docs/plans/2026-03-03_20.13.22-codexfarm-soft-gating-runtime-outside-span-precision.md`, I re-audited orchestrator/parsing/cutdown seams and latest benchmark artifacts.
+
+# Key findings
+
+- `cookimport/llm/codex_farm_orchestrator.py` still treats any pass2 degradation reason as immediate pass3 fallback (`pass2_status="degraded"` then `pass3_status="fallback"`), and `_PASS2_DEGRADING_WARNING_BUCKETS` still includes `page_or_layout_artifact`.
+- `cookimport/parsing/canonical_line_roles.py` outside-span prose still has two upgrade paths (`KNOWLEDGE` and `RECIPE_NOTES`) that can absorb narrative prose.
+- `scripts/benchmark_cutdown_for_external_ai.py` currently ingests pass statuses/reasons but has no fields for pass2 severity or pass3 routing mode.
+- Latest paired SeaAndSmoke runs moved beyond the original plan baseline:
+  - newer runs exist after `2026-03-03_19.51.01` (`20.05.26`, `20.13.14`),
+  - page/layout degradation appears in `20.05.26` but not `20.13.14`,
+  - codex model changed across runs (`gpt-5.3-codex-spark` -> `gpt-5.2` -> `gpt-5.1-codex-mini`), making runtime deltas non-comparable without explicit model-locking.
+
+# Planning implication
+
+The ExecPlan should keep original goals, but must (1) add additive manifest diagnostics rather than status-enum changes, (2) lock codex model/effort for benchmark comparisons, and (3) include required `bench speed-discover/run/compare` runtime checks.
+
+````
+
+### 2026-03-03_20.46.18-codexfarm-soft-gating-pass3-routing-contract
+
+Source:
+- `docs/understandings/2026-03-03_20.46.18-codexfarm-soft-gating-pass3-routing-contract.md`
+
+Summary:
+- Soft-gated codex-farm pass3 routing now separates hard fallback from low-risk deterministic promotion while preserving pass status enums.
+
+Preserved source note:
+
+````md
+---
+summary: "Soft-gated codex-farm pass3 routing now separates hard fallback from low-risk deterministic promotion while preserving pass status enums."
+read_when:
+  - "When debugging why degraded pass2 rows now sometimes end as pass3_status=ok without a pass3 call."
+  - "When wiring llm_manifest pass2/pass3 routing diagnostics into benchmark cutdowns or dashboards."
+---
+
+# Discovery
+
+Pass2 degradation handling in `cookimport/llm/codex_farm_orchestrator.py` needed two distinct outcomes that were previously conflated: fail-safe hard degradation fallback and runtime-saving soft degradation promotion.
+
+# What changed
+
+- Pass2 degradation reasons are still emitted the same way, but now classified with `_pass2_degradation_severity(...)`.
+- Only `warning_bucket:page_or_layout_artifact` is soft; any other reason (or unknown reason) is hard.
+- Hard degradation keeps prior behavior (`pass3_status=fallback` + deterministic finalizer).
+- Soft degradation stays `pass2_status=degraded` but enters selective routing:
+  - low-risk rows (non-placeholder instruction evidence) skip pass3 and use deterministic promotion,
+  - remaining soft rows can still route to pass3 LLM.
+- Manifest diagnostics are additive (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason`) so downstream scripts can distinguish true pass3 calls from deterministic promotion.
+
+# Why this matters
+
+This keeps compatibility for existing status-based consumers while making runtime-control decisions visible and auditable in benchmark triage outputs.
+
+````
+
+### 2026-03-03_21.17.56-profeedback-relevance-audit
+
+Source:
+- `docs/understandings/2026-03-03_21.17.56-profeedback-relevance-audit.md`
+
+Summary:
+- Audit of ProFeedback suggestions against current runtime code and 2026-03-03_20.49.14 artifacts.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit of ProFeedback suggestions against current runtime code and 2026-03-03_20.49.14 artifacts."
+read_when:
+  - "When deciding whether ProFeedback items are already implemented or still actionable."
+  - "When planning the next codex-farm quality/runtime pass after 2026-03-03_20.49.14."
+---
+
+# Discovery
+
+Validated `docs/plans/ProFeedback.md` recommendations against current code and latest paired SeaAndSmoke bundle (`2026-03-03_20.49.14`).
+
+# Already implemented
+
+- Pass2 degradation severity + selective pass3 routing metadata is live in `cookimport/llm/codex_farm_orchestrator.py`.
+- Outside-span default-to-OTHER guard logic is live in `cookimport/parsing/canonical_line_roles.py`.
+- Upload bundle v1 already has fields/hooks for prompt warning aggregate, projection trace, wrong-label full context, preprocess-trace failures, practical F1, cost signal, and candidate-label signal in `scripts/benchmark_cutdown_for_external_ai.py`.
+
+# Still valuable
+
+- Pass3 remains the dominant runtime/tokens cost (`842,348 / 1,354,019` tokens in latest pair), so pass3 ROI work is still high value.
+- `candidate_label_signal.available` remains false in latest bundle because `line_role_predictions.jsonl` does not carry candidate labels.
+- Latest `run_diagnostics` still reports requested diagnostics as `missing` for codex, even though source artifacts exist to derive several of them.
+- Residual confusion buckets (`INSTRUCTION_LINE -> RECIPE_NOTES`, `OTHER -> HOWTO_SECTION`, `OTHER -> RECIPE_NOTES`, `HOWTO_SECTION -> RECIPE_TITLE`) indicate deterministic boundary/routing hygiene still matters.
+
+````
+
+### 2026-03-03_21.25.37-profeedback-plan-rebuild-scope-check
+
+Source:
+- `docs/understandings/2026-03-03_21.25.37-profeedback-plan-rebuild-scope-check.md`
+
+Summary:
+- ProFeedback plan rebuild check: active plan already matched OG scope and only needed working-copy refresh.
+
+Preserved source note:
+
+````md
+---
+summary: "ProFeedback plan rebuild check: active plan already matched OG scope and only needed working-copy refresh."
+read_when:
+  - "When wondering whether docs/plans/ProFeedback.md diverges from OG plan intent."
+  - "When resuming ProFeedback work and checking why the latest edit was small."
+---
+
+# Discovery
+
+`docs/plans/ProFeedback.md` and `docs/plans/OGplan/ProFeedback.md` were identical at rebuild time. The active plan already captured current actionable scope (pass3 ROI, candidate-label availability, upload-bundle diagnostics).
+
+# Outcome
+
+Rebuild work stayed intentionally small: refresh summary wording, add a new progress checkpoint, and record a new revision note confirming docs/code-context revalidation.
+
+````
+
+### 2026-03-03_21.33.21-profeedback-ogplan-implementation-gap-audit
+
+Source:
+- `docs/understandings/2026-03-03_21.33.21-profeedback-ogplan-implementation-gap-audit.md`
+
+Summary:
+- Audit finding: ProFeedback OG plan remains partially unimplemented despite related runtime improvements.
+
+Preserved source note:
+
+````md
+---
+summary: "Audit finding: ProFeedback OG plan remains partially unimplemented despite related runtime improvements."
+read_when:
+  - "When checking whether docs/plans/OGplan/ProFeedback.md milestones are fully shipped in code."
+  - "When reconciling stale upload_bundle_v1 artifacts with current benchmark_cutdown script behavior."
+---
+
+# ProFeedback OG Plan vs Code Gap Audit
+
+- Observation: Pass3 soft-gating exists, but pass2-ok rows still always route to pass3 LLM.
+  Evidence: `cookimport/llm/codex_farm_orchestrator.py::_should_run_pass3_llm` returns `(True, "pass2_ok")` whenever `state.pass2_status == "ok"`.
+
+- Observation: Candidate-label diagnostics remain unavailable because line-role prediction rows do not emit `candidate_labels`.
+  Evidence: `CanonicalLineRolePrediction` has no `candidate_labels` field in `cookimport/parsing/canonical_line_roles.py`, and existing upload bundle analysis reports `candidate_label_signal.available=false`.
+
+- Observation: Upload-bundle diagnostic completeness appears implemented in code but not reflected in older artifacts.
+  Evidence: Re-running `scripts/benchmark_cutdown_for_external_ai.py` on the 2026-03-03_20.49.14 SeaAndSmoke run now yields codex `run_diagnostics` statuses of `written` for prompt-warning/projection/wrong-context/preprocess traces, while the checked-in historical `upload_bundle_v1/upload_bundle_index.json` still shows `missing`.
+
+````

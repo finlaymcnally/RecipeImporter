@@ -487,3 +487,24 @@ Current contract additions/reminders:
 - Exclusion policy remains deterministic/path-token based (`/bench/`, pytest temp layouts, gated/smoke/test timestamp suffix markers).
 - `Previous Runs` AI runtime display is variant-aware: rows classified as `vanilla` suppress `AI Model` and `AI Effort` display even if stale/backfilled codex keys exist in `run_config`.
 - Vanilla suppression is display-layer only; historical CSV/manifests are not rewritten.
+
+
+## 2026-03-03 merged understandings digest (docs/understandings cleanup)
+
+This section consolidates notes that were previously in `docs/understandings`.
+Detailed chronology and preserved deep notes are in `08-analytics_log.md`.
+
+Merged source notes (chronological):
+- `2026-03-03_13.13.20-dashboard-vanilla-runtime-display-guard.md`: Discovery: vanilla benchmark variants can inherit codex runtime metadata, so dashboard AI columns need variant-aware suppression.
+- `2026-03-03_16.11.09-dashboard-per-label-comparison-mode-toggle.md`: Per-Label comparison cells should share one mode switch (delta vs point value) while preserving baseline-relative coloring.
+- `2026-03-03_19.42.15-dashboard-trend-overlay-series-contract.md`: Benchmark trend overlays should be layered from base scatter series and excluded from grouped tooltips.
+- `2026-03-03_19.55.01-isolate-column-filter-global-or.md`: Isolate-to-table unification requires a native cross-column OR combine mode in the Previous Runs column-filter evaluator.
+- `2026-03-03_19.59.39-dashboard-trend-paired-variant-xaxis-alignment.md`: Benchmark trend paired variants drifted on X because each point used eval-row timestamp instead of run-group timestamp.
+- `2026-03-03_20.32.36-isolate-numeric-operator-contract.md`: Isolate numeric comparisons require field-typed operator sets and numeric-value normalization before syncing into table filters.
+
+### 2026-03-03_21.50.00 isolateforxv2 dashboard seam reminder
+
+- `stats-dashboard` UI behavior is generated from `cookimport/analytics/dashboard_render.py` (`_HTML`, `_CSS`, `_JS`) rather than a separate frontend source tree.
+- `Isolate For X` already syncs into table filters via `applyIsolateRulesToTableFilters` and uses the same evaluator path (`recordMatchesPreviousRunsFilterGroups` + `evaluatePreviousRunsFilterOperator`).
+- Previous Runs/preset persistence remains anchored in `buildDashboardUiStatePayload` / `applyDashboardUiStatePayload`.
+- Compare/Control planning should extend these seams and use `tests/analytics/test_stats_dashboard.py` as the contract test anchor.

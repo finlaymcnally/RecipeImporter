@@ -1620,3 +1620,39 @@ Current contract additions/reminders:
 - Cleanup must run before benchmark failure raises in gated/test runs; otherwise failed runs still accumulate artifacts.
 - Boxed benchmark progress truncation must preserve trailing ETA/avg timing suffixes; clip long middle task identifiers first.
 - Line-role gated benchmark mode remains strict on comparator-history availability plus recall floors (`RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`).
+
+
+## 2026-03-03 merged understandings digest (docs/understandings cleanup)
+
+This section consolidates notes that were previously in `docs/understandings`.
+Detailed chronology and preserved deep notes are in `07-bench_log.md`.
+
+Merged source notes (chronological):
+- `2026-03-03_13.09.20-labelstudio-benchmark-transient-prune-hook-point.md`: Benchmark artifact cleanup must run after CSV append in labelstudio-benchmark so metrics stay durable even when run folders are deleted.
+- `2026-03-03_13.22.28-single-offline-codex-kwargs-runtime-snapshot-mismatch.md`: Single-offline benchmark failure `unexpected keyword argument 'codex_farm_model'` indicates runtime snapshot mismatch versus current source signatures.
+- `2026-03-03_13.46.02-single-offline-dashboard-refresh-path-resolution.md`: Single-offline dashboard auto-refresh used a nested benchmark history path, so it regenerated a run-local dashboard instead of the lifetime dashboard.
+- `2026-03-03_13.49.30-single-offline-starter-pack-vs-flattened-summary-gap.md`: Single-offline starter-pack generation did not guarantee a flattened summary artifact in the session root.
+- `2026-03-03_13.50.27-all-method-dashboard-refresh-path-resolution.md`: All-method deferred refreshes can write nested run-local dashboards unless the lifetime output root is forwarded explicitly.
+- `2026-03-03_14.06.00-benchmark-prune-suppression-required-for-internal-reuse.md`: Benchmark auto-prune must stay scoped to excluded transient artifacts so interactive single-offline outputs remain available.
+- `2026-03-03_14.27.55-single-offline-two-variant-normalization.md`: Single-offline paired variants now hard-normalize to deterministic-only vanilla vs LLM-adjusted codexfarm.
+- `2026-03-03_14.32.00-transient-prune-must-follow-csv-append.md`: Transient benchmark artifact pruning must occur after append_benchmark_csv so deleted transient runs still remain in performance_history.csv.
+- `2026-03-03_15.05.00-starter-pack-manifest-diagnostics-bridge.md`: Starter-pack recipe triage was missing Proplan diagnostics because it only read prompt-log artifacts, not prediction-run llm manifests.
+- `2026-03-03_16.21.00-single-offline-starter-pack-fallback-dataclass-loader.md`: Starter-pack fallback script loading failed because the module was executed without sys.modules registration.
+- `2026-03-03_16.32.22-benchmark-upload-bundle-default-coverage.md`: Default 3-file upload bundles must be written in wrapper flows for interactive benchmark runs because labelstudio_benchmark suppresses that export while interactive mode is active.
+- `2026-03-03_16.51.00-cutdown-three-file-upload-bundle-source-chain.md`: Discovery note: benchmark cutdown can be safely collapsed to three upload files by serializing every generated artifact into an indexed payload.
+- `2026-03-03_18.12.21-benchmark-timeout-default-surface-map.md`: Benchmark timeout defaults are split between all-method scheduler timeout and codex-farm recipe pipeline spec timeouts.
+- `2026-03-03_18.45.00-single-offline-starter-pack-vs-upload-bundle.md`: Single-offline benchmark session roots intentionally include both starter_pack_v1 and upload_bundle_v1 because they serve different consumers.
+- `2026-03-03_19.05.00-single-offline-upload-bundle-first-default.md`: Interactive single-offline benchmark now defaults to upload-bundle-first output; starter_pack_v1 is opt-in via env.
+- `2026-03-03_20.17.03-upload-bundle-v1-derived-topline-and-triage-views.md`: upload_bundle_v1 must derive run/pair/changed-line counts from discovered run artifacts when root summaries are absent or stale, then publish triage-first index views with payload row locators.
+- `2026-03-03_20.27.55-upload-bundle-v1-alignment-verification.md`: upload_bundle_v1 alignment check: stale historical bundles still show zero topline, but current helper regenerates correct counts and triage/self-check blocks.
+- `2026-03-03_21.05.38-upload-bundle-row-locator-cost-availability.md`: Upload bundle row locators were brittle on exact paths; basename fallbacks and explicit cost-availability signaling make index triage more reliable.
+- `2026-03-03_21.12.21-upload-bundle-v1-accordance-check.md`: Upload bundle v1 accordance check (seaandsmokecutdown)
+- `2026-03-03_21.19.22-upload-bundle-derived-locator-fallbacks.md`: Upload bundle now emits derived payload artifacts for missing root/starter files so row locators remain populated in source trees that only contain run artifacts.
+- `2026-03-03_21.35.25-upload-bundle-forward-alignment-gaps.md`: Upload bundle alignment gaps are now mostly data-availability issues (cost telemetry and candidate labels), so generation should provide explicit estimate/fallback signals rather than silent nulls.
+
+### 2026-03-03_21.48.57 upload bundle unavailable-signal interpretation
+
+- `upload_bundle_v1` `calls_with_cost=0` indicates upstream observed billing fields are absent in prompt logs; estimated cost remains the fallback.
+- `candidate_label_signal.available=false` means line-role rows did not include recognized candidate-label payload keys.
+- `pair_count=1` in single-source paired runs is expected and below the bundle's `>=2` generalization-readiness threshold.
+- Pass2/pass3 stage-level per-label scoring is intentionally unavailable in current artifacts because pass2/pass3 outputs are recipe-structure payloads, not line-label prediction/eval tables.

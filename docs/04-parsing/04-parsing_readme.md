@@ -843,3 +843,15 @@ Current parsing contracts to keep:
 - Deterministic title hits should not be escalated away when confidence is low.
 - Note-like prose should not be pre-classified as `INSTRUCTION_LINE` by broad punctuation-only sentence rules.
 - Bare `serving` in prose is not treated as a yield boundary marker.
+
+
+## 2026-03-03 merged understandings digest (docs/understandings cleanup)
+
+This section consolidates notes that were previously in `docs/understandings`.
+Detailed chronology and preserved deep notes are in `04-parsing_log.md`.
+
+Merged source notes (chronological):
+- `2026-03-03_16.23.15-line-role-title-note-regression-root-cause.md`: Why SeaAndSmoke single-offline codex run can improve strict accuracy but crater macro-F1: line-role title/note failure modes.
+- `2026-03-03_16.38.03-canonical-line-role-title-note-fix-implementation.md`: Canonical line-role fix implementation notes: title allowlist reachability, deterministic title hold, note-vs-instruction heuristic tightening, and serving/yield split guard.
+- `2026-03-03_19.21.23-canonical-next-error-buckets.md`: Post-fix canonical line-role diagnosis: next highest-impact buckets are ingredient recall misses, title-vs-howto overcalls, and quantity-fragment atomization artifacts.
+- `2026-03-03_19.45.44-canonical-quantity-split-and-subheading-context-guards.md`: Canonical line-role quality gains came from blocking instruction-prose quantity splitting and using neighbor context to treat compact title-like rows as HOWTO_SECTION when they are internal subsections.

@@ -1255,3 +1255,85 @@ read_when:
 - If increment history is still empty but progress already started (`X > 0`), ETA bootstraps from `run_elapsed / X` until step-history samples arrive.
 
 ```
+
+
+## 2026-03-03 docs/understandings consolidation batch
+
+The entries below were merged from `docs/understandings` in timestamp order before source-file cleanup.
+
+### 2026-03-03_13.12.17-spinner-panel-truncation-preserves-eta-suffix
+
+Source:
+- `docs/understandings/2026-03-03_13.12.17-spinner-panel-truncation-preserves-eta-suffix.md`
+
+Summary:
+- Live benchmark spinner line truncation should preserve ETA/avg suffix visibility.
+
+Preserved source note:
+
+````md
+---
+summary: "Live benchmark spinner line truncation should preserve ETA/avg suffix visibility."
+read_when:
+  - "When spinner shows task counters but ETA is missing in boxed live mode"
+  - "When editing `_run_with_progress_status` panel truncation behavior in `cookimport/cli.py`"
+---
+
+Root cause: `_format_boxed_progress(...)` previously truncated long lines from the right, so appended timing suffixes like `(eta ..., avg .../task)` were clipped off when codex-farm `active [...]` payloads made the line too long.
+
+Current contract:
+- Boxed panel truncation should preserve trailing timing parentheticals (`eta`/`avg`/elapsed) by clipping the middle of the line when needed.
+- Long worker/task identifiers may still be shortened, but timing visibility on the main status line is prioritized.
+
+````
+
+### 2026-03-03_13.28.55-codex-spinner-stage-readable-pass-labels
+
+Source:
+- `docs/understandings/2026-03-03_13.28.55-codex-spinner-stage-readable-pass-labels.md`
+
+Summary:
+- Codex-farm spinner status should surface a readable pass label and explicit stage row.
+
+Preserved source note:
+
+````md
+---
+summary: "Codex-farm spinner status should surface a readable pass label and explicit stage row."
+read_when:
+  - "When benchmark spinner text is too opaque about current codex-farm phase"
+  - "When editing codex-farm progress display in `_run_with_progress_status`"
+---
+
+Raw codex-farm callback lines (`codex-farm recipe.schemaorg.v1 task X/Y | running N | active [...]`) are accurate but not operator-friendly in the boxed panel.
+
+Current contract:
+- Live spinner rewrites codex-farm status to human pass labels (`pass1 chunking`, `pass2 schemaorg`, `pass3 final`, `pass4 knowledge`, `pass5 tags`) while retaining `task X/Y` and `running` counters for ETA.
+- Panel also emits `stage: <pass label>` above worker lines so stage remains visible even when top line is width-truncated.
+- Worker rows continue to show active task IDs; stage readability is separated from raw task identifier noise.
+
+````
+
+### 2026-03-03_17.34.31-spinner-active-tasks-left-counter-source
+
+Source:
+- `docs/understandings/2026-03-03_17.34.31-spinner-active-tasks-left-counter-source.md`
+
+Summary:
+- Codex benchmark spinner can surface remaining tasks from the parsed task X/Y counter in the worker summary row.
+
+Preserved source note:
+
+````md
+---
+summary: "Codex benchmark spinner can surface remaining tasks from the parsed task X/Y counter in the worker summary row."
+read_when:
+  - "When benchmark spinner no longer shows an explicit remaining-task count"
+  - "When editing `_run_with_progress_status` worker summary rendering in `cookimport/cli.py`"
+---
+
+Discovery:
+- The boxed spinner's top status line can truncate the middle when preserving trailing ETA/avg suffixes, which can hide the `task X/Y` segment.
+- `_inject_worker_summary_lines(...)` already receives codex worker task payloads; adding `N left` from `latest_counter` to `active tasks (...)` keeps remaining work visible on a dedicated row.
+
+````

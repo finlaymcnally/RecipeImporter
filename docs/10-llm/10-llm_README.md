@@ -579,3 +579,28 @@ Current contract additions/reminders:
   - `macro_f1_excluding_other` delta: `-0.057421` (codex lower)
   - dev-slice (`c0,c6,c8,c9`) aggregate accuracy delta: `-0.123288`
 - Current promotion decision remains `no promotion` and no default flip to Codex recipe correction.
+
+
+## 2026-03-03 merged understandings digest (docs/understandings cleanup)
+
+This section consolidates notes that were previously in `docs/understandings`.
+Detailed chronology and preserved deep notes are in `10-llm_log.md`.
+
+Merged source notes (chronological):
+- `2026-03-03_13.10.03-pro3-ogplan-vs-code-audit.md`: Audit note for Pro3 OG plan vs runtime implementation and completed ExecPlan claims.
+- `2026-03-03_13.22.30-pro3-pass1-span-loss-metrics-surface.md`: Pro3 span-loss observability now records raw-vs-clamped pass1 span metrics per recipe.
+- `2026-03-03_13.51.55-pro3-overlap-clamp-and-pass3-placeholder-repair.md`: Quality-first Pro3 follow-up: overlap-only pass1 clamp and pass3 placeholder-step repair from pass2 evidence.
+- `2026-03-03_14.27.12-seaandsmoke-codexfarm-failure-root-causes.md`: Root-cause diagnosis of codexfarm fallback-heavy behavior in SeaAndSmokeCUTDOWN single-offline run 2026-03-03_13.37.54.
+- `2026-03-03_14.57.52-codex-contract-json-repair-for-stringified-objects.md`: Codex farm contract parsing can fail on malformed stringified JSON objects; bounded repair recovers common artifacts.
+- `2026-03-03_15.25.41-pass3-schema-v-missing-legacy-draft-shapes.md`: Pass3 schema_v validation fallbacks were driven by legacy draft_v1 object shapes, not empty evidence.
+- `2026-03-03_15.40.00-pass2-missing-instructions-root-cause-report.md`: Root-cause report for pass2 missing_instructions degradation in SeaAndSmokeCUTDOWN codexfarm run (2026-03-03_13.37.54).
+- `2026-03-03_15.44.35-pass2-warning-bucket-page-layout-naming.md`: Pass2 warning bucket label was renamed to page/layout-specific wording while preserving legacy compatibility in cutdown tooling.
+- `2026-03-03_17.12.05-single-offline-codexfarm-pass2-timeout-failure.md`: Single-offline codexfarm variant failed in pass2 because three tasks hit the 180s codex timeout across all retries.
+- `2026-03-03_18.09.09-single-offline-codexfarm-pass3-timeout-failure.md`: Single-offline codexfarm variant failed in pass3 because every task hit the 180s codex timeout across retries.
+- `2026-03-03_18.18.54-llm-timeout-default-surfaces-expanded.md`: LLM timeout defaults include prelabel preflight, line-role fallback, and optional pass4/pass5 pipeline specs in addition to benchmark pass settings.
+- `2026-03-03_20.07.02-feedback-relevance-after-canonical-guards.md`: Post-18.31 feedback relevance check after canonical guard updates: line-role bucket critique is partially outdated, while fallback gating and runtime-cost concerns remain active.
+- `2026-03-03_20.31.33-codexfarm-soft-gating-plan-rebaseline.md`: ExecPlan rebaseline discovery: current codex-farm seams still hard-gate degraded pass2 rows, while latest SeaAndSmoke artifacts shifted fallback reasons and model/runtime profile.
+- `2026-03-03_20.46.18-codexfarm-soft-gating-pass3-routing-contract.md`: Soft-gated codex-farm pass3 routing now separates hard fallback from low-risk deterministic promotion while preserving pass status enums.
+- `2026-03-03_21.17.56-profeedback-relevance-audit.md`: Audit of ProFeedback suggestions against current runtime code and 2026-03-03_20.49.14 artifacts.
+- `2026-03-03_21.25.37-profeedback-plan-rebuild-scope-check.md`: ProFeedback plan rebuild check: active plan already matched OG scope and only needed working-copy refresh.
+- `2026-03-03_21.33.21-profeedback-ogplan-implementation-gap-audit.md`: Audit finding: ProFeedback OG plan remains partially unimplemented despite related runtime improvements.

@@ -1777,3 +1777,214 @@ Durable decisions/outcomes:
 Evidence preserved in task:
 - `pytest tests/analytics/test_stats_dashboard.py -k "renders_previous_runs_table_and_links_timestamp_to_artifact"`
 - `pytest tests/analytics/test_stats_dashboard.py`
+
+
+## 2026-03-03 docs/understandings consolidation batch
+
+The entries below were merged from `docs/understandings` in timestamp order before source-file cleanup.
+
+### 2026-03-03_13.13.20-dashboard-vanilla-runtime-display-guard
+
+Source:
+- `docs/understandings/2026-03-03_13.13.20-dashboard-vanilla-runtime-display-guard.md`
+
+Summary:
+- Discovery: vanilla benchmark variants can inherit codex runtime metadata, so dashboard AI columns need variant-aware suppression.
+
+Preserved source note:
+
+````md
+---
+summary: "Discovery: vanilla benchmark variants can inherit codex runtime metadata, so dashboard AI columns need variant-aware suppression."
+read_when:
+  - "When debugging why `single-offline` vanilla rows show codex model/effort in Previous Runs"
+---
+
+# Discovery
+
+Dashboard AI columns (`AI Model`, `AI Effort`) read model/effort from `run_config` fields. If a vanilla benchmark row carries stale/backfilled codex keys in `run_config`, the row can incorrectly display codex runtime in the table.
+
+# Practical Rule
+
+For `benchmarkVariantForRecord(record) === "vanilla"` (path/pipeline inferred), treat AI model/effort as absent in display helpers, regardless of run-config codex keys.
+
+# Why this works
+
+Variant inference is already used by trend/per-label logic and official single-offline filtering, so using the same signal keeps UI behavior consistent across dashboard surfaces.
+
+````
+
+### 2026-03-03_16.11.09-dashboard-per-label-comparison-mode-toggle
+
+Source:
+- `docs/understandings/2026-03-03_16.11.09-dashboard-per-label-comparison-mode-toggle.md`
+
+Summary:
+- Per-Label comparison cells should share one mode switch (delta vs point value) while preserving baseline-relative coloring.
+
+Preserved source note:
+
+````md
+---
+summary: "Per-Label comparison cells should share one mode switch (delta vs point value) while preserving baseline-relative coloring."
+read_when:
+  - "When editing Per-Label Breakdown comparison cell rendering"
+  - "When extending per-label dashboard UI controls/state"
+---
+
+# Discovery
+
+Per-Label Breakdown renders all six comparison columns through one shared cell formatter path, so comparison semantics are safest when centralized there with one shared UI-state field.
+
+This keeps:
+- one consistent switch across run-vanilla and rolling codexfarm/vanilla comparison columns,
+- persisted mode in dashboard UI state,
+- codex-oriented delta direction (`codexfarm baseline - comparison`) with baseline-anchored coloring.
+
+````
+
+### 2026-03-03_19.42.15-dashboard-trend-overlay-series-contract
+
+Source:
+- `docs/understandings/2026-03-03_19.42.15-dashboard-trend-overlay-series-contract.md`
+
+Summary:
+- Benchmark trend overlays should be layered from base scatter series and excluded from grouped tooltips.
+
+Preserved source note:
+
+````md
+---
+summary: "Benchmark trend overlays should be layered from base scatter series and excluded from grouped tooltips."
+read_when:
+  - "When adding or changing Benchmark Score Trend overlay series (trendline/bands)"
+  - "When trend tooltip rows unexpectedly include synthetic overlay series"
+---
+
+# Dashboard trend overlay series contract
+
+`buildBenchmarkTrendSeries(records)` is the seam for trend visualization composition:
+- Build base score scatter series first.
+- Derive overlay series from each base series (`withTrendOverlays`), so overlays always track whichever variant split is active.
+- Mark overlay series with `custom.isTrendOverlay = true` and skip them in grouped tooltip row collection.
+
+This keeps the tooltip tied to raw metric points while still drawing regression context on-chart.
+
+````
+
+### 2026-03-03_19.55.01-isolate-column-filter-global-or
+
+Source:
+- `docs/understandings/2026-03-03_19.55.01-isolate-column-filter-global-or.md`
+
+Summary:
+- Isolate-to-table unification requires a native cross-column OR combine mode in the Previous Runs column-filter evaluator.
+
+Preserved source note:
+
+````md
+---
+summary: "Isolate-to-table unification requires a native cross-column OR combine mode in the Previous Runs column-filter evaluator."
+read_when:
+  - "When changing Isolate For X behavior or table filter expression evaluation"
+  - "When debugging why isolate any-rule and table filters diverge"
+---
+
+# Discovery
+
+`Isolate For X` and table filters originally used separate filter paths, with table filters hard-coded to AND across columns.
+
+To make isolate rules truly become table column filters, the table evaluator needed a first-class global combine mode (`AND`/`OR`) across field groups, not just per-column clause stack modes.
+
+The implementation now maps isolate clauses into table `eq`/`neq` clauses and sets:
+- per-column clause mode to match isolate combine mode,
+- global column combine mode to `OR` for isolate `any`, `AND` for isolate `all`.
+
+This preserves isolate semantics while keeping one shared filtering engine.
+
+````
+
+### 2026-03-03_19.59.39-dashboard-trend-paired-variant-xaxis-alignment
+
+Source:
+- `docs/understandings/2026-03-03_19.59.39-dashboard-trend-paired-variant-xaxis-alignment.md`
+
+Summary:
+- Benchmark trend paired variants drifted on X because each point used eval-row timestamp instead of run-group timestamp.
+
+Preserved source note:
+
+````md
+---
+summary: "Benchmark trend paired variants drifted on X because each point used eval-row timestamp instead of run-group timestamp."
+read_when:
+  - "When codexfarm/vanilla points from the same benchmark run do not align on the trend chart"
+  - "When editing benchmark trend point construction in cookimport/analytics/dashboard_render.py"
+---
+
+# Dashboard trend paired-variant X-axis alignment
+
+Root cause: `benchmarkSeriesFromRecords(...)` used `parseTs(record.run_timestamp)` for each point's `x`, so paired `vanilla`/`codexfarm` rows from one benchmark session could land a few seconds apart (different eval completion times).
+
+Fix seam: resolve `x` from run-group timestamp first (`benchmarkRunGroupInfo` timestamp token from artifact path), then fall back to row timestamp only when no run-group timestamp is parseable.
+
+Outcome: paired variants in the same run group share one X position while keeping separate series and grouped tooltip behavior.
+
+````
+
+### 2026-03-03_20.32.36-isolate-numeric-operator-contract
+
+Source:
+- `docs/understandings/2026-03-03_20.32.36-isolate-numeric-operator-contract.md`
+
+Summary:
+- Isolate numeric comparisons require field-typed operator sets and numeric-value normalization before syncing into table filters.
+
+Preserved source note:
+
+````md
+---
+summary: "Isolate numeric comparisons require field-typed operator sets and numeric-value normalization before syncing into table filters."
+read_when:
+  - "When changing Isolate For X operator behavior or value input controls"
+  - "When isolate numeric rules do not match Previous Runs table filter results"
+---
+
+# Discovery
+
+Adding `>`, `>=`, `<`, `<=` to `Isolate For X` is not just an operator-list change.
+
+To keep isolate behavior identical to table filters, isolate rules must:
+- choose operator options by field type (numeric vs categorical),
+- validate/normalize numeric values before a clause is considered active,
+- sync operator + value directly into table filter clauses (`gt/gte/lt/lte/eq/neq`),
+- evaluate row matching with the same `evaluatePreviousRunsFilterOperator(...)` path used by table filters.
+
+This keeps isolate and table filters as one semantics engine.
+
+````
+
+### 2026-03-03_21.50.00-isolateforxv2-plan-rebaseline-dashboard-seams
+
+Source:
+- `docs/understandings/2026-03-03_21.50.00-isolateforxv2-plan-rebaseline-dashboard-seams.md`
+
+Summary:
+- Discovery note: Compare/Isolate planning must target dashboard_render.py JS templates and existing table-filter/state seams.
+
+Preserved source note:
+
+````md
+---
+summary: "Discovery note: Compare/Isolate planning must target dashboard_render.py JS templates and existing table-filter/state seams."
+read_when:
+  - "When reworking Isolate For X or adding Compare & Control behavior in stats-dashboard."
+  - "When an ExecPlan references dashboard files/tests that do not exist in this repo."
+---
+
+# Discovery
+
+For stats-dashboard, frontend behavior is emitted from `cookimport/analytics/dashboard_render.py` (`_HTML`, `_CSS`, `_JS`), not from a separate JS source tree. Isolate already writes into table filters (`applyIsolateRulesToTableFilters`) and shares the same evaluator (`recordMatchesPreviousRunsFilterGroups` + `evaluatePreviousRunsFilterOperator`). UI persistence for Previous Runs and presets is centralized in `buildDashboardUiStatePayload` / `applyDashboardUiStatePayload`.
+
+Practical planning implication: Compare & Control should be added as a sibling panel that reuses these seams, and regression tests should extend `tests/analytics/test_stats_dashboard.py` (current dashboard contract anchor) instead of referencing non-existent dashboard test modules.
+````
