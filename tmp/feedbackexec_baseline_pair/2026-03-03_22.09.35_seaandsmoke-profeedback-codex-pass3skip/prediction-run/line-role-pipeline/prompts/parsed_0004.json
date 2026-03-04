@@ -1,0 +1,66 @@
+[
+  {
+    "atomic_index": 661,
+    "label": "OTHER"
+  },
+  {
+    "atomic_index": 666,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 669,
+    "label": "OTHER"
+  },
+  {
+    "atomic_index": 670,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 671,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 672,
+    "label": "OTHER"
+  },
+  {
+    "atomic_index": 674,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 675,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 676,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 679,
+    "label": "RECIPE_NOTES"
+  },
+  {
+    "atomic_index": 680,
+    "label": "OTHER"
+  },
+  {
+    "atomic_index": 681,
+    "label": "KNOWLEDGE"
+  },
+  {
+    "atomic_index": 687,
+    "label": "OTHER"
+  },
+  {
+    "atomic_index": 693,
+    "label": "INSTRUCTION_LINE"
+  },
+  {
+    "atomic_index": 695,
+    "label": "OTHER"
+  },
+  {
+    "atomic_index": 698,
+    "label": "OTHER"
+  }
+]

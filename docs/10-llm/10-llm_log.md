@@ -10,6 +10,16 @@ read_when:
 
 Use this file for LLM debugging history that still applies to the current codebase.
 
+## 2026-03-03_23.50.00 codex-farm no-last-agent-message partial-output recovery
+
+Problem captured:
+- Codex-farm sometimes exits non-zero with `Warning: no last agent message; wrote empty content ...`, which was aborting entire pass execution even when only a small subset of chunks failed.
+
+Durable decisions/actions:
+- `SubprocessCodexFarmRunner` now treats that specific signature as recoverable when failure categories are limited to `nonzero_exit_no_payload`.
+- Runner logs a warning and returns process metadata so orchestrators can continue and handle missing per-bundle outputs via existing fallback/error paths.
+- Other codex-farm failures still raise `CodexFarmRunnerError` unchanged.
+
 ## 2026-02-28_10.35.22 codex-farm autotune payload ingest
 
 Source files:

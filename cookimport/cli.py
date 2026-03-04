@@ -190,7 +190,12 @@ from cookimport.staging.writer import (
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
 bench_app = typer.Typer(name="bench", help="Offline benchmark suite tools.")
+compare_control_app = typer.Typer(
+    name="compare-control",
+    help="Backend Compare & Control analytics for CLI and agent workflows.",
+)
 app.add_typer(bench_app)
+app.add_typer(compare_control_app, name="compare-control")
 
 from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
 from cookimport.tagging.orchestrator import run_stage_tagging_pass  # noqa: E402
@@ -257,6 +262,12 @@ ALL_METHOD_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
 BENCH_CODEX_FARM_CONFIRMATION_TOKEN = "I_HAVE_EXPLICIT_USER_CONFIRMATION"
 QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
 SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN = BENCH_CODEX_FARM_CONFIRMATION_TOKEN
+QUALITYSUITE_AGENT_BRIDGE_DIR_NAME = "agent_compare_control"
+QUALITYSUITE_AGENT_BRIDGE_SCHEMA_VERSION = "qualitysuite_compare_control_bridge.v1"
+QUALITYSUITE_AGENT_BRIDGE_OUTCOME_FIELDS: tuple[str, ...] = (
+    "strict_accuracy",
+    "macro_f1_excluding_other",
+)
 SINGLE_OFFLINE_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v2"
 SINGLE_OFFLINE_COMPARISON_METRICS: tuple[tuple[str, str], ...] = (
     ("strict_accuracy", "strict_accuracy"),
@@ -2363,10 +2374,11 @@ def _interactive_single_profile_all_matched_benchmark(
     processed_output_root: Path,
     write_markdown: bool,
     write_label_studio_tasks: bool,
+    allow_subset_selection: bool = False,
 ) -> bool:
-    """Run one selected benchmark profile across every matched gold/source pair."""
-    targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
-    if not targets:
+    """Run one benchmark profile across matched gold/source pairs."""
+    all_targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
+    if not all_targets:
         typer.secho(
             "No matched golden sets were found in data/input. Nothing to benchmark.",
             fg=typer.colors.YELLOW,
@@ -2388,19 +2400,83 @@ def _interactive_single_profile_all_matched_benchmark(
                 )
         return False
 
+    targets = list(all_targets)
+    if allow_subset_selection and len(targets) > 1:
+        selected_indices: set[int] = set()
+        while True:
+            selected_count = len(selected_indices)
+            choices: list[Any] = [
+                questionary.Choice("Run all matched books", value="__run_all__"),
+            ]
+            if selected_count > 0:
+                choices.append(
+                    questionary.Choice(
+                        f"Run selected books ({selected_count})",
+                        value="__run_selected__",
+                    )
+                )
+            for index, target in enumerate(targets, start=1):
+                target_index = index - 1
+                marker = "x" if target_index in selected_indices else " "
+                choices.append(
+                    questionary.Choice(
+                        (
+                            f"[{marker}] {index:02d}) {target.source_file_name} "
+                            f"[{target.gold_display}]"
+                        ),
+                        value=target_index,
+                    )
+                )
+
+            selection = _menu_select(
+                "Choose matched books for this single-profile benchmark:",
+                menu_help=(
+                    "Toggle book rows, then choose run selected books. "
+                    "Or run all matched books directly."
+                ),
+                choices=choices,
+            )
+            if selection in {None, BACK_ACTION}:
+                typer.secho("Single-profile benchmark cancelled.", fg=typer.colors.YELLOW)
+                return False
+            if selection == "__run_all__":
+                break
+            if selection == "__run_selected__":
+                targets = [targets[i] for i in sorted(selected_indices)]
+                break
+            if not isinstance(selection, int):
+                continue
+            if selection < 0 or selection >= len(targets):
+                continue
+            if selection in selected_indices:
+                selected_indices.remove(selection)
+            else:
+                selected_indices.add(selection)
+
+    if not targets:
+        typer.secho("No books selected. Single-profile benchmark cancelled.", fg=typer.colors.YELLOW)
+        return False
+
     typer.secho(
-        f"Matched golden sets: {len(targets)}",
+        f"Matched golden sets: {len(all_targets)}",
         fg=typer.colors.CYAN,
     )
+    if allow_subset_selection:
+        typer.secho(f"Selected matched books: {len(targets)}", fg=typer.colors.CYAN)
     skipped_color = typer.colors.YELLOW if unmatched_targets else typer.colors.BRIGHT_BLACK
     typer.secho(
         f"Skipped golden sets: {len(unmatched_targets)}",
         fg=skipped_color,
     )
+    scope_label = (
+        "selected matched books"
+        if allow_subset_selection
+        else "matched golden sets"
+    )
     typer.secho(
         (
             "Single-profile benchmark will run "
-            f"{len(targets)} configurations across {len(targets)} matched golden sets."
+            f"{len(targets)} configurations across {len(targets)} {scope_label}."
         ),
         fg=typer.colors.CYAN,
     )
@@ -2420,7 +2496,7 @@ def _interactive_single_profile_all_matched_benchmark(
     proceed = _prompt_confirm(
         (
             f"Proceed with {len(targets)} benchmark runs across "
-            f"{len(targets)} matched golden sets?"
+            f"{len(targets)} {scope_label}?"
         ),
         default=False,
     )
@@ -2448,10 +2524,85 @@ def _interactive_single_profile_all_matched_benchmark(
 
     failures: list[tuple[AllMethodTarget, str]] = []
     total_targets = len(targets)
-    for index, target in enumerate(targets, start=1):
+    parallel_books_cap = 3
+    worker_scale_numerator = 8
+    worker_scale_denominator = 10
+    max_parallel_targets = (
+        min(parallel_books_cap, total_targets) if total_targets > 1 else 1
+    )
+    split_phase_slots: int | None = None
+    split_phase_gate_dir: Path | None = None
+    scaled_worker_overrides: dict[str, int] = {}
+
+    def _scale_parallel_workers(raw_value: Any) -> int:
+        try:
+            baseline = max(1, int(raw_value))
+        except (TypeError, ValueError):
+            baseline = 1
+        return max(
+            1, (baseline * worker_scale_numerator) // worker_scale_denominator
+        )
+
+    if max_parallel_targets > 1:
+        split_phase_slots = 1
+        split_phase_gate_dir = single_profile_root / ".split_phase_slots"
+        split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
+        for key in ("workers", "pdf_split_workers", "epub_split_workers"):
+            scaled_worker_overrides[key] = _scale_parallel_workers(base_kwargs.get(key))
+        typer.secho(
+            (
+                "Single-profile scheduler: "
+                f"parallel books={max_parallel_targets}, "
+                "per-book worker scaling=80%, "
+                "split conversion slots=1."
+            ),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+
+    def _run_single_profile_target(
+        index: int, target: AllMethodTarget
+    ) -> tuple[AllMethodTarget, str | None, Path | None]:
         target_slug = f"{index:02d}_{slugify_name(target.source_file.stem)}"
         target_eval_output = single_profile_root / target_slug
         target_processed_output = single_profile_processed_root / target_slug
+        target_kwargs = dict(base_kwargs)
+        target_kwargs.update(
+            {
+                "gold_spans": target.gold_spans_path,
+                "source_file": target.source_file,
+                "eval_output_dir": target_eval_output,
+                "processed_output_dir": target_processed_output,
+            }
+        )
+        if scaled_worker_overrides:
+            target_kwargs.update(scaled_worker_overrides)
+        split_status_label = (
+            f"Single-profile split gate {index}/{total_targets}: "
+            f"{target.source_file_name}"
+            if split_phase_slots is not None
+            else None
+        )
+        try:
+            with _benchmark_split_phase_overrides(
+                split_phase_slots=split_phase_slots,
+                split_phase_gate_dir=split_phase_gate_dir,
+                split_phase_status_label=split_status_label,
+            ):
+                labelstudio_benchmark(**target_kwargs)
+            upload_bundle_dir = _write_benchmark_upload_bundle(
+                source_root=target_eval_output,
+                output_dir=target_eval_output / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+                suppress_summary=False,
+            )
+            return target, None, upload_bundle_dir
+        except typer.Exit as exc:
+            exit_code = int(getattr(exc, "exit_code", 1))
+            return target, f"exit code {exit_code}", None
+        except Exception as exc:  # noqa: BLE001
+            return target, str(exc), None
+
+    target_index_pairs = list(enumerate(targets, start=1))
+    for index, target in target_index_pairs:
         typer.secho(
             (
                 f"Single-profile benchmark {index}/{total_targets}: "
@@ -2459,46 +2610,38 @@ def _interactive_single_profile_all_matched_benchmark(
             ),
             fg=typer.colors.CYAN,
         )
-        try:
-            target_kwargs = dict(base_kwargs)
-            target_kwargs.update(
-                {
-                    "gold_spans": target.gold_spans_path,
-                    "source_file": target.source_file,
-                    "eval_output_dir": target_eval_output,
-                    "processed_output_dir": target_processed_output,
-                }
-            )
-            labelstudio_benchmark(**target_kwargs)
-            upload_bundle_dir = _write_benchmark_upload_bundle(
-                source_root=target_eval_output,
-                output_dir=target_eval_output / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
-                suppress_summary=False,
-            )
-            if upload_bundle_dir is not None:
-                typer.secho(
-                    f"External-AI upload bundle: {upload_bundle_dir}",
-                    fg=typer.colors.CYAN,
-                )
-        except typer.Exit as exc:
-            exit_code = int(getattr(exc, "exit_code", 1))
-            failures.append((target, f"exit code {exit_code}"))
+
+    if max_parallel_targets == 1:
+        completed_results = [
+            _run_single_profile_target(index, target)
+            for index, target in target_index_pairs
+        ]
+    else:
+        completed_results: list[tuple[AllMethodTarget, str | None, Path | None]] = []
+        with ThreadPoolExecutor(max_workers=max_parallel_targets) as executor:
+            futures = [
+                executor.submit(_run_single_profile_target, index, target)
+                for index, target in target_index_pairs
+            ]
+            for future in as_completed(futures):
+                completed_results.append(future.result())
+
+    for target, failure_reason, upload_bundle_dir in completed_results:
+        if upload_bundle_dir is not None:
             typer.secho(
-                (
-                    f"Single-profile benchmark failed for "
-                    f"{target.source_file_name} (exit code {exit_code}); continuing."
-                ),
-                fg=typer.colors.YELLOW,
+                f"External-AI upload bundle: {upload_bundle_dir}",
+                fg=typer.colors.CYAN,
             )
-        except Exception as exc:  # noqa: BLE001
-            failures.append((target, str(exc)))
-            typer.secho(
-                (
-                    f"Single-profile benchmark failed for "
-                    f"{target.source_file_name}: {exc}; continuing."
-                ),
-                fg=typer.colors.YELLOW,
-            )
+        if failure_reason is None:
+            continue
+        failures.append((target, failure_reason))
+        typer.secho(
+            (
+                f"Single-profile benchmark failed for "
+                f"{target.source_file_name}: {failure_reason}; continuing."
+            ),
+            fg=typer.colors.YELLOW,
+        )
 
     succeeded = total_targets - len(failures)
     summary_color = typer.colors.GREEN if not failures else typer.colors.YELLOW
@@ -6223,12 +6366,20 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_help=(
                     "All modes are offline (no upload).\n"
                     "Single offline runs one local prediction + eval vs freeform gold.\n"
+                    "Single config, selected matched sets lets you pick specific books.\n"
                     "Single config, all matched sets repeats that same config across each matched golden set."
                 ),
                 choices=[
                     questionary.Choice(
                         "Single offline eval: One local prediction + eval vs freeform gold",
                         value="single_offline",
+                    ),
+                    questionary.Choice(
+                        (
+                            "Single config, selected matched sets: "
+                            "Pick which matched books to run"
+                        ),
+                        value="single_offline_selected_matched",
                     ),
                     questionary.Choice(
                     (
@@ -6295,13 +6446,19 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     save_last_run_settings(
                         "benchmark", output_folder, selected_benchmark_settings
                     )
-            elif benchmark_mode == "single_offline_all_matched":
+            elif benchmark_mode in {
+                "single_offline_selected_matched",
+                "single_offline_all_matched",
+            }:
                 completed = _interactive_single_profile_all_matched_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
                     processed_output_root=output_folder,
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
+                    allow_subset_selection=(
+                        benchmark_mode == "single_offline_selected_matched"
+                    ),
                 )
                 if completed:
                     save_last_run_settings(
@@ -12101,6 +12258,457 @@ def _resolve_all_method_codex_choice(include_codex_farm: bool) -> tuple[bool, st
     if not include_codex_farm:
         return False, None
     return True, None
+
+
+def _normalize_compare_control_path_prefix(value: str | Path | None) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    if not text:
+        return ""
+    if text == "/":
+        return text
+    return text.rstrip("/")
+
+
+def _qualitysuite_compare_control_prefixes_for_path(path: Path) -> list[str]:
+    candidate = Path(path).expanduser()
+    try:
+        candidate = candidate.resolve()
+    except OSError:
+        candidate = candidate
+
+    prefixes: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw_value: str | Path | None) -> None:
+        normalized = _normalize_compare_control_path_prefix(raw_value)
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        prefixes.append(normalized)
+
+    _add(candidate)
+    try:
+        _add(candidate.relative_to(REPO_ROOT))
+    except ValueError:
+        pass
+    return prefixes
+
+
+def _qualitysuite_compare_control_filters_for_prefixes(
+    prefixes: list[str],
+) -> dict[str, Any]:
+    clauses = [
+        {"operator": "starts_with", "value": value}
+        for value in prefixes
+        if str(value or "").strip()
+    ]
+    filters: dict[str, Any] = {
+        "quick_filters": {
+            "official_full_golden_only": False,
+            "exclude_ai_tests": False,
+        },
+    }
+    if clauses:
+        filters["column_filter_global_mode"] = "and"
+        filters["column_filters"] = {
+            "artifact_dir": {
+                "mode": "or",
+                "clauses": clauses,
+            }
+        }
+    return filters
+
+
+def _write_qualitysuite_agent_bridge_readme(
+    *,
+    bundle_dir: Path,
+    index_file: Path,
+    requests_file: Path,
+    output_root: Path,
+    golden_root: Path,
+    scope_count: int,
+    request_count: int,
+) -> None:
+    output_root_quoted = shlex.quote(str(output_root))
+    golden_root_quoted = shlex.quote(str(golden_root))
+    requests_file_quoted = shlex.quote(requests_file.name)
+    lines = [
+        "# Agent Compare-Control Bridge",
+        "",
+        "This folder links QualitySuite outputs to Compare & Control insights for AI-agent loops.",
+        "",
+        f"- Index: `{index_file.name}`",
+        f"- Ready requests (JSONL): `{requests_file.name}`",
+        f"- Scopes: `{scope_count}`",
+        f"- Prepared agent requests: `{request_count}`",
+        "",
+        "Recommended agent flow:",
+        "1. Read `qualitysuite_compare_control_index.json` and pick one scope/outcome insight file.",
+        "2. If you need deeper drill-down, run the prepared JSONL requests through `compare-control agent`.",
+        "3. Map responses back using each request `meta` payload (`scope_id`, `outcome_field`, `label`).",
+        "",
+    ]
+    if request_count > 0:
+        lines.extend(
+            [
+                "Run the prepared requests:",
+                "```bash",
+                (
+                    "cookimport compare-control agent "
+                    f"--output-root {output_root_quoted} "
+                    f"--golden-root {golden_root_quoted} \\"
+                ),
+                f"  < {requests_file_quoted} > agent_responses.jsonl",
+                "```",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "No follow-up requests were generated. You can still run direct insights manually:",
+                "```bash",
+                (
+                    "cookimport compare-control run --action insights "
+                    f"--output-root {output_root_quoted} "
+                    f"--golden-root {golden_root_quoted} "
+                    "--outcome-field strict_accuracy"
+                ),
+                "```",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            (
+                "Tip: Requests include `meta` tags (`scope_id`, `outcome_field`, `label`) "
+                "so agents can route responses back to the right QualitySuite scope."
+            ),
+            "",
+        ]
+    )
+    (bundle_dir / "README.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_qualitysuite_agent_bridge_bundle(
+    *,
+    bundle_dir: Path,
+    bundle_type: str,
+    scopes: list[dict[str, Any]],
+    output_root: Path,
+    golden_root: Path,
+    since_days: int | None = None,
+    extra_index: dict[str, Any] | None = None,
+) -> tuple[Path | None, str | None]:
+    from cookimport.analytics import compare_control_engine as engine
+
+    try:
+        records = engine.load_dashboard_records(
+            output_root=output_root,
+            golden_root=golden_root,
+            since_days=since_days,
+            scan_reports=False,
+            scan_benchmark_reports=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Unable to load compare-control records: {exc}"
+
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    index_payload: dict[str, Any] = {
+        "schema_version": QUALITYSUITE_AGENT_BRIDGE_SCHEMA_VERSION,
+        "generated_at": dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S"),
+        "bundle_type": bundle_type,
+        "output_root": str(output_root),
+        "golden_root": str(golden_root),
+        "since_days": since_days,
+        "records_loaded": len(records),
+        "outcome_fields": list(QUALITYSUITE_AGENT_BRIDGE_OUTCOME_FIELDS),
+        "scopes": [],
+    }
+    if isinstance(extra_index, dict) and extra_index:
+        index_payload.update(extra_index)
+
+    request_rows: list[dict[str, Any]] = []
+
+    for scope in scopes:
+        scope_id = str(scope.get("scope_id") or "").strip()
+        scope_label = str(scope.get("scope_label") or scope_id).strip() or scope_id
+        if not scope_id:
+            continue
+        prefixes = [
+            _normalize_compare_control_path_prefix(value)
+            for value in (scope.get("path_prefixes") or [])
+        ]
+        prefixes = [value for value in prefixes if value]
+        scope_entry: dict[str, Any] = {
+            "scope_id": scope_id,
+            "scope_label": scope_label,
+            "path_prefixes": prefixes,
+            "insights": [],
+        }
+        if isinstance(scope.get("metadata"), dict):
+            scope_entry["metadata"] = dict(scope["metadata"])
+
+        for outcome_field in QUALITYSUITE_AGENT_BRIDGE_OUTCOME_FIELDS:
+            query = {
+                "outcome_field": outcome_field,
+                "filters": _qualitysuite_compare_control_filters_for_prefixes(prefixes),
+            }
+            file_name = f"{scope_id}__{outcome_field}.json"
+            insight_path = bundle_dir / file_name
+            try:
+                insight_payload = engine.generate_insights(records, query)
+                wrapped = engine.success_payload(insight_payload)
+                insight_path.write_text(
+                    json.dumps(wrapped, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+
+                candidate_rows = int(insight_payload.get("candidate_rows") or 0)
+                compare_field = str(insight_payload.get("compare_field") or "")
+                highlights = insight_payload.get("highlights")
+                highlight_count = len(highlights) if isinstance(highlights, list) else 0
+                scope_entry["insights"].append(
+                    {
+                        "outcome_field": outcome_field,
+                        "file": file_name,
+                        "candidate_rows": candidate_rows,
+                        "compare_field": compare_field,
+                        "highlight_count": highlight_count,
+                    }
+                )
+
+                suggested_queries = insight_payload.get("suggested_queries")
+                if isinstance(suggested_queries, list):
+                    for query_index, item in enumerate(suggested_queries, start=1):
+                        if not isinstance(item, dict):
+                            continue
+                        action = str(item.get("action") or "").strip().lower()
+                        payload = item.get("payload")
+                        if not action or not isinstance(payload, dict):
+                            continue
+                        request_rows.append(
+                            {
+                                "id": f"{scope_id}-{outcome_field}-{query_index}",
+                                "action": action,
+                                "payload": payload,
+                                "meta": {
+                                    "scope_id": scope_id,
+                                    "outcome_field": outcome_field,
+                                    "label": str(item.get("label") or "").strip(),
+                                },
+                            }
+                        )
+            except Exception as exc:  # noqa: BLE001
+                error_payload = engine.error_payload(
+                    "qualitysuite_agent_bridge_insight_failed",
+                    "Unable to generate insights for scope/outcome.",
+                    {
+                        "scope_id": scope_id,
+                        "outcome_field": outcome_field,
+                        "error": str(exc),
+                    },
+                )
+                insight_path.write_text(
+                    json.dumps(error_payload, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+                scope_entry["insights"].append(
+                    {
+                        "outcome_field": outcome_field,
+                        "file": file_name,
+                        "error": str(exc),
+                    }
+                )
+
+        index_payload["scopes"].append(scope_entry)
+
+    requests_file = bundle_dir / "agent_requests.jsonl"
+    if request_rows:
+        requests_file.write_text(
+            "\n".join(json.dumps(row, sort_keys=True) for row in request_rows) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        requests_file.write_text("", encoding="utf-8")
+    index_payload["agent_request_count"] = len(request_rows)
+    index_payload["agent_requests_jsonl"] = requests_file.name
+    index_file_name = "qualitysuite_compare_control_index.json"
+    index_payload["agent_handoff"] = {
+        "recommended_entrypoint": index_file_name,
+        "recommended_flow": [
+            "read_index",
+            "inspect_scope_insights",
+            "run_agent_requests_jsonl",
+        ],
+    }
+
+    index_file = bundle_dir / index_file_name
+    index_file.write_text(
+        json.dumps(index_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    _write_qualitysuite_agent_bridge_readme(
+        bundle_dir=bundle_dir,
+        index_file=index_file,
+        requests_file=requests_file,
+        output_root=output_root,
+        golden_root=golden_root,
+        scope_count=len(index_payload["scopes"]),
+        request_count=len(request_rows),
+    )
+    return bundle_dir, None
+
+
+def _write_qualitysuite_agent_bridge_bundle_for_run(
+    *,
+    run_root: Path,
+    output_root: Path,
+    golden_root: Path,
+    since_days: int | None = None,
+) -> tuple[Path | None, str | None]:
+    summary_payload: dict[str, Any] = {}
+    summary_path = run_root / "summary.json"
+    if summary_path.exists():
+        try:
+            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                summary_payload = loaded
+        except Exception:
+            summary_payload = {}
+
+    scopes: list[dict[str, Any]] = [
+        {
+            "scope_id": "run_overall",
+            "scope_label": "Quality run overall",
+            "path_prefixes": _qualitysuite_compare_control_prefixes_for_path(run_root),
+            "metadata": {
+                "run_root": str(run_root),
+            },
+        }
+    ]
+    experiments = summary_payload.get("experiments")
+    if isinstance(experiments, list):
+        for row in experiments:
+            if not isinstance(row, dict):
+                continue
+            experiment_id = str(row.get("id") or "").strip()
+            if not experiment_id:
+                continue
+            experiment_root = run_root / "experiments" / experiment_id
+            target_path = experiment_root if experiment_root.exists() else run_root
+            scopes.append(
+                {
+                    "scope_id": f"experiment_{experiment_id}",
+                    "scope_label": f"Experiment {experiment_id}",
+                    "path_prefixes": _qualitysuite_compare_control_prefixes_for_path(
+                        target_path
+                    ),
+                    "metadata": {
+                        "experiment_id": experiment_id,
+                        "status": str(row.get("status") or ""),
+                        "run_settings_hash": str(row.get("run_settings_hash") or ""),
+                    },
+                }
+            )
+
+    return _write_qualitysuite_agent_bridge_bundle(
+        bundle_dir=run_root / QUALITYSUITE_AGENT_BRIDGE_DIR_NAME,
+        bundle_type="quality_run",
+        scopes=scopes,
+        output_root=output_root,
+        golden_root=golden_root,
+        since_days=since_days,
+        extra_index={
+            "quality_run_dir": str(run_root),
+            "quality_summary_path": str(summary_path),
+        },
+    )
+
+
+def _resolve_quality_compare_scope_path(run_dir: Path, experiment_id: str) -> Path:
+    experiment_clean = str(experiment_id or "").strip()
+    if not experiment_clean:
+        return run_dir
+    experiment_root = run_dir / "experiments" / experiment_clean
+    if experiment_root.exists() and experiment_root.is_dir():
+        return experiment_root
+    return run_dir
+
+
+def _write_qualitysuite_agent_bridge_bundle_for_compare(
+    *,
+    comparison_root: Path,
+    comparison_payload: dict[str, Any],
+    output_root: Path,
+    golden_root: Path,
+    since_days: int | None = None,
+) -> tuple[Path | None, str | None]:
+    baseline_run_dir = Path(
+        str(comparison_payload.get("baseline_run_dir") or "").strip()
+    ).expanduser()
+    candidate_run_dir = Path(
+        str(comparison_payload.get("candidate_run_dir") or "").strip()
+    ).expanduser()
+    baseline_experiment_id = str(
+        comparison_payload.get("baseline_experiment_id") or ""
+    ).strip()
+    candidate_experiment_id = str(
+        comparison_payload.get("candidate_experiment_id") or ""
+    ).strip()
+
+    baseline_scope_path = _resolve_quality_compare_scope_path(
+        baseline_run_dir,
+        baseline_experiment_id,
+    )
+    candidate_scope_path = _resolve_quality_compare_scope_path(
+        candidate_run_dir,
+        candidate_experiment_id,
+    )
+
+    scopes: list[dict[str, Any]] = [
+        {
+            "scope_id": "baseline",
+            "scope_label": f"Baseline ({baseline_experiment_id or 'auto'})",
+            "path_prefixes": _qualitysuite_compare_control_prefixes_for_path(
+                baseline_scope_path
+            ),
+            "metadata": {
+                "run_dir": str(baseline_run_dir),
+                "experiment_id": baseline_experiment_id,
+            },
+        },
+        {
+            "scope_id": "candidate",
+            "scope_label": f"Candidate ({candidate_experiment_id or 'auto'})",
+            "path_prefixes": _qualitysuite_compare_control_prefixes_for_path(
+                candidate_scope_path
+            ),
+            "metadata": {
+                "run_dir": str(candidate_run_dir),
+                "experiment_id": candidate_experiment_id,
+            },
+        },
+    ]
+
+    return _write_qualitysuite_agent_bridge_bundle(
+        bundle_dir=comparison_root / QUALITYSUITE_AGENT_BRIDGE_DIR_NAME,
+        bundle_type="quality_compare",
+        scopes=scopes,
+        output_root=output_root,
+        golden_root=golden_root,
+        since_days=since_days,
+        extra_index={
+            "comparison_root": str(comparison_root),
+            "comparison_verdict": str(
+                (comparison_payload.get("overall") or {}).get("verdict") or ""
+            ).upper(),
+            "baseline_run_dir": str(baseline_run_dir),
+            "candidate_run_dir": str(candidate_run_dir),
+            "baseline_experiment_id": baseline_experiment_id,
+            "candidate_experiment_id": candidate_experiment_id,
+        },
+    )
 
 
 def _resolve_qualitysuite_codex_farm_confirmation(
@@ -23889,6 +24497,369 @@ def stats_dashboard(
         webbrowser.open(html_path.as_uri())
 
 
+def _compare_control_dispatch_action(
+    records: list[dict[str, Any]],
+    action: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    from cookimport.analytics import compare_control_engine as engine
+
+    normalized_action = str(action or "").strip().lower()
+    request_payload = payload if isinstance(payload, dict) else {}
+
+    if normalized_action == "ping":
+        return {"pong": True}
+    if normalized_action == "fields":
+        filtered_records, filter_context = engine.apply_filters(
+            records,
+            request_payload.get("filters"),
+        )
+        catalog = engine.build_field_catalog(filtered_records)
+        return {
+            "candidate_rows": len(filtered_records),
+            "filters": filter_context,
+            **catalog,
+        }
+    if normalized_action == "discover":
+        next_payload = dict(request_payload)
+        next_payload["view_mode"] = "discover"
+        return engine.analyze(records, next_payload)
+    if normalized_action == "analyze":
+        return engine.analyze(records, request_payload)
+    if normalized_action == "suggest_hold_constants":
+        return engine.suggest_hold_constants(records, request_payload)
+    if normalized_action == "suggest_splits":
+        return engine.suggest_splits(records, request_payload)
+    if normalized_action == "insights":
+        return engine.generate_insights(records, request_payload)
+    if normalized_action == "subset_filter_patch":
+        selected_groups = request_payload.get("selected_groups")
+        return engine.build_subset_filter_patch(
+            str(request_payload.get("compare_field") or ""),
+            selected_groups if isinstance(selected_groups, list) else [],
+        )
+
+    raise engine.CompareControlError(
+        "unknown_action",
+        "Unknown compare-control action.",
+        {"action": normalized_action},
+    )
+
+
+@compare_control_app.command("run")
+def compare_control_run(
+    output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--output-root",
+        help="Root output folder for staged imports.",
+    ),
+    golden_root: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--golden-root",
+        help="Root folder for golden-set / benchmark data.",
+    ),
+    since_days: int | None = typer.Option(
+        None,
+        "--since-days",
+        help="Only include runs from the last N days.",
+    ),
+    scan_reports: bool = typer.Option(
+        False,
+        "--scan-reports",
+        help="Force scanning individual *.excel_import_report.json files.",
+    ),
+    scan_benchmark_reports: bool = typer.Option(
+        False,
+        "--scan-benchmark-reports",
+        help="Force recursive benchmark eval_report.json scans under --golden-root.",
+    ),
+    action: str = typer.Option(
+        "analyze",
+        "--action",
+        help=(
+            "Action to run: analyze, discover, fields, suggest_hold_constants, "
+            "suggest_splits, insights, subset_filter_patch, ping."
+        ),
+    ),
+    query_file: Path | None = typer.Option(
+        None,
+        "--query-file",
+        help="JSON file containing either a payload object or {action, payload}.",
+    ),
+    view_mode: str = typer.Option(
+        "discover",
+        "--view",
+        help="Analysis view mode for analyze/discover actions.",
+    ),
+    outcome_field: str | None = typer.Option(
+        None,
+        "--outcome-field",
+        help="Numeric outcome field for compare/control analysis.",
+    ),
+    compare_field: str | None = typer.Option(
+        None,
+        "--compare-field",
+        help="Compare-by field for compare/control analysis.",
+    ),
+    hold_constant_fields: list[str] | None = typer.Option(
+        None,
+        "--hold-constant-field",
+        help="Field to hold constant (repeatable).",
+    ),
+    split_field: str | None = typer.Option(
+        None,
+        "--split-field",
+        help="Optional split-by field.",
+    ),
+    selected_groups: list[str] | None = typer.Option(
+        None,
+        "--selected-group",
+        help="Group key used by subset_filter_patch (repeatable).",
+    ),
+    filters_json: str | None = typer.Option(
+        None,
+        "--filters-json",
+        help="JSON object for filters payload (quick_filters + column_filters).",
+    ),
+) -> None:
+    """Run backend Compare & Control once and print structured JSON."""
+    output_root = _unwrap_typer_option_default(output_root)
+    golden_root = _unwrap_typer_option_default(golden_root)
+    since_days = _unwrap_typer_option_default(since_days)
+    scan_reports = _unwrap_typer_option_default(scan_reports)
+    scan_benchmark_reports = _unwrap_typer_option_default(scan_benchmark_reports)
+    action = _unwrap_typer_option_default(action)
+    query_file = _unwrap_typer_option_default(query_file)
+    view_mode = _unwrap_typer_option_default(view_mode)
+    outcome_field = _unwrap_typer_option_default(outcome_field)
+    compare_field = _unwrap_typer_option_default(compare_field)
+    hold_constant_fields = _unwrap_typer_option_default(hold_constant_fields)
+    split_field = _unwrap_typer_option_default(split_field)
+    selected_groups = _unwrap_typer_option_default(selected_groups)
+    filters_json = _unwrap_typer_option_default(filters_json)
+
+    from cookimport.analytics import compare_control_engine as engine
+
+    resolved_action = str(action or "analyze").strip().lower()
+    payload: dict[str, Any]
+    if query_file is not None:
+        try:
+            query_payload = json.loads(query_file.read_text(encoding="utf-8"))
+        except OSError as exc:
+            _fail(f"Unable to read query file: {exc}")
+        except json.JSONDecodeError as exc:
+            _fail(f"Invalid JSON in query file: {exc}")
+        if not isinstance(query_payload, dict):
+            _fail("Query file must contain a JSON object.")
+        if isinstance(query_payload.get("action"), str):
+            resolved_action = str(query_payload.get("action") or "").strip().lower()
+            nested_payload = query_payload.get("payload")
+            if not isinstance(nested_payload, dict):
+                _fail("Query file action payload must be a JSON object.")
+            payload = dict(nested_payload)
+        else:
+            payload = dict(query_payload)
+    else:
+        payload = {
+            "view_mode": str(view_mode or "discover").strip().lower() or "discover",
+            "outcome_field": str(outcome_field or "").strip(),
+            "compare_field": str(compare_field or "").strip(),
+            "hold_constant_fields": [
+                str(value).strip()
+                for value in (hold_constant_fields or [])
+                if str(value).strip()
+            ],
+            "split_field": str(split_field or "").strip(),
+            "selected_groups": [
+                str(value).strip()
+                for value in (selected_groups or [])
+                if str(value).strip()
+            ],
+        }
+        if filters_json:
+            try:
+                parsed_filters = json.loads(filters_json)
+            except json.JSONDecodeError as exc:
+                _fail(f"Invalid JSON passed to --filters-json: {exc}")
+            if not isinstance(parsed_filters, dict):
+                _fail("--filters-json must decode to a JSON object.")
+            payload["filters"] = parsed_filters
+
+    if resolved_action == "discover":
+        payload["view_mode"] = "discover"
+
+    response: dict[str, Any]
+    try:
+        records = engine.load_dashboard_records(
+            output_root=output_root,
+            golden_root=golden_root,
+            since_days=since_days,
+            scan_reports=scan_reports,
+            scan_benchmark_reports=scan_benchmark_reports,
+        )
+        result = _compare_control_dispatch_action(records, resolved_action, payload)
+        response = engine.success_payload(result)
+    except engine.CompareControlError as exc:
+        response = engine.error_payload(exc.code, exc.message, exc.details)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        response = engine.error_payload(
+            "internal_error",
+            "Unhandled compare-control run error.",
+            {"error": str(exc)},
+        )
+
+    typer.echo(json.dumps(response, indent=2, sort_keys=True))
+
+
+@compare_control_app.command("agent")
+def compare_control_agent(
+    output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--output-root",
+        help="Root output folder for staged imports.",
+    ),
+    golden_root: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--golden-root",
+        help="Root folder for golden-set / benchmark data.",
+    ),
+    since_days: int | None = typer.Option(
+        None,
+        "--since-days",
+        help="Only include runs from the last N days.",
+    ),
+    scan_reports: bool = typer.Option(
+        False,
+        "--scan-reports",
+        help="Force scanning individual *.excel_import_report.json files.",
+    ),
+    scan_benchmark_reports: bool = typer.Option(
+        False,
+        "--scan-benchmark-reports",
+        help="Force recursive benchmark eval_report.json scans under --golden-root.",
+    ),
+) -> None:
+    """Run a persistent JSONL Compare & Control loop on stdin/stdout."""
+    output_root = _unwrap_typer_option_default(output_root)
+    golden_root = _unwrap_typer_option_default(golden_root)
+    since_days = _unwrap_typer_option_default(since_days)
+    scan_reports = _unwrap_typer_option_default(scan_reports)
+    scan_benchmark_reports = _unwrap_typer_option_default(scan_benchmark_reports)
+
+    from cookimport.analytics import compare_control_engine as engine
+
+    state: dict[str, Any] = {
+        "output_root": output_root,
+        "golden_root": golden_root,
+        "since_days": since_days,
+        "scan_reports": bool(scan_reports),
+        "scan_benchmark_reports": bool(scan_benchmark_reports),
+        "records": [],
+    }
+
+    def _reload_state_records() -> dict[str, Any]:
+        state["records"] = engine.load_dashboard_records(
+            output_root=state["output_root"],
+            golden_root=state["golden_root"],
+            since_days=state["since_days"],
+            scan_reports=state["scan_reports"],
+            scan_benchmark_reports=state["scan_benchmark_reports"],
+        )
+        return {
+            "loaded_rows": len(state["records"]),
+            "output_root": str(state["output_root"]),
+            "golden_root": str(state["golden_root"]),
+            "since_days": state["since_days"],
+            "scan_reports": state["scan_reports"],
+            "scan_benchmark_reports": state["scan_benchmark_reports"],
+        }
+
+    try:
+        _reload_state_records()
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        bootstrap_response = engine.error_payload(
+            "initial_load_failed",
+            "Unable to initialize compare-control agent state.",
+            {"error": str(exc)},
+        )
+        typer.echo(json.dumps(bootstrap_response, sort_keys=True))
+
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        request_id: Any = None
+        response: dict[str, Any]
+        try:
+            request = json.loads(line)
+            if not isinstance(request, dict):
+                raise engine.CompareControlError(
+                    "invalid_request",
+                    "Request line must decode to a JSON object.",
+                )
+            request_id = request.get("id")
+            action = str(request.get("action") or "").strip().lower()
+            if not action:
+                raise engine.CompareControlError(
+                    "missing_action",
+                    "Request must include an action string.",
+                )
+            payload_raw = request.get("payload")
+            payload = payload_raw if isinstance(payload_raw, dict) else {}
+
+            if action == "load":
+                if "output_root" in payload:
+                    state["output_root"] = Path(str(payload.get("output_root") or "")).expanduser()
+                if "golden_root" in payload:
+                    state["golden_root"] = Path(str(payload.get("golden_root") or "")).expanduser()
+                if "since_days" in payload:
+                    raw_since_days = payload.get("since_days")
+                    if raw_since_days in (None, "", "null"):
+                        state["since_days"] = None
+                    else:
+                        try:
+                            state["since_days"] = int(raw_since_days)
+                        except (TypeError, ValueError) as exc:
+                            raise engine.CompareControlError(
+                                "invalid_since_days",
+                                "since_days must be an integer or null.",
+                                {"since_days": raw_since_days},
+                            ) from exc
+                if "scan_reports" in payload:
+                    state["scan_reports"] = bool(payload.get("scan_reports"))
+                if "scan_benchmark_reports" in payload:
+                    state["scan_benchmark_reports"] = bool(payload.get("scan_benchmark_reports"))
+                response = engine.success_payload(_reload_state_records())
+            elif action == "reset":
+                response = engine.success_payload(_reload_state_records())
+            else:
+                result = _compare_control_dispatch_action(
+                    state["records"],
+                    action,
+                    payload,
+                )
+                response = engine.success_payload(result)
+        except json.JSONDecodeError as exc:
+            response = engine.error_payload(
+                "invalid_json",
+                "Request line is not valid JSON.",
+                {"error": str(exc)},
+            )
+        except engine.CompareControlError as exc:
+            response = engine.error_payload(exc.code, exc.message, exc.details)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            response = engine.error_payload(
+                "internal_error",
+                "Unhandled compare-control agent error.",
+                {"error": str(exc)},
+            )
+
+        if request_id is not None:
+            response["id"] = request_id
+        typer.echo(json.dumps(response, sort_keys=True))
+
+
 @app.command("benchmark-csv-backfill")
 def benchmark_csv_backfill(
     out_dir: Path = typer.Option(
@@ -28006,6 +28977,32 @@ def bench_quality_run(
             "--io-pace-every-writes (0 disables). Default: 5."
         ),
     ),
+    qualitysuite_agent_bridge: bool = typer.Option(
+        True,
+        "--qualitysuite-agent-bridge/--no-qualitysuite-agent-bridge",
+        help=(
+            "Write an agent_compare_control bundle for this quality run "
+            "(Compare & Control insights + ready JSONL requests)."
+        ),
+    ),
+    qualitysuite_agent_bridge_since_days: int | None = typer.Option(
+        None,
+        "--qualitysuite-agent-bridge-since-days",
+        help=(
+            "Optional compare-control history window for bridge generation. "
+            "When omitted, uses all available history."
+        ),
+    ),
+    qualitysuite_agent_bridge_output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--qualitysuite-agent-bridge-output-root",
+        help="Output root used when loading compare-control history for the bridge.",
+    ),
+    qualitysuite_agent_bridge_golden_root: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--qualitysuite-agent-bridge-golden-root",
+        help="Golden root used when loading compare-control history for the bridge.",
+    ),
 ) -> None:
     """Run all-method quality experiments for a quality suite."""
     from cookimport.bench.quality_runner import run_quality_suite
@@ -28044,6 +29041,18 @@ def bench_quality_run(
     codex_farm_reasoning_effort = _unwrap_typer_option_default(codex_farm_reasoning_effort)
     io_pace_every_writes = _unwrap_typer_option_default(io_pace_every_writes)
     io_pace_sleep_ms = _unwrap_typer_option_default(io_pace_sleep_ms)
+    qualitysuite_agent_bridge = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge
+    )
+    qualitysuite_agent_bridge_since_days = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge_since_days
+    )
+    qualitysuite_agent_bridge_output_root = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge_output_root
+    )
+    qualitysuite_agent_bridge_golden_root = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge_golden_root
+    )
     try:
         io_pace_every_writes = int(io_pace_every_writes)
     except (TypeError, ValueError):
@@ -28162,6 +29171,23 @@ def bench_quality_run(
         f"Processing telemetry: {quality_run_timeseries_path}",
         fg=typer.colors.BRIGHT_BLACK,
     )
+    if bool(qualitysuite_agent_bridge):
+        bridge_dir, bridge_warning = _write_qualitysuite_agent_bridge_bundle_for_run(
+            run_root=quality_run_root,
+            output_root=Path(qualitysuite_agent_bridge_output_root),
+            golden_root=Path(qualitysuite_agent_bridge_golden_root),
+            since_days=qualitysuite_agent_bridge_since_days,
+        )
+        if bridge_dir is not None:
+            typer.secho(
+                f"Agent bridge: {bridge_dir}",
+                fg=typer.colors.CYAN,
+            )
+        elif bridge_warning:
+            typer.secho(
+                f"Agent bridge skipped: {bridge_warning}",
+                fg=typer.colors.YELLOW,
+            )
 
 
 @bench_app.command("quality-lightweight-series")
@@ -28283,6 +29309,32 @@ def bench_quality_compare(
             "hashes differ."
         ),
     ),
+    qualitysuite_agent_bridge: bool = typer.Option(
+        True,
+        "--qualitysuite-agent-bridge/--no-qualitysuite-agent-bridge",
+        help=(
+            "Write an agent_compare_control bridge bundle for this quality comparison "
+            "(baseline/candidate Compare & Control insights + JSONL requests)."
+        ),
+    ),
+    qualitysuite_agent_bridge_since_days: int | None = typer.Option(
+        None,
+        "--qualitysuite-agent-bridge-since-days",
+        help=(
+            "Optional compare-control history window for bridge generation. "
+            "When omitted, uses all available history."
+        ),
+    ),
+    qualitysuite_agent_bridge_output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--qualitysuite-agent-bridge-output-root",
+        help="Output root used when loading compare-control history for the bridge.",
+    ),
+    qualitysuite_agent_bridge_golden_root: Path = typer.Option(
+        DEFAULT_GOLDEN,
+        "--qualitysuite-agent-bridge-golden-root",
+        help="Golden root used when loading compare-control history for the bridge.",
+    ),
 ) -> None:
     """Compare baseline and candidate quality runs and gate regressions."""
     from cookimport.bench.quality_compare import (
@@ -28303,6 +29355,18 @@ def bench_quality_compare(
     )
     fail_on_regression = _unwrap_typer_option_default(fail_on_regression)
     allow_settings_mismatch = _unwrap_typer_option_default(allow_settings_mismatch)
+    qualitysuite_agent_bridge = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge
+    )
+    qualitysuite_agent_bridge_since_days = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge_since_days
+    )
+    qualitysuite_agent_bridge_output_root = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge_output_root
+    )
+    qualitysuite_agent_bridge_golden_root = _unwrap_typer_option_default(
+        qualitysuite_agent_bridge_golden_root
+    )
 
     if not baseline.exists() or not baseline.is_dir():
         _fail(f"Baseline run directory not found: {baseline}")
@@ -28346,6 +29410,24 @@ def bench_quality_compare(
     typer.secho(f"Overall verdict: {verdict}", fg=color)
     typer.secho(f"Report: {comparison_md_path}", fg=typer.colors.CYAN)
     typer.secho(f"JSON: {comparison_json_path}", fg=typer.colors.CYAN)
+    if bool(qualitysuite_agent_bridge):
+        bridge_dir, bridge_warning = _write_qualitysuite_agent_bridge_bundle_for_compare(
+            comparison_root=comparison_root,
+            comparison_payload=comparison,
+            output_root=Path(qualitysuite_agent_bridge_output_root),
+            golden_root=Path(qualitysuite_agent_bridge_golden_root),
+            since_days=qualitysuite_agent_bridge_since_days,
+        )
+        if bridge_dir is not None:
+            typer.secho(
+                f"Agent bridge: {bridge_dir}",
+                fg=typer.colors.CYAN,
+            )
+        elif bridge_warning:
+            typer.secho(
+                f"Agent bridge skipped: {bridge_warning}",
+                fg=typer.colors.YELLOW,
+            )
 
     if fail_on_regression and verdict == "FAIL":
         raise typer.Exit(1)

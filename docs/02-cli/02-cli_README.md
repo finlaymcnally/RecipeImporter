@@ -339,6 +339,7 @@ Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
    - `Single offline eval: One local prediction + eval vs freeform gold` (default first choice)
+   - `Single config, selected matched sets: Pick which matched books to run`
    - `Single config, all matched sets: Repeat one config for every matched golden set`
 2. Single offline path:
    - shows benchmark `Run settings` mode picker (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) using compact hash labels.
@@ -369,15 +370,19 @@ Interactive benchmark now has a mode submenu before execution:
    - split conversion progress uses the shared counter format from the first update (`Running split conversion... task 0/N`), with `(workers=N)` suffix when split jobs run in parallel,
    - does not resolve Label Studio credentials,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-offline-benchmark/<source_slug>/<variant>/`.
-3. Single-profile all-matched path:
+3. Single-profile matched-sets path:
    - uses the same benchmark run-settings chooser as single-offline (`global` / `preferred format` / `quality-first winner stack` / `quality-suite winner` / `last benchmark` / `change`) with compact labels,
    - asks `Use Codex Farm recipe pipeline for this run?` after run-settings selection (default `Yes`),
    - when enabled, asks codex model override picker (`keep current`, `pipeline default`, discovered models, or `custom model id...`) + reasoning-effort override menu for that run,
    - discovers freeform exports and matches source hints to top-level importable files in `data/input` by filename,
+   - selected-matched mode lets you toggle specific books and run only that subset (or choose `Run all matched books`),
    - defaults to writing markdown summaries on and Label Studio task artifacts off in interactive mode
      (set `COOKIMPORT_BENCH_WRITE_MARKDOWN=0` to disable summaries, and `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=1` to keep task JSONL).
-   - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?`, default `No`),
+   - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?` or `... across N selected matched books?`, default `No`),
    - runs `labelstudio-benchmark` once per matched pair with `--no-upload --eval-mode canonical-text` using the selected single profile (no all-method variant expansion),
+   - when 2+ books are selected, runs up to three books concurrently (`parallel books=3`),
+   - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
+   - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/`,
    - writes a dedicated 3-file upload folder per target eval root:
@@ -385,7 +390,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
-4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile all-matched runs.
+4. Saves selected settings to `<output_dir_parent>/.history/last_run_settings_benchmark.json` after successful single-offline runs and after confirmed single-profile matched-sets runs.
 5. Returns to the main menu on completion.
 
 For re-scoring an existing prediction run directly, use `cookimport labelstudio-eval`. For offline single-run benchmarking, use non-interactive `cookimport labelstudio-benchmark --no-upload`.
@@ -648,6 +653,48 @@ Options:
 - `--since-days INTEGER`: include only recent runs.
 - `--scan-reports` (default `false`): force scanning per-file report JSON instead of cached summaries.
 - `--scan-benchmark-reports` (default `false`): force recursive benchmark eval report scanning under `--golden-root`.
+
+### `cookimport compare-control run`
+
+Backend one-shot Compare & Control query command. This runs the same analytics domain as dashboard `Previous Runs -> Compare & Control`, but returns JSON in terminal output.
+
+Usage patterns:
+
+- Flag-driven query: set `--action` plus optional `--view`, `--outcome-field`, `--compare-field`, `--hold-constant-field`, `--split-field`, and `--filters-json`.
+- Query-file driven: pass `--query-file` with either:
+  - payload object only, or
+  - `{ \"action\": \"...\", \"payload\": { ... } }`.
+
+Actions:
+
+- `analyze` (default)
+- `discover`
+- `fields`
+- `suggest_hold_constants`
+- `suggest_splits`
+- `insights` (auto-profile rows + drivers + process-factor deltas + suggested follow-up queries)
+- `subset_filter_patch`
+- `ping`
+
+Output contract:
+
+- Always prints JSON.
+- Top-level parse/input errors still exit non-zero (standard CLI behavior).
+- Analysis-domain errors are structured JSON (`ok=false`, `error.code`, `error.message`, optional `error.details`).
+
+### `cookimport compare-control agent`
+
+Persistent JSONL session over stdin/stdout for tool/agent workflows.
+
+Protocol:
+
+- Input: one JSON object per line with `id`, `action`, `payload`.
+- Output: one JSON object per line, preserving request `id` when provided.
+- Malformed lines return structured errors and do not terminate the process.
+
+Supported actions:
+
+- `load`, `fields`, `discover`, `analyze`, `suggest_hold_constants`, `suggest_splits`, `insights`, `subset_filter_patch`, `reset`, `ping`
 
 ### `cookimport labelstudio-import PATH`
 
@@ -922,7 +969,7 @@ Options:
 
 ### `cookimport bench quality-run`
 
-Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). While running, it also writes crash-safe incremental artifacts (`checkpoint.json`, `summary.partial.json`, `report.partial.md`, and per-experiment `quality_experiment_result.json`) so interrupted runs can be resumed with `--resume-run-dir`. Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling follows detected CPU count, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. When process-pool probing fails in auto mode (common in `/dev/shm`-restricted runtimes), quality-run switches experiment fanout to subprocess workers to avoid thread/GIL bottlenecks; override with `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE=thread|subprocess|auto`.
+Runs all-method quality experiments for one quality suite and writes timestamped run artifacts (`suite_resolved.json`, `experiments_resolved.json`, `summary.json`, `report.md`). While running, it also writes crash-safe incremental artifacts (`checkpoint.json`, `summary.partial.json`, `report.partial.md`, and per-experiment `quality_experiment_result.json`) so interrupted runs can be resumed with `--resume-run-dir`. Experiment-level execution is CPU-aware by default (auto cap + adaptive worker target based on host load; default auto ceiling follows detected CPU count, override with `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); override with `--max-parallel-experiments` to force a fixed cap. When process-pool probing fails in auto mode (common in `/dev/shm`-restricted runtimes), quality-run switches experiment fanout to subprocess workers to avoid thread/GIL bottlenecks; override with `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE=thread|subprocess|auto`. By default, quality-run now also writes an AI-agent bridge bundle at `<run_dir>/agent_compare_control/` containing Compare & Control insights plus ready JSONL requests.
 
 Status behavior:
 
@@ -943,6 +990,16 @@ Options:
 - `--qualitysuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `--codex-farm-model TEXT`: optional Codex Farm model override applied to all experiments.
 - `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Farm reasoning-effort override (`none|minimal|low|medium|high|xhigh`) applied to all experiments.
+- `--qualitysuite-agent-bridge / --no-qualitysuite-agent-bridge` (default enabled): write `<run_dir>/agent_compare_control/` with compare-control insight JSON + `agent_requests.jsonl`.
+- `--qualitysuite-agent-bridge-since-days INTEGER` (optional): bound compare-control history scan when building bridge artifacts.
+- `--qualitysuite-agent-bridge-output-root PATH` (default `data/output`): compare-control output root used for bridge generation.
+- `--qualitysuite-agent-bridge-golden-root PATH` (default `data/golden`): compare-control golden root used for bridge generation.
+
+AI-agent handoff flow (default bridge on):
+
+1. Read `<run_dir>/agent_compare_control/qualitysuite_compare_control_index.json`.
+2. Open one scope insight file (for example `experiment_baseline__strict_accuracy.json`).
+3. Run `<run_dir>/agent_compare_control/agent_requests.jsonl` through `cookimport compare-control agent`.
 
 Quick tuning guide for `--max-parallel-experiments`:
 
@@ -969,7 +1026,7 @@ Options:
 
 ### `cookimport bench quality-compare`
 
-Compares selected baseline and candidate experiments from two quality runs and emits a timestamped comparison report.
+Compares selected baseline and candidate experiments from two quality runs and emits a timestamped comparison report. By default, quality-compare also writes an AI-agent bridge bundle at `<comparison_dir>/agent_compare_control/` with baseline/candidate Compare & Control insights and ready JSONL requests.
 
 Options:
 
@@ -983,6 +1040,16 @@ Options:
 - `--source-success-rate-drop-max FLOAT>=0` (default `0.0`): max source success-rate drop before verdict FAIL.
 - `--fail-on-regression / --no-fail-on-regression` (default disabled): exit non-zero when verdict is `FAIL`.
 - `--allow-settings-mismatch / --no-allow-settings-mismatch` (default disabled): allow quality verdicts when baseline/candidate `run_settings_hash` differ.
+- `--qualitysuite-agent-bridge / --no-qualitysuite-agent-bridge` (default enabled): write `<comparison_dir>/agent_compare_control/` bundle.
+- `--qualitysuite-agent-bridge-since-days INTEGER` (optional): bound compare-control history scan when building bridge artifacts.
+- `--qualitysuite-agent-bridge-output-root PATH` (default `data/output`): compare-control output root used for bridge generation.
+- `--qualitysuite-agent-bridge-golden-root PATH` (default `data/golden`): compare-control golden root used for bridge generation.
+
+AI-agent handoff flow (default bridge on):
+
+1. Read `<comparison_dir>/agent_compare_control/qualitysuite_compare_control_index.json`.
+2. Compare `baseline__*.json` vs `candidate__*.json` insight files.
+3. Run `<comparison_dir>/agent_compare_control/agent_requests.jsonl` through `cookimport compare-control agent` for deeper drill-down.
 
 ### `cookimport bench eval-stage`
 

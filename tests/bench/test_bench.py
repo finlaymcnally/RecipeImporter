@@ -935,6 +935,17 @@ def test_bench_quality_run_wires_runner(
         "cookimport.bench.quality_runner.run_quality_suite",
         _fake_run_quality_suite,
     )
+    bridge_calls: list[dict[str, object]] = []
+
+    def _fake_bridge_for_run(**kwargs):
+        bridge_calls.append(dict(kwargs))
+        return (run_root / "agent_compare_control", None)
+
+    monkeypatch.setattr(
+        cli,
+        "_write_qualitysuite_agent_bridge_bundle_for_run",
+        _fake_bridge_for_run,
+    )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
 
     cli.bench_quality_run(
@@ -955,6 +966,11 @@ def test_bench_quality_run_wires_runner(
     assert captured["codex_farm_confirmed"] is False
     assert captured["io_pace_every_writes_env"] == "200"
     assert captured["io_pace_sleep_ms_env"] == "5.0"
+    assert len(bridge_calls) == 1
+    assert bridge_calls[0]["run_root"] == run_root
+    assert bridge_calls[0]["output_root"] == cli.DEFAULT_OUTPUT
+    assert bridge_calls[0]["golden_root"] == cli.DEFAULT_GOLDEN
+    assert bridge_calls[0]["since_days"] is None
     assert os.getenv("COOKIMPORT_IO_PACE_EVERY_WRITES") is None
     assert os.getenv("COOKIMPORT_IO_PACE_SLEEP_MS") is None
 
@@ -1105,6 +1121,11 @@ def test_bench_quality_run_passes_codex_farm_confirmation_to_runner(
         "cookimport.bench.quality_runner.run_quality_suite",
         _fake_run_quality_suite,
     )
+    monkeypatch.setattr(
+        cli,
+        "_write_qualitysuite_agent_bridge_bundle_for_run",
+        lambda **_kwargs: (run_root / "agent_compare_control", None),
+    )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
 
     cli.bench_quality_run(
@@ -1205,6 +1226,11 @@ def test_bench_quality_compare_fail_on_regression_exits(
         "cookimport.bench.quality_compare.format_quality_compare_report",
         lambda _payload: "report",
     )
+    monkeypatch.setattr(
+        cli,
+        "_write_qualitysuite_agent_bridge_bundle_for_compare",
+        lambda **_kwargs: (out_dir / "agent_compare_control", None),
+    )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
 
     with pytest.raises(typer.Exit) as excinfo:
@@ -1247,6 +1273,17 @@ def test_bench_quality_compare_forwards_selection_and_mismatch_flags(
         "cookimport.bench.quality_compare.format_quality_compare_report",
         lambda _payload: "report",
     )
+    bridge_calls: list[dict[str, object]] = []
+
+    def _fake_bridge_for_compare(**kwargs):
+        bridge_calls.append(dict(kwargs))
+        return (tmp_path / "comparisons" / "agent_compare_control", None)
+
+    monkeypatch.setattr(
+        cli,
+        "_write_qualitysuite_agent_bridge_bundle_for_compare",
+        _fake_bridge_for_compare,
+    )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
 
     cli.bench_quality_compare(
@@ -1260,11 +1297,17 @@ def test_bench_quality_compare_forwards_selection_and_mismatch_flags(
         source_success_rate_drop_max=0.0,
         fail_on_regression=False,
         allow_settings_mismatch=True,
+        qualitysuite_agent_bridge_since_days=14,
     )
 
     assert captured["baseline_experiment_id"] == "baseline"
     assert captured["candidate_experiment_id"] == "candidate"
     assert captured["allow_settings_mismatch"] is True
+    assert len(bridge_calls) == 1
+    assert bridge_calls[0]["comparison_root"].is_dir()
+    assert bridge_calls[0]["output_root"] == cli.DEFAULT_OUTPUT
+    assert bridge_calls[0]["golden_root"] == cli.DEFAULT_GOLDEN
+    assert bridge_calls[0]["since_days"] == 14
 
 
 def test_bench_quality_leaderboard_saves_qualitysuite_winner_profile(

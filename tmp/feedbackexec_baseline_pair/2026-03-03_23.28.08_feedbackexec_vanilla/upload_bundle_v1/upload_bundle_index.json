@@ -1,0 +1,923 @@
+{
+  "bundle_version": "upload_bundle.v1",
+  "generated_at": "2026-03-03_23.28.21",
+  "source_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-03_23.28.08_feedbackexec_vanilla",
+  "output_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-03_23.28.08_feedbackexec_vanilla/upload_bundle_v1",
+  "file_contract": {
+    "overview_file": "upload_bundle_overview.md",
+    "artifact_index_file": "upload_bundle_index.json",
+    "payload_file": "upload_bundle_payload.jsonl"
+  },
+  "payload_contract": {
+    "one_json_object_per_line": true,
+    "join_key": "path",
+    "row_locator_field": "payload_row",
+    "lossless_guarantee": "Every source artifact is represented in payload with sha256/bytes and full content (UTF-8 structured/text fields or base64 when binary/compressed)."
+  },
+  "topline": {
+    "run_count": 1,
+    "pair_count": 0,
+    "changed_lines_total": 0,
+    "full_prompt_log_status": "unknown",
+    "full_prompt_log_rows": 0,
+    "largest_practical_f1_regressions": [],
+    "pair_count_sufficient_for_generalization": false,
+    "additional_pairs_needed_for_generalization": 2
+  },
+  "self_check": {
+    "starter_pack_present": true,
+    "starter_pack_physical_dir_present": false,
+    "run_count_verified": true,
+    "pair_count_verified": true,
+    "changed_lines_verified": true,
+    "topline_consistent": true,
+    "verification_details": {
+      "run_count": {
+        "advertised": null,
+        "recomputed": 1
+      },
+      "pair_count": {
+        "advertised": null,
+        "recomputed": 0
+      },
+      "changed_lines_total": {
+        "advertised": null,
+        "recomputed": 0
+      }
+    },
+    "critical_row_locators_populated": 11,
+    "critical_row_locators_total": 12,
+    "critical_row_locators_coverage_ratio": 0.916667
+  },
+  "run_diagnostics": [
+    {
+      "run_id": "2026-03-03_23.28.08_feedbackexec_vanilla",
+      "output_subdir": "2026-03-03_23.28.08_feedbackexec_vanilla",
+      "source_file": "SeaAndSmokeCUTDOWN.epub",
+      "overall_line_accuracy": 0.39663865546218485,
+      "practical_f1": null,
+      "full_prompt_log_status": "not_applicable",
+      "need_to_know_summary_path": "2026-03-03_23.28.08_feedbackexec_vanilla/need_to_know_summary.json",
+      "prompt_warning_aggregate_status": "not_applicable",
+      "projection_trace_status": "not_applicable",
+      "wrong_label_full_context_status": "written",
+      "preprocess_trace_failures_status": "not_applicable"
+    }
+  ],
+  "navigation": {
+    "start_here": [
+      "upload_bundle_overview.md",
+      "upload_bundle_index.json"
+    ],
+    "default_initial_views": [
+      "topline",
+      "self_check",
+      "analysis.triage_packet",
+      "analysis.net_error_blame_summary",
+      "analysis.config_version_metadata",
+      "analysis.per_label_metrics",
+      "analysis.per_recipe_breakdown",
+      "analysis.stage_separated_comparison",
+      "analysis.failure_ledger",
+      "analysis.regression_casebook",
+      "analysis.changed_lines_stratified_sample",
+      "analysis.low_confidence_changed_lines_packet",
+      "analysis.call_inventory_runtime",
+      "analysis.line_role_confidence_or_candidates"
+    ],
+    "root_paths": [
+      "README.md",
+      "run_index.json",
+      "comparison_summary.json",
+      "codex_vs_vanilla_comparison.json",
+      "process_manifest.json",
+      "changed_lines.codex_vs_vanilla.jsonl",
+      "per_recipe_or_per_span_breakdown.json",
+      "targeted_prompt_cases.md",
+      "label_policy_adjudication_notes.md",
+      "01_recipe_triage.packet.jsonl"
+    ],
+    "starter_pack_root": "starter_pack_v1",
+    "per_run_summary_paths": [
+      "2026-03-03_23.28.08_feedbackexec_vanilla/need_to_know_summary.json"
+    ],
+    "row_locators": {
+      "root_files": {
+        "run_index_json": {
+          "path": "_upload_bundle_derived/root/run_index.json",
+          "payload_row": 22
+        },
+        "comparison_summary_json": {
+          "path": "_upload_bundle_derived/root/comparison_summary.json",
+          "payload_row": 23
+        },
+        "process_manifest_json": {
+          "path": "_upload_bundle_derived/root/process_manifest.json",
+          "payload_row": 24
+        },
+        "changed_lines_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl"
+        },
+        "per_recipe_breakdown_json": {
+          "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+          "payload_row": 26
+        },
+        "targeted_prompt_cases_md": {
+          "path": "_upload_bundle_derived/root/targeted_prompt_cases.md",
+          "payload_row": 27
+        },
+        "label_policy_notes_md": {
+          "path": "_upload_bundle_derived/root/label_policy_adjudication_notes.md",
+          "payload_row": 28
+        },
+        "triage_packet_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/01_recipe_triage.packet.jsonl"
+        },
+        "net_error_blame_summary_json": {
+          "path": "_upload_bundle_derived/root/net_error_blame_summary.json",
+          "payload_row": 30
+        },
+        "config_version_metadata_json": {
+          "path": "_upload_bundle_derived/root/config_version_metadata.json",
+          "payload_row": 31
+        },
+        "low_confidence_changed_lines_packet_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/root/low_confidence_changed_lines.packet.jsonl"
+        }
+      },
+      "starter_pack": {
+        "triage_packet_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/01_recipe_triage.packet.jsonl"
+        },
+        "triage_csv": {
+          "path": "_upload_bundle_derived/starter_pack_v1/01_recipe_triage.csv",
+          "payload_row": 33
+        },
+        "call_inventory_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/02_call_inventory.jsonl"
+        },
+        "changed_lines_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/03_changed_lines.codex_vs_baseline.jsonl"
+        },
+        "warning_trace_summary_json": {
+          "path": "_upload_bundle_derived/starter_pack_v1/04_warning_and_trace_summary.json",
+          "payload_row": 37
+        },
+        "bridge_summary_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/05_bridge_summary.jsonl"
+        },
+        "selected_packets_jsonl": {
+          "path": "alignment_gaps.jsonl",
+          "payload_row": 2,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/06_selected_recipe_packets.jsonl"
+        },
+        "casebook_md": {
+          "path": "_upload_bundle_derived/root/targeted_prompt_cases.md",
+          "payload_row": 27,
+          "alias_path": "_upload_bundle_derived/starter_pack_v1/07_casebook.md"
+        },
+        "manifest_json": {
+          "path": "_upload_bundle_derived/starter_pack_v1/10_process_manifest.json",
+          "payload_row": 41
+        }
+      },
+      "per_run_summaries": [
+        {
+          "run_id": "2026-03-03_23.28.08_feedbackexec_vanilla",
+          "summary": null
+        }
+      ],
+      "deprioritized_heavy_artifacts": []
+    },
+    "alias_dedupe": {
+      "content_equivalent_group_count": 4,
+      "locator_alias_rewrites": 9
+    },
+    "deprioritized_patterns": [
+      "full_prompt_log.jsonl",
+      "prompt_request_response_log.txt",
+      "llm_manifest.json",
+      ".split-cache",
+      "codex_exec_activity.csv",
+      "wrong_label_lines.with_context.full.jsonl.gz",
+      "preprocess_trace_failures.jsonl.gz"
+    ],
+    "full_payload_companion": "upload_bundle_payload.jsonl"
+  },
+  "analysis": {
+    "benchmark_pair_inventory": {
+      "pair_count": 0,
+      "generalization_readiness": {
+        "minimum_pairs_for_generalization": 2,
+        "pair_count_sufficient_for_generalization": false,
+        "additional_pairs_needed_for_generalization": 2
+      },
+      "pairs": []
+    },
+    "triage_packet": {
+      "schema_version": "upload_bundle_triage_packet.v1",
+      "row_count": 0,
+      "empty_packet_note": "No triage rows were available from source or derived comparison artifacts.",
+      "sample_rows": []
+    },
+    "net_error_blame_summary": {
+      "schema_version": "upload_bundle_net_error_blame.v1",
+      "bucket_definitions": {
+        "line_role": "Rows where codex introduces a line-label error without pass2/pass3/routing fallback evidence.",
+        "pass2_extraction": "Rows with pass2 warnings/degradation signals suggesting extraction-stage loss.",
+        "pass3_mapping": "Rows with pass3 empty-mapping/warning/status signals indicating mapping-stage loss.",
+        "routing_or_fallback": "Rows with transport mismatch or explicit fallback/routing signals."
+      },
+      "new_error_lines": 0,
+      "fixed_error_lines": 0,
+      "net_error_delta_lines": 0,
+      "bucket_rows": [
+        {
+          "bucket": "line_role",
+          "count": 0,
+          "share_of_net_error": 0.0,
+          "sample_rows": []
+        },
+        {
+          "bucket": "pass2_extraction",
+          "count": 0,
+          "share_of_net_error": 0.0,
+          "sample_rows": []
+        },
+        {
+          "bucket": "pass3_mapping",
+          "count": 0,
+          "share_of_net_error": 0.0,
+          "sample_rows": []
+        },
+        {
+          "bucket": "routing_or_fallback",
+          "count": 0,
+          "share_of_net_error": 0.0,
+          "sample_rows": []
+        }
+      ]
+    },
+    "config_version_metadata": {
+      "schema_version": "upload_bundle_config_version_metadata.v1",
+      "generator": {
+        "script": "scripts/benchmark_cutdown_for_external_ai.py",
+        "bundle_version": "upload_bundle.v1",
+        "generated_at": "2026-03-03_23.28.21",
+        "source_root": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-03_23.28.08_feedbackexec_vanilla"
+      },
+      "settings_keys_of_interest": [
+        "llm_recipe_pipeline",
+        "atomic_block_splitter",
+        "line_role_pipeline",
+        "eval_mode",
+        "execution_mode",
+        "sequence_matcher",
+        "section_detector_backend",
+        "ingredient_parser_backend",
+        "ingredient_text_fix_backend",
+        "ingredient_pre_normalize_mode",
+        "ingredient_unit_canonicalizer",
+        "instruction_step_segmentation_policy",
+        "instruction_step_segmenter",
+        "multi_recipe_splitter",
+        "multi_recipe_for_the_guardrail",
+        "multi_recipe_min_ingredient_lines",
+        "multi_recipe_min_instruction_lines",
+        "epub_extractor",
+        "epub_unstructured_preprocess_mode",
+        "epub_unstructured_html_parser_version",
+        "workers",
+        "predict_only",
+        "prediction_run_config_hash"
+      ],
+      "settings_compatibility_policy": {
+        "allowed_pair_setting_differences": [
+          "atomic_block_splitter",
+          "line_role_pipeline",
+          "llm_recipe_pipeline",
+          "prediction_run_config_hash"
+        ],
+        "rule": "Pairs are config-comparable when differences are limited to intentional codex-vs-baseline toggles (llm/line-role/splitter/config-hash)."
+      },
+      "runs": [
+        {
+          "run_id": "2026-03-03_23.28.08_feedbackexec_vanilla",
+          "output_subdir": "2026-03-03_23.28.08_feedbackexec_vanilla",
+          "source_file": "SeaAndSmokeCUTDOWN.epub",
+          "llm_recipe_pipeline": "off",
+          "line_role_pipeline": "off",
+          "atomic_block_splitter": "off",
+          "prediction_run_config_hash": "eb1f8cb15b1641649563e7374fc4e7179d34e6f429e3378c0873df9b36fd0718",
+          "run_manifest_schema_version": 1,
+          "eval_report_schema_version": null,
+          "settings": {
+            "llm_recipe_pipeline": "off",
+            "atomic_block_splitter": "off",
+            "line_role_pipeline": "off",
+            "eval_mode": "canonical-text",
+            "execution_mode": "legacy",
+            "sequence_matcher": "dmp",
+            "section_detector_backend": "legacy",
+            "ingredient_parser_backend": "ingredient_parser_nlp",
+            "ingredient_text_fix_backend": "none",
+            "ingredient_pre_normalize_mode": "legacy",
+            "ingredient_unit_canonicalizer": "legacy",
+            "instruction_step_segmentation_policy": "auto",
+            "instruction_step_segmenter": "heuristic_v1",
+            "multi_recipe_splitter": "legacy",
+            "multi_recipe_for_the_guardrail": true,
+            "multi_recipe_min_ingredient_lines": 1,
+            "multi_recipe_min_instruction_lines": 1,
+            "epub_extractor": "unstructured",
+            "epub_unstructured_preprocess_mode": "br_split_v1",
+            "epub_unstructured_html_parser_version": "v1",
+            "workers": 1,
+            "predict_only": false,
+            "prediction_run_config_hash": "eb1f8cb15b1641649563e7374fc4e7179d34e6f429e3378c0873df9b36fd0718"
+          }
+        }
+      ],
+      "pair_comparability": {
+        "pair_count": 0,
+        "config_compatible_pair_count": 0,
+        "config_compatible_pair_ratio": 1.0,
+        "non_comparable_key_counts": {}
+      },
+      "pair_setting_deltas": []
+    },
+    "per_label_metrics": [],
+    "top_confusion_deltas": [],
+    "per_recipe_breakdown": {
+      "pair_breakdown_count": 0,
+      "pairs": []
+    },
+    "stage_separated_comparison": {
+      "schema_version": "upload_bundle_stage_comparison.v1",
+      "pair_count": 0,
+      "per_recipe": [],
+      "per_label": []
+    },
+    "failure_ledger": {
+      "rows": [],
+      "summary": {
+        "row_count": 0,
+        "recipe_count": 0,
+        "pass_status_counts": {}
+      }
+    },
+    "regression_casebook": {
+      "requested_targets": [
+        "c6",
+        "c9",
+        "c12",
+        "c3"
+      ],
+      "found_targets": [],
+      "packet_count": 0,
+      "packets": []
+    },
+    "changed_lines_stratified_sample": {
+      "total_rows": 0,
+      "counts_by_bucket": {},
+      "top_error_buckets": [],
+      "samples_by_bucket": {}
+    },
+    "low_confidence_changed_lines_packet": {
+      "schema_version": "upload_bundle_low_confidence_changed_lines.v1",
+      "available": false,
+      "low_confidence_threshold": 0.9,
+      "prediction_files": [],
+      "changed_line_rows_considered": 0,
+      "row_count": 0,
+      "sample_rows": [],
+      "unavailable_reason": "line-role-pipeline/line_role_predictions.jsonl not found in discovered run roots"
+    },
+    "call_inventory_runtime": {
+      "summary": {
+        "call_count": 0,
+        "calls_with_runtime": 0,
+        "calls_with_cost": 0,
+        "calls_with_estimated_cost": 0,
+        "total_duration_ms": null,
+        "avg_duration_ms": null,
+        "total_tokens": null,
+        "total_cost_usd": null,
+        "total_estimated_cost_usd": null,
+        "cost_coverage_ratio": 0.0,
+        "estimated_cost_coverage_ratio": 0.0,
+        "cost_signal": {
+          "available": false,
+          "calls_with_cost": 0,
+          "coverage_ratio": 0.0,
+          "unavailable_reason": "request telemetry does not include recognized cost fields (cost_usd/total_cost_usd/estimated_cost_usd)"
+        },
+        "estimated_cost_signal": {
+          "available": false,
+          "calls_with_estimated_cost": 0,
+          "coverage_ratio": 0.0,
+          "method": "",
+          "pricing_used": {
+            "input_per_1m": 3.0,
+            "cached_input_per_1m": 0.0,
+            "output_per_1m": 15.0
+          },
+          "note": "No token-based estimate available because token telemetry is missing."
+        },
+        "by_pass": {},
+        "runtime_source": "call_inventory_rows",
+        "pass1_token_share": null,
+        "pass2_token_share": null,
+        "pass3_token_share": null
+      },
+      "top_slowest_calls": [],
+      "top_token_calls": [],
+      "top_cost_calls": [],
+      "top_estimated_cost_calls": []
+    },
+    "line_role_confidence_or_candidates": {
+      "available": false,
+      "line_role_prediction_files": [],
+      "reason": "line-role-pipeline/line_role_predictions.jsonl not found in discovered run roots"
+    },
+    "selected_recipe_packets": {
+      "packet_count": 0,
+      "packets": []
+    }
+  },
+  "alias_metadata": {
+    "content_equivalent_groups": [
+      {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "canonical_path": "alignment_gaps.jsonl",
+        "alias_paths": [
+          "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+          "_upload_bundle_derived/starter_pack_v1/02_call_inventory.jsonl",
+          "_upload_bundle_derived/starter_pack_v1/05_bridge_summary.jsonl",
+          "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "_upload_bundle_derived/starter_pack_v1/01_recipe_triage.packet.jsonl",
+          "_upload_bundle_derived/root/low_confidence_changed_lines.packet.jsonl",
+          "_upload_bundle_derived/starter_pack_v1/06_selected_recipe_packets.jsonl",
+          "_upload_bundle_derived/starter_pack_v1/03_changed_lines.codex_vs_baseline.jsonl"
+        ],
+        "alias_count": 8,
+        "reason": "same_sha256"
+      },
+      {
+        "sha256": "9814ce220f1e928def4f69ab770960d317e3d1e3dcf1ce39820d82b80c0a47f3",
+        "canonical_path": "_upload_bundle_derived/root/targeted_prompt_cases.md",
+        "alias_paths": [
+          "_upload_bundle_derived/starter_pack_v1/07_casebook.md"
+        ],
+        "alias_count": 1,
+        "reason": "same_sha256"
+      },
+      {
+        "sha256": "462d71af74df1df34214f09b56a307301d6088f020c291f452e929919377eb8e",
+        "canonical_path": "missed_gold_lines.jsonl",
+        "alias_paths": [
+          "missed_gold_blocks.jsonl"
+        ],
+        "alias_count": 1,
+        "reason": "same_sha256"
+      },
+      {
+        "sha256": "3ff151d7e8e2e1d6316cac2327761518cf6613d3ee501aac87cadac4fcf7e88e",
+        "canonical_path": "wrong_label_lines.jsonl",
+        "alias_paths": [
+          "wrong_label_blocks.jsonl"
+        ],
+        "alias_count": 1,
+        "reason": "same_sha256"
+      }
+    ],
+    "legacy_aliases": []
+  },
+  "artifact_count": 41,
+  "artifact_index": [
+    {
+      "path": "aligned_prediction_blocks.jsonl",
+      "payload_row": 1,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 218473,
+      "sha256": "6cef7fe3bc81973486cc1e87487eb8d9b5c15656c8cbab7bf810330137a95fd4",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "alignment_gaps.jsonl",
+      "payload_row": 2,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "eval_report.json",
+      "payload_row": 3,
+      "content_type": "json",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 137240,
+      "sha256": "cdd3fd6e317913246f403187ae4364bc24ee8d4f36581430115580970be62ce2",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "eval_report.md",
+      "payload_row": 4,
+      "content_type": "markdown",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 343,
+      "sha256": "1c126c15c960f1e83357a477c0d9c098bb569039f0ac88412f59f67078192a3c",
+      "parsed_mode": "utf8_text"
+    },
+    {
+      "path": "false_positive_preds.jsonl",
+      "payload_row": 5,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 31243,
+      "sha256": "2046e6e74a0678119ce25413db50a04c0c02b241484c60c05fed6a25cad4b2c3",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "missed_gold_blocks.jsonl",
+      "payload_row": 6,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 69732,
+      "sha256": "462d71af74df1df34214f09b56a307301d6088f020c291f452e929919377eb8e",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "missed_gold_lines.jsonl",
+      "payload_row": 7,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 69732,
+      "sha256": "462d71af74df1df34214f09b56a307301d6088f020c291f452e929919377eb8e",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "missed_gold_spans.jsonl",
+      "payload_row": 8,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 42057,
+      "sha256": "c4c3b69f86f9e449afeb6ba420c028609b559b2669fa4fb59d89ee2f02642a24",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "prediction-run/coverage.json",
+      "payload_row": 9,
+      "content_type": "json",
+      "category": "other",
+      "run_subdir": null,
+      "bytes": 74,
+      "sha256": "77423093116241872e6fbe2459f6d84bb0936358d5fa1447ddaedfb81de3ed61",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "prediction-run/extracted_archive.json",
+      "payload_row": 10,
+      "content_type": "json",
+      "category": "other",
+      "run_subdir": null,
+      "bytes": 913209,
+      "sha256": "e90739685ea21420f0e341f4035d0041f049b4f2ed071db010d147509c49d3f2",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "prediction-run/extracted_text.txt",
+      "payload_row": 11,
+      "content_type": "text",
+      "category": "other",
+      "run_subdir": null,
+      "bytes": 82929,
+      "sha256": "eb760a60773fda8793867c819ecaa42e98a2e6fd382a1975c2cd5dee96cbf958",
+      "parsed_mode": "utf8_text"
+    },
+    {
+      "path": "prediction-run/manifest.json",
+      "payload_row": 12,
+      "content_type": "json",
+      "category": "other",
+      "run_subdir": null,
+      "bytes": 11234,
+      "sha256": "932de47bf9e31d4e04ebf3a665c1fbf3c03c9e048e3f074ab27dbf6628d34e18",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "prediction-run/run_manifest.json",
+      "payload_row": 13,
+      "content_type": "json",
+      "category": "other",
+      "run_subdir": null,
+      "bytes": 4471,
+      "sha256": "6d33dcb0c91a7ecdfc24f84394a95247eef9c55daeddc56f686af35df069f982",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "prediction-run/stage_block_predictions.json",
+      "payload_row": 14,
+      "content_type": "json",
+      "category": "other",
+      "run_subdir": null,
+      "bytes": 28728,
+      "sha256": "a685faaa64729aad13c4ac2c3508250dea70275b694e4b743e921afca99e89c9",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "processing_timeseries_evaluation.jsonl",
+      "payload_row": 15,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 977,
+      "sha256": "079436a0c37ca04708cc88534c96e2f777b0291676faddd3c1dff4ec49ebe4ee",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "processing_timeseries_prediction.jsonl",
+      "payload_row": 16,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 48732,
+      "sha256": "07028d6db2c6c3f86414ef6df0bc6380ee10b108d9a35e9e828b106393b28deb",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "run_manifest.json",
+      "payload_row": 17,
+      "content_type": "json",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 13449,
+      "sha256": "d09686b99f7abe6c7b34445d04174690678aba65597a37ce3a85510ac5fd97ed",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "unmatched_pred_blocks.jsonl",
+      "payload_row": 18,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 2182,
+      "sha256": "83e9cb755d7bb1f99a7d3a480804887bc7c273bb63b724e5fb2b5a4ac9168b8e",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "wrong_label_blocks.jsonl",
+      "payload_row": 19,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 78779,
+      "sha256": "3ff151d7e8e2e1d6316cac2327761518cf6613d3ee501aac87cadac4fcf7e88e",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "wrong_label_lines.jsonl",
+      "payload_row": 20,
+      "content_type": "jsonl",
+      "category": "root_artifact",
+      "run_subdir": null,
+      "bytes": 78779,
+      "sha256": "3ff151d7e8e2e1d6316cac2327761518cf6613d3ee501aac87cadac4fcf7e88e",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/runs/2026-03-03_23.28.08_feedbackexec_vanilla/wrong_label_lines.with_context.full.jsonl",
+      "payload_row": 21,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 295766,
+      "sha256": "9db8af3373e9a9805534c04d34c37b572cdf3425355e349f1160fb577dc189a7",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/root/run_index.json",
+      "payload_row": 22,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 423,
+      "sha256": "906362142197b7b6b733d999069181411cfd42327a3ec2cb0c22be3ebe83378f",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/root/comparison_summary.json",
+      "payload_row": 23,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 104,
+      "sha256": "cac5383c3111138902fbf4ad4907182607a1c352b02eba39f46fdcd957930074",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/root/process_manifest.json",
+      "payload_row": 24,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 262,
+      "sha256": "1180b6efc95c82aeb94e89fb163fbce7cc3fbc760422ac1073499db2a23504a5",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+      "payload_row": 25,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+      "payload_row": 26,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 107,
+      "sha256": "43e0b15892e560e68e4eadf6b1c8379330f9f0128050678c09a72ed42bccd2a3",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/root/targeted_prompt_cases.md",
+      "payload_row": 27,
+      "content_type": "markdown",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 133,
+      "sha256": "9814ce220f1e928def4f69ab770960d317e3d1e3dcf1ce39820d82b80c0a47f3",
+      "parsed_mode": "utf8_text"
+    },
+    {
+      "path": "_upload_bundle_derived/root/label_policy_adjudication_notes.md",
+      "payload_row": 28,
+      "content_type": "markdown",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 1035,
+      "sha256": "e4fdda2e13f07f2f90696fd491cab6b37b7468bedb895ccc7ca09a841d519afe",
+      "parsed_mode": "utf8_text"
+    },
+    {
+      "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+      "payload_row": 29,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/root/net_error_blame_summary.json",
+      "payload_row": 30,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 931,
+      "sha256": "2697fa3cab28c36d6dc8c08779c8db7a0d326c64806a0c0f9c0f53bf8ca8ca1a",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/root/config_version_metadata.json",
+      "payload_row": 31,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 2847,
+      "sha256": "15236d7a41f65e78acdd5be7e115580574f5ab023509c1462a71b49c092333a4",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/root/low_confidence_changed_lines.packet.jsonl",
+      "payload_row": 32,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/01_recipe_triage.csv",
+      "payload_row": 33,
+      "content_type": "csv",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 1023,
+      "sha256": "cb3925f670a7cce2466f0bae470adb9c7a0133ddf568dc8dd596d789a7e5b6b4",
+      "parsed_mode": "csv_plus_text"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/01_recipe_triage.packet.jsonl",
+      "payload_row": 34,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/02_call_inventory.jsonl",
+      "payload_row": 35,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/03_changed_lines.codex_vs_baseline.jsonl",
+      "payload_row": 36,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/04_warning_and_trace_summary.json",
+      "payload_row": 37,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 480,
+      "sha256": "39ac00cfbfa19271026ff610b9d988e33bcee8ccd63a4fb5ffdadac4c08882a3",
+      "parsed_mode": "json"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/05_bridge_summary.jsonl",
+      "payload_row": 38,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/06_selected_recipe_packets.jsonl",
+      "payload_row": 39,
+      "content_type": "jsonl",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "parsed_mode": "jsonl"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/07_casebook.md",
+      "payload_row": 40,
+      "content_type": "markdown",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 133,
+      "sha256": "9814ce220f1e928def4f69ab770960d317e3d1e3dcf1ce39820d82b80c0a47f3",
+      "parsed_mode": "utf8_text"
+    },
+    {
+      "path": "_upload_bundle_derived/starter_pack_v1/10_process_manifest.json",
+      "payload_row": 41,
+      "content_type": "json",
+      "category": "derived_artifact",
+      "run_subdir": null,
+      "bytes": 368,
+      "sha256": "e4c2f42c9af0013bdf47b895c337ad9119a8f225cb81f4168bd0af302cebd106",
+      "parsed_mode": "json"
+    }
+  ]
+}

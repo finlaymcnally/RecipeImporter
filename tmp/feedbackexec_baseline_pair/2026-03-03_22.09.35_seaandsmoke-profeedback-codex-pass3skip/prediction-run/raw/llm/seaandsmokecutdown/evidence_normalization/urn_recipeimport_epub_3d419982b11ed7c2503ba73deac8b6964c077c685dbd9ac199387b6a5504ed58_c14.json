@@ -1,0 +1,350 @@
+{
+  "bundle_name": "r0014_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c14.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b501",
+      "block_index": 501,
+      "normalized_lines": [
+        "16 Mirabelle plums (about",
+        "1 kg)"
+      ],
+      "original_text": "16 Mirabelle plums (about 1 kg)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b503",
+      "block_index": 503,
+      "normalized_lines": [
+        "1 (10-inch/",
+        "25 cm) square rosemary candy (page",
+        "257), broken into",
+        "1/2-inch/",
+        "1 cm shards"
+      ],
+      "original_text": "1 (10-inch/25 cm) square rosemary candy (page 257), broken into 1/2-inch/1 cm shards",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b505",
+      "block_index": 505,
+      "normalized_lines": [
+        "Quarter 3 of the best-looking plums and discard the pits. Carefully slice the skins from each quarter, leaving them with about",
+        "1/8 inch/",
+        "3 mm of flesh. Cover and refrigerate the skins and place the scrap in a medium metal mixing bowl."
+      ],
+      "original_text": "Quarter 3 of the best-looking plums and discard the pits. Carefully slice the skins from each quarter, leaving them with about 1/8 inch/3 mm of flesh. Cover and refrigerate the skins and place the scrap in a medium metal mixing bowl.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b507",
+      "block_index": 507,
+      "normalized_lines": [
+        "Pit and roughly chop the remaining plums. Place about 21/2 cups/",
+        "375 g of the chopped plums in the blender (reserving the remaining chopped plums) and blend on high until completely liquefied, about",
+        "30 seconds. Push the liquid through a sieve with a rubber scraper. Season the pur\u00e9e with stock syrup and reserve it in the refrigerator."
+      ],
+      "original_text": "Pit and roughly chop the remaining plums. Place about 21/2 cups/375 g of the chopped plums in the blender (reserving the remaining chopped plums) and blend on high until completely liquefied, about 30 seconds. Push the liquid through a sieve with a rubber scraper. Season the pur\u00e9e with stock syrup and reserve it in the refrigerator.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b509",
+      "block_index": 509,
+      "normalized_lines": [
+        "Add the remaining roughly chopped plums to the mixing bowl with the scrap from the skins and cover the bowl tightly with 3 layers of plastic wrap. Half fill a stockpot with water, bring it to a boil, and set the mixing bowl over it. Let the plums cook with the water simmering beneath until the plum liquid is tinted red and the flesh is barely holding together, about",
+        "2 hours. Strain the plum liquid through a Superbag into another mixing bowl, discarding any solids. Season this jus with stock syrup to balance acidity and sweetness. Pour the jus into a",
+        "9 \u00d7",
+        "5 \u00d7",
+        "3-inch (",
+        "23 \u00d7",
+        "13 \u00d7",
+        "7.5 cm) loaf pan, cover, and freeze."
+      ],
+      "original_text": "Add the remaining roughly chopped plums to the mixing bowl with the scrap from the skins and cover the bowl tightly with 3 layers of plastic wrap. Half fill a stockpot with water, bring it to a boil, and set the mixing bowl over it. Let the plums cook with the water simmering beneath until the plum liquid is tinted red and the flesh is barely holding together, about 2 hours. Strain the plum liquid through a Superbag into another mixing bowl, discarding any solids. Season this jus with stock syrup to balance acidity and sweetness. Pour the jus into a 9 \u00d7 5 \u00d7 3-inch (23 \u00d7 13 \u00d7 7.5 cm) loaf pan, cover, and freeze.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b512",
+      "block_index": 512,
+      "normalized_lines": [
+        "Preheat the oven to 300\u00b0F/",
+        "150\u00b0C. Spread the plum skins, flesh-side down, across a baking sheet lined with a Silpat mat or parchment paper and heat them in the oven until the plum skin wrinkles, about",
+        "6 minutes."
+      ],
+      "original_text": "Preheat the oven to 300\u00b0F/150\u00b0C. Spread the plum skins, flesh-side down, across a baking sheet lined with a Silpat mat or parchment paper and heat them in the oven until the plum skin wrinkles, about 6 minutes.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b513",
+      "block_index": 513,
+      "normalized_lines": [
+        "Place a tablespoon of plum pur\u00e9e in the center of each small, chilled serving bowl. Cover the pur\u00e9e with 3 tablespoons of granita. Top the granita with",
+        "3 plum skins and a few shards of rosemary candy."
+      ],
+      "original_text": "Place a tablespoon of plum pur\u00e9e in the center of each small, chilled serving bowl. Cover the pur\u00e9e with 3 tablespoons of granita. Top the granita with 3 plum skins and a few shards of rosemary candy.",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b498",
+      "source_block_index": 498,
+      "source_line_index": 0,
+      "text": "DRIED MIRABELLE PLUM SKINS, A CANDY MADE FROM ROSEMARY",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b499",
+      "source_block_index": 499,
+      "source_line_index": 0,
+      "text": "In the late summer, wild plums ripen all over the island during a very short season. These plums can be red or yellow, and they have larger pits and thicker skin than cultivated plums. We collected them and experimented, working our way toward a plum dessert. One trial had the plums stewing uncovered in a pot, and we found that the skins floating to the top were exposed to the air and became leathery, with a concentrated flavor. After drying those skins a touch more in front of the hearth, they were perfect.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b500",
+      "source_block_index": 500,
+      "source_line_index": 0,
+      "text": "SERVES 4",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b501",
+      "source_block_index": 501,
+      "source_line_index": 0,
+      "text": "16 Mirabelle plums (about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b501",
+      "source_block_index": 501,
+      "source_line_index": 0,
+      "text": "1 kg)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b502",
+      "source_block_index": 502,
+      "source_line_index": 0,
+      "text": "Stock syrup (page 256)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b503",
+      "source_block_index": 503,
+      "source_line_index": 0,
+      "text": "1 (10-inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b503",
+      "source_block_index": 503,
+      "source_line_index": 0,
+      "text": "25 cm) square rosemary candy (page",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b503",
+      "source_block_index": 503,
+      "source_line_index": 0,
+      "text": "257), broken into",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b503",
+      "source_block_index": 503,
+      "source_line_index": 0,
+      "text": "1/2-inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b503",
+      "source_block_index": 503,
+      "source_line_index": 0,
+      "text": "1 cm shards",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b504",
+      "source_block_index": 504,
+      "source_line_index": 0,
+      "text": "PLUM SKINS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b505",
+      "source_block_index": 505,
+      "source_line_index": 0,
+      "text": "Quarter 3 of the best-looking plums and discard the pits. Carefully slice the skins from each quarter, leaving them with about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b505",
+      "source_block_index": 505,
+      "source_line_index": 0,
+      "text": "1/8 inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b505",
+      "source_block_index": 505,
+      "source_line_index": 0,
+      "text": "3 mm of flesh. Cover and refrigerate the skins and place the scrap in a medium metal mixing bowl.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b506",
+      "source_block_index": 506,
+      "source_line_index": 0,
+      "text": "PLUM PUR\u00c9E",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b507",
+      "source_block_index": 507,
+      "source_line_index": 0,
+      "text": "Pit and roughly chop the remaining plums. Place about 21/2 cups/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b507",
+      "source_block_index": 507,
+      "source_line_index": 0,
+      "text": "375 g of the chopped plums in the blender (reserving the remaining chopped plums) and blend on high until completely liquefied, about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b507",
+      "source_block_index": 507,
+      "source_line_index": 0,
+      "text": "30 seconds. Push the liquid through a sieve with a rubber scraper. Season the pur\u00e9e with stock syrup and reserve it in the refrigerator.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b508",
+      "source_block_index": 508,
+      "source_line_index": 0,
+      "text": "PLUM GRANITA",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "Add the remaining roughly chopped plums to the mixing bowl with the scrap from the skins and cover the bowl tightly with 3 layers of plastic wrap. Half fill a stockpot with water, bring it to a boil, and set the mixing bowl over it. Let the plums cook with the water simmering beneath until the plum liquid is tinted red and the flesh is barely holding together, about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "2 hours. Strain the plum liquid through a Superbag into another mixing bowl, discarding any solids. Season this jus with stock syrup to balance acidity and sweetness. Pour the jus into a",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "9 \u00d7",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "5 \u00d7",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "3-inch (",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "23 \u00d7",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "13 \u00d7",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b509",
+      "source_block_index": 509,
+      "source_line_index": 0,
+      "text": "7.5 cm) loaf pan, cover, and freeze.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b510",
+      "source_block_index": 510,
+      "source_line_index": 0,
+      "text": "Scrape the surface of the frozen jus in a crosshatch pattern with the tines of a fork to create the granita. Remove the granita from the pan and reserve it in the freezer in a cold, empty container.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b511",
+      "source_block_index": 511,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b512",
+      "source_block_index": 512,
+      "source_line_index": 0,
+      "text": "Preheat the oven to 300\u00b0F/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b512",
+      "source_block_index": 512,
+      "source_line_index": 0,
+      "text": "150\u00b0C. Spread the plum skins, flesh-side down, across a baking sheet lined with a Silpat mat or parchment paper and heat them in the oven until the plum skin wrinkles, about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b512",
+      "source_block_index": 512,
+      "source_line_index": 0,
+      "text": "6 minutes.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b513",
+      "source_block_index": 513,
+      "source_line_index": 0,
+      "text": "Place a tablespoon of plum pur\u00e9e in the center of each small, chilled serving bowl. Cover the pur\u00e9e with 3 tablespoons of granita. Top the granita with",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b513",
+      "source_block_index": 513,
+      "source_line_index": 0,
+      "text": "3 plum skins and a few shards of rosemary candy.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c14",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 16,
+    "input_line_count": 16,
+    "output_line_count": 35,
+    "split_quantity_lines": 7
+  }
+}

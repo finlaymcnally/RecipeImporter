@@ -43,6 +43,7 @@ Primary modules:
 - `cookimport/analytics/dashboard_collect.py`
 - `cookimport/analytics/dashboard_schema.py`
 - `cookimport/analytics/dashboard_render.py`
+- `cookimport/analytics/compare_control_engine.py`
 - `cookimport/analytics/benchmark_timing.py`
 - `cookimport/paths.py` (history-root helpers used by analytics paths)
 - `cookimport/cli.py` (`stats-dashboard`, history appenders, refresh helper wiring)
@@ -52,6 +53,8 @@ Primary CLI entry points:
 - `cookimport perf-report`
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
+- `cookimport compare-control run`
+- `cookimport compare-control agent`
 - `cookimport labelstudio-eval` (benchmark CSV append + refresh)
 - `cookimport labelstudio-benchmark` (benchmark CSV append + refresh)
 
@@ -59,6 +62,8 @@ Regression anchors:
 - `tests/analytics/test_perf_report.py`
 - `tests/analytics/test_stats_dashboard.py`
 - `tests/analytics/test_benchmark_csv_backfill_cli.py`
+- `tests/analytics/test_compare_control_engine.py`
+- `tests/analytics/test_compare_control_cli.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (dashboard refresh/CSV wiring in benchmark flows)
 - `tests/bench/test_bench.py` (bench command helper and artifact contracts)
 
@@ -184,6 +189,7 @@ Benchmark scan details:
 - Diagnostics layout is fixed 2-up on desktop: `Benchmark Runtime` and `Boundary Classification` each occupy 50% width on the first row, with `Per-Label Breakdown` full-width below (mobile collapses to one column).
 - Latest runtime diagnostics include only `Token use` (cached-adjusted discounted estimate, same formula as `All token use`) with compact `k`/`m` display for large values.
 - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns. Comparison columns can be shown as signed deltas or raw point values via an in-card `Point value` checkbox; delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
+- Per-label diagnostics now include a run-group selector beside the title (`Default - most recent` + all available run timestamps) so the table can auto-follow latest runs or be pinned to a chosen timestamp.
 - Per-label diagnostics expose a `Rolling N` selector; rolling codexfarm/vanilla comparison columns use that selected N and render under a shared dynamic `<N>-run Rolling <Mode>:` header with metric+variant subcolumns.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
@@ -226,6 +232,18 @@ Benchmark scan details:
 - Main page is intentionally narrow in scope:
   - `Diagnostics (Latest Benchmark)`
   - `Previous Runs`
+
+### `cookimport compare-control run` / `cookimport compare-control agent`
+
+- Backend compare/control engine now lives in `cookimport/analytics/compare_control_engine.py` and mirrors dashboard semantics for:
+  - derived fields (`source_label`, `ai_model`, `ai_effort`, `all_token_use`, `artifact_dir_basename`, `all_method_record`, `speed_suite_record`)
+  - quick filters (`official_full_golden_only`, `exclude_ai_tests`)
+  - column filter operators (`contains`, `not_contains`, `starts_with`, `ends_with`, `regex`, `gt`, `gte`, `lt`, `lte`, `eq`, `neq`, `is_empty`, `not_empty`)
+  - compare/control analysis (`discover`, `raw`, `controlled`) and subset patch output (`eq` clauses + `or` mode).
+- `run` is one-shot JSON output; `agent` is persistent JSONL over stdin/stdout.
+- Agent mode keeps running after malformed request lines and returns structured error envelopes.
+- New `insights` action auto-summarizes candidate rows (actionable drivers vs noisy high-cardinality fields, process-factor spreads, model-efficiency view, and suggested next compare-control queries).
+- QualitySuite bench flows now auto-produce agent bridge bundles (`agent_compare_control/`) that precompute `insights` outputs per scope/outcome and provide ready JSONL follow-up requests for `compare-control agent`.
 
 ### Benchmark CSV append entry points (`append_benchmark_csv`)
 

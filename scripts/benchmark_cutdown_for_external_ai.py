@@ -110,7 +110,9 @@ UPLOAD_BUNDLE_FILE_NAMES = (
 UPLOAD_BUNDLE_DERIVED_DIR_NAME = "_upload_bundle_derived"
 STARTER_PACK_DIR_NAME = "starter_pack_v1"
 STARTER_PACK_README_FILE_NAME = "README.md"
-STARTER_PACK_TRIAGE_FILE_NAME = "01_recipe_triage.csv"
+STARTER_PACK_TRIAGE_FILE_NAME = "01_recipe_triage.jsonl"
+STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME = "01_recipe_triage.csv"
+STARTER_PACK_TRIAGE_PACKET_FILE_NAME = "01_recipe_triage.packet.jsonl"
 STARTER_PACK_CALL_INVENTORY_FILE_NAME = "02_call_inventory.jsonl"
 STARTER_PACK_CHANGED_LINES_FILE_NAME = "03_changed_lines.codex_vs_baseline.jsonl"
 STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME = "04_warning_and_trace_summary.json"
@@ -122,6 +124,12 @@ STARTER_PACK_LABEL_POLICY_FILE_NAME = "09_label_policy.md"
 STARTER_PACK_MANIFEST_FILE_NAME = "10_process_manifest.json"
 STARTER_PACK_COMPARISON_MIRROR_FILE_NAME = "11_comparison_summary.json"
 STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME = "12_per_recipe_or_per_span_breakdown.json"
+STARTER_PACK_NET_ERROR_BLAME_FILE_NAME = "13_net_error_blame_summary.json"
+STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME = "14_config_version_metadata.json"
+STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME = (
+    "15_low_confidence_changed_lines.packet.jsonl"
+)
+STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME = "16_baseline_trace_parity.json"
 STARTER_PACK_SELECTION_POLICY = {
     "top_changed_lines": 3,
     "top_block_loss": 2,
@@ -137,6 +145,14 @@ STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT = [
     "preprocess_trace_failures.jsonl.gz",
     "flattened_run_markdown_summaries",
 ]
+UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION = "upload_bundle_triage_packet.v1"
+UPLOAD_BUNDLE_NET_ERROR_BLAME_SCHEMA_VERSION = "upload_bundle_net_error_blame.v1"
+UPLOAD_BUNDLE_CONFIG_VERSION_METADATA_SCHEMA_VERSION = (
+    "upload_bundle_config_version_metadata.v1"
+)
+UPLOAD_BUNDLE_LOW_CONFIDENCE_CHANGED_LINES_SCHEMA_VERSION = (
+    "upload_bundle_low_confidence_changed_lines.v1"
+)
 STARTER_PACK_TRIAGE_HEADER = (
     "recipe_id",
     "short_title",
@@ -5004,6 +5020,7 @@ def _write_starter_pack_readme(
         "",
         "- `00_run_overview.md`",
         f"- `{STARTER_PACK_TRIAGE_FILE_NAME}`",
+        f"- `{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}`",
         f"- `{STARTER_PACK_CALL_INVENTORY_FILE_NAME}`",
         f"- `{STARTER_PACK_CHANGED_LINES_FILE_NAME}`",
         f"- `{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}`",
@@ -5015,6 +5032,10 @@ def _write_starter_pack_readme(
         f"- `{STARTER_PACK_MANIFEST_FILE_NAME}`",
         f"- `{STARTER_PACK_COMPARISON_MIRROR_FILE_NAME}`",
         f"- `{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}`",
+        f"- `{STARTER_PACK_NET_ERROR_BLAME_FILE_NAME}`",
+        f"- `{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}`",
+        f"- `{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}`",
+        f"- `{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}`",
         "",
         "## Follow-up Packet Rules",
         "",
@@ -5058,116 +5079,13 @@ def _write_starter_pack_v1(
             str(row.get("codex_run_id") or ""),
         ),
     )
-
-    triage_csv_path = starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME
-    with triage_csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(STARTER_PACK_TRIAGE_HEADER))
-        writer.writeheader()
-        for row in sorted_recipe_triage_rows:
-            writer.writerow(
-                {
-                    "recipe_id": str(row.get("recipe_id") or ""),
-                    "short_title": str(row.get("short_title") or ""),
-                    "line_total": int(_coerce_int(row.get("line_total")) or 0),
-                    "changed_lines_codex_vs_baseline": int(
-                        _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
-                    ),
-                    "codex_accuracy": _serialize_float(_coerce_float(row.get("codex_accuracy"))),
-                    "baseline_accuracy": _serialize_float(
-                        _coerce_float(row.get("baseline_accuracy"))
-                    ),
-                    "delta_codex_minus_baseline": _serialize_float(
-                        _coerce_float(row.get("delta_codex_minus_baseline"))
-                    ),
-                    "pass1_call_id": str(row.get("pass1_call_id") or ""),
-                    "pass2_call_id": str(row.get("pass2_call_id") or ""),
-                    "pass3_call_id": str(row.get("pass3_call_id") or ""),
-                    "pass1_start_block_index": (
-                        ""
-                        if _coerce_int(row.get("pass1_start_block_index")) is None
-                        else int(_coerce_int(row.get("pass1_start_block_index")) or 0)
-                    ),
-                    "pass1_end_block_index": (
-                        ""
-                        if _coerce_int(row.get("pass1_end_block_index")) is None
-                        else int(_coerce_int(row.get("pass1_end_block_index")) or 0)
-                    ),
-                    "pass1_selected_block_count": int(
-                        _coerce_int(row.get("pass1_selected_block_count")) or 0
-                    ),
-                    "pass2_input_block_count": int(
-                        _coerce_int(row.get("pass2_input_block_count")) or 0
-                    ),
-                    "pass1_vs_pass2_missing_block_count": int(
-                        _coerce_int(row.get("pass1_vs_pass2_missing_block_count")) or 0
-                    ),
-                    "pass1_vs_pass2_extra_block_count": int(
-                        _coerce_int(row.get("pass1_vs_pass2_extra_block_count")) or 0
-                    ),
-                    "pass2_warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
-                    "pass2_warning_buckets": _serialize_pipe_list(
-                        _coerce_str_list(row.get("pass2_warning_buckets"))
-                    ),
-                    "pass2_extracted_ingredient_count": int(
-                        _coerce_int(row.get("pass2_extracted_ingredient_count")) or 0
-                    ),
-                    "pass2_extracted_instruction_count": int(
-                        _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
-                    ),
-                    "pass3_step_count": int(_coerce_int(row.get("pass3_step_count")) or 0),
-                    "pass3_mapping_count": int(_coerce_int(row.get("pass3_mapping_count")) or 0),
-                    "pass3_empty_mapping": _serialize_bool(bool(row.get("pass3_empty_mapping"))),
-                    "pass3_warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
-                    "pass3_warning_buckets": _serialize_pipe_list(
-                        _coerce_str_list(row.get("pass3_warning_buckets"))
-                    ),
-                    "pass1_status": str(row.get("pass1_status") or ""),
-                    "pass2_status": str(row.get("pass2_status") or ""),
-                    "pass3_status": str(row.get("pass3_status") or ""),
-                    "pass1_clamped_block_loss_count": int(
-                        _coerce_int(row.get("pass1_clamped_block_loss_count")) or 0
-                    ),
-                    "pass1_clamped_block_loss_ratio": _serialize_float(
-                        _coerce_float(row.get("pass1_clamped_block_loss_ratio"))
-                    ),
-                    "pass2_degradation_reasons": _serialize_pipe_list(
-                        _coerce_str_list(row.get("pass2_degradation_reasons"))
-                    ),
-                    "pass2_degradation_severity": str(
-                        row.get("pass2_degradation_severity") or ""
-                    ),
-                    "pass2_promotion_policy": str(row.get("pass2_promotion_policy") or ""),
-                    "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
-                    "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
-                    "pass3_fallback_reason": str(row.get("pass3_fallback_reason") or ""),
-                    "transport_mismatch": (
-                        ""
-                        if _coerce_bool(row.get("transport_mismatch")) is None
-                        else _serialize_bool(_coerce_bool(row.get("transport_mismatch")) is True)
-                    ),
-                    "transport_mismatch_reasons": _serialize_pipe_list(
-                        _coerce_str_list(row.get("transport_mismatch_reasons"))
-                    ),
-                    "transport_effective_to_payload_coverage_ratio": _serialize_float(
-                        _coerce_float(row.get("transport_effective_to_payload_coverage_ratio"))
-                    ),
-                    "evidence_split_quantity_lines": int(
-                        _coerce_int(row.get("evidence_split_quantity_lines")) or 0
-                    ),
-                    "evidence_dropped_page_markers": int(
-                        _coerce_int(row.get("evidence_dropped_page_markers")) or 0
-                    ),
-                    "evidence_folded_page_markers": int(
-                        _coerce_int(row.get("evidence_folded_page_markers")) or 0
-                    ),
-                    "outside_span_wrong_line_count": int(
-                        _coerce_int(row.get("outside_span_wrong_line_count")) or 0
-                    ),
-                    "outside_span_trace_status_top": str(
-                        row.get("outside_span_trace_status_top") or ""
-                    ),
-                }
-            )
+    serialized_triage_rows = [
+        _starter_pack_serialize_recipe_triage_row(row)
+        for row in sorted_recipe_triage_rows
+    ]
+    _write_jsonl(starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME, serialized_triage_rows)
+    triage_packet_rows = _upload_bundle_build_triage_packet_rows(sorted_recipe_triage_rows)
+    _write_jsonl(starter_pack_dir / STARTER_PACK_TRIAGE_PACKET_FILE_NAME, triage_packet_rows)
 
     sorted_call_inventory_rows = sorted(
         call_inventory_rows,
@@ -5434,11 +5352,6 @@ def _write_starter_pack_v1(
         ),
         "",
     ]
-    (starter_pack_dir / "00_run_overview.md").write_text(
-        "\n".join(run_overview_lines),
-        encoding="utf-8",
-    )
-
     (starter_pack_dir / STARTER_PACK_LABEL_POLICY_FILE_NAME).write_text(
         _render_starter_pack_label_policy(),
         encoding="utf-8",
@@ -5448,6 +5361,86 @@ def _write_starter_pack_v1(
     _write_json(
         starter_pack_dir / STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
         per_recipe_breakdown_payload,
+    )
+    comparison_pairs = [
+        pair
+        for pair in (comparison_summary.get("pairs") or [])
+        if isinstance(pair, dict)
+    ]
+    starter_pack_run_rows = _starter_pack_collect_run_rows_from_pairs(comparison_pairs)
+    starter_pack_run_dir_by_id = _starter_pack_build_run_dir_by_id(
+        output_dir=output_dir,
+        run_rows=starter_pack_run_rows,
+    )
+    net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
+        changed_line_rows=changed_line_rows,
+        recipe_triage_rows=sorted_recipe_triage_rows,
+        comparison_pairs=comparison_pairs,
+    )
+    _write_json(
+        starter_pack_dir / STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+        net_error_blame_summary,
+    )
+    config_version_metadata = _upload_bundle_build_config_version_metadata(
+        source_root=output_dir,
+        run_rows=starter_pack_run_rows,
+        comparison_pairs=comparison_pairs,
+        run_dir_by_id=starter_pack_run_dir_by_id,
+    )
+    _write_json(
+        starter_pack_dir / STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
+        config_version_metadata,
+    )
+    (
+        low_confidence_changed_lines_summary,
+        low_confidence_changed_lines_rows,
+    ) = _upload_bundle_build_low_confidence_changed_lines_packet(
+        source_root=output_dir,
+        run_dir_by_id=starter_pack_run_dir_by_id,
+        changed_line_rows=changed_line_rows,
+    )
+    _write_jsonl(
+        starter_pack_dir / STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
+        low_confidence_changed_lines_rows,
+    )
+    baseline_trace_parity = _starter_pack_build_baseline_trace_parity_cues(
+        comparison_pairs=comparison_pairs,
+        run_rows=starter_pack_run_rows,
+        run_dir_by_id=starter_pack_run_dir_by_id,
+    )
+    _write_json(
+        starter_pack_dir / STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
+        baseline_trace_parity,
+    )
+    pair_comparability = config_version_metadata.get("pair_comparability")
+    pair_comparability = (
+        pair_comparability if isinstance(pair_comparability, dict) else {}
+    )
+    run_overview_lines.extend(
+        [
+            "- config_compatible_pair_ratio: "
+            + _serialize_float(
+                _coerce_float(pair_comparability.get("config_compatible_pair_ratio"))
+            ),
+            "- net_error_delta_lines: "
+            + str(int(_coerce_int(net_error_blame_summary.get("net_error_delta_lines")) or 0)),
+            "- low_confidence_changed_lines: "
+            + str(
+                int(
+                    _coerce_int(
+                        low_confidence_changed_lines_summary.get("row_count")
+                    )
+                    or 0
+                )
+            ),
+            "- baseline_trace_fully_ready_pairs: "
+            + str(int(_coerce_int(baseline_trace_parity.get("fully_ready_pairs")) or 0)),
+            "",
+        ]
+    )
+    (starter_pack_dir / "00_run_overview.md").write_text(
+        "\n".join(run_overview_lines),
+        encoding="utf-8",
     )
 
     legacy_to_starter_mapping = {
@@ -5462,6 +5455,9 @@ def _write_starter_pack_v1(
             f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LABEL_POLICY_FILE_NAME}"
         ),
         "process_manifest.json": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}",
+        STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME: (
+            f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}"
+        ),
     }
     starter_pack_manifest = {
         "starter_pack_version": "v1",
@@ -5475,6 +5471,18 @@ def _write_starter_pack_v1(
         ),
         "legacy_to_starter_mapping": legacy_to_starter_mapping,
         "outside_span_trace_sample": outside_span_manifest,
+        "triage_packet": {
+            "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
+            "row_count": len(triage_packet_rows),
+        },
+        "net_error_blame_summary_file": STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+        "config_version_metadata_file": STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
+        "low_confidence_changed_lines": {
+            "summary": low_confidence_changed_lines_summary,
+            "file": STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
+            "row_count": len(low_confidence_changed_lines_rows),
+        },
+        "baseline_trace_parity_file": STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
         "generated_at": _timestamp_now(),
     }
     _write_json(starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME, starter_pack_manifest)
@@ -5778,6 +5786,15 @@ def _upload_bundle_load_csv_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _upload_bundle_load_recipe_triage_rows(starter_pack_dir: Path) -> list[dict[str, Any]]:
+    jsonl_rows = _iter_jsonl(starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME)
+    if jsonl_rows:
+        return [row for row in jsonl_rows if isinstance(row, dict)]
+    return _upload_bundle_load_csv_rows(
+        starter_pack_dir / STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME
+    )
+
+
 def _upload_bundle_load_json_object(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
@@ -5811,9 +5828,7 @@ def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
 
     starter_pack_dir = source_root / STARTER_PACK_DIR_NAME
     starter_pack_present = starter_pack_dir.is_dir()
-    starter_recipe_triage_rows = _upload_bundle_load_csv_rows(
-        starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME
-    )
+    starter_recipe_triage_rows = _upload_bundle_load_recipe_triage_rows(starter_pack_dir)
     starter_call_inventory_rows = _iter_jsonl(
         starter_pack_dir / STARTER_PACK_CALL_INVENTORY_FILE_NAME
     )
@@ -8003,6 +8018,845 @@ def _upload_bundle_build_changed_line_stratified_sample(
     }
 
 
+def _upload_bundle_sort_recipe_triage_rows(
+    recipe_triage_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return sorted(
+        [row for row in recipe_triage_rows if isinstance(row, dict)],
+        key=lambda row: (
+            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
+            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
+            str(row.get("recipe_id") or ""),
+            str(row.get("source_key") or ""),
+            str(row.get("codex_run_id") or ""),
+        ),
+    )
+
+
+def _starter_pack_serialize_recipe_triage_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_key": str(row.get("source_key") or ""),
+        "codex_run_id": str(row.get("codex_run_id") or row.get("run_id") or ""),
+        "baseline_run_id": str(row.get("baseline_run_id") or ""),
+        "recipe_id": str(row.get("recipe_id") or ""),
+        "short_title": str(row.get("short_title") or ""),
+        "line_total": int(_coerce_int(row.get("line_total")) or 0),
+        "changed_lines_codex_vs_baseline": int(
+            _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
+        ),
+        "codex_accuracy": _coerce_float(row.get("codex_accuracy")),
+        "baseline_accuracy": _coerce_float(row.get("baseline_accuracy")),
+        "delta_codex_minus_baseline": _coerce_float(row.get("delta_codex_minus_baseline")),
+        "pass1_call_id": str(row.get("pass1_call_id") or ""),
+        "pass2_call_id": str(row.get("pass2_call_id") or ""),
+        "pass3_call_id": str(row.get("pass3_call_id") or ""),
+        "pass1_start_block_index": _coerce_int(row.get("pass1_start_block_index")),
+        "pass1_end_block_index": _coerce_int(row.get("pass1_end_block_index")),
+        "pass1_selected_block_count": int(
+            _coerce_int(row.get("pass1_selected_block_count")) or 0
+        ),
+        "pass2_input_block_count": int(_coerce_int(row.get("pass2_input_block_count")) or 0),
+        "pass1_vs_pass2_missing_block_count": int(
+            _coerce_int(row.get("pass1_vs_pass2_missing_block_count")) or 0
+        ),
+        "pass1_vs_pass2_extra_block_count": int(
+            _coerce_int(row.get("pass1_vs_pass2_extra_block_count")) or 0
+        ),
+        "pass2_warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+        "pass2_warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
+        "pass2_extracted_ingredient_count": int(
+            _coerce_int(row.get("pass2_extracted_ingredient_count")) or 0
+        ),
+        "pass2_extracted_instruction_count": int(
+            _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+        ),
+        "pass3_step_count": int(_coerce_int(row.get("pass3_step_count")) or 0),
+        "pass3_mapping_count": int(_coerce_int(row.get("pass3_mapping_count")) or 0),
+        "pass3_empty_mapping": bool(row.get("pass3_empty_mapping")),
+        "pass3_warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+        "pass3_warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
+        "pass1_status": str(row.get("pass1_status") or ""),
+        "pass2_status": str(row.get("pass2_status") or ""),
+        "pass3_status": str(row.get("pass3_status") or ""),
+        "pass1_clamped_block_loss_count": int(
+            _coerce_int(row.get("pass1_clamped_block_loss_count")) or 0
+        ),
+        "pass1_clamped_block_loss_ratio": _coerce_float(
+            row.get("pass1_clamped_block_loss_ratio")
+        ),
+        "pass2_degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
+        "pass2_degradation_severity": str(row.get("pass2_degradation_severity") or ""),
+        "pass2_promotion_policy": str(row.get("pass2_promotion_policy") or ""),
+        "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
+        "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
+        "pass3_fallback_reason": str(row.get("pass3_fallback_reason") or ""),
+        "transport_mismatch": _coerce_bool(row.get("transport_mismatch")),
+        "transport_mismatch_reasons": _coerce_str_list(
+            row.get("transport_mismatch_reasons")
+        ),
+        "transport_effective_to_payload_coverage_ratio": _coerce_float(
+            row.get("transport_effective_to_payload_coverage_ratio")
+        ),
+        "evidence_split_quantity_lines": int(
+            _coerce_int(row.get("evidence_split_quantity_lines")) or 0
+        ),
+        "evidence_dropped_page_markers": int(
+            _coerce_int(row.get("evidence_dropped_page_markers")) or 0
+        ),
+        "evidence_folded_page_markers": int(
+            _coerce_int(row.get("evidence_folded_page_markers")) or 0
+        ),
+        "outside_span_wrong_line_count": int(
+            _coerce_int(row.get("outside_span_wrong_line_count")) or 0
+        ),
+        "outside_span_trace_status_top": str(row.get("outside_span_trace_status_top") or ""),
+    }
+
+
+def _starter_pack_collect_run_rows_from_pairs(
+    comparison_pairs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows_by_id: dict[str, dict[str, Any]] = {}
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        for key in ("codex_run", "baseline_run"):
+            run_payload = pair.get(key)
+            if not isinstance(run_payload, dict):
+                continue
+            run_id = str(run_payload.get("run_id") or "").strip()
+            if not run_id:
+                continue
+            rows_by_id.setdefault(
+                run_id,
+                {
+                    "run_id": run_id,
+                    "output_subdir": str(run_payload.get("output_subdir") or run_id),
+                    "source_file": run_payload.get("source_file"),
+                    "llm_recipe_pipeline": run_payload.get("llm_recipe_pipeline"),
+                    "line_role_pipeline": run_payload.get("line_role_pipeline"),
+                    "atomic_block_splitter": run_payload.get("atomic_block_splitter"),
+                    "prediction_run_config_hash": run_payload.get(
+                        "prediction_run_config_hash"
+                    ),
+                },
+            )
+    return [rows_by_id[key] for key in sorted(rows_by_id)]
+
+
+def _starter_pack_build_run_dir_by_id(
+    *,
+    output_dir: Path,
+    run_rows: list[dict[str, Any]],
+) -> dict[str, Path]:
+    run_dir_by_id: dict[str, Path] = {}
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        run_id = str(row.get("run_id") or "").strip()
+        output_subdir = str(row.get("output_subdir") or "").strip()
+        if not run_id or not output_subdir:
+            continue
+        run_dir = output_dir / output_subdir
+        if run_dir.is_dir():
+            run_dir_by_id[run_id] = run_dir
+    return run_dir_by_id
+
+
+def _starter_pack_status_for_artifact(
+    *,
+    run_dir: Path,
+    artifact_name: str,
+    codex_enabled: bool,
+) -> str:
+    codex_only = {
+        PROMPT_WARNING_AGGREGATE_FILE_NAME,
+        PROJECTION_TRACE_FILE_NAME,
+        PREPROCESS_TRACE_FAILURES_FILE_NAME,
+    }
+    if artifact_name in codex_only and not codex_enabled:
+        return "not_applicable"
+    primary_path = run_dir / artifact_name
+    if primary_path.is_file():
+        return "present"
+    if artifact_name.endswith(".gz"):
+        decompressed_path = run_dir / artifact_name.removesuffix(".gz")
+        if decompressed_path.is_file():
+            return "present"
+    return "missing"
+
+
+def _starter_pack_build_baseline_trace_parity_cues(
+    *,
+    comparison_pairs: list[dict[str, Any]],
+    run_rows: list[dict[str, Any]],
+    run_dir_by_id: dict[str, Path],
+) -> dict[str, Any]:
+    row_by_run_id = {
+        str(row.get("run_id") or "").strip(): row
+        for row in run_rows
+        if isinstance(row, dict) and str(row.get("run_id") or "").strip()
+    }
+    artifact_names = (
+        "need_to_know_summary.json",
+        PROMPT_WARNING_AGGREGATE_FILE_NAME,
+        PROJECTION_TRACE_FILE_NAME,
+        WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
+        PREPROCESS_TRACE_FAILURES_FILE_NAME,
+    )
+    pair_rows: list[dict[str, Any]] = []
+    parity_counter: Counter[str] = Counter()
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_payload = pair.get("codex_run")
+        baseline_payload = pair.get("baseline_run")
+        if not isinstance(codex_payload, dict) or not isinstance(baseline_payload, dict):
+            continue
+        codex_run_id = str(codex_payload.get("run_id") or "").strip()
+        baseline_run_id = str(baseline_payload.get("run_id") or "").strip()
+        codex_row = row_by_run_id.get(codex_run_id, {})
+        baseline_row = row_by_run_id.get(baseline_run_id, {})
+        codex_dir = run_dir_by_id.get(codex_run_id)
+        baseline_dir = run_dir_by_id.get(baseline_run_id)
+        codex_enabled = _upload_bundle_is_codex_pipeline_enabled(
+            codex_row.get("llm_recipe_pipeline")
+        )
+        baseline_enabled = _upload_bundle_is_codex_pipeline_enabled(
+            baseline_row.get("llm_recipe_pipeline")
+        )
+        codex_statuses: dict[str, str] = {}
+        baseline_statuses: dict[str, str] = {}
+        for artifact_name in artifact_names:
+            codex_statuses[artifact_name] = (
+                _starter_pack_status_for_artifact(
+                    run_dir=codex_dir,
+                    artifact_name=artifact_name,
+                    codex_enabled=codex_enabled,
+                )
+                if isinstance(codex_dir, Path)
+                else "missing"
+            )
+            baseline_statuses[artifact_name] = (
+                _starter_pack_status_for_artifact(
+                    run_dir=baseline_dir,
+                    artifact_name=artifact_name,
+                    codex_enabled=baseline_enabled,
+                )
+                if isinstance(baseline_dir, Path)
+                else "missing"
+            )
+        parity_flags = {
+            "need_to_know_summary_parity": (
+                codex_statuses.get("need_to_know_summary.json")
+                == baseline_statuses.get("need_to_know_summary.json")
+            ),
+            "wrong_label_context_parity": (
+                codex_statuses.get(WRONG_LABEL_FULL_CONTEXT_FILE_NAME)
+                == baseline_statuses.get(WRONG_LABEL_FULL_CONTEXT_FILE_NAME)
+            ),
+            "codex_only_trace_fields_expected": True,
+            "codex_only_trace_fields_present_for_codex": all(
+                codex_statuses.get(name) == "present"
+                for name in (
+                    PROMPT_WARNING_AGGREGATE_FILE_NAME,
+                    PROJECTION_TRACE_FILE_NAME,
+                    PREPROCESS_TRACE_FAILURES_FILE_NAME,
+                )
+            ),
+            "codex_only_trace_fields_not_applicable_for_baseline": all(
+                baseline_statuses.get(name) == "not_applicable"
+                for name in (
+                    PROMPT_WARNING_AGGREGATE_FILE_NAME,
+                    PROJECTION_TRACE_FILE_NAME,
+                    PREPROCESS_TRACE_FAILURES_FILE_NAME,
+                )
+            ),
+        }
+        parity_counter["pair_rows"] += 1
+        if all(bool(value) for value in parity_flags.values()):
+            parity_counter["fully_ready_pairs"] += 1
+        pair_rows.append(
+            {
+                "source_key": str(pair.get("source_key") or ""),
+                "codex_run_id": codex_run_id,
+                "baseline_run_id": baseline_run_id,
+                "codex_statuses": codex_statuses,
+                "baseline_statuses": baseline_statuses,
+                "parity_flags": parity_flags,
+            }
+        )
+
+    return {
+        "schema_version": "starter_pack_baseline_trace_parity.v1",
+        "artifact_names": list(artifact_names),
+        "pair_count": len(pair_rows),
+        "fully_ready_pairs": int(parity_counter.get("fully_ready_pairs") or 0),
+        "pair_rows": pair_rows,
+    }
+
+
+def _upload_bundle_build_triage_packet_rows(
+    recipe_triage_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for rank, row in enumerate(
+        _upload_bundle_sort_recipe_triage_rows(recipe_triage_rows),
+        start=1,
+    ):
+        rows.append(
+            {
+                "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
+                "triage_rank": rank,
+                "source_key": str(row.get("source_key") or ""),
+                "codex_run_id": str(row.get("codex_run_id") or row.get("run_id") or ""),
+                "baseline_run_id": str(row.get("baseline_run_id") or ""),
+                "recipe_id": str(row.get("recipe_id") or ""),
+                "short_title": str(row.get("short_title") or ""),
+                "line_total": int(_coerce_int(row.get("line_total")) or 0),
+                "changed_lines_codex_vs_baseline": int(
+                    _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
+                ),
+                "baseline_accuracy": _coerce_float(row.get("baseline_accuracy")),
+                "codex_accuracy": _coerce_float(row.get("codex_accuracy")),
+                "delta_codex_minus_baseline": _coerce_float(
+                    row.get("delta_codex_minus_baseline")
+                ),
+                "pass1_status": str(row.get("pass1_status") or ""),
+                "pass2_status": str(row.get("pass2_status") or ""),
+                "pass3_status": str(row.get("pass3_status") or ""),
+                "pass2_warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+                "pass3_warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+                "pass3_empty_mapping": bool(row.get("pass3_empty_mapping")),
+                "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
+                "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
+                "pass3_fallback_reason": str(row.get("pass3_fallback_reason") or ""),
+                "transport_mismatch": bool(row.get("transport_mismatch")),
+            }
+        )
+    return rows
+
+
+def _upload_bundle_status_is_problem(value: Any) -> bool:
+    status = str(value or "").strip().lower()
+    if not status:
+        return False
+    non_problem = {
+        "ok",
+        "success",
+        "successful",
+        "complete",
+        "completed",
+        "ready",
+        "written",
+        "available",
+        "not_applicable",
+        "unknown",
+    }
+    return status not in non_problem
+
+
+def _upload_bundle_recipe_ids_equivalent(left: str, right: str) -> bool:
+    left_text = str(left or "").strip()
+    right_text = str(right or "").strip()
+    if not left_text or not right_text:
+        return False
+    if left_text == right_text:
+        return True
+    return _upload_bundle_matches_recipe_target(
+        recipe_id=left_text,
+        target=right_text,
+    ) or _upload_bundle_matches_recipe_target(
+        recipe_id=right_text,
+        target=left_text,
+    )
+
+
+def _upload_bundle_collect_line_role_prediction_rows(
+    *,
+    source_root: Path,
+    run_dir_by_id: dict[str, Path],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    rows: list[dict[str, Any]] = []
+    relative_paths: list[str] = []
+    for run_id, run_dir_value in sorted(run_dir_by_id.items(), key=lambda item: item[0]):
+        run_dir = run_dir_value if isinstance(run_dir_value, Path) else None
+        if run_dir is None:
+            continue
+        path = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
+        if not path.is_file():
+            continue
+        try:
+            relative_paths.append(str(path.relative_to(source_root).as_posix()))
+        except ValueError:
+            relative_paths.append(str(path))
+        for row in _iter_jsonl(path):
+            if not isinstance(row, dict):
+                continue
+            row_payload = dict(row)
+            row_payload["run_id"] = str(row_payload.get("run_id") or run_id)
+            row_payload["recipe_id"] = str(row_payload.get("recipe_id") or "")
+            row_payload["line_index"] = _coerce_int(row_payload.get("line_index"))
+            row_payload["atomic_index"] = _coerce_int(row_payload.get("atomic_index"))
+            row_payload["label"] = str(row_payload.get("label") or "OTHER").strip().upper() or "OTHER"
+            row_payload["decided_by"] = (
+                str(row_payload.get("decided_by") or "").strip().lower() or "unknown"
+            )
+            row_payload["confidence"] = _coerce_float(row_payload.get("confidence"))
+            row_payload["candidate_labels"] = _upload_bundle_extract_candidate_labels(row_payload)
+            rows.append(row_payload)
+    return rows, sorted(set(relative_paths))
+
+
+def _upload_bundle_build_low_confidence_changed_lines_packet(
+    *,
+    source_root: Path,
+    run_dir_by_id: dict[str, Path],
+    changed_line_rows: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    prediction_rows, prediction_files = _upload_bundle_collect_line_role_prediction_rows(
+        source_root=source_root,
+        run_dir_by_id=run_dir_by_id,
+    )
+    if not prediction_rows:
+        return (
+            {
+                "schema_version": UPLOAD_BUNDLE_LOW_CONFIDENCE_CHANGED_LINES_SCHEMA_VERSION,
+                "available": False,
+                "low_confidence_threshold": UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD,
+                "prediction_files": prediction_files,
+                "changed_line_rows_considered": len(changed_line_rows),
+                "row_count": 0,
+                "sample_rows": [],
+                "unavailable_reason": (
+                    "line-role-pipeline/line_role_predictions.jsonl not found in discovered run roots"
+                ),
+            },
+            [],
+        )
+
+    predictions_by_run_line: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for row in prediction_rows:
+        run_id = str(row.get("run_id") or "")
+        line_index = _coerce_int(row.get("line_index"))
+        if not run_id or line_index is None:
+            continue
+        predictions_by_run_line[(run_id, int(line_index))].append(row)
+
+    def _pick_prediction_row(
+        *,
+        candidates: list[dict[str, Any]],
+        recipe_id: str,
+    ) -> dict[str, Any] | None:
+        if not candidates:
+            return None
+        recipe_text = str(recipe_id or "").strip()
+        if recipe_text:
+            for candidate in candidates:
+                candidate_recipe = str(candidate.get("recipe_id") or "").strip()
+                if _upload_bundle_recipe_ids_equivalent(candidate_recipe, recipe_text):
+                    return candidate
+        for candidate in candidates:
+            if not str(candidate.get("recipe_id") or "").strip():
+                return candidate
+        return candidates[0]
+
+    packet_rows: list[dict[str, Any]] = []
+    for changed_row in changed_line_rows:
+        if not isinstance(changed_row, dict):
+            continue
+        codex_run_id = str(changed_row.get("codex_run_id") or "").strip()
+        line_index = _coerce_int(changed_row.get("line_index"))
+        if not codex_run_id or line_index is None:
+            continue
+        candidates = predictions_by_run_line.get((codex_run_id, int(line_index)), [])
+        if not candidates:
+            continue
+        selected = _pick_prediction_row(
+            candidates=candidates,
+            recipe_id=str(changed_row.get("recipe_id") or ""),
+        )
+        if not isinstance(selected, dict):
+            continue
+        confidence = _coerce_float(selected.get("confidence"))
+        if confidence is None or confidence >= UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD:
+            continue
+        packet_rows.append(
+            {
+                "source_key": str(changed_row.get("source_key") or ""),
+                "codex_run_id": codex_run_id,
+                "baseline_run_id": str(changed_row.get("baseline_run_id") or ""),
+                "recipe_id": str(changed_row.get("recipe_id") or ""),
+                "line_index": int(line_index),
+                "atomic_index": _coerce_int(selected.get("atomic_index")),
+                "confidence": float(confidence),
+                "label": str(selected.get("label") or "OTHER"),
+                "decided_by": str(selected.get("decided_by") or "unknown"),
+                "candidate_labels": _coerce_str_list(selected.get("candidate_labels")),
+                "gold_label": str(changed_row.get("gold_label") or ""),
+                "baseline_pred": str(
+                    changed_row.get("vanilla_pred") or changed_row.get("baseline_pred") or ""
+                ),
+                "codex_pred": str(changed_row.get("codex_pred") or ""),
+                "changed_line_bucket": _upload_bundle_changed_line_bucket(changed_row),
+                "text_excerpt": _excerpt(
+                    str(selected.get("text") or changed_row.get("current_line") or ""),
+                    max_len=220,
+                ),
+                "current_line": str(changed_row.get("current_line") or ""),
+                "previous_line": str(changed_row.get("previous_line") or ""),
+                "next_line": str(changed_row.get("next_line") or ""),
+            }
+        )
+    packet_rows.sort(
+        key=lambda row: (
+            _float_or_zero(row.get("confidence")),
+            str(row.get("recipe_id") or ""),
+            int(_coerce_int(row.get("line_index")) or 0),
+        )
+    )
+
+    return (
+        {
+            "schema_version": UPLOAD_BUNDLE_LOW_CONFIDENCE_CHANGED_LINES_SCHEMA_VERSION,
+            "available": True,
+            "low_confidence_threshold": UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD,
+            "prediction_files": prediction_files,
+            "changed_line_rows_considered": len(changed_line_rows),
+            "matched_prediction_rows": len(packet_rows),
+            "row_count": len(packet_rows),
+            "empty_packet_note": (
+                ""
+                if packet_rows
+                else (
+                    "No changed lines intersected low-confidence line-role predictions below "
+                    f"{UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD:.2f}."
+                )
+            ),
+            "sample_rows": packet_rows[:40],
+        },
+        packet_rows,
+    )
+
+
+def _upload_bundle_build_net_error_blame_summary(
+    *,
+    changed_line_rows: list[dict[str, Any]],
+    recipe_triage_rows: list[dict[str, Any]],
+    comparison_pairs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    line_role_pipeline_by_run_id: dict[str, str] = {}
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_run = pair.get("codex_run")
+        if not isinstance(codex_run, dict):
+            continue
+        run_id = str(codex_run.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        line_role_pipeline_by_run_id[run_id] = str(
+            codex_run.get("line_role_pipeline") or "off"
+        ).strip()
+
+    triage_by_full_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    triage_by_partial_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in recipe_triage_rows:
+        if not isinstance(row, dict):
+            continue
+        source_key = str(row.get("source_key") or "")
+        codex_run_id = str(row.get("codex_run_id") or row.get("run_id") or "")
+        baseline_run_id = str(row.get("baseline_run_id") or "")
+        recipe_id = str(row.get("recipe_id") or "")
+        if source_key and codex_run_id and recipe_id:
+            triage_by_partial_key.setdefault((source_key, codex_run_id, recipe_id), row)
+            triage_by_full_key.setdefault(
+                (source_key, codex_run_id, baseline_run_id, recipe_id),
+                row,
+            )
+
+    def _triage_row_for_changed_line(row: dict[str, Any]) -> dict[str, Any] | None:
+        source_key = str(row.get("source_key") or "")
+        codex_run_id = str(row.get("codex_run_id") or "")
+        baseline_run_id = str(row.get("baseline_run_id") or "")
+        recipe_id = str(row.get("recipe_id") or "")
+        key_full = (source_key, codex_run_id, baseline_run_id, recipe_id)
+        if key_full in triage_by_full_key:
+            return triage_by_full_key[key_full]
+        key_partial = (source_key, codex_run_id, recipe_id)
+        if key_partial in triage_by_partial_key:
+            return triage_by_partial_key[key_partial]
+        return None
+
+    def _blame_bucket_for_row(
+        *,
+        changed_row: dict[str, Any],
+        triage_row: dict[str, Any] | None,
+    ) -> str:
+        blame_bucket = "line_role"
+        if isinstance(triage_row, dict):
+            transport_mismatch = bool(triage_row.get("transport_mismatch"))
+            pass3_empty_mapping = bool(triage_row.get("pass3_empty_mapping"))
+            pass3_warning_count = int(_coerce_int(triage_row.get("pass3_warning_count")) or 0)
+            pass2_warning_count = int(_coerce_int(triage_row.get("pass2_warning_count")) or 0)
+            pass2_degradation = _coerce_str_list(triage_row.get("pass2_degradation_reasons"))
+            pass3_execution_mode = str(triage_row.get("pass3_execution_mode") or "").strip().lower()
+            pass3_routing_reason = str(triage_row.get("pass3_routing_reason") or "").strip()
+            pass3_fallback_reason = str(triage_row.get("pass3_fallback_reason") or "").strip()
+            pass3_status_problem = _upload_bundle_status_is_problem(triage_row.get("pass3_status"))
+            pass2_status_problem = _upload_bundle_status_is_problem(triage_row.get("pass2_status"))
+            pass3_mode_implies_fallback = pass3_execution_mode in {
+                "fallback",
+                "fallback_or_partial",
+                "projection_only",
+                "route_to_baseline",
+            }
+            if (
+                transport_mismatch
+                or pass3_mode_implies_fallback
+                or bool(pass3_routing_reason)
+                or bool(pass3_fallback_reason)
+            ):
+                blame_bucket = "routing_or_fallback"
+            elif pass3_empty_mapping or pass3_warning_count > 0 or pass3_status_problem:
+                blame_bucket = "pass3_mapping"
+            elif pass2_warning_count > 0 or bool(pass2_degradation) or pass2_status_problem:
+                blame_bucket = "pass2_extraction"
+            else:
+                codex_run_id = str(changed_row.get("codex_run_id") or "")
+                line_role_pipeline = (
+                    str(line_role_pipeline_by_run_id.get(codex_run_id) or "off").strip().lower()
+                )
+                if line_role_pipeline in {"", "off", "none"}:
+                    blame_bucket = "routing_or_fallback"
+                else:
+                    blame_bucket = "line_role"
+        return blame_bucket
+
+    new_bucket_counts: Counter[str] = Counter()
+    fixed_bucket_counts: Counter[str] = Counter()
+    bucket_samples: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    new_error_rows = 0
+    fixed_error_rows = 0
+
+    for row in changed_line_rows:
+        if not isinstance(row, dict):
+            continue
+        bucket = _upload_bundle_changed_line_bucket(row)
+        if bucket not in {"new_error", "fixed_error"}:
+            continue
+        triage_row = _triage_row_for_changed_line(row)
+        blame_bucket = _blame_bucket_for_row(changed_row=row, triage_row=triage_row)
+        if bucket == "fixed_error":
+            fixed_error_rows += 1
+            fixed_bucket_counts[blame_bucket] += 1
+            continue
+        new_error_rows += 1
+        new_bucket_counts[blame_bucket] += 1
+        if len(bucket_samples[blame_bucket]) < 12:
+            bucket_samples[blame_bucket].append(
+                {
+                    "source_key": str(row.get("source_key") or ""),
+                    "codex_run_id": str(row.get("codex_run_id") or ""),
+                    "baseline_run_id": str(row.get("baseline_run_id") or ""),
+                    "recipe_id": str(row.get("recipe_id") or ""),
+                    "line_index": int(_coerce_int(row.get("line_index")) or 0),
+                    "gold_label": str(row.get("gold_label") or ""),
+                    "baseline_pred": str(
+                        row.get("vanilla_pred") or row.get("baseline_pred") or ""
+                    ),
+                    "codex_pred": str(row.get("codex_pred") or ""),
+                }
+            )
+
+    ordered_buckets = [
+        "line_role",
+        "pass2_extraction",
+        "pass3_mapping",
+        "routing_or_fallback",
+    ]
+    net_error_delta_lines = int(new_error_rows - fixed_error_rows)
+    new_error_denominator = new_error_rows if new_error_rows > 0 else 1
+    fixed_error_denominator = fixed_error_rows if fixed_error_rows > 0 else 1
+    bucket_rows: list[dict[str, Any]] = []
+    for bucket_name in ordered_buckets:
+        new_count = int(new_bucket_counts.get(bucket_name) or 0)
+        fixed_count = int(fixed_bucket_counts.get(bucket_name) or 0)
+        net_count = int(new_count - fixed_count)
+        bucket_rows.append(
+            {
+                "bucket": bucket_name,
+                "count": new_count,
+                "new_error_count": new_count,
+                "fixed_error_count": fixed_count,
+                "net_error_count": net_count,
+                "share_of_new_errors": round(new_count / new_error_denominator, 6),
+                "share_of_fixed_errors": round(fixed_count / fixed_error_denominator, 6),
+                "share_of_net_error": (
+                    round(net_count / net_error_delta_lines, 6)
+                    if net_error_delta_lines != 0
+                    else None
+                ),
+                "sample_rows": bucket_samples.get(bucket_name, []),
+            }
+        )
+
+    return {
+        "schema_version": UPLOAD_BUNDLE_NET_ERROR_BLAME_SCHEMA_VERSION,
+        "bucket_definitions": {
+            "line_role": "Rows where codex line-role decisions are most likely responsible.",
+            "pass2_extraction": "Rows with pass2 warnings/degradation signals suggesting extraction-stage loss.",
+            "pass3_mapping": "Rows with pass3 empty-mapping/warning/status signals indicating mapping-stage loss.",
+            "routing_or_fallback": "Rows with transport mismatch or explicit fallback/routing signals.",
+        },
+        "share_semantics": {
+            "share_of_new_errors": "bucket.new_error_count / new_error_lines",
+            "share_of_fixed_errors": "bucket.fixed_error_count / fixed_error_lines",
+            "share_of_net_error": (
+                "bucket.net_error_count / net_error_delta_lines (null when net_error_delta_lines=0)"
+            ),
+        },
+        "new_error_lines": new_error_rows,
+        "fixed_error_lines": fixed_error_rows,
+        "net_error_delta_lines": net_error_delta_lines,
+        "bucket_rows": bucket_rows,
+    }
+
+
+def _upload_bundle_is_codex_pipeline_enabled(value: Any) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized not in {"", "off", "none", "false", "0"}
+
+
+def _upload_bundle_build_config_version_metadata(
+    *,
+    source_root: Path,
+    run_rows: list[dict[str, Any]],
+    comparison_pairs: list[dict[str, Any]],
+    run_dir_by_id: dict[str, Path],
+) -> dict[str, Any]:
+    settings_keys = list(RUN_CONFIG_KEYS_OF_INTEREST) + ["prediction_run_config_hash"]
+    run_rows_by_id: dict[str, dict[str, Any]] = {}
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        run_id = str(row.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        run_rows_by_id.setdefault(run_id, row)
+
+    run_settings_rows: list[dict[str, Any]] = []
+    for run_id in sorted(run_rows_by_id.keys()):
+        row = run_rows_by_id[run_id]
+        run_dir = run_dir_by_id.get(run_id)
+        run_manifest: dict[str, Any] = {}
+        eval_report: dict[str, Any] = {}
+        if isinstance(run_dir, Path):
+            run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
+            eval_report = _upload_bundle_load_json_object(run_dir / "eval_report.json")
+        run_config = run_manifest.get("run_config")
+        run_config = run_config if isinstance(run_config, dict) else {}
+
+        settings: dict[str, Any] = {}
+        for key in settings_keys:
+            if key in run_config:
+                settings[key] = run_config.get(key)
+            elif key in row:
+                settings[key] = row.get(key)
+            else:
+                settings[key] = None
+
+        run_settings_rows.append(
+            {
+                "run_id": run_id,
+                "output_subdir": str(row.get("output_subdir") or ""),
+                "source_file": row.get("source_file"),
+                "llm_recipe_pipeline": settings.get("llm_recipe_pipeline"),
+                "line_role_pipeline": settings.get("line_role_pipeline"),
+                "atomic_block_splitter": settings.get("atomic_block_splitter"),
+                "prediction_run_config_hash": settings.get("prediction_run_config_hash"),
+                "run_manifest_schema_version": run_manifest.get("schema_version"),
+                "eval_report_schema_version": eval_report.get("schema_version"),
+                "settings": settings,
+            }
+        )
+
+    allowed_pair_setting_differences = {
+        "llm_recipe_pipeline",
+        "line_role_pipeline",
+        "atomic_block_splitter",
+        "prediction_run_config_hash",
+    }
+    pair_delta_rows: list[dict[str, Any]] = []
+    non_comparable_key_counts: Counter[str] = Counter()
+    comparable_pair_count = 0
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        run_config_differences = pair.get("run_config_differences")
+        run_config_differences = (
+            run_config_differences if isinstance(run_config_differences, dict) else {}
+        )
+        differing_keys = sorted(run_config_differences.keys())
+        non_comparable_keys = [
+            key for key in differing_keys if key not in allowed_pair_setting_differences
+        ]
+        for key in non_comparable_keys:
+            non_comparable_key_counts[key] += 1
+        is_comparable = len(non_comparable_keys) == 0
+        if is_comparable:
+            comparable_pair_count += 1
+        pair_delta_rows.append(
+            {
+                "source_key": str(pair.get("source_key") or ""),
+                "codex_run_id": str(
+                    ((pair.get("codex_run") or {}).get("run_id"))
+                    if isinstance(pair.get("codex_run"), dict)
+                    else ""
+                ),
+                "baseline_run_id": str(
+                    ((pair.get("baseline_run") or {}).get("run_id"))
+                    if isinstance(pair.get("baseline_run"), dict)
+                    else ""
+                ),
+                "is_config_comparable": is_comparable,
+                "differing_keys": differing_keys,
+                "non_comparable_keys": non_comparable_keys,
+                "run_config_differences": run_config_differences,
+            }
+        )
+
+    return {
+        "schema_version": UPLOAD_BUNDLE_CONFIG_VERSION_METADATA_SCHEMA_VERSION,
+        "generator": {
+            "script": "scripts/benchmark_cutdown_for_external_ai.py",
+            "bundle_version": "upload_bundle.v1",
+            "generated_at": _timestamp_now(),
+            "source_root": str(source_root),
+        },
+        "settings_keys_of_interest": settings_keys,
+        "settings_compatibility_policy": {
+            "allowed_pair_setting_differences": sorted(allowed_pair_setting_differences),
+            "rule": (
+                "Pairs are config-comparable when differences are limited to intentional "
+                "codex-vs-baseline toggles (llm/line-role/splitter/config-hash)."
+            ),
+        },
+        "runs": run_settings_rows,
+        "pair_comparability": {
+            "pair_count": len(pair_delta_rows),
+            "config_compatible_pair_count": comparable_pair_count,
+            "config_compatible_pair_ratio": (
+                round(comparable_pair_count / len(pair_delta_rows), 6)
+                if pair_delta_rows
+                else 1.0
+            ),
+            "non_comparable_key_counts": _counter_to_sorted_dict(non_comparable_key_counts),
+        },
+        "pair_setting_deltas": pair_delta_rows,
+    }
+
+
 def _upload_bundle_build_alias_metadata(
     *,
     artifact_index: list[dict[str, Any]],
@@ -8526,6 +9380,9 @@ def _write_upload_bundle_three_files(
         output_subdir = str(row.get("output_subdir") or "")
         if not output_subdir:
             continue
+        codex_enabled = _upload_bundle_is_codex_pipeline_enabled(
+            row.get("llm_recipe_pipeline")
+        )
         summary_path = source_root / output_subdir / "need_to_know_summary.json"
         summary_payload = _load_json(summary_path) if summary_path.is_file() else {}
         sample_counts = summary_payload.get("sample_counts")
@@ -8554,6 +9411,16 @@ def _write_upload_bundle_three_files(
             derived_status = str(derived_statuses.get(name) or "").strip()
             if derived_status:
                 return derived_status
+            if (
+                not codex_enabled
+                and name
+                in {
+                    PROMPT_WARNING_AGGREGATE_FILE_NAME,
+                    PROJECTION_TRACE_FILE_NAME,
+                    PREPROCESS_TRACE_FAILURES_FILE_NAME,
+                }
+            ):
+                return "not_applicable"
             return sample_status
 
         run_diagnostics.append(
@@ -8650,6 +9517,41 @@ def _write_upload_bundle_three_files(
     changed_line_stratified = _upload_bundle_build_changed_line_stratified_sample(
         changed_line_rows
     )
+    triage_packet_rows = _upload_bundle_build_triage_packet_rows(recipe_triage_rows)
+    triage_packet_summary = {
+        "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
+        "row_count": len(triage_packet_rows),
+        "empty_packet_note": (
+            ""
+            if triage_packet_rows
+            else "No triage rows were available from source or derived comparison artifacts."
+        ),
+        "sample_rows": triage_packet_rows[:40],
+    }
+    net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
+        changed_line_rows=changed_line_rows,
+        recipe_triage_rows=recipe_triage_rows,
+        comparison_pairs=comparison_pairs,
+    )
+    config_version_metadata = _upload_bundle_build_config_version_metadata(
+        source_root=source_root,
+        run_rows=run_rows,
+        comparison_pairs=comparison_pairs,
+        run_dir_by_id=run_dir_by_id,
+    )
+    baseline_trace_parity = _starter_pack_build_baseline_trace_parity_cues(
+        comparison_pairs=comparison_pairs,
+        run_rows=run_rows,
+        run_dir_by_id=run_dir_by_id,
+    )
+    (
+        low_confidence_changed_lines_summary,
+        low_confidence_changed_lines_rows,
+    ) = _upload_bundle_build_low_confidence_changed_lines_packet(
+        source_root=source_root,
+        run_dir_by_id=run_dir_by_id,
+        changed_line_rows=changed_line_rows,
+    )
     derived_root_prefix = f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root"
     derived_starter_prefix = f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{STARTER_PACK_DIR_NAME}"
     derived_root_paths = {
@@ -8660,9 +9562,19 @@ def _write_upload_bundle_three_files(
         "per_recipe_breakdown_json": f"{derived_root_prefix}/{PER_RECIPE_BREAKDOWN_FILE_NAME}",
         "targeted_prompt_cases_md": f"{derived_root_prefix}/{TARGETED_PROMPT_CASES_FILE_NAME}",
         "label_policy_notes_md": f"{derived_root_prefix}/{LABEL_POLICY_NOTES_FILE_NAME}",
+        "triage_packet_jsonl": f"{derived_root_prefix}/{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}",
+        "net_error_blame_summary_json": f"{derived_root_prefix}/net_error_blame_summary.json",
+        "config_version_metadata_json": f"{derived_root_prefix}/config_version_metadata.json",
+        "baseline_trace_parity_json": (
+            f"{derived_root_prefix}/{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}"
+        ),
+        "low_confidence_changed_lines_packet_jsonl": (
+            f"{derived_root_prefix}/low_confidence_changed_lines.packet.jsonl"
+        ),
     }
     derived_starter_paths = {
-        "triage_csv": f"{derived_starter_prefix}/{STARTER_PACK_TRIAGE_FILE_NAME}",
+        "triage_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_TRIAGE_FILE_NAME}",
+        "triage_packet_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}",
         "call_inventory_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_CALL_INVENTORY_FILE_NAME}",
         "changed_lines_jsonl": f"{derived_starter_prefix}/{STARTER_PACK_CHANGED_LINES_FILE_NAME}",
         "warning_trace_summary_json": (
@@ -8674,16 +9586,11 @@ def _write_upload_bundle_three_files(
         "manifest_json": f"{derived_starter_prefix}/{STARTER_PACK_MANIFEST_FILE_NAME}",
     }
 
-    sorted_recipe_triage_rows = sorted(
-        [row for row in recipe_triage_rows if isinstance(row, dict)],
-        key=lambda row: (
-            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
-            str(row.get("recipe_id") or ""),
-            str(row.get("source_key") or ""),
-            str(row.get("codex_run_id") or ""),
-        ),
-    )
+    sorted_recipe_triage_rows = _upload_bundle_sort_recipe_triage_rows(recipe_triage_rows)
+    serialized_sorted_recipe_triage_rows = [
+        _starter_pack_serialize_recipe_triage_row(row)
+        for row in sorted_recipe_triage_rows
+    ]
     derived_warning_trace_summary = _build_warning_and_trace_summary(
         call_inventory_rows=call_inventory_rows,
         recipe_triage_rows=recipe_triage_rows,
@@ -8763,12 +9670,39 @@ def _write_upload_bundle_three_files(
         content_text=_render_starter_pack_label_policy(),
     )
     _append_virtual_payload_row(
-        path=derived_starter_paths["triage_csv"],
-        content_type="csv",
-        content_text=_rows_to_csv_text(
-            sorted_recipe_triage_rows,
-            preferred_fieldnames=tuple(STARTER_PACK_TRIAGE_HEADER),
-        ),
+        path=derived_root_paths["triage_packet_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[dict(row) for row in triage_packet_rows],
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["net_error_blame_summary_json"],
+        content_type="json",
+        content_json=net_error_blame_summary,
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["config_version_metadata_json"],
+        content_type="json",
+        content_json=config_version_metadata,
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["baseline_trace_parity_json"],
+        content_type="json",
+        content_json=baseline_trace_parity,
+    )
+    _append_virtual_payload_row(
+        path=derived_root_paths["low_confidence_changed_lines_packet_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[dict(row) for row in low_confidence_changed_lines_rows],
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["triage_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=serialized_sorted_recipe_triage_rows,
+    )
+    _append_virtual_payload_row(
+        path=derived_starter_paths["triage_packet_jsonl"],
+        content_type="jsonl",
+        content_jsonl_rows=[dict(row) for row in triage_packet_rows],
     )
     _append_virtual_payload_row(
         path=derived_starter_paths["call_inventory_jsonl"],
@@ -8810,6 +9744,21 @@ def _write_upload_bundle_three_files(
         artifact_index=artifact_index,
         starter_manifest_payload=starter_manifest_payload,
     )
+    alias_to_canonical: dict[str, str] = {}
+    content_equivalent_groups = alias_metadata.get("content_equivalent_groups")
+    if isinstance(content_equivalent_groups, list):
+        for group in content_equivalent_groups:
+            if not isinstance(group, dict):
+                continue
+            canonical_path = str(group.get("canonical_path") or "").strip()
+            if not canonical_path:
+                continue
+            alias_paths = group.get("alias_paths")
+            alias_paths = alias_paths if isinstance(alias_paths, list) else []
+            for alias_path in alias_paths:
+                alias_text = str(alias_path or "").strip()
+                if alias_text:
+                    alias_to_canonical[alias_text] = canonical_path
 
     run_count_verified = len(run_rows)
     if run_count_verified <= 0:
@@ -8907,6 +9856,22 @@ def _write_upload_bundle_three_files(
         lowered = path.lower()
         return any(marker in lowered for marker in heavy_markers)
 
+    locator_alias_rewrites = 0
+
+    def _canonical_locator(path: str, payload_row: int) -> dict[str, Any]:
+        nonlocal locator_alias_rewrites
+        canonical_path = alias_to_canonical.get(path)
+        if canonical_path:
+            canonical_payload_row = artifact_row_lookup.get(canonical_path)
+            if canonical_payload_row is not None:
+                locator_alias_rewrites += 1
+                return {
+                    "path": canonical_path,
+                    "payload_row": int(canonical_payload_row),
+                    "alias_path": path,
+                }
+        return {"path": path, "payload_row": int(payload_row)}
+
     def _payload_locator(
         *,
         paths: tuple[str, ...] = (),
@@ -8915,7 +9880,7 @@ def _write_upload_bundle_three_files(
         for path in paths:
             payload_row = artifact_row_lookup.get(path)
             if payload_row is not None:
-                return {"path": path, "payload_row": int(payload_row)}
+                return _canonical_locator(path, int(payload_row))
         for basename in basenames:
             candidate_paths = artifact_paths_by_basename.get(basename, [])
             best_path = _best_locator_path(candidate_paths)
@@ -8923,7 +9888,7 @@ def _write_upload_bundle_three_files(
                 continue
             payload_row = artifact_row_lookup.get(best_path)
             if payload_row is not None:
-                return {"path": best_path, "payload_row": int(payload_row)}
+                return _canonical_locator(best_path, int(payload_row))
         return None
 
     heavy_artifact_locators = [
@@ -9032,13 +9997,63 @@ def _write_upload_bundle_three_files(
                     STARTER_PACK_LABEL_POLICY_FILE_NAME,
                 ),
             ),
+            "triage_packet_jsonl": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}",
+                    derived_starter_paths["triage_packet_jsonl"],
+                    derived_root_paths["triage_packet_jsonl"],
+                ),
+                basenames=(STARTER_PACK_TRIAGE_PACKET_FILE_NAME,),
+            ),
+            "net_error_blame_summary_json": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_NET_ERROR_BLAME_FILE_NAME}",
+                    derived_root_paths["net_error_blame_summary_json"],
+                ),
+                basenames=(
+                    STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+                    "net_error_blame_summary.json",
+                ),
+            ),
+            "config_version_metadata_json": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}",
+                    derived_root_paths["config_version_metadata_json"],
+                ),
+                basenames=(
+                    STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
+                    "config_version_metadata.json",
+                ),
+            ),
+            "low_confidence_changed_lines_packet_jsonl": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}",
+                    derived_root_paths["low_confidence_changed_lines_packet_jsonl"],
+                ),
+                basenames=(
+                    STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
+                    "low_confidence_changed_lines.packet.jsonl",
+                ),
+            ),
         },
         "starter_pack": {
-            "triage_csv": _payload_locator(
+            "triage_packet_jsonl": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}",
+                    derived_starter_paths["triage_packet_jsonl"],
+                    derived_root_paths["triage_packet_jsonl"],
+                )
+            ),
+            "triage_jsonl": _payload_locator(
                 paths=(
                     f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}",
-                    derived_starter_paths["triage_csv"],
-                )
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME}",
+                    derived_starter_paths["triage_jsonl"],
+                ),
+                basenames=(
+                    STARTER_PACK_TRIAGE_FILE_NAME,
+                    STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME,
+                ),
             ),
             "call_inventory_jsonl": _payload_locator(
                 paths=(
@@ -9080,6 +10095,30 @@ def _write_upload_bundle_three_files(
                 paths=(
                     f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}",
                     derived_starter_paths["manifest_json"],
+                )
+            ),
+            "net_error_blame_summary_json": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_NET_ERROR_BLAME_FILE_NAME}",
+                    derived_root_paths["net_error_blame_summary_json"],
+                )
+            ),
+            "config_version_metadata_json": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}",
+                    derived_root_paths["config_version_metadata_json"],
+                )
+            ),
+            "low_confidence_changed_lines_packet_jsonl": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}",
+                    derived_root_paths["low_confidence_changed_lines_packet_jsonl"],
+                )
+            ),
+            "baseline_trace_parity_json": _payload_locator(
+                paths=(
+                    f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}",
+                    derived_root_paths["baseline_trace_parity_json"],
                 )
             ),
         },
@@ -9186,12 +10225,16 @@ def _write_upload_bundle_three_files(
             "default_initial_views": [
                 "topline",
                 "self_check",
+                "analysis.triage_packet",
+                "analysis.net_error_blame_summary",
+                "analysis.config_version_metadata",
                 "analysis.per_label_metrics",
                 "analysis.per_recipe_breakdown",
                 "analysis.stage_separated_comparison",
                 "analysis.failure_ledger",
                 "analysis.regression_casebook",
                 "analysis.changed_lines_stratified_sample",
+                "analysis.low_confidence_changed_lines_packet",
                 "analysis.call_inventory_runtime",
                 "analysis.line_role_confidence_or_candidates",
             ],
@@ -9205,12 +10248,29 @@ def _write_upload_bundle_three_files(
                 PER_RECIPE_BREAKDOWN_FILE_NAME,
                 TARGETED_PROMPT_CASES_FILE_NAME,
                 LABEL_POLICY_NOTES_FILE_NAME,
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_FILE_NAME}",
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}",
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_NET_ERROR_BLAME_FILE_NAME}",
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}",
+                (
+                    f"{STARTER_PACK_DIR_NAME}/"
+                    f"{STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME}"
+                ),
+                f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}",
             ],
             "starter_pack_root": STARTER_PACK_DIR_NAME,
             "per_run_summary_paths": [
                 item["need_to_know_summary_path"] for item in run_diagnostics
             ],
             "row_locators": row_locators,
+            "alias_dedupe": {
+                "content_equivalent_group_count": len(
+                    alias_metadata.get("content_equivalent_groups")
+                    if isinstance(alias_metadata.get("content_equivalent_groups"), list)
+                    else []
+                ),
+                "locator_alias_rewrites": locator_alias_rewrites,
+            },
             "deprioritized_patterns": list(heavy_markers),
             "full_payload_companion": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
         },
@@ -9233,6 +10293,9 @@ def _write_upload_bundle_three_files(
                 },
                 "pairs": pair_inventory,
             },
+            "triage_packet": triage_packet_summary,
+            "net_error_blame_summary": net_error_blame_summary,
+            "config_version_metadata": config_version_metadata,
             "per_label_metrics": per_label_metrics,
             "top_confusion_deltas": _aggregate_confusion_deltas(
                 {"pairs": comparison_pairs},
@@ -9246,6 +10309,7 @@ def _write_upload_bundle_three_files(
             "failure_ledger": failure_ledger,
             "regression_casebook": regression_casebook,
             "changed_lines_stratified_sample": changed_line_stratified,
+            "low_confidence_changed_lines_packet": low_confidence_changed_lines_summary,
             "call_inventory_runtime": call_runtime_inventory,
             "line_role_confidence_or_candidates": line_role_signal_summary,
             "selected_recipe_packets": {
@@ -9275,8 +10339,9 @@ def _write_upload_bundle_three_files(
         "## Quick Start",
         "",
         "1. Read `topline` and `self_check` in `upload_bundle_index.json`.",
-        "2. Open `navigation.default_initial_views` in order for first-pass triage.",
-        "3. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",
+        "2. Start with `analysis.triage_packet` (JSONL-first triage rows).",
+        "3. Open `navigation.default_initial_views` in order for first-pass triage.",
+        "4. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",
         "",
         "## Topline",
         "",
@@ -9327,12 +10392,16 @@ def _write_upload_bundle_three_files(
         [
             "## Included Views",
             "",
+            "- triage packet (JSONL-first row navigation; CSV remains legacy-compatible)",
+            "- net-error blame summary (line-role / pass2 / pass3 / routing-fallback buckets)",
+            "- config/version parity metadata",
             "- per-label metrics + confusion deltas",
             "- per-recipe breakdown",
             "- stage-separated comparison (baseline / line-role / pass2 / pass3 / final-fallback)",
             "- failure ledger (recipe x pass rows)",
             "- compact regression casebook",
             "- changed-lines stratified sample",
+            "- low-confidence changed-lines packet",
             "- call inventory with latency/tokens/cost",
             "- line-role confidence (and candidate-label signal when present)",
             "",
@@ -9390,8 +10459,78 @@ def _write_upload_bundle_three_files(
                 f"{'true' if bool(candidate_signal.get('available')) else 'false'}"
             ),
             (
+                "- triage_packet_rows: "
+                f"{int(triage_packet_summary.get('row_count') or 0)}"
+            ),
+            (
+                "- low_confidence_changed_lines_rows: "
+                f"{int(low_confidence_changed_lines_summary.get('row_count') or 0)}"
+            ),
+            (
                 "- critical_row_locator_coverage_ratio: "
                 f"{_serialize_float(_coerce_float(self_check.get('critical_row_locators_coverage_ratio')))}"
+            ),
+            "",
+        ]
+    )
+
+    blame_bucket_rows = net_error_blame_summary.get("bucket_rows")
+    blame_bucket_rows = blame_bucket_rows if isinstance(blame_bucket_rows, list) else []
+    if blame_bucket_rows:
+        overview_lines.extend(
+            [
+                "## Net-Error Blame Summary",
+                "",
+                f"- new_error_lines: {int(_coerce_int(net_error_blame_summary.get('new_error_lines')) or 0)}",
+                f"- fixed_error_lines: {int(_coerce_int(net_error_blame_summary.get('fixed_error_lines')) or 0)}",
+                (
+                    "- net_error_delta_lines: "
+                    f"{int(_coerce_int(net_error_blame_summary.get('net_error_delta_lines')) or 0)}"
+                ),
+            ]
+        )
+        for row in blame_bucket_rows:
+            if not isinstance(row, dict):
+                continue
+            overview_lines.append(
+                "- "
+                f"{str(row.get('bucket') or '')}: "
+                f"new={int(_coerce_int(row.get('new_error_count')) or _coerce_int(row.get('count')) or 0)} "
+                f"fixed={int(_coerce_int(row.get('fixed_error_count')) or 0)} "
+                f"net={int(_coerce_int(row.get('net_error_count')) or 0)} "
+                f"(share_of_net_error={_serialize_float(_coerce_float(row.get('share_of_net_error')))})"
+            )
+        overview_lines.append("")
+
+    pair_comparability = config_version_metadata.get("pair_comparability")
+    pair_comparability = pair_comparability if isinstance(pair_comparability, dict) else {}
+    non_comparable_key_counts = pair_comparability.get("non_comparable_key_counts")
+    non_comparable_key_counts = (
+        non_comparable_key_counts if isinstance(non_comparable_key_counts, dict) else {}
+    )
+    overview_lines.extend(
+        [
+            "## Config / Version Parity",
+            "",
+            (
+                "- config_compatible_pair_count: "
+                f"{int(_coerce_int(pair_comparability.get('config_compatible_pair_count')) or 0)}"
+            ),
+            f"- pair_count: {int(_coerce_int(pair_comparability.get('pair_count')) or 0)}",
+            (
+                "- config_compatible_pair_ratio: "
+                f"{_serialize_float(_coerce_float(pair_comparability.get('config_compatible_pair_ratio')))}"
+            ),
+            (
+                "- non_comparable_keys: "
+                + (
+                    ", ".join(
+                        f"{str(key)}={int(_coerce_int(value) or 0)}"
+                        for key, value in sorted(non_comparable_key_counts.items())
+                    )
+                    if non_comparable_key_counts
+                    else "none"
+                )
             ),
             "",
         ]

@@ -1,0 +1,508 @@
+{
+  "bundle_name": "r0015_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c15.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b522",
+      "block_index": 522,
+      "normalized_lines": [
+        "2 cups/",
+        "275 g hard red winter wheat flour"
+      ],
+      "original_text": "2 cups/275 g hard red winter wheat flour",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b523",
+      "block_index": 523,
+      "normalized_lines": [
+        "11/2 cups/",
+        "275 g",
+        "100% hydration coarse rye starter"
+      ],
+      "original_text": "11/2 cups/275 g 100% hydration coarse rye starter",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b524",
+      "block_index": 524,
+      "normalized_lines": [
+        "3/4 teaspoon/",
+        "2 g fresh cake yeast"
+      ],
+      "original_text": "3/4 teaspoon/2 g fresh cake yeast",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b525",
+      "block_index": 525,
+      "normalized_lines": [
+        "1 tablespoon plus",
+        "1/4 teaspoon/",
+        "11 g salt"
+      ],
+      "original_text": "1 tablespoon plus 1/4 teaspoon/11 g salt",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b526",
+      "block_index": 526,
+      "normalized_lines": [
+        "1/4 cup/",
+        "35 g rye flour"
+      ],
+      "original_text": "1/4 cup/35 g rye flour",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b527",
+      "block_index": 527,
+      "normalized_lines": [
+        "1/4 cup/",
+        "35 g rice flour"
+      ],
+      "original_text": "1/4 cup/35 g rice flour",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b529",
+      "block_index": 529,
+      "normalized_lines": [
+        "Combine the hard red winter wheat flour with 3/4 cup/",
+        "190 g of water in the bowl of a stand mixer. Use your hands to mix the flour and water, cover the bowl with plastic wrap, and allow it to sit overnight."
+      ],
+      "original_text": "Combine the hard red winter wheat flour with 3/4 cup/190 g of water in the bowl of a stand mixer. Use your hands to mix the flour and water, cover the bowl with plastic wrap, and allow it to sit overnight.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b532",
+      "block_index": 532,
+      "normalized_lines": [
+        "Mix on low with a bread hook until the dough just comes together, about 1 minute. Let the dough rest in the bowl for",
+        "30 minutes at room temperature, then add the salt and mix on medium high until the dough comes together tightly around the hook, about",
+        "7 minutes."
+      ],
+      "original_text": "Mix on low with a bread hook until the dough just comes together, about 1 minute. Let the dough rest in the bowl for 30 minutes at room temperature, then add the salt and mix on medium high until the dough comes together tightly around the hook, about 7 minutes.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b534",
+      "block_index": 534,
+      "normalized_lines": [
+        "Remove the dough from the refrigerator, wet your hands, and, with the dough still in the bowl, fold it two thirds of the way over itself 4 times, giving it a quarter turn after each fold. Turn the dough over in the bowl, flipping it so the seams in the dough are at the bottom of the bowl. Wait",
+        "20 minutes and repeat the",
+        "4 folds, cover the bowl with plastic wrap, and refrigerate overnight."
+      ],
+      "original_text": "Remove the dough from the refrigerator, wet your hands, and, with the dough still in the bowl, fold it two thirds of the way over itself 4 times, giving it a quarter turn after each fold. Turn the dough over in the bowl, flipping it so the seams in the dough are at the bottom of the bowl. Wait 20 minutes and repeat the 4 folds, cover the bowl with plastic wrap, and refrigerate overnight.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b536",
+      "block_index": 536,
+      "normalized_lines": [
+        "Preheat the oven with a baking stone set inside to 500\u00b0F/",
+        "260\u00b0C. Combine the rye and rice flours and use them to dust a dough-rising basket."
+      ],
+      "original_text": "Preheat the oven with a baking stone set inside to 500\u00b0F/260\u00b0C. Combine the rye and rice flours and use them to dust a dough-rising basket.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b538",
+      "block_index": 538,
+      "normalized_lines": [
+        "In as few movements as possible, shape the dough into a ball on the counter, taking care not to tear it. The dough should be about 6 inches/",
+        "15 cm across."
+      ],
+      "original_text": "In as few movements as possible, shape the dough into a ball on the counter, taking care not to tear it. The dough should be about 6 inches/15 cm across.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b539",
+      "block_index": 539,
+      "normalized_lines": [
+        "Flip the dough over onto a clean, floured surface and gently form the dough into a ball by giving it about 4 quick quarter turns with cupped hands. Flip the dough one more time, then place it into the dough-rising basket and cover it with a plastic bag or lightly moistened towel. Proof the dough at about",
+        "70\u00b0F/21\u00b0C."
+      ],
+      "original_text": "Flip the dough over onto a clean, floured surface and gently form the dough into a ball by giving it about 4 quick quarter turns with cupped hands. Flip the dough one more time, then place it into the dough-rising basket and cover it with a plastic bag or lightly moistened towel. Proof the dough at about 70\u00b0F/21\u00b0C.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b540",
+      "block_index": 540,
+      "normalized_lines": [
+        "After 40 minutes, poke about",
+        "1/2 inch/",
+        "1 cm into the dough with a floured finger. It will be ready to bake when the surface of the dough springs back slowly and leaves a slight indent. If it springs back quickly and returns to its original shape, cover and check again in",
+        "10 minutes."
+      ],
+      "original_text": "After 40 minutes, poke about 1/2 inch/1 cm into the dough with a floured finger. It will be ready to bake when the surface of the dough springs back slowly and leaves a slight indent. If it springs back quickly and returns to its original shape, cover and check again in 10 minutes.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b542",
+      "block_index": 542,
+      "normalized_lines": [
+        "Bake for 20 minutes, then rotate the loaf",
+        "180 degrees and return to the oven for another",
+        "20 minutes. Rotate",
+        "180 degrees again and return to the oven for another",
+        "20 minutes. Test the bread to see if it is done; it should be dark golden brown with a firm bottom that makes a hollow sound when tapped."
+      ],
+      "original_text": "Bake for 20 minutes, then rotate the loaf 180 degrees and return to the oven for another 20 minutes. Rotate 180 degrees again and return to the oven for another 20 minutes. Test the bread to see if it is done; it should be dark golden brown with a firm bottom that makes a hollow sound when tapped.",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b520",
+      "source_block_index": 520,
+      "source_line_index": 0,
+      "text": "WHOLE WHEAT BREAD",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b521",
+      "source_block_index": 521,
+      "source_line_index": 0,
+      "text": "YIELDS 1 LOAF",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b522",
+      "source_block_index": 522,
+      "source_line_index": 0,
+      "text": "2 cups/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b522",
+      "source_block_index": 522,
+      "source_line_index": 0,
+      "text": "275 g hard red winter wheat flour",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b523",
+      "source_block_index": 523,
+      "source_line_index": 0,
+      "text": "11/2 cups/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b523",
+      "source_block_index": 523,
+      "source_line_index": 0,
+      "text": "275 g",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b523",
+      "source_block_index": 523,
+      "source_line_index": 0,
+      "text": "100% hydration coarse rye starter",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b524",
+      "source_block_index": 524,
+      "source_line_index": 0,
+      "text": "3/4 teaspoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b524",
+      "source_block_index": 524,
+      "source_line_index": 0,
+      "text": "2 g fresh cake yeast",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b525",
+      "source_block_index": 525,
+      "source_line_index": 0,
+      "text": "1 tablespoon plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b525",
+      "source_block_index": 525,
+      "source_line_index": 0,
+      "text": "1/4 teaspoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b525",
+      "source_block_index": 525,
+      "source_line_index": 0,
+      "text": "11 g salt",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b526",
+      "source_block_index": 526,
+      "source_line_index": 0,
+      "text": "1/4 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b526",
+      "source_block_index": 526,
+      "source_line_index": 0,
+      "text": "35 g rye flour",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b527",
+      "source_block_index": 527,
+      "source_line_index": 0,
+      "text": "1/4 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b527",
+      "source_block_index": 527,
+      "source_line_index": 0,
+      "text": "35 g rice flour",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b528",
+      "source_block_index": 528,
+      "source_line_index": 0,
+      "text": "DAY 1",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b529",
+      "source_block_index": 529,
+      "source_line_index": 0,
+      "text": "Combine the hard red winter wheat flour with 3/4 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b529",
+      "source_block_index": 529,
+      "source_line_index": 0,
+      "text": "190 g of water in the bowl of a stand mixer. Use your hands to mix the flour and water, cover the bowl with plastic wrap, and allow it to sit overnight.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b530",
+      "source_block_index": 530,
+      "source_line_index": 0,
+      "text": "DAY 2",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b531",
+      "source_block_index": 531,
+      "source_line_index": 0,
+      "text": "Add the coarse rye starter, breaking it up with your hands as you add it, along with the fresh cake yeast.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b532",
+      "source_block_index": 532,
+      "source_line_index": 0,
+      "text": "Mix on low with a bread hook until the dough just comes together, about 1 minute. Let the dough rest in the bowl for",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b532",
+      "source_block_index": 532,
+      "source_line_index": 0,
+      "text": "30 minutes at room temperature, then add the salt and mix on medium high until the dough comes together tightly around the hook, about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b532",
+      "source_block_index": 532,
+      "source_line_index": 0,
+      "text": "7 minutes.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b533",
+      "source_block_index": 533,
+      "source_line_index": 0,
+      "text": "Transfer the dough to an oiled, medium metal mixing bowl and refrigerate for 20 minutes.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b534",
+      "source_block_index": 534,
+      "source_line_index": 0,
+      "text": "Remove the dough from the refrigerator, wet your hands, and, with the dough still in the bowl, fold it two thirds of the way over itself 4 times, giving it a quarter turn after each fold. Turn the dough over in the bowl, flipping it so the seams in the dough are at the bottom of the bowl. Wait",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b534",
+      "source_block_index": 534,
+      "source_line_index": 0,
+      "text": "20 minutes and repeat the",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b534",
+      "source_block_index": 534,
+      "source_line_index": 0,
+      "text": "4 folds, cover the bowl with plastic wrap, and refrigerate overnight.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b535",
+      "source_block_index": 535,
+      "source_line_index": 0,
+      "text": "DAY 3",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b536",
+      "source_block_index": 536,
+      "source_line_index": 0,
+      "text": "Preheat the oven with a baking stone set inside to 500\u00b0F/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b536",
+      "source_block_index": 536,
+      "source_line_index": 0,
+      "text": "260\u00b0C. Combine the rye and rice flours and use them to dust a dough-rising basket.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b537",
+      "source_block_index": 537,
+      "source_line_index": 0,
+      "text": "Dust the counter with the same flour and transfer the cool dough to the counter, gently coaxing it from the bowl with a plastic dough card or your hand.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b538",
+      "source_block_index": 538,
+      "source_line_index": 0,
+      "text": "In as few movements as possible, shape the dough into a ball on the counter, taking care not to tear it. The dough should be about 6 inches/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b538",
+      "source_block_index": 538,
+      "source_line_index": 0,
+      "text": "15 cm across.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b539",
+      "source_block_index": 539,
+      "source_line_index": 0,
+      "text": "Flip the dough over onto a clean, floured surface and gently form the dough into a ball by giving it about 4 quick quarter turns with cupped hands. Flip the dough one more time, then place it into the dough-rising basket and cover it with a plastic bag or lightly moistened towel. Proof the dough at about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b539",
+      "source_block_index": 539,
+      "source_line_index": 0,
+      "text": "70\u00b0F/21\u00b0C.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b540",
+      "source_block_index": 540,
+      "source_line_index": 0,
+      "text": "After 40 minutes, poke about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b540",
+      "source_block_index": 540,
+      "source_line_index": 0,
+      "text": "1/2 inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b540",
+      "source_block_index": 540,
+      "source_line_index": 0,
+      "text": "1 cm into the dough with a floured finger. It will be ready to bake when the surface of the dough springs back slowly and leaves a slight indent. If it springs back quickly and returns to its original shape, cover and check again in",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b540",
+      "source_block_index": 540,
+      "source_line_index": 0,
+      "text": "10 minutes.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b541",
+      "source_block_index": 541,
+      "source_line_index": 0,
+      "text": "Dust a pizza peel with the rice/rye flour mixture. Transfer the loaf from the dough-rising basket to the paddle and slide it into the oven, quickly spraying the surface of the dough and the inside of the oven with a mister.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b542",
+      "source_block_index": 542,
+      "source_line_index": 0,
+      "text": "Bake for 20 minutes, then rotate the loaf",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b542",
+      "source_block_index": 542,
+      "source_line_index": 0,
+      "text": "180 degrees and return to the oven for another",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b542",
+      "source_block_index": 542,
+      "source_line_index": 0,
+      "text": "20 minutes. Rotate",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b542",
+      "source_block_index": 542,
+      "source_line_index": 0,
+      "text": "180 degrees again and return to the oven for another",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b542",
+      "source_block_index": 542,
+      "source_line_index": 0,
+      "text": "20 minutes. Test the bread to see if it is done; it should be dark golden brown with a firm bottom that makes a hollow sound when tapped.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b543",
+      "source_block_index": 543,
+      "source_line_index": 0,
+      "text": "Cool the loaf on a wire rack for 30 minutes before slicing.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c15",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 24,
+    "input_line_count": 24,
+    "output_line_count": 47,
+    "split_quantity_lines": 14
+  }
+}

@@ -1,0 +1,2336 @@
+{
+  "alignment": {
+    "alignment_fallback_reason": "fast_alignment_deprecated_accuracy_risk",
+    "alignment_fallback_used": true,
+    "alignment_fast_path_deprecated": true,
+    "alignment_fast_path_deprecation_message": "Fast canonical alignment is deprecated due to accuracy risk; legacy global SequenceMatcher alignment is enforced.",
+    "alignment_fast_path_deprecation_reason": "fast_alignment_deprecated_accuracy_risk",
+    "alignment_primary_strategy": "legacy",
+    "alignment_requested_strategy": "auto",
+    "alignment_strategy": "legacy",
+    "canonical_char_count": 81665,
+    "canonical_char_coverage": 0.9842404947039736,
+    "canonical_chars_covered": 80378,
+    "canonical_normalized_char_count": 81665,
+    "matching_block_count": 100,
+    "nonempty_prediction_block_count": 699,
+    "nonempty_prediction_block_match_ratio": 0.9928469241773963,
+    "nonempty_prediction_blocks_matched": 694,
+    "prediction_block_count": 699,
+    "prediction_block_match_ratio": 0.9928469241773963,
+    "prediction_blocks_matched": 694,
+    "prediction_char_count": 81558,
+    "prediction_char_coverage": 0.98553176880257,
+    "prediction_chars_matched": 80378,
+    "prediction_normalized_char_count": 82954
+  },
+  "artifacts": {
+    "aligned_prediction_blocks_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/aligned_prediction_blocks.jsonl",
+    "alignment_gaps_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/alignment_gaps.jsonl",
+    "eval_report_json": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/eval_report.json",
+    "eval_report_md": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/eval_report.md",
+    "missed_gold_blocks_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/missed_gold_blocks.jsonl",
+    "missed_gold_lines_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/missed_gold_lines.jsonl",
+    "unmatched_pred_blocks_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/unmatched_pred_blocks.jsonl",
+    "wrong_label_blocks_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/wrong_label_blocks.jsonl",
+    "wrong_label_lines_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/wrong_label_lines.jsonl"
+  },
+  "boundary": {
+    "correct": 511,
+    "over": 0,
+    "partial": 0,
+    "under": 0
+  },
+  "boundary_overlap_threshold": 0.5,
+  "canonical": {
+    "canonical_span_labels_path": "data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/canonical_span_labels.jsonl",
+    "canonical_text_path": "data/golden/pulled-from-labelstudio/seaandsmokecutdown/exports/canonical_text.txt",
+    "gold_span_count": 610,
+    "line_count": 595
+  },
+  "confusion": {
+    "HOWTO_SECTION": {
+      "HOWTO_SECTION": 87,
+      "INSTRUCTION_LINE": 1,
+      "OTHER": 15,
+      "RECIPE_NOTES": 1,
+      "RECIPE_TITLE": 5
+    },
+    "INGREDIENT_LINE": {
+      "INGREDIENT_LINE": 209,
+      "INSTRUCTION_LINE": 1,
+      "OTHER": 18
+    },
+    "INSTRUCTION_LINE": {
+      "INSTRUCTION_LINE": 110,
+      "KNOWLEDGE": 1,
+      "OTHER": 18,
+      "RECIPE_NOTES": 10,
+      "YIELD_LINE": 1
+    },
+    "KNOWLEDGE": {
+      "INSTRUCTION_LINE": 1,
+      "KNOWLEDGE": 2,
+      "OTHER": 2,
+      "RECIPE_NOTES": 4
+    },
+    "OTHER": {
+      "HOWTO_SECTION": 10,
+      "INSTRUCTION_LINE": 7,
+      "KNOWLEDGE": 3,
+      "OTHER": 20,
+      "RECIPE_NOTES": 13,
+      "RECIPE_TITLE": 1,
+      "YIELD_LINE": 2
+    },
+    "RECIPE_NOTES": {
+      "KNOWLEDGE": 2,
+      "OTHER": 2,
+      "RECIPE_NOTES": 3,
+      "YIELD_LINE": 3
+    },
+    "RECIPE_TITLE": {
+      "RECIPE_TITLE": 20,
+      "RECIPE_VARIANT": 1
+    },
+    "YIELD_LINE": {
+      "YIELD_LINE": 22
+    }
+  },
+  "counts": {
+    "gold_matched": 473,
+    "gold_missed": 122,
+    "gold_total": 595,
+    "pred_false_positive": 122,
+    "pred_matched": 473,
+    "pred_total": 595
+  },
+  "eval_mode": "canonical_text",
+  "eval_type": "canonical_text_classification",
+  "evaluation_telemetry": {
+    "alignment_cache_enabled": false,
+    "alignment_cache_hit": false,
+    "alignment_cache_key": null,
+    "alignment_cache_load_seconds": 0.0,
+    "alignment_cache_validation_error": null,
+    "alignment_cache_write_seconds": 0.0,
+    "alignment_dmp_checklines": true,
+    "alignment_dmp_cleanup": "No",
+    "alignment_dmp_timelimit": 0.0,
+    "alignment_sequence_matcher_forced_mode": "dmp",
+    "alignment_sequence_matcher_impl": "dmp",
+    "alignment_sequence_matcher_mode": "dmp",
+    "alignment_sequence_matcher_requested_mode": "dmp",
+    "alignment_sequence_matcher_version": "2.1.0",
+    "profiling": {
+      "captured": false,
+      "enabled": false,
+      "top_n": 60.0
+    },
+    "resources": {
+      "peak_ru_maxrss_kib": 559896.0,
+      "process_cpu_seconds": 0.05274454100000092,
+      "ru_inblock": 0.0,
+      "ru_majflt": 0.0,
+      "ru_minflt": 1889.0,
+      "ru_oublock": 792.0,
+      "ru_stime_seconds": 0.017691000000000123,
+      "ru_utime_seconds": 0.035047999999999746,
+      "thread_cpu_seconds": 0.052741446000000636
+    },
+    "subphases": {
+      "alignment_block_mapping_seconds": 0.0034300640036235563,
+      "alignment_normalize_canonical_seconds": 0.004948009998770431,
+      "alignment_normalize_prediction_seconds": 0.005182583001442254,
+      "alignment_seconds": 0.02715786499902606,
+      "alignment_sequence_matcher_seconds": 0.01079660200048238,
+      "artifact_write_seconds": 0.005904306999582332,
+      "boundary_metrics_seconds": 0.0033649799952399917,
+      "diagnostics_build_seconds": 0.0010433729985379614,
+      "line_projection_seconds": 0.001300955998885911,
+      "load_gold_seconds": 0.003955347994633485,
+      "load_prediction_seconds": 0.0026385210003354587,
+      "metrics_seconds": 0.0018543460028013214
+    },
+    "total_seconds": 0.04749143699882552,
+    "work_units": {
+      "aligned_block_count": 699.0,
+      "alignment_nonempty_prediction_block_count": 699.0,
+      "alignment_nonempty_prediction_blocks_matched": 694.0,
+      "canonical_chars_covered": 80378.0,
+      "canonical_line_count": 595.0,
+      "canonical_normalized_char_count": 81665.0,
+      "canonical_text_char_count": 81665.0,
+      "gold_span_count": 610.0,
+      "prediction_block_count": 699.0,
+      "prediction_normalized_char_count": 82954.0,
+      "prediction_text_char_count": 82954.0
+    }
+  },
+  "labels": [
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+    "KNOWLEDGE",
+    "OTHER"
+  ],
+  "macro_f1_excluding_other": 0.5937858182666985,
+  "macro_f1_labels": [
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+    "KNOWLEDGE"
+  ],
+  "missed_gold_blocks": [
+    {
+      "block_index": 12,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 32,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 33,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 36,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 42,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 57,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 76,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 79,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 99,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 110,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 115,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 119,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 120,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 152,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 158,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 161,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 162,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 163,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 164,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 179,
+      "gold_label": "RECIPE_TITLE",
+      "gold_labels": [
+        "RECIPE_TITLE"
+      ],
+      "pred_label": "RECIPE_VARIANT"
+    },
+    {
+      "block_index": 191,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 192,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 199,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 220,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 221,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 227,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 249,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 250,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 251,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 255,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 277,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 280,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 282,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 284,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 285,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 290,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 296,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 315,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 344,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 356,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 369,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 370,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 380,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 383,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 391,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 404,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 405,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 407,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 408,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 410,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 411,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 414,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 417,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 418,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 419,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 420,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 429,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 430,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 433,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 455,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 456,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 460,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 463,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 468,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 478,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 479,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 484,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 485,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 486,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 488,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 492,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 498,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 499,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 523,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 525,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 530,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 533,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 550,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 554,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 556,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 560,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 567,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 569,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 583,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 591,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 594,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    }
+  ],
+  "overall_block_accuracy": 0.7949579831932773,
+  "overall_line_accuracy": 0.7949579831932773,
+  "per_label": {
+    "HOWTO_SECTION": {
+      "f1": 0.8405797101449276,
+      "false_positive_block_indices": [
+        62,
+        89,
+        91,
+        93,
+        229,
+        298,
+        322,
+        386,
+        390,
+        441
+      ],
+      "fn": 23,
+      "fp": 10,
+      "gold_matched": 87,
+      "gold_total": 110,
+      "missed_block_indices": [
+        33,
+        79,
+        200,
+        220,
+        249,
+        315,
+        405,
+        407,
+        417,
+        418,
+        419,
+        429,
+        433,
+        460,
+        463,
+        484,
+        486,
+        488,
+        499,
+        523,
+        525,
+        530,
+        567
+      ],
+      "precision": 0.8969072164948454,
+      "pred_matched": 87,
+      "pred_total": 97,
+      "recall": 0.7909090909090909,
+      "tp": 87
+    },
+    "INGREDIENT_LINE": {
+      "f1": 0.954337899543379,
+      "false_positive_block_indices": [],
+      "fn": 20,
+      "fp": 0,
+      "gold_matched": 209,
+      "gold_total": 229,
+      "missed_block_indices": [
+        76,
+        99,
+        110,
+        277,
+        280,
+        282,
+        284,
+        285,
+        344,
+        348,
+        369,
+        370,
+        404,
+        455,
+        456,
+        478,
+        479,
+        498,
+        560,
+        583
+      ],
+      "precision": 1.0,
+      "pred_matched": 209,
+      "pred_total": 209,
+      "recall": 0.9126637554585153,
+      "tp": 209
+    },
+    "INSTRUCTION_LINE": {
+      "f1": 0.8461538461538461,
+      "false_positive_block_indices": [
+        1,
+        60,
+        118,
+        161,
+        321,
+        404,
+        419,
+        442,
+        494,
+        513
+      ],
+      "fn": 30,
+      "fp": 10,
+      "gold_matched": 110,
+      "gold_total": 140,
+      "missed_block_indices": [
+        32,
+        36,
+        57,
+        115,
+        152,
+        158,
+        191,
+        192,
+        199,
+        221,
+        227,
+        250,
+        251,
+        255,
+        290,
+        356,
+        380,
+        383,
+        408,
+        410,
+        411,
+        414,
+        430,
+        485,
+        492,
+        533,
+        550,
+        569,
+        591,
+        594
+      ],
+      "precision": 0.9166666666666666,
+      "pred_matched": 110,
+      "pred_total": 120,
+      "recall": 0.7857142857142857,
+      "tp": 110
+    },
+    "KNOWLEDGE": {
+      "f1": 0.23529411764705882,
+      "false_positive_block_indices": [
+        12,
+        32,
+        41,
+        181,
+        554,
+        578
+      ],
+      "fn": 7,
+      "fp": 6,
+      "gold_matched": 2,
+      "gold_total": 9,
+      "missed_block_indices": [
+        42,
+        161,
+        162,
+        163,
+        164,
+        296,
+        391
+      ],
+      "precision": 0.25,
+      "pred_matched": 2,
+      "pred_total": 8,
+      "recall": 0.2222222222222222,
+      "tp": 2
+    },
+    "OTHER": {
+      "f1": 0.30534351145038163,
+      "false_positive_block_indices": [
+        36,
+        42,
+        57,
+        76,
+        99,
+        110,
+        115,
+        120,
+        152,
+        158,
+        192,
+        220,
+        249,
+        250,
+        251,
+        255,
+        277,
+        280,
+        282,
+        284,
+        285,
+        315,
+        344,
+        356,
+        369,
+        370,
+        380,
+        383,
+        391,
+        405,
+        407,
+        408,
+        418,
+        420,
+        429,
+        433,
+        455,
+        456,
+        463,
+        478,
+        479,
+        484,
+        488,
+        498,
+        523,
+        525,
+        530,
+        533,
+        550,
+        560,
+        567,
+        569,
+        583,
+        591,
+        594
+      ],
+      "fn": 36,
+      "fp": 55,
+      "gold_matched": 20,
+      "gold_total": 56,
+      "missed_block_indices": [
+        0,
+        1,
+        41,
+        43,
+        60,
+        62,
+        89,
+        91,
+        93,
+        118,
+        181,
+        202,
+        229,
+        230,
+        257,
+        258,
+        262,
+        298,
+        321,
+        322,
+        360,
+        385,
+        386,
+        390,
+        438,
+        440,
+        441,
+        442,
+        494,
+        510,
+        511,
+        512,
+        513,
+        514,
+        576,
+        578
+      ],
+      "precision": 0.26666666666666666,
+      "pred_matched": 20,
+      "pred_total": 75,
+      "recall": 0.35714285714285715,
+      "tp": 20
+    },
+    "RECIPE_NOTES": {
+      "f1": 0.14285714285714285,
+      "false_positive_block_indices": [
+        0,
+        43,
+        162,
+        163,
+        164,
+        191,
+        199,
+        202,
+        221,
+        227,
+        230,
+        257,
+        258,
+        290,
+        296,
+        360,
+        385,
+        410,
+        411,
+        417,
+        430,
+        440,
+        485,
+        492,
+        510,
+        511,
+        514,
+        576
+      ],
+      "fn": 8,
+      "fp": 28,
+      "gold_matched": 3,
+      "gold_total": 11,
+      "missed_block_indices": [
+        12,
+        119,
+        120,
+        348,
+        420,
+        468,
+        554,
+        556
+      ],
+      "precision": 0.0967741935483871,
+      "pred_matched": 3,
+      "pred_total": 31,
+      "recall": 0.2727272727272727,
+      "tp": 3
+    },
+    "RECIPE_TITLE": {
+      "f1": 0.8510638297872339,
+      "false_positive_block_indices": [
+        33,
+        79,
+        438,
+        460,
+        486,
+        499
+      ],
+      "fn": 1,
+      "fp": 6,
+      "gold_matched": 20,
+      "gold_total": 21,
+      "missed_block_indices": [
+        179
+      ],
+      "precision": 0.7692307692307693,
+      "pred_matched": 20,
+      "pred_total": 26,
+      "recall": 0.9523809523809523,
+      "tp": 20
+    },
+    "RECIPE_VARIANT": {
+      "f1": 0.0,
+      "false_positive_block_indices": [
+        179
+      ],
+      "fn": 0,
+      "fp": 1,
+      "gold_matched": 0,
+      "gold_total": 0,
+      "missed_block_indices": [],
+      "precision": 0.0,
+      "pred_matched": 0,
+      "pred_total": 1,
+      "recall": 0.0,
+      "tp": 0
+    },
+    "TIME_LINE": {
+      "f1": 0.0,
+      "false_positive_block_indices": [],
+      "fn": 0,
+      "fp": 0,
+      "gold_matched": 0,
+      "gold_total": 0,
+      "missed_block_indices": [],
+      "precision": 0.0,
+      "pred_matched": 0,
+      "pred_total": 0,
+      "recall": 0.0,
+      "tp": 0
+    },
+    "YIELD_LINE": {
+      "f1": 0.88,
+      "false_positive_block_indices": [
+        119,
+        262,
+        414,
+        468,
+        512,
+        556
+      ],
+      "fn": 0,
+      "fp": 6,
+      "gold_matched": 22,
+      "gold_total": 22,
+      "missed_block_indices": [],
+      "precision": 0.7857142857142857,
+      "pred_matched": 22,
+      "pred_total": 28,
+      "recall": 1.0,
+      "tp": 22
+    }
+  },
+  "recipe_counts": {
+    "predicted_recipe_count": 17,
+    "predicted_recipe_count_source": "prediction_run_context"
+  },
+  "source": {
+    "source_file": "SeaAndSmokeCUTDOWN.epub",
+    "source_hash": "3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58",
+    "workbook_slug": "SeaAndSmokeCUTDOWN"
+  },
+  "strict_accuracy": 0.7949579831932773,
+  "timing": {
+    "artifact_write_seconds": 0.0,
+    "checkpoints": {
+      "artifact_write_seconds": 0.014906074000464287,
+      "conversion_seconds": 4.428604658001859,
+      "evaluate_alignment_block_mapping_seconds": 0.0034300640036235563,
+      "evaluate_alignment_normalize_canonical_seconds": 0.004948009998770431,
+      "evaluate_alignment_normalize_prediction_seconds": 0.005182583001442254,
+      "evaluate_alignment_seconds": 0.02715786499902606,
+      "evaluate_alignment_sequence_matcher_seconds": 0.01079660200048238,
+      "evaluate_artifact_write_seconds": 0.005904306999582332,
+      "evaluate_boundary_metrics_seconds": 0.0033649799952399917,
+      "evaluate_diagnostics_build_seconds": 0.0010433729985379614,
+      "evaluate_line_projection_seconds": 0.001300955998885911,
+      "evaluate_load_gold_seconds": 0.003955347994633485,
+      "evaluate_load_prediction_seconds": 0.0026385210003354587,
+      "evaluate_metrics_seconds": 0.0018543460028013214,
+      "evaluate_profile_captured": 0.0,
+      "evaluate_resource_peak_ru_maxrss_kib": 559896.0,
+      "evaluate_resource_process_cpu_seconds": 0.05274454100000092,
+      "evaluate_resource_ru_inblock": 0.0,
+      "evaluate_resource_ru_majflt": 0.0,
+      "evaluate_resource_ru_minflt": 1889.0,
+      "evaluate_resource_ru_oublock": 792.0,
+      "evaluate_resource_ru_stime_seconds": 0.017691000000000123,
+      "evaluate_resource_ru_utime_seconds": 0.035047999999999746,
+      "evaluate_resource_thread_cpu_seconds": 0.052741446000000636,
+      "evaluate_seconds": 0.05035098399821436,
+      "evaluate_total_seconds": 0.04749143699882552,
+      "evaluate_work_aligned_block_count": 699.0,
+      "evaluate_work_alignment_nonempty_prediction_block_count": 699.0,
+      "evaluate_work_alignment_nonempty_prediction_blocks_matched": 694.0,
+      "evaluate_work_canonical_chars_covered": 80378.0,
+      "evaluate_work_canonical_line_count": 595.0,
+      "evaluate_work_canonical_normalized_char_count": 81665.0,
+      "evaluate_work_canonical_text_char_count": 81665.0,
+      "evaluate_work_gold_span_count": 610.0,
+      "evaluate_work_prediction_block_count": 699.0,
+      "evaluate_work_prediction_normalized_char_count": 82954.0,
+      "evaluate_work_prediction_text_char_count": 82954.0,
+      "gold_load_seconds": 0.003955347994633485,
+      "history_csv_append_seconds": 0.32047279700054787,
+      "prediction_load_seconds": 0.0026385210003354587,
+      "processed_output_write_seconds": 0.5800214060000144,
+      "task_build_seconds": 0.001515431002189871
+    },
+    "evaluation_seconds": 0.05035098399821436,
+    "history_append_seconds": 0.32047279700054787,
+    "parsing_seconds": 4.428604658001859,
+    "prediction_seconds": 134.66815835500165,
+    "total_seconds": 135.38599297199835,
+    "writing_seconds": 0.5800214060000144
+  },
+  "unit": "canonical_line",
+  "worst_label_recall": {
+    "gold_total": 9,
+    "label": "KNOWLEDGE",
+    "recall": 0.2222222222222222
+  },
+  "wrong_label_blocks": [
+    {
+      "block_index": 0,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 1,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 12,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 32,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 33,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 36,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 41,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 42,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 43,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 57,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 60,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 62,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 76,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 79,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 89,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 91,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 93,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 99,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 110,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 115,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 118,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 119,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 120,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 152,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 158,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 161,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 162,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 163,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 164,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 179,
+      "gold_label": "RECIPE_TITLE",
+      "gold_labels": [
+        "RECIPE_TITLE"
+      ],
+      "pred_label": "RECIPE_VARIANT"
+    },
+    {
+      "block_index": 181,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 191,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 192,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 199,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 202,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 220,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 221,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 227,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 229,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 230,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 249,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 250,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 251,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 255,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 257,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 258,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 262,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 277,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 280,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 282,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 284,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 285,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 290,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 296,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 298,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 315,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 321,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 322,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 344,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 356,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 360,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 369,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 370,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 380,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 383,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 385,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 386,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 390,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 391,
+      "gold_label": "KNOWLEDGE",
+      "gold_labels": [
+        "KNOWLEDGE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 404,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 405,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 407,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 408,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 410,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 411,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 414,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 417,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 418,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 419,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 420,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 429,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 430,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 433,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 438,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 440,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 441,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "HOWTO_SECTION"
+    },
+    {
+      "block_index": 442,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 455,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 456,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 460,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 463,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 468,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 478,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 479,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 484,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 485,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 486,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 488,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 492,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 494,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 498,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 499,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "RECIPE_TITLE"
+    },
+    {
+      "block_index": 510,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 511,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 512,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 513,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "INSTRUCTION_LINE"
+    },
+    {
+      "block_index": 514,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 523,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 525,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 530,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 533,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 550,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 554,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 556,
+      "gold_label": "RECIPE_NOTES",
+      "gold_labels": [
+        "RECIPE_NOTES"
+      ],
+      "pred_label": "YIELD_LINE"
+    },
+    {
+      "block_index": 560,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 567,
+      "gold_label": "HOWTO_SECTION",
+      "gold_labels": [
+        "HOWTO_SECTION"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 569,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 576,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "RECIPE_NOTES"
+    },
+    {
+      "block_index": 578,
+      "gold_label": "OTHER",
+      "gold_labels": [
+        "OTHER"
+      ],
+      "pred_label": "KNOWLEDGE"
+    },
+    {
+      "block_index": 583,
+      "gold_label": "INGREDIENT_LINE",
+      "gold_labels": [
+        "INGREDIENT_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 591,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    },
+    {
+      "block_index": 594,
+      "gold_label": "INSTRUCTION_LINE",
+      "gold_labels": [
+        "INSTRUCTION_LINE"
+      ],
+      "pred_label": "OTHER"
+    }
+  ]
+}

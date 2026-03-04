@@ -33,11 +33,11 @@ Current scoring surfaces:
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is confirmed from CSV rows.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`.
+- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`. By default, it also emits an AI-agent bridge under `<run_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
 - `scripts/quality_top_tier_tournament.py`: disabled/retired runtime entrypoint; `main()` exits immediately with a disabled message to prevent accidental tournament fanout.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier; optional `--by-source-extension` emits per-format leaderboard slices.
-- `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates.
+- `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates. By default, it also emits an AI-agent bridge under `<comparison_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
 
 ### 2.2 `cookimport labelstudio-benchmark` benchmark controls
@@ -188,7 +188,10 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - Existing-output upload-bundle generation (`build_upload_bundle_for_existing_output`) now derives codex diagnostic statuses from source run artifacts when per-run `need_to_know_summary.json` is absent, and persists those derived diagnostics under `_upload_bundle_derived/runs/<run_id>/...` in bundle payload rows.
 - For standalone single-run `labelstudio-benchmark` codex roots, upload-bundle call rows can still be unavailable, but `analysis.call_inventory_runtime.summary` now backfills pass-level runtime/token totals from `prediction-run/manifest.json` telemetry (`llm_codex_farm.process_runs.*.telemetry_report.summary`) and reports `runtime_source=prediction_run_manifest_telemetry`.
 - `analysis.call_inventory_runtime.summary` now includes explicit `pass1_token_share`, `pass2_token_share`, and `pass3_token_share` fields for direct pass-share checks in first-pass triage.
-- default index views prioritize first-pass triage (`per_label_metrics`, `per_recipe_breakdown`, `stage_separated_comparison`, `failure_ledger`, compact regression casebook, stratified changed-line samples, call runtime/tokens/cost summary, line-role confidence signals) with payload row locators.
+- default index views prioritize first-pass triage (`triage_packet`, `net_error_blame_summary`, `config_version_metadata`, `per_label_metrics`, `per_recipe_breakdown`, `stage_separated_comparison`, `failure_ledger`, compact regression casebook, stratified changed-line samples, low-confidence changed-line packet, call runtime/tokens/cost summary, line-role confidence signals) with payload row locators.
+- upload bundles now write `analysis.triage_packet` and `_upload_bundle_derived/root/01_recipe_triage.packet.jsonl` so first-pass triage is JSON/JSONL-first instead of CSV-first.
+- upload bundles now include `analysis.net_error_blame_summary` and `analysis.config_version_metadata` for deterministic stage-attribution plus pair-level settings/version comparability checks.
+- upload bundles now include `analysis.low_confidence_changed_lines_packet`; packet rows may be empty but are still emitted with an explicit empty-note.
 - call-runtime summaries expose observed-cost `cost_signal` plus token-based `estimated_cost_signal` fallback fields (default pricing, clearly marked as estimates) so missing per-call cost data is explicit while preserving first-pass cost ordering.
 - benchmark pair inventory includes `generalization_readiness` (`minimum_pairs_for_generalization`, `additional_pairs_needed_for_generalization`) for quick triage on single-pair overfitting risk.
 - line-role candidate-label analytics accept multiple candidate field shapes (`candidate_labels`, `label_candidates`, `candidates`, `label_scores`) for forward compatibility.
@@ -196,6 +199,7 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - stage-separated per-label views now attempt pass2/pass3 scoring directly from discovered prediction-run codex artifacts (`raw/llm/*/pass2_schemaorg` and `pass3_final`) and surface `label_scored=true` when projection/scoring succeeds.
   - fallback remains explicit (`label_scored=false` + `unavailable_reason`) for older/incomplete runs or missing gold-label paths.
 - row locators now include basename fallback resolution (for example, mapping comparison-summary lookups to `codex_vs_vanilla_comparison.json` when that is the available root artifact) plus critical locator coverage counters in `self_check`.
+- row locators now canonicalize alias-equivalent paths (via `alias_metadata.content_equivalent_groups`) and tag rewritten locators with `alias_path` when a non-canonical candidate was requested first.
 - heavy/raw artifacts (full prompt logs, raw llm manifests, transport traces, split-cache blobs) remain lossless in payload but are marked as deprioritized for default reading; alias metadata groups equivalent artifacts to reduce duplicate navigation.
 - Starter-pack triage rows now carry pass2/pass3 routing diagnostics when present in `llm_manifest` (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason`).
 
@@ -229,6 +233,11 @@ Quality suite (`bench quality-run`) artifacts include:
 - `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating, plus format visibility fields `format_counts` and `selected_format_counts`.
 - quality summaries/resolved payloads include strict-worker telemetry: `require_process_workers`, `process_worker_probe_available`, `process_worker_probe_error`.
 - `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, Codex Farm request/confirmation flags, and WSL telemetry fields (`wsl_detected`, `wsl_safety_guard_applied`, `wsl_safety_guard_reason`, `wsl_safety_guard_worker_cap`, `wsl_safety_guard_adjusted_experiments`).
+- optional AI-agent bridge bundle (`--qualitysuite-agent-bridge`, default on) under `<run_dir>/agent_compare_control/`:
+  - `qualitysuite_compare_control_index.json` (scope map + outcome files + request counts),
+  - `<scope_id>__strict_accuracy.json` / `<scope_id>__macro_f1_excluding_other.json` insight payloads,
+  - `agent_requests.jsonl` (ready compare-control agent requests with routing metadata),
+  - `README.md` (agent-first usage order + copy/paste command).
 
 Historical lightweight-series artifacts (command now disabled in CLI) include:
 - `lightweight_series_resolved.json`, `lightweight_series_summary.json`, `lightweight_series_report.md`
@@ -247,6 +256,7 @@ Quality leaderboard (`bench quality-leaderboard`) artifacts include:
 Quality comparison (`bench quality-compare`) artifacts include:
 - `comparison.json`, `comparison.md`
 - comparison payload includes baseline/candidate experiment IDs, run-settings parity fields, strict/practical/source-success deltas, thresholds, and FAIL reasons.
+- optional AI-agent bridge bundle (`--qualitysuite-agent-bridge`, default on) under `<comparison_dir>/agent_compare_control/` with baseline/candidate compare-control insights + `agent_requests.jsonl`.
 
 Prediction-record and telemetry artifacts:
 - `labelstudio-benchmark --predictions-out` writes validated JSONL prediction records (`cookimport/bench/prediction_records.py` schema v1).
@@ -264,12 +274,13 @@ Interactive `labelstudio_benchmark` single-offline paired runs reuse the same st
 Starter-pack generation is wired into the shared codex-vs-vanilla comparison artifact writer, so it runs whenever paired comparison JSON is produced.
 When interactive environments cannot import `scripts.benchmark_cutdown_for_external_ai` as a package module, CLI helper loading falls back to direct script loading and now pre-registers the module name so dataclass/type initialization succeeds.
 Outside-span preprocess trace joins no longer borrow fallback prompt rows from unrelated recipes; outside-span statuses now emit explicit bridge lineage (`outside_span_archive_only`, `outside_span_unattributed`, plus prompt-joined variants when same-recipe prompt context exists).
-Recipe triage now also lifts per-recipe codex-farm `llm_manifest.json` diagnostics (pass statuses, pass1 clamped span-loss metrics, pass2 degradation reasons, pass3 fallback reasons, transport mismatch, and evidence-normalization counters) into starter-pack CSV/summary/casebook artifacts.
+Recipe triage now also lifts per-recipe codex-farm `llm_manifest.json` diagnostics (pass statuses, pass1 clamped span-loss metrics, pass2 degradation reasons, pass3 fallback reasons, transport mismatch, and evidence-normalization counters) into starter-pack JSONL/summary/casebook artifacts.
 
 Starter-pack mandatory files:
 - `README.md`
 - `00_run_overview.md`
-- `01_recipe_triage.csv` (fixed header order)
+- `01_recipe_triage.jsonl` (canonical triage table)
+- `01_recipe_triage.packet.jsonl` (upload-bundle triage packet schema rows)
 - `02_call_inventory.jsonl`
 - `03_changed_lines.codex_vs_baseline.jsonl`
 - `04_warning_and_trace_summary.json`
@@ -280,6 +291,13 @@ Starter-pack mandatory files:
 - `10_process_manifest.json`
 - `11_comparison_summary.json` (root mirror)
 - `12_per_recipe_or_per_span_breakdown.json` (root mirror)
+- `13_net_error_blame_summary.json`
+- `14_config_version_metadata.json`
+- `15_low_confidence_changed_lines.packet.jsonl`
+- `16_baseline_trace_parity.json`
+
+Legacy compatibility:
+- Existing-output upload-bundle rebuilds still accept historical `starter_pack_v1/01_recipe_triage.csv` and map it to canonical JSONL triage paths in alias metadata.
 
 Conditional starter-pack file:
 - `08_outside_span_trace.sample.jsonl` is emitted only when

@@ -36,6 +36,7 @@ Recipe codex-farm pass modules:
 - `cookimport/llm/evidence_normalizer.py` (deterministic additive pass2 evidence normalization)
 - `cookimport/llm/codex_farm_ids.py` (stable slug/id/bundle filename helpers)
 - `cookimport/llm/codex_farm_runner.py` (subprocess runner + shared error type)
+  - runner now treats `no last agent message` / `nonzero_exit_no_payload` process failures as recoverable partial-output mode; other process failures remain hard errors.
 
 Canonical line-role helper modules:
 
@@ -124,9 +125,13 @@ Report/model plumbing:
 - Pass2-ok rows now also record `pass3_utility_signal` in per-recipe `llm_manifest` rows
   (instruction/ingredient/schema/warning evidence snapshot + conservative
   `deterministic_low_risk` flag).
-- Optional pass2-ok deterministic promotion is env-guarded via
-  `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=1` and only skips pass3 when the
-  utility signal is low-risk (`pass3_routing_reason=pass2_ok_high_confidence_deterministic`).
+- Pass2-ok deterministic promotion now defaults to enabled and skips pass3 only
+  when the utility signal is low-risk
+  (`pass3_routing_reason=pass2_ok_high_confidence_deterministic`).
+- Override control is still env-driven:
+  - set `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=0|false|no|off` to force pass3
+    on pass2-ok rows,
+  - set truthy values (or leave unset) to keep selective skip behavior enabled.
 - Manifest counts now include pass2-ok routing utility counters:
   `pass3_pass2_ok_utility_rows`, `pass3_pass2_ok_skip_candidates`,
   `pass3_pass2_ok_deterministic_skips`, `pass3_pass2_ok_llm_calls`.
@@ -626,7 +631,7 @@ Current LLM contracts added/confirmed:
   - `pass3_execution_mode`
   - `pass3_routing_reason`
 - Soft-degraded low-risk rows can deterministically promote without pass3 LLM calls while preserving existing pass status enums.
-- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts, with env guard `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK` for reversible runtime experiments.
+- ProFeedback OG-gap work adds pass2-ok utility/skip instrumentation policy and candidate-label propagation into line-role artifacts; pass2-ok skip is default-on with env opt-out via `COOKIMPORT_CODEX_FARM_PASS3_SKIP_PASS2_OK=0|false|no|off`.
 
 Validation/evidence highlights preserved from merged tasks:
 - `Pro3` merged verification transcript includes replayed SeaAndSmoke transport cases (`c0,c6,c7,c8,c9,c12`) with exact-match transport and zero outside-span fallback prompt joins.

@@ -17,6 +17,10 @@ Main entry point: `data/.history/dashboard/index.html`.
 For non-technical, step-by-step instructions for the main analysis panel in **Previous Runs**, see:
 - `docs/08-analytics/dashboard_howto_compare_control.md` (`Compare & Control`)
 
+Backend parity note:
+- `cookimport compare-control run` and `cookimport compare-control agent` expose the same compare/control filter + analysis contract in terminal JSON/JSONL form using `cookimport/analytics/compare_control_engine.py`.
+- Terminal compare-control also supports `--action insights` for an automatic "learn what is happening" summary (profile, top actionable drivers, process-factor deltas, and follow-up query payloads).
+
 ## How it works (collect -> render)
 
 1. The CLI command in `cookimport/cli.py` calls `collect_dashboard_data(...)`.
@@ -128,6 +132,7 @@ Notes:
   - Boundary diagnostics include matched-coverage context (`gold_matched/gold_total`, `gold_matched/pred_total`) so `100/0/0` splits are read as matched-boundary-only.
   - Boundary table shows `% of gold` only (clean denominator), plus `Matched (boundary unclassified)` and `Unmatched gold spans` rows so gaps are visible in one pass.
   - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and let you switch the comparison columns between signed deltas and raw point values using an in-card `Point value` checkbox. Delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
+  - Per-label diagnostics include a run selector beside the card title with `Default - most recent` plus every available run-group timestamp, so you can pin the table to an older run or keep it auto-following the latest run.
   - Per-label diagnostics include a small `Rolling N` selector in-card; rolling codexfarm/vanilla comparison columns sit under one shared dynamic group header (`<N>-run Rolling <Mode>:`), with per-column labels reduced to metric + variant.
   - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + comparison columns.
   - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.

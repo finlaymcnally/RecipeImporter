@@ -1965,7 +1965,15 @@ _HTML = """\
       </section>
 
       <section id="per-label-section" class="diagnostic-card">
-        <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
+        <div class="per-label-title-row">
+          <h2>Per-Label Breakdown (Latest Benchmark Run)</h2>
+          <label class="per-label-run-select-wrap" for="per-label-run-group-select">
+            Run
+            <select id="per-label-run-group-select">
+              <option value="__default_most_recent__">Default - most recent</option>
+            </select>
+          </label>
+        </div>
         <div class="per-label-controls">
           <label class="per-label-rolling-label" for="per-label-rolling-window-size">Rolling N</label>
           <input
@@ -2006,21 +2014,95 @@ _HTML = """\
 
   <section id="previous-runs-section">
     <h2>Previous Runs</h2>
-    <p class="section-note">Timestamp links to the run artifact folder. Full history is rendered; use horizontal scroll for wide columns.</p>
-    <details class="section-details">
-      <summary>Metric help (table)</summary>
-      <section>
-        <p class="section-note">Previous Runs shows explicit benchmark metrics only.</p>
-        <ul class="metric-help-list">
-          <li><code>strict_accuracy</code>: strict benchmark accuracy (higher is better).</li>
-          <li><code>macro_f1_excluding_other</code>: class-balanced quality over non-OTHER labels.</li>
-          <li><code>Recipes</code>: predicted recipe count (when available). Separate from span scoring.</li>
-        </ul>
-      </section>
-    </details>
-    <div class="previous-runs-top-grid">
-      <div class="previous-runs-analysis-panels">
-        <section id="compare-control-panel" class="compare-control-panel">
+	    <p class="section-note">Timestamp links to the run artifact folder. Full history is rendered; use horizontal scroll for wide columns.</p>
+	    <details class="section-details">
+	      <summary>Metric help (table)</summary>
+	      <section>
+	        <p class="section-note">Previous Runs is a history table of benchmark evaluations. Most quality scores are shown as 0.0–1.0 (1.0 = 100%).</p>
+	        <p class="section-note">Span counts (Gold/Pred/Matched/etc) are counts of labeled spans inside the benchmark set, not the number of recipes in your output folders.</p>
+
+	        <p class="section-note"><strong>Quality scores (0.0–1.0; higher is better)</strong></p>
+	        <ul class="metric-help-list">
+	          <li><code>strict_accuracy</code>: A strict “did we get it exactly right?” score for span boundaries. It only gives credit when the predicted span overlaps enough and the start/end boundaries line up closely. If this drops while the practical scores stay high, you are probably “mostly right” but picking spans that are too long/short.</li>
+	          <li><code>macro_f1_excluding_other</code>: An average quality score across labels (excluding the catch-all <code>OTHER</code> label). Each label gets similar weight, so small labels can pull this down even if big labels look fine. This is useful when you care about balance, not just doing well on the most common label.</li>
+	          <li><code>precision</code>: Of everything the system predicted, how much was actually correct. High precision means fewer false alarms and less extra junk to clean up. Precision can increase if the system becomes more conservative and predicts fewer spans.</li>
+	          <li><code>recall</code>: Of everything that exists in the gold labels, how much the system successfully found. High recall means fewer misses. Recall can increase if the system predicts more spans, even if that also creates more false alarms.</li>
+	          <li><code>f1</code>: A single “balance” score that combines precision and recall. It tends to be high only when both precision and recall are reasonably high. Use this when you want one number that punishes both misses and false alarms.</li>
+	          <li><code>practical_precision</code>: A more forgiving precision score that gives credit when the prediction is in roughly the right place, even if the boundaries are not perfect. This is helpful when you are iterating and you care more about “did it basically find the right thing?” than perfect spans. Practical precision is usually higher than strict precision when boundary alignment is the main issue.</li>
+	          <li><code>practical_recall</code>: A more forgiving recall score that gives credit for near-misses and partial overlaps. If practical recall is high but strict accuracy is low, your model is seeing the right content but the span sizes/boundaries are off. This is a good “directional” signal before you do boundary tuning.</li>
+	          <li><code>practical_f1</code>: The balanced F1 score computed from the practical (more forgiving) precision/recall. When this is high but strict accuracy is lower, you likely have a boundary/granularity problem rather than a “wrong label” problem. When both practical and strict are low, the model is missing the content or labeling the wrong things.</li>
+	          <li><code>supported_precision</code>: Precision focused on the “supported” labels the app really cares about (a curated subset). This is useful when rare/experimental labels make the overall score look worse than the user-facing quality. If supported precision is much higher than overall precision, your false alarms are mostly coming from non-core labels.</li>
+	          <li><code>supported_recall</code>: Recall focused on the supported (core) labels. This helps answer “are we missing the things we actually want to capture?” without being diluted by edge-case labels. If supported recall is low, the output will feel incomplete even if other metrics look decent.</li>
+	          <li><code>supported_practical_precision</code>: Practical (forgiving) precision, but only for supported labels. This is a good “rough correctness” signal for the core labels when strict boundaries are still messy. If this is high and strict accuracy is low, you can often fix quality with boundary/segmentation tweaks rather than changing prompts/models.</li>
+	          <li><code>supported_practical_recall</code>: Practical recall for supported labels. This tells you whether the pipeline is finding the core things at all, even if the span boundaries are imperfect. If this is low, you are likely missing text entirely (coverage) or the model is not recognizing the right patterns.</li>
+	          <li><code>supported_practical_f1</code>: A single balanced score for practical precision/recall on supported labels. Treat this as a “user-facing rough quality” number for the core labels. It can stay stable while strict accuracy moves around due to boundary tuning.</li>
+	        </ul>
+
+	        <p class="section-note"><strong>Counts (bigger is not automatically better)</strong></p>
+	        <ul class="metric-help-list">
+	          <li><code>gold_total</code>: How many gold spans were included in the benchmark for this run. More gold spans generally makes the scores more stable and trustworthy. If <code>gold_total</code> is small, a few mistakes can swing the score a lot.</li>
+	          <li><code>pred_total</code>: How many spans the system predicted in total. If this is much larger than <code>gold_total</code>, it often means the system is over-predicting and precision may suffer. If it is much smaller, the system may be under-predicting and recall may suffer.</li>
+	          <li><code>gold_matched</code>: How many gold spans were successfully matched under the strict rules. This is the “numerator” behind strict-style accuracy/recall. Watching <code>gold_matched</code> alongside <code>gold_total</code> helps you see whether a score change is real or just a data-size change.</li>
+	          <li><code>gold_recipe_headers</code>: How many “recipe header/title” spans exist in the gold set for this benchmark. This is a useful reference point for “how many recipes are truly in this benchmark set.” If your predicted <code>recipes</code> is far above/below this, recipe segmentation is likely off.</li>
+	          <li><code>recipes</code>: The pipeline’s predicted recipe count (when available). This is not part of the span-matching score, so it can be wrong even when span scores are good. When this is off, the output can feel broken (missing recipes, merged recipes, or extra fake recipes) even if label metrics look fine.</li>
+	          <li><code>task_count</code>: How many Label Studio tasks/items were evaluated in that benchmark run (when available). Higher counts usually mean the scores are less “random” and more representative. Very small task counts can make the metrics jump around from run to run.</li>
+	        </ul>
+
+	        <p class="section-note"><strong>Boundary and “shape” diagnostics (helps explain strict vs practical gaps)</strong></p>
+	        <ul class="metric-help-list">
+	          <li><code>boundary_correct</code>: Number of matched spans where the predicted start and end boundaries exactly match the gold boundaries. A high value means the model is not only finding the right thing, but also cutting it to the right size. If this is low while matches exist, you are mostly fighting boundary alignment rather than label recognition.</li>
+	          <li><code>boundary_over</code>: Number of matched spans where the prediction fully contains the gold span (the model highlighted too much text). This usually happens when the model “grabs extra lines” before/after the correct content. If <code>boundary_over</code> is high, tightening segmentation rules often helps.</li>
+	          <li><code>boundary_under</code>: Number of matched spans where the prediction is fully inside the gold span (the model highlighted too little text). This can happen when the model only captures the core phrase and misses surrounding lines that gold includes. If <code>boundary_under</code> is high, you may need larger span windows or different chunking.</li>
+	          <li><code>boundary_partial</code>: Number of matched spans that overlap but neither fully contain the other (a partial boundary mismatch). This is the messy middle case: the model is near the right spot, but the boundaries are shifted. High partial counts usually mean you should inspect examples because multiple failure modes can produce it.</li>
+	          <li><code>pred_width_p50</code>: The median (typical) predicted span width, measured in text blocks/lines. This tells you whether predictions are usually short “snippets” or larger chunks. If this is much bigger than <code>gold_width_p50</code>, strict metrics will often suffer because boundaries are too wide.</li>
+	          <li><code>gold_width_p50</code>: The median gold span width in text blocks/lines. This is the “target” span size the benchmark expects. Comparing it to <code>pred_width_p50</code> helps you see if the system is labeling at the right granularity.</li>
+	          <li><code>granularity_mismatch_likely</code>: A warning flag that the system and the gold labels are using different “chunk sizes” (for example, gold marks small spans while predictions mark whole paragraphs). When this is true, strict scores can look worse than the output feels because you are mostly mis-sizing spans. Use the boundary breakdown and span widths to confirm.</li>
+	        </ul>
+
+	        <p class="section-note"><strong>Coverage (did the pipeline feed the model the text?)</strong></p>
+	        <ul class="metric-help-list">
+	          <li><code>extracted_chars</code>: How much text was extracted from the source file for this run (in characters). Bigger sources usually cost more and take longer to process. If this unexpectedly drops, extraction may have failed or skipped content.</li>
+	          <li><code>chunked_chars</code>: How much of the extracted text was actually chunked and sent through the pipeline. If this is much smaller than <code>extracted_chars</code>, a lot of content was filtered out (headers/footers removal, skip rules, etc). Low chunked text can directly hurt recall because the model cannot label what it never sees.</li>
+	          <li><code>coverage_ratio</code>: A simple ratio of <code>chunked_chars / extracted_chars</code>. Low coverage means you are throwing away lots of extracted text before the model sees it, which can cause missing labels and missing recipes. Coverage does not guarantee quality, but very low coverage is a strong “something is wrong upstream” signal.</li>
+	        </ul>
+
+	        <p class="section-note"><strong>Tokens (cost proxy; present when run telemetry is available)</strong></p>
+	        <ul class="metric-help-list">
+	          <li><code>all_token_use</code>: A single “quick scan” token number that combines input and output tokens, with cached input discounted. Cached tokens are treated as cheaper by counting them at 10% weight. Use this to compare overall cost between runs without staring at multiple token columns.</li>
+	          <li><code>tokens_input</code>: How many input tokens were sent to the model across the run. More input tokens often means more context, which can help quality, but it also costs more and can slow things down. If this spikes, check whether chunk sizes or prompts got larger.</li>
+	          <li><code>tokens_cached_input</code>: Input tokens that came from cache (reused context) rather than being fully “paid for” again. This helps explain why a run can have high input tokens but lower effective cost. If cache tokens go up, cost can drop even if quality stays the same.</li>
+	          <li><code>tokens_output</code>: How many tokens the model produced in its responses. Higher output usually means higher cost and can increase latency. If this grows a lot, it can mean the model is being too verbose or returning extra structure.</li>
+	          <li><code>tokens_reasoning</code>: Tokens used for the model’s internal reasoning (when the provider reports it). Higher reasoning can improve hard cases, but it usually increases cost and time. If you raise “effort” settings, this is often the first token bucket to grow.</li>
+	          <li><code>tokens_total</code>: Total tokens reported for the run (when available). This can be useful for rough comparisons across runs, but different providers/models can count tokens differently. When in doubt, compare runs using the same model and settings.</li>
+	        </ul>
+
+	        <p class="section-note"><strong>Run metadata (helps compare apples-to-apples)</strong></p>
+	        <ul class="metric-help-list">
+	          <li><code>run_timestamp</code>: When the benchmark run happened. The timestamp cell links to the artifact folder for that run. Use it to open the exact logs/reports behind a row.</li>
+	          <li><code>source_label</code>: A human-friendly label for the source being evaluated (for example, a book name). This is the fastest way to make sure you are comparing the same source across runs. Different sources can have very different difficulty, so mixing them can mislead.</li>
+	          <li><code>source_file</code>: The raw source filename/path from the benchmark manifest (when available). This helps you track exactly what file the run came from. It is mainly for troubleshooting when a label looks “impossible” and you want to confirm the input.</li>
+	          <li><code>source_file_basename</code>: Just the filename portion of <code>source_file</code> (no folders). This is easier to scan in the table and works well for filtering. It does not change the metrics directly, but it helps you slice the history correctly.</li>
+	          <li><code>importer_name</code>: Which importer/pipeline generated the predictions used in the benchmark. Importer differences can change the text structure (blocks/lines) and therefore affect boundary-based metrics. When comparing runs, try to keep the importer the same unless you are explicitly testing an importer change.</li>
+	          <li><code>ai_model</code>: The model name used for the run (best-effort from metadata). Different models can have very different quality and cost profiles. When a metric changes, check this column first to make sure you are not comparing different models by accident.</li>
+	          <li><code>ai_effort</code>: A label for the model “thinking effort” used (best-effort from metadata). Higher effort can improve tricky cases but usually costs more and runs slower. If quality improves and tokens rise, effort is often the reason.</li>
+	          <li><code>run_config_hash</code>: A fingerprint of the run configuration (when available). If two rows share the same hash, they should be using the same settings. This is useful for grouping runs and spotting accidental config drift.</li>
+	          <li><code>run_config_summary</code>: A compact, human-readable summary of the run configuration (when available). Use it to quickly understand what was different between two runs without opening artifacts. This is especially helpful when you are iterating on pipeline knobs.</li>
+	          <li><code>run_config.model</code>: The exact model field from the recorded run config (when present). This is often more precise than <code>ai_model</code> when you are debugging metadata. It matters because changing models can change both quality and token usage.</li>
+	          <li><code>run_config.reasoning_effort</code>: The exact reasoning-effort setting from the run config (when present). This setting often trades cost/time for quality. If you see a step-change in tokens or quality, this is a likely cause.</li>
+	          <li><code>run_config.codex_model</code>: The codex model recorded in the run config (when present). This matters when your pipeline can use different models for different passes or modes. If this changes, treat the runs as different variants.</li>
+	          <li><code>run_config.codex_reasoning_effort</code>: The codex reasoning-effort recorded in the run config (when present). Higher values tend to use more reasoning tokens and run slower. Use it to explain “why did this run get expensive?” changes.</li>
+	          <li><code>artifact_dir</code>: The artifact directory path for the run. The dashboard uses this to create the clickable link from the timestamp to the run folder. If it is missing, the run row may be a legacy record without a stable artifact path.</li>
+	          <li><code>artifact_dir_basename</code>: Just the folder name part of <code>artifact_dir</code>. This is handy for quick filtering when you remember a run folder name. It is purely a convenience field.</li>
+	          <li><code>report_path</code>: The path to the benchmark report JSON that produced the row (when available). This is useful when you want to open the exact raw evaluation output. If it is missing, the dashboard may be using CSV history without a directly linked report file.</li>
+	          <li><code>processed_report_path</code>: Path to a processed/derived report for the run (when available). This can include extra enrichment not present in the raw report. Use it when you need deeper diagnostics and the raw report is not enough.</li>
+	          <li><code>all_method_record</code>: True/false indicating whether a row came from an “all-method” benchmark sweep. This is useful for filtering because all-method runs can have different patterns than single-offline runs. If you want clean apples-to-apples trending, you may want to exclude these.</li>
+	          <li><code>speed_suite_record</code>: True/false indicating whether a row is part of the speed benchmark suite. Speed runs may be optimized for runtime rather than max quality. Filter these out when you are focused purely on label quality.</li>
+	        </ul>
+	      </section>
+	    </details>
+	    <div class="previous-runs-top-grid">
+	      <div class="previous-runs-analysis-panels">
+	        <section id="compare-control-panel" class="compare-control-panel">
           <h3>Compare &amp; Control</h3>
           <p class="section-note">Use visible rows to find likely drivers, compare one field, hold confounders constant, and push selected groups into table filters.</p>
           <div class="compare-control-controls">
@@ -3404,6 +3486,41 @@ td.warn-note { color: #b45309; font-weight: 600; }
   grid-column: 1 / -1;
   overflow-x: auto;
 }
+.per-label-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.6rem;
+  margin: 0 0 0.45rem;
+}
+#per-label-section .per-label-title-row h2 {
+  margin: 0;
+}
+.per-label-run-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.per-label-run-select-wrap select {
+  min-width: 15.5rem;
+  max-width: min(60vw, 25rem);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.76rem;
+  font-family: var(--mono);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
 .per-label-controls {
   display: inline-flex;
   align-items: center;
@@ -3662,10 +3779,12 @@ _JS = """\
   let compareControlStatusIsError = false;
   let perLabelRollingWindowSize = 10;
   let perLabelComparisonMode = "delta";
+  let perLabelRunGroupKey = "__default_most_recent__";
   // Keep wheel-zoom off across all Highcharts charts unless explicitly re-enabled.
   const HIGHCHARTS_MOUSE_WHEEL_ZOOM_ENABLED = false;
   const PER_LABEL_ROLLING_WINDOW_MIN = 1;
   const PER_LABEL_ROLLING_WINDOW_MAX = 50;
+  const PER_LABEL_RUN_GROUP_DEFAULT_KEY = "__default_most_recent__";
   const PREVIOUS_RUNS_COLUMN_FILTER_OPERATORS = [
     ["contains", "contains"],
     ["not_contains", "does not contain"],
@@ -3995,6 +4114,13 @@ _JS = """\
     return key === "point_value" ? "point_value" : "delta";
   }
 
+  function normalizePerLabelRunGroupKey(value) {
+    const key = String(value == null ? "" : value).trim();
+    if (!key) return PER_LABEL_RUN_GROUP_DEFAULT_KEY;
+    if (key === PER_LABEL_RUN_GROUP_DEFAULT_KEY) return PER_LABEL_RUN_GROUP_DEFAULT_KEY;
+    return key;
+  }
+
   function normalizeCompareControlViewMode(value) {
     const key = String(value || "discover").trim().toLowerCase();
     return COMPARE_CONTROL_VIEW_MODES.has(key) ? key : "discover";
@@ -4206,6 +4332,11 @@ _JS = """\
         previousRuns.per_label_comparison_mode
       );
     }
+    if (Object.prototype.hasOwnProperty.call(previousRuns, "per_label_run_group_key")) {
+      perLabelRunGroupKey = normalizePerLabelRunGroupKey(
+        previousRuns.per_label_run_group_key
+      );
+    }
 
     const rawColumnWidths = previousRuns.column_widths;
     if (rawColumnWidths && typeof rawColumnWidths === "object" && !Array.isArray(rawColumnWidths)) {
@@ -4376,6 +4507,7 @@ _JS = """\
         },
         per_label_rolling_window_size: normalizePerLabelRollingWindowSize(perLabelRollingWindowSize),
         per_label_comparison_mode: normalizePerLabelComparisonMode(perLabelComparisonMode),
+        per_label_run_group_key: normalizePerLabelRunGroupKey(perLabelRunGroupKey),
         column_widths: columnWidths,
         sort: {
           field: String(previousRunsSortField || "run_timestamp"),
@@ -9726,9 +9858,104 @@ _JS = """\
     });
   }
 
+  function perLabelRunGroups(records) {
+    const groupsByKey = Object.create(null);
+    (records || []).forEach(record => {
+      if (!record || !Array.isArray(record.per_label) || !record.per_label.length) return;
+      const info = benchmarkRunGroupInfo(record);
+      const runGroupKey = String((info && info.runGroupKey) || "").trim();
+      if (!runGroupKey) return;
+      let group = groupsByKey[runGroupKey];
+      if (!group) {
+        group = {
+          runGroupKey,
+          runGroupLabel: String((info && info.runGroupLabel) || record.run_timestamp || "-").trim() || "-",
+          runGroupTimestampText: String((info && info.runGroupTimestampText) || record.run_timestamp || "").trim(),
+          records: [],
+        };
+        groupsByKey[runGroupKey] = group;
+      }
+      group.records.push(record);
+      const candidateTimestampText = String(
+        (info && info.runGroupTimestampText) || record.run_timestamp || ""
+      ).trim();
+      if (
+        candidateTimestampText &&
+        (
+          !group.runGroupTimestampText ||
+          compareRunTimestampDesc(candidateTimestampText, group.runGroupTimestampText) < 0
+        )
+      ) {
+        group.runGroupTimestampText = candidateTimestampText;
+      }
+    });
+    return Object.keys(groupsByKey)
+      .map(key => groupsByKey[key])
+      .sort((left, right) => {
+        const leftTimestamp = String(left.runGroupTimestampText || "").trim();
+        const rightTimestamp = String(right.runGroupTimestampText || "").trim();
+        const timestampCompare = compareRunTimestampDesc(leftTimestamp, rightTimestamp);
+        if (timestampCompare !== 0) return timestampCompare;
+        const labelCompare = String(left.runGroupLabel || "").localeCompare(String(right.runGroupLabel || ""));
+        if (labelCompare !== 0) return labelCompare;
+        return String(left.runGroupKey || "").localeCompare(String(right.runGroupKey || ""));
+      });
+  }
+
+  function syncPerLabelRunGroupUi(runGroups) {
+    const select = document.getElementById("per-label-run-group-select");
+    if (!select) return;
+    const groups = Array.isArray(runGroups) ? runGroups : [];
+    const normalizedSelected = normalizePerLabelRunGroupKey(perLabelRunGroupKey);
+    const availableKeys = new Set(
+      groups.map(group => String((group && group.runGroupKey) || "").trim()).filter(Boolean)
+    );
+    let persistedSelectedKey = normalizedSelected;
+    if (
+      groups.length > 0 &&
+      persistedSelectedKey !== PER_LABEL_RUN_GROUP_DEFAULT_KEY &&
+      !availableKeys.has(persistedSelectedKey)
+    ) {
+      persistedSelectedKey = PER_LABEL_RUN_GROUP_DEFAULT_KEY;
+    }
+    perLabelRunGroupKey = persistedSelectedKey;
+    const selectedKey = groups.length > 0 ? persistedSelectedKey : PER_LABEL_RUN_GROUP_DEFAULT_KEY;
+
+    select.innerHTML = "";
+    const defaultOption = document.createElement("option");
+    defaultOption.value = PER_LABEL_RUN_GROUP_DEFAULT_KEY;
+    defaultOption.textContent = "Default - most recent";
+    select.appendChild(defaultOption);
+    groups.forEach(group => {
+      const key = String((group && group.runGroupKey) || "").trim();
+      const label = String((group && group.runGroupLabel) || "").trim();
+      if (!key || !label) return;
+      const option = document.createElement("option");
+      option.value = key;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+    select.value = selectedKey;
+    select.disabled = groups.length === 0;
+  }
+
   function setupPerLabelControls() {
+    syncPerLabelRunGroupUi([]);
     syncPerLabelRollingWindowUi();
     syncPerLabelComparisonModeUi();
+    const runGroupSelect = document.getElementById("per-label-run-group-select");
+    if (runGroupSelect && runGroupSelect.dataset.bound !== "1") {
+      runGroupSelect.addEventListener("change", () => {
+        const nextKey = normalizePerLabelRunGroupKey(runGroupSelect.value);
+        if (nextKey === perLabelRunGroupKey) {
+          return;
+        }
+        perLabelRunGroupKey = nextKey;
+        persistDashboardUiState();
+        renderPerLabel();
+      });
+      runGroupSelect.dataset.bound = "1";
+    }
     const input = document.getElementById("per-label-rolling-window-size");
     if (input && input.dataset.bound !== "1") {
       input.addEventListener("change", () => {
@@ -9841,6 +10068,7 @@ _JS = """\
     syncPerLabelRollingWindowUi();
     syncPerLabelComparisonModeUi();
     if (records.length === 0) {
+      syncPerLabelRunGroupUi([]);
       if (title) title.textContent = "Per-Label Breakdown";
       tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="11">No benchmark records with per-label data.</td></tr>';
       return;
@@ -9858,16 +10086,34 @@ _JS = """\
     const candidateRecords = latestAllMethodRecords.length > 0
       ? latestAllMethodRecords
       : preferredRecords.filter(r => r.per_label && r.per_label.length > 0);
+    const runGroups = perLabelRunGroups(candidateRecords);
     const latestRunGroup = latestRunGroupRecords(
       candidateRecords,
       record => Array.isArray(record.per_label) && record.per_label.length > 0,
     );
-    const latestRunRecords = latestRunGroup.records;
-    const latestRunLabel = latestRunGroup.runGroupLabel;
+    let didResetRunGroupSelection = false;
+    const selectedRunGroupKey = normalizePerLabelRunGroupKey(perLabelRunGroupKey);
+    let selectedRunGroup = null;
+    if (selectedRunGroupKey !== PER_LABEL_RUN_GROUP_DEFAULT_KEY) {
+      selectedRunGroup = runGroups.find(group =>
+        String((group && group.runGroupKey) || "").trim() === selectedRunGroupKey
+      ) || null;
+      if (!selectedRunGroup && runGroups.length > 0) {
+        perLabelRunGroupKey = PER_LABEL_RUN_GROUP_DEFAULT_KEY;
+        didResetRunGroupSelection = true;
+      }
+    }
+    const activeRunGroup = selectedRunGroup || latestRunGroup;
+    syncPerLabelRunGroupUi(runGroups);
+    const latestRunRecords = activeRunGroup.records;
+    const latestRunLabel = activeRunGroup.runGroupLabel;
     if (!latestRunRecords.length) {
       if (title) title.textContent = "Per-Label Breakdown";
       tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="11">No per-label metrics available in benchmark records.</td></tr>';
       return;
+    }
+    if (didResetRunGroupSelection) {
+      persistDashboardUiState();
     }
     if (title) {
       title.textContent =

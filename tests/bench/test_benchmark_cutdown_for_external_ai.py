@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import gzip
 import hashlib
 import importlib.util
@@ -990,9 +989,8 @@ def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path:
     triage_payload = payload_rows[
         f"{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_FILE_NAME}"
     ]
-    assert triage_payload["content_type"] == "csv"
-    assert isinstance(triage_payload["content_csv"], dict)
-    assert isinstance(triage_payload["content_csv"]["rows"], list)
+    assert triage_payload["content_type"] == "jsonl"
+    assert isinstance(triage_payload["content_jsonl_rows"], list)
 
     process_manifest_payload = payload_rows["process_manifest.json"]["content_json"]
     assert process_manifest_payload["upload_3_files_enabled"] is True
@@ -1352,7 +1350,8 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     required_files = {
         "README.md",
         "00_run_overview.md",
-        "01_recipe_triage.csv",
+        "01_recipe_triage.jsonl",
+        "01_recipe_triage.packet.jsonl",
         "02_call_inventory.jsonl",
         "03_changed_lines.codex_vs_baseline.jsonl",
         "04_warning_and_trace_summary.json",
@@ -1364,32 +1363,36 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         "10_process_manifest.json",
         "11_comparison_summary.json",
         "12_per_recipe_or_per_span_breakdown.json",
+        "13_net_error_blame_summary.json",
+        "14_config_version_metadata.json",
+        "15_low_confidence_changed_lines.packet.jsonl",
+        "16_baseline_trace_parity.json",
     }
     assert required_files.issubset({path.name for path in starter_dir.iterdir() if path.is_file()})
 
-    triage_header = (starter_dir / "01_recipe_triage.csv").read_text(encoding="utf-8").splitlines()[0]
-    assert triage_header == ",".join(module.STARTER_PACK_TRIAGE_HEADER)
-    with (starter_dir / "01_recipe_triage.csv").open("r", encoding="utf-8", newline="") as handle:
-        triage_rows = list(csv.DictReader(handle))
+    triage_rows = _read_jsonl(starter_dir / "01_recipe_triage.jsonl")
     assert triage_rows
     triage_row = triage_rows[0]
     assert triage_row["pass1_status"] == "ok"
     assert triage_row["pass2_status"] == "degraded"
     assert triage_row["pass3_status"] == "fallback"
-    assert triage_row["pass1_clamped_block_loss_count"] == "3"
-    assert triage_row["pass1_clamped_block_loss_ratio"] == "0.250000"
-    assert triage_row["pass2_degradation_reasons"] == "missing_instructions|page_or_layout_artifact"
+    assert triage_row["pass1_clamped_block_loss_count"] == 3
+    assert triage_row["pass1_clamped_block_loss_ratio"] == 0.25
+    assert triage_row["pass2_degradation_reasons"] == [
+        "missing_instructions",
+        "page_or_layout_artifact",
+    ]
     assert triage_row["pass2_degradation_severity"] == "hard"
     assert triage_row["pass2_promotion_policy"] == "hard_fallback"
     assert triage_row["pass3_execution_mode"] == "deterministic"
     assert triage_row["pass3_routing_reason"] == "pass2_hard_degradation_forced_fallback"
     assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
-    assert triage_row["transport_mismatch"] == "true"
-    assert triage_row["transport_mismatch_reasons"] == "missing_payload_blocks"
-    assert triage_row["transport_effective_to_payload_coverage_ratio"] == "0.750000"
-    assert triage_row["evidence_split_quantity_lines"] == "2"
-    assert triage_row["evidence_dropped_page_markers"] == "1"
-    assert triage_row["evidence_folded_page_markers"] == "1"
+    assert triage_row["transport_mismatch"] is True
+    assert triage_row["transport_mismatch_reasons"] == ["missing_payload_blocks"]
+    assert triage_row["transport_effective_to_payload_coverage_ratio"] == 0.75
+    assert triage_row["evidence_split_quantity_lines"] == 2
+    assert triage_row["evidence_dropped_page_markers"] == 1
+    assert triage_row["evidence_folded_page_markers"] == 1
 
     call_inventory_rows = _read_jsonl(starter_dir / "02_call_inventory.jsonl")
     assert call_inventory_rows
@@ -1448,7 +1451,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     root_manifest = _read_json(output_dir / "process_manifest.json")
     assert root_manifest["starter_pack_v1_path"] == "starter_pack_v1"
     assert root_manifest["starter_pack_v1_manifest_file"] == "starter_pack_v1/10_process_manifest.json"
-    assert "starter_pack_v1/01_recipe_triage.csv" in set(root_manifest["included_files"])
+    assert "starter_pack_v1/01_recipe_triage.jsonl" in set(root_manifest["included_files"])
 
     root_comparison = _read_json(output_dir / "comparison_summary.json")
     starter_comparison = _read_json(starter_dir / "11_comparison_summary.json")
@@ -1517,12 +1520,14 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
             {
-                "atomic_index": 0,
-                "label": "RECIPE_TITLE",
-                "confidence": 0.95,
+                "recipe_id": "recipe:c0",
+                "line_index": 1,
+                "atomic_index": 1,
+                "label": "RECIPE_NOTES",
+                "confidence": 0.42,
                 "decided_by": "rule",
-                "candidate_labels": ["RECIPE_TITLE", "HOWTO_SECTION", "OTHER"],
-                "text": "Dish Title",
+                "candidate_labels": ["INGREDIENT_LINE", "RECIPE_NOTES", "OTHER"],
+                "text": "1 cup flour",
             }
         ],
     )
@@ -1543,7 +1548,7 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
     starter_dir = session_root / "starter_pack_v1"
     assert starter_dir.is_dir()
     assert (starter_dir / "00_run_overview.md").is_file()
-    assert (starter_dir / "01_recipe_triage.csv").is_file()
+    assert (starter_dir / "01_recipe_triage.jsonl").is_file()
     assert int(metadata["run_count"]) == 2
     assert int(metadata["pair_count"]) == 1
 
@@ -1702,9 +1707,67 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert self_check["starter_pack_present"] is True
     assert self_check["starter_pack_physical_dir_present"] is False
     assert isinstance(index_payload.get("analysis"), dict)
+    assert isinstance(index_payload["analysis"].get("triage_packet"), dict)
+    blame_summary = index_payload["analysis"].get("net_error_blame_summary")
+    assert isinstance(blame_summary, dict)
+    share_semantics = blame_summary.get("share_semantics")
+    assert isinstance(share_semantics, dict)
+    bucket_rows = blame_summary.get("bucket_rows")
+    assert isinstance(bucket_rows, list)
+    assert {row.get("bucket") for row in bucket_rows if isinstance(row, dict)} == {
+        "line_role",
+        "pass2_extraction",
+        "pass3_mapping",
+        "routing_or_fallback",
+    }
+    new_error_lines = int(blame_summary.get("new_error_lines") or 0)
+    fixed_error_lines = int(blame_summary.get("fixed_error_lines") or 0)
+    net_error_delta_lines = int(blame_summary.get("net_error_delta_lines") or 0)
+    assert net_error_delta_lines == (new_error_lines - fixed_error_lines)
+    summed_new_counts = 0
+    summed_fixed_counts = 0
+    summed_net_counts = 0
+    for row in bucket_rows:
+        if not isinstance(row, dict):
+            continue
+        assert "new_error_count" in row
+        assert "fixed_error_count" in row
+        assert "net_error_count" in row
+        assert "share_of_new_errors" in row
+        assert "share_of_fixed_errors" in row
+        assert "share_of_net_error" in row
+        row_new = int(row.get("new_error_count") or 0)
+        row_fixed = int(row.get("fixed_error_count") or 0)
+        row_net = int(row.get("net_error_count") or 0)
+        assert row_net == (row_new - row_fixed)
+        summed_new_counts += row_new
+        summed_fixed_counts += row_fixed
+        summed_net_counts += row_net
+    assert summed_new_counts == new_error_lines
+    assert summed_fixed_counts == fixed_error_lines
+    assert summed_net_counts == net_error_delta_lines
+    config_meta = index_payload["analysis"].get("config_version_metadata")
+    assert isinstance(config_meta, dict)
+    assert isinstance(config_meta.get("pair_comparability"), dict)
+    run_settings_rows = config_meta.get("runs")
+    assert isinstance(run_settings_rows, list)
+    codex_settings = next(
+        row for row in run_settings_rows if str(row.get("run_id") or "") == codex_run_id
+    )
+    assert codex_settings["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert codex_settings["line_role_pipeline"] == "codex-line-role-v1"
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
     assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
+    low_conf_packet = index_payload["analysis"].get("low_confidence_changed_lines_packet")
+    assert isinstance(low_conf_packet, dict)
+    assert low_conf_packet.get("available") is True
+    low_conf_row_count = int(low_conf_packet.get("row_count") or 0)
+    assert low_conf_row_count >= 0
+    if low_conf_row_count == 0:
+        assert "No changed lines intersected" in str(
+            low_conf_packet.get("empty_packet_note") or ""
+        )
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
     line_role_signal = index_payload["analysis"].get("line_role_confidence_or_candidates")
     assert isinstance(line_role_signal, dict)
@@ -1738,6 +1801,10 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     )
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
+    default_views = navigation_payload.get("default_initial_views")
+    assert isinstance(default_views, list)
+    assert "analysis.triage_packet" in default_views
+    assert "analysis.low_confidence_changed_lines_packet" in default_views
     row_locators = navigation_payload.get("row_locators")
     assert isinstance(row_locators, dict)
     root_locators = row_locators.get("root_files")
@@ -1751,7 +1818,32 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     }
     starter_locators = row_locators.get("starter_pack")
     assert isinstance(starter_locators, dict)
-    assert all(isinstance(locator, dict) for locator in starter_locators.values())
+    for key in (
+        "triage_jsonl",
+        "triage_packet_jsonl",
+        "call_inventory_jsonl",
+        "changed_lines_jsonl",
+        "warning_trace_summary_json",
+        "bridge_summary_jsonl",
+        "selected_packets_jsonl",
+        "casebook_md",
+        "manifest_json",
+    ):
+        assert isinstance(starter_locators.get(key), dict)
+    triage_packet_locator = root_locators.get("triage_packet_jsonl")
+    assert isinstance(triage_packet_locator, dict)
+    assert triage_packet_locator.get("path") == (
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/{module.STARTER_PACK_TRIAGE_PACKET_FILE_NAME}"
+    )
+    assert triage_packet_locator.get("alias_path") == (
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_PACKET_FILE_NAME}"
+    )
+    assert isinstance(root_locators.get("net_error_blame_summary_json"), dict)
+    assert isinstance(root_locators.get("config_version_metadata_json"), dict)
+    assert isinstance(root_locators.get("low_confidence_changed_lines_packet_jsonl"), dict)
+    alias_dedupe = navigation_payload.get("alias_dedupe")
+    assert isinstance(alias_dedupe, dict)
+    assert int(alias_dedupe.get("content_equivalent_group_count") or 0) >= 1
     derived_root_run_index = (
         f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/run_index.json"
     )
@@ -1766,6 +1858,12 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert codex_diag["projection_trace_status"] == "written"
     assert codex_diag["wrong_label_full_context_status"] == "written"
     assert codex_diag["preprocess_trace_failures_status"] == "written"
+    baseline_diag = next(
+        row for row in run_diagnostics if str(row.get("run_id") or "") == baseline_run_id
+    )
+    assert baseline_diag["prompt_warning_aggregate_status"] == "not_applicable"
+    assert baseline_diag["projection_trace_status"] == "not_applicable"
+    assert baseline_diag["preprocess_trace_failures_status"] == "not_applicable"
 
 
 def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cutdown_summary(

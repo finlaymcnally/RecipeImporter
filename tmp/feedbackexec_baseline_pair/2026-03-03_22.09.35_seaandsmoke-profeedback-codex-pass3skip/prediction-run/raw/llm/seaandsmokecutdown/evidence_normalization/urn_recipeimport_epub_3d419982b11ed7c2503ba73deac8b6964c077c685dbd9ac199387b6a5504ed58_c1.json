@@ -1,0 +1,380 @@
+{
+  "bundle_name": "r0001_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c1.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b105",
+      "block_index": 105,
+      "normalized_lines": [
+        "1/3 cup/",
+        "80 g smelt stock (page 247)"
+      ],
+      "original_text": "1/3 cup/80 g smelt stock (page 247)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b106",
+      "block_index": 106,
+      "normalized_lines": [
+        "1 cup/",
+        "90 g lovage stems, cut into",
+        "1/4-inch/.",
+        "5 cm lengths"
+      ],
+      "original_text": "1 cup/90 g lovage stems, cut into 1/4-inch/.5 cm lengths",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b107",
+      "block_index": 107,
+      "normalized_lines": [
+        "1 cup/",
+        "12 g lovage leaves, torn into pieces smaller than",
+        "1 inch/",
+        "2.5 cm"
+      ],
+      "original_text": "1 cup/12 g lovage leaves, torn into pieces smaller than 1 inch/2.5 cm",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b108",
+      "block_index": 108,
+      "normalized_lines": [
+        "1/2 cup/",
+        "45 g rainbow chard stems, cut into",
+        "1/4-inch/.",
+        "5 cm cubes"
+      ],
+      "original_text": "1/2 cup/45 g rainbow chard stems, cut into 1/4-inch/.5 cm cubes",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b109",
+      "block_index": 109,
+      "normalized_lines": [
+        "1/2 cup/",
+        "50 g rainbow chard leaves, torn into thumb-sized pieces"
+      ],
+      "original_text": "1/2 cup/50 g rainbow chard leaves, torn into thumb-sized pieces",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b111",
+      "block_index": 111,
+      "normalized_lines": [
+        "1 tablespoon/",
+        "15 g high-quality unsalted butter"
+      ],
+      "original_text": "1 tablespoon/15 g high-quality unsalted butter",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b112",
+      "block_index": 112,
+      "normalized_lines": [
+        "1 tablespoon/",
+        "15 g spinach pur\u00e9e (page 247)"
+      ],
+      "original_text": "1 tablespoon/15 g spinach pur\u00e9e (page 247)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b113",
+      "block_index": 113,
+      "normalized_lines": [
+        "2 tablespoons/",
+        "12 g chopped fermented green garlic (page 240)"
+      ],
+      "original_text": "2 tablespoons/12 g chopped fermented green garlic (page 240)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b118",
+      "block_index": 118,
+      "normalized_lines": [
+        "Bring the smelt stock to a boil in a medium saucepan over medium-high heat. Add the lovage stems and lovage leaves, along with the chard stems and chard leaves. Cook the mixture, stirring frequently, until only about a tablespoon of the liquid remains and the leaves are a nice, glowing green, 3 to",
+        "5 minutes. Remove from the heat, season with salt, and stir in the butter. Return to the heat and stir in the spinach pur\u00e9e until a nice, creamy sheen forms. Off the heat, stir in the scallions and fermented green garlic and season with reduced wine, verjus, and salt."
+      ],
+      "original_text": "Bring the smelt stock to a boil in a medium saucepan over medium-high heat. Add the lovage stems and lovage leaves, along with the chard stems and chard leaves. Cook the mixture, stirring frequently, until only about a tablespoon of the liquid remains and the leaves are a nice, glowing green, 3 to 5 minutes. Remove from the heat, season with salt, and stir in the butter. Return to the heat and stir in the spinach pur\u00e9e until a nice, creamy sheen forms. Off the heat, stir in the scallions and fermented green garlic and season with reduced wine, verjus, and salt.",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b99",
+      "source_block_index": 99,
+      "source_line_index": 0,
+      "text": "A PORRIDGE OF LOVAGE STEMS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b100",
+      "source_block_index": 100,
+      "source_line_index": 0,
+      "text": "I had never cooked with lovage before moving to Denmark, but it's an amazing herb that grows rampant on Lummi. Here, we started by using the plant for several dishes, making infusions from the leaves and turning the seeds into capers, but we always had a large bin of lovage stems that ended up in the compost heap.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b101",
+      "source_block_index": 101,
+      "source_line_index": 0,
+      "text": "In the spring, lovage is tender and subtle, an almost entirely different plant than it is later in the year. This dish is best prepared before the plant bolts and flowers, when the stems are crisp, juicy, and pleasant to eat raw. The preparation resembles a risotto, with the lovage stems in place of rice, gradually softened while cooking in a smoky smelt stock. The consistency should be similar to risotto, too, with a creaminess achieved by mixing in a thick pur\u00e9e of blanched spinach and adding a knob of butter at the end. This porridge can easily be a stand-alone dish, but I tend to serve it alongside some caramelized shellfish, such as razor clams or small squid.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b102",
+      "source_block_index": 102,
+      "source_line_index": 0,
+      "text": "The smelt stock used in this porridge is a good one, something of a mother sauce here at The Willows. We clean, salt, smoke, and dry the small fish before infusing them into a broth with dried mushrooms.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b103",
+      "source_block_index": 103,
+      "source_line_index": 0,
+      "text": "SERVES 6 TO 8",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b104",
+      "source_block_index": 104,
+      "source_line_index": 0,
+      "text": "3 scallions",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b105",
+      "source_block_index": 105,
+      "source_line_index": 0,
+      "text": "1/3 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b105",
+      "source_block_index": 105,
+      "source_line_index": 0,
+      "text": "80 g smelt stock (page 247)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b106",
+      "source_block_index": 106,
+      "source_line_index": 0,
+      "text": "1 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b106",
+      "source_block_index": 106,
+      "source_line_index": 0,
+      "text": "90 g lovage stems, cut into",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b106",
+      "source_block_index": 106,
+      "source_line_index": 0,
+      "text": "1/4-inch/.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b106",
+      "source_block_index": 106,
+      "source_line_index": 0,
+      "text": "5 cm lengths",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b107",
+      "source_block_index": 107,
+      "source_line_index": 0,
+      "text": "1 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b107",
+      "source_block_index": 107,
+      "source_line_index": 0,
+      "text": "12 g lovage leaves, torn into pieces smaller than",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b107",
+      "source_block_index": 107,
+      "source_line_index": 0,
+      "text": "1 inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b107",
+      "source_block_index": 107,
+      "source_line_index": 0,
+      "text": "2.5 cm",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b108",
+      "source_block_index": 108,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b108",
+      "source_block_index": 108,
+      "source_line_index": 0,
+      "text": "45 g rainbow chard stems, cut into",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b108",
+      "source_block_index": 108,
+      "source_line_index": 0,
+      "text": "1/4-inch/.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b108",
+      "source_block_index": 108,
+      "source_line_index": 0,
+      "text": "5 cm cubes",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b109",
+      "source_block_index": 109,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b109",
+      "source_block_index": 109,
+      "source_line_index": 0,
+      "text": "50 g rainbow chard leaves, torn into thumb-sized pieces",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b110",
+      "source_block_index": 110,
+      "source_line_index": 0,
+      "text": "Salt",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b111",
+      "source_block_index": 111,
+      "source_line_index": 0,
+      "text": "1 tablespoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b111",
+      "source_block_index": 111,
+      "source_line_index": 0,
+      "text": "15 g high-quality unsalted butter",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b112",
+      "source_block_index": 112,
+      "source_line_index": 0,
+      "text": "1 tablespoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b112",
+      "source_block_index": 112,
+      "source_line_index": 0,
+      "text": "15 g spinach pur\u00e9e (page 247)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b113",
+      "source_block_index": 113,
+      "source_line_index": 0,
+      "text": "2 tablespoons/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b113",
+      "source_block_index": 113,
+      "source_line_index": 0,
+      "text": "12 g chopped fermented green garlic (page 240)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b114",
+      "source_block_index": 114,
+      "source_line_index": 0,
+      "text": "Reduced white wine (page 251)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b115",
+      "source_block_index": 115,
+      "source_line_index": 0,
+      "text": "Verjus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b116",
+      "source_block_index": 116,
+      "source_line_index": 0,
+      "text": "Lovage oil (page 242)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b117",
+      "source_block_index": 117,
+      "source_line_index": 0,
+      "text": "Prepare a grill for direct grilling. Char the scallions over direct heat on the grill until well blackened, then finely chop them.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b118",
+      "source_block_index": 118,
+      "source_line_index": 0,
+      "text": "Bring the smelt stock to a boil in a medium saucepan over medium-high heat. Add the lovage stems and lovage leaves, along with the chard stems and chard leaves. Cook the mixture, stirring frequently, until only about a tablespoon of the liquid remains and the leaves are a nice, glowing green, 3 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b118",
+      "source_block_index": 118,
+      "source_line_index": 0,
+      "text": "5 minutes. Remove from the heat, season with salt, and stir in the butter. Return to the heat and stir in the spinach pur\u00e9e until a nice, creamy sheen forms. Off the heat, stir in the scallions and fermented green garlic and season with reduced wine, verjus, and salt.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b119",
+      "source_block_index": 119,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b120",
+      "source_block_index": 120,
+      "source_line_index": 0,
+      "text": "Put a spoonful of porridge in the center of a dish and drizzle it with lovage oil.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c1",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 22,
+    "input_line_count": 22,
+    "output_line_count": 37,
+    "split_quantity_lines": 9
+  }
+}

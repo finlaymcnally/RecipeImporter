@@ -1563,6 +1563,8 @@ class TestRenderer:
         assert "All-Method Benchmark Runs" not in html
         assert "Diagnostics (Latest Benchmark)" in html
         assert 'id="runtime-section"' in html
+        assert 'id="per-label-run-group-select"' in html
+        assert "Default - most recent" in html
         assert 'id="per-label-rolling-window-size"' in html
         assert 'id="per-label-comparison-point-value"' in html
         assert 'class="per-label-rolling-group"' in html
@@ -1688,6 +1690,8 @@ class TestRenderer:
         assert "const PREVIOUS_RUNS_COLUMN_FILTER_MODES = [" in js
         assert "const PREVIOUS_RUNS_COLUMN_FILTER_MODE_LABEL = Object.fromEntries(" in js
         assert "const PREVIOUS_RUNS_FILTER_SUGGESTION_LIMIT = 8;" in js
+        assert 'let perLabelRunGroupKey = "__default_most_recent__";' in js
+        assert 'const PER_LABEL_RUN_GROUP_DEFAULT_KEY = "__default_most_recent__";' in js
         assert '"source_label"' in js
         assert '"ai_model"' in js
         assert '"ai_effort"' in js
@@ -1715,6 +1719,8 @@ class TestRenderer:
         assert 'if (Object.prototype.hasOwnProperty.call(previousRuns, "compare_control")) {' in js
         assert "compareControlState = normalizeCompareControlState(compareControlState);" in js
         assert "compare_control: normalizeCompareControlState(compareControlState)," in js
+        assert 'if (Object.prototype.hasOwnProperty.call(previousRuns, "per_label_run_group_key")) {' in js
+        assert "per_label_run_group_key: normalizePerLabelRunGroupKey(perLabelRunGroupKey)," in js
         assert "function previousRunsPresetNames()" in js
         assert "function renderPreviousRunsPresetEditor()" in js
         assert "function captureCurrentPreviousRunsPresetState()" in js
@@ -1898,9 +1904,15 @@ class TestRenderer:
         assert "function syncPerLabelComparisonModeUi()" in js
         assert "function normalizePerLabelRollingWindowSize(value)" in js
         assert "function normalizePerLabelComparisonMode(value)" in js
+        assert "function normalizePerLabelRunGroupKey(value)" in js
+        assert "function perLabelRunGroups(records)" in js
+        assert "function syncPerLabelRunGroupUi(runGroups)" in js
         assert "function rollingPerLabelByVariant(records, variant, windowSize)" in js
         assert "const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);" in js
         assert "per_label_comparison_mode: normalizePerLabelComparisonMode(perLabelComparisonMode)" in js
+        assert "const runGroups = perLabelRunGroups(candidateRecords);" in js
+        assert 'const runGroupSelect = document.getElementById("per-label-run-group-select");' in js
+        assert 'defaultOption.textContent = "Default - most recent";' in js
         assert 'const checkbox = document.getElementById("per-label-comparison-point-value");' in js
         assert "const rawDelta = baselineNum - valueNum;" in js
         assert 'benchmarkVariantForRecord(record) === "codexfarm"' in js

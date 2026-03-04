@@ -20,6 +20,34 @@ Current status update (2026-03-01 to 2026-03-02):
 - `scripts/quality_top_tier_tournament.py` is retired/disabled and exits immediately.
 - Track 1 and Track 2 below are historical workflow context only (useful for reading legacy artifacts), not active runnable commands.
 
+## AI-Agent Handoff (Active)
+
+`bench quality-run` and `bench quality-compare` now generate an agent bridge bundle by default:
+
+- quality-run: `<run_dir>/agent_compare_control/`
+- quality-compare: `<comparison_dir>/agent_compare_control/`
+
+Bundle files:
+
+- `qualitysuite_compare_control_index.json`: machine-readable map of scopes, outcomes, and insight files.
+- `<scope_id>__strict_accuracy.json` + `<scope_id>__macro_f1_excluding_other.json`: precomputed compare-control insights.
+- `agent_requests.jsonl`: ready follow-up requests for `cookimport compare-control agent`.
+- `README.md`: copy/paste command + recommended agent flow.
+
+Minimal loop for an AI agent:
+
+1. Run `bench quality-run` or `bench quality-compare` as normal.
+2. Read `agent_compare_control/qualitysuite_compare_control_index.json`.
+3. Inspect one scope insight JSON.
+4. Run:
+
+```bash
+cookimport compare-control agent --output-root data/output --golden-root data/golden \
+  < agent_compare_control/agent_requests.jsonl > agent_responses.jsonl
+```
+
+This keeps the bridge deterministic and local-data-only; no LLM parsing is required.
+
 ## Default Preset Pack
 
 Official phase presets:

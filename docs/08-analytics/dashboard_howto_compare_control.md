@@ -3,6 +3,7 @@ summary: "INSTRUCITONS FOR HUMANS"
 read_when:
   - "dont waste ur tokens"
 ---
+ENSURE EVERYTHING IS WRITTEN SUCH THAT A NON CODER NON STATS PERSON CAN UNDERSTAND AND ACTION UNDERSTANDING FROM THIS TOOL 
 
 # How To Use: Compare & Control
 
@@ -35,6 +36,23 @@ If you are not sure what to compare:
 
 Rule of thumb: use `discover` to pick a field, start analysis in `raw`, then switch to `controlled` if you think the result might be explained by other changes (different source files, different importers, different benchmark setup).
 
+### Example: when to trust `raw` vs `controlled`
+
+Imagine you compare **model** and your outcome is quality score:
+
+- `raw` says: `codexfarm` beats `vanilla` by +0.05.
+- `controlled` says: almost no difference (+0.01), and maybe shows a coverage warning.
+
+How to read that:
+
+1. Trust `raw` as a quick signal only ("there might be something here").
+2. Trust `controlled` more for decision-making **if coverage is decent** (because it is comparing more similar runs).
+3. If controlled coverage is weak, treat it as a hint and simplify controls (fewer **Hold constant** fields), then re-check.
+
+Simple decision rule:
+- If `raw` and `controlled` agree: confidence goes up.
+- If they disagree: prefer `controlled`, but check coverage before final decisions.
+
 ### Step 4 (optional): Hold constant (controls)
 
 Pick one or more **Hold constant** checkboxes to keep those fields the same while comparing.
@@ -57,3 +75,27 @@ This writes those selected groups into the table filters, so the table (and char
 
 To undo it:
 Remove the table filter for that column, or use **Clear all filters**.
+
+## Terminal mode (no browser)
+
+You can run the same analysis from terminal:
+
+1. One-shot JSON:
+`cookimport compare-control run --action analyze --view controlled --outcome-field strict_accuracy --compare-field ai_model`
+2. One-shot auto-learn summary:
+`cookimport compare-control run --action insights --outcome-field strict_accuracy`
+3. Keep a session open for repeated requests:
+`cookimport compare-control agent`
+
+Agent mode reads one JSON request per line and writes one JSON response per line, so external tools can loop quickly without reopening the dashboard.
+
+## QualitySuite friend mode (AI-agent shortcut)
+
+After running `cookimport bench quality-run` or `cookimport bench quality-compare`, open the generated `agent_compare_control/` folder in that run/comparison directory.
+
+Use this order:
+
+1. Read `qualitysuite_compare_control_index.json` (what scopes are available).
+2. Read the precomputed insight JSON for the scope/outcome you care about.
+3. If you need deeper detail, run:
+`cookimport compare-control agent --output-root data/output --golden-root data/golden < agent_requests.jsonl > agent_responses.jsonl`

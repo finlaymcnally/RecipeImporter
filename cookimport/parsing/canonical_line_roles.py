@@ -28,6 +28,23 @@ _INGREDIENT_UNIT_RE = re.compile(
     r"g|kg|ml|l|cloves?|sticks?|cans?|pinch)\b",
     re.IGNORECASE,
 )
+_INGREDIENT_NAME_FRAGMENT_RE = re.compile(
+    r"^[A-Za-z][A-Za-z'/-]*(?:\s+[A-Za-z][A-Za-z'/-]*){0,2}$"
+)
+_INGREDIENT_FRAGMENT_STOPWORDS = {
+    "and",
+    "at",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "or",
+    "step",
+    "the",
+    "to",
+    "with",
+}
 _TIME_PREFIX_RE = re.compile(
     r"^\s*(?:prep time|cook time|total time|active time|ready in)\b",
     re.IGNORECASE,
@@ -472,6 +489,24 @@ def _sanitize_prediction(
         label = "OTHER"
         decided_by = "fallback"
         reason_tags.append("sanitized_knowledge_inside_recipe")
+    if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
+        label = "INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER"
+        decided_by = "fallback"
+        reason_tags.append(
+            "sanitized_time_to_instruction"
+            if candidate.within_recipe_span
+            else "sanitized_time_to_other"
+        )
+    if (
+        label in {"OTHER", "KNOWLEDGE", "RECIPE_NOTES", "INSTRUCTION_LINE", "TIME_LINE"}
+        and _should_rescue_neighbor_ingredient_fragment(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    ):
+        label = "INGREDIENT_LINE"
+        decided_by = "fallback"
+        reason_tags.append("sanitized_neighbor_ingredient_fragment")
     if label == "YIELD_LINE" and _looks_obvious_ingredient(candidate):
         label = "INGREDIENT_LINE"
         decided_by = "fallback"
@@ -514,11 +549,15 @@ def _should_escalate_low_confidence_candidate(
 def _is_primary_time_line(text: str) -> bool:
     if _TIME_PREFIX_RE.search(text):
         return True
-    words = _PROSE_WORD_RE.findall(text)
-    if len(words) <= 8 and re.search(r"\b\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hour|hours)\b", text, re.IGNORECASE):
-        return True
     if _INSTRUCTION_VERB_RE.match(text):
         return False
+    words = _PROSE_WORD_RE.findall(text)
+    if len(words) <= 8 and re.search(
+        r"\b\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hour|hours)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return True
     return False
 
 
@@ -563,6 +602,102 @@ def _looks_obvious_ingredient(candidate: AtomicLineCandidate) -> bool:
     if _QUANTITY_LINE_RE.match(text) and _INGREDIENT_UNIT_RE.search(text):
         return True
     return False
+
+
+def _looks_quantity_unit_fragment(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if not _QUANTITY_LINE_RE.match(stripped):
+        return False
+    if not _INGREDIENT_UNIT_RE.search(stripped):
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    words = _PROSE_WORD_RE.findall(stripped)
+    return 1 <= len(words) <= 4
+
+
+def _looks_short_ingredient_name_fragment(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _QUANTITY_LINE_RE.match(stripped):
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    if _TIME_PREFIX_RE.search(stripped):
+        return False
+    if re.search(
+        r"\b\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hour|hours)\b",
+        stripped,
+        re.IGNORECASE,
+    ):
+        return False
+    if any(ch in stripped for ch in ",;:.!?"):
+        return False
+    if not _INGREDIENT_NAME_FRAGMENT_RE.match(stripped):
+        return False
+    words = _PROSE_WORD_RE.findall(stripped)
+    if not (1 <= len(words) <= 3):
+        return False
+    lowered = {word.lower() for word in words}
+    return not lowered.issubset(_INGREDIENT_FRAGMENT_STOPWORDS)
+
+
+def _neighbor_is_ingredient_dominant(candidate: AtomicLineCandidate | None) -> bool:
+    if candidate is None:
+        return False
+    tags = {str(tag) for tag in candidate.rule_tags}
+    if "ingredient_like" in tags:
+        return True
+    if _looks_obvious_ingredient(candidate):
+        return True
+    labels = {str(label).strip().upper() for label in candidate.candidate_labels}
+    if "INGREDIENT_LINE" in labels and not (
+        {"instruction_like", "instruction_with_time"} & tags
+    ):
+        return True
+    return False
+
+
+def _should_rescue_neighbor_ingredient_fragment(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    if not candidate.within_recipe_span:
+        return False
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if text[-1:] in {".", "!", "?"}:
+        return False
+
+    quantity_fragment = _looks_quantity_unit_fragment(text)
+    short_name_fragment = _looks_short_ingredient_name_fragment(text)
+    if not (quantity_fragment or short_name_fragment):
+        return False
+
+    prev_candidate = by_atomic_index.get(candidate.atomic_index - 1)
+    next_candidate = by_atomic_index.get(candidate.atomic_index + 1)
+    neighbors = [row for row in (prev_candidate, next_candidate) if row is not None]
+    if not neighbors:
+        return False
+
+    ingredient_neighbor_count = sum(
+        1 for row in neighbors if _neighbor_is_ingredient_dominant(row)
+    )
+    if ingredient_neighbor_count <= 0:
+        return False
+
+    if short_name_fragment:
+        has_adjacent_quantity_fragment = any(
+            _looks_quantity_unit_fragment(str(row.text or "")) for row in neighbors
+        )
+        if not has_adjacent_quantity_fragment:
+            return ingredient_neighbor_count >= 2
+    return True
 
 
 def _looks_recipe_title(text: str) -> bool:

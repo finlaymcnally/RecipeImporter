@@ -1,0 +1,425 @@
+{
+  "bundle_name": "r0007_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c7.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b275",
+      "block_index": 275,
+      "normalized_lines": [
+        "1 ounce/",
+        "25 g wheatgrass, roughly chopped"
+      ],
+      "original_text": "1 ounce/25 g wheatgrass, roughly chopped",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b276",
+      "block_index": 276,
+      "normalized_lines": [
+        "1/2 ounce/",
+        "13 g fresh dill"
+      ],
+      "original_text": "1/2 ounce/13 g fresh dill",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b277",
+      "block_index": 277,
+      "normalized_lines": [
+        "1/2 cup/",
+        "35 g parsley leaves"
+      ],
+      "original_text": "1/2 cup/35 g parsley leaves",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b278",
+      "block_index": 278,
+      "normalized_lines": [
+        "2 tablespoons plus",
+        "2 teaspoons/",
+        "40 g Stock syrup (page 256)"
+      ],
+      "original_text": "2 tablespoons plus 2 teaspoons/40 g Stock syrup (page 256)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b279",
+      "block_index": 279,
+      "normalized_lines": [
+        "2 tablespoons plus",
+        "2 teaspoons/",
+        "40 g verjus"
+      ],
+      "original_text": "2 tablespoons plus 2 teaspoons/40 g verjus",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b280",
+      "block_index": 280,
+      "normalized_lines": [
+        "3/4 ounce/",
+        "22 g parsley pur\u00e9e (page 247)"
+      ],
+      "original_text": "3/4 ounce/22 g parsley pur\u00e9e (page 247)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b295",
+      "block_index": 295,
+      "normalized_lines": [
+        "In a blender, combine 3/4 cup/",
+        "190 g water with the wheatgrass, dill, parsley leaves, and stock syrup and blend on high until the liquid is pur\u00e9ed, with just small bits of herbs, about",
+        "15 seconds. Pass the liquid through a Superbag and skim the foam from the top of the strained liquid. Season with the verjus (you may need a little more or less than the called-for amount) and stir in the parsley pur\u00e9e to thicken the mixture."
+      ],
+      "original_text": "In a blender, combine 3/4 cup/190 g water with the wheatgrass, dill, parsley leaves, and stock syrup and blend on high until the liquid is pur\u00e9ed, with just small bits of herbs, about 15 seconds. Pass the liquid through a Superbag and skim the foam from the top of the strained liquid. Season with the verjus (you may need a little more or less than the called-for amount) and stir in the parsley pur\u00e9e to thicken the mixture.",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b261",
+      "source_block_index": 261,
+      "source_line_index": 0,
+      "text": "MANY TYPES OF WILD BERRIES IN A BROTH OF HERBS AND GRASSES",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b262",
+      "source_block_index": 262,
+      "source_line_index": 0,
+      "text": "I like to see, taste, and collect what's growing wild on my walk to work in the morning. It's a chance to clear my head before the workday begins and to dream about a new dish or technique.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b263",
+      "source_block_index": 263,
+      "source_line_index": 0,
+      "text": "The variety of wild edibles on the island is so huge that I constantly discover new types of plants that I must have walked by a hundred times before. I like their direct flavor and try to feature a heavy dose of them on every menu.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b264",
+      "source_block_index": 264,
+      "source_line_index": 0,
+      "text": "There are so many wild edibles growing here, it's no wonder that the island was once guarded berry-picking grounds for the Lummi tribe.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b265",
+      "source_block_index": 265,
+      "source_line_index": 0,
+      "text": "When you live on a small island, collecting plants from the wild is more like stewarding than harvesting. We have to care for and look after the plants that we use for cooking so that as many or more grow back the following year. That might mean collecting the berries that we would like to use, then spending a few minutes clearing out any other plants that are competing with them for light.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b266",
+      "source_block_index": 266,
+      "source_line_index": 0,
+      "text": "I am always amazed by the way plants burst to life after a long winter. Angelica is usually one of the first, along with nettles and salmonberries, and they are followed by a barrage of green leaves and herbs of all different flavors. The days get longer quickly in the spring, and before long, we are overrun with dozens of wild berries and all sorts of edible plants. We follow along as the different plants mature, first on the west side of the island and then to the east, before moving up the mountainside to near-alpine meadows.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b267",
+      "source_block_index": 267,
+      "source_line_index": 0,
+      "text": "Much of what we serve is stark in its simplicity, but sometimes nature supplies us with such abundance that it would be unfair to our guests to exercise too much restraint.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b268",
+      "source_block_index": 268,
+      "source_line_index": 0,
+      "text": "SERVES 4",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b269",
+      "source_block_index": 269,
+      "source_line_index": 0,
+      "text": "FOR THE GARNISH",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b270",
+      "source_block_index": 270,
+      "source_line_index": 0,
+      "text": "16 lemon balm tips",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b271",
+      "source_block_index": 271,
+      "source_line_index": 0,
+      "text": "16 angelica flowers",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b272",
+      "source_block_index": 272,
+      "source_line_index": 0,
+      "text": "16 oregano flowers",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b273",
+      "source_block_index": 273,
+      "source_line_index": 0,
+      "text": "16 wild geranium flowers",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b274",
+      "source_block_index": 274,
+      "source_line_index": 0,
+      "text": "FOR THE GRASS BROTH",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b275",
+      "source_block_index": 275,
+      "source_line_index": 0,
+      "text": "1 ounce/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b275",
+      "source_block_index": 275,
+      "source_line_index": 0,
+      "text": "25 g wheatgrass, roughly chopped",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b276",
+      "source_block_index": 276,
+      "source_line_index": 0,
+      "text": "1/2 ounce/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b276",
+      "source_block_index": 276,
+      "source_line_index": 0,
+      "text": "13 g fresh dill",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b277",
+      "source_block_index": 277,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b277",
+      "source_block_index": 277,
+      "source_line_index": 0,
+      "text": "35 g parsley leaves",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b278",
+      "source_block_index": 278,
+      "source_line_index": 0,
+      "text": "2 tablespoons plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b278",
+      "source_block_index": 278,
+      "source_line_index": 0,
+      "text": "2 teaspoons/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b278",
+      "source_block_index": 278,
+      "source_line_index": 0,
+      "text": "40 g Stock syrup (page 256)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b279",
+      "source_block_index": 279,
+      "source_line_index": 0,
+      "text": "2 tablespoons plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b279",
+      "source_block_index": 279,
+      "source_line_index": 0,
+      "text": "2 teaspoons/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b279",
+      "source_block_index": 279,
+      "source_line_index": 0,
+      "text": "40 g verjus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b280",
+      "source_block_index": 280,
+      "source_line_index": 0,
+      "text": "3/4 ounce/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b280",
+      "source_block_index": 280,
+      "source_line_index": 0,
+      "text": "22 g parsley pur\u00e9e (page 247)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b281",
+      "source_block_index": 281,
+      "source_line_index": 0,
+      "text": "FOR THE BERRIES",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b282",
+      "source_block_index": 282,
+      "source_line_index": 0,
+      "text": "4 thimbleberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b283",
+      "source_block_index": 283,
+      "source_line_index": 0,
+      "text": "8 wild raspberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b284",
+      "source_block_index": 284,
+      "source_line_index": 0,
+      "text": "8 trailing blackberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b285",
+      "source_block_index": 285,
+      "source_line_index": 0,
+      "text": "8 salmonberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b286",
+      "source_block_index": 286,
+      "source_line_index": 0,
+      "text": "12 red huckleberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b287",
+      "source_block_index": 287,
+      "source_line_index": 0,
+      "text": "16 redcurrants",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b288",
+      "source_block_index": 288,
+      "source_line_index": 0,
+      "text": "4 Indian plums",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b289",
+      "source_block_index": 289,
+      "source_line_index": 0,
+      "text": "4 gooseberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b290",
+      "source_block_index": 290,
+      "source_line_index": 0,
+      "text": "4 blueberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b291",
+      "source_block_index": 291,
+      "source_line_index": 0,
+      "text": "4 salal berries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b292",
+      "source_block_index": 292,
+      "source_line_index": 0,
+      "text": "4 aronia berries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b293",
+      "source_block_index": 293,
+      "source_line_index": 0,
+      "text": "Parsley oil (page 242)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b294",
+      "source_block_index": 294,
+      "source_line_index": 0,
+      "text": "GRASS BROTH",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b295",
+      "source_block_index": 295,
+      "source_line_index": 0,
+      "text": "In a blender, combine 3/4 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b295",
+      "source_block_index": 295,
+      "source_line_index": 0,
+      "text": "190 g water with the wheatgrass, dill, parsley leaves, and stock syrup and blend on high until the liquid is pur\u00e9ed, with just small bits of herbs, about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b295",
+      "source_block_index": 295,
+      "source_line_index": 0,
+      "text": "15 seconds. Pass the liquid through a Superbag and skim the foam from the top of the strained liquid. Season with the verjus (you may need a little more or less than the called-for amount) and stir in the parsley pur\u00e9e to thicken the mixture.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b296",
+      "source_block_index": 296,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b297",
+      "source_block_index": 297,
+      "source_line_index": 0,
+      "text": "Arrange a mix of berries in the bottom of each chilled serving bowl. Drizzle about a tablespoon of the grass broth and a few drops of parsley oil over the berries and garnish with the herbs and flowers.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c7",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 37,
+    "input_line_count": 37,
+    "output_line_count": 47,
+    "split_quantity_lines": 7
+  }
+}

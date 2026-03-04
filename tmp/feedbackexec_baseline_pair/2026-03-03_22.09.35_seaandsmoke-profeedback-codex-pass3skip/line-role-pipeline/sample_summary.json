@@ -1,0 +1,13 @@
+{
+  "aligned_prediction_blocks_sample_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/line-role-pipeline/aligned_prediction_blocks.sample.jsonl",
+  "aligned_sample_rows": 80,
+  "correct_label_lines_sample_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/line-role-pipeline/correct_label_lines.sample.jsonl",
+  "correct_sample_rows": 69,
+  "flip_sample_rows": 47,
+  "joined_line_rows_total": 595,
+  "line_role_flips_vs_baseline_sample_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/line-role-pipeline/line_role_flips_vs_baseline.sample.jsonl",
+  "sample_limit": 80,
+  "sampled_rows_total": 80,
+  "wrong_label_lines_sample_jsonl": "data/golden/benchmark-vs-golden/2026-03-03_22.09.35_seaandsmoke-profeedback-codex-pass3skip/line-role-pipeline/wrong_label_lines.sample.jsonl",
+  "wrong_sample_rows": 11
+}

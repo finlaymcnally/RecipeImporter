@@ -1,0 +1,336 @@
+{
+  "bundle_name": "r0005_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c5.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b212",
+      "block_index": 212,
+      "normalized_lines": [
+        "3/4 cup/",
+        "170 g high-quality unsalted butter, divided"
+      ],
+      "original_text": "3/4 cup/170 g high-quality unsalted butter, divided",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b217",
+      "block_index": 217,
+      "normalized_lines": [
+        "1 shallot (about",
+        "45 g), roughly chopped"
+      ],
+      "original_text": "1 shallot (about 45 g), roughly chopped",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b219",
+      "block_index": 219,
+      "normalized_lines": [
+        "1/2 cup/",
+        "120 g very cold mussel stock (page 246)"
+      ],
+      "original_text": "1/2 cup/120 g very cold mussel stock (page 246)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b220",
+      "block_index": 220,
+      "normalized_lines": [
+        "1/2 cup/",
+        "120 g very cold high-quality heavy cream"
+      ],
+      "original_text": "1/2 cup/120 g very cold high-quality heavy cream",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b226",
+      "block_index": 226,
+      "normalized_lines": [
+        "Trim any bits of stalk from each kohlrabi bulb, leaving as much skin on as possible and creating a nice, smooth exterior. Slice off the very top and bottom to create flat surfaces to sear. Heat a film of grapeseed oil in a saucepan just large enough to accommodate the kohlrabies over medium-high heat. (If you have a pair of smaller saucepans, you could put one kohlrabi in each.) Sear the tops and bottoms of the kohlrabi bulbs until they have a dark auburn color, 6 to",
+        "7 minutes per side, then tip them to sear their sides."
+      ],
+      "original_text": "Trim any bits of stalk from each kohlrabi bulb, leaving as much skin on as possible and creating a nice, smooth exterior. Slice off the very top and bottom to create flat surfaces to sear. Heat a film of grapeseed oil in a saucepan just large enough to accommodate the kohlrabies over medium-high heat. (If you have a pair of smaller saucepans, you could put one kohlrabi in each.) Sear the tops and bottoms of the kohlrabi bulbs until they have a dark auburn color, 6 to 7 minutes per side, then tip them to sear their sides.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b227",
+      "block_index": 227,
+      "normalized_lines": [
+        "Add a third of the butter to the pan to braise the bottoms of the kohlrabi bulbs and reduce the heat to a point where the butter is gently bubbling. If the butter moves past the brown butter stage and heads toward burning, pour it out and add new butter-you'll likely need to do this about 3 times during the cooking. Flip the bulbs every",
+        "20 minutes until they are cooked through and tender enough to give easily when poked with a cake tester. (Cooking time will vary between",
+        "2 to",
+        "4 hours.)"
+      ],
+      "original_text": "Add a third of the butter to the pan to braise the bottoms of the kohlrabi bulbs and reduce the heat to a point where the butter is gently bubbling. If the butter moves past the brown butter stage and heads toward burning, pour it out and add new butter-you'll likely need to do this about 3 times during the cooking. Flip the bulbs every 20 minutes until they are cooked through and tender enough to give easily when poked with a cake tester. (Cooking time will vary between 2 to 4 hours.)",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b205",
+      "source_block_index": 205,
+      "source_line_index": 0,
+      "text": "WHOLE ROASTED KOHLRABI WITH CRUSHED CURRANTS AND MUSSELS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b206",
+      "source_block_index": 206,
+      "source_line_index": 0,
+      "text": "While beluga caviar and foie gras represent a certain kind of luxury, to me, luxury is a cupful of salmonberry shoots, which is the product of hours spent picking the branch ends, then isolating enough for a dinner for thirty. Or a spoonful of nectar-rich anise hyssop flowers, each one no larger than the head of a pin. This is our take on rare and elusive ingredients and, to me, a more exciting form of luxury.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b207",
+      "source_block_index": 207,
+      "source_line_index": 0,
+      "text": "For this dish, we slowly roast whole kohlrabi in loads of butter and herbs, turning and basting it for hours. The kohlrabi almost chars on the outside and absorbs all of the flavors of the herbs while its own flavor deepens. The musky flavor of roasted kohlrabi is accented by the distinct flavors of currants, anise hyssop flowers, and mussels, which make for a simple but extraordinary combination.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b208",
+      "source_block_index": 208,
+      "source_line_index": 0,
+      "text": "SERVES 4",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b209",
+      "source_block_index": 209,
+      "source_line_index": 0,
+      "text": "FOR THE KOHLRABI",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b210",
+      "source_block_index": 210,
+      "source_line_index": 0,
+      "text": "2 small kohlrabi bulbs, trimmed of leaves and shoots (about 150 g)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b211",
+      "source_block_index": 211,
+      "source_line_index": 0,
+      "text": "Grapeseed oil",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b212",
+      "source_block_index": 212,
+      "source_line_index": 0,
+      "text": "3/4 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b212",
+      "source_block_index": 212,
+      "source_line_index": 0,
+      "text": "170 g high-quality unsalted butter, divided",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b213",
+      "source_block_index": 213,
+      "source_line_index": 0,
+      "text": "8 sprigs thyme",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b214",
+      "source_block_index": 214,
+      "source_line_index": 0,
+      "text": "4 sprigs rosemary",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b215",
+      "source_block_index": 215,
+      "source_line_index": 0,
+      "text": "5 fresh bay leaves",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b216",
+      "source_block_index": 216,
+      "source_line_index": 0,
+      "text": "5 sprigs parsley",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b217",
+      "source_block_index": 217,
+      "source_line_index": 0,
+      "text": "1 shallot (about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b217",
+      "source_block_index": 217,
+      "source_line_index": 0,
+      "text": "45 g), roughly chopped",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b218",
+      "source_block_index": 218,
+      "source_line_index": 0,
+      "text": "FOR THE MUSSEL CREAM",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b219",
+      "source_block_index": 219,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b219",
+      "source_block_index": 219,
+      "source_line_index": 0,
+      "text": "120 g very cold mussel stock (page 246)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b220",
+      "source_block_index": 220,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b220",
+      "source_block_index": 220,
+      "source_line_index": 0,
+      "text": "120 g very cold high-quality heavy cream",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b221",
+      "source_block_index": 221,
+      "source_line_index": 0,
+      "text": "FOR THE GARNISH",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b222",
+      "source_block_index": 222,
+      "source_line_index": 0,
+      "text": "40 redcurrants, crushed with the back of a spoon",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b223",
+      "source_block_index": 223,
+      "source_line_index": 0,
+      "text": "32 cilantro tips",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b224",
+      "source_block_index": 224,
+      "source_line_index": 0,
+      "text": "4 teaspoons anise hyssop flowers",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b225",
+      "source_block_index": 225,
+      "source_line_index": 0,
+      "text": "KOHLRABI",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b226",
+      "source_block_index": 226,
+      "source_line_index": 0,
+      "text": "Trim any bits of stalk from each kohlrabi bulb, leaving as much skin on as possible and creating a nice, smooth exterior. Slice off the very top and bottom to create flat surfaces to sear. Heat a film of grapeseed oil in a saucepan just large enough to accommodate the kohlrabies over medium-high heat. (If you have a pair of smaller saucepans, you could put one kohlrabi in each.) Sear the tops and bottoms of the kohlrabi bulbs until they have a dark auburn color, 6 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b226",
+      "source_block_index": 226,
+      "source_line_index": 0,
+      "text": "7 minutes per side, then tip them to sear their sides.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b227",
+      "source_block_index": 227,
+      "source_line_index": 0,
+      "text": "Add a third of the butter to the pan to braise the bottoms of the kohlrabi bulbs and reduce the heat to a point where the butter is gently bubbling. If the butter moves past the brown butter stage and heads toward burning, pour it out and add new butter-you'll likely need to do this about 3 times during the cooking. Flip the bulbs every",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b227",
+      "source_block_index": 227,
+      "source_line_index": 0,
+      "text": "20 minutes until they are cooked through and tender enough to give easily when poked with a cake tester. (Cooking time will vary between",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b227",
+      "source_block_index": 227,
+      "source_line_index": 0,
+      "text": "2 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b227",
+      "source_block_index": 227,
+      "source_line_index": 0,
+      "text": "4 hours.)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b228",
+      "source_block_index": 228,
+      "source_line_index": 0,
+      "text": "Tie the thyme, rosemary, bay leaves, and parsley sprigs into a bouquet with butcher's twine and allow it to cook in the braising butter along with the shallot for about 5 minutes. Discard the bouquet and allow the pot to rest off the heat while you make the mussel cream.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b229",
+      "source_block_index": 229,
+      "source_line_index": 0,
+      "text": "MUSSEL CREAM",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b230",
+      "source_block_index": 230,
+      "source_line_index": 0,
+      "text": "Combine the mussel stock and heavy cream in a metal mixing bowl and whip it vigorously for about 2 minutes until soft peaks form.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b231",
+      "source_block_index": 231,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b232",
+      "source_block_index": 232,
+      "source_line_index": 0,
+      "text": "Slice the kohlrabies in half horizontally, set each half seared-side down on a small, warmed serving plate, and spoon a teaspoon of the braising butter over the top. Add a dollop of mussel cream on the side of the plate and garnish with the crushed currants, cilantro tips, and anise hyssop flowers.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c5",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 28,
+    "input_line_count": 28,
+    "output_line_count": 36,
+    "split_quantity_lines": 6
+  }
+}

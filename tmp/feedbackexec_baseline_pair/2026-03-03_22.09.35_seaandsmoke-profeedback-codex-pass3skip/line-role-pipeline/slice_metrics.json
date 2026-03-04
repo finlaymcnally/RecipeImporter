@@ -1,0 +1,56 @@
+{
+  "line_count": 595,
+  "schema_version": "line_role_slice_metrics.v1",
+  "slices": {
+    "outside_recipe": {
+      "line_count": 117,
+      "macro_f1_excluding_other": 0.6634415038450809,
+      "overall_line_accuracy": 0.8290598290598291,
+      "worst_label_recall": {
+        "gold_total": 1,
+        "label": "RECIPE_NOTES",
+        "recall": 0.0
+      }
+    },
+    "recipe_ingredients": {
+      "line_count": 182,
+      "macro_f1_excluding_other": 0.4770114942528736,
+      "overall_line_accuracy": 0.9120879120879121,
+      "worst_label_recall": {
+        "gold_total": 182,
+        "label": "INGREDIENT_LINE",
+        "recall": 0.9120879120879121
+      }
+    },
+    "recipe_instructions": {
+      "line_count": 201,
+      "macro_f1_excluding_other": 0.3482726839345304,
+      "overall_line_accuracy": 0.7761194029850746,
+      "worst_label_recall": {
+        "gold_total": 88,
+        "label": "HOWTO_SECTION",
+        "recall": 0.7613636363636364
+      }
+    },
+    "recipe_notes_and_yield": {
+      "line_count": 28,
+      "macro_f1_excluding_other": 0.4981684981684982,
+      "overall_line_accuracy": 0.7857142857142857,
+      "worst_label_recall": {
+        "gold_total": 10,
+        "label": "RECIPE_NOTES",
+        "recall": 0.4
+      }
+    },
+    "recipe_titles_and_variants": {
+      "line_count": 16,
+      "macro_f1_excluding_other": 0.4838709677419355,
+      "overall_line_accuracy": 0.9375,
+      "worst_label_recall": {
+        "gold_total": 16,
+        "label": "RECIPE_TITLE",
+        "recall": 0.9375
+      }
+    }
+  }
+}

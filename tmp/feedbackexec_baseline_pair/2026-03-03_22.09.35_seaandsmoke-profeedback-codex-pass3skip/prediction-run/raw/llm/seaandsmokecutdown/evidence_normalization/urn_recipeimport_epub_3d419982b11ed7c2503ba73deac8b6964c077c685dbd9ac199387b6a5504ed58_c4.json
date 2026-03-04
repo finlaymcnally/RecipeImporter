@@ -1,0 +1,293 @@
+{
+  "bundle_name": "r0004_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c4.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b191",
+      "block_index": 191,
+      "normalized_lines": [
+        "1 cup/",
+        "240 g high-quality heavy cream"
+      ],
+      "original_text": "1 cup/240 g high-quality heavy cream",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b192",
+      "block_index": 192,
+      "normalized_lines": [
+        "1 cup/",
+        "235 g clam stock (page 246)"
+      ],
+      "original_text": "1 cup/235 g clam stock (page 246)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b194",
+      "block_index": 194,
+      "normalized_lines": [
+        "1 tablespoon plus",
+        "1 teaspoon/",
+        "20 g high-quality unsalted butter"
+      ],
+      "original_text": "1 tablespoon plus 1 teaspoon/20 g high-quality unsalted butter",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b195",
+      "block_index": 195,
+      "normalized_lines": [
+        "1 tablespoon/",
+        "12 g reduced white wine (page 251)"
+      ],
+      "original_text": "1 tablespoon/12 g reduced white wine (page 251)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b200",
+      "block_index": 200,
+      "normalized_lines": [
+        "Warm the clam stock in a small saucepan over low heat. Chop the siphons into 1/2- to",
+        "1-inch/",
+        "1 to",
+        "2.5 cm pieces and press them dry between layers of paper towel. Place a small saut\u00e9 pan over high heat and coat with a thin layer of grapeseed oil. Sear the siphons and the feet in batches until caramelized. Deglaze the saut\u00e9 pan with about",
+        "1/4 cup of the warmed clam stock and pour the siphons, feet, and remaining liquid into the saucepan with the clam stock. Cover the saucepan with plastic wrap and allow the liquid to steep for at least",
+        "20 minutes, then remove and discard the siphons and the feet."
+      ],
+      "original_text": "Warm the clam stock in a small saucepan over low heat. Chop the siphons into 1/2- to 1-inch/1 to 2.5 cm pieces and press them dry between layers of paper towel. Place a small saut\u00e9 pan over high heat and coat with a thin layer of grapeseed oil. Sear the siphons and the feet in batches until caramelized. Deglaze the saut\u00e9 pan with about 1/4 cup of the warmed clam stock and pour the siphons, feet, and remaining liquid into the saucepan with the clam stock. Cover the saucepan with plastic wrap and allow the liquid to steep for at least 20 minutes, then remove and discard the siphons and the feet.",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b184",
+      "source_block_index": 184,
+      "source_line_index": 0,
+      "text": "A STIR-FRY OF WILD BEACH PEAS AND GIANT CLAMS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b185",
+      "source_block_index": 185,
+      "source_line_index": 0,
+      "text": "Tucked away behind Legoe Bay Road is a small shellfish farm that specializes in growing baby bivalves and is one of the few places in the world that raises geoduck seed. Part of the seeding process involves collecting very mature, wild geoducks from nearby beaches, and after they've been used for spawning, they are brought to The Willows.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b186",
+      "source_block_index": 186,
+      "source_line_index": 0,
+      "text": "Handling these enormous bivalves is a privilege that demands our full attention. The clams can be up to 150 years old, but instead of being as tough as leather, they're incredibly tender.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b187",
+      "source_block_index": 187,
+      "source_line_index": 0,
+      "text": "Beach peas grow rampant on our shores. Their flavor is similar to cultivated pea shoots, but with a succulent, slightly bitter character that goes well with the sweet brininess of geoduck and razor clams. They become something of a staple vegetable for us starting around April, the only time when they send out enough tender green shoots to make a dish like this possible. We make a salty, acidic dressing and season the stir-fried beach peas with grated dried smelt and scallops to deepen the flavors. At the end, the raw peas and their deep purple flowers help give this dish the look of the island's beaches in mid-spring.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b188",
+      "source_block_index": 188,
+      "source_line_index": 0,
+      "text": "SERVES 4",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b189",
+      "source_block_index": 189,
+      "source_line_index": 0,
+      "text": "1 bunch beach peas (about 500 g)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b190",
+      "source_block_index": 190,
+      "source_line_index": 0,
+      "text": "4 large Quinault River razor clams (about 500 g)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b191",
+      "source_block_index": 191,
+      "source_line_index": 0,
+      "text": "1 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b191",
+      "source_block_index": 191,
+      "source_line_index": 0,
+      "text": "240 g high-quality heavy cream",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b192",
+      "source_block_index": 192,
+      "source_line_index": 0,
+      "text": "1 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b192",
+      "source_block_index": 192,
+      "source_line_index": 0,
+      "text": "235 g clam stock (page 246)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b193",
+      "source_block_index": 193,
+      "source_line_index": 0,
+      "text": "Grapeseed oil",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b194",
+      "source_block_index": 194,
+      "source_line_index": 0,
+      "text": "1 tablespoon plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b194",
+      "source_block_index": 194,
+      "source_line_index": 0,
+      "text": "1 teaspoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b194",
+      "source_block_index": 194,
+      "source_line_index": 0,
+      "text": "20 g high-quality unsalted butter",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b195",
+      "source_block_index": 195,
+      "source_line_index": 0,
+      "text": "1 tablespoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b195",
+      "source_block_index": 195,
+      "source_line_index": 0,
+      "text": "12 g reduced white wine (page 251)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b196",
+      "source_block_index": 196,
+      "source_line_index": 0,
+      "text": "Wash and dry the beach peas, trimming and composting anything not tender enough to eat raw (try a bite to be sure). Separate the pods, the leaves, and the tender tips. (You'll end up with fewer pods than leaves and tender tips.) In a bowl, create a mix of about one-third pods and two-thirds leaves and tender tips. Reserve some extra tips and discard any extra leaves.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b197",
+      "source_block_index": 197,
+      "source_line_index": 0,
+      "text": "Clean the razor clams, cut off and reserve the siphons, and reserve the feet. Cut the bodies in half lengthwise, then into pieces about an inch/2.5 cm wide.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b198",
+      "source_block_index": 198,
+      "source_line_index": 0,
+      "text": "Simmer the heavy cream in a small saucepan over low heat until reduced by half.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b199",
+      "source_block_index": 199,
+      "source_line_index": 0,
+      "text": "ENHANCED CLAM SAUCE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b200",
+      "source_block_index": 200,
+      "source_line_index": 0,
+      "text": "Warm the clam stock in a small saucepan over low heat. Chop the siphons into 1/2- to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b200",
+      "source_block_index": 200,
+      "source_line_index": 0,
+      "text": "1-inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b200",
+      "source_block_index": 200,
+      "source_line_index": 0,
+      "text": "1 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b200",
+      "source_block_index": 200,
+      "source_line_index": 0,
+      "text": "2.5 cm pieces and press them dry between layers of paper towel. Place a small saut\u00e9 pan over high heat and coat with a thin layer of grapeseed oil. Sear the siphons and the feet in batches until caramelized. Deglaze the saut\u00e9 pan with about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b200",
+      "source_block_index": 200,
+      "source_line_index": 0,
+      "text": "1/4 cup of the warmed clam stock and pour the siphons, feet, and remaining liquid into the saucepan with the clam stock. Cover the saucepan with plastic wrap and allow the liquid to steep for at least",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b200",
+      "source_block_index": 200,
+      "source_line_index": 0,
+      "text": "20 minutes, then remove and discard the siphons and the feet.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b201",
+      "source_block_index": 201,
+      "source_line_index": 0,
+      "text": "Bring the infused clam stock to a simmer over medium-low heat. Stir in about 11/2 tablespoons of the reduced cream and the butter. Buzz the sauce with an immersion blender and season with the reduced wine. It should have an intense but delicious chowder flavor.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b202",
+      "source_block_index": 202,
+      "source_line_index": 0,
+      "text": "Put a pair of skillets over high heat and coat the bottom of each with grapeseed oil. In one, saut\u00e9 the beach pea mixture, adding a tablespoon of water to help steam them. Stir in a generous tablespoon of the enhanced clam stock and immediately remove the greens from the heat. The whole process should take about a minute. Sear the clam pieces in the other skillet until caramelized and just cooked through, then remove from the heat.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b203",
+      "source_block_index": 203,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b204",
+      "source_block_index": 204,
+      "source_line_index": 0,
+      "text": "Layer the seared clams and saut\u00e9ed beach peas onto each warmed serving plate. Spoon a teaspoon of enhanced clam stock over the top of each plate and garnish with the reserved tender beach pea tips.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c4",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 21,
+    "input_line_count": 21,
+    "output_line_count": 31,
+    "split_quantity_lines": 5
+  }
+}

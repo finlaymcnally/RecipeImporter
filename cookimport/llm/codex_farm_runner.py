@@ -1055,6 +1055,32 @@ def _fetch_run_errors_summary(
     return _summarize_run_errors_payload(payload)
 
 
+def _is_recoverable_no_last_agent_message_failure(
+    *,
+    error_summary: str | None,
+    telemetry_payload: dict[str, Any] | None,
+) -> bool:
+    summary_text = str(error_summary or "").strip().lower()
+    if "no last agent message" not in summary_text:
+        return False
+    if telemetry_payload is None:
+        return True
+    telemetry_summary = telemetry_payload.get("summary")
+    if not isinstance(telemetry_summary, dict):
+        return True
+    failure_counts = telemetry_summary.get("failure_category_counts")
+    if not isinstance(failure_counts, dict):
+        return True
+    nonzero_failure_categories = {
+        str(key)
+        for key, value in failure_counts.items()
+        if (_coerce_int(value) or 0) > 0
+    }
+    if not nonzero_failure_categories:
+        return True
+    return nonzero_failure_categories <= {"nonzero_exit_no_payload"}
+
+
 def _fetch_run_autotune_payload(
     *,
     cmd: str,
@@ -1328,9 +1354,19 @@ class SubprocessCodexFarmRunner:
                         )
             if error_summary:
                 details.append(f"first_error={error_summary}")
-            raise CodexFarmRunnerError(
-                f"codex-farm failed for {pipeline_id} ({', '.join(details)})"
-            )
+            if _is_recoverable_no_last_agent_message_failure(
+                error_summary=error_summary,
+                telemetry_payload=telemetry_payload,
+            ):
+                logger.warning(
+                    "codex-farm returned non-zero for %s; continuing with partial outputs (%s)",
+                    pipeline_id,
+                    ", ".join(details),
+                )
+            else:
+                raise CodexFarmRunnerError(
+                    f"codex-farm failed for {pipeline_id} ({', '.join(details)})"
+                )
         autotune_report_payload: dict[str, Any] | None = None
         if run_id:
             autotune_report_payload = _fetch_run_autotune_payload(

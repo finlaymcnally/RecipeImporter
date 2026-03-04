@@ -8,6 +8,16 @@ read_when:
 
 This file is the anti-loop log for CLI work. Read it before retrying approaches that may already have failed.
 
+### 2026-03-03_23.30.00 single-profile selected-matched benchmark mode
+
+Preserved finding:
+- Interactive benchmark needed a middle path between one-book single-offline and all matched sets, where operators can pick only specific matched books.
+
+Current rule:
+- Interactive benchmark mode picker now includes `Single config, selected matched sets: Pick which matched books to run`.
+- Selected-matched mode opens a toggle menu for matched books with `Run selected books (N)` and `Run all matched books`.
+- The runner keeps single-profile semantics (one config per selected target, offline canonical-text eval, no all-method expansion).
+
 ### 2026-02-28_09.26.29 codex-farm model discovery via CLI json contract
 
 Source task file:

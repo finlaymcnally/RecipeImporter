@@ -1,0 +1,299 @@
+{
+  "bundle_name": "r0009_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c9.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b368",
+      "block_index": 368,
+      "normalized_lines": [
+        "1/2 cup/",
+        "15 g marjoram leaves"
+      ],
+      "original_text": "1/2 cup/15 g marjoram leaves",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b369",
+      "block_index": 369,
+      "normalized_lines": [
+        "1/2 cup/",
+        "15 g oregano leaves"
+      ],
+      "original_text": "1/2 cup/15 g oregano leaves",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b370",
+      "block_index": 370,
+      "normalized_lines": [
+        "1/2 cup/",
+        "15 g parsley leaves"
+      ],
+      "original_text": "1/2 cup/15 g parsley leaves",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b371",
+      "block_index": 371,
+      "normalized_lines": [
+        "1/2 cup/",
+        "120 g grapeseed oil"
+      ],
+      "original_text": "1/2 cup/120 g grapeseed oil",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b377",
+      "block_index": 377,
+      "normalized_lines": [
+        "11/2 ounces/",
+        "40 g frozen Mangalitsa lardo"
+      ],
+      "original_text": "11/2 ounces/40 g frozen Mangalitsa lardo",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b378",
+      "block_index": 378,
+      "normalized_lines": [
+        "8 ounces/",
+        "240 g Romano beans"
+      ],
+      "original_text": "8 ounces/240 g Romano beans",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b364",
+      "source_block_index": 364,
+      "source_line_index": 0,
+      "text": "BUNDLES OF ROMANO BEANS ROASTED OVER OREGANO SPRIGS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b365",
+      "source_block_index": 365,
+      "source_line_index": 0,
+      "text": "Romano beans are at their best before they are fully grown and getting a bit stringy. The beans must be amazing raw in order to be amazing cooked, and we simply bundle them around sprigs of oregano and grill them over hot coals. When the outside has a good char, we pull them from the grill and baste them with a flavorful herb sauce and lardo.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b366",
+      "source_block_index": 366,
+      "source_line_index": 0,
+      "text": "SERVES 4",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b367",
+      "source_block_index": 367,
+      "source_line_index": 0,
+      "text": "FOR THE HERB SAUCE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b368",
+      "source_block_index": 368,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b368",
+      "source_block_index": 368,
+      "source_line_index": 0,
+      "text": "15 g marjoram leaves",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b369",
+      "source_block_index": 369,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b369",
+      "source_block_index": 369,
+      "source_line_index": 0,
+      "text": "15 g oregano leaves",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b370",
+      "source_block_index": 370,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b370",
+      "source_block_index": 370,
+      "source_line_index": 0,
+      "text": "15 g parsley leaves",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b371",
+      "source_block_index": 371,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b371",
+      "source_block_index": 371,
+      "source_line_index": 0,
+      "text": "120 g grapeseed oil",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b372",
+      "source_block_index": 372,
+      "source_line_index": 0,
+      "text": "1 anchovy fillet",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b373",
+      "source_block_index": 373,
+      "source_line_index": 0,
+      "text": "Salt",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b374",
+      "source_block_index": 374,
+      "source_line_index": 0,
+      "text": "Verjus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b375",
+      "source_block_index": 375,
+      "source_line_index": 0,
+      "text": "Fermented green garlic brine (page 240)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b376",
+      "source_block_index": 376,
+      "source_line_index": 0,
+      "text": "FOR THE GRILLED ROMANO BEANS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b377",
+      "source_block_index": 377,
+      "source_line_index": 0,
+      "text": "11/2 ounces/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b377",
+      "source_block_index": 377,
+      "source_line_index": 0,
+      "text": "40 g frozen Mangalitsa lardo",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b378",
+      "source_block_index": 378,
+      "source_line_index": 0,
+      "text": "8 ounces/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b378",
+      "source_block_index": 378,
+      "source_line_index": 0,
+      "text": "240 g Romano beans",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b379",
+      "source_block_index": 379,
+      "source_line_index": 0,
+      "text": "8 sprigs oregano",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b380",
+      "source_block_index": 380,
+      "source_line_index": 0,
+      "text": "Grapeseed oil",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b381",
+      "source_block_index": 381,
+      "source_line_index": 0,
+      "text": "HERB SAUCE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b382",
+      "source_block_index": 382,
+      "source_line_index": 0,
+      "text": "Crush the marjoram, oregano, parsley, oil, and anchovy with a mortar and pestle to form a thick paste. Season the sauce with salt, verjus, and fermented green garlic brine and immediately transfer it to the refrigerator, with a piece of parchment cut to fit directly on the surface of the sauce to prevent any discoloration.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b383",
+      "source_block_index": 383,
+      "source_line_index": 0,
+      "text": "GRILLED ROMANO BEANS",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b384",
+      "source_block_index": 384,
+      "source_line_index": 0,
+      "text": "Grate the frozen lardo into a medium mixing bowl. Wearing plastic gloves, work it into a smooth paste with your hands. Transfer the lardo into a small piping bag and allow it to warm to room temperature.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b385",
+      "source_block_index": 385,
+      "source_line_index": 0,
+      "text": "Trim the stem ends from the Romano beans and tie them with the oregano sprigs into 4 tight bundles with kitchen twine.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b386",
+      "source_block_index": 386,
+      "source_line_index": 0,
+      "text": "Prepare a grill for direct grilling, brush the bundled beans with grapeseed oil, and grill them, rotating occasionally. When the beans are just cooked through, remove them from the heat, untie, and discard the oregano.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b387",
+      "source_block_index": 387,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b388",
+      "source_block_index": 388,
+      "source_line_index": 0,
+      "text": "Pipe a quarter of the lardo into the center of each bundle of beans, turning each bundle to dress it with the lardo. Plate the bundles and nap each plate with a full tablespoon of the herb sauce.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c9",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 25,
+    "input_line_count": 25,
+    "output_line_count": 31,
+    "split_quantity_lines": 6
+  }
+}

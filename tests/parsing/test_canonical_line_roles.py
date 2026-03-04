@@ -86,6 +86,45 @@ def test_label_atomic_lines_instruction_with_time_stays_instruction() -> None:
     assert by_text["3. Cover and braise for 45 minutes."].label == "INSTRUCTION_LINE"
 
 
+def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time(
+    monkeypatch,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:time:1",
+            block_index=1,
+            atomic_index=0,
+            text="Add onions and cook for 5 minutes.",
+            within_recipe_span=True,
+            candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "TIME_LINE"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
+    assert len(predictions) == 1
+    assert predictions[0].label == "INSTRUCTION_LINE"
+    assert predictions[0].decided_by == "fallback"
+    assert "sanitized_time_to_instruction" in predictions[0].reason_tags
+
+
 def test_label_atomic_lines_outside_recipe_can_be_knowledge() -> None:
     blocks = [
         {
@@ -241,6 +280,67 @@ def test_label_atomic_lines_heading_like_ingredient_promotes_recipe_title() -> N
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
+
+
+def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:ingredient:0",
+            block_index=0,
+            atomic_index=0,
+            text="1 cup",
+            within_recipe_span=True,
+            candidate_labels=["INGREDIENT_LINE", "YIELD_LINE", "OTHER"],
+            prev_text=None,
+            next_text="flour",
+            rule_tags=["ingredient_like"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:ingredient:1",
+            block_index=1,
+            atomic_index=1,
+            text="flour",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "INGREDIENT_LINE"],
+            prev_text="1 cup",
+            next_text="2 tablespoons sugar",
+            rule_tags=["recipe_span_fallback"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:ingredient:2",
+            block_index=2,
+            atomic_index=2,
+            text="2 tablespoons sugar",
+            within_recipe_span=True,
+            candidate_labels=["INGREDIENT_LINE", "YIELD_LINE", "OTHER"],
+            prev_text="flour",
+            next_text=None,
+            rule_tags=["ingredient_like"],
+        ),
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps([{"atomic_index": 1, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
+    by_index = {row.atomic_index: row for row in predictions}
+    assert by_index[1].label == "INGREDIENT_LINE"
+    assert by_index[1].decided_by == "fallback"
+    assert "sanitized_neighbor_ingredient_fragment" in by_index[1].reason_tags
 
 
 def test_label_atomic_lines_component_heading_prefers_howto_section() -> None:

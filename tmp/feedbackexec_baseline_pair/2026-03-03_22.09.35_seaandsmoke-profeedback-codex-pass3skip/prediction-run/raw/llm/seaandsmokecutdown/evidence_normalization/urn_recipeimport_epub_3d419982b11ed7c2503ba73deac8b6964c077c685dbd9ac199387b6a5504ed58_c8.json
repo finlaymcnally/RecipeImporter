@@ -1,0 +1,825 @@
+{
+  "bundle_name": "r0008_urn_recipeimport_epub_3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58_c8.json",
+  "events": [
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b331",
+      "block_index": 331,
+      "normalized_lines": [
+        "1 tablespoon plus",
+        "1/2 teaspoon/",
+        "15 g dark syrup (page 256)"
+      ],
+      "original_text": "1 tablespoon plus 1/2 teaspoon/15 g dark syrup (page 256)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b332",
+      "block_index": 332,
+      "normalized_lines": [
+        "1 scant tablespoon/",
+        "15 g squid ink"
+      ],
+      "original_text": "1 scant tablespoon/15 g squid ink",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b333",
+      "block_index": 333,
+      "normalized_lines": [
+        "11/4 cups/",
+        "125 g sifted all-purpose flour"
+      ],
+      "original_text": "11/4 cups/125 g sifted all-purpose flour",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b334",
+      "block_index": 334,
+      "normalized_lines": [
+        "1/4 cup/",
+        "25 g sifted cornstarch"
+      ],
+      "original_text": "1/4 cup/25 g sifted cornstarch",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b335",
+      "block_index": 335,
+      "normalized_lines": [
+        "1 tablespoon/",
+        "10 g malt powder"
+      ],
+      "original_text": "1 tablespoon/10 g malt powder",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b336",
+      "block_index": 336,
+      "normalized_lines": [
+        "1/4 teaspoon/.",
+        "75 g kosher salt"
+      ],
+      "original_text": "1/4 teaspoon/.75 g kosher salt",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b337",
+      "block_index": 337,
+      "normalized_lines": [
+        "1/2 cup plus",
+        "2 tablespoons/",
+        "125 g high-quality unsalted butter, at room temperature"
+      ],
+      "original_text": "1/2 cup plus 2 tablespoons/125 g high-quality unsalted butter, at room temperature",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b338",
+      "block_index": 338,
+      "normalized_lines": [
+        "3 tablespoons/",
+        "30 g granulated sugar"
+      ],
+      "original_text": "3 tablespoons/30 g granulated sugar",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b340",
+      "block_index": 340,
+      "normalized_lines": [
+        "3 cups/",
+        "790 g whole milk"
+      ],
+      "original_text": "3 cups/790 g whole milk",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b341",
+      "block_index": 341,
+      "normalized_lines": [
+        "1/2 cup/",
+        "125 g heavy cream"
+      ],
+      "original_text": "1/2 cup/125 g heavy cream",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b342",
+      "block_index": 342,
+      "normalized_lines": [
+        "1/2 cup/",
+        "105 g granulated sugar"
+      ],
+      "original_text": "1/2 cup/105 g granulated sugar",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b343",
+      "block_index": 343,
+      "normalized_lines": [
+        "3 tablespoons plus",
+        "1 teaspoon/",
+        "65 g corn syrup"
+      ],
+      "original_text": "3 tablespoons plus 1 teaspoon/65 g corn syrup",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b344",
+      "block_index": 344,
+      "normalized_lines": [
+        "6 cups/",
+        "70 g roughly chopped woodruff sprigs, plus",
+        "24 sprigs for garnish"
+      ],
+      "original_text": "6 cups/70 g roughly chopped woodruff sprigs, plus 24 sprigs for garnish",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b345",
+      "block_index": 345,
+      "normalized_lines": [
+        "2 tablespoons/",
+        "30 g spinach pur\u00e9e (page 247)"
+      ],
+      "original_text": "2 tablespoons/30 g spinach pur\u00e9e (page 247)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b348",
+      "block_index": 348,
+      "normalized_lines": [
+        "1 cup/",
+        "175 g just-picked blueberries"
+      ],
+      "original_text": "1 cup/175 g just-picked blueberries",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b350",
+      "block_index": 350,
+      "normalized_lines": [
+        "1/2 cup/",
+        "50 g meringue (page 255)"
+      ],
+      "original_text": "1/2 cup/50 g meringue (page 255)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b352",
+      "block_index": 352,
+      "normalized_lines": [
+        "Stir the yolks, dark syrup, and ink together in a small bowl. In a medium bowl, combine the flour, cornstarch, malt powder, and kosher salt. Cut the butter into 1/2-inch/",
+        "1 cm cubes, then place the cubes in a stand mixer with the sugar and mix on medium with the paddle attachment until combined, about",
+        "1 minute. Add the yolk mixture and mix on medium until combined, occasionally stopping to scrape down the sides."
+      ],
+      "original_text": "Stir the yolks, dark syrup, and ink together in a small bowl. In a medium bowl, combine the flour, cornstarch, malt powder, and kosher salt. Cut the butter into 1/2-inch/1 cm cubes, then place the cubes in a stand mixer with the sugar and mix on medium with the paddle attachment until combined, about 1 minute. Add the yolk mixture and mix on medium until combined, occasionally stopping to scrape down the sides.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b353",
+      "block_index": 353,
+      "normalized_lines": [
+        "Add the flour mixture to the mixer bowl and mix on low, stopping as soon as the entire mixture is uniformly dark. Portion the dough into hunks of about 1/2 cup/",
+        "100 g each. (This recipe makes about",
+        "8 portions of the dough, and anything not being used immediately can be frozen at this point.)"
+      ],
+      "original_text": "Add the flour mixture to the mixer bowl and mix on low, stopping as soon as the entire mixture is uniformly dark. Portion the dough into hunks of about 1/2 cup/100 g each. (This recipe makes about 8 portions of the dough, and anything not being used immediately can be frozen at this point.)",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b354",
+      "block_index": 354,
+      "normalized_lines": [
+        "Preheat the oven to 300\u00b0F/",
+        "150\u00b0C. Put the portions of dough between two Silpat mats or layers of parchment paper. Roll the dough as thin as possible without creating holes and freeze it until the dough takes on a puttylike consistency and no longer sticks to both sides of the Silpat or parchment",
+        "5 to",
+        "10 minutes."
+      ],
+      "original_text": "Preheat the oven to 300\u00b0F/150\u00b0C. Put the portions of dough between two Silpat mats or layers of parchment paper. Roll the dough as thin as possible without creating holes and freeze it until the dough takes on a puttylike consistency and no longer sticks to both sides of the Silpat or parchment, 5 to 10 minutes.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b355",
+      "block_index": 355,
+      "normalized_lines": [
+        "Remove the top Silpat or parchment and put the flattened dough and the Silpat or parchment beneath it onto a half-sheet pan and bake until crisp, about 20 minutes. Let cool, then crush with your fingers into pieces no larger than",
+        "1/2 inch/",
+        "1 cm."
+      ],
+      "original_text": "Remove the top Silpat or parchment and put the flattened dough and the Silpat or parchment beneath it onto a half-sheet pan and bake until crisp, about 20 minutes. Let cool, then crush with your fingers into pieces no larger than 1/2 inch/1 cm.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b358",
+      "block_index": 358,
+      "normalized_lines": [
+        "Place the woodruff sprigs in the blender, then remove the milk mixture from the heat and pour it over the woodruff. Mix until thoroughly blended and only tiny flecks of the leaves remain, about 30 seconds. Let the mixture steep for",
+        "5 minutes and strain it through a fine-mesh strainer, then through a Superbag. Whisk in the spinach pur\u00e9e to give the liquid a more saturated green color and season it with more granulated sugar if necessary. Pour about",
+        "2 tablespoons of the liquid into a small saucepan and the rest into a Pacojet beaker."
+      ],
+      "original_text": "Place the woodruff sprigs in the blender, then remove the milk mixture from the heat and pour it over the woodruff. Mix until thoroughly blended and only tiny flecks of the leaves remain, about 30 seconds. Let the mixture steep for 5 minutes and strain it through a fine-mesh strainer, then through a Superbag. Whisk in the spinach pur\u00e9e to give the liquid a more saturated green color and season it with more granulated sugar if necessary. Pour about 2 tablespoons of the liquid into a small saucepan and the rest into a Pacojet beaker.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b359",
+      "block_index": 359,
+      "normalized_lines": [
+        "Soak the gelatin sheets in cold water until they bloom-becoming hydrated and completely supple-5 to",
+        "10 minutes. Gently hand-squeeze the sheets to expel any water pockets and place them in the saucepan with the woodruff liquid. Melt the gelatin over low heat, then whisk it into the Pacojet beaker with the woodruff liquid. Freeze the mixture and keep it in the freezer until serving."
+      ],
+      "original_text": "Soak the gelatin sheets in cold water until they bloom-becoming hydrated and completely supple-5 to 10 minutes. Gently hand-squeeze the sheets to expel any water pockets and place them in the saucepan with the woodruff liquid. Melt the gelatin over low heat, then whisk it into the Pacojet beaker with the woodruff liquid. Freeze the mixture and keep it in the freezer until serving.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b362",
+      "block_index": 362,
+      "normalized_lines": [
+        "Heat the dark syrup in a small saucepan over medium heat and reduce it until only about 2 teaspoons remain. Reduce the heat to low, add the blueberries to the saucepan, and stir gently but quickly to coat the berries in the dark syrup glaze until they're just warmed through",
+        "20 to",
+        "30 seconds. Season them with a few drops of verjus."
+      ],
+      "original_text": "Heat the dark syrup in a small saucepan over medium heat and reduce it until only about 2 teaspoons remain. Reduce the heat to low, add the blueberries to the saucepan, and stir gently but quickly to coat the berries in the dark syrup glaze until they're just warmed through, 20 to 30 seconds. Season them with a few drops of verjus.",
+      "source_line_index": 0
+    },
+    {
+      "action": "split_quantity_item_join",
+      "block_id": "b363",
+      "block_index": 363,
+      "normalized_lines": [
+        "Dot each dessert plate with 3 domes of meringue (about",
+        "1/4 inch/.",
+        "5 cm across), then gently toast their exterior with a blowtorch. Put a cluster of berries on the plate, then a scant tablespoon of the crumbled malt cookies over the top of the berries. Place",
+        "1/2 teaspoon of crumbled cookies in a line to the side of the berries. Tuck a few woodruff sprigs into the spaces between the berries and set a scoop of the ice cream on the line of cookie crumbs."
+      ],
+      "original_text": "Dot each dessert plate with 3 domes of meringue (about 1/4 inch/.5 cm across), then gently toast their exterior with a blowtorch. Put a cluster of berries on the plate, then a scant tablespoon of the crumbled malt cookies over the top of the berries. Place 1/2 teaspoon of crumbled cookies in a line to the side of the berries. Tuck a few woodruff sprigs into the spaces between the berries and set a scoop of the ice cream on the line of cookie crumbs.",
+      "source_line_index": 0
+    }
+  ],
+  "line_rows": [
+    {
+      "source_block_id": "b325",
+      "source_block_index": 325,
+      "source_line_index": 0,
+      "text": "WARM BLUEBERRIES AND AN ICE CREAM MADE FROM SWEET WOODRUFF",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b326",
+      "source_block_index": 326,
+      "source_line_index": 0,
+      "text": "This is one of my favorite desserts-the combination of a hot, malty stew of blueberries and cool woodruff ice cream works very well together. I love creating a balance between sweet and crunchy, hot and sticky, and cool and fresh.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b327",
+      "source_block_index": 327,
+      "source_line_index": 0,
+      "text": "The ice cream is made with both fresh and dried woodruff, making it a dish that can only really be made in late summer, after we have harvested the first trimmings of woodruff for drying and it has regrown, flowering for the last time before it goes to seed in the early fall. It is important to use very high-quality milk whenever you make ice cream, as it is the main ingredient, and to treat the ice cream base as you might a fresh herb sauce-working quickly and keeping it very cold-to keep the flavors bright. Similarly, berries lose their flavor very quickly after picking, particularly in the case of blueberries; their texture also suffers as they age. It is important to make the extra effort to use the best berries available. For us, this means driving to a nearby farm several times a week to get berries picked that morning.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b328",
+      "source_block_index": 328,
+      "source_line_index": 0,
+      "text": "SERVES 4",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b329",
+      "source_block_index": 329,
+      "source_line_index": 0,
+      "text": "FOR THE MALT COOKIES",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b330",
+      "source_block_index": 330,
+      "source_line_index": 0,
+      "text": "2 fresh egg yolks from Riley Starks",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b331",
+      "source_block_index": 331,
+      "source_line_index": 0,
+      "text": "1 tablespoon plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b331",
+      "source_block_index": 331,
+      "source_line_index": 0,
+      "text": "1/2 teaspoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b331",
+      "source_block_index": 331,
+      "source_line_index": 0,
+      "text": "15 g dark syrup (page 256)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b332",
+      "source_block_index": 332,
+      "source_line_index": 0,
+      "text": "1 scant tablespoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b332",
+      "source_block_index": 332,
+      "source_line_index": 0,
+      "text": "15 g squid ink",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b333",
+      "source_block_index": 333,
+      "source_line_index": 0,
+      "text": "11/4 cups/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b333",
+      "source_block_index": 333,
+      "source_line_index": 0,
+      "text": "125 g sifted all-purpose flour",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b334",
+      "source_block_index": 334,
+      "source_line_index": 0,
+      "text": "1/4 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b334",
+      "source_block_index": 334,
+      "source_line_index": 0,
+      "text": "25 g sifted cornstarch",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b335",
+      "source_block_index": 335,
+      "source_line_index": 0,
+      "text": "1 tablespoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b335",
+      "source_block_index": 335,
+      "source_line_index": 0,
+      "text": "10 g malt powder",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b336",
+      "source_block_index": 336,
+      "source_line_index": 0,
+      "text": "1/4 teaspoon/.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b336",
+      "source_block_index": 336,
+      "source_line_index": 0,
+      "text": "75 g kosher salt",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b337",
+      "source_block_index": 337,
+      "source_line_index": 0,
+      "text": "1/2 cup plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b337",
+      "source_block_index": 337,
+      "source_line_index": 0,
+      "text": "2 tablespoons/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b337",
+      "source_block_index": 337,
+      "source_line_index": 0,
+      "text": "125 g high-quality unsalted butter, at room temperature",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b338",
+      "source_block_index": 338,
+      "source_line_index": 0,
+      "text": "3 tablespoons/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b338",
+      "source_block_index": 338,
+      "source_line_index": 0,
+      "text": "30 g granulated sugar",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b339",
+      "source_block_index": 339,
+      "source_line_index": 0,
+      "text": "FOR THE WOODRUFF ICE CREAM",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b340",
+      "source_block_index": 340,
+      "source_line_index": 0,
+      "text": "3 cups/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b340",
+      "source_block_index": 340,
+      "source_line_index": 0,
+      "text": "790 g whole milk",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b341",
+      "source_block_index": 341,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b341",
+      "source_block_index": 341,
+      "source_line_index": 0,
+      "text": "125 g heavy cream",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b342",
+      "source_block_index": 342,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b342",
+      "source_block_index": 342,
+      "source_line_index": 0,
+      "text": "105 g granulated sugar",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b343",
+      "source_block_index": 343,
+      "source_line_index": 0,
+      "text": "3 tablespoons plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b343",
+      "source_block_index": 343,
+      "source_line_index": 0,
+      "text": "1 teaspoon/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b343",
+      "source_block_index": 343,
+      "source_line_index": 0,
+      "text": "65 g corn syrup",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b344",
+      "source_block_index": 344,
+      "source_line_index": 0,
+      "text": "6 cups/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b344",
+      "source_block_index": 344,
+      "source_line_index": 0,
+      "text": "70 g roughly chopped woodruff sprigs, plus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b344",
+      "source_block_index": 344,
+      "source_line_index": 0,
+      "text": "24 sprigs for garnish",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b345",
+      "source_block_index": 345,
+      "source_line_index": 0,
+      "text": "2 tablespoons/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b345",
+      "source_block_index": 345,
+      "source_line_index": 0,
+      "text": "30 g spinach pur\u00e9e (page 247)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b346",
+      "source_block_index": 346,
+      "source_line_index": 0,
+      "text": "2 sheets bronze leaf gelatin",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b347",
+      "source_block_index": 347,
+      "source_line_index": 0,
+      "text": "2 tablespoons dark syrup (page 256)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b348",
+      "source_block_index": 348,
+      "source_line_index": 0,
+      "text": "1 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b348",
+      "source_block_index": 348,
+      "source_line_index": 0,
+      "text": "175 g just-picked blueberries",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b349",
+      "source_block_index": 349,
+      "source_line_index": 0,
+      "text": "Verjus",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b350",
+      "source_block_index": 350,
+      "source_line_index": 0,
+      "text": "1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b350",
+      "source_block_index": 350,
+      "source_line_index": 0,
+      "text": "50 g meringue (page 255)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b351",
+      "source_block_index": 351,
+      "source_line_index": 0,
+      "text": "MALT COOKIES",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b352",
+      "source_block_index": 352,
+      "source_line_index": 0,
+      "text": "Stir the yolks, dark syrup, and ink together in a small bowl. In a medium bowl, combine the flour, cornstarch, malt powder, and kosher salt. Cut the butter into 1/2-inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b352",
+      "source_block_index": 352,
+      "source_line_index": 0,
+      "text": "1 cm cubes, then place the cubes in a stand mixer with the sugar and mix on medium with the paddle attachment until combined, about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b352",
+      "source_block_index": 352,
+      "source_line_index": 0,
+      "text": "1 minute. Add the yolk mixture and mix on medium until combined, occasionally stopping to scrape down the sides.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b353",
+      "source_block_index": 353,
+      "source_line_index": 0,
+      "text": "Add the flour mixture to the mixer bowl and mix on low, stopping as soon as the entire mixture is uniformly dark. Portion the dough into hunks of about 1/2 cup/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b353",
+      "source_block_index": 353,
+      "source_line_index": 0,
+      "text": "100 g each. (This recipe makes about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b353",
+      "source_block_index": 353,
+      "source_line_index": 0,
+      "text": "8 portions of the dough, and anything not being used immediately can be frozen at this point.)",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b354",
+      "source_block_index": 354,
+      "source_line_index": 0,
+      "text": "Preheat the oven to 300\u00b0F/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b354",
+      "source_block_index": 354,
+      "source_line_index": 0,
+      "text": "150\u00b0C. Put the portions of dough between two Silpat mats or layers of parchment paper. Roll the dough as thin as possible without creating holes and freeze it until the dough takes on a puttylike consistency and no longer sticks to both sides of the Silpat or parchment",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b354",
+      "source_block_index": 354,
+      "source_line_index": 0,
+      "text": "5 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b354",
+      "source_block_index": 354,
+      "source_line_index": 0,
+      "text": "10 minutes.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b355",
+      "source_block_index": 355,
+      "source_line_index": 0,
+      "text": "Remove the top Silpat or parchment and put the flattened dough and the Silpat or parchment beneath it onto a half-sheet pan and bake until crisp, about 20 minutes. Let cool, then crush with your fingers into pieces no larger than",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b355",
+      "source_block_index": 355,
+      "source_line_index": 0,
+      "text": "1/2 inch/",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b355",
+      "source_block_index": 355,
+      "source_line_index": 0,
+      "text": "1 cm.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b356",
+      "source_block_index": 356,
+      "source_line_index": 0,
+      "text": "WOODRUFF ICE CREAM",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b357",
+      "source_block_index": 357,
+      "source_line_index": 0,
+      "text": "Whisk together the milk, cream, granulated sugar, and corn syrup in a large saucepan. Bring it to just below a simmer (it should be steaming, not boiling) over medium heat.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b358",
+      "source_block_index": 358,
+      "source_line_index": 0,
+      "text": "Place the woodruff sprigs in the blender, then remove the milk mixture from the heat and pour it over the woodruff. Mix until thoroughly blended and only tiny flecks of the leaves remain, about 30 seconds. Let the mixture steep for",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b358",
+      "source_block_index": 358,
+      "source_line_index": 0,
+      "text": "5 minutes and strain it through a fine-mesh strainer, then through a Superbag. Whisk in the spinach pur\u00e9e to give the liquid a more saturated green color and season it with more granulated sugar if necessary. Pour about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b358",
+      "source_block_index": 358,
+      "source_line_index": 0,
+      "text": "2 tablespoons of the liquid into a small saucepan and the rest into a Pacojet beaker.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b359",
+      "source_block_index": 359,
+      "source_line_index": 0,
+      "text": "Soak the gelatin sheets in cold water until they bloom-becoming hydrated and completely supple-5 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b359",
+      "source_block_index": 359,
+      "source_line_index": 0,
+      "text": "10 minutes. Gently hand-squeeze the sheets to expel any water pockets and place them in the saucepan with the woodruff liquid. Melt the gelatin over low heat, then whisk it into the Pacojet beaker with the woodruff liquid. Freeze the mixture and keep it in the freezer until serving.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b360",
+      "source_block_index": 360,
+      "source_line_index": 0,
+      "text": "TO SERVE",
+      "transform": "heading_preserved"
+    },
+    {
+      "source_block_id": "b361",
+      "source_block_index": 361,
+      "source_line_index": 0,
+      "text": "Process the ice cream in the Pacojet.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b362",
+      "source_block_index": 362,
+      "source_line_index": 0,
+      "text": "Heat the dark syrup in a small saucepan over medium heat and reduce it until only about 2 teaspoons remain. Reduce the heat to low, add the blueberries to the saucepan, and stir gently but quickly to coat the berries in the dark syrup glaze until they're just warmed through",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b362",
+      "source_block_index": 362,
+      "source_line_index": 0,
+      "text": "20 to",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b362",
+      "source_block_index": 362,
+      "source_line_index": 0,
+      "text": "30 seconds. Season them with a few drops of verjus.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b363",
+      "source_block_index": 363,
+      "source_line_index": 0,
+      "text": "Dot each dessert plate with 3 domes of meringue (about",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b363",
+      "source_block_index": 363,
+      "source_line_index": 0,
+      "text": "1/4 inch/.",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b363",
+      "source_block_index": 363,
+      "source_line_index": 0,
+      "text": "5 cm across), then gently toast their exterior with a blowtorch. Put a cluster of berries on the plate, then a scant tablespoon of the crumbled malt cookies over the top of the berries. Place",
+      "transform": "normalized"
+    },
+    {
+      "source_block_id": "b363",
+      "source_block_index": 363,
+      "source_line_index": 0,
+      "text": "1/2 teaspoon of crumbled cookies in a line to the side of the berries. Tuck a few woodruff sprigs into the spaces between the berries and set a scoop of the ice cream on the line of cookie crumbs.",
+      "transform": "normalized"
+    }
+  ],
+  "recipe_id": "urn:recipeimport:epub:3d419982b11ed7c2503ba73deac8b6964c077c685dbd9ac199387b6a5504ed58:c8",
+  "stats": {
+    "dropped_page_markers": 0,
+    "folded_page_markers": 0,
+    "input_block_count": 39,
+    "input_line_count": 39,
+    "output_line_count": 76,
+    "split_quantity_lines": 24
+  }
+}

@@ -1067,7 +1067,11 @@ def _pass1_pattern_hints_enabled() -> bool:
 
 
 def _pass3_skip_pass2_ok_enabled() -> bool:
-    return _env_flag_enabled(_PASS3_SKIP_PASS2_OK_ENV)
+    raw_value = os.environ.get(_PASS3_SKIP_PASS2_OK_ENV)
+    if raw_value is None or not str(raw_value).strip():
+        return True
+    normalized = str(raw_value).strip().lower()
+    return normalized not in {"0", "false", "no", "off"}
 
 
 def _env_flag_enabled(env_name: str) -> bool:
