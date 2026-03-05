@@ -1,0 +1,27 @@
+# Token Leak Mapping Summary & Line Items
+# Purpose: Consolidates high-level incident totals with granular run-level evidence.
+# Use Case: Comprehensive audit of all major AI cost drivers.
+# Disclaimer: Estimated Cost ($) figures are hypothetical abstractions representing token volume/compute effort.
+
+Date,Incident Category,Description,Estimated Cost,Suspected Trigger
+2026-02-28,Massive Development Leak,"Multiple high-cardinality QualitySuite tournaments (up to 143 configs) with LLM active by default and Config Hash Fragmentation.","~$1,264.09","QualitySuite tournament expansion + Invisible Defaults"
+2026-03-03,High-Volume Benchmark Activity,"Continued QualitySuite and SpeedSuite validation rounds with LLM enabled in default settings.","~$883.00","Standard default activation of codex-line-role-v1"
+2026-03-04,Uncontrolled Benchmark Sweep,"Deterministic Exhaustive Batch (384 configs) with LineRole leaking tokens despite Recipe LLM being off.","~$430.18","Exhaustive Sweep + Invisible Defaults"
+2026-03-05*,Telemetry-Silent Leak,"Continuation of the Exhaustive Batch where token telemetry failed to record due to timeouts (Confirmed by tokscale).","~$94.48","Exhaustive Batch + Subprocess Timeout"
+2026-03-03 (various),Automated: Full LLM Stack,"Runs like SeaAndSmokeCUTDOWN (15M-19M tokens) where LLM was used for both line-role and recipe extraction.","Included in above","Standard codex-farm-3pass-v1 usage"
+2026-02-23 to 2026-02-27,Pre-Gate-Removal Ramping,"Increasing usage leading up to the Feb 28 policy change.","~$200-$300/day","Experimental usage before gate removal"
+
+# --- LINE ITEM DETAILS (FROM HISTORY LOGS) ---
+# Note: Many Feb 28th line items were lost or telemetry-silent due to GC/Timeouts.
+timestamp,category,tokens,input_tokens,llm_recipe,line_role,file,run_dir
+2026-03-04T20:39:54,Automated: Full LLM Stack,1970083,1877123,codex-farm-3pass-v1,codex-line-role-v1,DinnerFor2CUTDOWN.epub,single-profile-benchmark/01_dinnerfor2cutdown/codexfarm
+2026-03-04T20:38:38,Automated: Full LLM Stack,1656288,1567629,codex-farm-3pass-v1,codex-line-role-v1,saltfatacidheatCUTDOWN.epub,single-profile-benchmark/02_saltfatacidheatcutdown/codexfarm
+2026-03-04T12:16:08,Automated: Recipe LLM Only,2100325,1969246,codex-farm-3pass-v1,off,saltfatacidheatCUTDOWN.epub,profeedback_saltfat_full_codex
+2026-03-04T08:47:45,Automated: Full LLM Stack,14591498,14214878,codex-farm-3pass-v1,codex-line-role-v1,RoastChickenAndOtherStoriesCUTDOWN.epub,single-offline-benchmark/roastchickenandotherstoriescutdown/codexfarm
+2026-03-04T08:11:01,Automated: Full LLM Stack,1850004,1661957,codex-farm-3pass-v1,codex-line-role-v1,thefoodlabCUTDOWN.epub,single-profile-benchmark/05_thefoodlabcutdown/codexfarm
+2026-03-03_12.12.49,Automated: Recipe LLM Only,19688398,19335486,codex-farm-3pass-v1,off,SeaAndSmokeCUTDOWN.epub,single-offline-benchmark/seaandsmokecutdown/codexfarm
+2026-03-03_01.24.28,Automated: Recipe LLM Only,15249983,14910252,codex-farm-3pass-v1,off,SeaAndSmokeCUTDOWN.epub,single-offline-benchmark/seaandsmokecutdown/codexfarm
+2026-03-03T19:45:23,Automated: Full LLM Stack,15837703,15470130,codex-farm-3pass-v1,codex-line-role-v1,SeaAndSmokeCUTDOWN.epub,2026-03-03_19.41.28_seaandsmoke-next-buckets
+2026-03-02_23.33.49,Automated: Recipe LLM Only,19052717,18712335,codex-farm-3pass-v1,off,SeaAndSmokeCUTDOWN.epub,single-offline-benchmark/seaandsmokecutdown/codexfarm
+2026-03-02_23.15.01,Automated: Recipe LLM Only,13665192,13342264,codex-farm-3pass-v1,off,SeaAndSmokeCUTDOWN.epub,single-offline-benchmark/seaandsmokecutdown/codexfarm
+2026-02-28 07:00,Partial Captured Activity,13894398,13367262,unknown,unknown,Multiple,recipe.chunking.v1 (Subprocess)
