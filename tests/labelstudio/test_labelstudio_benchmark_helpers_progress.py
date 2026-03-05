@@ -172,7 +172,7 @@ def test_run_with_progress_status_uses_eval_tail_floor_for_all_method_eta(
         time.sleep(0.08)
         update_progress(_snapshot(2))
         # Simulate a long eval tail with no additional completions.
-        time.sleep(1.6)
+        time.sleep(1.05)
         update_progress(_snapshot(2))
         return {"ok": True}
 
@@ -412,7 +412,7 @@ def test_run_with_progress_status_shows_elapsed_for_long_steps(
 
     def _run(update_progress):
         update_progress("Extracting candidate 46/46...")
-        time.sleep(1.2)
+        time.sleep(1.05)
         recorded.append("done")
         return {"ok": True}
 
@@ -462,7 +462,7 @@ def test_run_with_progress_status_shows_eta_for_xy_progress(
 
     def _run(update_progress):
         update_progress("Running freeform prelabeling... task 1/4")
-        time.sleep(0.12)
+        time.sleep(0.06)
         update_progress("Running freeform prelabeling... task 2/4")
         return {"ok": True}
 
@@ -513,7 +513,7 @@ def test_run_with_progress_status_bootstraps_eta_when_first_counter_starts_above
 
     def _run(update_progress):
         update_progress("Benchmark import task 2/4")
-        time.sleep(1.2)
+        time.sleep(1.05)
         return {"ok": True}
 
     result = cli._run_with_progress_status(
@@ -763,7 +763,7 @@ def test_run_with_progress_status_shows_eta_for_canonical_line_role_progress(
 
     def _run(update_progress):
         update_progress("Running canonical line-role pipeline... task 1/4 | running 4")
-        time.sleep(0.12)
+        time.sleep(0.06)
         update_progress("Running canonical line-role pipeline... task 2/4 | running 3")
         return {"ok": True}
 
@@ -849,6 +849,69 @@ def test_run_with_progress_status_clamps_live_box_width_to_terminal(
     assert max(len(border) for border in borders) <= capture.width - 2
 
 
+def test_run_with_progress_status_wraps_long_lines_and_uses_larger_spinner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureConsole:
+        is_terminal = True
+        is_dumb_terminal = False
+        width = 96
+
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+            self.spinners: list[str] = []
+
+        def status(
+            self,
+            message: str,
+            spinner: str = "dots",
+            **_kwargs: object,
+        ) -> _FakeStatus:
+            self.messages.append(message)
+            self.spinners.append(spinner)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureConsole()
+    monkeypatch.setattr(cli, "console", capture)
+    tail_token = "codex-dashboard-tail-token-visible"
+
+    def _run(update_progress):
+        update_progress(
+            "overall source 0/1 | config 0/2\n"
+            "current source: DinnerFor2CUTDOWN.epub (1 of 2 configs; ok 1, fail 0)\n"
+            "queue:\n"
+            "  [>] DinnerFor2CUTDOWN.epub - 1 of 2 (ok 1, fail 0)\n"
+            "task: Running variant 2/2 (codexfarm) | "
+            "book 1/1: DinnerFor2CUTDOWN.epub | "
+            f"codex-farm recipe.final.v1 stage detail {tail_token}"
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Benchmark import running...",
+        progress_prefix="Single-profile benchmark",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert capture.spinners == ["bouncingBar"]
+    assert any(tail_token in message for message in capture.messages)
+
+
 def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -895,7 +958,7 @@ def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
             "codex-farm recipe.final.v1 task 1/4 | running 3 | "
             f"active [{long_task}]"
         )
-        time.sleep(0.8)
+        time.sleep(0.55)
         update_progress(
             "codex-farm recipe.final.v1 task 2/4 | running 3 | "
             f"active [{long_task}]"
@@ -1033,6 +1096,42 @@ def test_all_method_dashboard_current_config_tracks_active_parallel_configs() ->
     dashboard.complete_config(source_index=0, success=True, config_index=3)
     render_done = dashboard.render()
     assert "current config " not in render_done
+
+
+def test_all_method_dashboard_preserves_long_task_message() -> None:
+    source = cli.AllMethodTarget(
+        gold_spans_path=Path("dummy/exports/freeform_span_labels.jsonl"),
+        source_file=Path("dummy/book.epub"),
+        source_file_name="book.epub",
+        gold_display="dummy",
+    )
+    variants = [
+        cli.AllMethodVariant(
+            slug="extractor_unstructured",
+            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            dimensions={"epub_extractor": "unstructured"},
+        )
+    ]
+    dashboard = cli._AllMethodProgressDashboard.from_target_variants([(source, variants)])
+    dashboard.start_source(0)
+    dashboard.start_config(
+        source_index=0,
+        config_index=1,
+        config_total=1,
+        config_slug="extractor_unstructured",
+    )
+    tail_token = "single-profile-live-task-tail-token-visible"
+    long_task = (
+        "Running variant 2/2 (codexfarm) | book 1/1: DinnerFor2CUTDOWN.epub | "
+        "codex-farm recipe.final.v1 stage detail "
+        + ("x" * 220)
+        + tail_token
+    )
+    dashboard.set_task(long_task)
+
+    rendered = dashboard.render()
+    assert f"task: {long_task}" in rendered
+    assert tail_token in rendered
 
 
 def test_all_method_dashboard_renders_multiple_running_sources() -> None:

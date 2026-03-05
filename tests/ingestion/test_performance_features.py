@@ -1,10 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import pickle
 from typer.testing import CliRunner
+from cookimport import cli
 from cookimport.cli import app
+from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
 from cookimport.ocr.doctr_engine import resolve_ocr_device
 import pytest
+from tests.fast_stage_pipeline import install_fake_stage_one_file
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
@@ -21,7 +25,17 @@ def test_resolve_ocr_device():
     with pytest.raises(ValueError, match="Unsupported OCR device"):
         resolve_ocr_device("invalid")
 
-def test_stage_with_performance_flags(tmp_path):
+def test_stage_with_performance_flags(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    monkeypatch.setattr(
+        cli,
+        "resolve_process_thread_executor",
+        lambda **_kwargs: ProcessThreadExecutorResolution(
+            backend="serial",
+            executor=None,
+            messages=(),
+        ),
+    )
     fixtures_dir = TESTS_FIXTURES_DIR
     source_file = fixtures_dir / "simple_text.txt"
     output_dir = tmp_path / "output"
@@ -57,7 +71,17 @@ def test_stage_with_performance_flags(tmp_path):
     assert "parsing_seconds" in report["timing"]
     assert "writing_seconds" in report["timing"]
 
-def test_stage_parallel(tmp_path):
+def test_stage_parallel(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    monkeypatch.setattr(
+        cli,
+        "resolve_process_thread_executor",
+        lambda **_kwargs: ProcessThreadExecutorResolution(
+            backend="serial",
+            executor=None,
+            messages=(),
+        ),
+    )
     fixtures_dir = TESTS_FIXTURES_DIR
     input_dir = tmp_path / "input"
     input_dir.mkdir()
@@ -100,6 +124,7 @@ def test_stage_parallel(tmp_path):
 def test_stage_process_pool_permission_error_falls_back_to_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    install_fake_stage_one_file(monkeypatch, importer_name="text")
     fixtures_dir = TESTS_FIXTURES_DIR
     input_dir = tmp_path / "input"
     input_dir.mkdir()
@@ -116,6 +141,29 @@ def test_stage_process_pool_permission_error_falls_back_to_thread(
         "cookimport.core.executor_fallback.ProcessPoolExecutor",
         BrokenProcessPoolExecutor,
     )
+    monkeypatch.setattr(
+        cli,
+        "resolve_process_thread_executor",
+        lambda **_kwargs: ProcessThreadExecutorResolution(
+            backend="thread",
+            executor=ThreadPoolExecutor(max_workers=2),
+            messages=(
+                "Process-based worker concurrency unavailable (sandbox denied); using in-process thread worker concurrency.",
+            ),
+        ),
+    )
+
+    real_subprocess_run = cli.subprocess.run
+
+    def _fake_subprocess_run(command, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        if (
+            isinstance(command, list)
+            and "--stage-worker-self-test" in command
+        ):
+            return cli.subprocess.CompletedProcess(command, 1, "", "")
+        return real_subprocess_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "run", _fake_subprocess_run)
 
     output_dir = tmp_path / "output"
     result = runner.invoke(

@@ -289,9 +289,11 @@ if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
 js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
 js = js.replace(/\n\}\)\(\);\s*$/, `
   globalThis.__compareControlHarness = {
+    buildCompareControlFieldCatalog,
     analyzeCompareControlCategoricalRaw,
   analyzeCompareControlCategoricalControlled,
-  syncCompareControlSelectionToTableFilters,
+  compareControlRecordsForState,
+  applyCompareControlSelectionSubset,
   normalizeCompareControlState,
   resetCompareControlStateForHarness: function() {
     resetCompareControlState();
@@ -303,6 +305,12 @@ js = js.replace(/\n\}\)\(\);\s*$/, `
   },
   setCompareControlStateForHarness: function(state) {
     compareControlState = normalizeCompareControlState(state);
+  },
+  setDataForHarness: function(benchmarkRecords) {
+    DATA = {
+      stage_records: [],
+      benchmark_records: Array.isArray(benchmarkRecords) ? benchmarkRecords : [],
+    };
   },
     clearColumnFiltersForHarness: function() {
       previousRunsColumnFilters = Object.create(null);
@@ -397,16 +405,31 @@ function toGroupMap(groups) {
 
 const rawByGroup = toGroupMap(raw.groups);
 const controlledByGroup = toGroupMap(controlled.groups);
+hooks.setDataForHarness(
+  records.map((row, index) => ({
+    ...row,
+    run_category: "benchmark_eval",
+    run_timestamp: "2026-03-04T10:" + String(index).padStart(2, "0") + ":00",
+  }))
+);
 
 hooks.clearColumnFiltersForHarness();
 hooks.setCompareControlStateForHarness({
   compare_field: "compare_group",
   selected_groups: ["A", "B"],
 });
-const subset = hooks.syncCompareControlSelectionToTableFilters();
+const subset = hooks.applyCompareControlSelectionSubset();
 const filters = hooks.getColumnFiltersForHarness();
 const filterClauses = Array.isArray(filters.compare_group) ? filters.compare_group : [];
 const filterMode = hooks.getColumnFilterModeForHarness("compare_group");
+const localSubsetRows = hooks.compareControlRecordsForState(
+  records,
+  hooks.normalizeCompareControlState({
+    compare_field: "compare_group",
+    selected_groups: ["A"],
+  }),
+  { by_field: { compare_group: { numeric: false } } }
+);
 
 const payload = {
   raw_A: rawByGroup.A ? rawByGroup.A.outcome_mean : null,
@@ -414,10 +437,13 @@ const payload = {
   controlled_A: controlledByGroup.A ? controlledByGroup.A.outcome_mean : null,
   controlled_B: controlledByGroup.B ? controlledByGroup.B.outcome_mean : null,
   subset_applied: Boolean(subset && subset.applied),
+  subset_message: String((subset && subset.message) || ""),
   subset_mode: filterMode,
   subset_clause_count: filterClauses.length,
   subset_clause_values: filterClauses.map(clause => String((clause && clause.value) || "")),
   subset_clause_operators: filterClauses.map(clause => String((clause && clause.operator) || "")),
+  local_subset_rows: Array.isArray(localSubsetRows) ? localSubsetRows.length : 0,
+  local_subset_groups: Array.from(new Set((Array.isArray(localSubsetRows) ? localSubsetRows : []).map(row => String((row && row.compare_group) || "")))),
   secondary_fields: Array.isArray(secondaryAnalysis.secondary_fields)
     ? secondaryAnalysis.secondary_fields.slice()
     : [],
@@ -443,6 +469,423 @@ process.stdout.write(JSON.stringify(payload));
     if completed.returncode != 0:
         raise AssertionError(
             "Compare/control behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_compare_control_chart_harness(js_path: Path) -> dict[str, object]:
+    """Run generated dashboard JS compare/control chart-definition checks in Node."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for compare/control chart harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__compareControlChartHarness = {
+    buildCompareControlFieldCatalog,
+    normalizeCompareControlStateForCatalog,
+    compareControlRecordsForState,
+    buildCompareControlChartDefinition,
+    buildCombinedCompareControlChartDefinition,
+    setCombinedAxisModeForHarness: function(mode) {
+      compareControlCombinedAxisMode = normalizeCompareControlCombinedAxisMode(mode);
+    },
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__compareControlChartHarness;
+if (!hooks) throw new Error("Compare/control chart harness exports were not attached");
+
+const records = [
+  { run_timestamp: "2026-03-04T10:00:00", source_file: "/tmp/book_a.epub", importer_name: "epub", tokens_total: 1000, tokens_input: 1000, tokens_cached_input: 100, tokens_output: 80, strict_accuracy: 0.60 },
+  { run_timestamp: "2026-03-04T10:01:00", source_file: "/tmp/book_a.epub", importer_name: "pdf", tokens_total: 1200, tokens_input: 1200, tokens_cached_input: 120, tokens_output: 90, strict_accuracy: 0.64 },
+  { run_timestamp: "2026-03-04T10:02:00", source_file: "/tmp/book_a.epub", importer_name: "epub", tokens_total: 1400, tokens_input: 1400, tokens_cached_input: 140, tokens_output: 95, strict_accuracy: 0.66 },
+  { run_timestamp: "2026-03-04T10:03:00", source_file: "/tmp/book_b.epub", importer_name: "epub", tokens_total: 1600, tokens_input: 1600, tokens_cached_input: 160, tokens_output: 100, strict_accuracy: 0.68 },
+  { run_timestamp: "2026-03-04T10:04:00", source_file: "/tmp/book_b.epub", importer_name: "pdf", tokens_total: 1800, tokens_input: 1800, tokens_cached_input: 180, tokens_output: 110, strict_accuracy: 0.72 },
+  { run_timestamp: "2026-03-04T10:05:00", source_file: "/tmp/book_b.epub", importer_name: "pdf", tokens_total: 2000, tokens_input: 2000, tokens_cached_input: 200, tokens_output: 120, strict_accuracy: 0.74 },
+];
+const catalog = hooks.buildCompareControlFieldCatalog(records);
+
+const numericState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "strict_accuracy",
+    compare_field: "all_token_use",
+    split_field: "source_label",
+    view_mode: "raw",
+  },
+  catalog
+);
+const numericChart = hooks.buildCompareControlChartDefinition({
+  records,
+  total_rows: records.length,
+  state: numericState,
+  catalog,
+  compare_info: catalog.by_field[numericState.compare_field],
+});
+const numericSeries = Array.isArray(numericChart.series) ? numericChart.series : [];
+const numericPointTotal = numericSeries.reduce(
+  (total, series) => total + (Array.isArray(series.data) ? series.data.length : 0),
+  0
+);
+const numericFirstPoint = (
+  numericSeries.length &&
+  Array.isArray(numericSeries[0].data) &&
+  numericSeries[0].data.length
+) ? numericSeries[0].data[0] : null;
+
+const categoricalState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "strict_accuracy",
+    compare_field: "importer_name",
+    split_field: "source_label",
+    view_mode: "raw",
+  },
+  catalog
+);
+const categoricalScopedRecords = hooks.compareControlRecordsForState(
+  records,
+  categoricalState,
+  catalog
+);
+const categoricalChart = hooks.buildCompareControlChartDefinition({
+  records: categoricalScopedRecords,
+  total_rows: records.length,
+  state: categoricalState,
+  catalog,
+  compare_info: catalog.by_field[categoricalState.compare_field],
+});
+const categoricalSeries = Array.isArray(categoricalChart.series) ? categoricalChart.series : [];
+const categoricalPointTotal = categoricalSeries.reduce(
+  (total, series) => total + (Array.isArray(series.data) ? series.data.length : 0),
+  0
+);
+const categoricalFirstSeries = categoricalSeries.length ? categoricalSeries[0] : null;
+const categoricalPointColors = (
+  categoricalFirstSeries &&
+  Array.isArray(categoricalFirstSeries.data)
+)
+  ? categoricalFirstSeries.data
+      .filter(point => point && typeof point === "object")
+      .map(point => String(point.color || ""))
+      .filter(value => value.length > 0)
+  : [];
+function firstColorForCompareValue(chart, compareValue) {
+  const target = String(compareValue || "");
+  const seriesList = Array.isArray(chart && chart.series) ? chart.series : [];
+  for (const series of seriesList) {
+    const points = Array.isArray(series && series.data) ? series.data : [];
+    for (const point of points) {
+      if (!point || typeof point !== "object") continue;
+      const custom = point.custom && typeof point.custom === "object"
+        ? point.custom
+        : {};
+      if (String(custom.compareValue || "") !== target) continue;
+      const color = String(point.color || "").trim();
+      if (color) return color;
+    }
+  }
+  return "";
+}
+const categoricalSubsetState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "strict_accuracy",
+    compare_field: "importer_name",
+    split_field: "source_label",
+    view_mode: "raw",
+    selected_groups: ["epub"],
+  },
+  catalog
+);
+const categoricalSubsetRecords = hooks.compareControlRecordsForState(
+  records,
+  categoricalSubsetState,
+  catalog
+);
+const categoricalSubsetChart = hooks.buildCompareControlChartDefinition({
+  records: categoricalSubsetRecords,
+  total_rows: records.length,
+  state: categoricalSubsetState,
+  catalog,
+  compare_info: catalog.by_field[categoricalSubsetState.compare_field],
+});
+const categoricalColorEpubAll = firstColorForCompareValue(categoricalChart, "epub");
+const categoricalColorEpubSubset = firstColorForCompareValue(categoricalSubsetChart, "epub");
+
+const reorderedRecords = [
+  { run_timestamp: "2026-03-04T11:00:00", source_file: "/tmp/book_a.epub", importer_name: "pdf", strict_accuracy: 0.61 },
+  { run_timestamp: "2026-03-04T11:01:00", source_file: "/tmp/book_a.epub", importer_name: "pdf", strict_accuracy: 0.62 },
+  { run_timestamp: "2026-03-04T11:02:00", source_file: "/tmp/book_a.epub", importer_name: "pdf", strict_accuracy: 0.63 },
+  { run_timestamp: "2026-03-04T11:03:00", source_file: "/tmp/book_b.epub", importer_name: "pdf", strict_accuracy: 0.64 },
+  { run_timestamp: "2026-03-04T11:04:00", source_file: "/tmp/book_b.epub", importer_name: "epub", strict_accuracy: 0.65 },
+];
+const reorderedCatalog = hooks.buildCompareControlFieldCatalog(reorderedRecords);
+const reorderedState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "strict_accuracy",
+    compare_field: "importer_name",
+    split_field: "",
+    view_mode: "raw",
+  },
+  reorderedCatalog
+);
+const reorderedScopedRecords = hooks.compareControlRecordsForState(
+  reorderedRecords,
+  reorderedState,
+  reorderedCatalog
+);
+const reorderedChart = hooks.buildCompareControlChartDefinition({
+  records: reorderedScopedRecords,
+  total_rows: reorderedRecords.length,
+  state: reorderedState,
+  catalog: reorderedCatalog,
+  compare_info: reorderedCatalog.by_field[reorderedState.compare_field],
+});
+const categoricalColorEpubReordered = firstColorForCompareValue(reorderedChart, "epub");
+const categoricalColorPdfAll = firstColorForCompareValue(categoricalChart, "pdf");
+const categoricalColorPdfReordered = firstColorForCompareValue(reorderedChart, "pdf");
+
+const discoverState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "strict_accuracy",
+    compare_field: "",
+    view_mode: "discover",
+  },
+  catalog
+);
+const discoverChart = hooks.buildCompareControlChartDefinition({
+  records,
+  total_rows: records.length,
+  state: discoverState,
+  catalog,
+  compare_info: null,
+});
+
+const categoricalAltState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "strict_accuracy",
+    compare_field: "source_label",
+    split_field: "importer_name",
+    view_mode: "raw",
+  },
+  catalog
+);
+const categoricalAltScopedRecords = hooks.compareControlRecordsForState(
+  records,
+  categoricalAltState,
+  catalog
+);
+const categoricalAltChart = hooks.buildCompareControlChartDefinition({
+  records: categoricalAltScopedRecords,
+  total_rows: records.length,
+  state: categoricalAltState,
+  catalog,
+  compare_info: catalog.by_field[categoricalAltState.compare_field],
+});
+
+hooks.setCombinedAxisModeForHarness("single");
+const combinedSingleChart = hooks.buildCombinedCompareControlChartDefinition(
+  categoricalChart,
+  categoricalAltChart
+);
+hooks.setCombinedAxisModeForHarness("dual");
+const combinedDualChart = hooks.buildCombinedCompareControlChartDefinition(
+  categoricalChart,
+  categoricalAltChart
+);
+const combinedMixedChart = hooks.buildCombinedCompareControlChartDefinition(
+  numericChart,
+  categoricalChart
+);
+
+const combinedSingleSeries = Array.isArray(combinedSingleChart.series) ? combinedSingleChart.series : [];
+const combinedDualSeries = Array.isArray(combinedDualChart.series) ? combinedDualChart.series : [];
+const combinedDualSecondarySeries = combinedDualSeries.filter(
+  series => String((series && series.name) || "").startsWith("Set 2 - ")
+);
+const combinedSinglePointTotal = combinedSingleSeries.reduce(
+  (total, series) => total + (
+    Array.isArray(series.data)
+      ? series.data.filter(point => point != null).length
+      : 0
+  ),
+  0
+);
+
+const payload = {
+  numeric_chart_type: String(numericChart.chart_type || ""),
+  numeric_series_count: numericSeries.length,
+  numeric_point_total: numericPointTotal,
+  numeric_title: String(numericChart.chart_title || ""),
+  numeric_subtitle: String(numericChart.chart_subtitle || ""),
+  numeric_first_compare_value: numericFirstPoint ? Number(numericFirstPoint.x) : null,
+  numeric_first_outcome_value: numericFirstPoint ? Number(numericFirstPoint.y) : null,
+  numeric_first_split_label: (
+    numericFirstPoint &&
+    numericFirstPoint.custom &&
+    String(numericFirstPoint.custom.splitLabel || "")
+  ) || "",
+  categorical_series_count: categoricalSeries.length,
+  categorical_chart_type: String(categoricalChart.chart_type || ""),
+  categorical_categories_count: (
+    categoricalChart &&
+    categoricalChart.x_axis &&
+    Array.isArray(categoricalChart.x_axis.categories)
+  ) ? categoricalChart.x_axis.categories.length : 0,
+  categorical_point_total: categoricalPointTotal,
+  categorical_first_series_unique_colors: Array.from(new Set(categoricalPointColors)).length,
+  categorical_first_series_first_color: categoricalPointColors.length
+    ? categoricalPointColors[0]
+    : "",
+  categorical_epub_color_all: categoricalColorEpubAll,
+  categorical_epub_color_subset: categoricalColorEpubSubset,
+  categorical_epub_color_reordered: categoricalColorEpubReordered,
+  categorical_pdf_color_all: categoricalColorPdfAll,
+  categorical_pdf_color_reordered: categoricalColorPdfReordered,
+  categorical_first_compare_value: (
+    categoricalSeries.length &&
+    Array.isArray(categoricalSeries[0].data) &&
+    categoricalSeries[0].data.length &&
+    categoricalSeries[0].data[0] &&
+    categoricalSeries[0].data[0].custom
+      ? String(categoricalSeries[0].data[0].custom.compareValue || "")
+      : ""
+  ),
+  discover_series_count: Array.isArray(discoverChart.series) ? discoverChart.series.length : 0,
+  discover_empty_reason: String(discoverChart.empty_reason || ""),
+  combined_single_chart_type: String(combinedSingleChart.chart_type || ""),
+  combined_single_series_count: combinedSingleSeries.length,
+  combined_single_point_total: combinedSinglePointTotal,
+  combined_single_subtitle: String(combinedSingleChart.chart_subtitle || ""),
+  combined_single_categories_count: (
+    combinedSingleChart &&
+    combinedSingleChart.x_axis &&
+    Array.isArray(combinedSingleChart.x_axis.categories)
+  ) ? combinedSingleChart.x_axis.categories.length : 0,
+  combined_dual_y_axis_count: Array.isArray(combinedDualChart.y_axis)
+    ? combinedDualChart.y_axis.length
+    : 0,
+  combined_dual_secondary_series_on_axis_1: combinedDualSecondarySeries.every(
+    series => Number(series && series.yAxis) === 1
+  ),
+  combined_mixed_series_count: Array.isArray(combinedMixedChart.series)
+    ? combinedMixedChart.series.length
+    : 0,
+  combined_mixed_empty_reason: String(combinedMixedChart.empty_reason || ""),
+};
+process.stdout.write(JSON.stringify(payload));
+"""
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Compare/control chart harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_previous_runs_filter_edit_harness(js_path: Path) -> dict[str, object]:
+    """Run generated dashboard JS and verify in-place editing of filter clauses."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for previous-runs filter edit harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__previousRunsFilterEditHarness = {
+    setPreviousRunsColumnFilterClauses,
+    previousRunsColumnFilterClauses,
+    openPreviousRunsColumnFilterEditor,
+    closePreviousRunsColumnFilterEditor,
+    currentPreviousRunsColumnFilterDraft,
+    updatePreviousRunsColumnFilterAt,
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__previousRunsFilterEditHarness;
+if (!hooks) throw new Error("Previous-runs filter edit harness exports were not attached");
+
+hooks.setPreviousRunsColumnFilterClauses("ai_model", [
+  { operator: "contains", value: "gpt-5.1-codex-mini" },
+  { operator: "contains", value: "medium" },
+]);
+hooks.openPreviousRunsColumnFilterEditor("ai_model", {
+  operator: "contains",
+  value: "gpt-5.1-codex-mini",
+  edit_index: 0,
+});
+const editDraft = hooks.currentPreviousRunsColumnFilterDraft("ai_model");
+const updateApplied = hooks.updatePreviousRunsColumnFilterAt(
+  "ai_model",
+  editDraft.edit_index,
+  "starts_with",
+  "gpt-5.1"
+);
+const clausesAfter = hooks.previousRunsColumnFilterClauses("ai_model");
+hooks.openPreviousRunsColumnFilterEditor("ai_model", {
+  operator: "contains",
+  value: "ignored",
+  edit_index: 99,
+});
+const invalidDraft = hooks.currentPreviousRunsColumnFilterDraft("ai_model");
+hooks.closePreviousRunsColumnFilterEditor();
+
+const payload = {
+  edit_draft_editing: Boolean(editDraft && editDraft.editing),
+  edit_draft_index: editDraft && Number.isInteger(editDraft.edit_index) ? Number(editDraft.edit_index) : null,
+  edit_draft_operator: String((editDraft && editDraft.operator) || ""),
+  edit_draft_value: String((editDraft && editDraft.value) || ""),
+  update_applied: Boolean(updateApplied),
+  clauses_after_count: Array.isArray(clausesAfter) ? clausesAfter.length : 0,
+  clause_0_operator: clausesAfter[0] ? String(clausesAfter[0].operator || "") : "",
+  clause_0_value: clausesAfter[0] ? String(clausesAfter[0].value || "") : "",
+  clause_1_operator: clausesAfter[1] ? String(clausesAfter[1].operator || "") : "",
+  clause_1_value: clausesAfter[1] ? String(clausesAfter[1].value || "") : "",
+  invalid_draft_editing: Boolean(invalidDraft && invalidDraft.editing),
+  invalid_draft_index: invalidDraft && Number.isInteger(invalidDraft.edit_index)
+    ? Number(invalidDraft.edit_index)
+    : null,
+};
+process.stdout.write(JSON.stringify(payload));
+"""
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Previous-runs filter edit behavior harness failed.\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
@@ -677,6 +1120,9 @@ if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
 js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
 js = js.replace(/\n\}\)\(\);\s*$/, `
   globalThis.__qualityTokensHarness = {
+    aiModelLabelForRecord,
+    aiEffortLabelForRecord,
+    previousRunsAllTokenUseDisplay,
     previousRunsFieldValue,
     previousRunsRowFieldValue,
   };
@@ -701,6 +1147,50 @@ const allMethodRow = {
   tokens_output: 0,
   tokens_total: 2000,
 };
+const missingTelemetryRecord = {
+  strict_accuracy: 0.54,
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    codex_farm_model: "gpt-5.1-codex-mini",
+  },
+};
+const explicitZeroTelemetryRecord = {
+  strict_accuracy: 0.54,
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    codex_farm_model: "gpt-5.1-codex-mini",
+  },
+  tokens_input: 0,
+  tokens_cached_input: 0,
+  tokens_output: 0,
+  tokens_total: 0,
+};
+const runtimeErrorRecord = {
+  strict_accuracy: 0.54,
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    codex_farm_model: "gpt-5.1-codex-mini",
+    codex_farm_runtime_error: "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)",
+  },
+};
+const aiOffEffortRecord = {
+  strict_accuracy: 0.54,
+  run_config: {
+    llm_recipe_pipeline: "off",
+  },
+};
+const vanillaPathAiOffEffortRecord = {
+  strict_accuracy: 0.54,
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/my-book/vanilla",
+  run_config: {},
+};
+const unknownEffortRecord = {
+  strict_accuracy: 0.54,
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    codex_farm_model: "gpt-5.1-codex-mini",
+  },
+};
 const payload = {
   record_quality_per_million_tokens: Number(
     hooks.previousRunsFieldValue(record, "quality_per_million_tokens")
@@ -708,6 +1198,28 @@ const payload = {
   all_method_quality_per_million_tokens: Number(
     hooks.previousRunsRowFieldValue(allMethodRow, "quality_per_million_tokens")
   ),
+  missing_telemetry_ai_model: String(hooks.aiModelLabelForRecord(missingTelemetryRecord) || ""),
+  missing_telemetry_token_display: String(
+    hooks.previousRunsAllTokenUseDisplay({ record: missingTelemetryRecord }) || ""
+  ),
+  missing_telemetry_all_token_use: hooks.previousRunsFieldValue(
+    missingTelemetryRecord,
+    "all_token_use"
+  ),
+  explicit_zero_telemetry_token_display: String(
+    hooks.previousRunsAllTokenUseDisplay({ record: explicitZeroTelemetryRecord }) || ""
+  ),
+  explicit_zero_telemetry_all_token_use: hooks.previousRunsFieldValue(
+    explicitZeroTelemetryRecord,
+    "all_token_use"
+  ),
+  runtime_error_ai_model: String(hooks.aiModelLabelForRecord(runtimeErrorRecord) || ""),
+  runtime_error_effort_label: String(hooks.aiEffortLabelForRecord(runtimeErrorRecord) || ""),
+  ai_off_effort_label: String(hooks.aiEffortLabelForRecord(aiOffEffortRecord) || ""),
+  vanilla_path_ai_off_effort_label: String(
+    hooks.aiEffortLabelForRecord(vanillaPathAiOffEffortRecord) || ""
+  ),
+  unknown_effort_label: String(hooks.aiEffortLabelForRecord(unknownEffortRecord) || ""),
 };
 process.stdout.write(JSON.stringify(payload));
 """
@@ -845,10 +1357,25 @@ def _run_previous_runs_pixel_overflow_harness(html_path: Path) -> dict[str, obje
         except Exception as exc:  # pragma: no cover - environment-specific browser install issues
             pytest.skip(f"chromium launch unavailable for pixel harness: {exc}")
         page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        page.add_init_script(
+            """
+            (() => {
+              const originalSetInterval = window.setInterval.bind(window);
+              const originalSetTimeout = window.setTimeout.bind(window);
+              window.setInterval = (handler, timeout, ...args) =>
+                originalSetInterval(handler, Math.min(Number(timeout) || 0, 80), ...args);
+              window.setTimeout = (handler, timeout, ...args) =>
+                originalSetTimeout(handler, Math.min(Number(timeout) || 0, 80), ...args);
+            })();
+            """
+        )
 
         highcharts_stub = (
             "window.Highcharts = window.Highcharts || {};\n"
             "window.Highcharts.stockChart = window.Highcharts.stockChart || function(){"
+            "  return { destroy: function(){} };"
+            "};\n"
+            "window.Highcharts.chart = window.Highcharts.chart || function(){"
             "  return { destroy: function(){} };"
             "};\n"
             "window.Highcharts.setOptions = window.Highcharts.setOptions || function(){};\n"
@@ -868,10 +1395,10 @@ def _run_previous_runs_pixel_overflow_harness(html_path: Path) -> dict[str, obje
         page.route("**/*highcharts-more.js*", _fulfill_highcharts)
 
         page.goto(html_path.as_uri(), wait_until="networkidle", timeout=120000)
-        page.wait_for_timeout(1200)
+        page.wait_for_timeout(120)
 
         page.select_option("#compare-control-view-mode", "raw")
-        page.wait_for_timeout(300)
+        page.wait_for_timeout(80)
 
         compare_candidates = page.evaluate(
             """() => Array.from(
@@ -909,7 +1436,7 @@ def _run_previous_runs_pixel_overflow_harness(html_path: Path) -> dict[str, obje
         samples = [_sample("initial")]
         for index in range(8):
             page.select_option("#compare-control-compare-field", selected[index % 2])
-            page.wait_for_timeout(220)
+            page.wait_for_timeout(40)
             samples.append(_sample(f"cycle_{index}"))
 
         browser.close()
@@ -956,6 +1483,18 @@ def _run_benchmark_trend_host_width_drift_harness(
             except Exception as exc:  # pragma: no cover - environment-specific browser install issues
                 pytest.skip(f"chromium launch unavailable for trend host drift harness: {exc}")
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.add_init_script(
+                """
+                (() => {
+                  const originalSetInterval = window.setInterval.bind(window);
+                  const originalSetTimeout = window.setTimeout.bind(window);
+                  window.setInterval = (handler, timeout, ...args) =>
+                    originalSetInterval(handler, Math.min(Number(timeout) || 0, 80), ...args);
+                  window.setTimeout = (handler, timeout, ...args) =>
+                    originalSetTimeout(handler, Math.min(Number(timeout) || 0, 80), ...args);
+                })();
+                """
+            )
 
             highcharts_stub = (
                 "window.Highcharts = window.Highcharts || {};\n"
@@ -973,6 +1512,9 @@ def _run_benchmark_trend_host_width_drift_harness(
                 "      + '</div>';\n"
                 "  }\n"
                 "  return { destroy: function(){} };\n"
+                "};\n"
+                "window.Highcharts.chart = function(hostId, config){\n"
+                "  return window.Highcharts.stockChart(hostId, config);\n"
                 "};\n"
                 "window.Highcharts.setOptions = window.Highcharts.setOptions || function(){};\n"
                 "window.Highcharts.dateFormat = window.Highcharts.dateFormat || function(){ return ''; };\n"
@@ -1014,33 +1556,46 @@ def _run_benchmark_trend_host_width_drift_harness(
             page.route("**/assets/dashboard_ui_state.json", _fulfill_ui_state)
 
             page.goto(url, wait_until="domcontentloaded", timeout=120000)
-            page.wait_for_timeout(1500)
+            page.wait_for_function(
+                "() => Number(window.Highcharts && window.Highcharts.__renderCount || 0) >= 1",
+                timeout=10000,
+            )
 
             samples = []
             for index in range(5):
-                samples.append(
-                    page.evaluate(
-                        """(index) => {
-                            const trend = document.getElementById("benchmark-trend-chart");
-                            const compareControl = document.getElementById("compare-control-trend-chart");
-                            return {
-                              index,
-                              render_count: Number(
-                                window.Highcharts && window.Highcharts.__renderCount
-                                  ? window.Highcharts.__renderCount
-                                  : 0
-                              ),
-                              trend_client: Number(trend ? trend.clientWidth : 0),
-                              trend_scroll: Number(trend ? trend.scrollWidth : 0),
-                              compare_client: Number(compareControl ? compareControl.clientWidth : 0),
-                              compare_scroll: Number(compareControl ? compareControl.scrollWidth : 0),
-                            };
-                        }""",
-                        index,
-                    )
+                sample = page.evaluate(
+                    """(index) => {
+                        const trend = document.getElementById("benchmark-trend-chart");
+                        const compareControl = document.getElementById("compare-control-trend-chart");
+                        return {
+                          index,
+                          render_count: Number(
+                            window.Highcharts && window.Highcharts.__renderCount
+                              ? window.Highcharts.__renderCount
+                              : 0
+                          ),
+                          trend_client: Number(trend ? trend.clientWidth : 0),
+                          trend_scroll: Number(trend ? trend.scrollWidth : 0),
+                          compare_client: Number(compareControl ? compareControl.clientWidth : 0),
+                          compare_scroll: Number(compareControl ? compareControl.scrollWidth : 0),
+                        };
+                    }""",
+                    index,
                 )
+                samples.append(sample)
                 if index < 4:
-                    page.wait_for_timeout(5000)
+                    expected_render_count = int(sample.get("render_count", 0)) + 1
+                    page.wait_for_function(
+                        """
+                        (expectedCount) => Number(
+                            window.Highcharts && window.Highcharts.__renderCount
+                              ? window.Highcharts.__renderCount
+                              : 0
+                        ) >= Number(expectedCount)
+                        """,
+                        arg=expected_render_count,
+                        timeout=10000,
+                    )
 
             browser.close()
     finally:
@@ -1634,6 +2189,85 @@ class TestCollectors:
         assert "codex_farm_model=gpt-5.3-codex-spark" in str(record.run_config_summary)
         assert "codex_farm_reasoning_effort=<default>" in str(record.run_config_summary)
 
+    def test_csv_collector_backfills_codex_runtime_error_from_prediction_run_manifest(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "output"
+        history_dir = output_root / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+
+        eval_dir = (
+            tmp_path
+            / "golden"
+            / "benchmark-vs-golden"
+            / "2026-03-03_01.24.28"
+            / "single-offline-benchmark"
+            / "seaandsmokecutdown"
+            / "codexfarm"
+        )
+        pred_run_dir = eval_dir / "prediction-run"
+        pred_run_dir.mkdir(parents=True, exist_ok=True)
+        (pred_run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(tmp_path / "input" / "SeaAndSmokeCUTDOWN.epub"),
+                    "importer_name": "epub",
+                    "run_config": {
+                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "workers": 7,
+                    },
+                    "llm_codex_farm": {
+                        "enabled": True,
+                        "fallbackApplied": True,
+                        "fatalError": (
+                            "codex-farm failed for recipe.schemaorg.v1 "
+                            "(subprocess_exit=124)"
+                        ),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        row = {field: "" for field in _CSV_FIELDS}
+        row.update(
+            {
+                "run_timestamp": "2026-03-03T04:28:32",
+                "run_dir": str(eval_dir),
+                "file_name": "SeaAndSmokeCUTDOWN.epub",
+                "run_category": "benchmark_eval",
+                "eval_scope": "canonical-text",
+                "strict_accuracy": "0.2739",
+                "macro_f1_excluding_other": "0.3484",
+                "gold_total": "595",
+                "gold_matched": "163",
+                "run_config_json": json.dumps(
+                    {
+                        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                        "workers": 7,
+                        "codex_farm_model": "gpt-5.1-codex-mini",
+                    }
+                ),
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(row)
+
+        data = collect_dashboard_data(
+            output_root=output_root,
+            golden_root=tmp_path / "golden",
+        )
+        assert len(data.benchmark_records) == 1
+        record = data.benchmark_records[0]
+        assert record.run_config is not None
+        assert (
+            record.run_config.get("codex_farm_runtime_error")
+            == "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)"
+        )
+
     def test_csv_collector_keeps_backfilled_ai_effort_rows(self, tmp_path):
         output_root = tmp_path / "output"
         history_dir = output_root / ".history"
@@ -1761,6 +2395,10 @@ class TestCollectors:
                         "codex_farm_reasoning_effort": None,
                     },
                     "llm_codex_farm": {
+                        "fatalError": (
+                            "codex-farm failed for recipe.schemaorg.v1 "
+                            "(subprocess_exit=124)"
+                        ),
                         "codex_farm_model": None,
                         "codex_farm_reasoning_effort": None,
                         "process_runs": {
@@ -1807,6 +2445,10 @@ class TestCollectors:
         assert b.run_config.get("workers") == 6
         assert b.run_config.get("codex_farm_model") == "gpt-5.3-codex-spark"
         assert b.run_config.get("codex_farm_reasoning_effort") == "<default>"
+        assert (
+            b.run_config.get("codex_farm_runtime_error")
+            == "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)"
+        )
         assert b.processed_report_path == str(processed_report_path)
         assert b.recipes == 19
         assert b.extracted_chars == 200
@@ -2119,20 +2761,39 @@ class TestRenderer:
         assert 'id="isolate-status"' not in html
         assert 'id="isolate-insights"' not in html
         assert 'id="compare-control-panel"' in html
+        assert 'id="compare-control-panel-secondary"' in html
         assert 'id="compare-control-view-mode"' in html
+        assert 'id="compare-control-view-mode-secondary"' in html
         assert 'id="compare-control-outcome-field"' in html
+        assert 'id="compare-control-outcome-field-secondary"' in html
         assert 'id="compare-control-compare-field"' in html
+        assert 'id="compare-control-compare-field-secondary"' in html
         assert 'id="compare-control-split-field"' in html
+        assert 'id="compare-control-split-field-secondary"' in html
         assert 'id="compare-control-hold-fields"' in html
+        assert 'id="compare-control-hold-fields-secondary"' in html
         assert 'id="compare-control-group-selection"' in html
+        assert 'id="compare-control-group-selection-secondary"' in html
         assert 'id="compare-control-filter-subset"' in html
+        assert 'id="compare-control-filter-subset-secondary"' in html
         assert 'id="compare-control-clear-selection"' in html
+        assert 'id="compare-control-clear-selection-secondary"' in html
         assert 'id="compare-control-reset"' in html
+        assert 'id="compare-control-reset-secondary"' in html
+        assert 'id="compare-control-toggle-second-set"' in html
+        assert 'id="compare-control-chart-layout"' in html
+        assert 'id="compare-control-combined-axis-mode"' in html
         assert 'id="compare-control-status"' in html
+        assert 'id="compare-control-status-secondary"' in html
         assert 'id="compare-control-results"' in html
+        assert 'id="compare-control-results-secondary"' in html
         assert 'id="compare-control-analysis-section"' in html
         assert 'id="compare-control-trend-chart"' in html
+        assert 'id="compare-control-trend-chart-secondary"' in html
+        assert 'id="compare-control-trend-chart-combined"' in html
         assert 'id="compare-control-trend-fallback"' in html
+        assert 'id="compare-control-trend-fallback-secondary"' in html
+        assert 'id="compare-control-trend-fallback-combined"' in html
         assert 'id="previous-runs-history-panel"' in html
         assert 'id="benchmark-trend-field-checklist"' in html
         assert 'id="benchmark-trend-select-all"' in html
@@ -2179,6 +2840,20 @@ class TestRenderer:
         render_dashboard(dash_dir, DashboardData())
         js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
         assert "const COMPARE_CONTROL_VIEW_MODES = new Set(" in js
+        assert "const COMPARE_CONTROL_CHART_TYPES = new Set([\"scatter\", \"bar\"]);" in js
+        assert "const COMPARE_CONTROL_CHART_LAYOUTS = new Set([\"stacked\", \"side_by_side\", \"combined\"]);" in js
+        assert "const COMPARE_CONTROL_COMBINED_AXIS_MODES = new Set([\"single\", \"dual\"]);" in js
+        assert "function normalizeCompareControlChartType(value)" in js
+        assert "function normalizeCompareControlChartLayout(value)" in js
+        assert "function normalizeCompareControlCombinedAxisMode(value)" in js
+        assert "let compareControlChartActivated = false;" in js
+        assert "let compareControlSecondaryChartActivated = false;" in js
+        assert "let compareControlSecondSetEnabled = false;" in js
+        assert "let compareControlChartLayout = \"stacked\";" in js
+        assert "let compareControlCombinedAxisMode = \"single\";" in js
+        assert "function activateCompareControlChart()" in js
+        assert "function deactivateCompareControlChart()" in js
+        assert "function shouldAutoActivateCompareControlChart(state, compareInfo)" in js
         assert "function normalizeCompareControlState(rawState)" in js
         assert "function buildCompareControlFieldCatalog(records)" in js
         assert "function chooseDefaultCompareOutcome(catalog)" in js
@@ -2189,12 +2864,78 @@ class TestRenderer:
         assert "function compareControlSecondaryMetricFields(records, outcomeField, compareField)" in js
         assert "function compareControlWeakCoverageWarnings(analysis)" in js
         assert "function compareControlDefaultState()" in js
-        assert "function renderCompareControlPanel(context)" in js
-        assert "function resetCompareControlState()" in js
-        assert "function syncCompareControlSelectionToTableFilters()" in js
+        assert "function compareControlStateForSet(setKey)" in js
+        assert "function setCompareControlStateForSet(setKey, nextState)" in js
+        assert "function setCompareControlSecondSetEnabled(enabled)" in js
+        assert "function syncCompareControlLayoutChrome()" in js
+        assert "function renderCompareControlPanel(context, config)" in js
+        assert "function resetCompareControlState(setKey)" in js
+        assert "function buildCompareControlScatterChartDefinition(context)" in js
+        assert "function buildCompareControlBarChartDefinition(context)" in js
+        assert "function compareControlAutoChartType(sourceState, context)" in js
+        assert "function buildCompareControlChartDefinition(context)" in js
+        assert "function buildCombinedCompareControlChartDefinition(primaryDefinition, secondaryDefinition)" in js
+        assert "function renderCompareControlChartHost(config)" in js
+        assert "function renderCompareControlDynamicChart(records, totalRows)" in js
+        assert "function renderCompareControlDynamicChartForSet(records, totalRows, config)" in js
+        assert "shouldAutoActivateCompareControlChart(state, compareInfo)" in js
+        assert "function renderCompareControlSection()" in js
+        assert "if (!compareControlChartActivatedForSet(key)) {" in js
+        assert "Use Compare & Control selections above to generate this chart." in js
+        assert "window.Highcharts.chart(hostId, chartOptions);" in js
+        assert "function compareControlRecordsForState(records, state, catalog)" in js
+        assert "function setupCompareControlControlsForSet(config)" in js
+        assert "function applyCompareControlSelectionSubset()" in js
+        assert "function applyCompareControlSelectionSubsetForSet(setKey)" in js
         assert "Coverage warning:" in js
+        assert "compare-control-groups-table" in js
+        assert "compare-control-groups-table-wrap" in js
+        assert "function compareControlTableNumber(value, smallDigits)" in js
+        assert "function compareControlGroupDisplaySort(left, right, compareField)" in js
+        assert 'if (compareFieldKey === "ai_effort") {' in js
+        assert "const sortedGroupOptions = [...groupOptions].sort((left, right) => (" in js
+        assert "const displayGroups = [...(analysis.groups || [])].sort((left, right) => (" in js
+        assert "if (Math.abs(numeric) > 5) {" in js
+        assert 'Math.round(numeric).toLocaleString("en-US")' in js
+        assert 'htmlParts.push("<th>Group</th>");' in js
+        assert 'return meta.label + " (" + fieldName + ")";' not in js
+        assert '" [numeric]"' not in js
         assert 'class="isolate-rule-value isolate-rule-value-input"' not in js
         assert "function syncIsolateControls(records)" not in js
+
+    def test_dashboard_js_supports_delayed_metric_hover_tooltips(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+        html = (dash_dir / "index.html").read_text(encoding="utf-8")
+        css = (dash_dir / "assets" / "style.css").read_text(encoding="utf-8")
+
+        assert "const METRIC_TOOLTIP_HOVER_DELAY_MS = 1000;" in js
+        assert "let metricTooltipDescriptions = Object.create(null);" in js
+        assert "function buildMetricTooltipDescriptions()" in js
+        assert "#previous-runs-section .metric-help-list li" in js
+        assert "function metricTooltipTextForTarget(target)" in js
+        assert "function setupMetricHoverTooltips()" in js
+        assert "function refreshMetricTooltipTargets()" in js
+        assert "const METRIC_TOOLTIP_AUTO_TARGET_SELECTOR = [" in js
+        assert '".highcharts-legend-item tspan"' in js
+        assert "function buildMetricTooltipAliasCatalog(descriptions)" in js
+        assert "function metricTooltipResolveKeyFromText(text)" in js
+        assert "document.querySelectorAll(METRIC_TOOLTIP_AUTO_TARGET_SELECTOR).forEach(node => {" in js
+        assert "setMetricTooltipTarget(th, fieldName, meta.title || fieldName);" in js
+        assert "setMetricTooltipTarget(labelText, fieldName, meta.title || meta.label || fieldName);" in js
+        assert "data-metric-tooltip-key" in js
+        assert "setupMetricHoverTooltips();" in js
+        assert "refreshMetricTooltipTargets();" in js
+        assert ".metric-hover-tooltip {" in css
+        assert "[data-metric-tooltip-key] {" in css
+        assert "[data-metric-tooltip-key]:hover," in css
+        assert "th[data-metric-tooltip-key]:hover," in css
+        assert "svg [data-metric-tooltip-key]:hover * {" in css
+        assert 'data-metric-tooltip-key="gold_total"' in html
+        assert 'data-metric-tooltip-key="boundary_correct"' in js
+        assert 'data-metric-tooltip-key="gold_unmatched"' in js
+        assert 'data-metric-tooltip-key="quality_per_million_tokens"' in js
 
     def test_dashboard_js_clamps_persisted_table_column_widths(self, tmp_path):
         dash_dir = tmp_path / "dash"
@@ -2218,16 +2959,39 @@ class TestRenderer:
         assert result["raw_A"] > result["raw_B"]
         assert result["controlled_B"] > result["controlled_A"]
 
-    def test_compare_control_filter_to_subset_writes_table_filter_clauses(self, tmp_path):
+    def test_compare_control_subset_stays_local_and_does_not_write_table_filters(
+        self, tmp_path
+    ):
         dash_dir = tmp_path / "dash"
         render_dashboard(dash_dir, DashboardData())
         js_path = dash_dir / "assets" / "dashboard.js"
         result = _run_compare_control_behavior_harness(js_path)
         assert result["subset_applied"] is True
-        assert result["subset_mode"] == "or"
-        assert result["subset_clause_count"] == 2
-        assert set(result["subset_clause_values"]) == {"A", "B"}
-        assert set(result["subset_clause_operators"]) == {"eq"}
+        assert "Compare & Control only" in result["subset_message"]
+        assert result["subset_mode"] == "and"
+        assert result["subset_clause_count"] == 0
+        assert result["subset_clause_values"] == []
+        assert result["subset_clause_operators"] == []
+        assert result["local_subset_rows"] == 10
+        assert result["local_subset_groups"] == ["A"]
+
+    def test_previous_runs_filter_clause_edit_updates_existing_clause(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_previous_runs_filter_edit_harness(js_path)
+        assert result["edit_draft_editing"] is True
+        assert result["edit_draft_index"] == 0
+        assert result["edit_draft_operator"] == "contains"
+        assert result["edit_draft_value"] == "gpt-5.1-codex-mini"
+        assert result["update_applied"] is True
+        assert result["clauses_after_count"] == 2
+        assert result["clause_0_operator"] == "starts_with"
+        assert result["clause_0_value"] == "gpt-5.1"
+        assert result["clause_1_operator"] == "contains"
+        assert result["clause_1_value"] == "medium"
+        assert result["invalid_draft_editing"] is False
+        assert result["invalid_draft_index"] is None
 
     def test_compare_control_reset_state_restore_defaults(self, tmp_path):
         dash_dir = tmp_path / "dash"
@@ -2255,6 +3019,43 @@ class TestRenderer:
         assert "benchmark_evaluation_seconds" not in secondary_fields
         assert "all_token_use" in secondary_fields
         assert "tokens_total" in secondary_fields
+
+    def test_compare_control_dynamic_chart_builds_scatter_from_visible_rows(
+        self, tmp_path
+    ):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_compare_control_chart_harness(js_path)
+        assert result["numeric_chart_type"] == "scatter"
+        assert result["numeric_series_count"] == 2
+        assert result["numeric_point_total"] == 6
+        assert "numeric" in result["numeric_title"].lower()
+        assert "strict_accuracy" in result["numeric_subtitle"]
+        assert result["numeric_first_compare_value"] == pytest.approx(990)
+        assert result["numeric_first_outcome_value"] == pytest.approx(0.60)
+        assert result["numeric_first_split_label"] == "book_a.epub"
+        assert result["categorical_chart_type"] == "bar"
+        assert result["categorical_series_count"] == 2
+        assert result["categorical_categories_count"] == 2
+        assert result["categorical_point_total"] == 4
+        assert result["categorical_first_series_unique_colors"] >= 2
+        assert result["categorical_first_series_first_color"].startswith("rgba(")
+        assert result["categorical_epub_color_all"] == result["categorical_epub_color_subset"]
+        assert result["categorical_epub_color_all"] == result["categorical_epub_color_reordered"]
+        assert result["categorical_pdf_color_all"] == result["categorical_pdf_color_reordered"]
+        assert result["categorical_first_compare_value"] in {"epub", "pdf"}
+        assert result["discover_series_count"] == 0
+        assert "Pick a Compare by field" in result["discover_empty_reason"]
+        assert result["combined_single_chart_type"] == "bar"
+        assert result["combined_single_series_count"] == 4
+        assert result["combined_single_point_total"] == 8
+        assert "shared Y axis" in result["combined_single_subtitle"]
+        assert result["combined_single_categories_count"] >= 2
+        assert result["combined_dual_y_axis_count"] == 2
+        assert result["combined_dual_secondary_series_on_axis_1"] is True
+        assert result["combined_mixed_series_count"] == 0
+        assert "not available" in result["combined_mixed_empty_reason"]
 
     def test_html_includes_diagnostics_and_history_frames(self, tmp_path):
         data = DashboardData(
@@ -2363,7 +3164,7 @@ class TestRenderer:
         assert 'let previousRunsSortDirection = "desc";' in js
         assert "function comparePreviousRunsRows(leftRow, rightRow)" in js
         assert "th.addEventListener(\"click\", event => {" in js
-        assert "Click to sort A→Z / Z→A." in js
+        assert "Click to sort A to Z / Z to A." in js
         assert "(?:_.+)?$/.test(text);" in js
         assert "runDirTimestamp: runDirTimestamp || fallbackTimestamp || null," in js
         assert '"all-method-benchmark-run__" + slugToken(ts) + ".html"' in js
@@ -2392,6 +3193,9 @@ class TestRenderer:
         assert "formatTokenCountCompact(parts.input)" in js
         assert "formatTokenCountCompact(parts.output)" in js
         assert 'if (pipelineText === "off") return "off";' in js
+        assert 'const runtimeError = codexRuntimeErrorForRecord(record);' in js
+        assert 'if (runtimeError) return "AI off";' in js
+        assert 'if (benchmarkVariantForRecord(record) === "vanilla") return "AI off";' in js
         assert "return \"-\";" in js
         assert 'lower === "<default>"' in js
         assert "function renderLatestRuntime()" in js
@@ -2408,7 +3212,7 @@ class TestRenderer:
         assert "previousRunsDiscountedTokenTotal(" in js
         assert "rawTotalTokenUse" not in js
         assert "AI Runtime" not in js
-        assert "'<tr><td>Token use</td><td>' + esc(totalTokenUse) + '</td></tr>'" in js
+        assert "'<tr><td data-metric-tooltip-key=\"all_token_use\">Token use</td><td>' + esc(totalTokenUse) + '</td></tr>'" in js
         assert "Raw total tokens" not in js
         assert "link.href = href;" in js
 
@@ -2458,10 +3262,13 @@ class TestRenderer:
         assert "function sanitizePreviousRunsPresetName(rawName)" in js
         assert "function sanitizePreviousRunsPresetState(rawPreset)" in js
         assert "function sanitizePreviousRunsPresetMap(rawPresets)" in js
-        assert "const compareControl = normalizeCompareControlState(rawPreset.compare_control);" in js
         assert 'if (Object.prototype.hasOwnProperty.call(previousRuns, "compare_control")) {' in js
         assert "compareControlState = normalizeCompareControlState(compareControlState);" in js
-        assert "compare_control: normalizeCompareControlState(compareControlState)," in js
+        assert "compare_control: {" in js
+        assert "second_set_enabled: Boolean(compareControlSecondSetEnabled)," in js
+        assert "second_set: normalizeCompareControlState(compareControlSecondaryState)," in js
+        assert "chart_layout: normalizeCompareControlChartLayout(compareControlChartLayout)," in js
+        assert "combined_axis_mode: normalizeCompareControlCombinedAxisMode(" in js
         assert 'if (Object.prototype.hasOwnProperty.call(previousRuns, "per_label_run_group_key")) {' in js
         assert "per_label_run_group_key: normalizePerLabelRunGroupKey(perLabelRunGroupKey)," in js
         assert "function previousRunsPresetNames()" in js
@@ -2514,6 +3321,7 @@ class TestRenderer:
         assert "function previousRunsColumnFilterMode(fieldName)" in js
         assert "function setPreviousRunsColumnFilterMode(fieldName, mode)" in js
         assert "function addPreviousRunsColumnFilter(fieldName, operator, value)" in js
+        assert "function updatePreviousRunsColumnFilterAt(fieldName, index, operator, value)" in js
         assert "function removePreviousRunsColumnFilterAt(fieldName, index)" in js
         assert "function activePreviousRunsColumnFilters()" in js
         assert "function previousRunsIconSvgPath(iconName)" in js
@@ -2544,10 +3352,12 @@ class TestRenderer:
         assert 'const spacerRow = table.querySelector("thead tr.previous-runs-filter-spacer-row");' in js
         assert "let previousRunsOpenFilterField = \"\";" in js
         assert "let previousRunsOpenFilterDraft = null;" in js
-        assert "function openPreviousRunsColumnFilterEditor(fieldName)" in js
+        assert "function openPreviousRunsColumnFilterEditor(fieldName, options)" in js
         assert "function closePreviousRunsColumnFilterEditor()" in js
         assert 'setPreviousRunsIcon(toggleBtn, isEditorOpen ? "minus" : "plus");' in js
         assert 'summaryItem.className = "previous-runs-column-filter-summary-item";' in js
+        assert 'summaryEditBtn.className = "previous-runs-column-filter-summary-edit";' in js
+        assert 'summaryEditBtn.setAttribute("aria-label", "Edit filter " + String(clauseIndex + 1));' in js
         assert 'summaryRemoveBtn.className = "previous-runs-column-filter-summary-remove";' in js
         assert 'setPreviousRunsIcon(summaryRemoveBtn, "close");' in js
         assert 'popover.className = "previous-runs-column-filter-popover";' in js
@@ -2774,6 +3584,16 @@ class TestRenderer:
             543.47826087, rel=1e-6
         )
         assert result["all_method_quality_per_million_tokens"] == pytest.approx(125.0)
+        assert result["missing_telemetry_ai_model"] == "gpt-5.1-codex-mini"
+        assert result["missing_telemetry_token_display"] == "-"
+        assert result["missing_telemetry_all_token_use"] is None
+        assert result["explicit_zero_telemetry_token_display"] == "0 total | 0 in | 0 out"
+        assert result["explicit_zero_telemetry_all_token_use"] == pytest.approx(0.0)
+        assert result["runtime_error_ai_model"] == "System error"
+        assert result["runtime_error_effort_label"] == "AI off"
+        assert result["ai_off_effort_label"] == "AI off"
+        assert result["vanilla_path_ai_off_effort_label"] == "AI off"
+        assert result["unknown_effort_label"] == "-"
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -2798,11 +3618,15 @@ class TestRenderer:
         assert "window.Highcharts.stockChart(hostId, {" in js
         assert 'hostId: "benchmark-trend-chart"' in js
         assert 'hostId: "compare-control-trend-chart"' in js
+        assert "renderCompareControlSection();" in js
+        assert "Compare/Control Benchmark Score Trends" not in js
         assert "chart: {" in js
         assert "height: 800," in js
         assert "rangeSelector: {" in js
         assert '{ type: "all", text: "All" }' in js
         assert "selected: 5," in js
+        assert "navigator: {\n        enabled: false,\n      }," in js
+        assert "scrollbar: {\n        enabled: false,\n      }," in js
         assert "const allRunTimestamps = sorted" in js
         assert "const timelineMin = allRunTimestamps.length ? allRunTimestamps[0] : null;" in js
         assert "const timelineMax = allRunTimestamps.length ? allRunTimestamps[allRunTimestamps.length - 1] : null;" in js
@@ -2812,6 +3636,8 @@ class TestRenderer:
         assert "if (timelineMin != null) xAxisConfig.min = timelineMin;" in js
         assert "if (timelineMax != null) xAxisConfig.max = timelineMax;" in js
         assert "xAxis: xAxisConfig," in js
+        assert "setupDashboardResizeHandlers();" in js
+        assert 'window.addEventListener("resize", handleDashboardWindowResize, { passive: true });' in js
         assert "function benchmarkVariantForRecord(record)" in js
         assert "function benchmarkRunGroupInfo(record)" in js
         assert "runGroupTimestampText" in js
@@ -2955,37 +3781,6 @@ class TestRenderer:
         assert result["first_before_empty"] is True
         assert result["second_before_empty"] is True
 
-    def test_previous_runs_stays_within_viewport_pixels_after_rerenders(self, tmp_path):
-        benchmark_records = []
-        for index in range(72):
-            benchmark_records.append(
-                BenchmarkRecord(
-                    run_timestamp=f"2026-03-01T10:{index % 60:02d}:00",
-                    run_dir=f"/tmp/runs/{index}",
-                    file_name=f"book_{index}.pdf",
-                    strict_accuracy=0.5 + ((index % 10) * 0.01),
-                    macro_f1_excluding_other=0.4 + ((index % 7) * 0.01),
-                    source_file=(f"source_group_{index % 4}_" * 36) + str(index),
-                    source_label=(f"label_group_{index % 5}_" * 22) + str(index),
-                    artifact_dir=(
-                        "/tmp/golden/benchmark-vs-golden/"
-                        + ("cookbook_slug_" * 16)
-                        + f"/2026-03-01_10.00.00/single-offline-benchmark/book_{index % 3}"
-                        + f"/2026-03-01_10.{index % 60:02d}.00/"
-                        + ("codexfarm" if index % 2 else "vanilla")
-                    ),
-                    run_category="benchmark_eval",
-                    importer_name="pdfplumber",
-                    run_config={"scenario_key": (f"scenario_{index % 3}_" * 24) + str(index)},
-                )
-            )
-        dash_dir = tmp_path / "dash"
-        render_dashboard(dash_dir, DashboardData(benchmark_records=benchmark_records))
-        result = _run_previous_runs_pixel_overflow_harness(dash_dir / "index.html")
-        assert result["max_doc_overflow_px"] <= 2
-        assert result["max_section_overflow_px"] <= 2
-        assert result["max_doc_scroll_delta_px"] <= 2
-
     def test_previous_runs_table_has_horizontal_scroll_css(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
         css = (tmp_path / "dash" / "assets" / "style.css").read_text(encoding="utf-8")
@@ -2997,6 +3792,7 @@ class TestRenderer:
         assert ".quick-filters-advanced {" not in css
         assert ".quick-filters-advanced-body {" not in css
         assert ".quick-filters-actions {" in css
+        assert "justify-content: space-between;" in css
         assert ".quick-filters-presets-control {" not in css
         assert ".previous-runs-presets-toggle {" not in css
         assert ".previous-runs-presets-popup {" not in css
@@ -3019,6 +3815,12 @@ class TestRenderer:
         assert previous_runs_subsection_block is not None
         assert "min-width: 0;" in previous_runs_subsection_block.group(1)
         assert ".compare-control-panel {" in css
+        assert ".compare-control-global-actions {" in css
+        assert ".compare-control-controls-split {" in css
+        assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {" in css
+        assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {" in css
+        assert "#compare-control-panel-secondary {" in css
+        assert "transform: translateX(22px);" in css
         compare_control_results_block = re.search(
             r"\.compare-control-results \{([^}]*)\}",
             css,
@@ -3028,13 +3830,32 @@ class TestRenderer:
         compare_results_css = compare_control_results_block.group(1)
         assert "overflow-wrap: anywhere;" in compare_results_css
         assert "word-break: break-word;" in compare_results_css
+        assert ".compare-control-groups-table-wrap {" in css
+        assert ".compare-control-groups-table {" in css
+        assert ".compare-control-groups-table th {" in css
+        assert "height: 2.5rem;" in css
+        assert "line-height: 1.12;" in css
+        assert "vertical-align: top;" in css
+        assert ".compare-control-results-stack {" in css
+        assert ".compare-control-results-card {" in css
+        assert ".compare-control-results-card-primary {" in css
+        assert ".compare-control-results-card-secondary {" in css
+        assert ".compare-control-chart-grid {" in css
+        assert ".compare-control-chart-grid.layout-side-by-side {" in css
+        assert ".compare-control-chart-grid.layout-combined {" in css
+        assert ".compare-control-chart-card {" in css
+        assert ".compare-control-chart-card-secondary {" in css
+        assert ".compare-control-chart-card-combined {" in css
         assert ".compare-control-controls {" in css
         assert ".compare-control-results {" in css
         assert "#previous-runs-clear-all-filters {" in css
+        assert "margin-left: auto;" in css
         assert "#quick-filters-status {" in css
         assert ".previous-runs-presets-panel {" in css
         assert "#previous-runs-preset-select {" in css
         assert ".previous-runs-presets-actions {" in css
+        assert ".previous-runs-presets-controls {" in css
+        assert "grid-template-columns: auto minmax(180px, 280px);" in css
         assert ".table-scroll {" in css
         assert "min-height: calc(" in css
         assert "max-height: calc(" in css
@@ -3045,9 +3866,12 @@ class TestRenderer:
         assert "border-collapse: separate;" in css
         assert "border-spacing: 0;" in css
         assert "width: max-content;" in css
-        assert "min-width: 1600px;" in css
+        assert "min-width: clamp(880px, 100%, 1600px);" in css
         assert "#previous-runs-table th," in css
         assert "white-space: nowrap;" in css
+        assert "@media (max-width: 900px) {" in css
+        assert "#previous-runs-table td.num {" in css
+        assert "word-break: break-word;" in css
         th_block = re.search(r"#previous-runs-table th \{([^}]*)\}", css, re.DOTALL)
         assert th_block is not None
         assert "position: relative;" not in th_block.group(1)

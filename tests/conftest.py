@@ -28,6 +28,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_cli_limits.py": ("cli",),
     "test_cli_llm_flags.py": ("cli", "llm"),
     "test_cli_output_structure_fast.py": ("cli", "llm", "labelstudio"),
+    "test_cli_output_structure_epub_fast.py": ("cli", "staging", "ingestion"),
     "test_cli_output_structure_text_fast.py": ("cli", "staging", "ingestion"),
     "test_cli_output_structure_slow.py": ("cli", "staging", "ingestion"),
     "test_run_settings_adapters.py": ("cli",),
@@ -81,6 +82,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_paprika_importer.py": ("ingestion",),
     "test_paprika_merge.py": ("ingestion",),
     "test_pdf_importer.py": ("ingestion",),
+    "test_pdf_importer_ocr_slow.py": ("ingestion",),
     "test_pdf_job_merge.py": ("ingestion", "staging"),
     "test_perf_report.py": ("analytics",),
     "test_performance_features.py": ("ingestion",),
@@ -135,6 +137,7 @@ _SLOW_FILES = {
     "test_codex_farm_orchestrator_runner_transport.py",
     "test_labelstudio_benchmark_helpers_eval_payload.py",
     "test_labelstudio_benchmark_helpers_scheduler.py",
+    "test_pdf_importer_ocr_slow.py",
     "test_stats_dashboard_slow.py",
 }
 

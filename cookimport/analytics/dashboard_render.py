@@ -1993,19 +1993,19 @@ _HTML = """\
         <table id="per-label-table" class="dashboard-resizable-table"><thead>
           <tr class="per-label-header-primary">
             <th title="The label name being scored (for example RECIPE_TITLE)." rowspan="2">Label</th>
-            <th title="Gold span count for this label." rowspan="2">Gold</th>
-            <th title="Predicted span count for this label." rowspan="2">Pred</th>
-            <th title="Latest-run codexfarm precision for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th title="Latest-run codexfarm recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th class="per-label-comparison-header" data-per-label-comparison-scope="run" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus latest-run vanilla precision for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-comparison-header" data-per-label-comparison-scope="run" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus latest-run vanilla recall for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th data-metric-tooltip-key="gold_total" title="Gold span count for this label." rowspan="2">Gold</th>
+            <th data-metric-tooltip-key="pred_total" title="Predicted span count for this label." rowspan="2">Pred</th>
+            <th data-metric-tooltip-key="precision" title="Latest-run codexfarm precision for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th data-metric-tooltip-key="recall" title="Latest-run codexfarm recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="run" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus latest-run vanilla precision for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="run" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus latest-run vanilla recall for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
             <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm and vanilla columns." colspan="4"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling <span class="per-label-comparison-mode-value">Delta</span>:</span></th>
           </tr>
           <tr class="per-label-header-rolling">
-            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm precision minus rolling codexfarm precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm recall minus rolling codexfarm recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus rolling vanilla precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-comparison-header" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus rolling vanilla recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm precision minus rolling codexfarm precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm recall minus rolling codexfarm recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus rolling vanilla precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus rolling vanilla recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
           </tr>
         </thead><tbody></tbody></table>
       </section>
@@ -2125,36 +2125,34 @@ _HTML = """\
 	        </div>
     <section id="quick-filters-panel" class="quick-filters-panel">
 	      <h3>Quick Filters</h3>
-	      <p class="section-note">Fast toggles for benchmark focus.</p>
-      <div class="quick-filters-list">
-        <label for="quick-filter-official-only">
-          <input id="quick-filter-official-only" type="checkbox" checked>
-          Official benchmarks only (single-offline vanilla/codexfarm)
-        </label>
-        <label for="quick-filter-exclude-ai-tests">
-          <input id="quick-filter-exclude-ai-tests" type="checkbox">
-          Exclude AI test/smoke benchmark runs
-        </label>
-      </div>
       <div class="quick-filters-actions">
-        <section class="previous-runs-presets-panel">
-          <h4>View presets</h4>
-          <p class="section-note">Save/load column + filter views. <strong>Save current view</strong> captures what you currently have applied.</p>
-          <div class="previous-runs-presets-controls">
-            <label for="previous-runs-preset-select">Preset</label>
-            <select id="previous-runs-preset-select">
-              <option value="">(none)</option>
-            </select>
-          </div>
-          <div class="previous-runs-presets-actions">
-            <button id="previous-runs-preset-load" type="button">Load</button>
-            <button id="previous-runs-preset-save-current" type="button">Save current view</button>
-            <button id="previous-runs-preset-delete" type="button">Delete</button>
-          </div>
-          <p id="previous-runs-preset-status" class="section-note"></p>
-        </section>
+        <div class="quick-filters-list">
+          <label for="quick-filter-official-only">
+            <input id="quick-filter-official-only" type="checkbox" checked>
+            Official benchmarks only (single-offline vanilla/codexfarm)
+          </label>
+          <label for="quick-filter-exclude-ai-tests">
+            <input id="quick-filter-exclude-ai-tests" type="checkbox">
+            Exclude AI test/smoke benchmark runs
+          </label>
+        </div>
         <button id="previous-runs-clear-all-filters" type="button">Clear all filters</button>
       </div>
+      <section class="previous-runs-presets-panel">
+        <h4>View presets</h4>
+        <div class="previous-runs-presets-controls">
+          <label for="previous-runs-preset-select">Preset</label>
+          <select id="previous-runs-preset-select">
+            <option value="">(none)</option>
+          </select>
+        </div>
+        <div class="previous-runs-presets-actions">
+          <button id="previous-runs-preset-load" type="button">Load</button>
+          <button id="previous-runs-preset-save-current" type="button">Save current view</button>
+          <button id="previous-runs-preset-delete" type="button">Delete</button>
+        </div>
+        <p id="previous-runs-preset-status" class="section-note"></p>
+      </section>
 	      <p id="quick-filters-status" class="section-note"></p>
 	    </section>
 	    <div class="table-wrap table-scroll">
@@ -2197,41 +2195,109 @@ _HTML = """\
       </section>
       <section id="compare-control-analysis-section" class="previous-runs-subsection">
         <h3>Compare &amp; Control Analysis</h3>
-        <p class="section-note">Use visible rows to find likely drivers, compare one field, hold confounders constant, and push selected groups into table filters.</p>
-        <section id="compare-control-panel" class="compare-control-panel">
-          <h3>Compare &amp; Control</h3>
-          <div class="compare-control-controls">
-            <label for="compare-control-view-mode">View</label>
-            <select id="compare-control-view-mode">
-              <option value="discover">discover</option>
-              <option value="raw">raw</option>
-              <option value="controlled">controlled</option>
-            </select>
-            <label for="compare-control-outcome-field">Outcome</label>
-            <select id="compare-control-outcome-field"></select>
-            <label for="compare-control-compare-field">Compare by</label>
-            <select id="compare-control-compare-field"></select>
-            <label for="compare-control-split-field">Split by</label>
-            <select id="compare-control-split-field"></select>
-          </div>
-          <div class="compare-control-hold">
-            <span class="compare-control-hold-label">Hold constant</span>
-            <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
-          </div>
-          <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
-          <div class="compare-control-actions">
-            <button id="compare-control-filter-subset" type="button">Filter to subset</button>
-            <button id="compare-control-clear-selection" type="button">Clear groups</button>
-            <button id="compare-control-reset" type="button">Reset</button>
-          </div>
-          <p id="compare-control-status" class="section-note"></p>
-          <div id="compare-control-results" class="compare-control-results"></div>
-        </section>
+        <p class="section-note">Analyze benchmark history independently from the Previous Runs table/filters. Group subsets here stay local to Compare &amp; Control only.</p>
+        <div class="compare-control-global-actions">
+          <button id="compare-control-toggle-second-set" type="button">Expand set 2 from right</button>
+          <label for="compare-control-chart-layout">Chart layout</label>
+          <select id="compare-control-chart-layout">
+            <option value="stacked">stacked</option>
+            <option value="side_by_side">side by side</option>
+            <option value="combined">combined</option>
+          </select>
+          <label for="compare-control-combined-axis-mode">Combined Y axis</label>
+          <select id="compare-control-combined-axis-mode">
+            <option value="single">single y-axis</option>
+            <option value="dual">dual y-axis (left/right)</option>
+          </select>
+        </div>
+        <div id="compare-control-controls-split" class="compare-control-controls-split">
+          <section id="compare-control-panel" class="compare-control-panel compare-control-set-panel">
+            <h3>Set 1</h3>
+            <div class="compare-control-controls">
+              <label for="compare-control-view-mode">View</label>
+              <select id="compare-control-view-mode">
+                <option value="discover">discover</option>
+                <option value="raw">raw</option>
+                <option value="controlled">controlled</option>
+              </select>
+              <label for="compare-control-outcome-field">Outcome</label>
+              <select id="compare-control-outcome-field"></select>
+              <label for="compare-control-compare-field">Compare by</label>
+              <select id="compare-control-compare-field"></select>
+              <label for="compare-control-split-field">Split by</label>
+              <select id="compare-control-split-field"></select>
+            </div>
+            <div class="compare-control-hold">
+              <span class="compare-control-hold-label">Hold constant</span>
+              <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
+            </div>
+            <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
+            <div class="compare-control-actions">
+              <button id="compare-control-filter-subset" type="button">Apply local subset</button>
+              <button id="compare-control-clear-selection" type="button">Clear groups</button>
+              <button id="compare-control-reset" type="button">Reset set 1</button>
+            </div>
+          </section>
+          <section id="compare-control-panel-secondary" class="compare-control-panel compare-control-set-panel compare-control-set-panel-secondary" hidden>
+            <h3>Set 2</h3>
+            <div class="compare-control-controls">
+              <label for="compare-control-view-mode-secondary">View</label>
+              <select id="compare-control-view-mode-secondary">
+                <option value="discover">discover</option>
+                <option value="raw">raw</option>
+                <option value="controlled">controlled</option>
+              </select>
+              <label for="compare-control-outcome-field-secondary">Outcome</label>
+              <select id="compare-control-outcome-field-secondary"></select>
+              <label for="compare-control-compare-field-secondary">Compare by</label>
+              <select id="compare-control-compare-field-secondary"></select>
+              <label for="compare-control-split-field-secondary">Split by</label>
+              <select id="compare-control-split-field-secondary"></select>
+            </div>
+            <div class="compare-control-hold">
+              <span class="compare-control-hold-label">Hold constant</span>
+              <div id="compare-control-hold-fields-secondary" class="compare-control-hold-fields"></div>
+            </div>
+            <div id="compare-control-group-selection-secondary" class="compare-control-group-selection"></div>
+            <div class="compare-control-actions">
+              <button id="compare-control-filter-subset-secondary" type="button">Apply local subset</button>
+              <button id="compare-control-clear-selection-secondary" type="button">Clear groups</button>
+              <button id="compare-control-reset-secondary" type="button">Reset set 2</button>
+            </div>
+          </section>
+        </div>
+        <div id="compare-control-results-stack" class="compare-control-results-stack">
+          <section id="compare-control-results-card-primary" class="compare-control-results-card compare-control-results-card-primary">
+            <h4>Set 1 table</h4>
+            <p id="compare-control-status" class="section-note"></p>
+            <div id="compare-control-results" class="compare-control-results"></div>
+          </section>
+          <section id="compare-control-results-card-secondary" class="compare-control-results-card compare-control-results-card-secondary" hidden>
+            <h4>Set 2 table</h4>
+            <p id="compare-control-status-secondary" class="section-note"></p>
+            <div id="compare-control-results-secondary" class="compare-control-results"></div>
+          </section>
+        </div>
         <div class="trend-chart-wrap compare-control-trend-wrap">
-          <h4>Compare &amp; Control Score Trend</h4>
-          <p class="section-note">Second interactive trend chart for compare/control analysis context.</p>
-          <div id="compare-control-trend-chart" class="highcharts-host" aria-label="Compare and control score trend chart"></div>
-          <p id="compare-control-trend-fallback" class="empty-note" hidden></p>
+          <h4>Compare &amp; Control Dynamic Chart</h4>
+          <p class="section-note">Auto-built from Compare &amp; Control scope and settings only (numeric compare: scatter, categorical compare: bars).</p>
+          <div id="compare-control-chart-grid" class="compare-control-chart-grid layout-stacked">
+            <section id="compare-control-chart-card-primary" class="compare-control-chart-card compare-control-chart-card-primary">
+              <h5>Set 1 chart</h5>
+              <div id="compare-control-trend-chart" class="highcharts-host" aria-label="Compare and control score trend chart"></div>
+              <p id="compare-control-trend-fallback" class="empty-note" hidden></p>
+            </section>
+            <section id="compare-control-chart-card-secondary" class="compare-control-chart-card compare-control-chart-card-secondary" hidden>
+              <h5>Set 2 chart</h5>
+              <div id="compare-control-trend-chart-secondary" class="highcharts-host" aria-label="Compare and control score trend chart set 2"></div>
+              <p id="compare-control-trend-fallback-secondary" class="empty-note" hidden></p>
+            </section>
+            <section id="compare-control-chart-card-combined" class="compare-control-chart-card compare-control-chart-card-combined" hidden>
+              <h5>Combined chart</h5>
+              <div id="compare-control-trend-chart-combined" class="highcharts-host" aria-label="Combined compare and control score trend chart"></div>
+              <p id="compare-control-trend-fallback-combined" class="empty-note" hidden></p>
+            </section>
+          </div>
         </div>
       </section>
     </div>
@@ -2308,6 +2374,10 @@ header h1 {
   margin: 0;
   font-size: 1.7rem;
   letter-spacing: 0.015em;
+}
+main {
+  min-width: 0;
+  max-width: 100%;
 }
 #header-subtitle {
   margin: 0.25rem 0 0.45rem;
@@ -2439,6 +2509,39 @@ section h3 {
   font-size: 0.83rem;
 }
 .metric-help-list li { margin: 0.2rem 0; }
+.metric-hover-tooltip {
+  position: fixed;
+  z-index: 1200;
+  max-width: min(440px, calc(100vw - 1.4rem));
+  padding: 0.48rem 0.58rem;
+  border-radius: 8px;
+  border: 1px solid #2a3b4d;
+  background: #172430;
+  color: #f2f7fb;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 24px rgba(14, 22, 30, 0.35);
+  pointer-events: none;
+}
+.metric-hover-tooltip[hidden] {
+  display: none;
+}
+[data-metric-tooltip-key] {
+  transition:
+    color 150ms ease,
+    fill 150ms ease;
+}
+[data-metric-tooltip-key]:hover,
+th[data-metric-tooltip-key]:hover,
+td[data-metric-tooltip-key]:hover {
+  color: #1a5684;
+}
+svg [data-metric-tooltip-key]:hover {
+  fill: #1a5684 !important;
+}
+svg [data-metric-tooltip-key]:hover * {
+  fill: #1a5684 !important;
+}
 #previous-runs-clear-filters,
 #previous-runs-clear-all-filters,
 #previous-runs-column-reset {
@@ -2457,13 +2560,6 @@ section h3 {
 }
 #previous-runs-section {
   overflow-x: hidden;
-}
-.compare-control-panel {
-  margin: 0;
-  background: #fbfcf7;
-  border: 1px solid #dde5cf;
-  min-width: 0;
-  max-width: 100%;
 }
 .previous-runs-sections {
   display: grid;
@@ -2494,9 +2590,84 @@ section h3 {
 #compare-control-analysis-section > h3 {
   color: #4a6438;
 }
+.compare-control-global-actions {
+  display: grid;
+  grid-template-columns: auto auto minmax(150px, 180px) auto minmax(170px, 230px);
+  align-items: center;
+  gap: 0.35rem 0.48rem;
+  margin-bottom: 0.6rem;
+}
+.compare-control-global-actions label {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+#compare-control-toggle-second-set {
+  border: 1px solid #c7d9b8;
+  border-radius: 999px;
+  background: #eef7e7;
+  color: #2f4a1e;
+  cursor: pointer;
+  font-size: 0.77rem;
+  padding: 0.22rem 0.68rem;
+  white-space: nowrap;
+}
+#compare-control-toggle-second-set:hover {
+  border-color: #aac293;
+  background: #e7f3de;
+}
+#compare-control-chart-layout,
+#compare-control-combined-axis-mode {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 0.28rem 0.4rem;
+}
+.compare-control-controls-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.58rem;
+  align-items: stretch;
+}
+.compare-control-panel {
+  margin: 0;
+  background: #fbfcf7;
+  border: 1px solid #dde5cf;
+  min-width: 0;
+  max-width: 100%;
+}
+.compare-control-set-panel {
+  min-height: 380px;
+}
+#compare-control-panel-secondary {
+  background: #f7fbff;
+  border-color: #d6e4f2;
+  transform: translateX(22px);
+  opacity: 0;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+#compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+#compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {
+  min-height: 460px;
+}
+#compare-control-analysis-section.compare-control-dual-enabled #compare-control-panel-secondary {
+  transform: translateX(0);
+  opacity: 1;
+}
 .compare-control-panel h3 {
   margin: 0 0 0.5rem;
   color: #4a6438;
+}
+.compare-control-panel.compare-control-set-panel-secondary h3 {
+  color: #355471;
 }
 .compare-control-controls {
   display: grid;
@@ -2515,7 +2686,11 @@ section h3 {
 #compare-control-view-mode,
 #compare-control-outcome-field,
 #compare-control-compare-field,
-#compare-control-split-field {
+#compare-control-split-field,
+#compare-control-view-mode-secondary,
+#compare-control-outcome-field-secondary,
+#compare-control-compare-field-secondary,
+#compare-control-split-field-secondary {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--border);
@@ -2527,7 +2702,10 @@ section h3 {
 }
 #compare-control-filter-subset,
 #compare-control-clear-selection,
-#compare-control-reset {
+#compare-control-reset,
+#compare-control-filter-subset-secondary,
+#compare-control-clear-selection-secondary,
+#compare-control-reset-secondary {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: #f6f9fc;
@@ -2538,16 +2716,23 @@ section h3 {
 }
 #compare-control-filter-subset:hover,
 #compare-control-clear-selection:hover,
-#compare-control-reset:hover {
+#compare-control-reset:hover,
+#compare-control-filter-subset-secondary:hover,
+#compare-control-clear-selection-secondary:hover,
+#compare-control-reset-secondary:hover {
   border-color: #c7d0d9;
 }
 #compare-control-filter-subset:disabled,
 #compare-control-clear-selection:disabled,
-#compare-control-reset:disabled {
+#compare-control-reset:disabled,
+#compare-control-filter-subset-secondary:disabled,
+#compare-control-clear-selection-secondary:disabled,
+#compare-control-reset-secondary:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
-#compare-control-status.error {
+#compare-control-status.error,
+#compare-control-status-secondary.error {
   color: var(--accent3);
 }
 .compare-control-hold {
@@ -2592,6 +2777,29 @@ section h3 {
   gap: 0.4rem;
   margin-top: 0.52rem;
 }
+.compare-control-results-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.52rem;
+  margin-top: 0.58rem;
+}
+.compare-control-results-card {
+  border: 1px solid #dde7d2;
+  border-radius: 9px;
+  padding: 0.5rem 0.56rem;
+}
+.compare-control-results-card > h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.86rem;
+  color: #4a6438;
+}
+.compare-control-results-card-primary {
+  background: linear-gradient(180deg, #fcfef9 0%, #f8fdf2 100%);
+}
+.compare-control-results-card-secondary {
+  background: linear-gradient(180deg, #fbfdff 0%, #f3f9ff 100%);
+  border-color: #d5e3f0;
+}
 .compare-control-results {
   border: 1px dashed #ccd9c1;
   border-radius: 8px;
@@ -2616,6 +2824,44 @@ section h3 {
 .compare-control-results li {
   margin: 0.15rem 0;
   font-size: 0.79rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.compare-control-groups-table-wrap {
+  margin-top: 0.24rem;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.compare-control-groups-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.compare-control-groups-table th,
+.compare-control-groups-table td {
+  border-bottom: 1px solid #e5ecda;
+  padding: 0.22rem 0.36rem;
+  font-size: 0.77rem;
+  white-space: nowrap;
+}
+.compare-control-groups-table th {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  background: #f8fbf2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.12;
+  height: 2.5rem;
+  vertical-align: top;
+}
+.compare-control-groups-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.compare-control-groups-table td:first-child {
+  min-width: 14rem;
+  white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -2651,6 +2897,42 @@ section h3 {
 .compare-control-warning {
   color: #8a5b07;
   font-size: 0.79rem;
+}
+.compare-control-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.58rem;
+}
+.compare-control-chart-grid.layout-side-by-side {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.compare-control-chart-grid.layout-combined {
+  grid-template-columns: minmax(0, 1fr);
+}
+.compare-control-chart-card {
+  border: 1px solid #d6e3ce;
+  border-radius: 9px;
+  background: #f9fcf6;
+  padding: 0.42rem 0.48rem;
+}
+.compare-control-chart-card > h5 {
+  margin: 0 0 0.24rem;
+  font-size: 0.82rem;
+  color: #476137;
+}
+.compare-control-chart-card-secondary {
+  border-color: #d2e1ee;
+  background: #f5faff;
+}
+.compare-control-chart-card-secondary > h5 {
+  color: #355471;
+}
+.compare-control-chart-card-combined {
+  border-color: #d2ddd2;
+  background: #f9fbf9;
+}
+.compare-control-chart-card-combined > h5 {
+  color: #42513f;
 }
 
 .chart-container { width: 100%; overflow-x: auto; min-height: 120px; }
@@ -2737,18 +3019,20 @@ section h3 {
   color: #4a6438;
 }
 .quick-filters-panel {
-  margin: 0.52rem 0 0.7rem;
-  background: #f8fbf6;
-  border: 1px solid #d7e3cf;
+  margin: 0.5rem 0 0.62rem;
+  background: #f9fcf8;
+  border: 1px solid #d6e2ce;
 }
 .quick-filters-panel h3 {
-  margin-top: 0;
+  margin: 0 0 0.24rem;
   color: #435c3b;
 }
 .quick-filters-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.52rem 1.1rem;
+  gap: 0.32rem 0.9rem;
+  flex: 1 1 420px;
+  min-width: min(420px, 100%);
 }
 .quick-filters-list label {
   display: inline-flex;
@@ -2766,16 +3050,20 @@ section h3 {
 .quick-filters-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.42rem;
-  align-items: flex-start;
-  margin-top: 0.45rem;
+  gap: 0.36rem 0.7rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.12rem;
 }
 #previous-runs-clear-all-filters {
   font-size: 0.78rem;
-  align-self: flex-start;
+  align-self: center;
+  margin-left: auto;
+  white-space: nowrap;
 }
 #quick-filters-status {
-  margin: 0.52rem 0 0.05rem;
+  margin: 0.34rem 0 0;
+  font-size: 0.74rem;
 }
 .highcharts-host {
   width: 100%;
@@ -2849,44 +3137,46 @@ section h3 {
   font-size: 0.72rem;
 }
 .previous-runs-presets-panel {
-  margin: 0;
-  padding: 0.55rem 0.6rem;
-  border: 1px solid #c7d9bf;
-  border-radius: 8px;
-  background: #fbfef9;
-  box-shadow: 0 10px 24px rgba(21, 34, 48, 0.08);
-  width: min(420px, calc(100vw - 2.2rem));
+  margin: 0.4rem 0 0;
+  padding: 0.44rem 0.55rem;
+  border: 1px solid #cfdfc7;
+  border-radius: 7px;
+  background: #fcfefb;
+  box-shadow: none;
+  width: min(560px, 100%);
   max-width: 100%;
-  flex: 0 1 420px;
+  flex: 0 1 auto;
 }
 .previous-runs-presets-panel h4 {
-  margin: 0 0 0.2rem;
-  font-size: 0.79rem;
-  color: #1a466f;
+  margin: 0 0 0.24rem;
+  font-size: 0.76rem;
+  color: #245273;
 }
 .previous-runs-presets-controls {
   display: grid;
-  gap: 0.22rem;
+  grid-template-columns: auto minmax(180px, 280px);
+  align-items: center;
+  gap: 0.2rem 0.46rem;
 }
 .previous-runs-presets-controls label {
   font-size: 0.72rem;
   color: var(--muted);
 }
 #previous-runs-preset-select {
-  width: 100%;
-  min-height: 1.9rem;
+  width: min(280px, 100%);
+  min-height: 1.72rem;
 }
 .previous-runs-presets-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.34rem;
-  margin-top: 0.36rem;
+  gap: 0.3rem;
+  margin-top: 0.24rem;
 }
 .previous-runs-presets-actions button {
   font-size: 0.74rem;
 }
 #previous-runs-preset-status {
-  margin: 0.38rem 0 0;
+  margin: 0.24rem 0 0;
   font-size: 0.72rem;
 }
 #previous-runs-preset-status.error {
@@ -2977,7 +3267,7 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   border-collapse: separate;
   border-spacing: 0;
   width: max-content;
-  min-width: 1600px;
+  min-width: clamp(880px, 100%, 1600px);
   max-width: none;
 }
 #previous-runs-table thead th {
@@ -3027,11 +3317,25 @@ th, td { text-align: left; padding: 0.37rem 0.55rem; border-bottom: 1px solid va
   align-items: center;
   gap: 0.34rem;
 }
-.previous-runs-column-filter-summary-item span {
+.previous-runs-column-filter-summary-edit {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  line-height: inherit;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+.previous-runs-column-filter-summary-edit:hover {
+  text-decoration: underline;
 }
 .previous-runs-column-filter-summary-remove {
   border: 0;
@@ -3758,6 +4062,13 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .table-collapse-global {
     margin-left: 0;
   }
+  #previous-runs-table {
+    min-width: 1100px;
+  }
+  .highcharts-host {
+    height: 680px;
+    min-height: 620px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -3823,21 +4134,89 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   .previous-runs-columns-popup {
     width: min(280px, calc(100vw - 1.3rem));
   }
+  .compare-control-global-actions {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  #compare-control-chart-layout,
+  #compare-control-combined-axis-mode {
+    width: 100%;
+  }
+  .compare-control-controls-split,
+  #compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {
+    min-height: 0;
+  }
   .compare-control-controls {
     grid-template-columns: 1fr;
   }
   #compare-control-view-mode,
   #compare-control-outcome-field,
   #compare-control-compare-field,
-  #compare-control-split-field {
+  #compare-control-split-field,
+  #compare-control-view-mode-secondary,
+  #compare-control-outcome-field-secondary,
+  #compare-control-compare-field-secondary,
+  #compare-control-split-field-secondary {
     width: 100%;
   }
   .compare-control-hold-fields {
     grid-template-columns: 1fr;
   }
+  .compare-control-chart-grid.layout-side-by-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .quick-filters-list {
     flex-direction: column;
     align-items: flex-start;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+  .quick-filters-actions {
+    align-items: flex-start;
+  }
+  #previous-runs-clear-all-filters {
+    margin-left: 0;
+  }
+  .previous-runs-presets-controls {
+    grid-template-columns: 1fr;
+  }
+  #previous-runs-preset-select {
+    width: 100%;
+    min-width: 0;
+  }
+  #previous-runs-table {
+    min-width: 100%;
+  }
+  #previous-runs-table th,
+  #previous-runs-table td {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    vertical-align: top;
+  }
+  #previous-runs-table td.num {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+  .highcharts-host {
+    height: 560px;
+    min-height: 500px;
+  }
+  .per-label-controls {
+    flex-wrap: wrap;
+  }
+  .per-label-run-select-wrap {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .per-label-run-select-wrap select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 }
 
@@ -3847,6 +4226,15 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   }
   .metric-bar-row {
     grid-template-columns: 3.2rem minmax(90px, 1fr) 3.8rem;
+  }
+  .highcharts-host {
+    height: 460px;
+    min-height: 420px;
+  }
+  #per-label-table th:first-child,
+  #per-label-table td:first-child {
+    width: 16ch;
+    min-width: 16ch;
   }
 }
 """
@@ -3884,10 +4272,23 @@ _JS = """\
   let previousRunsSortField = "run_timestamp";
   let previousRunsSortDirection = "desc";
   let benchmarkTrendChartsByHostId = Object.create(null);
+  let benchmarkTrendResizeRafId = null;
+  let dashboardResizeHandlersBound = false;
+  let lastKnownViewportWidth = 0;
+  let metricTooltipDescriptions = Object.create(null);
+  let metricTooltipAliasesByText = Object.create(null);
+  let metricTooltipAliasEntries = [];
+  let metricTooltipNode = null;
+  let metricTooltipTimerId = null;
+  let metricTooltipPendingTarget = null;
+  let metricTooltipActiveTarget = null;
+  let metricTooltipMouseX = 0;
+  let metricTooltipMouseY = 0;
   function compareControlDefaultState() {
     return {
       outcome_field: "strict_accuracy",
       compare_field: "",
+      chart_type: "scatter",
       hold_constant_fields: [],
       split_field: "",
       view_mode: "discover",
@@ -3903,6 +4304,14 @@ _JS = """\
   let compareControlState = compareControlDefaultState();
   let compareControlStatusMessage = "";
   let compareControlStatusIsError = false;
+  let compareControlChartActivated = false;
+  let compareControlSecondaryState = compareControlDefaultState();
+  let compareControlSecondaryStatusMessage = "";
+  let compareControlSecondaryStatusIsError = false;
+  let compareControlSecondaryChartActivated = false;
+  let compareControlSecondSetEnabled = false;
+  let compareControlChartLayout = "stacked";
+  let compareControlCombinedAxisMode = "single";
   let perLabelRollingWindowSize = 10;
   let perLabelComparisonMode = "delta";
   let perLabelRunGroupKey = "__default_most_recent__";
@@ -4005,6 +4414,22 @@ _JS = """\
   const DASHBOARD_TABLE_COLUMN_MAX_WIDTH = 1200;
   const PREVIOUS_RUNS_PRESET_NAME_MAX = 80;
   const PREVIOUS_RUNS_PRESET_MAX_COUNT = 40;
+  const METRIC_TOOLTIP_HOVER_DELAY_MS = 1000;
+  const METRIC_TOOLTIP_OFFSET_X = 14;
+  const METRIC_TOOLTIP_OFFSET_Y = 18;
+  const METRIC_TOOLTIP_AUTO_TARGET_SELECTOR = [
+    "th",
+    "td:first-child",
+    "label",
+    "summary",
+    "code",
+    ".highcharts-axis-labels text",
+    ".highcharts-axis-labels tspan",
+    ".highcharts-legend-item text",
+    ".highcharts-legend-item tspan",
+    ".highcharts-axis-title text",
+    ".highcharts-axis-title tspan",
+  ].join(", ");
   const PREVIOUS_RUNS_DEFAULT_COLUMNS = [
     "run_timestamp",
     "strict_accuracy",
@@ -4153,6 +4578,22 @@ _JS = """\
   ];
   const COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy";
   const COMPARE_CONTROL_VIEW_MODES = new Set(["discover", "raw", "controlled"]);
+  const COMPARE_CONTROL_CHART_TYPES = new Set(["scatter", "bar"]);
+  const COMPARE_CONTROL_DEFAULT_CHART_TYPE = "scatter";
+  const COMPARE_CONTROL_CHART_LAYOUTS = new Set(["stacked", "side_by_side", "combined"]);
+  const COMPARE_CONTROL_DEFAULT_CHART_LAYOUT = "stacked";
+  const COMPARE_CONTROL_COMBINED_AXIS_MODES = new Set(["single", "dual"]);
+  const COMPARE_CONTROL_DEFAULT_COMBINED_AXIS_MODE = "single";
+  const COMPARE_CONTROL_BAR_POINT_COLORS = [
+    "rgba(143, 166, 186, 0.82)",
+    "rgba(181, 194, 171, 0.82)",
+    "rgba(199, 183, 203, 0.82)",
+    "rgba(222, 198, 166, 0.82)",
+    "rgba(168, 193, 198, 0.82)",
+    "rgba(210, 186, 186, 0.82)",
+    "rgba(190, 201, 215, 0.82)",
+    "rgba(204, 201, 173, 0.82)",
+  ];
   const COMPARE_CONTROL_OUTCOME_PREFERRED = [
     "strict_accuracy",
     "macro_f1_excluding_other",
@@ -4391,6 +4832,25 @@ _JS = """\
     return COMPARE_CONTROL_VIEW_MODES.has(key) ? key : "discover";
   }
 
+  function normalizeCompareControlChartType(value) {
+    const key = String(value || COMPARE_CONTROL_DEFAULT_CHART_TYPE).trim().toLowerCase();
+    return COMPARE_CONTROL_CHART_TYPES.has(key) ? key : COMPARE_CONTROL_DEFAULT_CHART_TYPE;
+  }
+
+  function normalizeCompareControlChartLayout(value) {
+    const key = String(value || COMPARE_CONTROL_DEFAULT_CHART_LAYOUT).trim().toLowerCase();
+    return COMPARE_CONTROL_CHART_LAYOUTS.has(key)
+      ? key
+      : COMPARE_CONTROL_DEFAULT_CHART_LAYOUT;
+  }
+
+  function normalizeCompareControlCombinedAxisMode(value) {
+    const key = String(value || COMPARE_CONTROL_DEFAULT_COMBINED_AXIS_MODE).trim().toLowerCase();
+    return COMPARE_CONTROL_COMBINED_AXIS_MODES.has(key)
+      ? key
+      : COMPARE_CONTROL_DEFAULT_COMBINED_AXIS_MODE;
+  }
+
   function normalizeCompareControlDiscoveryPreferences(rawPrefs) {
     const source = rawPrefs && typeof rawPrefs === "object" && !Array.isArray(rawPrefs)
       ? rawPrefs
@@ -4427,6 +4887,7 @@ _JS = """\
     return {
       outcome_field: String(source.outcome_field || base.outcome_field).trim() || base.outcome_field,
       compare_field: String(source.compare_field || "").trim(),
+      chart_type: normalizeCompareControlChartType(source.chart_type),
       hold_constant_fields: uniqueStringList(source.hold_constant_fields),
       split_field: String(source.split_field || "").trim(),
       view_mode: normalizeCompareControlViewMode(source.view_mode),
@@ -4437,10 +4898,206 @@ _JS = """\
     };
   }
 
-  function resetCompareControlState() {
-    compareControlState = compareControlDefaultState();
-    compareControlStatusMessage = "Compare & Control reset to default state.";
-    compareControlStatusIsError = false;
+  function compareControlStateForSet(setKey) {
+    return setKey === "secondary" ? compareControlSecondaryState : compareControlState;
+  }
+
+  function setCompareControlStateForSet(setKey, nextState) {
+    const normalized = normalizeCompareControlState(nextState);
+    if (setKey === "secondary") {
+      compareControlSecondaryState = normalized;
+      return compareControlSecondaryState;
+    }
+    compareControlState = normalized;
+    return compareControlState;
+  }
+
+  function compareControlStatusForSet(setKey) {
+    if (setKey === "secondary") {
+      return {
+        message: compareControlSecondaryStatusMessage,
+        is_error: compareControlSecondaryStatusIsError,
+      };
+    }
+    return {
+      message: compareControlStatusMessage,
+      is_error: compareControlStatusIsError,
+    };
+  }
+
+  function setCompareControlStatusForSet(setKey, message, isError) {
+    const text = String(message || "");
+    const errorFlag = Boolean(isError);
+    if (setKey === "secondary") {
+      compareControlSecondaryStatusMessage = text;
+      compareControlSecondaryStatusIsError = errorFlag;
+      return;
+    }
+    compareControlStatusMessage = text;
+    compareControlStatusIsError = errorFlag;
+  }
+
+  function clearCompareControlStatusForSet(setKey) {
+    setCompareControlStatusForSet(setKey, "", false);
+  }
+
+  function activateCompareControlChartForSet(setKey) {
+    if (setKey === "secondary") {
+      compareControlSecondaryChartActivated = true;
+      return;
+    }
+    compareControlChartActivated = true;
+  }
+
+  function deactivateCompareControlChartForSet(setKey) {
+    if (setKey === "secondary") {
+      compareControlSecondaryChartActivated = false;
+      return;
+    }
+    compareControlChartActivated = false;
+  }
+
+  function compareControlChartActivatedForSet(setKey) {
+    return setKey === "secondary"
+      ? Boolean(compareControlSecondaryChartActivated)
+      : Boolean(compareControlChartActivated);
+  }
+
+  function activateCompareControlChart() {
+    activateCompareControlChartForSet("primary");
+  }
+
+  function deactivateCompareControlChart() {
+    deactivateCompareControlChartForSet("primary");
+  }
+
+  function shouldAutoActivateCompareControlChart(state, compareInfo) {
+    const activeState = state && typeof state === "object"
+      ? state
+      : compareControlDefaultState();
+    if (!activeState.compare_field) return false;
+    if (activeState.view_mode === "discover") return false;
+    if (!compareInfo || typeof compareInfo !== "object") return false;
+    return true;
+  }
+
+  function resetCompareControlState(setKey) {
+    const key = setKey === "secondary" ? "secondary" : "primary";
+    setCompareControlStateForSet(key, compareControlDefaultState());
+    deactivateCompareControlChartForSet(key);
+    setCompareControlStatusForSet(
+      key,
+      key === "secondary"
+        ? "Set 2 reset to default state."
+        : "Compare & Control reset to default state.",
+      false
+    );
+  }
+
+  function setCompareControlSecondSetEnabled(enabled) {
+    compareControlSecondSetEnabled = Boolean(enabled);
+    if (!compareControlSecondSetEnabled) {
+      compareControlSecondaryState = compareControlDefaultState();
+      deactivateCompareControlChartForSet("secondary");
+      clearCompareControlStatusForSet("secondary");
+      if (compareControlChartLayout !== "stacked") {
+        compareControlChartLayout = "stacked";
+      }
+    }
+  }
+
+  function compareControlChartLayoutAllowsDualSets(layout) {
+    return normalizeCompareControlChartLayout(layout) !== "combined";
+  }
+
+  function syncCompareControlLayoutChrome() {
+    const section = document.getElementById("compare-control-analysis-section");
+    const secondaryPanel = document.getElementById("compare-control-panel-secondary");
+    const secondaryResults = document.getElementById("compare-control-results-card-secondary");
+    const chartGrid = document.getElementById("compare-control-chart-grid");
+    const chartLayoutSelect = document.getElementById("compare-control-chart-layout");
+    const axisModeSelect = document.getElementById("compare-control-combined-axis-mode");
+    const toggleBtn = document.getElementById("compare-control-toggle-second-set");
+    const secondaryChartCard = document.getElementById("compare-control-chart-card-secondary");
+    const combinedChartCard = document.getElementById("compare-control-chart-card-combined");
+
+    const secondEnabled = Boolean(compareControlSecondSetEnabled);
+    const layout = normalizeCompareControlChartLayout(compareControlChartLayout);
+    compareControlChartLayout = layout;
+    compareControlCombinedAxisMode = normalizeCompareControlCombinedAxisMode(
+      compareControlCombinedAxisMode
+    );
+
+    if (section) {
+      section.classList.toggle("compare-control-dual-enabled", secondEnabled);
+    }
+    if (secondaryPanel) {
+      secondaryPanel.hidden = !secondEnabled;
+    }
+    if (secondaryResults) {
+      secondaryResults.hidden = !secondEnabled;
+    }
+
+    if (toggleBtn) {
+      toggleBtn.textContent = secondEnabled
+        ? "Collapse set 2"
+        : "Expand set 2 from right";
+      toggleBtn.setAttribute(
+        "aria-label",
+        secondEnabled
+          ? "Collapse compare control set 2"
+          : "Expand compare control set 2 from right"
+      );
+    }
+
+    if (chartLayoutSelect) {
+      chartLayoutSelect.value = secondEnabled ? layout : "stacked";
+      Array.from(chartLayoutSelect.options).forEach(option => {
+        const value = String(option.value || "").trim();
+        if (!value || value === "stacked") {
+          option.disabled = false;
+          return;
+        }
+        option.disabled = !secondEnabled;
+      });
+      if (!secondEnabled) {
+        chartLayoutSelect.disabled = true;
+      } else {
+        chartLayoutSelect.disabled = false;
+      }
+    }
+    if (axisModeSelect) {
+      axisModeSelect.value = compareControlCombinedAxisMode;
+      const showAxisMode = secondEnabled && layout === "combined";
+      axisModeSelect.disabled = !showAxisMode;
+      axisModeSelect.hidden = !showAxisMode;
+      const axisLabel = document.querySelector(
+        'label[for="compare-control-combined-axis-mode"]'
+      );
+      if (axisLabel) {
+        axisLabel.hidden = !showAxisMode;
+      }
+    }
+
+    if (chartGrid) {
+      chartGrid.classList.remove("layout-stacked", "layout-side-by-side", "layout-combined");
+      const effectiveLayout = secondEnabled ? layout : "stacked";
+      if (effectiveLayout === "side_by_side") {
+        chartGrid.classList.add("layout-side-by-side");
+      } else if (effectiveLayout === "combined") {
+        chartGrid.classList.add("layout-combined");
+      } else {
+        chartGrid.classList.add("layout-stacked");
+      }
+    }
+
+    if (secondaryChartCard) {
+      const showSecondaryChart = secondEnabled && compareControlChartLayoutAllowsDualSets(layout);
+      secondaryChartCard.hidden = !showSecondaryChart;
+    }
+    if (combinedChartCard) {
+      combinedChartCard.hidden = !(secondEnabled && layout === "combined");
+    }
   }
 
   function sanitizePreviousRunsPresetName(rawName) {
@@ -4505,7 +5162,6 @@ _JS = """\
         sort.direction = sortDirection;
       }
     }
-    const compareControl = normalizeCompareControlState(rawPreset.compare_control);
     const columnFilterGlobalMode = Object.prototype.hasOwnProperty.call(rawPreset, "column_filter_global_mode")
       ? normalizePreviousRunsColumnFilterGlobalMode(rawPreset.column_filter_global_mode)
       : "and";
@@ -4517,7 +5173,6 @@ _JS = """\
       quick_filters: quickFilters,
       column_widths: sanitizeColumnWidthsMap(rawPreset.column_widths),
       sort,
-      compare_control: compareControl,
     };
   }
 
@@ -4654,10 +5309,36 @@ _JS = """\
     }
 
     if (Object.prototype.hasOwnProperty.call(previousRuns, "compare_control")) {
-      compareControlState = normalizeCompareControlState(previousRuns.compare_control);
+      const rawCompareControl = (
+        previousRuns.compare_control &&
+        typeof previousRuns.compare_control === "object" &&
+        !Array.isArray(previousRuns.compare_control)
+      )
+        ? previousRuns.compare_control
+        : Object.create(null);
+      compareControlState = normalizeCompareControlState(rawCompareControl);
+      compareControlSecondaryState = normalizeCompareControlState(rawCompareControl.second_set);
+      compareControlSecondSetEnabled = Boolean(rawCompareControl.second_set_enabled);
+      compareControlChartLayout = normalizeCompareControlChartLayout(
+        rawCompareControl.chart_layout
+      );
+      compareControlCombinedAxisMode = normalizeCompareControlCombinedAxisMode(
+        rawCompareControl.combined_axis_mode
+      );
     } else {
       compareControlState = normalizeCompareControlState(compareControlState);
+      compareControlSecondaryState = normalizeCompareControlState(compareControlSecondaryState);
+      compareControlSecondSetEnabled = false;
+      compareControlChartLayout = COMPARE_CONTROL_DEFAULT_CHART_LAYOUT;
+      compareControlCombinedAxisMode = COMPARE_CONTROL_DEFAULT_COMBINED_AXIS_MODE;
     }
+    if (!compareControlSecondSetEnabled) {
+      compareControlChartLayout = COMPARE_CONTROL_DEFAULT_CHART_LAYOUT;
+      compareControlSecondaryState = normalizeCompareControlState(compareControlDefaultState());
+    }
+    // Keep charts blank on load/restore until the user actively works in Compare & Control.
+    deactivateCompareControlChartForSet("primary");
+    deactivateCompareControlChartForSet("secondary");
     const selectedPreset = sanitizePreviousRunsPresetName(previousRuns.selected_preset);
     previousRunsSelectedPreset = Object.prototype.hasOwnProperty.call(previousRunsViewPresets, selectedPreset)
       ? selectedPreset
@@ -4808,7 +5489,15 @@ _JS = """\
           field: String(previousRunsSortField || "run_timestamp"),
           direction: previousRunsSortDirection === "asc" ? "asc" : "desc",
         },
-        compare_control: normalizeCompareControlState(compareControlState),
+        compare_control: {
+          ...normalizeCompareControlState(compareControlState),
+          second_set_enabled: Boolean(compareControlSecondSetEnabled),
+          second_set: normalizeCompareControlState(compareControlSecondaryState),
+          chart_layout: normalizeCompareControlChartLayout(compareControlChartLayout),
+          combined_axis_mode: normalizeCompareControlCombinedAxisMode(
+            compareControlCombinedAxisMode
+          ),
+        },
         selected_preset: selectedPresetName,
       },
       previous_runs_presets: previousRunsPresets,
@@ -4892,9 +5581,11 @@ _JS = """\
     loadDashboardUiState();
     loadDashboardUiStateFromProgramStore()
       .then(() => {
+        setupMetricHoverTooltips();
         renderHeader();
         setupPreviousRunsFilters();
         renderAll();
+        setupDashboardResizeHandlers();
         startDashboardUiProgramSyncLoop();
       });
   }
@@ -4918,6 +5609,349 @@ _JS = """\
           },
         },
       },
+    });
+  }
+
+  function normalizeMetricTooltipKey(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function compressMetricTooltipText(text) {
+    return String(text || "")
+      .replace(/\\s+/g, " ")
+      .trim();
+  }
+
+  function escapeRegexPattern(text) {
+    return String(text || "").replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
+  }
+
+  function registerMetricTooltipDescription(map, key, text) {
+    const normalizedKey = normalizeMetricTooltipKey(key);
+    const normalizedText = compressMetricTooltipText(text);
+    if (!normalizedKey || !normalizedText) return;
+    map[normalizedKey] = normalizedText;
+  }
+
+  function normalizeMetricTooltipLookupText(text) {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[_.\\/]+/g, " ")
+      .replace(/[^a-z0-9+%\\s-]+/g, " ")
+      .replace(/\\s+/g, " ")
+      .trim();
+  }
+
+  function registerMetricTooltipAlias(aliasMap, alias, key) {
+    const normalizedAlias = normalizeMetricTooltipLookupText(alias);
+    const normalizedKey = normalizeMetricTooltipKey(key);
+    if (!normalizedAlias || !normalizedKey) return;
+    if (Object.prototype.hasOwnProperty.call(aliasMap, normalizedAlias)) return;
+    aliasMap[normalizedAlias] = normalizedKey;
+  }
+
+  function buildMetricTooltipDescriptions() {
+    const map = Object.create(null);
+    Object.keys(PREVIOUS_RUNS_COLUMN_META).forEach(fieldName => {
+      const meta = PREVIOUS_RUNS_COLUMN_META[fieldName];
+      if (!meta) return;
+      registerMetricTooltipDescription(map, fieldName, meta.title || "");
+      registerMetricTooltipDescription(map, meta.label || "", meta.title || "");
+    });
+
+    document
+      .querySelectorAll("#previous-runs-section .metric-help-list li")
+      .forEach(item => {
+        if (!(item instanceof HTMLElement)) return;
+        const code = item.querySelector("code");
+        if (!(code instanceof HTMLElement)) return;
+        const key = compressMetricTooltipText(code.textContent || "");
+        if (!key) return;
+        const fullText = compressMetricTooltipText(item.textContent || "");
+        const keyPrefix = new RegExp("^" + escapeRegexPattern(key) + "\\\\s*:\\\\s*", "i");
+        const description = fullText.replace(keyPrefix, "");
+        registerMetricTooltipDescription(map, key, description);
+      });
+
+    if (!map.gold && map.gold_total) map.gold = map.gold_total;
+    if (!map.matched && map.gold_matched) map.matched = map.gold_matched;
+    if (!map.pred && map.pred_total) map.pred = map.pred_total;
+    if (!map["token use"] && map.all_token_use) map["token use"] = map.all_token_use;
+    if (!map.rows && map.task_count) map.rows = map.task_count;
+    if (!map.model && map.ai_model) map.model = map.ai_model;
+    if (!map["thinking effort"] && map.ai_effort) map["thinking effort"] = map.ai_effort;
+    return map;
+  }
+
+  function buildMetricTooltipAliasCatalog(descriptions) {
+    const aliases = Object.create(null);
+    Object.keys(descriptions || {}).forEach(rawKey => {
+      const key = normalizeMetricTooltipKey(rawKey);
+      if (!key) return;
+      registerMetricTooltipAlias(aliases, key, key);
+      registerMetricTooltipAlias(aliases, key.replace(/_/g, " "), key);
+      registerMetricTooltipAlias(aliases, key.replace(/\\./g, " "), key);
+      registerMetricTooltipAlias(aliases, key.replace(/[_.]+/g, " "), key);
+      if (key.startsWith("run_config.")) {
+        registerMetricTooltipAlias(aliases, key.slice("run_config.".length), key);
+      }
+    });
+    Object.keys(PREVIOUS_RUNS_COLUMN_META).forEach(fieldName => {
+      const meta = PREVIOUS_RUNS_COLUMN_META[fieldName];
+      const key = normalizeMetricTooltipKey(fieldName);
+      if (!meta || !key) return;
+      registerMetricTooltipAlias(aliases, fieldName, key);
+      registerMetricTooltipAlias(aliases, meta.label || "", key);
+      registerMetricTooltipAlias(aliases, String(meta.label || "").replace(/[()]/g, " "), key);
+    });
+    [
+      ["gold", "gold_total"],
+      ["pred", "pred_total"],
+      ["matched", "gold_matched"],
+      ["quality metric", "strict_accuracy"],
+      ["run precision", "precision"],
+      ["run recall", "recall"],
+      ["delta precision", "precision"],
+      ["delta recall", "recall"],
+      ["rows", "task_count"],
+      ["model", "ai_model"],
+      ["thinking effort", "ai_effort"],
+    ].forEach(([alias, key]) => registerMetricTooltipAlias(aliases, alias, key));
+    return aliases;
+  }
+
+  function metricTooltipAliasEntryList(aliasMap) {
+    return Object.keys(aliasMap)
+      .map(alias => ({
+        alias,
+        key: aliasMap[alias],
+      }))
+      .sort((left, right) => right.alias.length - left.alias.length);
+  }
+
+  function metricTooltipResolveKeyFromText(text) {
+    const normalizedText = normalizeMetricTooltipLookupText(text);
+    if (!normalizedText) return "";
+    if (Object.prototype.hasOwnProperty.call(metricTooltipAliasesByText, normalizedText)) {
+      return metricTooltipAliasesByText[normalizedText];
+    }
+    const padded = " " + normalizedText + " ";
+    for (let idx = 0; idx < metricTooltipAliasEntries.length; idx += 1) {
+      const entry = metricTooltipAliasEntries[idx];
+      if (!entry || !entry.alias) continue;
+      if (padded.includes(" " + entry.alias + " ")) {
+        return entry.key;
+      }
+    }
+    if (padded.includes(" precision ")) return "precision";
+    if (padded.includes(" recall ")) return "recall";
+    if (padded.includes(" practical f1 ")) return "practical_f1";
+    if (padded.includes(" f1 ")) return "f1";
+    if (padded.includes(" strict accuracy ")) return "strict_accuracy";
+    if (padded.includes(" macro f1 excluding other ")) return "macro_f1_excluding_other";
+    return "";
+  }
+
+  function metricTooltipTargetDataKey(target) {
+    if (!(target instanceof Element)) return "";
+    const dataset = target.dataset || {};
+    return String(dataset.metricTooltipKey || "");
+  }
+
+  function metricTooltipTextForTarget(target) {
+    if (!(target instanceof Element)) return "";
+    const dataset = target.dataset || {};
+    const key = normalizeMetricTooltipKey(metricTooltipTargetDataKey(target));
+    if (!key) return "";
+    if (Object.prototype.hasOwnProperty.call(metricTooltipDescriptions, key)) {
+      return metricTooltipDescriptions[key];
+    }
+    if (key.startsWith("run_config.")) {
+      return "Run-config field recorded in benchmark metadata for this run.";
+    }
+    const fallback = compressMetricTooltipText(dataset.metricTooltipFallback || "");
+    if (fallback) return fallback;
+    if (key === "task_count") {
+      return "How many benchmark rows/tasks are represented in this grouped value.";
+    }
+    if (key) {
+      const prettyKey = key.replace(/^run_config\\./, "run config ").replace(/[_.]+/g, " ").trim();
+      if (prettyKey) {
+        return "Dashboard benchmark field: " + prettyKey + ".";
+      }
+    }
+    return "";
+  }
+
+  function clearMetricTooltipTimer() {
+    if (metricTooltipTimerId != null) {
+      window.clearTimeout(metricTooltipTimerId);
+      metricTooltipTimerId = null;
+    }
+    metricTooltipPendingTarget = null;
+  }
+
+  function hideMetricTooltip() {
+    clearMetricTooltipTimer();
+    metricTooltipActiveTarget = null;
+    if (metricTooltipNode) {
+      metricTooltipNode.hidden = true;
+      metricTooltipNode.textContent = "";
+    }
+  }
+
+  function positionMetricTooltip() {
+    if (!metricTooltipNode || metricTooltipNode.hidden) return;
+    const width = metricTooltipNode.offsetWidth;
+    const height = metricTooltipNode.offsetHeight;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    let left = metricTooltipMouseX + METRIC_TOOLTIP_OFFSET_X;
+    let top = metricTooltipMouseY + METRIC_TOOLTIP_OFFSET_Y;
+    if (left + width + 8 > viewportWidth) {
+      left = Math.max(8, viewportWidth - width - 8);
+    }
+    if (top + height + 8 > viewportHeight) {
+      top = Math.max(8, metricTooltipMouseY - height - 10);
+    }
+    metricTooltipNode.style.left = left + "px";
+    metricTooltipNode.style.top = top + "px";
+  }
+
+  function showMetricTooltipForTarget(target) {
+    if (!(target instanceof Element)) return;
+    const text = metricTooltipTextForTarget(target);
+    if (!text || !metricTooltipNode) return;
+    metricTooltipActiveTarget = target;
+    metricTooltipNode.textContent = text;
+    metricTooltipNode.hidden = false;
+    positionMetricTooltip();
+  }
+
+  function metricTooltipHoverTarget(node) {
+    if (!(node instanceof Element)) return null;
+    const target = node.closest("[data-metric-tooltip-key]");
+    return target instanceof Element ? target : null;
+  }
+
+  function scheduleMetricTooltip(target) {
+    if (!(target instanceof Element)) return;
+    const previewText = metricTooltipTextForTarget(target);
+    if (!previewText) {
+      hideMetricTooltip();
+      return;
+    }
+    clearMetricTooltipTimer();
+    metricTooltipPendingTarget = target;
+    metricTooltipTimerId = window.setTimeout(() => {
+      const pending = metricTooltipPendingTarget;
+      clearMetricTooltipTimer();
+      if (!pending) return;
+      showMetricTooltipForTarget(pending);
+    }, METRIC_TOOLTIP_HOVER_DELAY_MS);
+  }
+
+  function setMetricTooltipTarget(node, metricKey, fallbackText) {
+    if (!(node instanceof Element) || !("dataset" in node)) return;
+    const normalizedKey = normalizeMetricTooltipKey(metricKey);
+    if (!normalizedKey) return;
+    node.dataset.metricTooltipKey = normalizedKey;
+    const fallback = compressMetricTooltipText(
+      fallbackText == null ? node.getAttribute("title") || "" : fallbackText
+    );
+    if (fallback) {
+      node.dataset.metricTooltipFallback = fallback;
+    } else {
+      delete node.dataset.metricTooltipFallback;
+    }
+    if (node.hasAttribute("title")) {
+      node.removeAttribute("title");
+    }
+  }
+
+  function setupMetricHoverTooltips() {
+    metricTooltipDescriptions = buildMetricTooltipDescriptions();
+    metricTooltipAliasesByText = buildMetricTooltipAliasCatalog(metricTooltipDescriptions);
+    metricTooltipAliasEntries = metricTooltipAliasEntryList(metricTooltipAliasesByText);
+    if (document.body && document.body.dataset.metricTooltipBound === "1") return;
+
+    const tooltip = document.createElement("div");
+    tooltip.className = "metric-hover-tooltip";
+    tooltip.hidden = true;
+    tooltip.setAttribute("role", "tooltip");
+    document.body.appendChild(tooltip);
+    metricTooltipNode = tooltip;
+
+    document.addEventListener("mouseover", event => {
+      const nextTarget = metricTooltipHoverTarget(event.target);
+      const previousTarget = metricTooltipHoverTarget(event.relatedTarget);
+      if (nextTarget && previousTarget && nextTarget === previousTarget) return;
+      if (!nextTarget) {
+        hideMetricTooltip();
+        return;
+      }
+      scheduleMetricTooltip(nextTarget);
+    });
+
+    document.addEventListener("mouseout", event => {
+      const fromTarget = metricTooltipHoverTarget(event.target);
+      const toTarget = metricTooltipHoverTarget(event.relatedTarget);
+      if (!fromTarget) return;
+      if (toTarget && toTarget === fromTarget) return;
+      if (metricTooltipPendingTarget === fromTarget) {
+        clearMetricTooltipTimer();
+      }
+      if (metricTooltipActiveTarget === fromTarget) {
+        hideMetricTooltip();
+      }
+    });
+
+    document.addEventListener(
+      "mousemove",
+      event => {
+        metricTooltipMouseX = event.clientX;
+        metricTooltipMouseY = event.clientY;
+        if (metricTooltipActiveTarget) {
+          positionMetricTooltip();
+        }
+      },
+      { passive: true },
+    );
+
+    document.addEventListener("scroll", () => {
+      if (metricTooltipActiveTarget) hideMetricTooltip();
+    }, true);
+    document.addEventListener("mousedown", () => hideMetricTooltip());
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") hideMetricTooltip();
+    });
+
+    if (document.body) {
+      document.body.dataset.metricTooltipBound = "1";
+    }
+  }
+
+  function refreshMetricTooltipTargets() {
+    document.querySelectorAll("[data-metric-tooltip-key]").forEach(node => {
+      if (!(node instanceof Element)) return;
+      const key = String(node.dataset.metricTooltipKey || "").trim();
+      if (!key) return;
+      setMetricTooltipTarget(node, key, null);
+    });
+    document.querySelectorAll(METRIC_TOOLTIP_AUTO_TARGET_SELECTOR).forEach(node => {
+      if (!(node instanceof Element)) return;
+      if (node.closest(".metric-hover-tooltip")) return;
+      const existingKey = String(node.dataset.metricTooltipKey || "").trim();
+      if (existingKey) {
+        setMetricTooltipTarget(node, existingKey, null);
+        return;
+      }
+      const text = compressMetricTooltipText(node.textContent || "");
+      if (!text || text.length > 140) return;
+      const resolvedKey = metricTooltipResolveKeyFromText(text);
+      if (!resolvedKey) return;
+      setMetricTooltipTarget(node, resolvedKey, null);
     });
   }
 
@@ -5442,6 +6476,11 @@ _JS = """\
 
       const labelText = document.createElement("span");
       labelText.textContent = benchmarkTrendFieldLabel(fieldName);
+      setMetricTooltipTarget(
+        labelText,
+        fieldName,
+        benchmarkTrendFieldLabel(fieldName)
+      );
       row.appendChild(labelText);
       host.appendChild(row);
     });
@@ -5571,12 +6610,29 @@ _JS = """\
     return true;
   }
 
-  function openPreviousRunsColumnFilterEditor(fieldName) {
-    const meta = previousRunsColumnMeta(fieldName);
-    previousRunsOpenFilterField = String(fieldName || "");
+  function openPreviousRunsColumnFilterEditor(fieldName, options) {
+    const key = String(fieldName || "");
+    const meta = previousRunsColumnMeta(key);
+    const opts = options && typeof options === "object" && !Array.isArray(options)
+      ? options
+      : Object.create(null);
+    const fallbackOperator = meta.numeric ? "eq" : "contains";
+    const draftOperator = PREVIOUS_RUNS_COLUMN_FILTER_OPERATOR_MAP[opts.operator]
+      ? String(opts.operator)
+      : fallbackOperator;
+    const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(draftOperator);
+    const clauses = previousRunsColumnFilterClauses(key);
+    const rawEditIndex = Number(opts.edit_index);
+    const editIndex = Number.isInteger(rawEditIndex)
+      && rawEditIndex >= 0
+      && rawEditIndex < clauses.length
+      ? rawEditIndex
+      : null;
+    previousRunsOpenFilterField = key;
     previousRunsOpenFilterDraft = {
-      operator: meta.numeric ? "eq" : "contains",
-      value: "",
+      operator: draftOperator,
+      value: unary ? "" : String(opts.value || ""),
+      edit_index: editIndex,
     };
   }
 
@@ -5588,10 +6644,13 @@ _JS = """\
   function currentPreviousRunsColumnFilterDraft(fieldName) {
     const meta = previousRunsColumnMeta(fieldName);
     const fallbackOperator = meta.numeric ? "eq" : "contains";
+    const clauses = previousRunsColumnFilterClauses(fieldName);
     const fallback = {
       operator: fallbackOperator,
       value: "",
       active: false,
+      editing: false,
+      edit_index: null,
     };
     if (
       previousRunsOpenFilterField !== fieldName ||
@@ -5604,10 +6663,18 @@ _JS = """\
       ? String(previousRunsOpenFilterDraft.operator)
       : fallback.operator;
     const unary = PREVIOUS_RUNS_UNARY_FILTER_OPERATORS.has(draftOperator);
+    const rawEditIndex = previousRunsOpenFilterDraft.edit_index;
+    const editIndex = Number.isInteger(rawEditIndex)
+      && rawEditIndex >= 0
+      && rawEditIndex < clauses.length
+      ? rawEditIndex
+      : null;
     return {
       operator: draftOperator,
       value: unary ? "" : String(previousRunsOpenFilterDraft.value || ""),
       active: unary ? true : String(previousRunsOpenFilterDraft.value || "").trim() !== "",
+      editing: editIndex != null,
+      edit_index: editIndex,
     };
   }
 
@@ -5686,6 +6753,30 @@ _JS = """\
     }
     existing.push(clause);
     setPreviousRunsColumnFilterClauses(fieldName, existing);
+    return true;
+  }
+
+  function updatePreviousRunsColumnFilterAt(fieldName, index, operator, value) {
+    const clause = normalizePreviousRunsColumnFilterClause({
+      operator,
+      value,
+    });
+    if (!clause) return false;
+    const clauses = previousRunsColumnFilterClauses(fieldName);
+    const idx = Number(index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= clauses.length) return false;
+    const nextKey = clause.operator + "::" + normalizeRuleValue(clause.value);
+    const duplicateIndex = clauses.findIndex((candidate, candidateIndex) => (
+      candidateIndex !== idx
+      && candidate.operator + "::" + normalizeRuleValue(candidate.value) === nextKey
+    ));
+    if (duplicateIndex >= 0) {
+      clauses.splice(idx, 1);
+      setPreviousRunsColumnFilterClauses(fieldName, clauses);
+      return true;
+    }
+    clauses[idx] = clause;
+    setPreviousRunsColumnFilterClauses(fieldName, clauses);
     return true;
   }
 
@@ -5837,18 +6928,20 @@ _JS = """\
     return groups.every(matchesGroup);
   }
 
-  function setupCompareControlControls() {
-    const panel = document.getElementById("compare-control-panel");
-    const viewMode = document.getElementById("compare-control-view-mode");
-    const outcomeField = document.getElementById("compare-control-outcome-field");
-    const compareField = document.getElementById("compare-control-compare-field");
-    const splitField = document.getElementById("compare-control-split-field");
-    const holdFields = document.getElementById("compare-control-hold-fields");
-    const groupSelection = document.getElementById("compare-control-group-selection");
-    const results = document.getElementById("compare-control-results");
-    const filterSubset = document.getElementById("compare-control-filter-subset");
-    const clearSelection = document.getElementById("compare-control-clear-selection");
-    const resetButton = document.getElementById("compare-control-reset");
+  function setupCompareControlControlsForSet(config) {
+    const cfg = config && typeof config === "object" ? config : Object.create(null);
+    const setKey = cfg.set_key === "secondary" ? "secondary" : "primary";
+    const panel = document.getElementById(String(cfg.panel_id || ""));
+    const viewMode = document.getElementById(String(cfg.view_mode_id || ""));
+    const outcomeField = document.getElementById(String(cfg.outcome_field_id || ""));
+    const compareField = document.getElementById(String(cfg.compare_field_id || ""));
+    const splitField = document.getElementById(String(cfg.split_field_id || ""));
+    const holdFields = document.getElementById(String(cfg.hold_fields_id || ""));
+    const groupSelection = document.getElementById(String(cfg.group_selection_id || ""));
+    const results = document.getElementById(String(cfg.results_id || ""));
+    const filterSubset = document.getElementById(String(cfg.filter_subset_id || ""));
+    const clearSelection = document.getElementById(String(cfg.clear_selection_id || ""));
+    const resetButton = document.getElementById(String(cfg.reset_id || ""));
     if (
       !panel ||
       !viewMode ||
@@ -5865,35 +6958,52 @@ _JS = """\
       return;
     }
 
+    function rerenderCompareControl() {
+      renderCompareControlSection();
+      persistDashboardUiState();
+    }
+
     if (!viewMode.dataset.bound) {
       viewMode.addEventListener("change", () => {
-        compareControlState.view_mode = normalizeCompareControlViewMode(viewMode.value);
-        renderAll();
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.view_mode = normalizeCompareControlViewMode(viewMode.value);
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
       });
       viewMode.dataset.bound = "1";
     }
     if (!outcomeField.dataset.bound) {
       outcomeField.addEventListener("change", () => {
-        compareControlState.outcome_field = String(outcomeField.value || "").trim();
-        renderAll();
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.outcome_field = String(outcomeField.value || "").trim();
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
       });
       outcomeField.dataset.bound = "1";
     }
     if (!compareField.dataset.bound) {
       compareField.addEventListener("change", () => {
-        compareControlState.compare_field = String(compareField.value || "").trim();
-        compareControlState.selected_groups = [];
-        if (!compareControlState.compare_field) {
-          compareControlState.view_mode = "discover";
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.compare_field = String(compareField.value || "").trim();
+        state.selected_groups = [];
+        if (!state.compare_field) {
+          state.view_mode = "discover";
         }
-        renderAll();
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
       });
       compareField.dataset.bound = "1";
     }
     if (!splitField.dataset.bound) {
       splitField.addEventListener("change", () => {
-        compareControlState.split_field = String(splitField.value || "").trim();
-        renderAll();
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.split_field = String(splitField.value || "").trim();
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
       });
       splitField.dataset.bound = "1";
     }
@@ -5904,14 +7014,17 @@ _JS = """\
         if (!target.classList.contains("compare-control-hold-checkbox")) return;
         const fieldName = String(target.value || "").trim();
         if (!fieldName) return;
-        const current = new Set(uniqueStringList(compareControlState.hold_constant_fields));
+        const state = compareControlStateForSet(setKey);
+        const current = new Set(uniqueStringList(state.hold_constant_fields));
         if (target.checked) {
           current.add(fieldName);
         } else {
           current.delete(fieldName);
         }
-        compareControlState.hold_constant_fields = Array.from(current);
-        renderAll();
+        activateCompareControlChartForSet(setKey);
+        state.hold_constant_fields = Array.from(current);
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
       });
       holdFields.dataset.bound = "1";
     }
@@ -5922,14 +7035,17 @@ _JS = """\
         if (!target.classList.contains("compare-control-group-checkbox")) return;
         const groupKey = String(target.value || "").trim();
         if (!groupKey) return;
-        const current = new Set(uniqueStringList(compareControlState.selected_groups));
+        const state = compareControlStateForSet(setKey);
+        const current = new Set(uniqueStringList(state.selected_groups));
         if (target.checked) {
           current.add(groupKey);
         } else {
           current.delete(groupKey);
         }
-        compareControlState.selected_groups = Array.from(current);
-        renderAll();
+        activateCompareControlChartForSet(setKey);
+        state.selected_groups = Array.from(current);
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
       });
       groupSelection.dataset.bound = "1";
     }
@@ -5941,44 +7057,162 @@ _JS = """\
         if (!(card instanceof HTMLElement)) return;
         const fieldName = String(card.getAttribute("data-compare-field") || "").trim();
         if (!fieldName) return;
-        compareControlState.compare_field = fieldName;
-        compareControlState.view_mode = "raw";
-        compareControlState.selected_groups = [];
-        compareControlStatusMessage = "Selected " + fieldName + " from discovery.";
-        compareControlStatusIsError = false;
-        renderAll();
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.compare_field = fieldName;
+        state.view_mode = "raw";
+        state.selected_groups = [];
+        setCompareControlStateForSet(setKey, state);
+        setCompareControlStatusForSet(setKey, "Selected " + fieldName + " from discovery.", false);
+        rerenderCompareControl();
       });
       results.dataset.bound = "1";
     }
     if (!filterSubset.dataset.bound) {
       filterSubset.addEventListener("click", () => {
-        const applied = syncCompareControlSelectionToTableFilters();
-        compareControlStatusMessage = applied.message;
-        compareControlStatusIsError = !applied.applied;
-        renderAll();
+        activateCompareControlChartForSet(setKey);
+        const applied = applyCompareControlSelectionSubsetForSet(setKey);
+        setCompareControlStatusForSet(setKey, applied.message, !applied.applied);
+        rerenderCompareControl();
       });
       filterSubset.dataset.bound = "1";
     }
     if (!clearSelection.dataset.bound) {
       clearSelection.addEventListener("click", () => {
-        compareControlState.selected_groups = [];
-        compareControlStatusMessage = "Cleared selected groups.";
-        compareControlStatusIsError = false;
-        renderAll();
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.selected_groups = [];
+        setCompareControlStateForSet(setKey, state);
+        setCompareControlStatusForSet(setKey, "Cleared selected groups.", false);
+        rerenderCompareControl();
       });
       clearSelection.dataset.bound = "1";
     }
     if (!resetButton.dataset.bound) {
       resetButton.addEventListener("click", () => {
-        resetCompareControlState();
-        renderAll();
+        resetCompareControlState(setKey);
+        rerenderCompareControl();
       });
       resetButton.dataset.bound = "1";
     }
   }
 
+  function setupCompareControlControls() {
+    setupCompareControlControlsForSet({
+      set_key: "primary",
+      panel_id: "compare-control-panel",
+      view_mode_id: "compare-control-view-mode",
+      outcome_field_id: "compare-control-outcome-field",
+      compare_field_id: "compare-control-compare-field",
+      split_field_id: "compare-control-split-field",
+      hold_fields_id: "compare-control-hold-fields",
+      group_selection_id: "compare-control-group-selection",
+      results_id: "compare-control-results",
+      filter_subset_id: "compare-control-filter-subset",
+      clear_selection_id: "compare-control-clear-selection",
+      reset_id: "compare-control-reset",
+    });
+    setupCompareControlControlsForSet({
+      set_key: "secondary",
+      panel_id: "compare-control-panel-secondary",
+      view_mode_id: "compare-control-view-mode-secondary",
+      outcome_field_id: "compare-control-outcome-field-secondary",
+      compare_field_id: "compare-control-compare-field-secondary",
+      split_field_id: "compare-control-split-field-secondary",
+      hold_fields_id: "compare-control-hold-fields-secondary",
+      group_selection_id: "compare-control-group-selection-secondary",
+      results_id: "compare-control-results-secondary",
+      filter_subset_id: "compare-control-filter-subset-secondary",
+      clear_selection_id: "compare-control-clear-selection-secondary",
+      reset_id: "compare-control-reset-secondary",
+    });
+
+    const toggleSecondSet = document.getElementById("compare-control-toggle-second-set");
+    if (toggleSecondSet && !toggleSecondSet.dataset.bound) {
+      toggleSecondSet.addEventListener("click", () => {
+        const nextEnabled = !Boolean(compareControlSecondSetEnabled);
+        setCompareControlSecondSetEnabled(nextEnabled);
+        syncCompareControlLayoutChrome();
+        renderCompareControlSection();
+        persistDashboardUiState();
+      });
+      toggleSecondSet.dataset.bound = "1";
+    }
+
+    const chartLayout = document.getElementById("compare-control-chart-layout");
+    if (chartLayout && !chartLayout.dataset.bound) {
+      chartLayout.addEventListener("change", () => {
+        compareControlChartLayout = normalizeCompareControlChartLayout(chartLayout.value);
+        syncCompareControlLayoutChrome();
+        renderCompareControlSection();
+        persistDashboardUiState();
+      });
+      chartLayout.dataset.bound = "1";
+    }
+
+    const combinedAxisMode = document.getElementById("compare-control-combined-axis-mode");
+    if (combinedAxisMode && !combinedAxisMode.dataset.bound) {
+      combinedAxisMode.addEventListener("change", () => {
+        compareControlCombinedAxisMode = normalizeCompareControlCombinedAxisMode(
+          combinedAxisMode.value
+        );
+        renderCompareControlSection();
+        persistDashboardUiState();
+      });
+      combinedAxisMode.dataset.bound = "1";
+    }
+
+    syncCompareControlLayoutChrome();
+  }
+
   function compareControlFieldLabel(fieldName) {
     return analysisFieldLabel(fieldName);
+  }
+
+  function compareControlPlaceholderLabelForSort(rawLabel) {
+    const label = String(rawLabel || "").trim().toLowerCase();
+    if (!label) return true;
+    return (
+      label === "-" ||
+      label === "(empty)" ||
+      label === "unknown" ||
+      label === "none" ||
+      label === "n/a" ||
+      label === "na"
+    );
+  }
+
+  function compareControlEffortOrderValue(rawLabel) {
+    const key = String(rawLabel || "").trim().toLowerCase().replace(/[\\s_-]+/g, "");
+    if (!key) return 999;
+    const order = {
+      minimal: 0,
+      low: 1,
+      medium: 2,
+      high: 3,
+      xhigh: 4,
+      veryhigh: 4,
+      max: 5,
+      aioff: 6,
+    };
+    return Object.prototype.hasOwnProperty.call(order, key) ? order[key] : 999;
+  }
+
+  function compareControlGroupDisplaySort(left, right, compareField) {
+    const leftLabel = String((left && left.label) || "").trim();
+    const rightLabel = String((right && right.label) || "").trim();
+    const leftPlaceholder = compareControlPlaceholderLabelForSort(leftLabel);
+    const rightPlaceholder = compareControlPlaceholderLabelForSort(rightLabel);
+    if (leftPlaceholder !== rightPlaceholder) {
+      return leftPlaceholder ? 1 : -1;
+    }
+    const compareFieldKey = String(compareField || "").trim().toLowerCase();
+    if (compareFieldKey === "ai_effort") {
+      const leftOrder = compareControlEffortOrderValue(leftLabel);
+      const rightOrder = compareControlEffortOrderValue(rightLabel);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    }
+    return leftLabel.localeCompare(rightLabel, undefined, { numeric: true, sensitivity: "base" });
   }
 
   function compareControlFieldSortValue(fieldInfo) {
@@ -6113,6 +7347,26 @@ _JS = """\
       }
     }
     return state;
+  }
+
+  function compareControlRecordsForState(records, state, catalog) {
+    const baseRecords = Array.isArray(records) ? records : [];
+    const activeState = state && typeof state === "object" ? state : compareControlDefaultState();
+    if (!activeState.compare_field) return baseRecords;
+    const byField = (catalog && catalog.by_field) || Object.create(null);
+    const compareInfo = byField[activeState.compare_field];
+    if (!compareInfo || compareInfo.numeric) return baseRecords;
+    const selectedGroups = uniqueStringList(activeState.selected_groups)
+      .filter(value => value && value !== "__EMPTY__");
+    if (!selectedGroups.length) return baseRecords;
+    const allowed = new Set(selectedGroups);
+    return baseRecords.filter(record => (
+      allowed.has(
+        analysisComparableValue(
+          previousRunsFieldValue(record, activeState.compare_field)
+        )
+      )
+    ));
   }
 
   function compareControlPairs(records, outcomeField, compareField) {
@@ -6758,18 +8012,42 @@ _JS = """\
     return top.label + ": " + fmtMaybe(top.outcome_mean, 3);
   }
 
-  function renderCompareControlPanel(context) {
-    const panel = document.getElementById("compare-control-panel");
-    const statusNode = document.getElementById("compare-control-status");
-    const resultsNode = document.getElementById("compare-control-results");
-    const viewModeNode = document.getElementById("compare-control-view-mode");
-    const outcomeNode = document.getElementById("compare-control-outcome-field");
-    const compareNode = document.getElementById("compare-control-compare-field");
-    const splitNode = document.getElementById("compare-control-split-field");
-    const holdNode = document.getElementById("compare-control-hold-fields");
-    const groupNode = document.getElementById("compare-control-group-selection");
-    const filterSubset = document.getElementById("compare-control-filter-subset");
-    const clearSelection = document.getElementById("compare-control-clear-selection");
+  function renderCompareControlPanel(context, config) {
+    const cfg = config && typeof config === "object" ? config : Object.create(null);
+    const setKey = cfg.set_key === "secondary" ? "secondary" : "primary";
+    const panel = document.getElementById(
+      String(cfg.panel_id || (setKey === "secondary" ? "compare-control-panel-secondary" : "compare-control-panel"))
+    );
+    const statusNode = document.getElementById(
+      String(cfg.status_id || (setKey === "secondary" ? "compare-control-status-secondary" : "compare-control-status"))
+    );
+    const resultsNode = document.getElementById(
+      String(cfg.results_id || (setKey === "secondary" ? "compare-control-results-secondary" : "compare-control-results"))
+    );
+    const viewModeNode = document.getElementById(
+      String(cfg.view_mode_id || (setKey === "secondary" ? "compare-control-view-mode-secondary" : "compare-control-view-mode"))
+    );
+    const outcomeNode = document.getElementById(
+      String(cfg.outcome_field_id || (setKey === "secondary" ? "compare-control-outcome-field-secondary" : "compare-control-outcome-field"))
+    );
+    const compareNode = document.getElementById(
+      String(cfg.compare_field_id || (setKey === "secondary" ? "compare-control-compare-field-secondary" : "compare-control-compare-field"))
+    );
+    const splitNode = document.getElementById(
+      String(cfg.split_field_id || (setKey === "secondary" ? "compare-control-split-field-secondary" : "compare-control-split-field"))
+    );
+    const holdNode = document.getElementById(
+      String(cfg.hold_fields_id || (setKey === "secondary" ? "compare-control-hold-fields-secondary" : "compare-control-hold-fields"))
+    );
+    const groupNode = document.getElementById(
+      String(cfg.group_selection_id || (setKey === "secondary" ? "compare-control-group-selection-secondary" : "compare-control-group-selection"))
+    );
+    const filterSubset = document.getElementById(
+      String(cfg.filter_subset_id || (setKey === "secondary" ? "compare-control-filter-subset-secondary" : "compare-control-filter-subset"))
+    );
+    const clearSelection = document.getElementById(
+      String(cfg.clear_selection_id || (setKey === "secondary" ? "compare-control-clear-selection-secondary" : "compare-control-clear-selection"))
+    );
     if (
       !panel ||
       !statusNode ||
@@ -6788,8 +8066,13 @@ _JS = """\
 
     const records = Array.isArray(context && context.records) ? context.records : [];
     const catalog = buildCompareControlFieldCatalog(records);
-    compareControlState = normalizeCompareControlStateForCatalog(compareControlState, catalog);
-    const state = compareControlState;
+    const normalizedState = normalizeCompareControlStateForCatalog(
+      compareControlStateForSet(setKey),
+      catalog
+    );
+    setCompareControlStateForSet(setKey, normalizedState);
+    const state = compareControlStateForSet(setKey);
+    const scopedRecords = compareControlRecordsForState(records, state, catalog);
 
     viewModeNode.value = state.view_mode;
     outcomeNode.innerHTML = (catalog.numeric_fields || [])
@@ -6808,7 +8091,7 @@ _JS = """\
       '<option value="">(discover best candidates)</option>',
       ...(catalog.fields || []).map(field => (
         '<option value="' + esc(field.field) + '">' +
-        esc(field.label + (field.numeric ? " [numeric]" : "")) +
+        esc(field.label) +
         "</option>"
       )),
     ];
@@ -6821,7 +8104,7 @@ _JS = """\
         .filter(field => field.field !== state.compare_field && field.field !== state.outcome_field)
         .map(field => (
           '<option value="' + esc(field.field) + '">' +
-          esc(field.label + (field.numeric ? " [numeric]" : "")) +
+          esc(field.label) +
           "</option>"
         )),
     ];
@@ -6848,8 +8131,8 @@ _JS = """\
     }
 
     if (!records.length) {
-      statusNode.textContent = "No visible benchmark rows after current filters.";
-      resultsNode.innerHTML = '<p class="empty-note">Broaden Previous Runs filters, then compare fields here.</p>';
+      statusNode.textContent = "No benchmark rows are available for Compare & Control.";
+      resultsNode.innerHTML = '<p class="empty-note">Run benchmarks to populate Compare &amp; Control analysis rows.</p>';
       groupNode.innerHTML = "";
       filterSubset.disabled = true;
       clearSelection.disabled = true;
@@ -6866,7 +8149,7 @@ _JS = """\
 
     const compareInfo = catalog.by_field[state.compare_field];
     const selectedGroups = uniqueStringList(state.selected_groups);
-    const coverageBase = records.length;
+    const coverageBase = scopedRecords.length;
     let htmlParts = [];
     let statusText = "";
     let statusIsError = false;
@@ -6879,7 +8162,7 @@ _JS = """\
         state.discovery_preferences
       );
       statusText =
-        "Discovery view over " + records.length + " visible rows. Click a field card to compare.";
+        "Discovery view over " + records.length + " rows. Click a field card to compare.";
       if (!discovery.length) {
         htmlParts.push("<p>No candidate fields had enough variation for discovery scoring.</p>");
       } else {
@@ -6901,18 +8184,24 @@ _JS = """\
       groupNode.innerHTML = "";
       filterSubset.disabled = true;
       clearSelection.disabled = true;
+    } else if (!scopedRecords.length) {
+      groupNode.innerHTML = '<p class="compare-control-inline-note">No rows match the currently selected local groups.</p>';
+      filterSubset.disabled = selectedGroups.length === 0;
+      clearSelection.disabled = selectedGroups.length === 0;
+      statusText = "No rows match the selected Compare & Control group subset.";
+      htmlParts.push("<p>Adjust selected groups or clear them to continue analysis.</p>");
     } else if (compareInfo.numeric) {
       groupNode.innerHTML = '<p class="compare-control-inline-note">Group subset selection is available for categorical compare fields.</p>';
       filterSubset.disabled = true;
       clearSelection.disabled = true;
       const analysis = state.view_mode === "controlled"
         ? analyzeCompareControlNumericControlled(
-          records,
+          scopedRecords,
           state.outcome_field,
           state.compare_field,
           state.hold_constant_fields,
         )
-        : analyzeCompareControlNumericRaw(records, state.outcome_field, state.compare_field);
+        : analyzeCompareControlNumericRaw(scopedRecords, state.outcome_field, state.compare_field);
       const coverage = coverageBase > 0 ? (analysis.used_rows / coverageBase) * 100 : 0;
       statusText =
         (state.view_mode === "controlled" ? "Controlled" : "Raw") +
@@ -6963,11 +8252,14 @@ _JS = """\
       }
     } else {
       const groupOptions = compareInfo.categories || [];
+      const sortedGroupOptions = [...groupOptions].sort((left, right) => (
+        compareControlGroupDisplaySort(left, right, state.compare_field)
+      ));
       groupNode.innerHTML = groupOptions.length
         ? (
-          '<p class="compare-control-inline-note">Select groups, then use <strong>Filter to subset</strong> to write table filters.</p>' +
+          '<p class="compare-control-inline-note">Selected groups are local to Compare &amp; Control and do not change Previous Runs filters.</p>' +
           '<div class="compare-control-group-selection-list">' +
-          groupOptions
+          sortedGroupOptions
             .map(group => {
               if (group.key === "__EMPTY__") return "";
               const checked = selectedGroups.includes(group.key) ? " checked" : "";
@@ -6986,12 +8278,12 @@ _JS = """\
       clearSelection.disabled = selectedGroups.length === 0;
       const analysis = state.view_mode === "controlled"
         ? analyzeCompareControlCategoricalControlled(
-          records,
+          scopedRecords,
           state.outcome_field,
           state.compare_field,
           state.hold_constant_fields,
         )
-        : analyzeCompareControlCategoricalRaw(records, state.outcome_field, state.compare_field);
+        : analyzeCompareControlCategoricalRaw(scopedRecords, state.outcome_field, state.compare_field);
       const coverage = coverageBase > 0 ? (analysis.used_rows / coverageBase) * 100 : 0;
       statusText =
         (state.view_mode === "controlled" ? "Controlled" : "Raw") +
@@ -7021,37 +8313,54 @@ _JS = """\
       if (!analysis.groups.length) {
         htmlParts.push("<p>No comparable groups found with the current controls.</p>");
       } else {
-        htmlParts.push("<p><strong>Group outcome means:</strong></p><ul>");
-        analysis.groups.slice(0, 12).forEach(group => {
-          const secondarySummary = (analysis.secondary_fields || [])
-            .map(fieldName => {
-              const value = maybeNumber(
-                group &&
-                group.secondary_means &&
-                Object.prototype.hasOwnProperty.call(group.secondary_means, fieldName)
-                  ? group.secondary_means[fieldName]
-                  : null
-              );
-              if (value == null) return null;
-              return compareControlFieldLabel(fieldName) + " " + fmtMaybe(value, 3);
-            })
-            .filter(Boolean)
-            .slice(0, 3);
-          const secondaryText = secondarySummary.length
-            ? " | " + secondarySummary.join(", ")
-            : "";
+        const secondaryFields = (analysis.secondary_fields || [])
+          .filter(Boolean);
+        const displayGroups = [...(analysis.groups || [])].sort((left, right) => (
+          compareControlGroupDisplaySort(left, right, state.compare_field)
+        ));
+        htmlParts.push("<p><strong>Group outcome means:</strong></p>");
+        htmlParts.push('<div class="compare-control-groups-table-wrap">');
+        htmlParts.push('<table class="compare-control-groups-table"><thead><tr>');
+        htmlParts.push("<th>Group</th>");
+        htmlParts.push('<th class="num" data-metric-tooltip-key="task_count">Rows</th>');
+        htmlParts.push(
+          '<th class="num" data-metric-tooltip-key="' +
+          esc(state.outcome_field) +
+          '">Avg</th>'
+        );
+        secondaryFields.forEach(fieldName => {
           htmlParts.push(
-            "<li>" +
-            esc(group.label + ": avg " + fmtMaybe(group.outcome_mean, 4) + " (" + group.count + " rows)" + secondaryText) +
-            "</li>"
+            '<th data-metric-tooltip-key="' +
+            esc(fieldName) +
+            '">' +
+            esc(compareControlFieldLabel(fieldName)) +
+            "</th>"
           );
         });
-        htmlParts.push("</ul>");
+        htmlParts.push("</tr></thead><tbody>");
+        displayGroups.slice(0, 12).forEach(group => {
+          htmlParts.push("<tr>");
+          htmlParts.push("<td>" + esc(group.label) + "</td>");
+          htmlParts.push('<td class="num">' + esc(compareControlTableNumber(group.count, 0)) + "</td>");
+          htmlParts.push('<td class="num">' + esc(compareControlTableNumber(group.outcome_mean, 4)) + "</td>");
+          secondaryFields.forEach(fieldName => {
+            const value = maybeNumber(
+              group &&
+              group.secondary_means &&
+              Object.prototype.hasOwnProperty.call(group.secondary_means, fieldName)
+                ? group.secondary_means[fieldName]
+                : null
+            );
+            htmlParts.push('<td class="num">' + esc(compareControlTableNumber(value, 3)) + "</td>");
+          });
+          htmlParts.push("</tr>");
+        });
+        htmlParts.push("</tbody></table></div>");
       }
     }
 
     if (state.split_field) {
-      const segments = compareControlSplitSegments(records, state.split_field, catalog);
+      const segments = compareControlSplitSegments(scopedRecords, state.split_field, catalog);
       if (segments.length) {
         htmlParts.push('<div class="compare-control-split-list"><p><strong>Split by ' + esc(compareControlFieldLabel(state.split_field)) + ":</strong></p><ul>");
         segments.forEach(segment => {
@@ -7066,20 +8375,25 @@ _JS = """\
       }
     }
 
-    if (compareControlStatusMessage) {
-      const prefix = compareControlStatusIsError ? "Compare/Control: " : "";
-      statusText = prefix + compareControlStatusMessage + (statusText ? " " + statusText : "");
-      statusIsError = compareControlStatusIsError;
-      compareControlStatusMessage = "";
-      compareControlStatusIsError = false;
+    const setStatus = compareControlStatusForSet(setKey);
+    if (setStatus.message) {
+      const prefix = setStatus.is_error ? "Compare/Control: " : "";
+      statusText = prefix + setStatus.message + (statusText ? " " + statusText : "");
+      statusIsError = setStatus.is_error;
+      clearCompareControlStatusForSet(setKey);
     }
-    statusNode.textContent = statusText || "Compare & Control ready.";
+    statusNode.textContent = statusText || (
+      setKey === "secondary"
+        ? "Set 2 ready."
+        : "Compare & Control ready."
+    );
     statusNode.classList.toggle("error", Boolean(statusIsError));
     resultsNode.innerHTML = htmlParts.join("");
   }
 
-  function syncCompareControlSelectionToTableFilters() {
-    const state = normalizeCompareControlState(compareControlState);
+  function applyCompareControlSelectionSubsetForSet(setKey) {
+    const key = setKey === "secondary" ? "secondary" : "primary";
+    const state = normalizeCompareControlState(compareControlStateForSet(key));
     const compareField = String(state.compare_field || "").trim();
     const selectedGroups = uniqueStringList(state.selected_groups)
       .filter(value => value && value !== "__EMPTY__");
@@ -7092,27 +8406,19 @@ _JS = """\
     if (!selectedGroups.length) {
       return {
         applied: false,
-        message: "Select one or more groups before filtering to subset.",
+        message: "Select one or more groups before applying a local subset.",
       };
     }
-    const clauses = selectedGroups.map(value => ({
-      operator: "eq",
-      value,
-    }));
-    const applied = setPreviousRunsColumnFilterClauses(compareField, clauses);
-    if (!applied) {
-      return {
-        applied: false,
-        message: "Could not write selected groups into table filters.",
-      };
-    }
-    setPreviousRunsColumnFilterMode(compareField, "or");
-    closePreviousRunsColumnFilterEditor();
-    compareControlState.selected_groups = selectedGroups;
+    state.selected_groups = selectedGroups;
+    setCompareControlStateForSet(key, state);
     return {
       applied: true,
-      message: "Filter to subset wrote " + selectedGroups.length + " clauses into Previous Runs table filters.",
+      message: "Using " + selectedGroups.length + " selected group(s) in Compare & Control only.",
     };
+  }
+
+  function applyCompareControlSelectionSubset() {
+    return applyCompareControlSelectionSubsetForSet("primary");
   }
 
   function analysisComparableValue(value) {
@@ -7141,8 +8447,8 @@ _JS = """\
 
   function analysisFieldLabel(fieldName) {
     const meta = previousRunsColumnMeta(fieldName);
-    if (!meta || !meta.label || meta.label === fieldName) return fieldName;
-    return meta.label + " (" + fieldName + ")";
+    if (!meta || !meta.label) return fieldName;
+    return meta.label;
   }
 
   function previousRunsRecordsMatchingOtherFilters(excludedField) {
@@ -7310,7 +8616,6 @@ _JS = """\
         field: String(previousRunsSortField || "run_timestamp"),
         direction: previousRunsSortDirection === "asc" ? "asc" : "desc",
       },
-      compare_control: normalizeCompareControlState(compareControlState),
     });
   }
 
@@ -7369,8 +8674,6 @@ _JS = """\
         previousRunsColumnWidths[fieldName]
       );
     });
-
-    compareControlState = normalizeCompareControlState(preset.compare_control);
 
     closePreviousRunsColumnFilterEditor();
     setupPreviousRunsGlobalFilterModeControl();
@@ -7602,9 +8905,11 @@ _JS = """\
 
       const labelText = document.createElement("span");
       labelText.textContent = meta.label || fieldName;
+      setMetricTooltipTarget(labelText, fieldName, meta.title || meta.label || fieldName);
       if ((meta.label || fieldName) !== fieldName) {
         const key = document.createElement("code");
         key.textContent = " " + fieldName;
+        setMetricTooltipTarget(key, fieldName, meta.title || fieldName);
         labelText.appendChild(key);
       }
       row.appendChild(labelText);
@@ -7801,9 +9106,6 @@ _JS = """\
         ),
         error: null,
       });
-      renderCompareControlPanel({
-        records: [],
-      });
       return {
         records: [],
         total: rawRecords.length,
@@ -7822,9 +9124,6 @@ _JS = """\
       quick_filters_text: quickFiltersText,
       column_filter_global_mode: compiled.global_mode,
       error: compiled.error,
-    });
-    renderCompareControlPanel({
-      records: matchedRecords,
     });
     return {
       records: matchedRecords,
@@ -7963,9 +9262,12 @@ _JS = """\
   }
 
   function maybeNumber(value) {
+    if (value == null) return null;
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "boolean") return value ? 1 : 0;
-    const parsed = Number(String(value == null ? "" : value).trim());
+    const text = String(value).trim();
+    if (!text) return null;
+    const parsed = Number(text);
     return Number.isFinite(parsed) ? parsed : null;
   }
 
@@ -8023,9 +9325,11 @@ _JS = """\
     previousRunsFilterResultCache = null;
     renderPreviousRuns();
     renderBenchmarkTrendChart();
+    renderCompareControlSection();
     renderLatestRuntime();
     renderPerLabel();
     renderBoundary();
+    refreshMetricTooltipTargets();
     setupResizableDashboardTables();
   }
 
@@ -8276,6 +9580,14 @@ _JS = """\
       typeof window !== "undefined" &&
       window.Highcharts &&
       typeof window.Highcharts.stockChart === "function"
+    );
+  }
+
+  function hasHighchartsBasicChart() {
+    return (
+      typeof window !== "undefined" &&
+      window.Highcharts &&
+      typeof window.Highcharts.chart === "function"
     );
   }
 
@@ -8636,6 +9948,1201 @@ _JS = """\
     return withTrendOverlays(baseSeries);
   }
 
+  function compareControlChartSeriesColor(index) {
+    const palette = BENCHMARK_TREND_BASE_COLORS;
+    if (!Array.isArray(palette) || !palette.length) return "#355471";
+    const idx = Math.abs(Number(index || 0)) % palette.length;
+    return String(palette[idx] || "#355471");
+  }
+
+  function compareControlBarPointColor(index) {
+    const palette = COMPARE_CONTROL_BAR_POINT_COLORS;
+    if (!Array.isArray(palette) || !palette.length) return "rgba(143, 166, 186, 0.82)";
+    const idx = Math.abs(Number(index || 0)) % palette.length;
+    return String(palette[idx] || "rgba(143, 166, 186, 0.82)");
+  }
+
+  function compareControlStablePaletteIndex(compareField, groupKey) {
+    const seed = (
+      String(compareField || "").trim().toLowerCase() +
+      "::" +
+      String(groupKey || "").trim()
+    );
+    if (!seed) return 0;
+    let hash = 2166136261;
+    for (let i = 0; i < seed.length; i++) {
+      hash ^= seed.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function compareControlScatterPointCustomForRecord(record) {
+    if (!record || typeof record !== "object") {
+      return {
+        runTimestamp: "",
+        sourceLabel: "",
+        sourceTitle: "",
+        variant: "",
+        runGroupKey: "",
+        runGroupLabel: "",
+      };
+    }
+    const runGroup = benchmarkRunGroupInfo(record);
+    return {
+      runTimestamp: String(record.run_timestamp || "").trim(),
+      sourceLabel: sourceLabelForRecord(record),
+      sourceTitle: sourceTitleForRecord(record),
+      variant: benchmarkVariantForRecord(record),
+      runGroupKey: String((runGroup && runGroup.runGroupKey) || "").trim(),
+      runGroupLabel: String((runGroup && runGroup.runGroupLabel) || "").trim(),
+    };
+  }
+
+  function compareControlNumericControlledComparablePairs(
+    records,
+    outcomeField,
+    compareField,
+    holdFields,
+  ) {
+    const hold = uniqueStringList(holdFields);
+    if (!hold.length) {
+      return compareControlPairs(records, outcomeField, compareField);
+    }
+    const strata = Object.create(null);
+    records.forEach(record => {
+      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
+      const compare = maybeNumber(previousRunsFieldValue(record, compareField));
+      if (outcome == null || compare == null) return;
+      const stratumKey = hold
+        .map(fieldName => analysisComparableValue(previousRunsFieldValue(record, fieldName)))
+        .join("||");
+      if (!Object.prototype.hasOwnProperty.call(strata, stratumKey)) {
+        strata[stratumKey] = [];
+      }
+      strata[stratumKey].push({
+        x: compare,
+        y: outcome,
+        record,
+      });
+    });
+    const comparablePairs = [];
+    Object.keys(strata).forEach(stratumKey => {
+      const rows = strata[stratumKey];
+      if (!Array.isArray(rows) || rows.length < 2) return;
+      const distinctX = new Set(rows.map(row => row.x)).size;
+      if (distinctX < 2) return;
+      rows.forEach(row => comparablePairs.push(row));
+    });
+    return comparablePairs;
+  }
+
+  function compareControlChartSegments(records, state, catalog) {
+    if (!state.split_field) {
+      return [
+        {
+          key: "__all_visible_rows__",
+          label: "All visible rows",
+          records,
+        },
+      ];
+    }
+    const splitSegments = compareControlSplitSegments(records, state.split_field, catalog);
+    if (splitSegments.length) return splitSegments;
+    return [
+      {
+        key: "__all_visible_rows__",
+        label: "All visible rows",
+        records,
+      },
+    ];
+  }
+
+  function buildCompareControlNumericScatterSeries(records, state, catalog) {
+    const compareLabel = compareControlFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const series = [];
+    const segments = compareControlChartSegments(records, state, catalog);
+    segments.forEach((segment, index) => {
+      const pairs = state.view_mode === "controlled"
+        ? compareControlNumericControlledComparablePairs(
+          segment.records,
+          state.outcome_field,
+          state.compare_field,
+          state.hold_constant_fields,
+        )
+        : compareControlPairs(
+          segment.records,
+          state.outcome_field,
+          state.compare_field,
+        );
+      if (!pairs.length) return;
+      series.push({
+        name: segment.label,
+        type: "scatter",
+        marker: {
+          enabled: true,
+          radius: 3,
+        },
+        color: compareControlChartSeriesColor(index),
+        turboThreshold: 0,
+        data: pairs.map(pair => ({
+          x: pair.x,
+          y: pair.y,
+          custom: {
+            compareLabel,
+            outcomeLabel,
+            compareValue: pair.x,
+            outcomeValue: pair.y,
+            splitLabel: segment.label,
+            ...compareControlScatterPointCustomForRecord(pair.record),
+          },
+        })),
+      });
+    });
+    return series;
+  }
+
+  function buildCompareControlCategoricalScatterSeries(records, state, catalog) {
+    const compareLabel = compareControlFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const segments = compareControlChartSegments(records, state, catalog);
+    const categoriesByKey = Object.create(null);
+    const seriesPayloads = [];
+    segments.forEach(segment => {
+      const analysis = state.view_mode === "controlled"
+        ? analyzeCompareControlCategoricalControlled(
+          segment.records,
+          state.outcome_field,
+          state.compare_field,
+          state.hold_constant_fields,
+        )
+        : analyzeCompareControlCategoricalRaw(
+          segment.records,
+          state.outcome_field,
+          state.compare_field,
+        );
+      const points = (analysis.groups || [])
+        .map(group => {
+          const outcomeValue = maybeNumber(group.outcome_mean);
+          if (outcomeValue == null) return null;
+          const groupKey = String(group.key || "").trim();
+          if (!groupKey) return null;
+          const groupLabel = String(group.label || groupKey).trim() || groupKey;
+          categoriesByKey[groupKey] = groupLabel;
+          return {
+            groupKey,
+            groupLabel,
+            count: Number(group.count || 0),
+            outcomeValue,
+          };
+        })
+        .filter(point => point !== null);
+      if (!points.length) return;
+      seriesPayloads.push({
+        segment,
+        points,
+      });
+    });
+    const orderedGroupKeys = Object.keys(categoriesByKey).sort((left, right) => (
+      String(categoriesByKey[left]).localeCompare(
+        String(categoriesByKey[right]),
+        undefined,
+        { numeric: true }
+      )
+    ));
+    if (!orderedGroupKeys.length || !seriesPayloads.length) {
+      return {
+        series: [],
+        categories: [],
+      };
+    }
+    const groupIndex = new Map(
+      orderedGroupKeys.map((key, index) => [key, index])
+    );
+    const categories = orderedGroupKeys.map(key => categoriesByKey[key]);
+    const series = seriesPayloads
+      .map((entry, index) => ({
+        name: entry.segment.label,
+        type: "scatter",
+        marker: {
+          enabled: true,
+          radius: 4,
+        },
+        color: compareControlChartSeriesColor(index),
+        turboThreshold: 0,
+        data: entry.points
+          .map(point => {
+            const pointIndex = groupIndex.get(point.groupKey);
+            if (pointIndex == null) return null;
+            return {
+              x: pointIndex,
+              y: point.outcomeValue,
+              custom: {
+                compareLabel,
+                outcomeLabel,
+                compareValue: point.groupLabel,
+                outcomeValue: point.outcomeValue,
+                groupLabel: point.groupLabel,
+                groupCount: point.count,
+                splitLabel: entry.segment.label,
+              },
+            };
+          })
+          .filter(point => point !== null),
+      }))
+      .filter(entry => Array.isArray(entry.data) && entry.data.length > 0);
+    return {
+      series,
+      categories,
+    };
+  }
+
+  function buildCompareControlCategoricalBarSeries(records, state, catalog) {
+    const compareLabel = compareControlFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const segments = compareControlChartSegments(records, state, catalog);
+    const categoriesByKey = Object.create(null);
+    const seriesPayloads = [];
+    segments.forEach(segment => {
+      const analysis = state.view_mode === "controlled"
+        ? analyzeCompareControlCategoricalControlled(
+          segment.records,
+          state.outcome_field,
+          state.compare_field,
+          state.hold_constant_fields,
+        )
+        : analyzeCompareControlCategoricalRaw(
+          segment.records,
+          state.outcome_field,
+          state.compare_field,
+        );
+      const points = (analysis.groups || [])
+        .map(group => {
+          const outcomeValue = maybeNumber(group.outcome_mean);
+          if (outcomeValue == null) return null;
+          const groupKey = String(group.key || "").trim();
+          if (!groupKey) return null;
+          const groupLabel = String(group.label || groupKey).trim() || groupKey;
+          categoriesByKey[groupKey] = groupLabel;
+          return {
+            groupKey,
+            groupLabel,
+            count: Number(group.count || 0),
+            outcomeValue,
+          };
+        })
+        .filter(point => point !== null);
+      if (!points.length) return;
+      seriesPayloads.push({
+        segment,
+        points,
+      });
+    });
+    const orderedGroupKeys = Object.keys(categoriesByKey).sort((left, right) => (
+      String(categoriesByKey[left]).localeCompare(
+        String(categoriesByKey[right]),
+        undefined,
+        { numeric: true }
+      )
+    ));
+    if (!orderedGroupKeys.length || !seriesPayloads.length) {
+      return {
+        series: [],
+        categories: [],
+      };
+    }
+    const groupColorByKey = Object.create(null);
+    orderedGroupKeys.forEach(groupKey => {
+      groupColorByKey[groupKey] = compareControlBarPointColor(
+        compareControlStablePaletteIndex(state.compare_field, groupKey)
+      );
+    });
+    const categories = orderedGroupKeys.map(key => categoriesByKey[key]);
+    const series = seriesPayloads
+      .map(entry => {
+        const pointsByKey = Object.create(null);
+        entry.points.forEach(point => {
+          pointsByKey[point.groupKey] = point;
+        });
+        return {
+          name: entry.segment.label,
+          type: "column",
+          turboThreshold: 0,
+          data: orderedGroupKeys.map(groupKey => {
+            const point = pointsByKey[groupKey];
+            if (!point) return null;
+            return {
+              y: point.outcomeValue,
+              color: groupColorByKey[groupKey],
+              custom: {
+                compareLabel,
+                outcomeLabel,
+                compareValue: point.groupLabel,
+                outcomeValue: point.outcomeValue,
+                groupLabel: point.groupLabel,
+                groupCount: point.count,
+                splitLabel: entry.segment.label,
+              },
+            };
+          }),
+        };
+      })
+      .filter(entry => (
+        Array.isArray(entry.data) &&
+        entry.data.some(point => point && typeof point === "object")
+      ));
+    return {
+      series,
+      categories,
+    };
+  }
+
+  function buildCompareControlScatterChartDefinition(context) {
+    const records = Array.isArray(context && context.records) ? context.records : [];
+    const totalRows = Number(
+      (context && context.total_rows) != null
+        ? context.total_rows
+        : records.length
+    );
+    const catalog = context && context.catalog && typeof context.catalog === "object"
+      ? context.catalog
+      : buildCompareControlFieldCatalog(records);
+    const state = normalizeCompareControlState(
+      (context && context.state) || compareControlState
+    );
+    const compareInfo = (context && context.compare_info) || catalog.by_field[state.compare_field];
+    const compareLabel = compareControlFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const modeLabel = state.view_mode === "controlled" ? "Controlled" : "Raw";
+    const splitLabel = state.split_field
+      ? " | split by " + compareControlFieldLabel(state.split_field)
+      : "";
+
+    if (!records.length) {
+      const selectedGroups = uniqueStringList(state.selected_groups)
+        .filter(value => value && value !== "__EMPTY__");
+      const emptyReason = (
+        totalRows > 0 &&
+        selectedGroups.length > 0 &&
+        compareInfo &&
+        !compareInfo.numeric
+      )
+        ? "No rows match the selected Compare & Control group subset."
+        : "No benchmark rows are available for Compare & Control.";
+      return {
+        chart_type: "scatter",
+        chart_title: "Compare/Control Scatter",
+        chart_subtitle: "",
+        x_axis: { title: { text: "Compare field" } },
+        y_axis: { title: { text: "Outcome field" } },
+        series: [],
+        empty_reason: emptyReason,
+        total_rows: totalRows,
+      };
+    }
+    if (!state.compare_field) {
+      return {
+        chart_type: "scatter",
+        chart_title: "Compare/Control Scatter",
+        chart_subtitle: "",
+        x_axis: { title: { text: "Compare field" } },
+        y_axis: { title: { text: "Outcome field" } },
+        series: [],
+        empty_reason: "Pick a Compare by field to generate the dynamic chart.",
+        total_rows: totalRows,
+      };
+    }
+    if (state.view_mode === "discover") {
+      return {
+        chart_type: "scatter",
+        chart_title: "Compare/Control Scatter",
+        chart_subtitle: "",
+        x_axis: { title: { text: compareLabel } },
+        y_axis: { title: { text: outcomeLabel } },
+        series: [],
+        empty_reason: "Switch View to raw or controlled to plot the selected compare field.",
+        total_rows: totalRows,
+      };
+    }
+    if (!compareInfo) {
+      return {
+        chart_type: "scatter",
+        chart_title: "Compare/Control Scatter",
+        chart_subtitle: "",
+        x_axis: { title: { text: compareLabel } },
+        y_axis: { title: { text: outcomeLabel } },
+        series: [],
+        empty_reason: "Selected compare field is not available in current Compare & Control rows.",
+        total_rows: totalRows,
+      };
+    }
+
+    if (compareInfo.numeric) {
+      const series = buildCompareControlNumericScatterSeries(records, state, catalog);
+      return {
+        chart_type: "scatter",
+        chart_title: "Compare/Control Scatter (" + modeLabel + ", numeric)",
+        chart_subtitle: outcomeLabel + " vs " + compareLabel + splitLabel,
+        x_axis: {
+          title: { text: compareLabel },
+        },
+        y_axis: {
+          title: { text: outcomeLabel },
+        },
+        series,
+        empty_reason: (
+          state.view_mode === "controlled"
+            ? "No comparable numeric rows remained after hold-constant controls."
+            : "No numeric rows had both compare and outcome values."
+        ),
+        total_rows: totalRows,
+      };
+    }
+
+    const categorical = buildCompareControlCategoricalScatterSeries(records, state, catalog);
+    return {
+      chart_type: "scatter",
+      chart_title: "Compare/Control Scatter (" + modeLabel + ", categorical means)",
+      chart_subtitle: "Group outcome means for " + compareLabel + splitLabel,
+      x_axis: {
+        title: { text: compareLabel + " groups" },
+        categories: categorical.categories,
+      },
+      y_axis: {
+        title: { text: outcomeLabel },
+      },
+      series: categorical.series,
+      empty_reason: (
+        state.view_mode === "controlled"
+          ? "No comparable categorical groups remained after hold-constant controls."
+          : "No categorical groups had enough numeric outcome values."
+      ),
+      total_rows: totalRows,
+    };
+  }
+
+  function buildCompareControlBarChartDefinition(context) {
+    const records = Array.isArray(context && context.records) ? context.records : [];
+    const totalRows = Number(
+      (context && context.total_rows) != null
+        ? context.total_rows
+        : records.length
+    );
+    const catalog = context && context.catalog && typeof context.catalog === "object"
+      ? context.catalog
+      : buildCompareControlFieldCatalog(records);
+    const state = normalizeCompareControlState(
+      (context && context.state) || compareControlState
+    );
+    const compareInfo = (context && context.compare_info) || catalog.by_field[state.compare_field];
+    const compareLabel = compareControlFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const modeLabel = state.view_mode === "controlled" ? "Controlled" : "Raw";
+    const splitLabel = state.split_field
+      ? " | split by " + compareControlFieldLabel(state.split_field)
+      : "";
+
+    if (!records.length) {
+      const selectedGroups = uniqueStringList(state.selected_groups)
+        .filter(value => value && value !== "__EMPTY__");
+      const emptyReason = (
+        totalRows > 0 &&
+        selectedGroups.length > 0 &&
+        compareInfo &&
+        !compareInfo.numeric
+      )
+        ? "No rows match the selected Compare & Control group subset."
+        : "No benchmark rows are available for Compare & Control.";
+      return {
+        chart_type: "bar",
+        chart_title: "Compare/Control Bar",
+        chart_subtitle: "",
+        x_axis: { title: { text: "Compare field groups" } },
+        y_axis: { title: { text: "Outcome field" } },
+        series: [],
+        empty_reason: emptyReason,
+        total_rows: totalRows,
+      };
+    }
+    if (!state.compare_field) {
+      return {
+        chart_type: "bar",
+        chart_title: "Compare/Control Bar",
+        chart_subtitle: "",
+        x_axis: { title: { text: "Compare field groups" } },
+        y_axis: { title: { text: "Outcome field" } },
+        series: [],
+        empty_reason: "Pick a Compare by field to generate the dynamic chart.",
+        total_rows: totalRows,
+      };
+    }
+    if (state.view_mode === "discover") {
+      return {
+        chart_type: "bar",
+        chart_title: "Compare/Control Bar",
+        chart_subtitle: "",
+        x_axis: { title: { text: compareLabel + " groups" } },
+        y_axis: { title: { text: outcomeLabel } },
+        series: [],
+        empty_reason: "Switch View to raw or controlled to plot the selected compare field.",
+        total_rows: totalRows,
+      };
+    }
+    if (!compareInfo) {
+      return {
+        chart_type: "bar",
+        chart_title: "Compare/Control Bar",
+        chart_subtitle: "",
+        x_axis: { title: { text: compareLabel + " groups" } },
+        y_axis: { title: { text: outcomeLabel } },
+        series: [],
+        empty_reason: "Selected compare field is not available in current Compare & Control rows.",
+        total_rows: totalRows,
+      };
+    }
+    if (compareInfo.numeric) {
+      return buildCompareControlScatterChartDefinition(context);
+    }
+
+    const categorical = buildCompareControlCategoricalBarSeries(records, state, catalog);
+    return {
+      chart_type: "bar",
+      chart_title: "Compare/Control Bar (" + modeLabel + ", categorical means)",
+      chart_subtitle: "Group outcome means for " + compareLabel + splitLabel,
+      x_axis: {
+        title: { text: compareLabel + " groups" },
+        categories: categorical.categories,
+      },
+      y_axis: {
+        title: { text: outcomeLabel },
+      },
+      series: categorical.series,
+      empty_reason: (
+        state.view_mode === "controlled"
+          ? "No comparable categorical groups remained after hold-constant controls."
+          : "No categorical groups had enough numeric outcome values."
+      ),
+      total_rows: totalRows,
+    };
+  }
+
+  const COMPARE_CONTROL_CHART_BUILDERS = {
+    bar: buildCompareControlBarChartDefinition,
+    scatter: buildCompareControlScatterChartDefinition,
+  };
+
+  function compareControlAutoChartType(sourceState, context) {
+    const state = sourceState && typeof sourceState === "object"
+      ? sourceState
+      : compareControlDefaultState();
+    if (!state.compare_field) return "scatter";
+    if (state.view_mode === "discover") return "scatter";
+    const catalog = context && context.catalog && typeof context.catalog === "object"
+      ? context.catalog
+      : null;
+    const compareInfo = (
+      (context && context.compare_info) ||
+      (catalog && catalog.by_field && catalog.by_field[state.compare_field]) ||
+      null
+    );
+    if (compareInfo && compareInfo.numeric === false) return "bar";
+    return "scatter";
+  }
+
+  function buildCompareControlChartDefinition(context) {
+    const sourceState = normalizeCompareControlState(
+      (context && context.state) || compareControlState
+    );
+    const chartType = compareControlAutoChartType(sourceState, context);
+    const builder = (
+      COMPARE_CONTROL_CHART_BUILDERS[chartType] ||
+      COMPARE_CONTROL_CHART_BUILDERS[COMPARE_CONTROL_DEFAULT_CHART_TYPE]
+    );
+    const built = typeof builder === "function"
+      ? builder({
+        ...(context || Object.create(null)),
+        state: {
+          ...sourceState,
+          chart_type: chartType,
+        },
+      })
+      : null;
+    const records = Array.isArray(context && context.records) ? context.records : [];
+    return {
+      chart_type: chartType,
+      chart_title: String((built && built.chart_title) || "Compare/Control Dynamic Chart"),
+      chart_subtitle: String((built && built.chart_subtitle) || "").trim(),
+      x_axis: built && built.x_axis && typeof built.x_axis === "object"
+        ? built.x_axis
+        : Object.create(null),
+      y_axis: built && built.y_axis && typeof built.y_axis === "object"
+        ? built.y_axis
+        : Object.create(null),
+      series: built && Array.isArray(built.series) ? built.series : [],
+      empty_reason: String((built && built.empty_reason) || "").trim(),
+      total_rows: Number((built && built.total_rows) || records.length || 0),
+    };
+  }
+
+  function renderCompareControlChartHost(config) {
+    const hostId = String((config && config.hostId) || "").trim();
+    if (!hostId) return;
+    const chartHost = document.getElementById(hostId);
+    if (!chartHost) return;
+    const fallback = document.getElementById(String((config && config.fallbackId) || ""));
+    const chartDefinition = config && config.chartDefinition && typeof config.chartDefinition === "object"
+      ? config.chartDefinition
+      : Object.create(null);
+    const series = Array.isArray(chartDefinition.series) ? chartDefinition.series : [];
+    const pointCount = series.reduce(
+      (total, item) => total + (
+        Array.isArray(item && item.data)
+          ? item.data.filter(point => point != null).length
+          : 0
+      ),
+      0,
+    );
+    const totalRows = Number(chartDefinition.total_rows || 0);
+    const chartTitle = String(chartDefinition.chart_title || "Compare/Control Dynamic Chart");
+    const chartSubtitle = String(chartDefinition.chart_subtitle || "").trim();
+    const emptyReason = String(chartDefinition.empty_reason || "").trim();
+    const chartType = normalizeCompareControlChartType(chartDefinition.chart_type);
+    const highchartsChartType = chartType === "bar" ? "column" : "scatter";
+
+    if (pointCount === 0) {
+      destroyBenchmarkTrendChartHost(hostId);
+      chartHost.innerHTML = "";
+      if (fallback) {
+        fallback.hidden = false;
+        fallback.textContent = emptyReason || (
+          totalRows > 0
+            ? "No chart points are available for the current compare/control selection."
+            : "No benchmark rows are available for Compare & Control."
+        );
+      }
+      return;
+    }
+
+    if (!hasHighchartsBasicChart()) {
+      destroyBenchmarkTrendChartHost(hostId);
+      chartHost.innerHTML = "";
+      if (fallback) {
+        fallback.hidden = false;
+        fallback.textContent =
+          "Highcharts did not load, so the compare/control chart is unavailable.";
+      }
+      return;
+    }
+
+    if (fallback) {
+      fallback.hidden = true;
+      fallback.textContent = "";
+    }
+
+    const measuredHostWidth = Math.floor(
+      Number(chartHost.clientWidth || 0) ||
+      Number(
+        typeof chartHost.getBoundingClientRect === "function"
+          ? chartHost.getBoundingClientRect().width
+          : 0
+      )
+    );
+    const chartWidth = (
+      Number.isFinite(measuredHostWidth) && measuredHostWidth > 0
+    ) ? measuredHostWidth : null;
+    const chartConfig = {
+      type: highchartsChartType,
+      height: 800,
+    };
+    if (chartWidth != null) {
+      chartConfig.width = chartWidth;
+    }
+
+    const xAxisConfig = chartDefinition.x_axis && typeof chartDefinition.x_axis === "object"
+      ? { ...chartDefinition.x_axis }
+      : Object.create(null);
+    if (!xAxisConfig.title || typeof xAxisConfig.title !== "object") {
+      xAxisConfig.title = { text: "Compare field" };
+    }
+    const rawYAxis = chartDefinition.y_axis;
+    const yAxisConfigs = Array.isArray(rawYAxis)
+      ? rawYAxis
+          .map(item => (item && typeof item === "object" ? { ...item } : Object.create(null)))
+      : [
+        rawYAxis && typeof rawYAxis === "object"
+          ? { ...rawYAxis }
+          : Object.create(null),
+      ];
+    const normalizedYAxisConfigs = yAxisConfigs.map((axis, axisIdx) => {
+      const next = axis && typeof axis === "object" ? { ...axis } : Object.create(null);
+      if (!next.title || typeof next.title !== "object") {
+        next.title = { text: axisIdx === 0 ? "Outcome field" : "Outcome field (set 2)" };
+      }
+      if (chartType === "bar") {
+        next.gridLineColor = "#eef1f4";
+        next.gridLineWidth = 1;
+      }
+      return next;
+    });
+
+    const chartOptions = {
+      chart: chartConfig,
+      credits: { enabled: false },
+      title: {
+        text: chartTitle,
+        style: chartType === "bar"
+          ? {
+            color: "#4f5d68",
+            fontSize: "1.45rem",
+            fontWeight: "600",
+          }
+          : undefined,
+      },
+      legend: { enabled: true },
+      xAxis: xAxisConfig,
+      yAxis: normalizedYAxisConfigs.length === 1
+        ? normalizedYAxisConfigs[0]
+        : normalizedYAxisConfigs,
+      tooltip: {
+        shared: false,
+        useHTML: true,
+        formatter: function() {
+          const point =
+            this.point ||
+            (Array.isArray(this.points) && this.points.length ? this.points[0].point : null);
+          if (!point) return false;
+          const custom = (point.options && point.options.custom) || point.custom || {};
+          const seriesName = String(
+            (point.series && point.series.name) || "series"
+          ).trim();
+          const compareLabel = String(custom.compareLabel || "Compare").trim();
+          const outcomeLabel = String(custom.outcomeLabel || "Outcome").trim();
+          const compareValueRaw = custom.compareValue != null
+            ? custom.compareValue
+            : (
+              point.category != null
+                ? point.category
+                : (Number.isFinite(Number(point.x)) ? Number(point.x) : "")
+            );
+          const outcomeValueRaw = custom.outcomeValue != null
+            ? custom.outcomeValue
+            : (Number.isFinite(Number(point.y)) ? Number(point.y) : "");
+          const outcomeNumber = maybeNumber(outcomeValueRaw);
+          const outcomeText = outcomeNumber == null
+            ? String(outcomeValueRaw == null ? "-" : outcomeValueRaw)
+            : fmtMaybe(outcomeNumber, 4);
+          let html = (
+            '<span style="font-size: 0.85rem"><b>' +
+            esc(seriesName) +
+            "</b></span><br/>"
+          );
+          html += (
+            "<span><b>" + esc(compareLabel) + ":</b> " +
+            esc(String(compareValueRaw == null ? "-" : compareValueRaw)) +
+            "</span><br/>"
+          );
+          html += (
+            "<span><b>" + esc(outcomeLabel) + ":</b> " +
+            esc(String(outcomeText)) +
+            "</span><br/>"
+          );
+          if (custom.groupCount != null) {
+            html += "<span><b>Rows:</b> " + esc(String(custom.groupCount)) + "</span><br/>";
+          }
+          if (custom.sourceLabel) {
+            html += "<span><b>Book:</b> " + esc(String(custom.sourceLabel)) + "</span><br/>";
+          }
+          if (custom.variant) {
+            html += "<span><b>Variant:</b> " + esc(String(custom.variant)) + "</span><br/>";
+          }
+          if (custom.runTimestamp) {
+            html += "<span><b>Eval row:</b> " + esc(String(custom.runTimestamp)) + "</span><br/>";
+          }
+          return html;
+        },
+      },
+      plotOptions: {
+        column: {
+          borderWidth: 1,
+          borderColor: "rgba(108, 120, 131, 0.24)",
+          borderRadius: 4,
+          pointPadding: 0.2,
+          groupPadding: 0.28,
+          states: {
+            hover: {
+              brightness: 0.02,
+            },
+          },
+        },
+        scatter: {
+          marker: {
+            symbol: "circle",
+          },
+        },
+      },
+      series,
+    };
+    if (chartSubtitle) {
+      chartOptions.subtitle = {
+        text: chartSubtitle,
+        style: chartType === "bar"
+          ? {
+            color: "#73808b",
+            fontSize: "0.9rem",
+            fontWeight: "500",
+          }
+          : undefined,
+      };
+    }
+
+    destroyBenchmarkTrendChartHost(hostId);
+    chartHost.innerHTML = "";
+    const nextChart = window.Highcharts.chart(hostId, chartOptions);
+    if (nextChart && typeof nextChart.destroy === "function") {
+      benchmarkTrendChartsByHostId[hostId] = nextChart;
+    }
+  }
+
+  function compareControlChartPlaceholder(totalRows, emptyReason) {
+    return {
+      chart_type: "scatter",
+      chart_title: "Compare/Control Scatter",
+      chart_subtitle: "",
+      x_axis: { title: { text: "Compare field" } },
+      y_axis: { title: { text: "Outcome field" } },
+      series: [],
+      empty_reason: String(emptyReason || ""),
+      total_rows: Number(totalRows || 0),
+    };
+  }
+
+  function compareControlChartPointCount(definition) {
+    const chartDefinition = definition && typeof definition === "object"
+      ? definition
+      : Object.create(null);
+    const series = Array.isArray(chartDefinition.series) ? chartDefinition.series : [];
+    return series.reduce((total, item) => {
+      const data = Array.isArray(item && item.data) ? item.data : [];
+      return total + data.filter(point => point != null).length;
+    }, 0);
+  }
+
+  function remapCompareControlSeriesToCategories(seriesList, sourceCategories, targetCategories) {
+    const source = Array.isArray(sourceCategories) ? sourceCategories : [];
+    const target = Array.isArray(targetCategories) ? targetCategories : [];
+    if (!source.length || !target.length) {
+      return Array.isArray(seriesList) ? seriesList : [];
+    }
+    const targetIndexByCategory = new Map();
+    target.forEach((label, idx) => {
+      const key = String(label || "");
+      if (!targetIndexByCategory.has(key)) {
+        targetIndexByCategory.set(key, idx);
+      }
+    });
+    return (Array.isArray(seriesList) ? seriesList : []).map(series => {
+      const nextSeries = series && typeof series === "object"
+        ? { ...series }
+        : Object.create(null);
+      const sourceData = Array.isArray(nextSeries.data) ? nextSeries.data : [];
+      const mapped = new Array(target.length).fill(null);
+      source.forEach((category, sourceIdx) => {
+        const targetIdx = targetIndexByCategory.get(String(category || ""));
+        if (targetIdx == null) return;
+        mapped[targetIdx] = sourceIdx < sourceData.length ? sourceData[sourceIdx] : null;
+      });
+      nextSeries.data = mapped;
+      return nextSeries;
+    });
+  }
+
+  function compareControlChartDefinitionForSet(records, totalRows, setKey) {
+    const key = setKey === "secondary" ? "secondary" : "primary";
+    const rows = Array.isArray(records) ? records : [];
+    const total = Number(totalRows || rows.length || 0);
+    const catalog = buildCompareControlFieldCatalog(rows);
+    const normalizedState = normalizeCompareControlStateForCatalog(
+      compareControlStateForSet(key),
+      catalog
+    );
+    setCompareControlStateForSet(key, normalizedState);
+    const state = compareControlStateForSet(key);
+    const compareInfo = catalog.by_field[state.compare_field];
+    if (
+      !compareControlChartActivatedForSet(key) &&
+      shouldAutoActivateCompareControlChart(state, compareInfo)
+    ) {
+      activateCompareControlChartForSet(key);
+    }
+    if (!compareControlChartActivatedForSet(key)) {
+      return compareControlChartPlaceholder(
+        total,
+        "Use Compare & Control selections above to generate this chart."
+      );
+    }
+    const scopedRows = compareControlRecordsForState(rows, state, catalog);
+    return buildCompareControlChartDefinition({
+      records: scopedRows,
+      total_rows: total,
+      state,
+      catalog,
+      compare_info: compareInfo,
+    });
+  }
+
+  function buildCombinedCompareControlChartDefinition(primaryDefinition, secondaryDefinition) {
+    const primary = primaryDefinition && typeof primaryDefinition === "object"
+      ? primaryDefinition
+      : Object.create(null);
+    const secondary = secondaryDefinition && typeof secondaryDefinition === "object"
+      ? secondaryDefinition
+      : Object.create(null);
+    const primaryPoints = compareControlChartPointCount(primary);
+    const secondaryPoints = compareControlChartPointCount(secondary);
+    const totalRows = Math.max(
+      Number(primary.total_rows || 0),
+      Number(secondary.total_rows || 0),
+    );
+    if (!primaryPoints || !secondaryPoints) {
+      return compareControlChartPlaceholder(
+        totalRows,
+        "Both sets need chart points before combined mode can render."
+      );
+    }
+
+    const primaryCategories = Array.isArray(primary.x_axis && primary.x_axis.categories)
+      ? primary.x_axis.categories.map(value => String(value || ""))
+      : [];
+    const secondaryCategories = Array.isArray(secondary.x_axis && secondary.x_axis.categories)
+      ? secondary.x_axis.categories.map(value => String(value || ""))
+      : [];
+    const primaryHasCategories = primaryCategories.length > 0;
+    const secondaryHasCategories = secondaryCategories.length > 0;
+    if (primaryHasCategories !== secondaryHasCategories) {
+      return compareControlChartPlaceholder(
+        totalRows,
+        "Combined mode is not available when one set is categorical and the other is numeric."
+      );
+    }
+
+    let mergedCategories = [];
+    if (primaryHasCategories && secondaryHasCategories) {
+      const mergedSet = new Set([...primaryCategories, ...secondaryCategories]);
+      mergedCategories = Array.from(mergedSet);
+    }
+
+    const primarySeries = (Array.isArray(primary.series) ? primary.series : []).map(series => ({
+      ...(series && typeof series === "object" ? series : Object.create(null)),
+      name: "Set 1 - " + String((series && series.name) || "series"),
+    }));
+    const secondarySeries = (Array.isArray(secondary.series) ? secondary.series : []).map(series => ({
+      ...(series && typeof series === "object" ? series : Object.create(null)),
+      name: "Set 2 - " + String((series && series.name) || "series"),
+      yAxis: normalizeCompareControlCombinedAxisMode(compareControlCombinedAxisMode) === "dual" ? 1 : 0,
+    }));
+
+    const remappedPrimarySeries = mergedCategories.length
+      ? remapCompareControlSeriesToCategories(primarySeries, primaryCategories, mergedCategories)
+      : primarySeries;
+    const remappedSecondarySeries = mergedCategories.length
+      ? remapCompareControlSeriesToCategories(secondarySeries, secondaryCategories, mergedCategories)
+      : secondarySeries;
+    const combinedSeries = [...remappedPrimarySeries, ...remappedSecondarySeries];
+
+    const combinedChartType = (
+      String(primary.chart_type || "") === "bar" &&
+      String(secondary.chart_type || "") === "bar"
+    )
+      ? "bar"
+      : "scatter";
+
+    const xAxisBase = (
+      primary.x_axis && typeof primary.x_axis === "object"
+        ? { ...primary.x_axis }
+        : Object.create(null)
+    );
+    if (mergedCategories.length) {
+      xAxisBase.categories = mergedCategories;
+      if (!xAxisBase.title || typeof xAxisBase.title !== "object") {
+        xAxisBase.title = { text: "Compare groups (merged)" };
+      }
+    }
+    const primaryYAxis = (
+      primary.y_axis && typeof primary.y_axis === "object"
+        ? { ...primary.y_axis }
+        : { title: { text: "Outcome (set 1)" } }
+    );
+    if (!primaryYAxis.title || typeof primaryYAxis.title !== "object") {
+      primaryYAxis.title = { text: "Outcome (set 1)" };
+    }
+
+    const axisMode = normalizeCompareControlCombinedAxisMode(compareControlCombinedAxisMode);
+    let yAxis;
+    if (axisMode === "dual") {
+      const secondaryYAxis = (
+        secondary.y_axis && typeof secondary.y_axis === "object"
+          ? { ...secondary.y_axis }
+          : { title: { text: "Outcome (set 2)" } }
+      );
+      if (!secondaryYAxis.title || typeof secondaryYAxis.title !== "object") {
+        secondaryYAxis.title = { text: "Outcome (set 2)" };
+      }
+      secondaryYAxis.opposite = true;
+      yAxis = [primaryYAxis, secondaryYAxis];
+    } else {
+      yAxis = primaryYAxis;
+    }
+
+    return {
+      chart_type: combinedChartType,
+      chart_title: "Compare/Control Combined Chart",
+      chart_subtitle:
+        axisMode === "dual"
+          ? "Set 1 (left axis) + Set 2 (right axis)"
+          : "Set 1 + Set 2 on a shared Y axis",
+      x_axis: xAxisBase,
+      y_axis: yAxis,
+      series: combinedSeries,
+      empty_reason: "",
+      total_rows: totalRows,
+    };
+  }
+
+  function clearCompareControlChartHost(hostId, fallbackId, reason) {
+    renderCompareControlChartHost({
+      hostId,
+      fallbackId,
+      chartDefinition: compareControlChartPlaceholder(0, reason || ""),
+    });
+  }
+
+  function renderCompareControlDynamicChartForSet(records, totalRows, config) {
+    const cfg = config && typeof config === "object" ? config : Object.create(null);
+    const setKey = cfg.set_key === "secondary" ? "secondary" : "primary";
+    const chartDefinition = compareControlChartDefinitionForSet(records, totalRows, setKey);
+    renderCompareControlChartHost({
+      hostId: String(cfg.host_id || ""),
+      fallbackId: String(cfg.fallback_id || ""),
+      chartDefinition,
+    });
+    return chartDefinition;
+  }
+
+  function renderCompareControlDynamicChart(records, totalRows) {
+    return renderCompareControlDynamicChartForSet(records, totalRows, {
+      set_key: "primary",
+      host_id: "compare-control-trend-chart",
+      fallback_id: "compare-control-trend-fallback",
+    });
+  }
+
+  function compareControlSourceRecords() {
+    return filteredBenchmarks();
+  }
+
+  function renderCompareControlSection() {
+    const records = compareControlSourceRecords();
+    syncCompareControlLayoutChrome();
+    renderCompareControlPanel(
+      { records },
+      {
+        set_key: "primary",
+      }
+    );
+    if (compareControlSecondSetEnabled) {
+      renderCompareControlPanel(
+        { records },
+        {
+          set_key: "secondary",
+        }
+      );
+    } else {
+      const secondaryStatus = document.getElementById("compare-control-status-secondary");
+      const secondaryResults = document.getElementById("compare-control-results-secondary");
+      const secondaryGroups = document.getElementById("compare-control-group-selection-secondary");
+      if (secondaryStatus) {
+        secondaryStatus.textContent = "";
+        secondaryStatus.classList.remove("error");
+      }
+      if (secondaryResults) secondaryResults.innerHTML = "";
+      if (secondaryGroups) secondaryGroups.innerHTML = "";
+    }
+
+    const primaryChartDefinition = compareControlChartDefinitionForSet(
+      records,
+      records.length,
+      "primary"
+    );
+    const layout = compareControlSecondSetEnabled
+      ? normalizeCompareControlChartLayout(compareControlChartLayout)
+      : COMPARE_CONTROL_DEFAULT_CHART_LAYOUT;
+
+    if (!compareControlSecondSetEnabled) {
+      renderCompareControlChartHost({
+        hostId: "compare-control-trend-chart",
+        fallbackId: "compare-control-trend-fallback",
+        chartDefinition: primaryChartDefinition,
+      });
+      clearCompareControlChartHost(
+        "compare-control-trend-chart-secondary",
+        "compare-control-trend-fallback-secondary",
+        ""
+      );
+      clearCompareControlChartHost(
+        "compare-control-trend-chart-combined",
+        "compare-control-trend-fallback-combined",
+        ""
+      );
+      return;
+    }
+
+    const secondaryChartDefinition = compareControlChartDefinitionForSet(
+      records,
+      records.length,
+      "secondary"
+    );
+
+    if (layout === "combined") {
+      const combined = buildCombinedCompareControlChartDefinition(
+        primaryChartDefinition,
+        secondaryChartDefinition
+      );
+      clearCompareControlChartHost(
+        "compare-control-trend-chart",
+        "compare-control-trend-fallback",
+        ""
+      );
+      clearCompareControlChartHost(
+        "compare-control-trend-chart-secondary",
+        "compare-control-trend-fallback-secondary",
+        ""
+      );
+      renderCompareControlChartHost({
+        hostId: "compare-control-trend-chart-combined",
+        fallbackId: "compare-control-trend-fallback-combined",
+        chartDefinition: combined,
+      });
+      return;
+    }
+
+    clearCompareControlChartHost(
+      "compare-control-trend-chart-combined",
+      "compare-control-trend-fallback-combined",
+      ""
+    );
+    renderCompareControlChartHost({
+      hostId: "compare-control-trend-chart",
+      fallbackId: "compare-control-trend-fallback",
+      chartDefinition: primaryChartDefinition,
+    });
+    renderCompareControlChartHost({
+      hostId: "compare-control-trend-chart-secondary",
+      fallbackId: "compare-control-trend-fallback-secondary",
+      chartDefinition: secondaryChartDefinition,
+    });
+  }
+
   function renderBenchmarkTrendChartHost(config) {
     const hostId = String((config && config.hostId) || "").trim();
     if (!hostId) return;
@@ -8729,6 +11236,12 @@ _JS = """\
         ],
         selected: 5,
         inputEnabled: false,
+      },
+      navigator: {
+        enabled: false,
+      },
+      scrollbar: {
+        enabled: false,
       },
       xAxis: xAxisConfig,
       yAxis: [
@@ -8862,17 +11375,54 @@ _JS = """\
       emptyReason,
     });
 
-    renderBenchmarkTrendChartHost({
-      hostId: "compare-control-trend-chart",
-      fallbackId: "compare-control-trend-fallback",
-      records: sorted,
-      totalRows: filterResult.total,
-      trendSeries,
-      timelineMin,
-      timelineMax,
-      chartTitle: "Compare/Control Benchmark Score Trends",
-      emptyReason,
-    });
+  }
+
+  function requestBenchmarkTrendResizeRender() {
+    if (benchmarkTrendResizeRafId != null) return;
+    const hasAnimationFrame = (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    );
+    if (hasAnimationFrame) {
+      benchmarkTrendResizeRafId = window.requestAnimationFrame(() => {
+        benchmarkTrendResizeRafId = null;
+        renderBenchmarkTrendChart();
+        renderCompareControlSection();
+      });
+      return;
+    }
+    benchmarkTrendResizeRafId = 1;
+    setTimeout(() => {
+      benchmarkTrendResizeRafId = null;
+      renderBenchmarkTrendChart();
+      renderCompareControlSection();
+    }, 80);
+  }
+
+  function handleDashboardWindowResize() {
+    if (typeof window === "undefined") return;
+    const nextWidth = Math.max(0, Math.floor(Number(window.innerWidth || 0)));
+    if (nextWidth <= 0 || nextWidth === lastKnownViewportWidth) {
+      return;
+    }
+    lastKnownViewportWidth = nextWidth;
+    requestBenchmarkTrendResizeRender();
+  }
+
+  function setupDashboardResizeHandlers() {
+    if (dashboardResizeHandlersBound) return;
+    if (
+      typeof window === "undefined" ||
+      typeof window.addEventListener !== "function"
+    ) {
+      return;
+    }
+    dashboardResizeHandlersBound = true;
+    lastKnownViewportWidth = Math.max(
+      0,
+      Math.floor(Number(window.innerWidth || 0))
+    );
+    window.addEventListener("resize", handleDashboardWindowResize, { passive: true });
   }
 
   function setAllTableCollapsedState(collapsed) {
@@ -8999,6 +11549,15 @@ _JS = """\
   function fmtMaybe(value, digits) {
     if (value == null || Number.isNaN(value)) return "-";
     return Number(value).toFixed(digits);
+  }
+
+  function compareControlTableNumber(value, smallDigits) {
+    const numeric = maybeNumber(value);
+    if (numeric == null) return "-";
+    if (Math.abs(numeric) > 5) {
+      return Math.round(numeric).toLocaleString("en-US");
+    }
+    return fmtMaybe(numeric, smallDigits);
   }
 
   function latestTimestampLabel(records) {
@@ -9429,8 +11988,11 @@ _JS = """\
       titleText.textContent = (meta.label || fieldName) + sortIndicator;
       titleWrap.appendChild(titleText);
       th.appendChild(titleWrap);
-
-      th.title = (meta.title || fieldName) + " Click to sort A→Z / Z→A.";
+      setMetricTooltipTarget(th, fieldName, meta.title || fieldName);
+      th.setAttribute(
+        "aria-label",
+        (meta.label || fieldName) + ". Click to sort A to Z / Z to A."
+      );
       th.classList.add("previous-runs-draggable");
       th.draggable = true;
       if (meta.numeric) {
@@ -9543,10 +12105,26 @@ _JS = """\
         filterClauses.forEach((clause, clauseIndex) => {
           const summaryItem = document.createElement("div");
           summaryItem.className = "previous-runs-column-filter-summary-item";
-          const summaryText = document.createElement("span");
+          const summaryEditBtn = document.createElement("button");
+          summaryEditBtn.type = "button";
+          summaryEditBtn.className = "previous-runs-column-filter-summary-edit";
           const prefix = clauseIndex > 0 ? joinLabel + " " : "";
-          summaryText.textContent = prefix + formatPreviousRunsColumnFilterSummary(fieldName, clause);
-          summaryItem.appendChild(summaryText);
+          summaryEditBtn.textContent = prefix + formatPreviousRunsColumnFilterSummary(fieldName, clause);
+          summaryEditBtn.setAttribute("aria-label", "Edit filter " + String(clauseIndex + 1));
+          summaryEditBtn.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            openPreviousRunsColumnFilterEditor(
+              fieldName,
+              {
+                operator: clause.operator,
+                value: clause.value,
+                edit_index: clauseIndex,
+              },
+            );
+            renderPreviousRuns();
+          });
+          summaryItem.appendChild(summaryEditBtn);
           const summaryRemoveBtn = document.createElement("button");
           summaryRemoveBtn.type = "button";
           summaryRemoveBtn.className = "previous-runs-column-filter-summary-remove";
@@ -9593,10 +12171,14 @@ _JS = """\
         const popover = document.createElement("div");
         popover.className = "previous-runs-column-filter-popover";
         const columnMode = previousRunsColumnFilterMode(fieldName);
+        const editClauseIndex = Number.isInteger(draftState.edit_index)
+          ? draftState.edit_index
+          : null;
 
         const popoverTitle = document.createElement("div");
         popoverTitle.className = "previous-runs-column-filter-popover-title";
-        popoverTitle.textContent = (meta.label || fieldName) + " filter";
+        popoverTitle.textContent = (meta.label || fieldName)
+          + (draftState.editing ? " filter (edit)" : " filter");
         popover.appendChild(popoverTitle);
 
         const modeWrap = document.createElement("div");
@@ -9753,7 +12335,16 @@ _JS = """\
         }
 
         function applyFilterAndClose() {
-          addPreviousRunsColumnFilter(fieldName, operatorSelect.value || "contains", valueInput.value || "");
+          if (editClauseIndex != null) {
+            updatePreviousRunsColumnFilterAt(
+              fieldName,
+              editClauseIndex,
+              operatorSelect.value || "contains",
+              valueInput.value || "",
+            );
+          } else {
+            addPreviousRunsColumnFilter(fieldName, operatorSelect.value || "contains", valueInput.value || "");
+          }
           closePreviousRunsColumnFilterEditor();
           renderAll();
         }
@@ -11305,16 +13896,16 @@ _JS = """\
     div.innerHTML =
       contextHtml +
       '<table id="boundary-table"><thead><tr><th>Category</th><th>Count</th><th>% of gold</th></tr></thead><tbody>' +
-      '<tr><td title="Prediction span matches gold boundaries exactly.">Correct</td><td class="num">' + (boundaryCorrect != null ? boundaryCorrect : "-") + '</td><td class="num">' + pctGold(boundaryCorrect) + '</td></tr>' +
-      '<tr><td title="Prediction fully contains the gold span (too wide).">Over-segmented</td><td class="num">' + (boundaryOver != null ? boundaryOver : "-") + '</td><td class="num">' + pctGold(boundaryOver) + '</td></tr>' +
-      '<tr><td title="Prediction is fully inside the gold span (too narrow).">Under-segmented</td><td class="num">' + (boundaryUnder != null ? boundaryUnder : "-") + '</td><td class="num">' + pctGold(boundaryUnder) + '</td></tr>' +
-      '<tr><td title="Prediction overlaps but boundaries are misaligned.">Partial</td><td class="num">' + (boundaryPartial != null ? boundaryPartial : "-") + '</td><td class="num">' + pctGold(boundaryPartial) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="boundary_correct" title="Prediction span matches gold boundaries exactly.">Correct</td><td class="num">' + (boundaryCorrect != null ? boundaryCorrect : "-") + '</td><td class="num">' + pctGold(boundaryCorrect) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="boundary_over" title="Prediction fully contains the gold span (too wide).">Over-segmented</td><td class="num">' + (boundaryOver != null ? boundaryOver : "-") + '</td><td class="num">' + pctGold(boundaryOver) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="boundary_under" title="Prediction is fully inside the gold span (too narrow).">Under-segmented</td><td class="num">' + (boundaryUnder != null ? boundaryUnder : "-") + '</td><td class="num">' + pctGold(boundaryUnder) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="boundary_partial" title="Prediction overlaps but boundaries are misaligned.">Partial</td><td class="num">' + (boundaryPartial != null ? boundaryPartial : "-") + '</td><td class="num">' + pctGold(boundaryPartial) + '</td></tr>' +
       (
         matchedButUnclassified != null
-          ? '<tr><td title="Gold spans counted as matched overall but not assigned to a boundary bucket.">Matched (boundary unclassified)</td><td class="num">' + matchedButUnclassified + '</td><td class="num">' + pctGold(matchedButUnclassified) + '</td></tr>'
+          ? '<tr><td data-metric-tooltip-key="boundary_unclassified" title="Gold spans counted as matched overall but not assigned to a boundary bucket.">Matched (boundary unclassified)</td><td class="num">' + matchedButUnclassified + '</td><td class="num">' + pctGold(matchedButUnclassified) + '</td></tr>'
           : ""
       ) +
-      '<tr><td title="Gold spans not matched by prediction.">Unmatched gold spans</td><td class="num">' + (unmatchedGold != null ? unmatchedGold : "-") + '</td><td class="num">' + pctGold(unmatchedGold) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="gold_unmatched" title="Gold spans not matched by prediction.">Unmatched gold spans</td><td class="num">' + (unmatchedGold != null ? unmatchedGold : "-") + '</td><td class="num">' + pctGold(unmatchedGold) + '</td></tr>' +
       '</tbody></table>';
   }
 
@@ -11362,17 +13953,17 @@ _JS = """\
       "Benchmark Runtime (" + esc(runGroupLabel) + ", " + runGroupRecordCount + " evals)";
     summary.innerHTML =
       '<table id="runtime-table"><tbody>' +
-      '<tr><td>Model</td><td>' + esc(model || (pipelineOff ? "off" : "-")) + '</td></tr>' +
-      '<tr><td>Thinking Effort</td><td>' + esc(effort || (pipelineOff ? "n/a (pipeline off)" : "-")) + '</td></tr>' +
-      '<tr><td>Pipeline</td><td>' + esc(pipelineMode || "-") + '</td></tr>' +
-      '<tr><td>Token use</td><td>' + esc(totalTokenUse) + '</td></tr>' +
-      '<tr><td>Quality metric</td><td>' + esc(qualityMetricKey || "-") + '</td></tr>' +
-      '<tr><td>Quality / 1M tokens</td><td>' + esc(qualityPerMillionTokensDisplay) + '</td></tr>' +
-      '<tr><td>Delta quality vs vanilla</td><td>' + esc(qualityDeltaVsVanillaDisplay) + '</td></tr>' +
-      '<tr><td>Delta quality / 1M extra tokens vs vanilla</td><td>' + esc(qualityDeltaPerMillionExtraTokensVsVanillaDisplay) + '</td></tr>' +
-      '<tr><td>Quality/tokens vs peers</td><td>' + esc(qualityPeerSummary) + '</td></tr>' +
-      '<tr><td>Source</td><td title="' + esc(sourceTitle) + '">' + esc(sourceLabel || "-") + '</td></tr>' +
-      '<tr><td>Importer</td><td>' + esc(runtimeSummary.importerLabel || "-") + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="ai_model">Model</td><td>' + esc(model || (pipelineOff ? "off" : "-")) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="ai_effort">Thinking Effort</td><td>' + esc(effort || (pipelineOff ? "n/a (pipeline off)" : "-")) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="run_config.llm_recipe_pipeline">Pipeline</td><td>' + esc(pipelineMode || "-") + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="all_token_use">Token use</td><td>' + esc(totalTokenUse) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="' + esc(qualityMetricKey || "strict_accuracy") + '">Quality metric</td><td>' + esc(qualityMetricKey || "-") + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="quality_per_million_tokens">Quality / 1M tokens</td><td>' + esc(qualityPerMillionTokensDisplay) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="strict_accuracy">Delta quality vs vanilla</td><td>' + esc(qualityDeltaVsVanillaDisplay) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="quality_per_million_tokens">Delta quality / 1M extra tokens vs vanilla</td><td>' + esc(qualityDeltaPerMillionExtraTokensVsVanillaDisplay) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="quality_per_million_tokens">Quality/tokens vs peers</td><td>' + esc(qualityPeerSummary) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="source_label">Source</td><td title="' + esc(sourceTitle) + '">' + esc(sourceLabel || "-") + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="importer_name">Importer</td><td>' + esc(runtimeSummary.importerLabel || "-") + '</td></tr>' +
       '</tbody></table>';
   }
 
@@ -11534,6 +14125,15 @@ _JS = """\
     if (benchmarkVariantForRecord(record) === "vanilla") return null;
     return rawAiModelForRecord(record);
   }
+  function codexRuntimeErrorForRecord(record) {
+    if (benchmarkVariantForRecord(record) === "vanilla") return null;
+    return runConfigValue(record, [
+      "codex_farm_runtime_error",
+      "codex_farm_fatal_error",
+      "codex_farm_error",
+      "fatal_error",
+    ]);
+  }
   function aiEffortForRecord(record) {
     if (benchmarkVariantForRecord(record) === "vanilla") return null;
     return rawAiEffortForRecord(record);
@@ -11553,6 +14153,8 @@ _JS = """\
     return "-";
   }
   function aiModelLabelForRecord(record) {
+    const runtimeError = codexRuntimeErrorForRecord(record);
+    if (runtimeError) return "System error";
     const model = aiModelForRecord(record);
     if (model) return model;
     const pipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
@@ -11560,8 +14162,11 @@ _JS = """\
     return "-";
   }
   function aiEffortLabelForRecord(record) {
+    const runtimeError = codexRuntimeErrorForRecord(record);
+    if (runtimeError) return "AI off";
     const effort = aiEffortForRecord(record);
     if (effort) return effort;
+    if (benchmarkVariantForRecord(record) === "vanilla") return "AI off";
     return "-";
   }
   function basename(path) {

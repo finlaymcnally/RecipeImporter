@@ -198,15 +198,17 @@ Benchmark scan details:
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
-  - `AI Effort` shows only concrete effort values; placeholders (`<default>`, `default`) are treated as missing in the UI.
+  - `AI Model` renders `System error` when collector manifest enrichment finds a Codex runtime fatal error (`llm_codex_farm.fatalError`/equivalent), so failed fallback runs are visually distinct from successful model runs.
+  - `AI Effort` shows concrete effort values when present; `AI off` is shown for vanilla/pipeline-off runs and codex runtime failures, and `-` is used for unknown/missing effort (`<default>`, `default`, etc.).
   - `All token use` and `Quality / 1M tokens` are part of the default `Previous Runs` columns.
   - `All token use` displays combined `total | input | output` with compact `k`/`m` formatting for large values.
+  - Missing/blank token telemetry is treated as unknown (`-` in UI) rather than coerced to numeric zero; explicit zero token values still render as `0`.
   - `Quality / 1M tokens` computes preferred quality (`strict_accuracy`, then `macro_f1_excluding_other`, then `f1`) divided by discounted token total and scaled per 1,000,000 tokens (higher is better).
   - Sorting/filtering `All token use` uses the discounted numeric total (`all_token_use`), not raw `tokens_total`.
   - Detailed token columns (`Tokens In`, `Tokens Cached In`, `Tokens Out`, `Tokens Reasoning`, `Tokens Total`) remain available through the `+/-` column picker.
 - Benchmark CSV appends now persist `importer_name`; dashboard still infers importer from source-path/run-config for historical rows where CSV importer is blank.
-- `Previous Runs` now supports per-column stacked filters via a compact `+/-` editor toggle in the first row beneath headers; each save appends a clause for that column (instead of replacing), active clauses can be removed individually via `×` in the popup, and each column stack has an `AND/OR` mode toggle. Active filter summaries in that row render one clause per line with a per-clause `X` remove button. Non-numeric popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
-- Previous Runs table UI state is now browser-persistent (`localStorage`) for column visibility/order/width, column filters, quick-filter checkboxes, compare/control state (`outcome_field`, `compare_field`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`), sort order, and named view presets, so these customizations survive dashboard HTML rebuilds at the same dashboard path.
+- `Previous Runs` now supports per-column stacked filters via a compact `+/-` editor toggle in the first row beneath headers; each save appends a clause for that column (instead of replacing), active clauses can be removed individually via `×` in the popup, and each column stack has an `AND/OR` mode toggle. Active filter summaries in that row render one clause per line with a per-clause `X` remove button, and clicking the clause text reopens the editor prefilled for in-place edits. Non-numeric popup value fields provide typeahead suggestions from that column, `Tab` accepts the top suggestion, and saving closes the popup while leaving a summary badge in-row. Header rows render in order: column names, filter row, then a blank spacer row before data. The same filtered dataset is applied to the score trend chart.
+- Previous Runs table UI state is now browser-persistent (`localStorage`) for column visibility/order/width, column filters, quick-filter checkboxes, compare/control state (`outcome_field`, `compare_field`, `chart_type`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`, `second_set_enabled`, `second_set`, `chart_layout`, `combined_axis_mode`), sort order, and named view presets, so these customizations survive dashboard HTML rebuilds at the same dashboard path.
 - `Isolate For X` was removed from `Previous Runs`; slicing is now done through Quick Filters and table column filters only.
 - Older saved dashboard payloads/presets that still include isolate keys are tolerated on load; isolate keys are ignored and do not mutate current table filters.
 - `Compare & Control` is now a sibling panel in `Previous Runs` with three modes:
@@ -216,10 +218,18 @@ Benchmark scan details:
 - Compare/control secondary metrics now skip constant-valued fields (including all-zero timing columns) so per-group summaries avoid misleading `0.000` side stats.
 - `Previous Runs` now renders as two UI subsections:
   - `History Table & Trend` (primary trend chart + quick filters + table),
-  - `Compare & Control Analysis` (compare/control panel + second trend-chart clone over the same filtered row set).
+  - `Compare & Control Analysis` (compare/control panel + dynamic chart generated from current compare/control state and visible rows).
+- Compare/control chart stays blank on load/restore only when no valid compare selection is active; saved valid non-discover compare selections render automatically.
+- Compare/control chart generation auto-selects by compare-field type (numeric -> scatter, categorical -> bars) and stays builder-based (`buildCompareControlChartDefinition` + chart-type builders), so future chart types can be added without replacing host/render wiring.
+- Compare/control supports two concurrent sets:
+  - Set 2 expands from the right and the controls split left/right with a taller workspace.
+  - per-set analysis tables remain stacked full-width with per-set shading (not side-by-side/squished).
+  - chart layout can be `stacked`, `side_by_side`, or `combined`; combined mode can run with shared Y-axis or dual Y-axes (left/right) when compatible.
+- Categorical compare/control bars are rendered with a calm pastel per-group palette and lighter column styling for lower visual weight.
+- Categorical compare/control bar colors use deterministic compare-field+category hashing, so mapping stays consistent when local subsets, filters, or category frequencies change.
 - `Compare & Control` also has a `Reset` action that restores default panel state without touching table filters.
 - `Compare & Control` supports optional split-by segmentation (categorical buckets or equal-count numeric bins plus missing bucket).
-- `Filter to subset` from `Compare & Control` writes selected categorical groups into existing table column filters (no separate filter engine).
+- `Apply local subset` from `Compare & Control` is local-only; selected groups do not mutate Previous Runs table filters.
 - `Previous Runs` column filters now include a global `Across columns` combine mode (`AND` / `OR`) so cross-column OR is supported natively.
 - `Quick Filters` now includes inline `View presets` controls (`Load`, `Save current view`, `Delete`) for reusable table setups (columns + filters + quick filters + sort + compare/control + column widths), without a separate presets popup.
 - Diagnostic table resize now applies only to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` intentionally stay fixed-fit (no horizontal scroll/resize) for cleaner top-row readability.
@@ -238,6 +248,8 @@ Benchmark scan details:
 - Benchmark trend chart uses a fixed 800px render/container height to preserve stable layout and provide a taller score-history viewport.
 - Dashboard HTML now loads Highcharts Stock with a secondary CDN fallback (`code.highcharts.com` primary, `cdn.jsdelivr.net` fallback) before dashboard JS initialization.
 - `Previous Runs` table columns are configurable in-browser: use the `+/-` header-row button popup to check/uncheck fields, drag headers to reorder, and resize by dragging header edges.
+- Metric/data labels now support delayed hover tooltips (`~1s`) across Previous Runs and related benchmark views. Coverage includes explicit metric-key targets plus auto-tagged metric-like text instances (table headers, trend-field checklist labels, compare/control grouped-metric headers, runtime metric rows, per-label metric headers, boundary category rows, inline metric code tokens, and chart axis/legend metric labels). Tooltip descriptions are sourced from `Metric help (table)` first, with column-metadata/generic fallback.
+- Tooltip-targeted labels also use a subtle smooth hover accent (`~150ms`) with no underline so metric focus is visible without adding persistent affordances.
 - `Benchmark Score Trend` defaults to the `All` range selector window so initial render includes full available benchmark history.
 - `Benchmark Score Trend` initializes x-axis bounds from the full filtered benchmark timestamp span, so chart timeline coverage matches `Previous Runs` dates even when older rows lack explicit score points.
 - Main page is intentionally narrow in scope:

@@ -41,8 +41,12 @@ Active layout exceptions and support assets:
 - `tests/test_eval_freeform_practical_metrics.py` remains at `tests/` root and is marker-tagged as both `labelstudio` and `bench`.
 - CLI output-structure coverage is split into:
   - `tests/cli/test_cli_output_structure_fast.py` (fast default-surface contract checks via settings/signatures, no full stage run),
+  - `tests/cli/test_cli_output_structure_epub_fast.py` (fast mocked EPUB backend/report wiring checks),
   - `tests/cli/test_cli_output_structure_text_fast.py` (text-focused fast structure checks with `--llm-recipe-pipeline off`),
-  - `tests/cli/test_cli_output_structure_slow.py` (EPUB-heavy checks).
+  - `tests/cli/test_cli_output_structure_slow.py` (real EPUB integration checks kept intentionally slow).
+- PDF importer coverage is split into:
+  - `tests/ingestion/test_pdf_importer.py` (fast unit/integration seams with mocked OCR paths),
+  - `tests/ingestion/test_pdf_importer_ocr_slow.py` (real scanned-PDF OCR integration).
 - Stats dashboard coverage is split into:
   - `tests/analytics/test_stats_dashboard.py` (fast renderer/schema/collector coverage),
   - `tests/analytics/test_stats_dashboard_slow.py` (browser pixel-overflow rerender harness).
@@ -100,8 +104,11 @@ Common run patterns:
 - `. .venv/bin/activate && pytest -m "ingestion and not slow" --collect-only`
 - `. .venv/bin/activate && pytest tests/labelstudio -m "labelstudio and not slow" --collect-only`
 - `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_fast.py`
+- `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_epub_fast.py`
 - `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_text_fast.py`
 - `. .venv/bin/activate && pytest tests/cli/test_cli_output_structure_slow.py`
+- `. .venv/bin/activate && pytest tests/ingestion/test_pdf_importer.py`
+- `. .venv/bin/activate && pytest tests/ingestion/test_pdf_importer_ocr_slow.py`
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard_slow.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py`
@@ -200,6 +207,7 @@ Merged source task file:
 Current testing contract reinforced:
 - CLI output-structure coverage remains split by cost/signal:
   - `test_cli_output_structure_fast.py` for default-contract/surface checks,
+  - `test_cli_output_structure_epub_fast.py` for mocked EPUB backend/report contracts,
   - `test_cli_output_structure_text_fast.py` for fast structure checks,
   - `test_cli_output_structure_slow.py` for EPUB-heavy checks.
 - Slow marker assignment should stay narrow (only slow EPUB-heavy file), so `-m "cli and not slow"` remains a fast operator loop.

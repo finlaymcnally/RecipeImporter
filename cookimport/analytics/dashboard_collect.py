@@ -396,6 +396,17 @@ def _extract_codex_runtime_from_manifest(
     return (model, effort)
 
 
+def _extract_codex_runtime_error_from_manifest(manifest: dict[str, Any]) -> str | None:
+    llm_codex_farm = manifest.get("llm_codex_farm")
+    if not isinstance(llm_codex_farm, dict):
+        return None
+    for key in ("fatalError", "fatal_error", "error", "last_error"):
+        text = _clean_runtime_text(llm_codex_farm.get(key))
+        if text is not None:
+            return text
+    return None
+
+
 def _normalize_path(value: str | Path | None) -> str | None:
     if value is None:
         return None
@@ -1144,6 +1155,7 @@ def _enrich_csv_benchmark_records_from_manifests(
             codex_model, codex_reasoning_effort = _extract_codex_runtime_from_manifest(
                 manifest
             )
+            codex_runtime_error = _extract_codex_runtime_error_from_manifest(manifest)
             (
                 token_input,
                 token_cached_input,
@@ -1151,7 +1163,11 @@ def _enrich_csv_benchmark_records_from_manifests(
                 token_reasoning,
                 token_total,
             ) = _extract_codex_token_usage_from_manifest(manifest)
-            if codex_model is not None or codex_reasoning_effort is not None:
+            if (
+                codex_model is not None
+                or codex_reasoning_effort is not None
+                or codex_runtime_error is not None
+            ):
                 merged_run_config: dict[str, Any]
                 if isinstance(record.run_config, dict):
                     merged_run_config = dict(record.run_config)
@@ -1179,6 +1195,14 @@ def _enrich_csv_benchmark_records_from_manifests(
                     merged_run_config["codex_farm_reasoning_effort"] = (
                         codex_reasoning_effort
                     )
+                    config_changed = True
+                if (
+                    codex_runtime_error is not None
+                    and not _clean_runtime_text(
+                        merged_run_config.get("codex_farm_runtime_error")
+                    )
+                ):
+                    merged_run_config["codex_farm_runtime_error"] = codex_runtime_error
                     config_changed = True
                 record.run_config = merged_run_config
             if record.tokens_input is None and token_input is not None:
@@ -1816,6 +1840,7 @@ def _collect_benchmarks(
                 codex_model, codex_reasoning_effort = _extract_codex_runtime_from_manifest(
                     manifest
                 )
+                codex_runtime_error = _extract_codex_runtime_error_from_manifest(manifest)
                 (
                     token_input,
                     token_cached_input,
@@ -1823,7 +1848,11 @@ def _collect_benchmarks(
                     token_reasoning,
                     token_total,
                 ) = _extract_codex_token_usage_from_manifest(manifest)
-                if codex_model is not None or codex_reasoning_effort is not None:
+                if (
+                    codex_model is not None
+                    or codex_reasoning_effort is not None
+                    or codex_runtime_error is not None
+                ):
                     merged_run_config: dict[str, Any]
                     if isinstance(record.run_config, dict):
                         merged_run_config = dict(record.run_config)
@@ -1853,6 +1882,15 @@ def _collect_benchmarks(
                     ):
                         merged_run_config["codex_farm_reasoning_effort"] = (
                             codex_reasoning_effort
+                        )
+                    if (
+                        codex_runtime_error is not None
+                        and not _clean_runtime_text(
+                            merged_run_config.get("codex_farm_runtime_error")
+                        )
+                    ):
+                        merged_run_config["codex_farm_runtime_error"] = (
+                            codex_runtime_error
                         )
                     record.run_config = merged_run_config
                     if record.run_config_hash is None:

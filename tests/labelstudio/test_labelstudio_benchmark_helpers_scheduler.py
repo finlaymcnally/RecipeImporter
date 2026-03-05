@@ -2312,10 +2312,10 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
         "markitdown": 0.89,
     }
     delays = {
-        "unstructured": 0.08,
-        "beautifulsoup": 0.03,
-        "markdown": 0.06,
-        "markitdown": 0.01,
+        "unstructured": 0.03,
+        "beautifulsoup": 0.015,
+        "markdown": 0.02,
+        "markitdown": 0.005,
     }
     source_file = tmp_path / "book.epub"
     source_file.write_text("dummy", encoding="utf-8")
@@ -2425,9 +2425,9 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
         assert isinstance(eval_output_dir, Path)
         if str(kwargs.get("execution_mode") or "") == "predict-only":
             if extractor == "unstructured":
-                time.sleep(1.35)
+                time.sleep(1.2)
             else:
-                time.sleep(0.02)
+                time.sleep(0.01)
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -2593,11 +2593,11 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     phase_profile = {
-        "prep": 0.18,
+        "prep": 0.12,
         "split_wait": 0.02,
-        "split_active": 0.22,
-        "post": 0.15,
-        "evaluate": 0.22,
+        "split_active": 0.16,
+        "post": 0.10,
+        "evaluate": 0.16,
     }
     split_gate = threading.Semaphore(2)
 
@@ -2719,18 +2719,18 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
         if str(kwargs.get("execution_mode") or "") == "predict-only":
             if callback is not None:
                 callback({"event": "prep_started"})
-                time.sleep(0.03)
+                time.sleep(0.01)
                 callback({"event": "split_wait_started"})
-                time.sleep(0.03)
+                time.sleep(0.01)
                 callback({"event": "split_wait_finished"})
                 callback({"event": "split_active_started"})
-                time.sleep(0.03)
+                time.sleep(0.01)
                 callback({"event": "split_active_finished"})
                 callback({"event": "post_started"})
-                time.sleep(0.03)
+                time.sleep(0.01)
                 callback({"event": "post_finished"})
                 callback({"event": "evaluate_started"})
-                time.sleep(0.03)
+                time.sleep(0.01)
                 callback({"event": "evaluate_finished"})
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
@@ -3228,9 +3228,9 @@ def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
         ),
     ]
     delays = {
-        source_a: 0.12,
-        source_b: 0.02,
-        source_c: 0.04,
+        source_a: 0.04,
+        source_b: 0.01,
+        source_c: 0.02,
     }
     active_sources = 0
     max_active_sources = 0

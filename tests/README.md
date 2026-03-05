@@ -41,8 +41,13 @@ pytest -m "<domain> and not slow"
 
 # CLI structure split
 pytest tests/cli/test_cli_output_structure_fast.py
+pytest tests/cli/test_cli_output_structure_epub_fast.py
 pytest tests/cli/test_cli_output_structure_text_fast.py
 pytest tests/cli/test_cli_output_structure_slow.py
+
+# PDF importer OCR split
+pytest tests/ingestion/test_pdf_importer.py
+pytest tests/ingestion/test_pdf_importer_ocr_slow.py
 
 # Dashboard split
 pytest tests/analytics/test_stats_dashboard.py

@@ -2,8 +2,12 @@ import json
 from pathlib import Path
 
 from typer.testing import CliRunner
+import pytest
 
+from cookimport import cli
 from cookimport.cli import app
+from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
+from tests.fast_stage_pipeline import install_fake_stage_one_file
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 runner = CliRunner()
@@ -18,6 +22,20 @@ _BASE_FAST_STAGE_ARGS = [
     "--llm-recipe-pipeline",
     "off",
 ]
+
+
+@pytest.fixture(autouse=True)
+def _use_fake_stage_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fake_stage_one_file(monkeypatch, importer_name="text")
+    monkeypatch.setattr(
+        cli,
+        "resolve_process_thread_executor",
+        lambda **_kwargs: ProcessThreadExecutorResolution(
+            backend="serial",
+            executor=None,
+            messages=(),
+        ),
+    )
 
 
 def _timestamp_dir(output_dir: Path) -> Path:

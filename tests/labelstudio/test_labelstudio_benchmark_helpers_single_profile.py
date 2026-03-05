@@ -255,11 +255,17 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
 
     observed_live_slot_overrides: list[int | None] = []
     observed_suppress_spinner: list[bool] = []
+    observed_suppress_summary: list[bool] = []
+    observed_suppress_dashboard_refresh: list[bool] = []
     observed_progress_callbacks: list[bool] = []
 
     def _fake_labelstudio_benchmark(**_kwargs: object) -> None:
         observed_live_slot_overrides.append(cli._BENCHMARK_LIVE_STATUS_SLOTS.get())
         observed_suppress_spinner.append(bool(cli._BENCHMARK_SUPPRESS_SPINNER.get()))
+        observed_suppress_summary.append(bool(cli._BENCHMARK_SUPPRESS_SUMMARY.get()))
+        observed_suppress_dashboard_refresh.append(
+            bool(cli._BENCHMARK_SUPPRESS_DASHBOARD_REFRESH.get())
+        )
         progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
         observed_progress_callbacks.append(callable(progress_callback))
         if callable(progress_callback):
@@ -285,6 +291,12 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
         return run_callable(snapshots.append)
 
     monkeypatch.setattr(cli, "_run_with_progress_status", _fake_run_with_progress_status)
+    refresh_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **kwargs: refresh_calls.append(dict(kwargs)),
+    )
 
     completed = cli._interactive_single_profile_all_matched_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -298,6 +310,8 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
     assert len(observed_live_slot_overrides) == 2
     assert observed_live_slot_overrides == [None, None]
     assert observed_suppress_spinner == [True, True]
+    assert observed_suppress_summary == [True, True]
+    assert observed_suppress_dashboard_refresh == [True, True]
     assert observed_progress_callbacks == [True, True]
     assert captured_status["initial_status"] == "Running single-profile benchmark..."
     assert captured_status["progress_prefix"] == "Single-profile benchmark"
@@ -310,6 +324,18 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
     assert isinstance(snapshots, list)
     assert snapshots
     assert any("queue:" in snapshot for snapshot in snapshots)
+    assert len(refresh_calls) == 1
+    assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-profile-benchmark"
+        / cli._DASHBOARD_REFRESH_SENTINEL_DIRNAME
+    )
+    assert refresh_calls[0]["output_root"] == processed_output_root
+    assert refresh_calls[0]["dashboard_out_dir"] == (
+        cli.history_root_for_output(processed_output_root) / "dashboard"
+    )
+    assert refresh_calls[0]["reason"] == "single-profile benchmark variant batch append"
 
 
 def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_per_book(

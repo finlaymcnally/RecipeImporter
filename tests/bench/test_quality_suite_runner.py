@@ -936,6 +936,7 @@ def test_run_quality_suite_auto_parallelism_uses_default_auto_ceiling(
     tmp_path: Path,
 ) -> None:
     suite = _build_suite(tmp_path)
+    experiment_count = 6
     experiments_file = tmp_path / "experiments_auto_cap.json"
     _write_json(
         experiments_file,
@@ -943,7 +944,7 @@ def test_run_quality_suite_auto_parallelism_uses_default_auto_ceiling(
             "schema_version": 1,
             "experiments": [
                 {"id": f"exp_{index:02d}", "run_settings_patch": {}}
-                for index in range(20)
+                for index in range(experiment_count)
             ],
         },
     )
@@ -1041,7 +1042,7 @@ def test_run_quality_suite_auto_parallelism_uses_default_auto_ceiling(
         (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
     )
     assert resolved["max_parallel_experiments_mode"] == "auto"
-    assert resolved["max_parallel_experiments_effective"] == 20
+    assert resolved["max_parallel_experiments_effective"] == experiment_count
     assert resolved["max_parallel_experiments_auto_ceiling"] == 64
     assert resolved["max_parallel_experiments_auto_ceiling_source"] == "cpu_count"
 
@@ -1051,6 +1052,7 @@ def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
     tmp_path: Path,
 ) -> None:
     suite = _build_suite(tmp_path)
+    experiment_count = 7
     experiments_file = tmp_path / "experiments_auto_cap_env.json"
     _write_json(
         experiments_file,
@@ -1058,14 +1060,14 @@ def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
             "schema_version": 1,
             "experiments": [
                 {"id": f"exp_{index:02d}", "run_settings_patch": {}}
-                for index in range(20)
+                for index in range(experiment_count)
             ],
         },
     )
     base_run_settings_file = tmp_path / "base_run_settings.json"
     _write_json(base_run_settings_file, {"workers": 2})
 
-    monkeypatch.setenv("COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS", "24")
+    monkeypatch.setenv("COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS", "4")
     monkeypatch.setattr(
         "cookimport.bench.quality_runner.os.cpu_count",
         lambda: 64,
@@ -1156,8 +1158,8 @@ def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
         (run_root / "experiments_resolved.json").read_text(encoding="utf-8")
     )
     assert resolved["max_parallel_experiments_mode"] == "auto"
-    assert resolved["max_parallel_experiments_effective"] == 20
-    assert resolved["max_parallel_experiments_auto_ceiling"] == 24
+    assert resolved["max_parallel_experiments_effective"] == 4
+    assert resolved["max_parallel_experiments_auto_ceiling"] == 4
     assert resolved["max_parallel_experiments_auto_ceiling_source"] == "env"
 
 

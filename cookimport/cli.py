@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import textwrap
 import zipfile
 from concurrent.futures import (
     FIRST_COMPLETED,
@@ -2746,7 +2747,9 @@ def _interactive_single_profile_all_matched_benchmark(
                         progress_callback=(
                             _variant_progress if single_profile_dashboard is not None else None
                         ),
+                        suppress_summary=single_profile_dashboard is not None,
                         suppress_spinner=single_profile_dashboard is not None,
+                        suppress_dashboard_refresh=single_profile_dashboard is not None,
                         live_status_slots=(
                             None
                             if single_profile_dashboard is not None
@@ -2955,6 +2958,17 @@ def _interactive_single_profile_all_matched_benchmark(
                 f"External-AI group upload bundle: {group_upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
+
+    if single_profile_dashboard is not None:
+        history_csv_path = history_csv_for_output(
+            single_profile_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+        )
+        _refresh_dashboard_after_history_write(
+            csv_path=history_csv_path,
+            output_root=processed_output_root,
+            dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
+            reason="single-profile benchmark variant batch append",
+        )
 
     succeeded = total_targets - len(failures)
     summary_color = typer.colors.GREEN if not failures else typer.colors.YELLOW
@@ -9241,6 +9255,26 @@ def _run_with_progress_status(
         return "\n".join(merged)
 
     def _format_boxed_progress(snapshot: str) -> str:
+        def _wrap_panel_text(value: str, max_chars: int) -> list[str]:
+            text = str(value or "")
+            if max_chars <= 0:
+                return [""]
+            if not text:
+                return [""]
+            wrapped = textwrap.wrap(
+                text,
+                width=max_chars,
+                break_long_words=True,
+                break_on_hyphens=False,
+                drop_whitespace=False,
+                replace_whitespace=False,
+            )
+            if wrapped:
+                return wrapped
+            if len(text) <= max_chars:
+                return [text]
+            return [text[:max_chars]]
+
         def _truncate_panel_text(value: str, max_chars: int) -> str:
             text = str(value or "")
             if max_chars <= 0:
@@ -9277,22 +9311,27 @@ def _run_with_progress_status(
         if not lines:
             return ""
 
-        max_panel_width = 92
+        max_panel_width = 132
         terminal_width = getattr(console, "width", None)
         if isinstance(terminal_width, int) and terminal_width > 0:
             # Keep room for the spinner glyph + padding prefix Rich adds.
-            max_panel_width = min(max_panel_width, max(24, terminal_width - 6))
+            max_panel_width = min(max_panel_width, max(28, terminal_width - 6))
 
         width = max(len(line) for line in lines)
         title = (progress_prefix or initial_status).strip() or "Progress"
         width = max(width, len(title))
         width = max(1, min(width, max_panel_width))
+        wrapped_lines: list[str] = []
+        for line in lines:
+            wrapped_lines.extend(_wrap_panel_text(line, width))
+        if not wrapped_lines:
+            wrapped_lines = [""]
         header = f"| {_truncate_panel_text(title, width).center(width)} |"
         top_bottom = "+" + "-" * (width + 2) + "+"
         divider = "+" + "-" * (width + 2) + "+"
         body_lines = [
             f"| {_truncate_panel_text(line, width).ljust(width)} |"
-            for line in lines
+            for line in wrapped_lines
         ]
         return "\n".join([top_bottom, header, divider, *body_lines, top_bottom])
 
@@ -9600,9 +9639,14 @@ def _run_with_progress_status(
         status_console = _resolve_live_status_console(
             live_status_slots=live_status_slots
         )
+        live_spinner = (
+            "bouncingBar"
+            if "benchmark" in str(progress_prefix).strip().lower()
+            else "dots"
+        )
         with status_console.status(
             render(),
-            spinner="dots",
+            spinner=live_spinner,
             spinner_style=_PROGRESS_BLUE_STYLE,
             refresh_per_second=4.0,
         ) as status:
@@ -10612,8 +10656,6 @@ class _AllMethodProgressDashboard:
     def set_task(self, message: str) -> None:
         with self._lock:
             cleaned = str(message or "").strip().replace("\n", " ")
-            if len(cleaned) > 180:
-                cleaned = f"{cleaned[:177]}..."
             self.task_message = cleaned
 
     def _iter_queue_rows(self) -> Iterable[_AllMethodSourceDashboardRow]:

@@ -347,7 +347,23 @@ def _ai_effort_for_record(record: dict[str, Any]) -> str | None:
     return _raw_ai_effort_for_record(record)
 
 
+def _codex_runtime_error_for_record(record: dict[str, Any]) -> str | None:
+    if benchmark_variant_for_record(record) == "vanilla":
+        return None
+    return _run_config_value(
+        record,
+        (
+            "codex_farm_runtime_error",
+            "codex_farm_fatal_error",
+            "codex_farm_error",
+            "fatal_error",
+        ),
+    )
+
+
 def ai_model_label_for_record(record: dict[str, Any]) -> str:
+    if _codex_runtime_error_for_record(record):
+        return "System error"
     model = _ai_model_for_record(record)
     if model:
         return model
@@ -358,8 +374,14 @@ def ai_model_label_for_record(record: dict[str, Any]) -> str:
 
 
 def ai_effort_label_for_record(record: dict[str, Any]) -> str:
+    if _codex_runtime_error_for_record(record):
+        return "AI off"
     effort = _ai_effort_for_record(record)
-    return effort if effort else "-"
+    if effort:
+        return effort
+    if benchmark_variant_for_record(record) == "vanilla":
+        return "AI off"
+    return "-"
 
 
 def source_label_for_record(record: dict[str, Any]) -> str:

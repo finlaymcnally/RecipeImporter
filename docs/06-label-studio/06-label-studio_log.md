@@ -344,3 +344,38 @@ Resolution:
 - This preserves valid explicit values, accepts direct-call defaults, and keeps manifest parity behavior unchanged when metadata exists.
 
 ```
+
+## 2026-03-04 docs/understandings consolidation (benchmark compare-root acceptance + Milestone-5 blockers)
+
+### 2026-03-04_11.01.40 Profeedback Milestone-5 run blockers
+
+Source:
+- `docs/understandings/2026-03-04_11.01.40-profeedback-m5-compare-root-and-codex-auth-blockers.md`
+
+Problem captured:
+- Milestone-5 compare/evidence workflow was blocked by compare-root shape expectations and environment codex auth failures.
+
+Durable findings at this point:
+- `labelstudio-benchmark compare` accepted all-method roots only (`all_method_benchmark_multi_source_report.json` required).
+- Direct compare from per-run `eval_report.json` outputs was unsupported.
+- Full codex pass1 calls in this environment failed with websocket `403 Forbidden` unless fallback mode was used.
+- Fallback-mode ablation rows were usable for packet structure checks but were not true codex execution evidence.
+
+Anti-loop note:
+- Keep this as historical blocker state; do not assume current compare resolver still has this root-shape limitation.
+
+### 2026-03-04_11.33.00 compare single-eval + pass1 toast follow-up
+
+Source:
+- `docs/understandings/2026-03-04_11.33.00-compare-single-eval-and-pass1-toast-fix.md`
+
+Problem captured:
+- Needed closure for compare-root limitation and pass1 imperative-miss false drops.
+
+Durable outcomes:
+- `labelstudio-benchmark compare` now resolves both all-method roots and single-eval roots/files (`eval_report.json`).
+- Single-eval compare emits focused gate set and still writes standard comparison JSON/MD artifacts.
+- Companion LLM fix landed in same follow-up: pass1 instruction verb detection includes `toast` to avoid false `drop` outcomes on compact imperative spans with chapter/page negative evidence.
+
+Anti-loop note:
+- If compare fails on a direct `eval_report.json` input now, treat it as regression and inspect resolver branch selection before asking users to restructure run roots.

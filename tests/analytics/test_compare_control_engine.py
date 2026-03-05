@@ -121,6 +121,74 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
     assert engine.previous_runs_field_value(record, "all_token_use") == pytest.approx(1120.0)
 
 
+def test_ai_model_label_system_error_for_runtime_failure() -> None:
+    record = {
+        "artifact_dir": (
+            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
+            "single-offline-benchmark/my-book/codexfarm"
+        ),
+        "run_config": {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "codex_farm_model": "gpt-5",
+            "codex_farm_runtime_error": (
+                "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)"
+            ),
+        },
+    }
+    assert engine.ai_model_label_for_record(record) == "System error"
+    assert engine.previous_runs_field_value(record, "ai_model") == "System error"
+
+
+def test_ai_effort_label_distinguishes_ai_off_vs_unknown() -> None:
+    ai_off_record = {
+        "artifact_dir": (
+            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
+            "single-offline-benchmark/my-book/vanilla"
+        ),
+        "run_config": {
+            "llm_recipe_pipeline": "off",
+        },
+    }
+    vanilla_without_pipeline_record = {
+        "artifact_dir": (
+            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
+            "single-offline-benchmark/my-book/vanilla"
+        ),
+        "run_config": {},
+    }
+    unknown_record = {
+        "artifact_dir": (
+            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
+            "single-offline-benchmark/my-book/codexfarm"
+        ),
+        "run_config": {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+        },
+    }
+    runtime_error_record = {
+        "artifact_dir": (
+            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
+            "single-offline-benchmark/my-book/codexfarm"
+        ),
+        "run_config": {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "codex_farm_runtime_error": "codex auth failed",
+        },
+    }
+
+    assert engine.ai_effort_label_for_record(ai_off_record) == "AI off"
+    assert engine.previous_runs_field_value(ai_off_record, "ai_effort") == "AI off"
+    assert engine.ai_effort_label_for_record(vanilla_without_pipeline_record) == "AI off"
+    assert (
+        engine.previous_runs_field_value(vanilla_without_pipeline_record, "ai_effort")
+        == "AI off"
+    )
+    assert engine.ai_effort_label_for_record(runtime_error_record) == "AI off"
+    assert engine.previous_runs_field_value(runtime_error_record, "ai_effort") == "AI off"
+    assert engine.ai_effort_label_for_record(unknown_record) == "-"
+    assert engine.previous_runs_field_value(unknown_record, "ai_effort") == "-"
+
+
 def test_controlled_categorical_standardizes_strata() -> None:
     records = _confounded_records()
     field_options = engine.collect_benchmark_field_paths(records)

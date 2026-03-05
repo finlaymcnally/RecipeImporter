@@ -421,3 +421,26 @@ Anti-loop guard:
 ## 2026-03-03 merged understandings digest (labelstudio eval normalization)
 
 - `2026-03-03_02.36.40` `labelstudio-eval-none-default-normalization`: labelstudio-eval metadata override normalization must coalesce None/empty values before pipeline validation.
+
+## 2026-03-04 merged understandings digest (benchmark compare-root + single-eval compare support)
+
+Merged source notes (timestamp order):
+- `2026-03-04_11.01.40-profeedback-m5-compare-root-and-codex-auth-blockers.md`
+- `2026-03-04_11.33.00-compare-single-eval-and-pass1-toast-fix.md`
+
+Current Label Studio benchmark compare contracts reinforced:
+- `labelstudio-benchmark compare` supports both:
+  - all-method roots (`all_method_benchmark_multi_source_report.json`), and
+  - single-run eval roots/files (`eval_report.json`).
+- Single-eval compare mode writes the same `comparison.json`/`comparison.md` outputs but uses a focused gate set:
+  - `source_key_match`
+  - practical/accuracy no-regression
+  - ingredient-baseline guard
+  - variant-nonzero guard
+  - debug-artifact presence
+- Historical blocker context retained:
+  - prior compare-root resolver accepted all-method roots only,
+  - Milestone-5 full codex validation can still be auth-constrained when external codex calls fail and fallback mode is used.
+
+Cross-domain note:
+- This same follow-up also fixed pass1 `toast` imperative detection in LLM eligibility scoring (documented in `docs/10-llm`).
