@@ -137,7 +137,7 @@ Notes:
   - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns, and let you switch the comparison columns between signed deltas and raw point values using an in-card `Point value` checkbox. Delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
   - Per-label comparison cells now show `-` when a comparison variant value is missing; they no longer coerce missing values to `0.0000` in point-value mode.
   - Per-label diagnostics include a run selector beside the card title with `Default - most recent` plus every available run-group timestamp, so you can pin the table to an older run or keep it auto-following the latest run.
-  - Per-label diagnostics include a small `Rolling N` selector in-card; rolling codexfarm/vanilla comparison columns sit under one shared dynamic group header (`<N>-run Rolling <Mode>:`), with per-column labels reduced to metric + variant.
+  - Per-label diagnostics include a small `Rolling N` selector in-card; rolling comparison columns are codexfarm-only precision/recall under one shared dynamic group header (`<N>-run Rolling <Mode>:`).
   - Per-label table column order starts with `Label`, `Gold`, `Pred`, then the precision/recall baseline + comparison columns.
   - Latest-run aggregation uses the same benchmark run-group key as trend tooltips (`benchmarkRunGroupInfo`) so single-offline twinned runs count as one group.
   - Per-label metric headers are intentionally three-line (`group`, `metric`, `(variant)`) and left-aligned to keep diagnostic columns narrower on single-screen layouts.

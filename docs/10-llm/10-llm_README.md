@@ -293,11 +293,12 @@ These settings remain part of run settings and stage execution:
   - `prompt_inputs_manifest.txt` (pass1/2/3 `in` payloads)
   - `prompt_outputs_manifest.txt` (pass1/2/3 `out` payloads)
 - Prompt/debug artifacts are also auto-generated when Codex Farm pass manifests exist:
-  - benchmark eval output: `<eval_root>/codexfarm/`
-  - stage run output: `<stage_run_root>/codexfarm/`
-  - labelstudio-import run output: `<labelstudio_run_root>/codexfarm/`
+  - benchmark eval output: `<eval_root>/prompts/`
+  - stage run output: `<stage_run_root>/prompts/`
+  - labelstudio-import run output: `<labelstudio_run_root>/prompts/`
   - key files: `prompt_request_response_log.txt`, `full_prompt_log.jsonl`, `prompt_type_samples_from_full_prompt_log.md`
 - The prompt sample markdown now covers pass1/pass2/pass3 and also pass4/pass5 when those manifests are present.
+- `full_prompt_log.jsonl` rows now also carry Codex trace metadata in `request_telemetry` (`trace_path`, resolved path, action/reasoning counts/types), plus `thinking_trace` payloads with reasoning events when trace files are available.
 - Local recipe pipeline pack prompts now run with `prompt_input_mode=inline` and embed full input JSON via `{{INPUT_TEXT}}`; recipe pass templates should not depend on file-read instructions.
 - `run_manifest.json` includes `prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt` artifact pointers for active Codex Farm runs.
 
@@ -550,7 +551,7 @@ Merged source note:
 - `docs/understandings/2026-03-02_23.30.23-codexfarm-full-prompt-log-payload-source.md`
 
 Current LLM contract to keep:
-- `codexfarm/full_prompt_log.jsonl` is the source-of-truth prompt artifact for benchmark codex runs (one row per pass call, no sampling/truncation).
+- `prompts/full_prompt_log.jsonl` is the source-of-truth prompt artifact for benchmark codex runs (one row per pass call, no sampling/truncation).
 - Rows include `request_payload_source` so provenance is explicit:
   - `telemetry_csv` for exact prompt/model/runtime fields from codex telemetry,
   - `reconstructed_from_prompt_template` as fallback reconstruction path.

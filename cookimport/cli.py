@@ -11076,9 +11076,46 @@ def _build_codex_farm_prompt_type_samples_markdown(
         "pass4": "Knowledge Harvest",
         "pass5": "Tag Suggestions",
     }
-    samples_by_pass: dict[str, list[dict[str, str]]] = {
+    samples_by_pass: dict[str, list[dict[str, Any]]] = {
         pass_name: [] for pass_name in pass_order
     }
+
+    def _extract_reasoning_excerpt(
+        reasoning_events: list[dict[str, Any]],
+        *,
+        max_events: int = 3,
+        max_chars: int = 3000,
+    ) -> str | None:
+        if not reasoning_events:
+            return None
+        snippets: list[str] = []
+        for event in reasoning_events[:max_events]:
+            if not isinstance(event, dict):
+                continue
+            for key in ("summary_text", "summary", "text", "delta", "content"):
+                value = event.get(key)
+                if isinstance(value, str):
+                    cleaned = value.strip()
+                    if cleaned:
+                        snippets.append(cleaned)
+                        break
+        if snippets:
+            joined = "\n\n".join(snippets)
+            if len(joined) > max_chars:
+                return joined[: max_chars - 3].rstrip() + "..."
+            return joined
+        try:
+            serialized = json.dumps(
+                reasoning_events[:max_events],
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        except TypeError:
+            return None
+        if len(serialized) > max_chars:
+            return serialized[: max_chars - 3].rstrip() + "..."
+        return serialized
 
     try:
         with full_prompt_log_path.open("r", encoding="utf-8") as handle:
@@ -11121,6 +11158,28 @@ def _build_codex_farm_prompt_type_samples_markdown(
                         prompt_text = user_prompt
                 prompt_text = str(prompt_text or "")
 
+                thinking_trace_payload = row.get("thinking_trace")
+                reasoning_events: list[dict[str, Any]] = []
+                thinking_trace_path: str | None = None
+                thinking_trace_available = False
+                thinking_trace_reasoning_count: int | None = None
+                if isinstance(thinking_trace_payload, dict):
+                    raw_reasoning_events = thinking_trace_payload.get("reasoning_events")
+                    if isinstance(raw_reasoning_events, list):
+                        reasoning_events = [
+                            event
+                            for event in raw_reasoning_events
+                            if isinstance(event, dict)
+                        ]
+                    trace_path = thinking_trace_payload.get("path")
+                    if isinstance(trace_path, str) and trace_path.strip():
+                        thinking_trace_path = trace_path.strip()
+                    thinking_trace_available = bool(thinking_trace_payload.get("available"))
+                    reasoning_count = thinking_trace_payload.get("reasoning_event_count")
+                    if isinstance(reasoning_count, int):
+                        thinking_trace_reasoning_count = reasoning_count
+                thinking_trace_excerpt = _extract_reasoning_excerpt(reasoning_events)
+
                 call_id = str(row.get("call_id") or "").strip() or "<unknown>"
                 recipe_id = str(row.get("recipe_id") or "").strip() or "<unknown>"
                 samples_by_pass[pass_name].append(
@@ -11128,6 +11187,10 @@ def _build_codex_farm_prompt_type_samples_markdown(
                         "call_id": call_id,
                         "recipe_id": recipe_id,
                         "prompt": prompt_text.rstrip("\n"),
+                        "thinking_trace_available": thinking_trace_available,
+                        "thinking_trace_path": thinking_trace_path,
+                        "thinking_trace_reasoning_count": thinking_trace_reasoning_count,
+                        "thinking_trace_excerpt": thinking_trace_excerpt,
                     }
                 )
     except OSError:
@@ -11171,6 +11234,25 @@ def _build_codex_farm_prompt_type_samples_markdown(
             lines.append(sample["prompt"])
             lines.append("```")
             lines.append("")
+            lines.append("Thinking Trace:")
+            thinking_trace_available = bool(sample.get("thinking_trace_available"))
+            thinking_trace_reasoning_count = sample.get("thinking_trace_reasoning_count")
+            thinking_trace_path = sample.get("thinking_trace_path")
+            thinking_trace_excerpt = sample.get("thinking_trace_excerpt")
+            if thinking_trace_path:
+                lines.append(f"- trace_path: `{thinking_trace_path}`")
+            if isinstance(thinking_trace_reasoning_count, int):
+                lines.append(
+                    f"- reasoning_event_count: `{thinking_trace_reasoning_count}`"
+                )
+            if thinking_trace_excerpt:
+                lines.append("")
+                lines.append("```text")
+                lines.append(str(thinking_trace_excerpt))
+                lines.append("```")
+            elif not thinking_trace_available:
+                lines.append("- _No thinking trace captured for this sample._")
+            lines.append("")
 
     try:
         output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -11194,11 +11276,11 @@ def _build_codex_farm_prompt_response_log(
     if not run_dirs:
         return None
 
-    codexfarm_dir = eval_output_dir / "codexfarm"
-    codexfarm_dir.mkdir(parents=True, exist_ok=True)
-    prompt_response_log_path = codexfarm_dir / "prompt_request_response_log.txt"
-    full_prompt_log_path = codexfarm_dir / "full_prompt_log.jsonl"
-    prompt_type_samples_path = codexfarm_dir / _PROMPT_TYPE_SAMPLES_MD_NAME
+    prompts_dir = eval_output_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    prompt_response_log_path = prompts_dir / "prompt_request_response_log.txt"
+    full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
+    prompt_type_samples_path = prompts_dir / _PROMPT_TYPE_SAMPLES_MD_NAME
 
     pass_dir_map: dict[str, str] = {
         "pass1": "pass1_chunking",
@@ -11515,6 +11597,20 @@ def _build_codex_farm_prompt_response_log(
             return False
         return None
 
+    def _parse_json_string_list(value: Any) -> list[str]:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        parsed = _parse_json_text(text)
+        if not isinstance(parsed, list):
+            return []
+        rows: list[str] = []
+        for item in parsed:
+            cleaned = _clean_text(item)
+            if cleaned is not None:
+                rows.append(cleaned)
+        return rows
+
     def _telemetry_row_sort_key(row: dict[str, Any]) -> tuple[int, int, str, str]:
         execution_attempt = _coerce_int(row.get("execution_attempt_index"))
         if execution_attempt is None:
@@ -11668,6 +11764,79 @@ def _build_codex_farm_prompt_response_log(
 
         _walk(payload)
         return found
+
+    def _resolve_telemetry_trace_path(
+        *,
+        telemetry_trace_path: str | None,
+        output_file: Path | None,
+        out_dir: Path,
+        task_id: str | None,
+    ) -> Path | None:
+        candidates: list[Path] = []
+        trace_name: str | None = None
+        if telemetry_trace_path is not None:
+            telemetry_candidate = Path(telemetry_trace_path).expanduser()
+            if not telemetry_candidate.is_absolute():
+                telemetry_candidate = (REPO_ROOT / telemetry_candidate).resolve()
+            trace_name = telemetry_candidate.name
+            candidates.append(telemetry_candidate)
+
+        search_roots: list[Path] = [out_dir]
+        if output_file is not None:
+            search_roots.insert(0, output_file.parent)
+
+        for root in search_roots:
+            if task_id is not None:
+                task_dir = root / ".codex-farm-traces" / task_id
+                if trace_name:
+                    candidates.append(task_dir / trace_name)
+                if task_dir.exists() and task_dir.is_dir():
+                    candidates.extend(sorted(task_dir.glob("*.trace.json")))
+            if trace_name:
+                candidates.append(root / ".codex-farm-traces" / trace_name)
+
+        for candidate in candidates:
+            resolved = candidate.resolve(strict=False)
+            if resolved.exists() and resolved.is_file():
+                return resolved
+        return None
+
+    def _load_thinking_trace_payload(*, trace_path: Path | None) -> dict[str, Any] | None:
+        if trace_path is None or not trace_path.exists() or not trace_path.is_file():
+            return None
+        parsed = _parse_json_text(_safe_read_text(trace_path))
+        if not isinstance(parsed, dict):
+            return None
+        reasoning_events = parsed.get("reasoning_events")
+        normalized_reasoning_events = reasoning_events if isinstance(reasoning_events, list) else []
+        action_types = parsed.get("action_event_types")
+        reasoning_types = parsed.get("reasoning_event_types")
+        return {
+            "path": str(trace_path),
+            "captured_at_utc": _clean_text(parsed.get("captured_at_utc")),
+            "run_id": _clean_text(parsed.get("run_id")),
+            "pipeline_id": _clean_text(parsed.get("pipeline_id")),
+            "task_id": _clean_text(parsed.get("task_id")),
+            "model": _clean_text(parsed.get("model")),
+            "reasoning_effort": _clean_text(parsed.get("reasoning_effort")),
+            "event_count": _coerce_int(parsed.get("event_count")),
+            "action_event_count": _coerce_int(parsed.get("action_event_count")),
+            "action_event_types": (
+                [str(item) for item in action_types if isinstance(item, str)]
+                if isinstance(action_types, list)
+                else []
+            ),
+            "reasoning_event_count": _coerce_int(parsed.get("reasoning_event_count")),
+            "reasoning_event_types": (
+                [str(item) for item in reasoning_types if isinstance(item, str)]
+                if isinstance(reasoning_types, list)
+                else []
+            ),
+            "reasoning_events": normalized_reasoning_events,
+            "available": bool(
+                _coerce_int(parsed.get("reasoning_event_count")) or normalized_reasoning_events
+            ),
+        }
 
     lines: list[str] = []
     category_lines: dict[str, list[str]] = {pass_name: [] for pass_name in pass_dir_map}
@@ -12021,6 +12190,62 @@ def _build_codex_farm_prompt_response_log(
                         if isinstance(telemetry_row, dict)
                         else None
                     )
+                    telemetry_task_id = (
+                        _clean_text(telemetry_row.get("task_id"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    telemetry_trace_path = (
+                        _clean_text(telemetry_row.get("trace_path"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    telemetry_trace_action_count = (
+                        _coerce_int(telemetry_row.get("trace_action_count"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    telemetry_trace_action_types = (
+                        _parse_json_string_list(telemetry_row.get("trace_action_types_json"))
+                        if isinstance(telemetry_row, dict)
+                        else []
+                    )
+                    telemetry_trace_reasoning_count = (
+                        _coerce_int(telemetry_row.get("trace_reasoning_count"))
+                        if isinstance(telemetry_row, dict)
+                        else None
+                    )
+                    telemetry_trace_reasoning_types = (
+                        _parse_json_string_list(telemetry_row.get("trace_reasoning_types_json"))
+                        if isinstance(telemetry_row, dict)
+                        else []
+                    )
+                    resolved_trace_path = _resolve_telemetry_trace_path(
+                        telemetry_trace_path=telemetry_trace_path,
+                        output_file=output_file,
+                        out_dir=out_dir,
+                        task_id=telemetry_task_id,
+                    )
+                    thinking_trace_payload = _load_thinking_trace_payload(
+                        trace_path=resolved_trace_path
+                    )
+                    if isinstance(thinking_trace_payload, dict):
+                        if telemetry_trace_action_count is None:
+                            telemetry_trace_action_count = thinking_trace_payload.get(
+                                "action_event_count"
+                            )
+                        if not telemetry_trace_action_types:
+                            telemetry_trace_action_types = list(
+                                thinking_trace_payload.get("action_event_types") or []
+                            )
+                        if telemetry_trace_reasoning_count is None:
+                            telemetry_trace_reasoning_count = thinking_trace_payload.get(
+                                "reasoning_event_count"
+                            )
+                        if not telemetry_trace_reasoning_types:
+                            telemetry_trace_reasoning_types = list(
+                                thinking_trace_payload.get("reasoning_event_types") or []
+                            )
 
                     request_payload: dict[str, Any] = {
                         "messages": request_messages,
@@ -12059,7 +12284,7 @@ def _build_codex_farm_prompt_response_log(
                                 if process_run_id is not None
                                 else None
                             ),
-                            "task_id": _clean_text(telemetry_row.get("task_id")),
+                            "task_id": telemetry_task_id,
                             "worker_id": _clean_text(telemetry_row.get("worker_id")),
                             "thread_id": _clean_text(telemetry_row.get("thread_id")),
                             "status": _clean_text(telemetry_row.get("status")),
@@ -12103,6 +12328,16 @@ def _build_codex_farm_prompt_response_log(
                             "ask_for_approval": telemetry_ask_for_approval,
                             "web_search": telemetry_web_search,
                             "output_schema_path": telemetry_output_schema_path,
+                            "trace_path": telemetry_trace_path,
+                            "trace_resolved_path": (
+                                str(resolved_trace_path)
+                                if resolved_trace_path is not None
+                                else None
+                            ),
+                            "trace_action_count": telemetry_trace_action_count,
+                            "trace_action_types": telemetry_trace_action_types,
+                            "trace_reasoning_count": telemetry_trace_reasoning_count,
+                            "trace_reasoning_types": telemetry_trace_reasoning_types,
                         }
 
                     row_payload = {
@@ -12151,6 +12386,7 @@ def _build_codex_farm_prompt_response_log(
                         "parsed_response": parsed_output,
                         "request_input_file": str(input_file) if input_file is not None else None,
                         "request_telemetry": request_telemetry,
+                        "thinking_trace": thinking_trace_payload,
                     }
                     full_prompt_log_handle.write(
                         json.dumps(row_payload, ensure_ascii=False) + "\n"
@@ -12174,14 +12410,14 @@ def _build_codex_farm_prompt_response_log(
         if not category_has_payload.get(pass_name):
             continue
         task_name = pass_task_map.get(pass_name, pass_name)
-        category_path = codexfarm_dir / f"prompt_{task_name}_{path_root}.txt"
+        category_path = prompts_dir / f"prompt_{task_name}_{path_root}.txt"
         category_path.write_text(
             "\n".join(category_lines[pass_name]) + "\n",
             encoding="utf-8",
         )
         category_manifest_lines.append(str(category_path))
     if category_manifest_lines:
-        (codexfarm_dir / "prompt_category_logs_manifest.txt").write_text(
+        (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
             "\n".join(category_manifest_lines) + "\n",
             encoding="utf-8",
         )
@@ -22312,25 +22548,34 @@ def _write_stage_run_manifest(
         artifacts["stage_worker_resolution_json"] = str(
             stage_worker_resolution.relative_to(run_root)
         )
-    codexfarm_dir = run_root / "codexfarm"
-    if codexfarm_dir.exists() and codexfarm_dir.is_dir():
-        artifacts["codexfarm_dir"] = str(codexfarm_dir.relative_to(run_root))
-        prompt_request_response_path = codexfarm_dir / "prompt_request_response_log.txt"
+    prompt_artifacts_dir = run_root / "prompts"
+    if not prompt_artifacts_dir.exists() or not prompt_artifacts_dir.is_dir():
+        # Backward compatibility for historical runs that wrote under `codexfarm/`.
+        prompt_artifacts_dir = run_root / "codexfarm"
+    if prompt_artifacts_dir.exists() and prompt_artifacts_dir.is_dir():
+        artifacts["codexfarm_dir"] = str(prompt_artifacts_dir.relative_to(run_root))
+        prompt_request_response_path = (
+            prompt_artifacts_dir / "prompt_request_response_log.txt"
+        )
         if prompt_request_response_path.exists() and prompt_request_response_path.is_file():
             artifacts["codexfarm_prompt_request_response_txt"] = str(
                 prompt_request_response_path.relative_to(run_root)
             )
-        category_manifest_path = codexfarm_dir / "prompt_category_logs_manifest.txt"
+        category_manifest_path = (
+            prompt_artifacts_dir / "prompt_category_logs_manifest.txt"
+        )
         if category_manifest_path.exists() and category_manifest_path.is_file():
             artifacts["codexfarm_prompt_category_logs_manifest_txt"] = str(
                 category_manifest_path.relative_to(run_root)
             )
-        full_prompt_log_path = codexfarm_dir / "full_prompt_log.jsonl"
+        full_prompt_log_path = prompt_artifacts_dir / "full_prompt_log.jsonl"
         if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
             artifacts["codexfarm_full_prompt_log_jsonl"] = str(
                 full_prompt_log_path.relative_to(run_root)
             )
-        prompt_type_samples_path = codexfarm_dir / _PROMPT_TYPE_SAMPLES_MD_NAME
+        prompt_type_samples_path = (
+            prompt_artifacts_dir / _PROMPT_TYPE_SAMPLES_MD_NAME
+        )
         if prompt_type_samples_path.exists() and prompt_type_samples_path.is_file():
             artifacts["codexfarm_prompt_type_samples_from_full_prompt_log_md"] = str(
                 prompt_type_samples_path.relative_to(run_root)

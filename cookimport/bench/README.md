@@ -2,6 +2,7 @@
 
 Offline benchmark orchestration code lives in this folder.
 Durable benchmark scoring/scheduler/output contracts live in `cookimport/bench/CONVENTIONS.md`.
+Agent quick-start for QualitySuite in this folder lives in `cookimport/bench/AGENTS.md`.
 
 Current scoring contract:
 - Predictions come from stage evidence manifests (`stage_block_predictions.json`), not pipeline chunk tasks.

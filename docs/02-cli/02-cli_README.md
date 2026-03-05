@@ -311,9 +311,9 @@ Developer note:
    - `extracted_text.txt`
    - `manifest.json`
    - If Codex Farm recipe pass is enabled, this flow also writes prompt-debug artifacts under the run folder:
-   - `codexfarm/prompt_request_response_log.txt`
-   - `codexfarm/full_prompt_log.jsonl`
-   - `codexfarm/prompt_type_samples_from_full_prompt_log.md`
+   - `prompts/prompt_request_response_log.txt`
+   - `prompts/full_prompt_log.jsonl`
+   - `prompts/prompt_type_samples_from_full_prompt_log.md`
 7. The tool uploads tasks to Label Studio automatically.
    - No extra "are you sure?" prompt in this interactive flow.
    - Upload is batched in groups of 200 tasks.

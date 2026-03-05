@@ -1989,7 +1989,7 @@ _HTML = """\
             Point value
           </label>
         </div>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores. Use the Point value checkbox to switch the comparison columns between delta-vs-baseline and raw point values (positive/green means codexfarm baseline is higher than the comparison value; negative/red means codexfarm baseline is lower). Rolling metrics use the selected N runs per variant (codexfarm vs vanilla) without cross-mixing.</p>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores. Use the Point value checkbox to switch the comparison columns between delta-vs-baseline and raw point values (positive/green means codexfarm baseline is higher than the comparison value; negative/red means codexfarm baseline is lower). Rolling metrics use the selected N codexfarm runs without cross-mixing.</p>
         <table id="per-label-table" class="dashboard-resizable-table"><thead>
           <tr class="per-label-header-primary">
             <th title="The label name being scored (for example RECIPE_TITLE)." rowspan="2">Label</th>
@@ -1999,13 +1999,11 @@ _HTML = """\
             <th data-metric-tooltip-key="recall" title="Latest-run codexfarm recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
             <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="run" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus latest-run vanilla precision for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
             <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="run" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus latest-run vanilla recall for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm and vanilla columns." colspan="4"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling <span class="per-label-comparison-mode-value">Delta</span>:</span></th>
+            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm columns." colspan="2"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling <span class="per-label-comparison-mode-value">Delta</span>:</span></th>
           </tr>
           <tr class="per-label-header-rolling">
             <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm precision minus rolling codexfarm precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
             <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm recall minus rolling codexfarm recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus rolling vanilla precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus rolling vanilla recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
           </tr>
         </thead><tbody></tbody></table>
       </section>
@@ -13692,7 +13690,7 @@ _JS = """\
     const latestRunLabel = activeRunGroup.runGroupLabel;
     if (!latestRunRecords.length) {
       if (title) title.textContent = "Per-Label Breakdown";
-      tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="11">No per-label metrics available in benchmark records.</td></tr>';
+      tbody.innerHTML = '<tr><td class="empty-note-cell" colspan="9">No per-label metrics available in benchmark records.</td></tr>';
       return;
     }
     if (didResetRunGroupSelection) {
@@ -13718,17 +13716,11 @@ _JS = """\
       "codexfarm",
       rollingWindowSize,
     );
-    const rollingVanillaByLabel = rollingPerLabelByVariant(
-      candidateRecords,
-      "vanilla",
-      rollingWindowSize,
-    );
 
     latestRows.forEach(lbl => {
       const runCodexFarm = runCodexFarmByLabel[lbl.label] || {};
       const runVanilla = runVanillaByLabel[lbl.label] || {};
       const rollingCodexFarm = rollingCodexFarmByLabel[lbl.label] || {};
-      const rollingVanilla = rollingVanillaByLabel[lbl.label] || {};
       const baselinePrecision = runCodexFarm.precision;
       const baselineRecall = runCodexFarm.recall;
       const tr = document.createElement("tr");
@@ -13741,9 +13733,7 @@ _JS = """\
         perLabelComparisonCell(runVanilla.precision, baselinePrecision) +
         perLabelComparisonCell(runVanilla.recall, baselineRecall) +
         perLabelComparisonCell(rollingCodexFarm.precision, baselinePrecision) +
-        perLabelComparisonCell(rollingCodexFarm.recall, baselineRecall) +
-        perLabelComparisonCell(rollingVanilla.precision, baselinePrecision) +
-        perLabelComparisonCell(rollingVanilla.recall, baselineRecall);
+        perLabelComparisonCell(rollingCodexFarm.recall, baselineRecall);
       tbody.appendChild(tr);
     });
   }

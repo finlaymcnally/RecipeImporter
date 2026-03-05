@@ -14,6 +14,7 @@ QualitySuite now has one cohesive operating model with three tracks:
 3. Final validation and regression gating (`bench quality-run` + `bench quality-compare`)
 
 Use this file as the primary "what should I run next?" reference.
+For first-time AI-agent operation SOPs, see `docs/07-bench/qualitysuite-agent-sop.md`.
 
 Current status update (2026-03-01 to 2026-03-02):
 - `cookimport bench quality-lightweight-series` is retired/disabled and exits immediately.

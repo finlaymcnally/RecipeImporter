@@ -194,7 +194,7 @@ Benchmark scan details:
 - Per-label diagnostics keep latest-run `codexfarm` precision/recall as raw baseline columns. Comparison columns can be shown as signed deltas or raw point values via an in-card `Point value` checkbox; delta sign is `codexfarm baseline - comparison` (positive/green = codexfarm higher, negative/red = codexfarm lower).
 - Per-label comparison cells now render `-` when the comparison variant metric is missing (instead of coercing to `0.0000` in point-value mode).
 - Per-label diagnostics now include a run-group selector beside the title (`Default - most recent` + all available run timestamps) so the table can auto-follow latest runs or be pinned to a chosen timestamp.
-- Per-label diagnostics expose a `Rolling N` selector; rolling codexfarm/vanilla comparison columns use that selected N and render under a shared dynamic `<N>-run Rolling <Mode>:` header with metric+variant subcolumns.
+- Per-label diagnostics expose a `Rolling N` selector; rolling comparison columns use codexfarm-only rolling precision/recall at the selected N under one shared dynamic `<N>-run Rolling <Mode>:` header.
 - If benchmark run-config leaves model/effort unset (default runtime), collector backfills from prediction-run manifest `llm_codex_farm` process telemetry when present.
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.

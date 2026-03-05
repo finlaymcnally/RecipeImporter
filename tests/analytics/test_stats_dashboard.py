@@ -3093,6 +3093,8 @@ class TestRenderer:
         assert 'class="per-label-col-head">Run<br>Recall<br>' in html
         assert 'class="per-label-rolling-window-value">10</span>' in html
         assert 'Rolling <span class="per-label-comparison-mode-value">Delta</span>:' in html
+        assert 'data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla"' not in html
+        assert 'data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla"' not in html
         assert "Point value" in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html

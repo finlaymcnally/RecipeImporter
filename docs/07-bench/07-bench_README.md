@@ -10,6 +10,7 @@ read_when:
 
 This file is the current, code-verified benchmark contract.
 Historical chronology lives in `docs/07-bench/07-bench_log.md`.
+Agent onboarding/SOP for QualitySuite lives in `docs/07-bench/qualitysuite-agent-sop.md`.
 
 ## 1. Scope
 
@@ -97,10 +98,10 @@ Interactive `single_offline` now writes into one session root:
   - `vanilla`: deterministic-only (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`)
   - `codexfarm`: LLM-adjusted recipe + line-role path (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
 - prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
-- codex variant runs now include prompt-debug text artifacts under `.../codexfarm/codexfarm/`:
+- codex variant runs now include prompt-debug text artifacts under `.../codexfarm/prompts/` (legacy runs may still use `.../codexfarm/codexfarm/`):
   - `prompt_request_response_log.txt` (combined full dump),
   - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
-  - `prompt_type_samples_from_full_prompt_log.md` (auto-generated easy-read markdown with up to 3 literal prompt examples per pass from `full_prompt_log.jsonl`),
+  - `prompt_type_samples_from_full_prompt_log.md` (auto-generated easy-read markdown with up to 3 literal prompt examples per pass from `full_prompt_log.jsonl`, now including thinking-trace excerpts when available),
   - `full_prompt_log.jsonl` rows include `request_payload_source` (`telemetry_csv` when `codex_exec_activity.csv` has a matching call; fallback `reconstructed_from_prompt_template` otherwise) and `request_telemetry` with per-call runtime metadata.
   - `prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt` (split by prompt category),
   - `prompt_category_logs_manifest.txt` (one-path-per-line index of category files).

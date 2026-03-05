@@ -1113,6 +1113,30 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         json.dumps({"result": "pass5 response"}),
         encoding="utf-8",
     )
+    pass1_trace_dir = pass1_out / ".codex-farm-traces" / "task-pass1"
+    pass1_trace_dir.mkdir(parents=True, exist_ok=True)
+    pass1_trace = pass1_trace_dir / "trace-pass1.trace.json"
+    pass1_trace.write_text(
+        json.dumps(
+            {
+                "captured_at_utc": "2026-03-02T23:59:01Z",
+                "run_id": "run-pass1",
+                "pipeline_id": "recipe.chunking.v1",
+                "task_id": "task-pass1",
+                "reasoning_event_count": 1,
+                "reasoning_event_types": ["response.reasoning_summary_text.delta"],
+                "reasoning_events": [
+                    {
+                        "type": "response.reasoning_summary_text.delta",
+                        "delta": "candidate span tightened",
+                    }
+                ],
+                "action_event_count": 2,
+                "action_event_types": ["thread.started", "item.completed"],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     telemetry_csv = tmp_path / "var" / "codex_exec_activity.csv"
     telemetry_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -1151,6 +1175,11 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 "tokens_total",
                 "usage_json",
                 "finished_at_utc",
+                "trace_path",
+                "trace_action_count",
+                "trace_action_types_json",
+                "trace_reasoning_count",
+                "trace_reasoning_types_json",
             ],
         )
         writer.writeheader()
@@ -1187,6 +1216,22 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 "tokens_total": "133",
                 "usage_json": "{\"tokens\":123}",
                 "finished_at_utc": "2026-03-02T23:59:00Z",
+                # Simulate stale source-root telemetry paths; loader should resolve
+                # local trace files under pass out dir by task id.
+                "trace_path": str(
+                    Path("/tmp/old-run/.codex-farm-traces/task-pass1")
+                    / pass1_trace.name
+                ),
+                "trace_action_count": "2",
+                "trace_action_types_json": json.dumps(
+                    ["thread.started", "item.completed"],
+                    sort_keys=True,
+                ),
+                "trace_reasoning_count": "1",
+                "trace_reasoning_types_json": json.dumps(
+                    ["response.reasoning_summary_text.delta"],
+                    sort_keys=True,
+                ),
             }
         )
 
@@ -1267,17 +1312,17 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         eval_output_dir=eval_output_dir,
     )
 
-    assert log_path == eval_output_dir / "codexfarm" / "prompt_request_response_log.txt"
+    assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
     assert log_path is not None and log_path.exists()
     combined = log_path.read_text(encoding="utf-8")
     assert "INPUT pass1 => r0000.json" in combined
     assert "OUTPUT pass3 => r0000.json" in combined
 
-    task1_path = eval_output_dir / "codexfarm" / "prompt_task1_pass1_chunking.txt"
-    task2_path = eval_output_dir / "codexfarm" / "prompt_task2_pass2_schemaorg.txt"
-    task3_path = eval_output_dir / "codexfarm" / "prompt_task3_pass3_final.txt"
-    task4_path = eval_output_dir / "codexfarm" / "prompt_task4_pass4_knowledge.txt"
-    task5_path = eval_output_dir / "codexfarm" / "prompt_task5_pass5_tags.txt"
+    task1_path = eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt"
+    task2_path = eval_output_dir / "prompts" / "prompt_task2_pass2_schemaorg.txt"
+    task3_path = eval_output_dir / "prompts" / "prompt_task3_pass3_final.txt"
+    task4_path = eval_output_dir / "prompts" / "prompt_task4_pass4_knowledge.txt"
+    task5_path = eval_output_dir / "prompts" / "prompt_task5_pass5_tags.txt"
     for category_path in (task1_path, task2_path, task3_path, task4_path, task5_path):
         assert category_path.exists()
 
@@ -1286,7 +1331,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert str(attached) in task1_text
     assert "attachment content" in task1_text
 
-    manifest_path = eval_output_dir / "codexfarm" / "prompt_category_logs_manifest.txt"
+    manifest_path = eval_output_dir / "prompts" / "prompt_category_logs_manifest.txt"
     assert manifest_path.exists()
     manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
     assert manifest_lines == [
@@ -1297,7 +1342,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         str(task5_path),
     ]
 
-    full_prompt_log_path = eval_output_dir / "codexfarm" / "full_prompt_log.jsonl"
+    full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     assert full_prompt_log_path.exists()
     full_prompt_rows = [
         json.loads(line)
@@ -1328,12 +1373,27 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert pass1_row["request_telemetry"]["prompt_chars"] == 20
     assert pass1_row["request_telemetry"]["tokens_total"] == 133
     assert pass1_row["request_telemetry"]["usage_json"] == {"tokens": 123}
+    assert pass1_row["request_telemetry"]["trace_action_count"] == 2
+    assert pass1_row["request_telemetry"]["trace_reasoning_count"] == 1
+    assert pass1_row["request_telemetry"]["trace_reasoning_types"] == [
+        "response.reasoning_summary_text.delta"
+    ]
+    assert pass1_row["request_telemetry"]["trace_resolved_path"] == str(pass1_trace)
+    assert pass1_row["thinking_trace"]["path"] == str(pass1_trace)
+    assert pass1_row["thinking_trace"]["available"] is True
+    assert pass1_row["thinking_trace"]["reasoning_event_count"] == 1
+    assert pass1_row["thinking_trace"]["reasoning_events"] == [
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "candidate span tightened",
+        }
+    ]
     assert pass1_row["parsed_response"] == {"result": "pass1 response"}
     assert pass1_row["raw_response"]["output_file"].endswith("r0000.json")
 
     prompt_samples_path = (
         eval_output_dir
-        / "codexfarm"
+        / "prompts"
         / "prompt_type_samples_from_full_prompt_log.md"
     )
     assert prompt_samples_path.exists()
@@ -1345,6 +1405,8 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert "## pass5 (Tag Suggestions)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
+    assert "Thinking Trace:" in prompt_samples
+    assert "candidate span tightened" in prompt_samples
 
 
 def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
@@ -1379,12 +1441,12 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         eval_output_dir=eval_output_dir,
     )
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "codexfarm" / "prompt_task1_pass1_chunking.txt").exists()
-    assert not (eval_output_dir / "codexfarm" / "prompt_task2_pass2_schemaorg.txt").exists()
-    assert not (eval_output_dir / "codexfarm" / "prompt_task3_pass3_final.txt").exists()
-    assert not (eval_output_dir / "codexfarm" / "prompt_task4_pass4_knowledge.txt").exists()
-    assert not (eval_output_dir / "codexfarm" / "prompt_task5_pass5_tags.txt").exists()
-    full_prompt_log_path = eval_output_dir / "codexfarm" / "full_prompt_log.jsonl"
+    assert (eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task2_pass2_schemaorg.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task3_pass3_final.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task4_pass4_knowledge.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task5_pass5_tags.txt").exists()
+    full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
         json.loads(line)
         for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
@@ -1394,7 +1456,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert full_prompt_rows[0]["pass"] == "pass1"
     prompt_samples_path = (
         eval_output_dir
-        / "codexfarm"
+        / "prompts"
         / "prompt_type_samples_from_full_prompt_log.md"
     )
     assert prompt_samples_path.exists()
@@ -1406,7 +1468,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert "_No rows captured for this pass._" in prompt_samples
 
 
-def test_write_stage_run_manifest_includes_codexfarm_artifacts(tmp_path: Path) -> None:
+def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     output_root = tmp_path / "output"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -1418,21 +1480,21 @@ def test_write_stage_run_manifest_includes_codexfarm_artifacts(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    codexfarm_dir = run_root / "codexfarm"
-    codexfarm_dir.mkdir(parents=True, exist_ok=True)
-    (codexfarm_dir / "prompt_request_response_log.txt").write_text(
+    prompts_dir = run_root / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    (prompts_dir / "prompt_request_response_log.txt").write_text(
         "prompt log\n",
         encoding="utf-8",
     )
-    (codexfarm_dir / "prompt_category_logs_manifest.txt").write_text(
+    (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
         "prompt_task1_pass1_chunking.txt\n",
         encoding="utf-8",
     )
-    (codexfarm_dir / "full_prompt_log.jsonl").write_text(
+    (prompts_dir / "full_prompt_log.jsonl").write_text(
         "{}\n",
         encoding="utf-8",
     )
-    (codexfarm_dir / "prompt_type_samples_from_full_prompt_log.md").write_text(
+    (prompts_dir / "prompt_type_samples_from_full_prompt_log.md").write_text(
         "# samples\n",
         encoding="utf-8",
     )
@@ -1450,18 +1512,18 @@ def test_write_stage_run_manifest_includes_codexfarm_artifacts(tmp_path: Path) -
     )
     artifacts = run_manifest_payload.get("artifacts")
     assert isinstance(artifacts, dict)
-    assert artifacts["codexfarm_dir"] == "codexfarm"
+    assert artifacts["codexfarm_dir"] == "prompts"
     assert artifacts["codexfarm_prompt_request_response_txt"] == (
-        "codexfarm/prompt_request_response_log.txt"
+        "prompts/prompt_request_response_log.txt"
     )
     assert artifacts["codexfarm_prompt_category_logs_manifest_txt"] == (
-        "codexfarm/prompt_category_logs_manifest.txt"
+        "prompts/prompt_category_logs_manifest.txt"
     )
     assert artifacts["codexfarm_full_prompt_log_jsonl"] == (
-        "codexfarm/full_prompt_log.jsonl"
+        "prompts/full_prompt_log.jsonl"
     )
     assert artifacts["codexfarm_prompt_type_samples_from_full_prompt_log_md"] == (
-        "codexfarm/prompt_type_samples_from_full_prompt_log.md"
+        "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
 
 
@@ -3252,10 +3314,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
-
-
-
 
 
 
