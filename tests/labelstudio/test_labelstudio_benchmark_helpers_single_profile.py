@@ -398,7 +398,17 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_11.11.11"
     processed_output_root = tmp_path / "processed"
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "section_detector_backend": "legacy",
+            "multi_recipe_splitter": "legacy",
+            "instruction_step_segmentation_policy": "auto",
+            "pdf_ocr_policy": "auto",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_skip_headers_footers": False,
+            "codex_farm_pipeline_pass2": "recipe.schemaorg.v1",
+            "codex_farm_pipeline_pass3": "recipe.final.v1",
+        },
         warn_context="test single-profile codex",
     )
 
@@ -430,14 +440,50 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
         "codex-farm-3pass-v1",
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
-        "off",
+        "deterministic-v1",
         "codex-line-role-v1",
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
-        "off",
+        "atomic-v1",
         "atomic-v1",
     ]
     assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
+    assert [call["section_detector_backend"] for call in benchmark_calls] == [
+        "shared_v1",
+        "shared_v1",
+    ]
+    assert [call["multi_recipe_splitter"] for call in benchmark_calls] == [
+        "rules_v1",
+        "rules_v1",
+    ]
+    assert [call["instruction_step_segmentation_policy"] for call in benchmark_calls] == [
+        "always",
+        "always",
+    ]
+    assert [call["instruction_step_segmenter"] for call in benchmark_calls] == [
+        "heuristic_v1",
+        "heuristic_v1",
+    ]
+    assert [call["pdf_ocr_policy"] for call in benchmark_calls] == [
+        "off",
+        "off",
+    ]
+    assert [call["epub_unstructured_html_parser_version"] for call in benchmark_calls] == [
+        "v1",
+        "v1",
+    ]
+    assert [call["epub_unstructured_skip_headers_footers"] for call in benchmark_calls] == [
+        True,
+        True,
+    ]
+    assert [call["codex_farm_pipeline_pass2"] for call in benchmark_calls] == [
+        "recipe.schemaorg.compact.v1",
+        "recipe.schemaorg.compact.v1",
+    ]
+    assert [call["codex_farm_pipeline_pass3"] for call in benchmark_calls] == [
+        "recipe.final.compact.v1",
+        "recipe.final.compact.v1",
+    ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla",
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codexfarm",

@@ -20,6 +20,7 @@ Current status update (2026-03-01 to 2026-03-02):
 - `cookimport bench quality-lightweight-series` is retired/disabled and exits immediately.
 - The old tournament script has been removed from the repo.
 - Track 1 and Track 2 below are historical workflow context only (useful for reading legacy artifacts), not active runnable commands.
+- `cookimport bench quality-run` is deterministic-only and no longer permits Codex Farm recipe/knowledge/tags enablement.
 
 ## AI-Agent Handoff (Active)
 

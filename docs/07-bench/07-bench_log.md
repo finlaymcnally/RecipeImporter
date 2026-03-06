@@ -6332,3 +6332,244 @@ Evidence retained from task:
 
 Anti-loop note:
 - If upload rerun behavior differs from interactive behavior, inspect shared bundle resolution in `oracle_upload.py` before touching interactive benchmark flows.
+
+## 2026-03-06 migrated understanding ledger (single-profile planning, follow-up packets, and bundle-budget fixes)
+
+### 2026-03-06_00.30.31 single-profile benchmark terminal noise sources
+
+Source:
+- `docs/understandings/2026-03-06_00.30.31-single-profile-benchmark-terminal-noise-sources.md`
+
+Problem captured:
+- Shared outer single-profile progress was getting garbled by nested benchmark summary output and multiline codex-farm warnings that bypassed the shared callback path.
+
+Durable findings:
+- `_benchmark_progress_overrides(...)` already suppresses nested benchmark summaries for shared-dashboard runs, but `labelstudio_benchmark(...)` had still been printing Codex decision banners before honoring `suppress_summary`.
+- Recoverable `no last agent message` / partial-output warnings from `SubprocessCodexFarmRunner.run_pipeline(...)` were bypassing the callback path and dumping multiline diagnostics directly into the PTY.
+- The clean fix shape is:
+  - suppress nested decision banners when shared-summary suppression is active,
+  - route recoverable codex-farm failures through one short progress callback message,
+  - keep detailed diagnostics in artifacts/debug logs instead of terminal warnings.
+
+Anti-loop note:
+- If shared single-profile terminal output becomes noisy again, inspect nested summary suppression and callback-vs-logger paths before rewriting the dashboard renderer.
+
+### 2026-03-06_01.05.09 upload bundle follow-up packets
+
+Source:
+- `docs/understandings/2026-03-06_01.05.09-upload-bundle-followup-packets.md`
+
+Problem captured:
+- Needed a clean reminder that narrow reviewer asks already had a dedicated delta-packet workflow and did not require rebuilding or mutating `upload_bundle_v1`.
+
+Durable findings:
+- `upload_bundle_v1` is the base artifact family.
+- Narrow follow-up packets belong to `cookimport/cf_debug_cli.py` and `cookimport/bench/followup_bundle.py`, not the upload-bundle builder itself.
+- The intended flow is:
+  - `request-template` -> write `cf.followup_request.v1`,
+  - `select-cases` -> produce deterministic selectors,
+  - `pack` -> emit one compact evidence pack,
+  - `build-followup` -> emit multi-ask `followup_dataN/asks/<ask_id>/...` packets.
+- Supported follow-up outputs are `case_export`, `line_role_audit`, `prompt_link_audit`, `page_context`, and `uncertainty`.
+
+Anti-loop note:
+- Follow-up packets are explicit deltas for someone who already has `upload_bundle_v1`; do not repack the full bundle into each new ask.
+
+### 2026-03-06_01.08.59 web AI follow-up instruction scope
+
+Source:
+- `docs/understandings/2026-03-06_01.08.59-web-ai-followup-instructions-scope.md`
+
+Problem captured:
+- Reviewer/web-AI instructions were at risk of under-explaining the relationship between the three upload-bundle files and the larger benchmark session they were derived from.
+
+Durable findings:
+- The useful teaching unit is `upload_bundle_v1` plus session-root/per-run artifact layout.
+- Some logically present artifacts only exist as derived payload rows under `_upload_bundle_derived/...` or related virtual paths.
+- `upload_bundle_index.json.navigation.row_locators` is the bridge back into those payload rows and should be the first navigation surface for follow-up requests.
+
+Anti-loop note:
+- If an external reviewer says an expected artifact is “missing,” check whether it exists only as a row locator / derived payload row before generating new data.
+
+### 2026-03-06_01.13.31 group upload bundle size seams
+
+Source:
+- `docs/understandings/2026-03-06_01.13.31-group-upload-bundle-size-seams.md`
+
+Problem captured:
+- The March 6 multi-book high-level bundle blew past its intended size budget because high-level selection still treated raw prompt dumps as required and had no final serialized-size clamp.
+
+Key evidence preserved:
+- Sample root:
+  - `data/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
+- Observed payload size:
+  - about `77.8 MB`
+- Dominant bytes came from required raw prompt logs:
+  - `04_thefoodlabcutdown/prompts/full_prompt_log.jsonl`: `24.0 MB`
+  - `01_amatteroftastecutdown/prompts/full_prompt_log.jsonl`: `23.9 MB`
+  - `03_seaandsmokecutdown/prompts/full_prompt_log.jsonl`: `13.7 MB`
+  - `02_saltfatacidheatcutdown/prompts/full_prompt_log.jsonl`: `8.2 MB`
+
+Durable decisions from this discovery:
+- Reducing the byte target constant alone would not solve the issue.
+- High-level selection needed different inclusion rules, a hard final serialized-size enforcement pass, and a policy that moves deep prompt/trace evidence into follow-up packets instead of first-pass group bundles.
+
+### 2026-03-06_12.54.46 single-profile paired variants restored
+
+Source:
+- `docs/understandings/2026-03-06_12.54.46-single-profile-paired-variants-restored.md`
+
+Problem captured at that point:
+- Interactive single-profile planning had drifted to codex-only execution even though the then-current UX/docs still implied paired vanilla-plus-codex runs.
+
+Decision recorded at that time:
+- `_interactive_single_offline_variants()` was changed to derive a deterministic baseline via `apply_benchmark_baseline_contract(...)`, then derive the Codex variant from that baseline with `apply_benchmark_codex_contract_from_baseline(...)`, returning both variants in order.
+
+Historical-status note:
+- This restoration attempt did not remain the final contract; later March 6 work changed the planner back to literal selected-profile execution. Keep both entries to avoid looping on “why is it paired?” vs “why is it single?” explanations.
+
+### 2026-03-06_13.29.41 benchmark ablation surfaces
+
+Source:
+- `docs/understandings/2026-03-06_13.29.41-benchmark-ablation-surfaces.md`
+
+Problem captured:
+- Needed a precise answer for which benchmark commands really expand ablation-like variant grids versus running one chosen path.
+
+Durable findings:
+- `cookimport bench speed-run` does not perform ablations.
+- `cookimport bench quality-run` can compare variants only through explicit experiment definitions / schema-v2 levers and optional deterministic sweeps.
+- Deterministic sweeps are one-at-a-time plus one combined `all_upgrades` payload, not a full factorial grid.
+- Historical `bench quality-lightweight-series` was the old explicit ablation surface and is retired/disabled.
+
+### 2026-03-06_16.20.00 interactive benchmark codexfarm selection
+
+Source:
+- `docs/understandings/2026-03-06_16.20.00-interactive-benchmark-codexfarm-selection.md`
+
+Problem captured:
+- Automatic vanilla+codex expansion made the interactive CLI violate the simpler “run the profile I selected” expectation and explained confusing vanilla-looking terminal output during codex runs.
+
+Durable decision:
+- Shared interactive benchmark planning keeps behavior literal:
+  - if selected settings are Codex-backed, run one `codexfarm`/selected-profile variant,
+  - if selected settings are deterministic, run one deterministic variant,
+  - pass `allow_codex=True` through to the selected Codex-backed run instead of injecting a baseline companion.
+
+Anti-loop note:
+- If an interactive codex run also schedules vanilla again, treat it as planner regression rather than “helpful comparison.”
+
+### 2026-03-06_17.05.00 single-profile thefoodlab not stuck
+
+Source:
+- `docs/understandings/2026-03-06_17.05.00-single-profile-thefoodlab-not-stuck.md`
+
+Problem captured:
+- A March 6 single-profile run looked hung on `codex-farm recipe.final.v1 task 8/9` even though it had actually finished normally.
+
+Evidence preserved:
+- Root:
+  - `data/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/`
+- Final timestamps in `processing_timeseries.jsonl`:
+  - `2026-03-06T05:58:45.728+00:00`: completed variant for `thefoodlabCUTDOWN.epub`
+  - `2026-03-06T05:58:47.591+00:00`: completed book `4/4`
+  - `2026-03-06T05:58:47.607+00:00`: benchmark finished
+- Completion artifacts existed for the last book:
+  - `04_thefoodlabcutdown/run_manifest.json`
+  - `04_thefoodlabcutdown/eval_report.json`
+  - `04_thefoodlabcutdown/upload_bundle_v1/upload_bundle_payload.jsonl`
+
+Durable lesson:
+- CodexFarm task counters only cover one subphase; line-role, processed-output, eval, and upload-bundle work still happens afterward.
+
+### 2026-03-06_17.35.00 single-profile book grid progress model
+
+Source:
+- `docs/understandings/2026-03-06_17.35.00-single-profile-book-grid-progress-model.md`
+
+Problem captured:
+- Needed to know whether a per-book grid dashboard required a deeper runner rewrite or whether the existing outer callback already had enough information.
+
+Durable findings:
+- `_interactive_single_profile_all_matched_benchmark(...)` already receives raw nested callback messages while inner per-book spinners/summaries are suppressed.
+- Those messages already carry:
+  - `task X/Y` counters,
+  - CodexFarm `running N | active [...]` worker activity,
+  - serialized `__worker_activity__ ...` payloads for non-Codex worker updates.
+- The clean seam is to swap the dashboard model in `_interactive_single_profile_all_matched_benchmark(...)` while leaving `_run_with_progress_status(...)` as the shared outer renderer.
+
+### 2026-03-06_18.25.00 high-level upload bundle final size accounting
+
+Source:
+- `docs/understandings/2026-03-06_18.25.00-high-level-upload-bundle-final-size-accounting.md`
+
+Problem captured:
+- Exact `final_bundle_bytes` cannot be inferred from source-file sizes because the bundle metadata files describe themselves and the final payload can be trimmed/rebuilt.
+
+Durable findings:
+- High-level bundle generation needs an in-memory payload pass before final write.
+- The builder should:
+  - curate/trim optional rows against a payload budget,
+  - rebuild row numbers once,
+  - write the final three files,
+  - then sync measured final bytes back into payload/index/overview metadata.
+- `prediction-run/prompt_budget_summary.json` is the preferred compact substitute for raw `full_prompt_log.jsonl` in high-level bundles.
+- When adding bytes back under budget, medium-sized context artifacts are safer than raw prompt dumps.
+
+### 2026-03-06_18.50.00 March 6 benchmark regression split causes
+
+Source:
+- `docs/understandings/2026-03-06_18.50.00-march6-benchmark-regression-split-causes.md`
+
+Problem captured:
+- The March 6 single-profile benchmark looked broadly worse than expected and needed a split-cause explanation instead of one monolithic blame story.
+
+Durable findings:
+- The run was not a usable vanilla-vs-codex A/B root:
+  - `pair_count=0`
+- `saltfatacidheatcutdown` was the only apples-to-apples overlap with the March 4 paired run and improved slightly overall (`0.4645 -> 0.4741`), with larger inside-span improvement than outside-span improvement.
+- Line-role Codex fallback did not actually execute:
+  - `prediction-run/line-role-pipeline/telemetry_summary.json` showed `LLM call blocked by safety kill switch. Set COOKIMPORT_ALLOW_LLM=1 to enable.`
+- Recipe-side CodexFarm was not the main regression driver in that run:
+  - `126` recipes,
+  - `0` transport mismatches,
+  - `0` pass3 errors,
+  - `5` pass3 fallbacks,
+  - `23` pass3 LLM calls.
+- The main score drag was outside-span / knowledge-heavy material:
+  - about `82%` of wrong lines were outside recipe spans,
+  - worst books were `saltfatacidheatcutdown` and `thefoodlabcutdown`.
+
+Anti-loop note:
+- If a future run “regresses after ProFixes,” separate paired-run validity, line-role execution reality, recipe-pass health, and outside-span distribution before changing prompts or deterministic guards.
+
+### 2026-03-06_13.41.51 single-profile benchmark config regression source
+
+Source:
+- `docs/understandings/2026-03-06_13.41.51-single-profile-benchmark-config-regression-source.md`
+
+Problem captured:
+- The March 6 single-profile root mixed older planner behavior with a narrower benchmark contract that only patches AI pipeline knobs, making the serialized settings look surprisingly legacy compared with current code.
+
+Durable findings:
+- Sample root:
+  - `data/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark`
+- That root was produced by older single-profile planner behavior with one flat full-stack output per book.
+- Its manifests carried older deterministic parsing knobs:
+  - `section_detector_backend=legacy`
+  - `multi_recipe_splitter=legacy`
+  - `instruction_step_segmentation_policy=auto`
+  - `pdf_ocr_policy=auto`
+- It also carried older pass IDs:
+  - `recipe.schemaorg.v1`
+  - `recipe.final.v1`
+- Current shared benchmark contract in `cookimport/config/codex_decision.py` only normalizes:
+  - `llm_recipe_pipeline`
+  - `llm_knowledge_pipeline`
+  - `llm_tags_pipeline`
+  - `line_role_pipeline`
+  - `atomic_block_splitter`
+- Broader deterministic parsing settings are not pinned by that benchmark contract and therefore reflect the runtime that produced the historical root.
+
+Anti-loop note:
+- When a historical benchmark root shows surprising legacy settings, check which settings the benchmark contract actually normalizes before treating the root as proof that today’s defaults are wrong.

@@ -133,6 +133,49 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
     assert "sanitized_time_to_instruction" in predictions[0].reason_tags
 
 
+def test_label_atomic_lines_passes_explicit_live_llm_approval_to_codex_calls(
+    monkeypatch,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:ambiguous:1",
+            block_index=1,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+    observed_allow_llm: list[bool] = []
+
+    def _fake_codex_call(**kwargs):
+        observed_allow_llm.append(bool(kwargs.get("allow_llm")))
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        live_llm_allowed=True,
+    )
+    assert observed_allow_llm == [True]
+    assert predictions[0].decided_by == "codex"
+
+
 def test_label_atomic_lines_outside_recipe_can_be_knowledge() -> None:
     blocks = [
         {

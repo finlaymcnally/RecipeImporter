@@ -117,23 +117,36 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can force either profile and bypass the prompt.
 - when codex is selected, chooser then asks:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
-  - `Codex Farm reasoning effort override` (`Pipeline default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
+  - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
 
 Resolved profile families:
 - `CodexFarm automatic top-tier`:
   - use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
-  - otherwise use built-in codex top-tier baseline (`quality-first` EPUB stack + codex recipe/line-role/atomic enabled),
-  - built-in codex fallback baseline pins `codex_farm_pass1_pattern_hints_enabled=false`,
-  - built-in codex fallback baseline pins `codex_farm_pass3_skip_pass2_ok=true`,
-  - then harmonize to codex top-tier pipeline knobs (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`).
-  - winner-provided `codex_farm_pass1_pattern_hints_enabled` remains tunable and is not overwritten by codex harmonization.
-  - winner-provided `codex_farm_pass3_skip_pass2_ok` remains tunable and is not overwritten by codex harmonization.
+  - otherwise use built-in codex top-tier baseline,
+  - harmonize saved or built-in settings to the current codex top-tier contract:
+    `llm_recipe_pipeline=codex-farm-3pass-v1`,
+    `llm_knowledge_pipeline=codex-farm-knowledge-v1`,
+    `line_role_pipeline=codex-line-role-v1`,
+    `atomic_block_splitter=atomic-v1`,
+    `epub_extractor=unstructured`,
+    `epub_unstructured_html_parser_version=v1`,
+    `epub_unstructured_preprocess_mode=semantic_v1`,
+    `epub_unstructured_skip_headers_footers=true`,
+    `section_detector_backend=shared_v1`,
+    `multi_recipe_splitter=rules_v1`,
+    `instruction_step_segmentation_policy=always`,
+    `instruction_step_segmenter=heuristic_v1`,
+    `pdf_ocr_policy=off`,
+    `codex_farm_pass1_pattern_hints_enabled=false`,
+    `codex_farm_pass3_skip_pass2_ok=true`,
+    `codex_farm_pipeline_pass2=recipe.schemaorg.compact.v1`,
+    `codex_farm_pipeline_pass3=recipe.final.compact.v1`.
 - `Vanilla automatic top-tier`:
   - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`),
   - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
-  - EPUB parsing baseline pinned to `unstructured + v1 + br_split_v1 + skip_headers=false`.
-  - vanilla baseline explicitly pins `codex_farm_pass1_pattern_hints_enabled=false` (inert while `llm_recipe_pipeline=off`).
-  - vanilla baseline explicitly pins `codex_farm_pass3_skip_pass2_ok=true` (inert while `llm_recipe_pipeline=off`).
+  - current top-tier parsing baseline pinned to `unstructured + v1 + semantic_v1 + skip_headers=true`,
+  - deterministic parsing knobs pinned to `shared_v1 + rules_v1 + always + heuristic_v1 + pdf_ocr_policy=off`,
+  - compact codex pass ids remain pinned even when recipe codex is off.
 
 Config keys and defaults:
 
@@ -212,8 +225,8 @@ Config keys and defaults:
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
 - `codex_farm_pipeline_pass1` (default `recipe.chunking.v1`)
 - `codex_farm_pass1_pattern_hints_enabled` (default `false`)
-- `codex_farm_pipeline_pass2` (default `recipe.schemaorg.v1`)
-- `codex_farm_pipeline_pass3` (default `recipe.final.v1`)
+- `codex_farm_pipeline_pass2` (default `recipe.schemaorg.compact.v1`)
+- `codex_farm_pipeline_pass3` (default `recipe.final.compact.v1`)
 - `codex_farm_pass3_skip_pass2_ok` (default `true`)
 - `codex_farm_pipeline_pass4_knowledge` (default `recipe.knowledge.v1`)
 - `codex_farm_pipeline_pass5_tags` (default `recipe.tags.v1`)
@@ -550,8 +563,8 @@ Options:
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
-- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id (schema.org extraction).
-- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
+- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.compact.v1`): pass-2 pipeline id (schema.org extraction).
+- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.compact.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-pipeline-pass4-knowledge TEXT` (default `recipe.knowledge.v1`): pass-4 pipeline id (non-recipe knowledge harvesting).
 - `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 pipeline id (tag suggestions).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
@@ -807,8 +820,8 @@ Options:
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id.
-- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id.
-- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id.
+- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.compact.v1`): pass-2 pipeline id.
+- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.compact.v1`): pass-3 pipeline id.
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate in pass-1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 
@@ -964,8 +977,8 @@ Options:
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
-- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.v1`): pass-2 pipeline id (schema.org extraction).
-- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.v1`): pass-3 pipeline id (final draft generation).
+- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.compact.v1`): pass-2 pipeline id (schema.org extraction).
+- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.compact.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `--alignment-cache-dir PATH` (internal/hidden): optional canonical alignment cache directory override for benchmark runs.

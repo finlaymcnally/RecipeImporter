@@ -213,7 +213,10 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
             "run_root": prediction_run,
             "manifest_path": prediction_manifest,
             "codex_execution_plan_path": plan_path,
-            "run_config": {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+            "run_config": {
+                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            },
             "run_config_hash": "hash",
             "run_config_summary": "summary",
             "source_hash": "source-hash",
@@ -231,11 +234,17 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
         eval_output_dir=eval_root,
         no_upload=True,
         llm_recipe_pipeline="codex-farm-3pass-v1",
+        llm_knowledge_pipeline="codex-farm-knowledge-v1",
+        codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
+        codex_farm_knowledge_context_blocks=19,
         codex_execution_policy="plan",
     )
 
     assert captured["allow_codex"] is False
     assert captured["codex_execution_policy"] == "plan"
+    assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
+    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
+    assert captured["codex_farm_knowledge_context_blocks"] == 19
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
     assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
@@ -243,6 +252,7 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
     assert run_manifest["artifacts"]["prediction_codex_execution_plan_json"].endswith(
         "codex_execution_plan.json"
     )
+    assert run_manifest["run_config"]["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
 
 
 def test_import_entrypoint_forwards_allow_codex_flag(

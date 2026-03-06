@@ -300,3 +300,19 @@ Current testing contracts reinforced:
 
 Anti-loop reminder:
 - When a suite gets slow again, profile the file/case offenders first. Reclassifying tests into `slow` without measurement tends to hide regressions instead of solving them.
+
+## 2026-03-06 merged understandings digest (wrapper-first routine runs)
+
+Merged source note:
+- `2026-03-06_15.05.00-test-wrapper-enforcement-and-raw-pytest-warning.md`
+
+Current testing contracts reinforced:
+- Routine agent test loops should go through `./scripts/test-suite.sh` or the equivalent `make test-*` wrappers rather than broad raw `pytest`.
+- `scripts/test-suite.sh` exports `COOKIMPORT_TEST_SUITE=1` so pytest can tell wrapper-driven runs from ad hoc raw invocations.
+- `tests/conftest.py` should warn only for broad raw pytest runs:
+  - directory runs,
+  - multi-file cross-domain batches without a marker filter.
+- Narrow single-file raw pytest remains a supported quiet path for targeted diagnosis.
+
+Anti-loop reminder:
+- If review logs show repeated broad raw pytest runs again, fix the wrapper signal or the warning gate before adding more policy text to individual tests.

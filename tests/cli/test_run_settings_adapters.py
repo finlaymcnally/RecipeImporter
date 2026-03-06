@@ -103,13 +103,16 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         p6_emit_metadata_debug=False,
         pdf_ocr_policy="off",
         pdf_column_gap_ratio=0.09,
+        llm_knowledge_pipeline="codex-farm-knowledge-v1",
         atomic_block_splitter="atomic-v1",
         line_role_pipeline="deterministic-v1",
         codex_farm_recipe_mode="benchmark",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
         codex_farm_pass1_pattern_hints_enabled=True,
+        codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
         codex_farm_pass3_skip_pass2_ok=False,
+        codex_farm_knowledge_context_blocks=21,
     )
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
@@ -146,13 +149,16 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_emit_metadata_debug"] is False
     assert kwargs["pdf_ocr_policy"] == "off"
     assert kwargs["pdf_column_gap_ratio"] == 0.09
+    assert kwargs["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert kwargs["atomic_block_splitter"] == "atomic-v1"
     assert kwargs["line_role_pipeline"] == "deterministic-v1"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"
     assert kwargs["codex_farm_pass1_pattern_hints_enabled"] is True
+    assert kwargs["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
     assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False
+    assert kwargs["codex_farm_knowledge_context_blocks"] == 21
 
 
 def test_prediction_identity_excludes_runtime_only_settings() -> None:

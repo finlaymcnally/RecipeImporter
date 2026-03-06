@@ -52,6 +52,9 @@ from cookimport.llm.codex_farm_orchestrator import (
     build_codex_farm_recipe_execution_plan,
     run_codex_farm_recipe_pipeline,
 )
+from cookimport.llm.codex_farm_knowledge_orchestrator import (
+    run_codex_farm_knowledge_harvest,
+)
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.prompt_budget import (
     build_prediction_run_prompt_budget_summary,
@@ -1680,6 +1683,7 @@ def generate_pred_run_artifacts(
     recipe_score_min_ingredient_lines: int = 1,
     recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str = "off",
+    llm_knowledge_pipeline: str = "off",
     atomic_block_splitter: str = "off",
     line_role_pipeline: str = "off",
     codex_farm_cmd: str = "codex-farm",
@@ -1689,10 +1693,12 @@ def generate_pred_run_artifacts(
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pass1_pattern_hints_enabled: bool = False,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
-    codex_farm_pipeline_pass3: str = "recipe.final.v1",
+    codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
+    codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
+    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_pass3_skip_pass2_ok: bool = True,
+    codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     line_role_guardrail_mode: str = "enforce",
@@ -1789,6 +1795,12 @@ def generate_pred_run_artifacts(
         default=False,
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_llm_knowledge_pipeline = str(llm_knowledge_pipeline or "").strip().lower()
+    if selected_llm_knowledge_pipeline not in {"off", "codex-farm-knowledge-v1"}:
+        raise ValueError(
+            "Invalid llm_knowledge_pipeline. Expected one of: off, "
+            "codex-farm-knowledge-v1."
+        )
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
@@ -1814,6 +1826,14 @@ def generate_pred_run_artifacts(
     selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
         codex_farm_pipeline_pass3,
         field_name="codex_farm_pipeline_pass3",
+    )
+    selected_codex_farm_pipeline_pass4_knowledge = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass4_knowledge,
+        field_name="codex_farm_pipeline_pass4_knowledge",
+    )
+    selected_codex_farm_knowledge_context_blocks = max(
+        0,
+        int(codex_farm_knowledge_context_blocks),
     )
     run_settings = build_run_settings(
         workers=workers,
@@ -1865,6 +1885,7 @@ def generate_pred_run_artifacts(
         recipe_score_min_ingredient_lines=recipe_score_min_ingredient_lines,
         recipe_score_min_instruction_lines=recipe_score_min_instruction_lines,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
+        llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
         atomic_block_splitter=atomic_block_splitter,
         line_role_pipeline=line_role_pipeline,
         line_role_guardrail_mode=line_role_guardrail_mode,
@@ -1879,8 +1900,10 @@ def generate_pred_run_artifacts(
         codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
         codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+        codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+        codex_farm_knowledge_context_blocks=selected_codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         all_epub=path.suffix.lower() == ".epub",
@@ -2341,6 +2364,19 @@ def generate_pred_run_artifacts(
                 run_settings=run_settings,
                 workbook_slug=book_slug,
             )
+        if run_settings.llm_knowledge_pipeline.value != "off":
+            if result.non_recipe_blocks:
+                result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+            elif result.topic_candidates:
+                result.chunks = chunks_from_topic_candidates(result.topic_candidates)
+            planned_work["knowledge_harvest"] = {
+                "enabled": True,
+                "pipeline": run_settings.llm_knowledge_pipeline.value,
+                "pipeline_id": run_settings.codex_farm_pipeline_pass4_knowledge,
+                "context_blocks": run_settings.codex_farm_knowledge_context_blocks,
+                "chunk_count": len(result.chunks),
+                "non_recipe_block_count": len(result.non_recipe_blocks),
+            }
         if run_settings.line_role_pipeline.value != "off":
             planned_work["line_role"] = build_line_role_codex_execution_plan(
                 line_role_candidates,
@@ -2482,6 +2518,40 @@ def generate_pred_run_artifacts(
         result.report = ConversionReport()
     result.report.llm_codex_farm = llm_report
 
+    if result.non_recipe_blocks:
+        result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+    elif result.topic_candidates:
+        result.chunks = chunks_from_topic_candidates(result.topic_candidates)
+
+    if run_settings.llm_knowledge_pipeline.value != "off":
+        _notify("Running codex-farm knowledge harvest...")
+        try:
+            knowledge_apply = run_codex_farm_knowledge_harvest(
+                conversion_result=result,
+                run_settings=run_settings,
+                run_root=run_root,
+                workbook_slug=book_slug,
+                progress_callback=_notify,
+            )
+        except CodexFarmRunnerError as exc:
+            if run_settings.codex_farm_failure_mode.value == "fallback":
+                warning = (
+                    "LLM knowledge harvest failed; continuing without knowledge artifacts: "
+                    f"{exc}"
+                )
+                result.report.warnings.append(warning)
+                llm_report["knowledge"] = {
+                    "enabled": True,
+                    "pipeline": run_settings.llm_knowledge_pipeline.value,
+                    "fallbackApplied": True,
+                    "fatalError": str(exc),
+                }
+            else:
+                raise
+        else:
+            llm_report["knowledge"] = dict(knowledge_apply.llm_report)
+        result.report.llm_codex_farm = llm_report
+
     if run_settings.line_role_pipeline.value != "off":
         _notify("Running canonical line-role pipeline...")
         if line_role_candidates:
@@ -2490,6 +2560,7 @@ def generate_pred_run_artifacts(
                 run_settings,
                 artifact_root=run_root,
                 source_hash=file_hash,
+                live_llm_allowed=bool(allow_codex),
                 codex_max_inflight=line_role_codex_max_inflight,
                 progress_callback=_notify,
             )
@@ -3634,6 +3705,7 @@ def run_labelstudio_import(
     recipe_score_min_ingredient_lines: int = 1,
     recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str = "off",
+    llm_knowledge_pipeline: str = "off",
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
@@ -3641,10 +3713,12 @@ def run_labelstudio_import(
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pass1_pattern_hints_enabled: bool = False,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
-    codex_farm_pipeline_pass3: str = "recipe.final.v1",
+    codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
+    codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
+    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_pass3_skip_pass2_ok: bool = True,
+    codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     codex_execution_policy: str = "execute",
@@ -3742,6 +3816,7 @@ def run_labelstudio_import(
         recipe_score_min_ingredient_lines=recipe_score_min_ingredient_lines,
         recipe_score_min_instruction_lines=recipe_score_min_instruction_lines,
         llm_recipe_pipeline=llm_recipe_pipeline,
+        llm_knowledge_pipeline=llm_knowledge_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
@@ -3751,8 +3826,10 @@ def run_labelstudio_import(
         codex_farm_pipeline_pass1=codex_farm_pipeline_pass1,
         codex_farm_pipeline_pass2=codex_farm_pipeline_pass2,
         codex_farm_pipeline_pass3=codex_farm_pipeline_pass3,
+        codex_farm_pipeline_pass4_knowledge=codex_farm_pipeline_pass4_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_pass3_skip_pass2_ok=codex_farm_pass3_skip_pass2_ok,
+        codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=codex_farm_recipe_mode,
         codex_farm_failure_mode=codex_farm_failure_mode,
         codex_execution_policy=codex_execution_policy,

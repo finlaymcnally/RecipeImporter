@@ -1004,3 +1004,31 @@ Evidence retained from task:
 Anti-loop reminders:
 - If inflight behavior drifts across benchmark/import paths, inspect ingest seam resolver first, not CLI wrappers.
 - Keep parser-level default/env behavior intact; seam injection is meant to avoid per-flow rewiring.
+
+## 2026-03-06 migrated understanding ledger (line-role exporter matching vs sanitizer validity)
+
+### 2026-03-06_01.19.07 line-role telemetry second pass
+
+Source:
+- `docs/understandings/2026-03-06_01.19.07-line-role-telemetry-second-pass.md`
+
+Problem captured:
+- Even after the older `line_index -> atomic_index` corruption fix, `joined_line_table.jsonl` could still disagree with `line_role_predictions.jsonl` for two different reasons that needed to stay separate.
+
+Durable findings:
+- Exporter-side mismatch:
+  - naive exact-text occurrence matching still mispaired duplicate short texts such as repeated `Salt` headings,
+  - exact-text sequence alignment is the safer fallback matcher because it respects surrounding order and leaves ambiguous duplicates unmatched.
+- Source-prediction invalidity:
+  - `_sanitize_prediction(...)` could change the final label during fallback/rescue (`sanitized_yield_to_instruction`, `outside_span_howto_hard_deny`, neighbor-fragment rescue, and similar paths) without re-adding that final label to `candidate_labels`.
+
+Representative invalid rows preserved from the audit:
+- `label=INSTRUCTION_LINE` with `candidate_labels=[YIELD_LINE, INGREDIENT_LINE, OTHER]`
+- `label=KNOWLEDGE` with `candidate_labels=[HOWTO_SECTION, OTHER]`
+- `label=INGREDIENT_LINE` with `candidate_labels=[OTHER]`
+
+Durable conclusion:
+- Even with correct exporter join logic, historical artifacts remain inconsistent until the line-role pipeline is rerun with the sanitizer fix in place.
+
+Anti-loop note:
+- If `label` is outside `candidate_labels`, do not blame export/cutdown code first; verify whether the raw line-role prediction row was already invalid before export.

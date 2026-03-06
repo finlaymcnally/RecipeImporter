@@ -208,6 +208,7 @@ def label_atomic_lines(
     *,
     artifact_root: Path | None = None,
     source_hash: str | None = None,
+    live_llm_allowed: bool = False,
     cache_root: Path | None = None,
     codex_timeout_seconds: int = 600,
     codex_batch_size: int = 40,
@@ -353,6 +354,7 @@ def label_atomic_lines(
                     task=task,
                     by_atomic_index=by_atomic_index,
                     log_state=log_state,
+                    live_llm_allowed=live_llm_allowed,
                     codex_timeout_seconds=codex_timeout_seconds,
                     codex_cmd=codex_cmd,
                     codex_runner=codex_runner,
@@ -886,6 +888,7 @@ def _run_codex_batch(
     task: _CodexBatchTask,
     by_atomic_index: dict[int, AtomicLineCandidate],
     log_state: "_PromptLogState",
+    live_llm_allowed: bool,
     codex_timeout_seconds: int,
     codex_cmd: str | None,
     codex_runner: Callable[..., Any] | None,
@@ -913,6 +916,7 @@ def _run_codex_batch(
             prompt=prompt_text,
             timeout_seconds=codex_timeout_seconds,
             cmd=codex_cmd or default_codex_exec_cmd(),
+            allow_llm=live_llm_allowed,
             runner=codex_runner,
         )
     except Exception as exc:  # pragma: no cover - defensive fallback path
@@ -1064,6 +1068,7 @@ def _run_codex_prompt_with_retry(
     prompt: str,
     timeout_seconds: int,
     cmd: str,
+    allow_llm: bool,
     runner: Callable[..., Any] | None,
 ) -> _CodexPromptRetryResult:
     attempts = max(1, int(_LINE_ROLE_CODEX_RETRY_ATTEMPTS))
@@ -1077,6 +1082,7 @@ def _run_codex_prompt_with_retry(
                 prompt=prompt,
                 timeout_seconds=timeout_seconds,
                 cmd=cmd,
+                allow_llm=allow_llm,
                 track_usage=True,
                 runner=runner,
             )

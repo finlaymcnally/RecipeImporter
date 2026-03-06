@@ -28,6 +28,8 @@ from cookimport.bench.quality_eta import (
 from cookimport.bench.quality_suite import QualitySuite
 from cookimport.bench.speed_suite import resolve_repo_path
 from cookimport.config.codex_decision import (
+    apply_benchmark_baseline_contract,
+    classify_codex_surfaces,
     codex_execution_policy_metadata,
     resolve_codex_execution_policy,
 )
@@ -258,6 +260,8 @@ class _ExperimentFileV2(BaseModel):
 class _ResolvedExperiment:
     id: str
     run_settings_patch: dict[str, Any]
+    requested_run_settings_payload: dict[str, Any]
+    requested_run_settings: RunSettings
     run_settings_payload: dict[str, Any]
     run_settings: RunSettings
     all_method_runtime_patch: dict[str, Any]
@@ -431,6 +435,10 @@ def _apply_wsl_quality_safety_guard(
             _ResolvedExperiment(
                 id=experiment.id,
                 run_settings_patch=dict(experiment.run_settings_patch),
+                requested_run_settings_payload=dict(
+                    experiment.requested_run_settings_payload
+                ),
+                requested_run_settings=experiment.requested_run_settings,
                 run_settings_payload=guarded_payload,
                 run_settings=guarded_run_settings,
                 all_method_runtime_patch=dict(experiment.all_method_runtime_patch),
@@ -928,10 +936,10 @@ def run_quality_suite(
     race_finalists = max(1, int(race_finalists))
     if max_parallel_experiments is not None:
         max_parallel_experiments = max(1, int(max_parallel_experiments))
-    if include_codex_farm_requested and not codex_farm_confirmed:
+    if include_codex_farm_requested:
         raise ValueError(
-            "QualitySuite Codex Farm permutations require explicit positive user "
-            "confirmation. Set codex_farm_confirmed=True only after user approval."
+            "QualitySuite forbids Codex Farm permutations. "
+            "Re-run without include_codex_farm_requested."
         )
 
     selected_targets = _resolve_selected_targets(suite)
@@ -1084,6 +1092,11 @@ def run_quality_suite(
                 "run_settings": item.run_settings.to_run_config_dict(),
                 "run_settings_summary": item.run_settings.summary(),
                 "run_settings_hash": item.run_settings.stable_hash(),
+                "requested_run_settings": (
+                    item.requested_run_settings.to_run_config_dict()
+                ),
+                "requested_run_settings_summary": item.requested_run_settings.summary(),
+                "requested_run_settings_hash": item.requested_run_settings.stable_hash(),
                 "all_method_runtime_patch": item.all_method_runtime_patch,
                 "all_method_runtime": item.all_method_runtime,
             }
@@ -1610,6 +1623,29 @@ def _merge_patches_strict(
     return merged
 
 
+def _validate_qualitysuite_requested_settings_disallow_codex_farm(
+    *,
+    experiment_id: str,
+    payload: dict[str, Any],
+) -> None:
+    surface = classify_codex_surfaces(payload)
+    disallowed_surfaces = [
+        name
+        for enabled, name in (
+            (surface.recipe_codex_enabled, "recipe"),
+            (surface.knowledge_codex_enabled, "knowledge"),
+            (surface.tags_codex_enabled, "tags"),
+        )
+        if enabled
+    ]
+    if disallowed_surfaces:
+        joined = ", ".join(disallowed_surfaces)
+        raise ValueError(
+            "QualitySuite forbids Codex Farm-enabled requested settings. "
+            f"Experiment '{experiment_id}' enabled: {joined}."
+        )
+
+
 def _expand_experiments(
     payload: _ExperimentFileV1 | _ExperimentFileV2,
 ) -> list[QualityExperimentV2]:
@@ -1688,13 +1724,24 @@ def _resolve_experiments(
     base_payload: dict[str, Any],
     all_method_runtime_base: dict[str, Any],
 ) -> list[_ResolvedExperiment]:
+    benchmark_base_payload = apply_benchmark_baseline_contract(base_payload)
     resolved: list[_ResolvedExperiment] = []
     for experiment in experiments:
-        merged_payload = dict(base_payload)
+        merged_payload = dict(benchmark_base_payload)
         merged_payload.update(dict(experiment.run_settings_patch))
-        run_settings = RunSettings.from_dict(
+        _validate_qualitysuite_requested_settings_disallow_codex_farm(
+            experiment_id=experiment.id,
+            payload=merged_payload,
+        )
+        requested_run_settings = RunSettings.from_dict(
             merged_payload,
             warn_context=f"quality-run experiment {experiment.id}",
+        )
+        requested_run_settings_payload = requested_run_settings.to_run_config_dict()
+        run_settings_payload = dict(requested_run_settings_payload)
+        run_settings = RunSettings.from_dict(
+            run_settings_payload,
+            warn_context=f"quality-run experiment {experiment.id} benchmark baseline",
         )
         runtime_payload = dict(all_method_runtime_base)
         runtime_payload.update(dict(experiment.all_method_runtime_patch))
@@ -1702,7 +1749,9 @@ def _resolve_experiments(
             _ResolvedExperiment(
                 id=experiment.id,
                 run_settings_patch=dict(experiment.run_settings_patch),
-                run_settings_payload=merged_payload,
+                requested_run_settings_payload=requested_run_settings_payload,
+                requested_run_settings=requested_run_settings,
+                run_settings_payload=run_settings_payload,
                 run_settings=run_settings,
                 all_method_runtime_patch=dict(experiment.all_method_runtime_patch),
                 all_method_runtime=runtime_payload,
@@ -2729,6 +2778,15 @@ def _build_summary_payload(
             "run_settings": experiment.run_settings.to_run_config_dict(),
             "run_settings_summary": experiment.run_settings.summary(),
             "run_settings_hash": experiment.run_settings.stable_hash(),
+            "requested_run_settings": (
+                experiment.requested_run_settings.to_run_config_dict()
+            ),
+            "requested_run_settings_summary": (
+                experiment.requested_run_settings.summary()
+            ),
+            "requested_run_settings_hash": (
+                experiment.requested_run_settings.stable_hash()
+            ),
         }
         for experiment in experiments
     }

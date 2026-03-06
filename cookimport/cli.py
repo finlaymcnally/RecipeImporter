@@ -47,7 +47,11 @@ from rich.console import Console
 from rich.markup import escape as rich_escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
-from cookimport.cli_ui.run_settings_flow import choose_run_settings
+from cookimport.cli_ui.run_settings_flow import (
+    build_codex_farm_reasoning_effort_choices,
+    choose_run_settings,
+    supported_codex_farm_efforts_by_model,
+)
 from cookimport.config.codex_decision import (
     apply_benchmark_baseline_contract,
     apply_benchmark_codex_contract_from_baseline,
@@ -2140,18 +2144,19 @@ def _interactive_all_method_benchmark(
             typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
             return
         model_override = str(model_prompt).strip() or None
+        supported_efforts_by_model = supported_codex_farm_efforts_by_model(
+            cmd=selected_benchmark_settings.codex_farm_cmd
+        )
+        effort_choices, effort_default = build_codex_farm_reasoning_effort_choices(
+            selected_model=model_override,
+            selected_effort=selected_benchmark_settings.codex_farm_reasoning_effort,
+            supported_efforts_by_model=supported_efforts_by_model,
+        )
         effort_choice = _menu_select(
             "Codex Farm reasoning effort override:",
             menu_help="Blank uses pipeline default. Affects all codex-farm passes.",
-            choices=[
-                questionary.Choice("Pipeline default", value="__default__"),
-                questionary.Choice("none", value="none"),
-                questionary.Choice("minimal", value="minimal"),
-                questionary.Choice("low", value="low"),
-                questionary.Choice("medium", value="medium"),
-                questionary.Choice("high", value="high"),
-                questionary.Choice("xhigh", value="xhigh"),
-            ],
+            default=effort_default,
+            choices=effort_choices,
         )
         if effort_choice in {None, BACK_ACTION}:
             typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -14204,7 +14209,9 @@ def _build_all_method_variants(
     include_markdown_extractors: bool = False,
     include_deterministic_sweeps: bool = False,
 ) -> list[AllMethodVariant]:
-    base_payload = base_settings.to_run_config_dict()
+    base_payload = _all_method_apply_baseline_contract(
+        base_settings.to_run_config_dict()
+    )
     variants: list[AllMethodVariant] = []
     source_ext = source_file.suffix.lower()
 
@@ -14224,7 +14231,7 @@ def _build_all_method_variants(
         payload: dict[str, Any],
         dimensions: dict[str, Any],
         sweep_tag: str,
-        apply_baseline_contract: bool = True,
+        apply_baseline_contract: bool = False,
     ) -> None:
         normalized_payload = (
             _all_method_apply_baseline_contract(payload)
@@ -29229,6 +29236,10 @@ def labelstudio_benchmark(
             "Values: off or codex-farm-3pass-v1."
         ),
     )] = "off",
+    llm_knowledge_pipeline: Annotated[str, typer.Option(
+        "--llm-knowledge-pipeline",
+        help="Optional knowledge LLM pipeline: off or codex-farm-knowledge-v1.",
+    )] = "off",
     allow_codex: Annotated[bool, typer.Option(
         "--allow-codex/--no-allow-codex",
         help=(
@@ -29325,6 +29336,10 @@ def labelstudio_benchmark(
         "--codex-farm-pipeline-pass3",
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     )] = "recipe.final.compact.v1",
+    codex_farm_pipeline_pass4_knowledge: Annotated[str, typer.Option(
+        "--codex-farm-pipeline-pass4-knowledge",
+        help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
+    )] = "recipe.knowledge.v1",
     codex_farm_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-context-blocks",
         min=0,
@@ -29337,6 +29352,11 @@ def labelstudio_benchmark(
             "deterministically."
         ),
     )] = True,
+    codex_farm_knowledge_context_blocks: Annotated[int, typer.Option(
+        "--codex-farm-knowledge-context-blocks",
+        min=0,
+        help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
+    )] = 12,
     codex_farm_failure_mode: Annotated[str, typer.Option(
         "--codex-farm-failure-mode",
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
@@ -29522,6 +29542,9 @@ def labelstudio_benchmark(
         0, int(recipe_score_min_instruction_lines)
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(
+        llm_knowledge_pipeline
+    )
     selected_atomic_block_splitter = _normalize_atomic_block_splitter(
         atomic_block_splitter
     )
@@ -29562,6 +29585,10 @@ def labelstudio_benchmark(
         codex_farm_pipeline_pass3,
         option="--codex-farm-pipeline-pass3",
     )
+    selected_codex_farm_pipeline_pass4_knowledge = _normalize_codex_farm_pipeline_id(
+        codex_farm_pipeline_pass4_knowledge,
+        option="--codex-farm-pipeline-pass4-knowledge",
+    )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
     if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
         # Line-role/atomic paths are canonical-text benchmark features.
@@ -29574,6 +29601,7 @@ def labelstudio_benchmark(
         "labelstudio_benchmark",
         {
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
             "line_role_pipeline": selected_line_role_pipeline,
         },
         execution_policy_mode=selected_codex_execution_policy,
@@ -29736,6 +29764,7 @@ def labelstudio_benchmark(
             recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
             recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
             llm_recipe_pipeline=selected_llm_recipe_pipeline,
+            llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
             atomic_block_splitter=selected_atomic_block_splitter,
             line_role_pipeline=selected_line_role_pipeline,
             line_role_guardrail_mode=selected_line_role_guardrail_mode,
@@ -29748,8 +29777,10 @@ def labelstudio_benchmark(
             codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
             codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
             codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+            codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
             codex_farm_context_blocks=codex_farm_context_blocks,
             codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+            codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
             codex_farm_failure_mode=selected_codex_farm_failure_mode,
             allow_codex=bool(allow_codex),
@@ -29773,6 +29804,7 @@ def labelstudio_benchmark(
                 "write_markdown": bool(write_markdown),
                 "write_label_studio_tasks": bool(write_label_studio_tasks),
                 "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+                "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
                 "atomic_block_splitter": selected_atomic_block_splitter,
                 "line_role_pipeline": selected_line_role_pipeline,
                 "line_role_guardrail_mode": selected_line_role_guardrail_mode,
@@ -29898,6 +29930,7 @@ def labelstudio_benchmark(
                 recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
                 recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                 atomic_block_splitter=selected_atomic_block_splitter,
                 line_role_pipeline=selected_line_role_pipeline,
                 line_role_guardrail_mode=selected_line_role_guardrail_mode,
@@ -29912,8 +29945,10 @@ def labelstudio_benchmark(
                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
                 codex_farm_context_blocks=codex_farm_context_blocks,
                 codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+                codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 all_epub=selected_source.suffix.lower() == ".epub",
@@ -30026,6 +30061,7 @@ def labelstudio_benchmark(
                                 recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
                                 recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                                llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
                                 line_role_guardrail_mode=selected_line_role_guardrail_mode,
@@ -30040,9 +30076,15 @@ def labelstudio_benchmark(
                                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                                codex_farm_pipeline_pass4_knowledge=(
+                                    selected_codex_farm_pipeline_pass4_knowledge
+                                ),
                                 codex_farm_context_blocks=codex_farm_context_blocks,
                                 codex_farm_pass3_skip_pass2_ok=(
                                     selected_codex_farm_pass3_skip_pass2_ok
+                                ),
+                                codex_farm_knowledge_context_blocks=(
+                                    codex_farm_knowledge_context_blocks
                                 ),
                                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -30141,6 +30183,7 @@ def labelstudio_benchmark(
                             recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
                             recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                            llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                             atomic_block_splitter=selected_atomic_block_splitter,
                             line_role_pipeline=selected_line_role_pipeline,
                             line_role_guardrail_mode=selected_line_role_guardrail_mode,
@@ -30155,9 +30198,15 @@ def labelstudio_benchmark(
                             codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                             codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                             codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                            codex_farm_pipeline_pass4_knowledge=(
+                                selected_codex_farm_pipeline_pass4_knowledge
+                            ),
                             codex_farm_context_blocks=codex_farm_context_blocks,
                             codex_farm_pass3_skip_pass2_ok=(
                                 selected_codex_farm_pass3_skip_pass2_ok
+                            ),
+                            codex_farm_knowledge_context_blocks=(
+                                codex_farm_knowledge_context_blocks
                             ),
                             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -30436,6 +30485,7 @@ def labelstudio_benchmark(
             "epub_spine_items_per_job": epub_spine_items_per_job,
             "warm_models": warm_models,
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
             "line_role_guardrail_mode": selected_line_role_guardrail_mode,
@@ -30448,8 +30498,14 @@ def labelstudio_benchmark(
             "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
             "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
             "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
+            "codex_farm_pipeline_pass4_knowledge": (
+                selected_codex_farm_pipeline_pass4_knowledge
+            ),
             "codex_farm_context_blocks": codex_farm_context_blocks,
             "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
+            "codex_farm_knowledge_context_blocks": (
+                codex_farm_knowledge_context_blocks
+            ),
             "codex_farm_failure_mode": selected_codex_farm_failure_mode,
             "stage_block_predictions_path": str(stage_predictions_path),
             },
@@ -31136,6 +31192,7 @@ def labelstudio_benchmark(
         "epub_spine_items_per_job": epub_spine_items_per_job,
         "warm_models": warm_models,
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+        "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
         "atomic_block_splitter": selected_atomic_block_splitter,
         "line_role_pipeline": selected_line_role_pipeline,
         "line_role_guardrail_mode": selected_line_role_guardrail_mode,
@@ -31148,8 +31205,14 @@ def labelstudio_benchmark(
         "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
         "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
         "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
+        "codex_farm_pipeline_pass4_knowledge": (
+            selected_codex_farm_pipeline_pass4_knowledge
+        ),
         "codex_farm_context_blocks": codex_farm_context_blocks,
         "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
+        "codex_farm_knowledge_context_blocks": (
+            codex_farm_knowledge_context_blocks
+        ),
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
         "stage_block_predictions_path": str(stage_predictions_path),
         },
@@ -32447,31 +32510,39 @@ def bench_quality_run(
         _fail("--io-pace-every-writes must be >= 0.")
     if io_pace_sleep_ms < 0:
         _fail("--io-pace-sleep-ms must be >= 0.")
-    codex_farm_confirmed = _resolve_qualitysuite_codex_farm_confirmation(
-        include_codex_farm=include_codex_farm,
-        confirmation=qualitysuite_codex_farm_confirmation,
-    )
+    if include_codex_farm:
+        _fail(
+            "bench quality-run no longer permits --include-codex-farm. "
+            "QualitySuite is deterministic-only."
+        )
+    if qualitysuite_codex_farm_confirmation is not None:
+        _fail(
+            "bench quality-run no longer accepts "
+            "--qualitysuite-codex-farm-confirmation because Codex Farm is disabled "
+            "for QualitySuite."
+        )
+    if codex_farm_model is not None:
+        _fail(
+            "bench quality-run no longer accepts --codex-farm-model because "
+            "QualitySuite forbids Codex Farm."
+        )
+    if codex_farm_reasoning_effort is not None:
+        _fail(
+            "bench quality-run no longer accepts Codex Farm thinking/reasoning "
+            "effort overrides because QualitySuite forbids Codex Farm."
+        )
+    codex_farm_confirmed = False
     _print_codex_decision(
         resolve_codex_execution_policy(
             "bench_quality_run",
             {},
-            include_codex_farm_requested=include_codex_farm,
+            include_codex_farm_requested=False,
             explicit_confirmation_granted=codex_farm_confirmed,
         )
     )
     if resume_run_dir is not None:
         if not resume_run_dir.exists() or not resume_run_dir.is_dir():
             _fail(f"--resume-run-dir must point to an existing directory: {resume_run_dir}")
-
-    if include_codex_farm:
-        os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
-        _ensure_codex_farm_cmd_available("codex-farm")
-        include_effective, warning = _resolve_all_method_codex_choice(True)
-        if warning is not None:
-            typer.secho(warning, fg=typer.colors.YELLOW)
-        elif include_effective:
-            typer.secho("Codex Farm permutations: enabled.", fg=typer.colors.CYAN)
-
     io_pace_env_key_every = "COOKIMPORT_IO_PACE_EVERY_WRITES"
     io_pace_env_key_sleep = "COOKIMPORT_IO_PACE_SLEEP_MS"
     io_pace_prev_every = os.environ.get(io_pace_env_key_every)

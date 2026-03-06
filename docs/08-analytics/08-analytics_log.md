@@ -3040,3 +3040,111 @@ Evidence retained from task:
 
 Anti-loop note:
 - If a row “looks vanilla” again, inspect the shared semantics helper and compare/control mirror first; do not fix only the browser text.
+
+## 2026-03-05 to 2026-03-06 migrated understanding ledger (derived metrics, dashboard state precedence, and classification fallbacks)
+
+### 2026-03-05_23.56.44 compare/control per-recipe derived fields
+
+Source:
+- `docs/understandings/2026-03-05_23.56.44-compare-control-per-recipe-derived-fields.md`
+
+Problem captured:
+- Per-recipe runtime/token fields were needed in Compare & Control, but the field catalog only exposes stored fields and explicitly registered derived metrics.
+
+Durable finding:
+- A metric like time-per-recipe does not exist automatically just because both `conversion_seconds` and `recipes` exist.
+- Derived metrics must be added in both:
+  - `cookimport/analytics/compare_control_engine.py`
+  - `cookimport/analytics/dashboard_render.py`
+- Current guarded examples:
+  - `conversion_seconds_per_recipe`
+  - `all_token_use_per_recipe`
+
+Anti-loop note:
+- If a derived metric appears in backend analysis but not the served dashboard, or vice versa, check both registration sites before debugging render state.
+
+### 2026-03-06_00.44.16 per-label single-profile variant fallback
+
+Source:
+- `docs/understandings/2026-03-06_00.44.16-per-label-single-profile-variant-fallback.md`
+
+Problem captured:
+- Per-label benchmark tables showed all `-` for baseline/delta/rolling columns when the latest run group came from non-paired `single-profile-benchmark/...` roots with no explicit `codexfarm` or `vanilla` path segment.
+
+Durable finding:
+- `benchmarkVariantForRecord(record)` returns `full_stack` for that single-profile shape, so strict `=== "codexfarm"` filtering dropped the rows.
+- The fix path is to treat `full_stack` as the codex-side row only when the selected run group has no explicit `codexfarm` or `vanilla` variants.
+
+Anti-loop note:
+- Do not globally alias `full_stack` to `codexfarm`; that only makes sense for non-paired single-profile groups.
+
+### 2026-03-06_01.16.49 dashboard asset cache busting
+
+Source:
+- `docs/understandings/2026-03-06_01.16.49-dashboard-asset-cache-busting.md`
+
+Problem captured:
+- Freshly written inline dashboard data could still render through stale browser-cached JS/CSS assets.
+
+Durable finding:
+- `cookimport stats-dashboard` writes new inline data into `index.html`, but the page still loads `assets/dashboard.js` and `assets/style.css` separately.
+- Asset URLs need versioning/cache-busting, while JSON fetch fallback should remain `no-store`.
+
+### 2026-03-06_10.20.00 compare/control chart label seams
+
+Source:
+- `docs/understandings/2026-03-06_10.20.00-compare-control-chart-label-seams.md`
+
+Problem captured:
+- Compare/control chart copy looked centralized when it is actually assembled across several renderer seams.
+
+Durable findings:
+- `compareControlChartSegments(...)` injects fallback single-series label text such as `All visible rows`.
+- Human-facing chart titles/subtitles come from:
+  - `buildCompareControlScatterChartDefinition(...)`
+  - `buildCompareControlBarChartDefinition(...)`
+- Axis-title styling/readability is applied later in `renderCompareControlChart(...)`.
+
+Anti-loop note:
+- If only label copy is wrong, fix the builder/segment seam first; do not patch unrelated Highcharts host code.
+
+### 2026-03-06_10.45.00 legacy codexfarm benchmark classification
+
+Source:
+- `docs/understandings/2026-03-06_10.45.00-legacy-codexfarm-benchmark-classification.md`
+
+Problem captured:
+- Older official single-offline benchmark rows disappeared from dashboard trends after stricter profile inference started requiring explicit `line_role_pipeline` metadata.
+
+Durable findings:
+- Older CSV rows often had:
+  - recipe-pipeline metadata,
+  - no `line_role_pipeline`,
+  - no `artifact_dir`,
+  - only path hints in `run_dir` / `report_path`.
+- Tightened classification re-labeled those historical paired-path rows as `recipe_only`, which then disappeared from charts that split only `vanilla`, `codexfarm`, and `other`.
+- Backward-compatible fix path:
+  - for official paired benchmark paths, fall back to path-derived variant when line-role metadata is missing,
+  - resolve that path from `artifact_dir`, `run_dir`, or `report_path`.
+
+Anti-loop note:
+- If older trend points vanish after a semantics cleanup, check legacy-path fallback before deciding the historical rows are invalid.
+
+### 2026-03-06_18.10.00 dashboard served state beats stale localStorage
+
+Source:
+- `docs/understandings/2026-03-06_18.10.00-dashboard-served-state-beats-stale-localstorage.md`
+
+Problem captured:
+- `cookimport stats-dashboard --serve` could write correct benchmark data and served UI state, but stale browser localStorage still won on initial page load and hid valid rows.
+
+Durable findings:
+- The browser restores local state from `cookimport.stats_dashboard.ui_state.v1`.
+- Before the fix, served `assets/dashboard_ui_state.json` only applied if its `saved_at` was newer than localStorage, so stale local browser state could keep old filters active.
+- Current intended behavior:
+  - initial served-state fetch can override browser localStorage,
+  - served UI-state file is canonical cross-browser state on first load,
+  - later polling can still use timestamp-based freshness updates.
+
+Anti-loop note:
+- If `--serve` looks stale only in one browser, inspect localStorage-vs-served-state precedence before touching CSV collection or HTML generation.

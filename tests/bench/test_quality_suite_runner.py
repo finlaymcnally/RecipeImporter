@@ -652,7 +652,7 @@ def test_run_quality_suite_rejects_unknown_patch_keys(tmp_path: Path) -> None:
     assert "unknown run_settings_patch key" in str(excinfo.value)
 
 
-def test_run_quality_suite_rejects_codex_farm_without_confirmation(
+def test_run_quality_suite_rejects_include_codex_farm(
     tmp_path: Path,
 ) -> None:
     suite = _build_suite(tmp_path)
@@ -674,11 +674,41 @@ def test_run_quality_suite_rejects_codex_farm_without_confirmation(
             experiments_file=experiments_file,
             base_run_settings_file=base_run_settings_file,
             include_codex_farm_requested=True,
-            codex_farm_confirmed=False,
+            codex_farm_confirmed=True,
             progress_callback=None,
         )
 
-    assert "explicit positive user confirmation" in str(excinfo.value)
+    assert "forbids Codex Farm permutations" in str(excinfo.value)
+
+
+def test_run_quality_suite_rejects_codex_farm_enabled_requested_settings(
+    tmp_path: Path,
+) -> None:
+    suite = _build_suite(tmp_path)
+    experiments_file = tmp_path / "experiments_codex_requested.json"
+    _write_json(
+        experiments_file,
+        {
+            "schema_version": 1,
+            "experiments": [{"id": "baseline", "run_settings_patch": {}}],
+        },
+    )
+    base_run_settings_file = tmp_path / "base_run_settings.json"
+    _write_json(
+        base_run_settings_file,
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        run_quality_suite(
+            suite,
+            tmp_path / "runs",
+            experiments_file=experiments_file,
+            base_run_settings_file=base_run_settings_file,
+            progress_callback=None,
+        )
+
+    assert "forbids Codex Farm-enabled requested settings" in str(excinfo.value)
 
 
 def test_run_quality_suite_parallelizes_experiments_and_preserves_summary_order(

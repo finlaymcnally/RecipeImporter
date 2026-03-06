@@ -2520,3 +2520,92 @@ Evidence retained from task:
 Anti-loop notes:
 - If a run uses Codex “mysteriously,” inspect decision metadata first.
 - If prelabel starts bypassing approval again, treat it as decision-boundary regression, not a Label Studio-only quirk.
+
+## 2026-03-05 to 2026-03-06 migrated understanding ledger (plan-mode depth, token reduction status, and compact-default rollout)
+
+### 2026-03-05_23.56.43 line-role guardrail and stage/import plan mode
+
+Source:
+- `docs/understandings/2026-03-05_23.56.43-line-role-guardrail-and-stage-import-plan-mode.md`
+
+Problem captured:
+- Plan-mode semantics and line-role guardrail artifacts were drifting across stage/import/benchmark paths, with a risk of “plan” either being too shallow to help or accidentally touching live services.
+
+Durable findings:
+- `cookimport stage`, `cookimport labelstudio-import`, `import`, and `cookimport labelstudio-benchmark` can all stop at the command boundary with `--codex-execution-policy plan`.
+- Plan mode writes `run_manifest.json` plus `codex_execution_plan.json` and returns before stage processing, upload, prelabel, or other live Codex work.
+- `labelstudio-import` plan mode must short-circuit before Label Studio credential resolution and before prelabel handling.
+- Line-role guardrails now use explicit `RunSettings.line_role_guardrail_mode` values:
+  - `off`
+  - `preview`
+  - `enforce`
+- Preferred artifacts are:
+  - `line-role-pipeline/guardrail_report.json`
+  - `line-role-pipeline/guardrail_changed_rows.jsonl`
+- Legacy compatibility sidecars stay available when diagnostics exist so older readers do not break.
+
+Implementation trap preserved:
+- `RunSettings.line_role_guardrail_mode` is enum-backed. Helper code must normalize enum `.value` before string comparisons; otherwise `preview` can silently behave like `enforce`.
+
+Additional deterministic regression fixes preserved with this note:
+- Normalize spaced fractions (`1 / 2 -> 1/2`) before atomization and pass2 evidence normalization.
+- Do not split dual-unit quantity text when the second quantity follows `/` (`1 quart/1 L water`).
+
+### 2026-03-05_23.59.00 token reduction plan review
+
+Source:
+- `docs/understandings/2026-03-05_23.59.00-token-reduction-plan-review.md`
+
+Problem captured:
+- Needed a reality check on which token-reduction ExecPlan milestones were implemented versus still only described in planning docs.
+
+Durable findings:
+- Milestones 1 through 4 were mostly implemented in code:
+  - `cookimport/llm/prompt_budget.py`
+  - compact pass2/pass3 pipeline assets
+  - compact line-role prompt serialization
+  - benchmark runtime summary support for `line_role`
+- Remaining gap at that point was milestone-5 validation/replay closure, not basic plumbing.
+- One unrelated red test was noted:
+  - `tests/llm/test_codex_farm_orchestrator.py::test_orchestrator_pass1_eligibility_gate_clamps_to_heuristic_bounds`
+
+Anti-loop note:
+- If token-reduction review claims “nothing shipped,” compare against runtime assets and prompt-budget plumbing first; the remaining problem is validation/default rollout, not blank implementation.
+
+### 2026-03-06_14.05.00 prediction plan preview and recipe guardrails
+
+Source:
+- `docs/understandings/2026-03-06_14.05.00-prediction-plan-preview-and-recipe-guardrails.md`
+
+Problem captured:
+- Prediction-run plan mode was initially too early to help: it knew which Codex surfaces were requested but not the concrete line-role batches or recipe-pass work that would actually run.
+
+Durable findings:
+- The useful planning seam is after deterministic conversion/archive preparation.
+- At that point, line-role unresolved rows and recipe CodexFarm pass inputs can be enumerated without live token spend.
+- Recipe-side guardrail reporting belongs beside `llm_manifest.json` in the raw LLM artifact tree because the orchestrator already owns:
+  - pass1 eligibility,
+  - transport drift,
+  - pass2 degradation,
+  - pass3 routing decisions.
+
+### 2026-03-06_17.55.00 compact prompt default surfaces
+
+Source:
+- `docs/understandings/2026-03-06_17.55.00-compact-prompt-default-surfaces.md`
+
+Problem captured:
+- Compact-vs-legacy prompt defaults were controlled in several different layers, so changing only one location would create drift between recipe and line-role paths.
+
+Durable findings:
+- To make compact prompts the effective repo default, keep all three surfaces aligned:
+  - `cookimport/config/run_settings.py`
+  - CLI option defaults in `cookimport/cli.py`
+  - canonical line-role prompt-format resolver in `cookimport/parsing/canonical_line_roles.py`
+- Explicit rollback remains simple:
+  - `--codex-farm-pipeline-pass2 recipe.schemaorg.v1`
+  - `--codex-farm-pipeline-pass3 recipe.final.v1`
+  - `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=legacy`
+
+Anti-loop note:
+- If compact prompts appear only half-enabled, inspect defaults in all three control surfaces before changing prompt assets or runtime telemetry.

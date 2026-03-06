@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# How to run:
+# AI AGENTS, DO NOT USE THIS SCRIPT.
+#   How to run:
 #   bash docs/build-docs-summary.sh
 # Output:
 #   docs/<timestamp>_<root_folder_name>-docs-summary.md
 # Note:
+#   AI AGENTS, DO NOT USE THIS SCRIPT.
 #   The generated file starts with the raw output of docs/docs-list.ts.
 #   Only .md and .txt files are included in the generated summary.
 #   Sources include docs/ and llm_pipelines/prompts/ (if that folder exists).

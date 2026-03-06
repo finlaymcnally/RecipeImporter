@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import questionary
 
@@ -19,15 +20,17 @@ from cookimport.llm.codex_farm_runner import list_codex_farm_models
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
 PromptText = Callable[..., Any]
-_QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
-    "epub_extractor": "unstructured",
-    "epub_unstructured_html_parser_version": "v1",
-    "epub_unstructured_preprocess_mode": "semantic_v1",
-    "epub_unstructured_skip_headers_footers": True,
-}
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
 _WORKER_UTILIZATION_DEFAULT = 1.0
 _TOP_TIER_PROFILE_ENV = "COOKIMPORT_TOP_TIER_PROFILE"
+_CODEX_REASONING_EFFORT_ORDER = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+)
 
 
 def _worker_utilization() -> float | None:
@@ -68,7 +71,6 @@ def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
 
 def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
     payload = global_defaults.to_run_config_dict()
-    payload.update(_QUALITY_FIRST_WINNER_STACK_PATCH)
     payload = apply_top_tier_profile_contract(payload, "codexfarm")
     return RunSettings.from_dict(
         payload,
@@ -154,6 +156,85 @@ def _choose_top_tier_profile(
     return _normalize_top_tier_profile(selection) or "codexfarm"
 
 
+def _normalize_codex_reasoning_effort_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        candidate = str(value.value).strip().lower()
+    else:
+        candidate = str(value).strip().lower()
+    return candidate or None
+
+
+def supported_codex_farm_efforts_by_model(
+    *,
+    cmd: str | None = None,
+    model_rows: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, tuple[str, ...]]:
+    discovered_models = (
+        list(model_rows)
+        if model_rows is not None
+        else list_codex_farm_models(cmd=cmd)
+    )
+    supported_by_model: dict[str, tuple[str, ...]] = {}
+    for model_row in discovered_models:
+        model_id = str(model_row.get("slug") or "").strip()
+        if not model_id:
+            continue
+        raw_efforts = model_row.get("supported_reasoning_efforts")
+        if not isinstance(raw_efforts, list):
+            continue
+        normalized_efforts: list[str] = []
+        seen_efforts: set[str] = set()
+        for raw_effort in raw_efforts:
+            normalized_effort = _normalize_codex_reasoning_effort_value(raw_effort)
+            if (
+                normalized_effort is None
+                or normalized_effort not in _CODEX_REASONING_EFFORT_ORDER
+                or normalized_effort in seen_efforts
+            ):
+                continue
+            normalized_efforts.append(normalized_effort)
+            seen_efforts.add(normalized_effort)
+        if normalized_efforts:
+            supported_by_model[model_id] = tuple(normalized_efforts)
+    return supported_by_model
+
+
+def build_codex_farm_reasoning_effort_choices(
+    *,
+    selected_model: str | None,
+    selected_effort: Any,
+    supported_efforts_by_model: dict[str, tuple[str, ...]],
+    default_label: str = "Pipeline default",
+    default_value: str = "__default__",
+    include_minimal: bool = True,
+) -> tuple[list[questionary.Choice], str]:
+    allowed_efforts = [
+        effort
+        for effort in _CODEX_REASONING_EFFORT_ORDER
+        if include_minimal or effort != "minimal"
+    ]
+    normalized_model = str(selected_model or "").strip()
+    model_supported_efforts = supported_efforts_by_model.get(normalized_model)
+    if model_supported_efforts:
+        supported_set = set(model_supported_efforts)
+        allowed_efforts = [
+            effort for effort in allowed_efforts if effort in supported_set
+        ]
+
+    resolved_default = _normalize_codex_reasoning_effort_value(selected_effort)
+    choice_values = {default_value, *allowed_efforts}
+    if resolved_default not in choice_values:
+        resolved_default = default_value
+
+    choices = [questionary.Choice(default_label, value=default_value)]
+    choices.extend(
+        questionary.Choice(effort, value=effort) for effort in allowed_efforts
+    )
+    return choices, resolved_default
+
+
 def _choose_codex_ai_settings(
     *,
     selected_settings: RunSettings,
@@ -181,6 +262,9 @@ def _choose_codex_ai_settings(
             seen_model_ids.add(current_override)
             model_default = current_override
     discovered_models = list_codex_farm_models(cmd=selected_settings.codex_farm_cmd)
+    supported_efforts_by_model = supported_codex_farm_efforts_by_model(
+        model_rows=discovered_models
+    )
     for model_row in discovered_models:
         model_id = str(model_row.get("slug") or "").strip()
         if not model_id or model_id in seen_model_ids:
@@ -208,24 +292,16 @@ def _choose_codex_ai_settings(
         None if str(model_choice) == "__pipeline_default__" else str(model_choice).strip()
     ) or None
 
-    effort_default = (
-        str(selected_settings.codex_farm_reasoning_effort)
-        if selected_settings.codex_farm_reasoning_effort is not None
-        else "__default__"
+    effort_choices, effort_default = build_codex_farm_reasoning_effort_choices(
+        selected_model=model_override,
+        selected_effort=selected_settings.codex_farm_reasoning_effort,
+        supported_efforts_by_model=supported_efforts_by_model,
     )
     effort_choice = menu_select(
         "Codex Farm reasoning effort override:",
         menu_help="Blank uses pipeline default. Affects all codex-farm passes.",
         default=effort_default,
-        choices=[
-            questionary.Choice("Pipeline default", value="__default__"),
-            questionary.Choice("none", value="none"),
-            questionary.Choice("minimal", value="minimal"),
-            questionary.Choice("low", value="low"),
-            questionary.Choice("medium", value="medium"),
-            questionary.Choice("high", value="high"),
-            questionary.Choice("xhigh", value="xhigh"),
-        ],
+        choices=effort_choices,
     )
     if effort_choice in {None, back_action}:
         return None

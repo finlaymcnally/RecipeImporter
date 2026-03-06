@@ -968,3 +968,21 @@ Regression anchors from merged tasks:
 - `tests/labelstudio/test_labelstudio_ingest_parallel.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
+
+## 2026-03-06 merged understandings digest (line-role telemetry second-pass mismatch)
+
+Merged source note:
+- `docs/understandings/2026-03-06_01.19.07-line-role-telemetry-second-pass.md`
+
+Current parsing contracts reinforced:
+- `joined_line_table.jsonl` should attach line-role prediction metadata conservatively:
+  - exact normalized index+text match first,
+  - then exact-text sequence alignment,
+  - ambiguous duplicate short texts should stay unmatched rather than inherit the wrong prediction metadata.
+- `_sanitize_prediction(...)` must keep `candidate_labels` consistent with the final emitted `label`.
+  - If sanitization changes the final label during fallback or rescue, that final label has to be re-added to `candidate_labels`.
+- Historical benchmark artifacts can remain internally inconsistent even after exporter fixes.
+  - If old runs still show `label` outside `candidate_labels`, rerun the line-role pipeline with the sanitizer fix before debugging dashboard/export consumers.
+
+Anti-loop reminder:
+- When `joined_line_table.jsonl` and `line_role_predictions.jsonl` disagree, separate exporter matching errors from already-invalid source prediction rows before changing analytics or cutdown tooling.

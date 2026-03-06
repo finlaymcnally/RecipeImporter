@@ -92,6 +92,7 @@ Report/model plumbing:
 - Canonical line-role prompt construction now defaults to `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` when the env var is unset; set it back to `legacy` for rollback or A/B checks.
 - `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
 - Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint require explicit `--allow-codex` approval only in execute mode when their resolved run settings enable a Codex-backed surface.
+- The low-level `COOKIMPORT_ALLOW_LLM` kill switch still blocks unapproved `codex exec` calls by default, but explicitly approved stage/import/benchmark runs now pass that approval through to the line-role Codex path so `codex-line-role-v1` is not silently disabled during a real approved run.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 - Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
@@ -836,3 +837,33 @@ Current LLM contracts reinforced:
 Known bad / anti-loop reminders carried forward:
 - `build_run_settings(...)` was a historical bypass seam. If safe-default behavior regresses, inspect helper defaults and decision-layer routing before adding more approval flags.
 - Prompt-byte estimates can prove hidden work happened, but they are not a replacement for durable telemetry once the repo now writes telemetry artifacts directly.
+
+## 2026-03-06 merged understandings digest (plan-mode depth, compact defaults, and token-reduction status)
+
+Merged source notes (timestamp order):
+- `2026-03-05_23.56.43-line-role-guardrail-and-stage-import-plan-mode.md`
+- `2026-03-05_23.59.00-token-reduction-plan-review.md`
+- `2026-03-06_14.05.00-prediction-plan-preview-and-recipe-guardrails.md`
+- `2026-03-06_17.55.00-compact-prompt-default-surfaces.md`
+
+Current LLM contracts reinforced:
+- `--codex-execution-policy plan` is intentionally deeper than a command-entry dry run.
+  - `cookimport stage`, `cookimport labelstudio-import`, `import`, and `cookimport labelstudio-benchmark` can all stop before live Codex work while still writing `run_manifest.json` plus `codex_execution_plan.json`.
+  - For prediction/benchmark flows, the useful seam is after deterministic extraction/archive preparation, so the plan artifact can enumerate concrete line-role batches and recipe CodexFarm pass inputs instead of only echoing requested settings.
+  - `labelstudio-import` plan mode must short-circuit before Label Studio credential resolution and before prelabel execution.
+- Guardrail artifacts now live in two additive LLM-owned surfaces:
+  - line-role post-sanitization diagnostics in `prediction-run/line-role-pipeline/guardrail_report.json` and `guardrail_changed_rows.jsonl`,
+  - recipe-side CodexFarm diagnostics beside `llm_manifest.json` under `raw/llm/<workbook_slug>/guardrail_report.json` and `guardrail_rows.jsonl`.
+- Compact prompt defaults are controlled in three places and need to stay aligned:
+  - `cookimport/config/run_settings.py`
+  - matching CLI option defaults in `cookimport/cli.py`
+  - canonical line-role prompt-format resolution in `cookimport/parsing/canonical_line_roles.py`
+  Rollback remains explicit via legacy pass2/pass3 pipeline IDs or `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=legacy`.
+- Token-reduction implementation status as of this merge:
+  - milestone-style work through compact prompt assets, prompt-budget plumbing, and compact line-role prompt formatting is mostly in code,
+  - the remaining gap is validation/replay closure and default-flip evidence rather than missing basic implementation seams.
+
+Known bad / anti-loop reminders carried forward:
+- `labelstudio-import --prelabel` remains a distinct Codex surface and needs policy review whenever plan/approval behavior changes.
+- If plan mode looks too shallow to be useful, check where the early return happens relative to deterministic archive preparation before adding another planning artifact.
+- If compact prompts regress inconsistently across recipe and line-role paths, inspect the three default-control surfaces together instead of changing only one flag.

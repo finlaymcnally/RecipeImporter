@@ -198,6 +198,7 @@ def build_benchmark_call_kwargs_from_run_settings(
         "pdf_pages_per_job": settings.pdf_pages_per_job,
         "epub_spine_items_per_job": settings.epub_spine_items_per_job,
         "llm_recipe_pipeline": settings.llm_recipe_pipeline.value,
+        "llm_knowledge_pipeline": settings.llm_knowledge_pipeline.value,
         "atomic_block_splitter": settings.atomic_block_splitter.value,
         "line_role_pipeline": settings.line_role_pipeline.value,
         "line_role_guardrail_mode": settings.line_role_guardrail_mode.value,
@@ -212,8 +213,14 @@ def build_benchmark_call_kwargs_from_run_settings(
         "codex_farm_pipeline_pass1": settings.codex_farm_pipeline_pass1,
         "codex_farm_pipeline_pass2": settings.codex_farm_pipeline_pass2,
         "codex_farm_pipeline_pass3": settings.codex_farm_pipeline_pass3,
+        "codex_farm_pipeline_pass4_knowledge": (
+            settings.codex_farm_pipeline_pass4_knowledge
+        ),
         "codex_farm_pass3_skip_pass2_ok": settings.codex_farm_pass3_skip_pass2_ok,
         "codex_farm_context_blocks": settings.codex_farm_context_blocks,
+        "codex_farm_knowledge_context_blocks": (
+            settings.codex_farm_knowledge_context_blocks
+        ),
         "codex_farm_failure_mode": settings.codex_farm_failure_mode.value,
     }
     if settings.codex_farm_reasoning_effort is not None:

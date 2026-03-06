@@ -277,16 +277,19 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     } == {"off"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in baseline_variants
-    } == {"off"}
+    } == {"deterministic-v1"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in baseline_variants
-    } == {"off"}
+    } == {"atomic-v1"}
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in codex_variants
     } == {"codex-farm-3pass-v1"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in codex_variants
     } == {"codex-line-role-v1"}
+    assert {
+        variant.run_settings.llm_knowledge_pipeline.value for variant in codex_variants
+    } == {"codex-farm-knowledge-v1"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in codex_variants
     } == {"atomic-v1"}
@@ -331,10 +334,10 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
     } == {"off"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in variants
-    } == {"off"}
+    } == {"deterministic-v1"}
     assert {
         variant.run_settings.atomic_block_splitter.value for variant in variants
-    } == {"off"}
+    } == {"atomic-v1"}
 
 
 def test_resolve_all_method_markdown_extractors_requires_policy_unlock(

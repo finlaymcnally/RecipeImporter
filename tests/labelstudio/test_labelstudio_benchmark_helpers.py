@@ -29,6 +29,10 @@ from cookimport.llm.prompt_budget import (
     build_prediction_run_prompt_budget_summary,
     write_prediction_run_prompt_budget_summary,
 )
+from cookimport.labelstudio.ingest import (
+    generate_pred_run_artifacts,
+    run_labelstudio_import,
+)
 
 
 def _write_fake_all_method_prediction_phase_artifacts(
@@ -136,6 +140,19 @@ def _write_fake_all_method_eval_artifacts(
         encoding="utf-8",
     )
     (eval_output_dir / "eval_report.md").write_text("report", encoding="utf-8")
+
+
+def test_labelstudio_ingest_defaults_use_compact_codex_farm_pass_pipelines() -> None:
+    generate_signature = inspect.signature(generate_pred_run_artifacts)
+    import_signature = inspect.signature(run_labelstudio_import)
+
+    for signature in (generate_signature, import_signature):
+        assert signature.parameters["codex_farm_pipeline_pass2"].default == (
+            "recipe.schemaorg.compact.v1"
+        )
+        assert signature.parameters["codex_farm_pipeline_pass3"].default == (
+            "recipe.final.compact.v1"
+        )
 
 
 def _write_labelstudio_compare_source_row(
@@ -3479,8 +3496,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
-
 
 
 

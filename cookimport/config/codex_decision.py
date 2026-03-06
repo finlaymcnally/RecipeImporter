@@ -17,38 +17,49 @@ LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
 TAGS_CODEX_PIPELINE = "codex-farm-tags-v1"
 PRELABEL_CODEX_PROVIDER = "codex-cli"
+COMPACT_PASS2_PIPELINE = "recipe.schemaorg.compact.v1"
+COMPACT_PASS3_PIPELINE = "recipe.final.compact.v1"
 
-_TOP_TIER_CODEXFARM_PATCH: dict[str, Any] = {
-    "llm_recipe_pipeline": RECIPE_CODEX_PIPELINE,
-    "line_role_pipeline": LINE_ROLE_CODEX_PIPELINE,
-    "atomic_block_splitter": "atomic-v1",
+_TOP_TIER_PARSER_STACK_PATCH: dict[str, Any] = {
+    "epub_extractor": "unstructured",
+    "epub_unstructured_html_parser_version": "v1",
+    "epub_unstructured_preprocess_mode": "semantic_v1",
+    "epub_unstructured_skip_headers_footers": True,
+    "section_detector_backend": "shared_v1",
+    "multi_recipe_splitter": "rules_v1",
+    "instruction_step_segmentation_policy": "always",
+    "instruction_step_segmenter": "heuristic_v1",
+    "pdf_ocr_policy": "off",
     "codex_farm_pass1_pattern_hints_enabled": False,
     "codex_farm_pass3_skip_pass2_ok": True,
+    "codex_farm_pipeline_pass2": COMPACT_PASS2_PIPELINE,
+    "codex_farm_pipeline_pass3": COMPACT_PASS3_PIPELINE,
+}
+_TOP_TIER_CODEXFARM_PATCH: dict[str, Any] = {
+    **_TOP_TIER_PARSER_STACK_PATCH,
+    "llm_recipe_pipeline": RECIPE_CODEX_PIPELINE,
+    "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE,
+    "line_role_pipeline": LINE_ROLE_CODEX_PIPELINE,
+    "atomic_block_splitter": "atomic-v1",
 }
 _TOP_TIER_VANILLA_PATCH: dict[str, Any] = {
+    **_TOP_TIER_PARSER_STACK_PATCH,
     "llm_recipe_pipeline": "off",
     "llm_knowledge_pipeline": "off",
     "llm_tags_pipeline": "off",
     "line_role_pipeline": LINE_ROLE_DETERMINISTIC_PIPELINE,
     "atomic_block_splitter": "atomic-v1",
-    "codex_farm_pass1_pattern_hints_enabled": False,
-    "codex_farm_pass3_skip_pass2_ok": True,
-    "epub_extractor": "unstructured",
-    "epub_unstructured_html_parser_version": "v1",
-    "epub_unstructured_preprocess_mode": "br_split_v1",
-    "epub_unstructured_skip_headers_footers": False,
 }
-_BENCHMARK_BASELINE_PATCH: dict[str, Any] = {
-    "llm_recipe_pipeline": "off",
-    "llm_knowledge_pipeline": "off",
-    "llm_tags_pipeline": "off",
-    "line_role_pipeline": "off",
-    "atomic_block_splitter": "off",
-}
+_BENCHMARK_BASELINE_PATCH: dict[str, Any] = dict(_TOP_TIER_VANILLA_PATCH)
 _BENCHMARK_CODEXFARM_PATCH: dict[str, Any] = {
     "llm_recipe_pipeline": RECIPE_CODEX_PIPELINE,
+    "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE,
     "line_role_pipeline": LINE_ROLE_CODEX_PIPELINE,
     "atomic_block_splitter": "atomic-v1",
+    "codex_farm_pass1_pattern_hints_enabled": False,
+    "codex_farm_pass3_skip_pass2_ok": True,
+    "codex_farm_pipeline_pass2": COMPACT_PASS2_PIPELINE,
+    "codex_farm_pipeline_pass3": COMPACT_PASS3_PIPELINE,
 }
 
 

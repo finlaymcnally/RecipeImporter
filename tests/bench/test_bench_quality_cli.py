@@ -252,7 +252,7 @@ def test_bench_quality_run_rejects_missing_resume_run_dir(
     assert "--resume-run-dir must point to an existing directory" in failures[0]
 
 
-def test_bench_quality_run_requires_codex_farm_confirmation(
+def test_bench_quality_run_rejects_include_codex_farm(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -274,124 +274,32 @@ def test_bench_quality_run_requires_codex_farm_confirmation(
 
     assert excinfo.value.exit_code == 1
     assert failures
-    assert "--qualitysuite-codex-farm-confirmation" in failures[0]
+    assert "--include-codex-farm" in failures[0]
 
 
-def test_bench_quality_run_passes_codex_farm_confirmation_to_runner(
+def test_bench_quality_run_rejects_codex_farm_model_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    source_file = tmp_path / "alpha.epub"
-    source_file.write_text("epub", encoding="utf-8")
-    gold_spans = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
-    gold_spans.parent.mkdir(parents=True, exist_ok=True)
-    gold_spans.write_text('{"source_file":"alpha.epub"}\n', encoding="utf-8")
+    failures: list[str] = []
 
-    loaded_suite = BenchQualitySuite(
-        name="quality_suite",
-        generated_at="2026-02-28_12.00.00",
-        gold_root=str((tmp_path / "gold").resolve()),
-        input_root=str(tmp_path.resolve()),
-        seed=42,
-        max_targets=1,
-        selection={
-            "algorithm_version": "quality_representative_v2",
-            "seed": 42,
-            "max_targets": 1,
-            "matched_count": 1,
-            "strata_counts": {"small:sparse": 1},
-        },
-        targets=[
-            BenchQualityTarget(
-                target_id="alpha",
-                source_file=str(source_file.resolve()),
-                gold_spans_path=str(gold_spans.resolve()),
-                source_hint="alpha.epub",
-                canonical_text_chars=3,
-                gold_span_rows=1,
-                label_count=1,
-                size_bucket="small",
-                label_bucket="sparse",
-            )
-        ],
-        selected_target_ids=["alpha"],
-        unmatched=[],
-    )
-    suite_path = tmp_path / "suite.json"
-    suite_path.write_text("{}", encoding="utf-8")
-    experiments_file = tmp_path / "experiments.json"
-    experiments_file.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "experiments": [{"id": "baseline", "run_settings_patch": {}}],
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    run_root = tmp_path / "runs" / "2026-02-28_12.00.00"
-    run_root.mkdir(parents=True, exist_ok=True)
-    (run_root / "report.md").write_text("", encoding="utf-8")
-    (run_root / "summary.json").write_text("{}", encoding="utf-8")
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
 
-    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
 
-    monkeypatch.setattr(
-        "cookimport.bench.quality_suite.load_quality_suite",
-        lambda _suite_path: loaded_suite,
-    )
-    monkeypatch.setattr(
-        "cookimport.bench.quality_suite.validate_quality_suite",
-        lambda _suite, repo_root: [],
-    )
-    monkeypatch.setattr(
-        "cookimport.cli._run_with_progress_status",
-        lambda *, run, **_kwargs: run(lambda _message: None),
-    )
-    monkeypatch.setattr(
-        "cookimport.cli._ensure_codex_farm_cmd_available",
-        lambda _cmd: None,
-    )
-    monkeypatch.setattr(
-        "cookimport.cli._resolve_all_method_codex_choice",
-        lambda _include: (True, None),
-    )
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.bench_quality_run(
+            suite=tmp_path / "suite.json",
+            experiments_file=tmp_path / "experiments.json",
+            out_dir=tmp_path / "runs",
+            codex_farm_model="gpt-5.3-codex-spark",
+        )
 
-    def _fake_run_quality_suite(
-        _suite,
-        _out_dir,
-        *,
-        progress_callback,
-        **kwargs,
-    ):
-        _ = progress_callback
-        captured.update(kwargs)
-        return run_root
-
-    monkeypatch.setattr(
-        "cookimport.bench.quality_runner.run_quality_suite",
-        _fake_run_quality_suite,
-    )
-    monkeypatch.setattr(
-        cli,
-        "_write_qualitysuite_agent_bridge_bundle_for_run",
-        lambda **_kwargs: (run_root / "agent_compare_control", None),
-    )
-    monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
-
-    cli.bench_quality_run(
-        suite=suite_path,
-        experiments_file=experiments_file,
-        out_dir=tmp_path / "runs",
-        require_process_workers=True,
-        include_codex_farm=True,
-        qualitysuite_codex_farm_confirmation=cli.QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN,
-    )
-
-    assert captured["include_codex_farm_requested"] is True
-    assert captured["codex_farm_confirmed"] is True
-    assert captured["require_process_workers"] is True
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert "--codex-farm-model" in failures[0]
 
 
 def test_bench_quality_lightweight_series_is_disabled(
@@ -635,4 +543,3 @@ def test_bench_quality_leaderboard_saves_qualitysuite_winner_profile(
     assert settings.epub_extractor.value == "unstructured"
     assert settings.epub_unstructured_html_parser_version.value == "v2"
     assert settings.epub_unstructured_preprocess_mode.value == "semantic_v1"
-

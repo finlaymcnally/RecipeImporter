@@ -5,11 +5,15 @@ import os
 import re
 import shlex
 import subprocess
+import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 _CODEX_ALT_EXECUTABLE_RE = re.compile(r"^codex[0-9]+(?:\.exe)?$")
+_ALLOW_LLM_BYPASS_WARNING_LOCK = threading.Lock()
+_ALLOW_LLM_BYPASS_WARNING_EMITTED = False
 
 
 def default_codex_exec_cmd() -> str:
@@ -95,16 +99,23 @@ def run_codex_json_prompt(
     prompt: str,
     timeout_seconds: int,
     cmd: str | None = None,
+    allow_llm: bool = False,
     track_usage: bool = False,
     runner: Callable[..., Any] | None = None,
     log_path: Path | None = None,
 ) -> dict[str, Any]:
-    allow_llm = str(os.getenv("COOKIMPORT_ALLOW_LLM", os.getenv("CODEX_ALLOW_LLM", ""))).lower()
-    if allow_llm not in {"1", "true", "yes", "on"}:
+    allow_llm_env = str(
+        os.getenv("COOKIMPORT_ALLOW_LLM", os.getenv("CODEX_ALLOW_LLM", ""))
+    ).lower()
+    env_allows_llm = allow_llm_env in {"1", "true", "yes", "on"}
+    explicit_allow_llm = bool(allow_llm)
+    if not env_allows_llm and not explicit_allow_llm:
         raise RuntimeError(
             "LLM call blocked by safety kill switch. "
             "Set COOKIMPORT_ALLOW_LLM=1 to enable."
         )
+    if explicit_allow_llm and not env_allows_llm:
+        _warn_kill_switch_bypassed_once()
 
     resolved_cmd = str(cmd or default_codex_exec_cmd()).strip()
     if not resolved_cmd:
@@ -171,6 +182,21 @@ def run_codex_json_prompt(
         except OSError:
             pass
     return payload
+
+
+def _warn_kill_switch_bypassed_once() -> None:
+    global _ALLOW_LLM_BYPASS_WARNING_EMITTED
+    with _ALLOW_LLM_BYPASS_WARNING_LOCK:
+        if _ALLOW_LLM_BYPASS_WARNING_EMITTED:
+            return
+        _ALLOW_LLM_BYPASS_WARNING_EMITTED = True
+    try:
+        sys.stderr.write(
+            "[cookimport] Bypassing COOKIMPORT_ALLOW_LLM because this command "
+            "explicitly allowed live Codex execution.\n"
+        )
+    except OSError:
+        return
 
 
 def _invoke(
@@ -272,4 +298,3 @@ def _is_codex_executable(executable: str) -> bool:
     if name in _CODEX_EXECUTABLES:
         return True
     return bool(_CODEX_ALT_EXECUTABLE_RE.match(name))
-

@@ -506,3 +506,23 @@ Verification sweep retained from task:
 
 Anti-loop note:
 - If runtime grows in one of these areas, inspect whether a regression reintroduced real orchestration / browser waits before splitting more files.
+
+## 2026-03-06 migrated understanding ledger (wrapper enforcement and raw-pytest warnings)
+
+### 2026-03-06_15.05.00 test wrapper enforcement and raw pytest warning
+
+Source:
+- `docs/understandings/2026-03-06_15.05.00-test-wrapper-enforcement-and-raw-pytest-warning.md`
+
+Problem captured:
+- Routine broad pytest invocations kept bypassing the repo wrapper despite local guidance to use `./scripts/test-suite.sh` / `make test-*` for normal loops.
+
+Durable findings:
+- `scripts/test-suite.sh` now exports `COOKIMPORT_TEST_SUITE=1` so pytest can distinguish wrapper-driven runs from ad hoc raw invocations.
+- `tests/conftest.py` emits a one-line reminder only for broad raw pytest runs, specifically:
+  - directory runs,
+  - multi-file cross-domain batches without a marker filter.
+- Narrow single-file raw pytest runs remain quiet so targeted diagnostic reruns stay practical.
+
+Anti-loop note:
+- If agents start treating every raw pytest invocation as “bad,” tighten the warning heuristic instead of suppressing wrapper guidance entirely.

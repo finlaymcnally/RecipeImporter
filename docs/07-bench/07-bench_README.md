@@ -29,14 +29,13 @@ Current scoring surfaces:
 
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`). Supports bounded task-level fanout via `--max-parallel-tasks` (auto mode when omitted: `min(total_tasks, cpu_count, 4)`) and crash-safe resume via `--resume-run-dir`. Use `--require-process-workers` to fail fast when stage/all-method internals cannot establish process workers.
-- Codex Farm permutations (recipe pass) can be included in all-method grids by passing `--include-codex-farm` to `bench speed-run` / `bench quality-run`. Optional overrides: `--codex-farm-model ...` and `--codex-farm-thinking-effort high` (or `--codex-farm-reasoning-effort`).
-- Codex Farm routing levers are run-settings knobs (`codex_farm_pass3_skip_pass2_ok`, default `true`; `codex_farm_pass1_pattern_hints_enabled`, default `false`), so QualitySuite `run_settings_patch` experiments can optimize them without orchestrator/env toggles.
+- Codex Farm permutations (recipe pass) can be included in all-method grids for `bench speed-run`. QualitySuite/`bench quality-run` is deterministic-only and rejects Codex Farm recipe/knowledge/tags enablement in requested settings.
+- Codex Farm routing levers are still run-settings knobs (`codex_farm_pass3_skip_pass2_ok`, default `true`; `codex_farm_pass1_pattern_hints_enabled`, default `false`), but QualitySuite no longer accepts Codex Farm-enabled requested settings.
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
-- `bench quality-run` requires explicit positive confirmation when Codex Farm is requested: `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is already present in CSV rows, and `bench gc` does not mutate `performance_history.csv`.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
-- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`. By default, it also emits an AI-agent bridge under `<run_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
+- `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). QualitySuite is deterministic-only: it rejects `--include-codex-farm`, Codex Farm CLI overrides, and requested settings that enable Codex Farm recipe/knowledge/tags surfaces. Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`. By default, it also emits an AI-agent bridge under `<run_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier; optional `--by-source-extension` emits per-format leaderboard slices.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates. By default, it also emits an AI-agent bridge under `<comparison_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
@@ -67,9 +66,11 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
+- `--llm-knowledge-pipeline off|codex-farm-knowledge-v1`
 - `--line-role-guardrail-mode off|preview|enforce`
 - `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
+- benchmark prediction generation also accepts pass4 knowledge knobs: `--codex-farm-pipeline-pass4-knowledge <pipeline_id>` and `--codex-farm-knowledge-context-blocks <int>`
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
@@ -104,8 +105,9 @@ Interactive `single_offline` now writes into one session root:
 - `<source_slug>` is derived from the selected source filename stem (slugified).
 - `single_offline` resolves one source/gold pair once and reuses it for all planned variants (vanilla + codexfarm) in a session.
 - paired single-offline variant normalization now enforces:
-  - `vanilla`: deterministic-only (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`)
-  - `codexfarm`: LLM-adjusted recipe + line-role path (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
+  - `vanilla`: the vanilla top-tier profile (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`)
+  - `codexfarm`: the codexfarm top-tier profile (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
+  - both variants pin the same current top-tier parsing stack: `epub_extractor=unstructured`, `epub_unstructured_html_parser_version=v1`, `epub_unstructured_preprocess_mode=semantic_v1`, `epub_unstructured_skip_headers_footers=true`, `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`, and compact codex pass ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`).
   - Analytics treat the `vanilla` label as valid only when both recipe AI and line-role AI are off; a row with `llm_recipe_pipeline=off` but line-role AI still on is a hybrid run, not vanilla.
 - non-paired single-offline runs now keep a profile slug such as `line_role_only`, `recipe_only`, or `full_stack` instead of being forced into `vanilla`.
 - prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
@@ -140,12 +142,10 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
-- interactive single-profile selected/all-matched runs now use the same variant planner as single-offline:
-  - when run settings keep `llm_recipe_pipeline=off`, each selected book runs one `vanilla` eval at `.../single-profile-benchmark/<index_source_slug>/`
-  - when run settings enable `llm_recipe_pipeline=codex-farm-3pass-v1`, each selected book runs paired variants at:
-    - `.../single-profile-benchmark/<index_source_slug>/vanilla`
-    - `.../single-profile-benchmark/<index_source_slug>/codexfarm`
-  - paired books write `.../single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json` only when both variants succeed
+- interactive single-profile selected/all-matched runs execute the selected profile literally, one eval root per selected book:
+  - deterministic selections write one root at `.../single-profile-benchmark/<index_source_slug>/`
+  - Codex-backed selections also write one root at `.../single-profile-benchmark/<index_source_slug>/`; the run is classified later by `ai_assistance_profile` (`full_stack`, `recipe_only`, `line_role_only`) rather than by creating an implicit `codexfarm/` child
+  - there is no automatic per-book `vanilla` companion run or `codex_vs_vanilla_comparison.json` in this flow unless a separate paired benchmark path created those variants explicitly
 - multi-book interactive single-profile runs also write one group-level 3-file upload bundle at:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_overview.md`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
@@ -166,6 +166,7 @@ Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-bl
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. The worker summary row now includes a remaining-work counter (`active tasks (..., N left)`) derived from the same `task X/Y` counter so operators can always see total tasks left even when the top status line is width-truncated. Spinner output uses a larger `bouncingBar` indicator and a wider blue ASCII panel (bordered block); long status/task rows wrap across panel lines instead of being hard-clamped to one truncated row.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
+Offline `labelstudio-benchmark` prediction generation now forwards pass4 knowledge settings into the shared `RunSettings` path, so `--llm-knowledge-pipeline codex-farm-knowledge-v1` can emit `raw/llm/<workbook_slug>/pass4_knowledge_manifest.json` plus `knowledge/<workbook_slug>/snippets.jsonl` under the prediction-run root.
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
 - `line_role_predictions.jsonl` (copied from prediction-run artifact)
@@ -304,6 +305,7 @@ Quality suite (`bench quality-run`) artifacts include:
 - `summary.json` stores per-experiment run-settings hashes and strict/practical/source-coverage metrics for compare gating, plus format visibility fields `format_counts` and `selected_format_counts`.
 - quality summaries/resolved payloads include strict-worker telemetry: `require_process_workers`, `process_worker_probe_available`, `process_worker_probe_error`.
 - `experiments_resolved.json` records resolved experiments (including any schema-v2 lever expansion), the canonical alignment cache root, all-method runtime knobs, Codex Farm request/confirmation flags, and WSL telemetry fields (`wsl_detected`, `wsl_safety_guard_applied`, `wsl_safety_guard_reason`, `wsl_safety_guard_worker_cap`, `wsl_safety_guard_adjusted_experiments`).
+- Per experiment, `run_settings` is the normalized benchmark base actually expanded into executed variants, while `requested_run_settings` preserves the original profile before benchmark baseline normalization.
 - optional AI-agent bridge bundle (`--qualitysuite-agent-bridge`, default on) under `<run_dir>/agent_compare_control/`:
   - `qualitysuite_compare_control_index.json` (scope map + outcome files + request counts),
   - `<scope_id>__strict_accuracy.json` / `<scope_id>__macro_f1_excluding_other.json` insight payloads,
@@ -558,7 +560,7 @@ Experiments file notes:
   - Schema v2 also supports top-level `all_method_runtime` for run-wide runtime defaults/overrides.
 - Example lever file: `data/golden/bench/quality/experiments/2026-02-28_01.18.41_qualitysuite-levers.json`.
 - `quality-run --include-deterministic-sweeps` applies interactive-style deterministic Priority 2–6 sweep expansion to each experiment’s all-method grid (in addition to experiment run-settings patches).
-- `quality-run --include-codex-farm` requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and will fail fast without it.
+- `quality-run --include-codex-farm` is disabled; QualitySuite rejects Codex Farm permutations and Codex Farm recipe/knowledge/tags requested settings.
 - `quality-run --resume-run-dir <existing-run-dir>` reuses completed experiment snapshots from partial runs and executes only pending experiments.
 
 Search strategy notes:
@@ -2022,3 +2024,58 @@ Known bad / anti-loop reminders carried forward:
 - Do not “fix” benchmark baseline drift by changing global defaults again; baseline construction is a benchmark-specific contract and now has dedicated helpers.
 - Do not repurpose `upload_bundle_v1` as a mutable follow-up packet. New reviewer asks belong in `followup_dataN/`.
 - If reuse seems broken, inspect prediction-identity payloads before changing `stable_hash()` or widening cache invalidation globally.
+
+## 2026-03-06 merged understandings digest (single-profile runtime shape, follow-up packets, and March 6 regressions)
+
+Merged source notes (timestamp order):
+- `2026-03-06_00.30.31-single-profile-benchmark-terminal-noise-sources.md`
+- `2026-03-06_01.05.09-upload-bundle-followup-packets.md`
+- `2026-03-06_01.08.59-web-ai-followup-instructions-scope.md`
+- `2026-03-06_01.13.31-group-upload-bundle-size-seams.md`
+- `2026-03-06_12.54.46-single-profile-paired-variants-restored.md`
+- `2026-03-06_13.29.41-benchmark-ablation-surfaces.md`
+- `2026-03-06_16.20.00-interactive-benchmark-codexfarm-selection.md`
+- `2026-03-06_17.05.00-single-profile-thefoodlab-not-stuck.md`
+- `2026-03-06_17.35.00-single-profile-book-grid-progress-model.md`
+- `2026-03-06_18.25.00-high-level-upload-bundle-final-size-accounting.md`
+- `2026-03-06_18.50.00-march6-benchmark-regression-split-causes.md`
+
+Current benchmark contracts reinforced:
+- `upload_bundle_v1` is still the base reviewer handoff, but the practical unit for follow-up requests is `upload_bundle_v1` plus the benchmark session-root/per-run artifact families it was derived from.
+- `cf-debug` / `cookimport.bench.followup_bundle` are the intended narrow follow-up seam:
+  - `request-template` writes a `cf.followup_request.v1` manifest,
+  - selectors come from case IDs, recipe IDs, line ranges, stage filters, or deterministic top-N picks,
+  - `pack` and `build-followup` emit additive packets instead of rebuilding the base bundle.
+- Web/remote reviewers should trust `upload_bundle_index.json.navigation.row_locators` first, especially derived `_upload_bundle_derived/...` payload rows, and ask for new follow-up outputs only when those locators are not enough.
+- High-level multi-book group bundles are intentionally curated and size-capped:
+  - exact `analysis.group_high_level.final_bundle_bytes` has to be measured from the three emitted files and then synced back into payload/index/overview metadata,
+  - `prediction-run/prompt_budget_summary.json` is the preferred compact runtime/token replacement for raw `prompts/full_prompt_log.jsonl`,
+  - if extra bytes are available, medium-sized context artifacts are safer to add back than the raw prompt dump.
+- March 6 proved why the group bundle needs both curated inclusion rules and a hard serialized-size clamp:
+  - raw `full_prompt_log.jsonl` can blow the bundle budget by itself,
+  - source-file budgeting alone is not enough because virtual derived rows and self-referential metadata change the final on-disk size.
+- Interactive single-profile terminal behavior is intentionally outer-dashboard driven:
+  - nested benchmark calls should suppress their own summary/decision banners while the shared spinner is active,
+  - recoverable codex-farm failures should surface as one short callback message and keep details in artifacts/debug logs,
+  - the shared outer callback already receives enough nested `task X/Y`, worker, and `__worker_activity__` data to render a per-book grid dashboard without replacing the outer runner.
+- Current single-profile planning behavior is literal selected-profile execution, not automatic ablation:
+  - `bench speed-run` does not expand ablations,
+  - `bench quality-run` only expands explicit experiment/levers definitions and optional deterministic sweeps,
+  - interactive single-profile benchmark runs only the selected profile per book, even though an earlier March 6 attempt briefly restored paired variants before that direction was reversed later the same day.
+- When a single-profile run looks stuck near the end of a codex-farm counter, check later stages before assuming a hang:
+  - codex-farm task counters cover only one subphase,
+  - line-role, eval, processed-output, and upload-bundle writes still happen afterward,
+  - `processing_timeseries.jsonl` is the easiest authoritative completion check.
+- The March 6 regression read is split-cause, not one simple “ProFixes failed” story:
+  - the run was not a usable vanilla-vs-codex pair root,
+  - line-role Codex fallback was configured in manifests but blocked by the `COOKIMPORT_ALLOW_LLM` safety kill switch,
+  - recipe CodexFarm looked relatively healthy,
+  - outside-span / knowledge-heavy material dominated the remaining error budget.
+- Historical single-profile roots can also reflect older planner/config state:
+  - older roots may predate the current benchmark contract,
+- current benchmark normalization now derives from the top-tier profile contract, so paired benchmark variants stay on the latest parser stack and compact codex pass IDs instead of carrying stale saved settings.
+
+Known bad / anti-loop reminders carried forward:
+- If a single-profile dashboard/per-label view shows empty baseline or delta cells, check whether the run root is a non-paired `full_stack` path before assuming analytics lost the row.
+- If a group upload bundle suddenly grows again, inspect high-level required-artifact selection and final serialized-size accounting before shrinking the byte target constant.
+- If an interactive codex benchmark prints a vanilla-looking status line, inspect variant planning and nested-summary suppression together; those two seams caused the earlier confusion.

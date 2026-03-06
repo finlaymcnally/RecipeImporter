@@ -302,7 +302,12 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
     )
 
     assert selected is not None
-    assert selected.to_run_config_dict() == winner_settings.to_run_config_dict()
+    expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
+        winner_settings,
+        profile="codexfarm",
+        warn_context="test expected saved winner settings",
+    )
+    assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
 def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
@@ -346,9 +351,10 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
         warn_context="test expected codex top-tier settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
+    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
 
 
-def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs(
+def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_tier_contract(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -360,7 +366,16 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
             "atomic_block_splitter": "off",
             "codex_farm_pass1_pattern_hints_enabled": True,
             "codex_farm_pass3_skip_pass2_ok": False,
-            "epub_extractor": "unstructured",
+            "epub_extractor": "beautifulsoup",
+            "epub_unstructured_html_parser_version": "v2",
+            "epub_unstructured_preprocess_mode": "br_split_v1",
+            "epub_unstructured_skip_headers_footers": False,
+            "section_detector_backend": "legacy",
+            "multi_recipe_splitter": "legacy",
+            "instruction_step_segmentation_policy": "auto",
+            "pdf_ocr_policy": "auto",
+            "codex_farm_pipeline_pass2": "recipe.schemaorg.v1",
+            "codex_farm_pipeline_pass3": "recipe.final.v1",
         },
         warn_context="test stale qualitysuite winner settings",
     )
@@ -387,6 +402,7 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
         warn_context="test expected harmonized winner settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
+    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
 
 
 def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
@@ -530,6 +546,75 @@ def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
     assert selected.codex_farm_model == "gpt-5-codex"
     assert selected.codex_farm_reasoning_effort == "high"
     assert selected.codex_farm_reasoning_effort is CodexReasoningEffort.high
+
+
+def test_choose_run_settings_codex_profile_filters_reasoning_efforts_by_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "list_codex_farm_models",
+        lambda **_kwargs: [
+            {
+                "slug": "gpt-5.1-codex-mini",
+                "description": "Cheap and fast",
+                "supported_reasoning_efforts": ["medium", "high"],
+            }
+        ],
+    )
+    effort_choice_values: list[str] = []
+
+    def _menu_select(message, *args, **kwargs):
+        if message == "Codex Farm model override:":
+            return "gpt-5.1-codex-mini"
+        if message == "Codex Farm reasoning effort override:":
+            effort_choice_values.extend(
+                [str(choice.value) for choice in kwargs.get("choices", [])]
+            )
+            assert kwargs.get("default") == "__default__"
+            return "high"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "freeform model text prompt should not be used"
+        ),
+        prompt_codex_ai_settings=True,
+    )
+
+    assert selected is not None
+    assert effort_choice_values == ["__default__", "medium", "high"]
+    assert selected.codex_farm_model == "gpt-5.1-codex-mini"
+    assert selected.codex_farm_reasoning_effort is CodexReasoningEffort.high
+
+
+def test_build_codex_farm_reasoning_effort_choices_resets_invalid_saved_default() -> None:
+    choices, default = run_settings_flow.build_codex_farm_reasoning_effort_choices(
+        selected_model="gpt-5.1-codex-mini",
+        selected_effort=CodexReasoningEffort.low,
+        supported_efforts_by_model={
+            "gpt-5.1-codex-mini": ("medium", "high"),
+        },
+    )
+
+    assert [str(choice.value) for choice in choices] == [
+        "__default__",
+        "medium",
+        "high",
+    ]
+    assert default == "__default__"
 
 
 def test_choose_run_settings_codex_ai_settings_prompt_cancel_returns_none(

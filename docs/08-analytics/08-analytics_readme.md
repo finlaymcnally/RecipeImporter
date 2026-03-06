@@ -840,3 +840,36 @@ Current analytics contracts reinforced:
 Known bad / anti-loop reminders carried forward:
 - `cookimport/analytics/dashboard_render.py` is still a large string-template renderer. When UI behavior changes, start from the builder/helper seams already present rather than cloning benchmark-trend logic again.
 - If dashboard and compare/control disagree on labels, fix the shared semantics layer first; do not patch only emitted JS copy.
+
+## 2026-03-06 merged understandings digest (derived metrics, dashboard state, and benchmark classification edge cases)
+
+Merged source notes (timestamp order):
+- `2026-03-05_23.56.44-compare-control-per-recipe-derived-fields.md`
+- `2026-03-06_00.44.16-per-label-single-profile-variant-fallback.md`
+- `2026-03-06_01.16.49-dashboard-asset-cache-busting.md`
+- `2026-03-06_10.20.00-compare-control-chart-label-seams.md`
+- `2026-03-06_10.45.00-legacy-codexfarm-benchmark-classification.md`
+- `2026-03-06_18.10.00-dashboard-served-state-beats-stale-localstorage.md`
+
+Current analytics contracts reinforced:
+- Compare & Control derived metrics are opt-in code surfaces, not automatic emergent fields.
+  - If a metric is computed from existing benchmark values rather than stored directly, add it in both:
+    - `cookimport/analytics/compare_control_engine.py`
+    - `cookimport/analytics/dashboard_render.py`
+  - The current per-recipe examples are `conversion_seconds_per_recipe` and `all_token_use_per_recipe`, both guarded to return `None` when `recipes <= 0` or the source metric is missing.
+- Dashboard chart copy has three separate ownership seams:
+  - series-label fallback and segmentation live in `compareControlChartSegments(...)`,
+  - human-facing chart title/subtitle text comes from the compare/control chart-definition builders,
+  - final axis-title readability tweaks happen later in `renderCompareControlChart(...)` when Highcharts config is normalized.
+- Benchmark labeling has to preserve both authored paired identity and actual runtime shape:
+  - older official paired `codexfarm` rows may only be recoverable from `artifact_dir`, `run_dir`, or `report_path`,
+  - missing `line_role_pipeline` metadata in older CSV rows should not make historical `codexfarm` trend history disappear,
+  - single-profile non-paired `full_stack` rows should only be treated like codexfarm in per-label comparisons when the selected run group has no explicit `codexfarm` / `vanilla` variants.
+- Served dashboard state has two stale-data seams and both matter:
+  - generated HTML should version `assets/dashboard.js` and `assets/style.css` so fresh inline data is not paired with stale browser-cached JS/CSS,
+  - in `cookimport stats-dashboard --serve`, the fetched `assets/dashboard_ui_state.json` should outrank browser localStorage on first load so stale local filters do not hide valid rows.
+
+Known bad / anti-loop reminders carried forward:
+- If a chart label leaks internal fallback copy like `All visible rows`, inspect builder/segment seams before changing the HTML shell.
+- If served dashboard data on disk looks right but the browser still hides rows, check both stale asset caching and stale localStorage state before touching collector logic.
+- If old benchmark trend points disappear after analytics changes, re-check path-based legacy classification fallback before redefining `codexfarm` semantics.
