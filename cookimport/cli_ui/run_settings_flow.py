@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 import questionary
 
+from cookimport.config.codex_decision import (
+    TopTierProfileKind,
+    apply_top_tier_profile_contract,
+)
 from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import RunSettings
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
 
-TopTierProfileKind = Literal["codexfarm", "vanilla"]
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
 PromptText = Callable[..., Any]
@@ -21,28 +24,6 @@ _QUALITY_FIRST_WINNER_STACK_PATCH: dict[str, Any] = {
     "epub_unstructured_html_parser_version": "v1",
     "epub_unstructured_preprocess_mode": "semantic_v1",
     "epub_unstructured_skip_headers_footers": True,
-}
-_TOP_TIER_DEFAULT_PATCH: dict[str, Any] = {
-    "llm_recipe_pipeline": "codex-farm-3pass-v1",
-    "line_role_pipeline": "codex-line-role-v1",
-    "atomic_block_splitter": "atomic-v1",
-}
-_TOP_TIER_BASELINE_ONLY_PATCH: dict[str, Any] = {
-    "codex_farm_pass1_pattern_hints_enabled": False,
-    "codex_farm_pass3_skip_pass2_ok": True,
-}
-_VANILLA_TOP_TIER_PATCH: dict[str, Any] = {
-    "llm_recipe_pipeline": "off",
-    "llm_knowledge_pipeline": "off",
-    "llm_tags_pipeline": "off",
-    "line_role_pipeline": "deterministic-v1",
-    "atomic_block_splitter": "atomic-v1",
-    "codex_farm_pass1_pattern_hints_enabled": False,
-    "codex_farm_pass3_skip_pass2_ok": True,
-    "epub_extractor": "unstructured",
-    "epub_unstructured_html_parser_version": "v1",
-    "epub_unstructured_preprocess_mode": "br_split_v1",
-    "epub_unstructured_skip_headers_footers": False,
 }
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
 _WORKER_UTILIZATION_DEFAULT = 1.0
@@ -88,8 +69,7 @@ def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
 def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
     payload = global_defaults.to_run_config_dict()
     payload.update(_QUALITY_FIRST_WINNER_STACK_PATCH)
-    payload.update(_TOP_TIER_DEFAULT_PATCH)
-    payload.update(_TOP_TIER_BASELINE_ONLY_PATCH)
+    payload = apply_top_tier_profile_contract(payload, "codexfarm")
     return RunSettings.from_dict(
         payload,
         warn_context="top-tier default run settings",
@@ -98,7 +78,7 @@ def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
 
 def _default_vanilla_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
     payload = global_defaults.to_run_config_dict()
-    payload.update(_VANILLA_TOP_TIER_PATCH)
+    payload = apply_top_tier_profile_contract(payload, "vanilla")
     return RunSettings.from_dict(
         payload,
         warn_context="vanilla top-tier default run settings",
@@ -112,10 +92,7 @@ def _harmonize_top_tier_pipeline_settings(
     warn_context: str,
 ) -> RunSettings:
     payload = settings.to_run_config_dict()
-    if profile == "vanilla":
-        payload.update(_VANILLA_TOP_TIER_PATCH)
-    else:
-        payload.update(_TOP_TIER_DEFAULT_PATCH)
+    payload = apply_top_tier_profile_contract(payload, profile)
     return RunSettings.from_dict(payload, warn_context=warn_context)
 
 

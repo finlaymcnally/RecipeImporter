@@ -1,0 +1,300 @@
+{
+  "bundle_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark/upload_bundle_v1",
+  "bundle_sha256": "407254934be66c7a0c1669163d5dd91d044a1703301a9f24884a7b13619b327f",
+  "command": "cf-debug select-cases",
+  "generated_at": "2026-03-04_20.40.00",
+  "git_sha": "117a73a730fde802a19bfc0860cbc93759cf5a0d",
+  "schema_version": "cf.selector.v1",
+  "selectors": [
+    {
+      "case_id": "outside_span_window_628_657",
+      "end": 657,
+      "kind": "line_range",
+      "payload_locators": [
+        {
+          "jsonl_index": 456,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 457,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 458,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 459,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 460,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 461,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 462,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 463,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 464,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 465,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 466,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 467,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 468,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 469,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 470,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 471,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 472,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 473,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 474,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 475,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 476,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 477,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 478,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 479,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 480,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 481,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 482,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 483,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 484,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        },
+        {
+          "jsonl_index": 485,
+          "path": "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl",
+          "payload_row": 24
+        }
+      ],
+      "reason": "explicit_case_id",
+      "reason_rank": 0,
+      "selector_id": "line_range:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:628:657",
+      "source_key": "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c",
+      "start": 628
+    },
+    {
+      "case_id": "regression_c11",
+      "kind": "recipe",
+      "payload_locators": [
+        {
+          "json_index": [
+            0,
+            7
+          ],
+          "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+          "payload_row": 25
+        },
+        {
+          "jsonl_index": 30,
+          "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+          "payload_row": 28
+        }
+      ],
+      "reason": "explicit_case_id",
+      "reason_rank": 0,
+      "recipe_id": "urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:c11",
+      "selector_id": "recipe:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:c11",
+      "short_title": "Lemon Vinaigrette",
+      "source_key": "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
+    },
+    {
+      "case_id": "regression_c6",
+      "kind": "recipe",
+      "payload_locators": [
+        {
+          "json_index": [
+            0,
+            3
+          ],
+          "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+          "payload_row": 25
+        },
+        {
+          "jsonl_index": 7,
+          "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+          "payload_row": 28
+        }
+      ],
+      "reason": "explicit_case_id",
+      "reason_rank": 0,
+      "recipe_id": "urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:c6",
+      "selector_id": "recipe:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:c6",
+      "short_title": "Autumn: Roasted Squash, Sage, and Hazelnut",
+      "source_key": "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
+    },
+    {
+      "case_id": "win_c10",
+      "kind": "recipe",
+      "payload_locators": [
+        {
+          "json_index": [
+            1,
+            1
+          ],
+          "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+          "payload_row": 25
+        },
+        {
+          "jsonl_index": 0,
+          "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+          "payload_row": 28
+        }
+      ],
+      "reason": "explicit_case_id",
+      "reason_rank": 0,
+      "recipe_id": "urn:recipeimport:epub:a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27:c10",
+      "selector_id": "recipe:a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27:urn:recipeimport:epub:a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27:c10",
+      "short_title": "yankee pot roast",
+      "source_key": "a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27"
+    },
+    {
+      "case_id": "regression_c5",
+      "kind": "recipe",
+      "payload_locators": [
+        {
+          "json_index": [
+            0,
+            0
+          ],
+          "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+          "payload_row": 25
+        },
+        {
+          "jsonl_index": 2,
+          "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+          "payload_row": 28
+        }
+      ],
+      "reason": "top_negative_delta",
+      "reason_rank": 1,
+      "recipe_id": "urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:c5",
+      "selector_id": "recipe:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:c5",
+      "short_title": "Summer: Tomato, Basil, and Cucumber",
+      "source_key": "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
+    },
+    {
+      "case_id": "win_c29",
+      "kind": "recipe",
+      "payload_locators": [
+        {
+          "json_index": [
+            1,
+            27
+          ],
+          "path": "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
+          "payload_row": 25
+        },
+        {
+          "jsonl_index": 45,
+          "path": "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",
+          "payload_row": 28
+        }
+      ],
+      "reason": "top_positive_delta",
+      "reason_rank": 1,
+      "recipe_id": "urn:recipeimport:epub:a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27:c29",
+      "selector_id": "recipe:a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27:urn:recipeimport:epub:a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27:c29",
+      "short_title": "french-style white bean stew",
+      "source_key": "a675052cd1e13829129cfd09cc61bcb38e980cef6b81643d74b85decacd0ed27"
+    }
+  ],
+  "stage_filters": [
+    "line_role"
+  ]
+}

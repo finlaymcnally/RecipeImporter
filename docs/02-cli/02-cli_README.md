@@ -13,9 +13,10 @@ For beginner interactive usage, start with `README.md` in the project root.
 
 ## Entry Points
 
-`pyproject.toml` defines four CLI scripts:
+`pyproject.toml` defines five CLI scripts:
 
 - `cookimport` -> `cookimport.cli:app`
+- `cf-debug` -> `cookimport.cf_debug_cli:app`
 - `import` -> `cookimport.entrypoint:main`
 - `C3import` -> `cookimport.entrypoint:main`
 - `C3imp` -> `cookimport.c3imp_entrypoint:main`
@@ -25,6 +26,7 @@ Remember to do source .venv/bin/activate
 Behavior differences:
 
 - `cookimport` with no subcommand enters interactive mode.
+- `cf-debug` is a non-interactive follow-up/debugging CLI for existing benchmark `upload_bundle_v1/` directories. It currently exposes `select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `export-page-context`, `export-uncertainty`, `pack`, and `ablate`.
 - `import` / `C3import`:
   - no args: runs `stage(path=data/input)` immediately (non-interactive)
   - one positive integer arg: treated as `--limit` and runs `stage(path=data/input, limit=N)`

@@ -87,12 +87,14 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
         [
             {
                 "atomic_index": 0,
+                "text": "Dish Title",
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
             },
             {
                 "atomic_index": 1,
+                "text": "1 cup flour",
                 "decided_by": "codex",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
@@ -100,18 +102,21 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
             },
             {
                 "atomic_index": 2,
+                "text": "Mix gently",
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
             },
             {
                 "atomic_index": 3,
+                "text": "NOTE: Stir briefly",
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
             },
             {
                 "atomic_index": 4,
+                "text": "Background note",
                 "decided_by": "codex",
                 "within_recipe_span": False,
                 "recipe_id": None,
@@ -133,6 +138,7 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
     by_line_index = {int(row["line_index"]): row for row in joined_rows}
     assert by_line_index[1]["candidate_labels"] == ["INGREDIENT_LINE", "YIELD_LINE"]
     assert by_line_index[1]["candidate_label_count"] == 2
+    assert by_line_index[1]["line_role_match_kind"] == "atomic_index_exact_text"
     flips_rows = build_line_role_flips_vs_baseline(
         joined_line_rows=joined_rows,
         line_role_predictions_path=line_role_predictions_path,
@@ -172,6 +178,123 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
     assert wrong_ids
     assert correct_ids
     assert wrong_ids.isdisjoint(correct_ids)
+
+
+def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only(
+    tmp_path: Path,
+) -> None:
+    eval_output_dir = tmp_path / "eval"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    canonical_text = (
+        "Lemon Vinaigrette\n"
+        "A FEW BASIC HOW-TOS\n"
+        "4 to 5 tablespoons lime juice\n"
+        "Lemon Vinaigrette\n"
+        "Background note\n"
+    )
+    canonical_text_path = tmp_path / "canonical_text.txt"
+    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
+    canonical_text_path.write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(canonical_span_labels_path, _build_line_spans(canonical_text))
+
+    _write_jsonl(
+        eval_output_dir / "wrong_label_lines.jsonl",
+        [
+            {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_VARIANT"},
+            {
+                "line_index": 2,
+                "gold_label": "INSTRUCTION_LINE",
+                "pred_label": "INSTRUCTION_LINE",
+            },
+        ],
+    )
+    line_role_predictions_path = tmp_path / "line_role_predictions.jsonl"
+    _write_jsonl(
+        line_role_predictions_path,
+        [
+            {
+                "atomic_index": 74,
+                "text": "Lemon Vinaigrette",
+                "decided_by": "rule",
+                "within_recipe_span": False,
+                "recipe_id": None,
+                "candidate_labels": ["knowledge", "other"],
+            },
+            {
+                "atomic_index": 1204,
+                "text": "A FEW BASIC HOW-TOS",
+                "decided_by": "rule",
+                "within_recipe_span": False,
+                "recipe_id": None,
+                "candidate_labels": ["recipe_variant", "recipe_title", "other"],
+            },
+            {
+                "atomic_index": 1439,
+                "text": "Lemon Vinaigrette",
+                "decided_by": "rule",
+                "within_recipe_span": True,
+                "recipe_id": "recipe:11",
+                "candidate_labels": ["recipe_title", "recipe_variant", "other"],
+            },
+            {
+                "atomic_index": 1440,
+                "text": (
+                    "4 to 5 tablespoons lime juice 4 teaspoons seasoned rice wine vinegar "
+                    "1 tablespoon fish sauce"
+                ),
+                "decided_by": "fallback",
+                "within_recipe_span": True,
+                "recipe_id": "recipe:11",
+                "candidate_labels": ["instruction_line", "time_line", "other"],
+            },
+        ],
+    )
+
+    report = {
+        "canonical": {
+            "canonical_text_path": str(canonical_text_path),
+            "canonical_span_labels_path": str(canonical_span_labels_path),
+        }
+    }
+    joined_rows = build_line_role_joined_line_rows(
+        report=report,
+        eval_output_dir=eval_output_dir,
+        line_role_predictions_path=line_role_predictions_path,
+    )
+    by_line_index = {int(row["line_index"]): row for row in joined_rows}
+
+    assert by_line_index[0]["candidate_labels"] == ["KNOWLEDGE", "OTHER"]
+    assert by_line_index[0]["line_role_match_kind"] == "exact_text_occurrence"
+    assert by_line_index[0]["line_role_prediction_atomic_index"] == 74
+
+    assert by_line_index[1]["candidate_labels"] == [
+        "RECIPE_VARIANT",
+        "RECIPE_TITLE",
+        "OTHER",
+    ]
+    assert by_line_index[1]["line_role_match_kind"] == "exact_text_occurrence"
+    assert by_line_index[1]["line_role_prediction_atomic_index"] == 1204
+
+    assert by_line_index[2]["candidate_labels"] == []
+    assert by_line_index[2]["candidate_label_count"] == 0
+    assert by_line_index[2]["decided_by"] is None
+    assert by_line_index[2]["within_recipe_span"] is None
+    assert by_line_index[2]["line_role_match_kind"] == "unmatched"
+    assert by_line_index[2]["line_role_prediction_atomic_index"] is None
+
+    assert by_line_index[3]["candidate_labels"] == [
+        "RECIPE_TITLE",
+        "RECIPE_VARIANT",
+        "OTHER",
+    ]
+    assert by_line_index[3]["line_role_match_kind"] == "exact_text_occurrence"
+    assert by_line_index[3]["line_role_prediction_atomic_index"] == 1439
+
+    flips = build_line_role_flips_vs_baseline(
+        joined_line_rows=joined_rows,
+        line_role_predictions_path=line_role_predictions_path,
+    )
+    assert all(int(row["line_index"]) != 2 for row in flips)
 
 
 def test_line_role_flips_uses_paired_history_baseline_rows() -> None:

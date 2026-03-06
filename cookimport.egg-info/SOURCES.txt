@@ -3,6 +3,7 @@ pyproject.toml
 cookimport/README.md
 cookimport/__init__.py
 cookimport/c3imp_entrypoint.py
+cookimport/cf_debug_cli.py
 cookimport/cli.py
 cookimport/cli_worker.py
 cookimport/entrypoint.py
@@ -32,6 +33,7 @@ cookimport/bench/cutdown_export.py
 cookimport/bench/dmp_sequence_matcher.py
 cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
+cookimport/bench/followup_bundle.py
 cookimport/bench/noise.py
 cookimport/bench/pairwise_flips.py
 cookimport/bench/prediction_records.py
@@ -53,6 +55,7 @@ cookimport/bench/speed_suite.py
 cookimport/cli_ui/__init__.py
 cookimport/cli_ui/run_settings_flow.py
 cookimport/config/__init__.py
+cookimport/config/codex_decision.py
 cookimport/config/last_run_store.py
 cookimport/config/prediction_identity.py
 cookimport/config/run_settings.py

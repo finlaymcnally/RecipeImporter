@@ -27,6 +27,10 @@ from cookimport.bench.quality_eta import (
 )
 from cookimport.bench.quality_suite import QualitySuite
 from cookimport.bench.speed_suite import resolve_repo_path
+from cookimport.config.codex_decision import (
+    codex_decision_metadata,
+    resolve_codex_command_decision,
+)
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import format_task_counter
 from cookimport.paths import REPO_ROOT
@@ -1444,6 +1448,14 @@ def run_quality_suite(
     summary_payload["prediction_reuse_cache_root_env"] = (
         _ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV
     )
+    summary_payload["codex_decision"] = codex_decision_metadata(
+        resolve_codex_command_decision(
+            "bench_quality_run",
+            {},
+            include_codex_farm_requested=include_codex_farm_requested,
+            explicit_confirmation_granted=codex_farm_confirmed,
+        )
+    )
     _write_quality_run_checkpoint(
         run_root=run_root,
         suite=suite,
@@ -2761,6 +2773,8 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
         f"- Successful: {summary_payload.get('successful_experiments')}",
         f"- Incomplete: {summary_payload.get('incomplete_experiments')}",
         f"- Failed: {summary_payload.get('failed_experiments')}",
+        "- Codex decision: "
+        f"{((summary_payload.get('codex_decision') or {}).get('codex_decision_summary') or 'n/a')}",
         "",
         "## Experiments",
         "",

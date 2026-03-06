@@ -48,6 +48,14 @@ from rich.markup import escape as rich_escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from cookimport.cli_ui.run_settings_flow import choose_run_settings
+from cookimport.config.codex_decision import (
+    apply_benchmark_baseline_contract,
+    apply_benchmark_codex_contract_from_baseline,
+    apply_codex_decision_metadata,
+    codex_surfaces_enabled,
+    format_codex_command_summary,
+    resolve_codex_command_decision,
+)
 from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
@@ -2574,6 +2582,9 @@ def _interactive_single_profile_all_matched_benchmark(
             write_markdown=write_markdown,
             write_label_studio_tasks=write_label_studio_tasks,
         )
+        variant_call_defaults[variant_slug]["allow_codex"] = codex_surfaces_enabled(
+            variant_settings.to_run_config_dict()
+        )
 
     failures: list[tuple[AllMethodTarget, str]] = []
     total_targets = len(targets)
@@ -3003,7 +3014,12 @@ def _interactive_single_offline_variants(
         selected_benchmark_settings.llm_recipe_pipeline.value.strip().lower()
     )
     if current_pipeline != "codex-farm-3pass-v1":
-        return [("vanilla", selected_benchmark_settings)]
+        return [
+            (
+                _single_offline_variant_slug(selected_benchmark_settings),
+                selected_benchmark_settings,
+            )
+        ]
 
     vanilla_payload = _all_method_apply_baseline_contract(
         selected_benchmark_settings.to_run_config_dict()
@@ -3021,26 +3037,29 @@ def _interactive_single_offline_variants(
     return [("vanilla", vanilla_settings), ("codexfarm", codex_settings)]
 
 
+def _single_offline_variant_slug(settings: RunSettings) -> str:
+    run_config = settings.to_run_config_dict()
+    recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "off").strip().lower()
+    if recipe_pipeline == "off" and line_role_pipeline == "off":
+        return "vanilla"
+    if recipe_pipeline == "off":
+        return "line_role_only"
+    if line_role_pipeline == "off":
+        return "recipe_only"
+    return "full_stack"
+
+
 def _all_method_apply_baseline_contract(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    normalized = dict(payload)
-    normalized["llm_recipe_pipeline"] = "off"
-    normalized["llm_knowledge_pipeline"] = "off"
-    normalized["llm_tags_pipeline"] = "off"
-    normalized["line_role_pipeline"] = "off"
-    normalized["atomic_block_splitter"] = "off"
-    return normalized
+    return apply_benchmark_baseline_contract(payload)
 
 
 def _all_method_apply_codex_contract_from_baseline(
     baseline_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    codex_payload = dict(baseline_payload)
-    codex_payload["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
-    codex_payload["line_role_pipeline"] = "codex-line-role-v1"
-    codex_payload["atomic_block_splitter"] = "atomic-v1"
-    return codex_payload
+    return apply_benchmark_codex_contract_from_baseline(baseline_payload)
 
 
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
@@ -4701,7 +4720,16 @@ def _write_single_offline_summary_markdown(
         "## Variant Results",
         "",
     ]
-    for variant_slug in ("vanilla", "codexfarm"):
+    variant_order: list[str] = []
+    for preferred_slug in ("vanilla", "codexfarm"):
+        if preferred_slug in variant_results:
+            variant_order.append(preferred_slug)
+    variant_order.extend(
+        sorted(
+            slug for slug in variant_results.keys() if slug not in {"vanilla", "codexfarm"}
+        )
+    )
+    for variant_slug in variant_order:
         row = variant_results.get(variant_slug)
         if not isinstance(row, dict):
             continue
@@ -4877,6 +4905,9 @@ def _interactive_single_offline_benchmark(
             # consolidated markdown summary at the session root.
             write_markdown=False,
             write_label_studio_tasks=write_label_studio_tasks,
+        )
+        variant_kwargs["allow_codex"] = codex_surfaces_enabled(
+            variant_settings.to_run_config_dict()
         )
         if selected_gold is not None:
             variant_kwargs["gold_spans"] = selected_gold
@@ -7180,6 +7211,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 overrides=None,
                 limit=limit,
                 write_markdown=True,
+            )
+            common_args["allow_codex"] = codex_surfaces_enabled(
+                selected_run_settings.to_run_config_dict()
             )
 
             if selection == "all":
@@ -14256,11 +14290,16 @@ def _resolve_qualitysuite_codex_farm_confirmation(
     include_codex_farm: bool,
     confirmation: str | None,
 ) -> bool:
-    if not include_codex_farm:
-        return False
-    provided = str(confirmation or "").strip()
-    if provided == QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN:
-        return True
+    decision = resolve_codex_command_decision(
+        "bench_quality_run",
+        {},
+        include_codex_farm_requested=include_codex_farm,
+        explicit_confirmation_granted=(
+            str(confirmation or "").strip() == QUALITY_RUN_CODEX_FARM_CONFIRMATION_TOKEN
+        ),
+    )
+    if decision.allowed:
+        return decision.explicit_activation_granted
     _fail(
         "bench quality-run with --include-codex-farm requires explicit positive user "
         "confirmation. Re-run with "
@@ -14276,11 +14315,16 @@ def _resolve_speedsuite_codex_farm_confirmation(
     include_codex_farm: bool,
     confirmation: str | None,
 ) -> bool:
-    if not include_codex_farm:
-        return False
-    provided = str(confirmation or "").strip()
-    if provided == SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN:
-        return True
+    decision = resolve_codex_command_decision(
+        "bench_speed_run",
+        {},
+        include_codex_farm_requested=include_codex_farm,
+        explicit_confirmation_granted=(
+            str(confirmation or "").strip() == SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN
+        ),
+    )
+    if decision.allowed:
+        return decision.explicit_activation_granted
     _fail(
         "bench speed-run with --include-codex-farm requires explicit positive user "
         "confirmation. Re-run with "
@@ -14289,6 +14333,15 @@ def _resolve_speedsuite_codex_farm_confirmation(
         "only after the user has explicitly approved Codex Farm usage."
     )
     return False
+
+
+def _print_codex_decision(decision: Any) -> None:
+    color = (
+        typer.colors.CYAN
+        if decision.surface.any_codex_enabled or decision.codex_requested
+        else typer.colors.BRIGHT_BLACK
+    )
+    typer.secho(format_codex_command_summary(decision), fg=color)
 
 
 def _resolve_all_method_markdown_extractors_choice() -> bool:
@@ -15969,6 +16022,9 @@ def _run_all_method_prediction_once(
                             write_markdown=False,
                             write_label_studio_tasks=False,
                             sequence_matcher_override=variant.run_settings.benchmark_sequence_matcher,
+                        )
+                        benchmark_kwargs["allow_codex"] = codex_surfaces_enabled(
+                            variant.run_settings.to_run_config_dict()
                         )
                         benchmark_kwargs.update(
                             {
@@ -23135,6 +23191,24 @@ def _build_stage_run_summary_payload(
     codex_recipe = str(run_config.get("llm_recipe_pipeline", "off")).strip().lower()
     codex_knowledge = str(run_config.get("llm_knowledge_pipeline", "off")).strip().lower()
     codex_tags = str(run_config.get("llm_tags_pipeline", "off")).strip().lower()
+    codex_decision = {
+        "context": run_config.get("codex_decision_context"),
+        "mode": run_config.get("codex_decision_mode"),
+        "allowed": run_config.get("codex_decision_allowed"),
+        "explicit_activation_required": run_config.get(
+            "codex_decision_explicit_activation_required"
+        ),
+        "explicit_activation_granted": run_config.get(
+            "codex_decision_explicit_activation_granted"
+        ),
+        "codex_enabled": run_config.get("codex_decision_codex_enabled"),
+        "codex_surfaces": run_config.get("codex_decision_codex_surfaces"),
+        "deterministic_surfaces": run_config.get(
+            "codex_decision_deterministic_surfaces"
+        ),
+        "summary": run_config.get("codex_decision_summary"),
+        "ai_assistance_profile": run_config.get("ai_assistance_profile"),
+    }
 
     return {
         "run_dir": run_root.name,
@@ -23183,6 +23257,7 @@ def _build_stage_run_summary_payload(
             "pass3_skip_pass2_ok": run_config.get("codex_farm_pass3_skip_pass2_ok"),
             "knowledge_context_blocks": run_config.get("codex_farm_knowledge_context_blocks"),
         },
+        "codex_decision": codex_decision,
     }
 
 
@@ -23220,6 +23295,7 @@ def _write_stage_run_summary(
     totals = payload.get("totals", {})
     major_settings = payload.get("major_settings", {})
     codex = payload.get("codex_farm", {})
+    codex_decision = payload.get("codex_decision", {})
     if write_markdown:
         md_lines = [
             f"# Stage run summary",
@@ -23246,6 +23322,7 @@ def _write_stage_run_summary(
             [
                 "",
                 "## Major settings",
+                f"- Codex decision: {codex_decision.get('summary') or 'n/a'}",
                 f"- Codex-farm recipe pipeline: {codex.get('recipe_pipeline')}",
                 f"- Codex-farm knowledge pipeline: {codex.get('knowledge_pipeline')}",
                 f"- Codex-farm tags pipeline: {codex.get('tags_pipeline')}",
@@ -24282,6 +24359,14 @@ def stage(
         "--llm-tags-pipeline",
         help="Optional tags LLM pipeline: off or codex-farm-tags-v1.",
     ),
+    allow_codex: bool = typer.Option(
+        False,
+        "--allow-codex/--no-allow-codex",
+        help=(
+            "Required when this stage run enables any Codex-backed recipe, line-role, "
+            "knowledge, or tags surface."
+        ),
+    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -24466,6 +24551,7 @@ def stage(
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
     llm_tags_pipeline = _unwrap_typer_option_default(llm_tags_pipeline)
+    allow_codex = _unwrap_typer_option_default(allow_codex)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -24648,10 +24734,6 @@ def stage(
             f"{selected_tag_catalog_json}"
         )
 
-    if warm_models:
-        with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
-            _warm_all_models(ocr_device=selected_ocr_device)
-
     stage_started_monotonic = time.monotonic()
 
     # Create timestamped output folder for this run
@@ -24767,8 +24849,27 @@ def stage(
             all_epub=all_epub,
         ),
     )
+    stage_codex_decision = resolve_codex_command_decision(
+        "stage",
+        run_settings.to_run_config_dict(),
+        allow_codex=bool(allow_codex),
+    )
+    if not stage_codex_decision.allowed:
+        codex_surfaces = ", ".join(stage_codex_decision.surface.codex_surfaces) or "unknown"
+        _fail(
+            "stage enables Codex-backed surfaces "
+            f"({codex_surfaces}) and requires explicit approval. "
+            "Re-run with --allow-codex only after explicit positive user approval."
+        )
+    _print_codex_decision(stage_codex_decision)
+    if warm_models:
+        with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
+            _warm_all_models(ocr_device=selected_ocr_device)
     effective_workers = run_settings.effective_workers or workers
-    run_config = run_settings.to_run_config_dict()
+    run_config = apply_codex_decision_metadata(
+        run_settings.to_run_config_dict(),
+        stage_codex_decision,
+    )
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
@@ -26948,6 +27049,11 @@ def labelstudio_import(
             "Values: off or codex-farm-3pass-v1."
         ),
     ),
+    allow_codex: bool = typer.Option(
+        False,
+        "--allow-codex/--no-allow-codex",
+        help="Required when Label Studio import enables Codex-backed recipe parsing.",
+    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -27035,6 +27141,7 @@ def labelstudio_import(
     prelabel_granularity = _unwrap_typer_option_default(prelabel_granularity)
     prelabel_allow_partial = _unwrap_typer_option_default(prelabel_allow_partial)
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
+    allow_codex = _unwrap_typer_option_default(allow_codex)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -27089,6 +27196,18 @@ def labelstudio_import(
         codex_farm_pipeline_pass3,
         option="--codex-farm-pipeline-pass3",
     )
+    import_codex_decision = resolve_codex_command_decision(
+        "labelstudio_import",
+        {"llm_recipe_pipeline": selected_llm_recipe_pipeline},
+        allow_codex=bool(allow_codex),
+    )
+    if not import_codex_decision.allowed:
+        _fail(
+            "labelstudio-import enables Codex-backed recipe parsing and requires "
+            "explicit approval. Re-run with --allow-codex only after explicit "
+            "positive user approval."
+        )
+    _print_codex_decision(import_codex_decision)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     import_timeseries_path = _processing_timeseries_history_path(
         root=output_dir,
@@ -27141,6 +27260,7 @@ def labelstudio_import(
                 codex_farm_context_blocks=codex_farm_context_blocks,
                 codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                allow_codex=bool(allow_codex),
                 allow_labelstudio_write=True,
             ),
         )
@@ -28094,6 +28214,13 @@ def labelstudio_benchmark(
             "Values: off or codex-farm-3pass-v1."
         ),
     )] = "off",
+    allow_codex: Annotated[bool, typer.Option(
+        "--allow-codex/--no-allow-codex",
+        help=(
+            "Required when this benchmark run enables Codex-backed recipe, line-role, "
+            "knowledge, or tags surfaces."
+        ),
+    )] = False,
     atomic_block_splitter: Annotated[str, typer.Option(
         "--atomic-block-splitter",
         help=(
@@ -28411,6 +28538,24 @@ def labelstudio_benchmark(
         # Line-role/atomic paths are canonical-text benchmark features.
         selected_atomic_block_splitter = "off"
         selected_line_role_pipeline = "off"
+    benchmark_codex_decision = resolve_codex_command_decision(
+        "labelstudio_benchmark",
+        {
+            "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "line_role_pipeline": selected_line_role_pipeline,
+        },
+        allow_codex=bool(allow_codex),
+    )
+    if not benchmark_codex_decision.allowed:
+        codex_surfaces = (
+            ", ".join(benchmark_codex_decision.surface.codex_surfaces) or "unknown"
+        )
+        _fail(
+            "labelstudio-benchmark enables Codex-backed surfaces "
+            f"({codex_surfaces}) and requires explicit approval. "
+            "Re-run with --allow-codex only after explicit positive user approval."
+        )
+    _print_codex_decision(benchmark_codex_decision)
     selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
         gold_adaptation_mode
     )
@@ -28699,6 +28844,7 @@ def labelstudio_benchmark(
                                 ),
                                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                                allow_codex=bool(allow_codex),
                                 processed_output_root=processed_output_dir,
                                 write_markdown=write_markdown,
                                 write_label_studio_tasks=write_label_studio_tasks,
@@ -28811,6 +28957,7 @@ def labelstudio_benchmark(
                             ),
                             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                             codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                            allow_codex=bool(allow_codex),
                             processed_output_root=processed_output_dir,
                             split_phase_slots=split_phase_slots,
                             split_phase_gate_dir=split_phase_gate_dir,
@@ -30347,11 +30494,18 @@ def bench_speed_run(
         run_settings_payload,
         warn_context=run_settings_context,
     )
+    speed_codex_decision = resolve_codex_command_decision(
+        "bench_speed_run",
+        run_settings.to_run_config_dict(),
+        include_codex_farm_requested=include_codex_farm,
+        explicit_confirmation_granted=codex_farm_confirmed,
+    )
     typer.secho(
         "Run settings: "
         f"{run_settings.summary()} (hash {run_settings.short_hash()})",
         fg=typer.colors.CYAN,
     )
+    _print_codex_decision(speed_codex_decision)
     if include_codex_farm:
         os.environ[ALL_METHOD_CODEX_FARM_UNLOCK_ENV] = "1"
         _ensure_codex_farm_cmd_available(run_settings.codex_farm_cmd)
@@ -31028,6 +31182,14 @@ def bench_quality_run(
     codex_farm_confirmed = _resolve_qualitysuite_codex_farm_confirmation(
         include_codex_farm=include_codex_farm,
         confirmation=qualitysuite_codex_farm_confirmation,
+    )
+    _print_codex_decision(
+        resolve_codex_command_decision(
+            "bench_quality_run",
+            {},
+            include_codex_farm_requested=include_codex_farm,
+            explicit_confirmation_granted=codex_farm_confirmed,
+        )
     )
     if resume_run_dir is not None:
         if not resume_run_dir.exists() or not resume_run_dir.is_dir():

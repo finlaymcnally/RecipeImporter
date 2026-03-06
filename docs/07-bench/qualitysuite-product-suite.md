@@ -1,16 +1,16 @@
 ---
-summary: "Single operator guide for the QualitySuite product surface: lightweight discovery, phase tournament promotion, and final validation."
+summary: "Single operator guide for the QualitySuite product surface: historical discovery context plus active final validation and regression gating."
 read_when:
   - When choosing which QualitySuite command flow to run for tuning or promotion
-  - When you need one decision-oriented reference across quality-lightweight-series, tournament phases, and quality-run compare
+  - When you need one decision-oriented reference across historical QualitySuite flows and active quality-run compare
 ---
 
 # QualitySuite Product Suite
 
-QualitySuite now has one cohesive operating model with three tracks:
+QualitySuite now has one active operating track plus historical context for older artifacts:
 
-1. Fast directional discovery (`bench quality-lightweight-series`)
-2. Promotion confidence (`scripts/quality_top_tier_tournament.py` Phase A/B/B+)
+1. Historical directional discovery (`bench quality-lightweight-series`)
+2. Historical promotion confidence (removed tournament workflow)
 3. Final validation and regression gating (`bench quality-run` + `bench quality-compare`)
 
 Use this file as the primary "what should I run next?" reference.
@@ -18,7 +18,7 @@ For first-time AI-agent operation SOPs, see `docs/07-bench/qualitysuite-agent-so
 
 Current status update (2026-03-01 to 2026-03-02):
 - `cookimport bench quality-lightweight-series` is retired/disabled and exits immediately.
-- `scripts/quality_top_tier_tournament.py` is retired/disabled and exits immediately.
+- The old tournament script has been removed from the repo.
 - Track 1 and Track 2 below are historical workflow context only (useful for reading legacy artifacts), not active runnable commands.
 
 ## AI-Agent Handoff (Active)
@@ -111,38 +111,16 @@ Primary decision criteria:
 - Require `round_2_composition.verdict == PASS` before trusting combined winner.
 - Treat `round_3_interaction_smoke.findings` with `RISK` as a warning to confirm with tournament Phase B.
 
-## Track 2: Promotion Confidence (Phase A/B/B+)
+## Track 2: Historical Promotion Confidence (Phase A/B/B+)
 
 Goal: promote parser settings with fold-level confidence criteria.
 
-Phase A fast shortlist:
+The former Phase A/B/B+ flow used a dedicated tournament script that has now been removed.
+Legacy runs under `data/golden/bench/quality/tournaments/` can still be read, but the current replacement path is:
 
-```bash
-python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-a-fast.json \
-  --quick-parsing
-```
-
-Phase B confidence run:
-
-```bash
-python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_01.00.00_qualitysuite-parsing-phase-b-confidence.json \
-  --auto-candidates-from-latest-in data/golden/bench/quality/tournaments \
-  --max-seeds 4
-```
-
-Optional B+ sweeps decision:
-
-```bash
-python scripts/quality_top_tier_tournament.py \
-  --experiments-file data/golden/bench/quality/experiments/2026-03-02_00.36.30_qualitysuite-parsing-phase-a-candidates-qualityfirst-pruned.json \
-  --thresholds-file data/golden/bench/quality/thresholds/2026-03-01_10.15.00_qualitysuite-parsing-phase-b-plus-sweeps-decision.json \
-  --auto-candidates-from-latest-in data/golden/bench/quality/tournaments \
-  --max-seeds 2
-```
+1. `cookimport bench quality-run`
+2. `cookimport bench quality-leaderboard`
+3. `cookimport bench quality-compare`
 
 Primary decision criteria:
 
@@ -175,7 +153,7 @@ Primary decision criteria:
 1. Run `bench quality-run` with active pruned presets for current candidate evaluation.
 2. Use `bench quality-leaderboard` to surface winner settings and Pareto tradeoffs.
 3. Finish with `bench quality-compare` for formal regression gating versus baseline.
-4. Use Track 1/2 command examples only to interpret legacy artifacts from older runs.
+4. Use Track 1/2 notes only to interpret legacy artifacts from older runs.
 
 ## Mixed-Format Quick Loop (Active)
 

@@ -82,6 +82,7 @@ ingredientparse = [
 
 [project.scripts]
 cookimport = "cookimport.cli:app"
+cf-debug = "cookimport.cf_debug_cli:app"
 import = "cookimport.entrypoint:main"
 C3import = "cookimport.entrypoint:main"
 C3imp = "cookimport.c3imp_entrypoint:main"

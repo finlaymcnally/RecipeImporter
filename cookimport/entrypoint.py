@@ -11,6 +11,14 @@ from cookimport.config.run_settings_adapters import (
 
 def main() -> None:
     args = sys.argv[1:]
+    allow_codex = False
+    filtered_args: list[str] = []
+    for arg in args:
+        if arg == "--allow-codex":
+            allow_codex = True
+            continue
+        filtered_args.append(arg)
+    args = filtered_args
     settings = _load_settings()
     run_settings = RunSettings.from_dict(
         settings,
@@ -24,6 +32,7 @@ def main() -> None:
         limit=None,
         write_markdown=True,
     )
+    common_args["allow_codex"] = allow_codex
     if not args:
         stage(path=DEFAULT_INPUT, **common_args)
         return
@@ -37,4 +46,5 @@ def main() -> None:
                 _fail("Limit must be a positive integer.")
             stage(path=DEFAULT_INPUT, **{**common_args, "limit": limit})
             return
+    sys.argv = [sys.argv[0], *args]
     app()

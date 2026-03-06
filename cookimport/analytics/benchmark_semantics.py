@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from cookimport.config.codex_decision import classify_codex_surfaces
+
 AI_ASSISTANCE_PROFILE_LABELS: dict[str, str] = {
     "deterministic": "AI off",
     "line_role_only": "Line-role only",
@@ -81,7 +83,10 @@ def run_config_value(record: Any, keys: tuple[str, ...]) -> str | None:
 
 
 def explicit_variant_for_record(record: Any) -> str | None:
-    explicit = _clean_config_value(_record_value(record, "benchmark_variant"))
+    explicit = (
+        _clean_config_value(_record_value(record, "benchmark_variant"))
+        or run_config_value(record, ("benchmark_variant",))
+    )
     if explicit is None:
         return None
     lowered = explicit.lower().replace("-", "_").replace(" ", "_")
@@ -100,25 +105,25 @@ def artifact_variant_for_record(record: Any) -> str | None:
 
 
 def ai_assistance_profile_for_record(record: Any) -> str:
-    explicit = _clean_config_value(_record_value(record, "ai_assistance_profile"))
+    explicit = (
+        _clean_config_value(_record_value(record, "ai_assistance_profile"))
+        or run_config_value(record, ("ai_assistance_profile",))
+    )
     if explicit is not None:
         lowered = explicit.lower().replace("-", "_").replace(" ", "_")
         if lowered in AI_ASSISTANCE_PROFILE_LABELS:
             return lowered
 
-    recipe_pipeline = run_config_value(record, ("llm_recipe_pipeline", "llm_pipeline"))
-    line_role_pipeline = run_config_value(record, ("line_role_pipeline",))
-    recipe_on = bool(recipe_pipeline and recipe_pipeline.lower() != "off")
-    line_role_on = bool(line_role_pipeline and line_role_pipeline.lower() != "off")
-
-    if recipe_on and line_role_on:
-        return "full_stack"
-    if recipe_on:
-        return "recipe_only"
-    if line_role_on:
-        return "line_role_only"
-    if recipe_pipeline is not None or line_role_pipeline is not None:
-        return "deterministic"
+    surface = classify_codex_surfaces(
+        {
+            "llm_recipe_pipeline": run_config_value(record, ("llm_recipe_pipeline", "llm_pipeline")),
+            "line_role_pipeline": run_config_value(record, ("line_role_pipeline",)),
+            "llm_knowledge_pipeline": run_config_value(record, ("llm_knowledge_pipeline",)),
+            "llm_tags_pipeline": run_config_value(record, ("llm_tags_pipeline",)),
+        }
+    )
+    if surface.ai_assistance_profile != "other":
+        return surface.ai_assistance_profile
 
     if run_config_value(
         record,

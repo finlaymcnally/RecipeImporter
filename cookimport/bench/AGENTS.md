@@ -15,7 +15,7 @@ This folder owns benchmark/QualitySuite orchestration code.
   - `cookimport bench quality-run`
   - `cookimport bench quality-leaderboard`
   - `cookimport bench quality-compare`
-- Do not use retired paths (`quality-lightweight-series`, `quality_top_tier_tournament.py`) for new work.
+- Do not use retired paths (`quality-lightweight-series`) for new work.
 - Keep runs deterministic/local-data-only.
 - Do not enable Codex Farm permutations unless explicitly requested and confirmed with:
   - `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`

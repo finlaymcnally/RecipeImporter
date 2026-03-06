@@ -285,6 +285,12 @@ def _extract_line_role_token_usage_from_manifest(
         return (None, None, None, None, None)
     telemetry_path = str(manifest.get("line_role_pipeline_telemetry_path") or "").strip()
     if not telemetry_path:
+        artifacts = manifest.get("artifacts")
+        if isinstance(artifacts, dict):
+            telemetry_path = str(
+                artifacts.get("line_role_pipeline_telemetry_json") or ""
+            ).strip()
+    if not telemetry_path:
         return (None, None, None, None, None)
     try:
         telemetry_payload = json.loads(Path(telemetry_path).read_text(encoding="utf-8"))

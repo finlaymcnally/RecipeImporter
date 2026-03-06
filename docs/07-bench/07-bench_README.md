@@ -14,9 +14,10 @@ Agent onboarding/SOP for QualitySuite lives in `docs/07-bench/qualitysuite-agent
 
 ## 1. Scope
 
-Benchmarking in this repo covers two paths:
+Benchmarking in this repo covers three paths:
 - `cookimport bench ...` (offline speed/quality/eval workflows)
 - `cookimport labelstudio-benchmark` (single-run benchmark primitive also reused by interactive benchmark flows)
+- `cf-debug ...` (deterministic follow-up tooling that reads an existing `upload_bundle_v1/` and emits selectors, fact-only case packets, provenance audits, page-context windows, uncertainty slices, follow-up packs, and ablation matrices)
 
 Current scoring surfaces:
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels.
@@ -37,7 +38,6 @@ Current scoring surfaces:
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
 - `bench quality-run`: run all-method quality experiments for one discovered suite (`--search-strategy race` default; use `exhaustive` for full-grid runs). Experiment-level concurrency is CPU-aware by default (auto cap + adaptive worker target from host load; default auto ceiling follows detected CPU count, override via `COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS`); pass `--max-parallel-experiments` to force a fixed cap. In runtimes that block process pools, quality-run keeps all-method `global` scope; experiment fanout auto-switches to subprocess workers while per-experiment all-method config workers continue thread-backed fallback. On WSL, quality-run applies a nested-parallelism safety guard by default (worker caps + all-method runtime caps) and records guard telemetry in `experiments_resolved.json`; set `COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD=1` only for deliberate opt-out runs. Use `--require-process-workers` to fail fast instead of allowing fallback backends. Gentle disk I/O write pacing is enabled by default and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`. Live ETA status now models queued experiments (not only active experiments) using active scheduler telemetry plus completed-experiment duration fallback. Crash-safe checkpoints are persisted continuously and can be resumed via `--resume-run-dir`. By default, it also emits an AI-agent bridge under `<run_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
 - `bench quality-lightweight-series`: disabled/retired in CLI due to extreme runtime and disk amplification from fold-based tournament artifacts. Historical artifacts remain readable under `data/golden/bench/quality/lightweight_series`.
-- `scripts/quality_top_tier_tournament.py`: disabled/retired runtime entrypoint; `main()` exits immediately with a disabled message to prevent accidental tournament fanout.
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a global cross-source config leaderboard and Pareto frontier; optional `--by-source-extension` emits per-format leaderboard slices.
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-coverage regression gates. By default, it also emits an AI-agent bridge under `<comparison_dir>/agent_compare_control/` (disable with `--no-qualitysuite-agent-bridge`).
 - `bench eval-stage --gold-spans ... --stage-run ...`: evaluate a stage run directly from `.bench/*/stage_block_predictions.json`.
@@ -99,6 +99,7 @@ Interactive `single_offline` now writes into one session root:
   - `vanilla`: deterministic-only (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`)
   - `codexfarm`: LLM-adjusted recipe + line-role path (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
   - Analytics treat the `vanilla` label as valid only when both recipe AI and line-role AI are off; a row with `llm_recipe_pipeline=off` but line-role AI still on is a hybrid run, not vanilla.
+- non-paired single-offline runs now keep a profile slug such as `line_role_only`, `recipe_only`, or `full_stack` instead of being forced into `vanilla`.
 - prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/prompts/` (legacy runs may still use `.../codexfarm/codexfarm/`):
   - `prompt_request_response_log.txt` (combined full dump),
@@ -159,6 +160,7 @@ When `--line-role-pipeline != off`, eval runs also write diagnostics under `line
   - rows now include `candidate_labels` from canonical line-role allowlists.
 - `joined_line_table.jsonl`
   - rows include `candidate_labels` and `candidate_label_count` for joined-line triage.
+  - exporter matching is conservative: metadata is attached only when a line-role prediction matches the canonical line by exact normalized text (same index+text first, then occurrence order); split/merged lines stay unmatched rather than inheriting another line's telemetry.
 - `line_role_flips_vs_baseline.jsonl`
   - baseline source is paired history eval rows when available (same source, canonical mode, `line_role_pipeline=off`, preferring matching `llm_recipe_pipeline`); fallback remains inferred baseline from `decided_by` metadata when no paired baseline exists.
 - `slice_metrics.json`
@@ -501,8 +503,8 @@ Use this parallel flow for baseline-versus-candidate quality checks:
 3. `cookimport bench quality-leaderboard --run-dir ... --experiment-id ...`
 4. `cookimport bench quality-compare --baseline ... --candidate ...`
 
-`scripts/quality_top_tier_tournament.py` is now disabled/retired in this repo due to
-extreme runtime and disk amplification. Historical tournament artifacts remain under
+The old tournament script has been removed from this repo due to extreme runtime and
+disk amplification. Historical tournament artifacts remain under
 `data/golden/bench/quality/tournaments/<timestamp>/...` for read-only inspection.
 
 For one consolidated "which command when" flow with decision criteria, use `docs/07-bench/qualitysuite-product-suite.md`.
@@ -1141,7 +1143,7 @@ Current benchmark/runtime contract from this batch:
   - per-experiment snapshot: `experiments/<id>/quality_experiment_result.json`
   - run checkpoints: `checkpoint.json`, `summary.partial.json`, `report.partial.md`
   - explicit resume path: `bench quality-run --resume-run-dir <existing_run_dir>`
-  - historical-only fold reuse path (script now disabled): `scripts/quality_top_tier_tournament.py --resume-tournament-dir ...`
+  - historical-only fold reuse path came from the removed tournament script
 - Sequence matcher runtime contract remains `dmp`-only (`COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp`); `stdlib` remains available only in `scripts/bench_sequence_matcher_impl.py` for parity/speed references.
 
 Known caveat retained from speed2-3 closeout:
@@ -1251,7 +1253,7 @@ Current benchmark contract additions from this batch:
   1. `bench quality-run` for experiment execution,
   2. `bench quality-leaderboard` for winner analysis,
   3. `bench quality-compare` for regression gates.
-- Historical note: `bench quality-lightweight-series` and `scripts/quality_top_tier_tournament.py` are retired/disabled.
+- Historical note: `bench quality-lightweight-series` is retired/disabled, and the old tournament script has been removed.
 
 Anti-loop reminders from this batch:
 - If tournament path selection feels contradictory, check explicit candidate override precedence before tuning heuristics.
@@ -1346,7 +1348,7 @@ Current-contract additions:
 - The short-lived unhobble attempt (`2026-03-01_19.56.27`) is historical only; OOM evidence led to guard restoration (`2026-03-01_23.16.19`).
 - Retired high-cost surfaces are intentionally fail-fast:
   - `bench quality-lightweight-series`
-  - `scripts/quality_top_tier_tournament.py`
+  - removed tournament script (historical docs/logs may still mention it)
 - Agent terminals default benchmark progress to plain change-only lines (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`) with explicit override via `COOKIMPORT_PLAIN_PROGRESS=1|0`.
 - Active QualitySuite presets point to pruned `2026-03-02_00.36.30` files that removed:
   - `pre_br_split`

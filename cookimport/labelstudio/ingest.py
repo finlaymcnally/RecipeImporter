@@ -27,6 +27,10 @@ from cookimport.config.run_settings import (
     build_run_settings,
     compute_effective_workers,
 )
+from cookimport.config.codex_decision import (
+    apply_codex_decision_metadata,
+    resolve_codex_command_decision,
+)
 from cookimport.core.progress_messages import (
     format_task_counter,
     format_worker_activity,
@@ -1701,6 +1705,9 @@ def generate_pred_run_artifacts(
     prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
+    allow_codex: bool = False,
+    codex_command_context: str = "labelstudio_benchmark",
+    benchmark_variant: str | None = None,
     scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
     progress_callback: Callable[[str], None] | None = None,
     run_manifest_kind: str = "bench_pred_run",
@@ -1870,8 +1877,19 @@ def generate_pred_run_artifacts(
             all_epub=path.suffix.lower() == ".epub",
         ),
     )
+    codex_command_decision = resolve_codex_command_decision(
+        codex_command_context,
+        run_settings.to_run_config_dict(),
+        allow_codex=bool(allow_codex),
+        benchmark_variant=benchmark_variant,
+    )
+    if not codex_command_decision.allowed:
+        raise RuntimeError(
+            f"{codex_command_context} requires allow_codex=True when Codex-backed "
+            "surfaces are enabled."
+        )
     worker_run_config = run_settings.to_run_config_dict()
-    run_config = dict(worker_run_config)
+    run_config = apply_codex_decision_metadata(worker_run_config, codex_command_decision)
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
@@ -3444,6 +3462,7 @@ def run_labelstudio_import(
     prelabel_track_token_usage: bool = True,
     scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
     auto_project_name_on_scope_mismatch: bool = False,
+    allow_codex: bool = False,
     allow_labelstudio_write: bool = False,
 ) -> dict[str, Any]:
     def _notify(message: str) -> None:
@@ -3547,6 +3566,8 @@ def run_labelstudio_import(
         prelabel_granularity=prelabel_granularity,
         prelabel_allow_partial=prelabel_allow_partial,
         prelabel_track_token_usage=prelabel_track_token_usage,
+        allow_codex=allow_codex,
+        codex_command_context="labelstudio_import",
         scheduler_event_callback=scheduler_event_callback,
         progress_callback=_notify,
         run_manifest_kind="labelstudio_import",

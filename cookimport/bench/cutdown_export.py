@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +10,7 @@ from cookimport.labelstudio.label_config_freeform import normalize_freeform_labe
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 def build_line_role_joined_line_rows(
@@ -48,16 +51,10 @@ def build_line_role_joined_line_rows(
 
     line_role_meta: dict[int, dict[str, Any]] = {}
     if line_role_predictions_path is not None and line_role_predictions_path.exists():
-        for row in _read_jsonl(line_role_predictions_path):
-            line_index = _coerce_int(row.get("atomic_index"))
-            if line_index is None:
-                continue
-            line_role_meta[line_index] = {
-                "decided_by": str(row.get("decided_by") or "").strip().lower() or None,
-                "within_recipe_span": bool(row.get("within_recipe_span")),
-                "recipe_id": str(row.get("recipe_id") or "").strip() or None,
-                "candidate_labels": _coerce_candidate_labels(row),
-            }
+        line_role_meta = _build_line_role_meta_by_line_index(
+            canonical_lines=canonical_lines,
+            prediction_rows=_read_jsonl(line_role_predictions_path),
+        )
 
     joined_rows: list[dict[str, Any]] = []
     for line in canonical_lines:
@@ -73,11 +70,15 @@ def build_line_role_joined_line_rows(
                 "gold_label": gold_label,
                 "pred_label": pred_label,
                 "is_wrong_label": pred_label != gold_label,
-                "within_recipe_span": bool(line_meta.get("within_recipe_span")),
+                "within_recipe_span": line_meta.get("within_recipe_span"),
                 "decided_by": line_meta.get("decided_by"),
                 "recipe_id": line_meta.get("recipe_id"),
                 "candidate_labels": list(line_meta.get("candidate_labels") or []),
                 "candidate_label_count": len(list(line_meta.get("candidate_labels") or [])),
+                "line_role_match_kind": str(line_meta.get("match_kind") or "unmatched"),
+                "line_role_prediction_atomic_index": line_meta.get(
+                    "prediction_atomic_index"
+                ),
             }
         )
     joined_rows.sort(key=lambda row: int(row["line_index"]))
@@ -202,6 +203,19 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _coerce_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "on"}:
+        return True
+    if text in {"false", "0", "no", "off"}:
+        return False
+    return None
+
+
 def _normalize_label(value: Any) -> str:
     normalized = normalize_freeform_label(str(value or "OTHER"))
     if normalized not in _FREEFORM_LABEL_SET:
@@ -222,6 +236,79 @@ def _coerce_candidate_labels(row: dict[str, Any]) -> list[str]:
         seen.add(text)
         normalized.append(text)
     return normalized
+
+
+def _build_line_role_meta_by_line_index(
+    *,
+    canonical_lines: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    meta_by_line_index: dict[int, dict[str, Any]] = {}
+    matched_prediction_positions: set[int] = set()
+    canonical_text_by_index = {
+        int(row["line_index"]): _normalize_line_text(row.get("text"))
+        for row in canonical_lines
+    }
+
+    for position, row in enumerate(prediction_rows):
+        atomic_index = _coerce_int(row.get("atomic_index"))
+        if atomic_index is None:
+            continue
+        canonical_text = canonical_text_by_index.get(atomic_index)
+        prediction_text = _normalize_line_text(row.get("text"))
+        if not canonical_text or not prediction_text or canonical_text != prediction_text:
+            continue
+        meta_by_line_index[atomic_index] = _line_role_meta_payload(
+            row,
+            match_kind="atomic_index_exact_text",
+        )
+        matched_prediction_positions.add(position)
+
+    remaining_line_indices_by_text: dict[str, deque[int]] = defaultdict(deque)
+    for row in canonical_lines:
+        line_index = int(row["line_index"])
+        if line_index in meta_by_line_index:
+            continue
+        normalized_text = _normalize_line_text(row.get("text"))
+        if not normalized_text:
+            continue
+        remaining_line_indices_by_text[normalized_text].append(line_index)
+
+    for position, row in enumerate(prediction_rows):
+        if position in matched_prediction_positions:
+            continue
+        normalized_text = _normalize_line_text(row.get("text"))
+        if not normalized_text:
+            continue
+        remaining = remaining_line_indices_by_text.get(normalized_text)
+        if not remaining:
+            continue
+        line_index = remaining.popleft()
+        meta_by_line_index[line_index] = _line_role_meta_payload(
+            row,
+            match_kind="exact_text_occurrence",
+        )
+
+    return meta_by_line_index
+
+
+def _line_role_meta_payload(
+    row: dict[str, Any],
+    *,
+    match_kind: str,
+) -> dict[str, Any]:
+    return {
+        "decided_by": str(row.get("decided_by") or "").strip().lower() or None,
+        "within_recipe_span": _coerce_bool(row.get("within_recipe_span")),
+        "recipe_id": str(row.get("recipe_id") or "").strip() or None,
+        "candidate_labels": _coerce_candidate_labels(row),
+        "match_kind": str(match_kind),
+        "prediction_atomic_index": _coerce_int(row.get("atomic_index")),
+    }
+
+
+def _normalize_line_text(value: Any) -> str:
+    return _WHITESPACE_RE.sub(" ", str(value or "").strip())
 
 
 def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:

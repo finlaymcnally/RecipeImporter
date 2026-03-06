@@ -4955,6 +4955,68 @@ class TestBenchmarkCsv:
         assert row["tokens_reasoning"] == "1"
         assert row["tokens_total"] == "46"
 
+    def test_backfill_benchmark_csv_fills_line_role_tokens_from_run_manifest_artifact(
+        self, tmp_path
+    ):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.35.00"
+        pred_run = eval_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path.write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "tokens_input": 14,
+                        "tokens_cached_input": 1,
+                        "tokens_output": 3,
+                        "tokens_reasoning": 2,
+                        "tokens_total": 17,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (eval_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "artifacts": {
+                        "line_role_pipeline_telemetry_json": str(telemetry_path)
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T14:35:30",
+                "run_dir": str(eval_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        summary = backfill_benchmark_history_csv(csv_path)
+
+        assert summary.token_rows_filled == 1
+        assert summary.token_fields_filled == 5
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            row = next(csv.DictReader(fh))
+        assert row["tokens_input"] == "14"
+        assert row["tokens_cached_input"] == "1"
+        assert row["tokens_output"] == "3"
+        assert row["tokens_reasoning"] == "2"
+        assert row["tokens_total"] == "17"
+
     def test_dashboard_collector_sums_codex_farm_and_line_role_manifest_tokens(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
         history_dir.mkdir(parents=True)
@@ -4978,11 +5040,13 @@ class TestBenchmarkCsv:
             ),
             encoding="utf-8",
         )
-        (pred_run / "manifest.json").write_text(
+        (eval_dir / "run_manifest.json").write_text(
             json.dumps(
                 {
                     "source_file": "book.epub",
-                    "line_role_pipeline_telemetry_path": str(telemetry_path),
+                    "artifacts": {
+                        "line_role_pipeline_telemetry_json": str(telemetry_path)
+                    },
                     "llm_codex_farm": {
                         "process_runs": {
                             "pass1": {

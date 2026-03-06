@@ -1,0 +1,13 @@
+{
+  "bundle_dir": "/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark/upload_bundle_v1",
+  "bundle_sha256": "407254934be66c7a0c1669163d5dd91d044a1703301a9f24884a7b13619b327f",
+  "case_count": 4,
+  "files": {
+    "case_export_jsonl": "case_export.jsonl",
+    "file_manifest_jsonl": "file_manifest.jsonl"
+  },
+  "generated_at": "2026-03-04_20.40.00",
+  "schema_version": "cf.case_export_index.v1",
+  "selector_count": 4,
+  "selectors_file": "tmp/cf_debug/selectors.json"
+}

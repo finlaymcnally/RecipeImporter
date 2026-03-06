@@ -1,5 +1,6 @@
 [console_scripts]
 C3imp = cookimport.c3imp_entrypoint:main
 C3import = cookimport.entrypoint:main
+cf-debug = cookimport.cf_debug_cli:app
 cookimport = cookimport.cli:app
 import = cookimport.entrypoint:main

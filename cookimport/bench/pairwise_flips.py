@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,8 @@ def build_line_role_flips_vs_baseline(
     Fallback baseline inference (when paired rows are unavailable):
     - rows decided by `codex` are treated as baseline `OTHER`
     - all other rows retain candidate label as baseline
+    - no extra backfill is attempted from `line_role_predictions.jsonl`; if
+      the joined row has no trustworthy `decided_by`, it is skipped
     """
     baseline_by_sample_id, baseline_by_line_index = _build_baseline_lookup(
         baseline_joined_line_rows
@@ -58,21 +59,12 @@ def build_line_role_flips_vs_baseline(
         output.sort(key=lambda item: (int(item["line_index"]), str(item["sample_id"])))
         return output
 
-    if line_role_predictions_path is None:
-        return []
-    if not line_role_predictions_path.exists() or not line_role_predictions_path.is_file():
-        return []
-
-    decided_by_by_line_index = _load_decided_by_by_line_index(line_role_predictions_path)
-
     output: list[dict[str, Any]] = []
     for row in joined_line_rows:
         line_index = _coerce_int(row.get("line_index"))
         if line_index is None:
             continue
         decided_by = str(row.get("decided_by") or "").strip().lower()
-        if not decided_by:
-            decided_by = decided_by_by_line_index.get(line_index) or ""
         if not decided_by:
             continue
         candidate_label = str(row.get("pred_label") or "OTHER").strip().upper() or "OTHER"
@@ -97,30 +89,6 @@ def build_line_role_flips_vs_baseline(
         )
     output.sort(key=lambda item: (int(item["line_index"]), str(item["sample_id"])))
     return output
-
-
-def _load_decided_by_by_line_index(
-    line_role_predictions_path: Path,
-) -> dict[int, str]:
-    decided_by_by_line_index: dict[int, str] = {}
-    for raw_line in line_role_predictions_path.read_text(encoding="utf-8").splitlines():
-        text = raw_line.strip()
-        if not text:
-            continue
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        atomic_index = _coerce_int(payload.get("atomic_index"))
-        if atomic_index is None:
-            continue
-        decided_by = str(payload.get("decided_by") or "").strip().lower()
-        if not decided_by:
-            continue
-        decided_by_by_line_index[atomic_index] = decided_by
-    return decided_by_by_line_index
 
 
 def _build_baseline_lookup(

@@ -105,7 +105,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`):
 - Per-label durability field: `per_label_json` (compact JSON list used by CSV-first dashboard collection when eval artifacts are no longer present).
 - Recipe-level context: `recipes`, `gold_recipe_headers`
 - Codex token-usage fields: `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`
-- Manifest backfill now merges `llm_codex_farm` token telemetry with `line_role_pipeline_telemetry_path` when both exist, so line-role-only runs no longer stay blank in history/dashboard token columns.
+- Manifest backfill now merges `llm_codex_farm` token telemetry with line-role telemetry from either `line_role_pipeline_telemetry_path` or `artifacts.line_role_pipeline_telemetry_json`, so line-role-only runs no longer stay blank in history/dashboard token columns.
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`, eval checkpoint timing columns
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 

@@ -20,7 +20,6 @@ Active command flow:
 
 Retired/disabled paths (historical artifacts only):
 - `cookimport bench quality-lightweight-series`
-- `scripts/quality_top_tier_tournament.py`
 
 ## 2. Guardrails
 
