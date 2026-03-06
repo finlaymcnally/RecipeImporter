@@ -391,3 +391,17 @@ Verification evidence retained:
 Anti-loop reminders:
 - If focused runs become broad, inspect seam boundaries and marker maps before changing business logic.
 - If slow runs regress, remeasure runtimes first rather than re-expanding slow by default.
+
+### 2026-03-05_22.29.01 default-surface test cleanup
+
+Problem captured:
+- Some fast default-surface tests treated the current AI-on defaults as a sacred product contract instead of checking sync and intent.
+
+Durable outcomes:
+- `tests/llm/test_run_settings.py` now checks serialization/hash/summary consistency against current model values instead of snapshotting the whole AI-on default policy.
+- `tests/cli/test_cli_output_structure_fast.py` now checks loader/signature sync with `RunSettings` where appropriate.
+- Explicit safe-opt-in assertions were kept for `labelstudio_benchmark`, where `off` defaults are the real contract.
+
+Verification evidence retained:
+- `. .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/cli/test_cli_output_structure_fast.py`
+- Result: `16 passed`

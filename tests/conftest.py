@@ -187,6 +187,7 @@ def _env_truthy(name: str) -> bool:
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    os.environ["COOKIMPORT_ALLOW_LLM"] = "1"
     if _env_truthy(_FORCE_VERBOSE_OUTPUT_ENV):
         return
     # Enforce compact output even when callers pass `-o addopts=''`.

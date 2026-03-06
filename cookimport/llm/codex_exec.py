@@ -99,6 +99,13 @@ def run_codex_json_prompt(
     runner: Callable[..., Any] | None = None,
     log_path: Path | None = None,
 ) -> dict[str, Any]:
+    allow_llm = str(os.getenv("COOKIMPORT_ALLOW_LLM", os.getenv("CODEX_ALLOW_LLM", ""))).lower()
+    if allow_llm not in {"1", "true", "yes", "on"}:
+        raise RuntimeError(
+            "LLM call blocked by safety kill switch. "
+            "Set COOKIMPORT_ALLOW_LLM=1 to enable."
+        )
+
     resolved_cmd = str(cmd or default_codex_exec_cmd()).strip()
     if not resolved_cmd:
         raise ValueError("codex command cannot be empty")

@@ -1,8 +1,8 @@
-# Token Leak Mapping Summary & Line Items
-# Purpose: Consolidates high-level incident totals with granular run-level evidence.
-# Use Case: Comprehensive audit of all major AI cost drivers.
-# Disclaimer: Estimated Cost ($) figures are hypothetical abstractions representing token volume/compute effort.
-
+# Supplemental Incident Summary
+# Purpose: Preserve earlier incident labels as leads, not as authoritative conclusions.
+# Warning: Estimated Cost values in this file are rough abstractions and should not be treated as verified billing totals.
+# Warning: Several rows in this file reflect older wording that was broader than the retained repo evidence supports.
+# Read the markdown reports for the corrected interpretation before using this CSV.
 Date,Incident Category,Description,Estimated Cost,Suspected Trigger
 2026-02-28,Massive Development Leak,"Multiple high-cardinality QualitySuite tournaments (up to 143 configs) with LLM active by default and Config Hash Fragmentation.","~$1,264.09","QualitySuite tournament expansion + Invisible Defaults"
 2026-03-03,High-Volume Benchmark Activity,"Continued QualitySuite and SpeedSuite validation rounds with LLM enabled in default settings.","~$883.00","Standard default activation of codex-line-role-v1"

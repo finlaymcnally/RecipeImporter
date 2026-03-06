@@ -7,74 +7,85 @@ from cookimport.config.run_settings import (
 )
 
 
-def test_run_settings_hash_and_summary_are_stable() -> None:
+def _serialized(value):
+    return getattr(value, "value", value)
+
+
+def test_run_settings_default_serialization_matches_current_field_values() -> None:
     settings = RunSettings()
+    run_config = settings.to_run_config_dict()
 
     assert settings.stable_hash() == settings.stable_hash()
     assert settings.short_hash() == settings.stable_hash()[:12]
-    assert settings.to_run_config_dict()["epub_extractor"] == "unstructured"
-    assert (
-        settings.to_run_config_dict()["epub_unstructured_html_parser_version"] == "v1"
+
+    representative_fields = (
+        "epub_extractor",
+        "epub_unstructured_html_parser_version",
+        "epub_unstructured_skip_headers_footers",
+        "epub_unstructured_preprocess_mode",
+        "table_extraction",
+        "section_detector_backend",
+        "multi_recipe_splitter",
+        "multi_recipe_trace",
+        "multi_recipe_min_ingredient_lines",
+        "multi_recipe_min_instruction_lines",
+        "multi_recipe_for_the_guardrail",
+        "instruction_step_segmentation_policy",
+        "instruction_step_segmenter",
+        "web_schema_extractor",
+        "web_schema_normalizer",
+        "web_html_text_extractor",
+        "web_schema_policy",
+        "web_schema_min_confidence",
+        "web_schema_min_ingredients",
+        "web_schema_min_instruction_steps",
+        "ingredient_text_fix_backend",
+        "ingredient_pre_normalize_mode",
+        "ingredient_packaging_mode",
+        "ingredient_parser_backend",
+        "ingredient_unit_canonicalizer",
+        "ingredient_missing_unit_policy",
+        "p6_time_backend",
+        "p6_time_total_strategy",
+        "p6_temperature_backend",
+        "p6_temperature_unit_backend",
+        "p6_ovenlike_mode",
+        "p6_yield_mode",
+        "p6_emit_metadata_debug",
+        "pdf_ocr_policy",
+        "pdf_column_gap_ratio",
+        "llm_recipe_pipeline",
+        "atomic_block_splitter",
+        "line_role_pipeline",
+        "llm_knowledge_pipeline",
+        "llm_tags_pipeline",
+        "codex_farm_recipe_mode",
+        "codex_farm_cmd",
+        "codex_farm_pass1_pattern_hints_enabled",
+        "codex_farm_pipeline_pass1",
+        "codex_farm_pipeline_pass2",
+        "codex_farm_pipeline_pass3",
+        "codex_farm_pass3_skip_pass2_ok",
+        "codex_farm_pipeline_pass4_knowledge",
+        "codex_farm_pipeline_pass5_tags",
+        "codex_farm_context_blocks",
+        "codex_farm_knowledge_context_blocks",
+        "tag_catalog_json",
+        "codex_farm_failure_mode",
     )
-    assert settings.to_run_config_dict()["epub_unstructured_skip_headers_footers"] is True
-    assert settings.to_run_config_dict()["epub_unstructured_preprocess_mode"] == "semantic_v1"
-    assert settings.to_run_config_dict()["table_extraction"] == "off"
-    assert settings.to_run_config_dict()["section_detector_backend"] == "legacy"
-    assert settings.to_run_config_dict()["multi_recipe_splitter"] == "legacy"
-    assert settings.to_run_config_dict()["multi_recipe_trace"] is False
-    assert settings.to_run_config_dict()["multi_recipe_min_ingredient_lines"] == 1
-    assert settings.to_run_config_dict()["multi_recipe_min_instruction_lines"] == 1
-    assert settings.to_run_config_dict()["multi_recipe_for_the_guardrail"] is True
-    assert settings.to_run_config_dict()["instruction_step_segmentation_policy"] == "auto"
-    assert settings.to_run_config_dict()["instruction_step_segmenter"] == "heuristic_v1"
-    assert settings.to_run_config_dict()["web_schema_extractor"] == "builtin_jsonld"
-    assert settings.to_run_config_dict()["web_schema_normalizer"] == "simple"
-    assert settings.to_run_config_dict()["web_html_text_extractor"] == "bs4"
-    assert settings.to_run_config_dict()["web_schema_policy"] == "prefer_schema"
-    assert settings.to_run_config_dict()["web_schema_min_confidence"] == 0.75
-    assert settings.to_run_config_dict()["web_schema_min_ingredients"] == 2
-    assert settings.to_run_config_dict()["web_schema_min_instruction_steps"] == 1
-    assert settings.to_run_config_dict()["ingredient_text_fix_backend"] == "none"
-    assert settings.to_run_config_dict()["ingredient_pre_normalize_mode"] == "legacy"
-    assert settings.to_run_config_dict()["ingredient_packaging_mode"] == "off"
-    assert settings.to_run_config_dict()["ingredient_parser_backend"] == "ingredient_parser_nlp"
-    assert settings.to_run_config_dict()["ingredient_unit_canonicalizer"] == "legacy"
-    assert settings.to_run_config_dict()["ingredient_missing_unit_policy"] == "null"
-    assert settings.to_run_config_dict()["p6_time_backend"] == "regex_v1"
-    assert settings.to_run_config_dict()["p6_time_total_strategy"] == "sum_all_v1"
-    assert settings.to_run_config_dict()["p6_temperature_backend"] == "regex_v1"
-    assert settings.to_run_config_dict()["p6_temperature_unit_backend"] == "builtin_v1"
-    assert settings.to_run_config_dict()["p6_ovenlike_mode"] == "keywords_v1"
-    assert settings.to_run_config_dict()["p6_yield_mode"] == "legacy_v1"
-    assert settings.to_run_config_dict()["p6_emit_metadata_debug"] is False
-    assert settings.to_run_config_dict()["pdf_ocr_policy"] == "auto"
-    assert settings.to_run_config_dict()["pdf_column_gap_ratio"] == 0.12
-    assert settings.to_run_config_dict()["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
-    assert settings.to_run_config_dict()["atomic_block_splitter"] == "atomic-v1"
-    assert settings.to_run_config_dict()["line_role_pipeline"] == "codex-line-role-v1"
-    assert settings.to_run_config_dict()["llm_knowledge_pipeline"] == "off"
-    assert settings.to_run_config_dict()["llm_tags_pipeline"] == "off"
-    assert settings.to_run_config_dict()["codex_farm_recipe_mode"] == "extract"
-    assert settings.to_run_config_dict()["codex_farm_cmd"] == "codex-farm"
-    assert settings.to_run_config_dict()["codex_farm_pass1_pattern_hints_enabled"] is False
-    assert settings.to_run_config_dict()["codex_farm_pipeline_pass1"] == "recipe.chunking.v1"
-    assert settings.to_run_config_dict()["codex_farm_pipeline_pass2"] == "recipe.schemaorg.v1"
-    assert settings.to_run_config_dict()["codex_farm_pipeline_pass3"] == "recipe.final.v1"
-    assert settings.to_run_config_dict()["codex_farm_pass3_skip_pass2_ok"] is True
+    for field_name in representative_fields:
+        assert run_config[field_name] == _serialized(getattr(settings, field_name))
+
+    assert "codex_farm_workspace_root" not in run_config
+
+    summary = settings.summary()
+    assert f"workers={settings.workers}" in summary
     assert (
-        settings.to_run_config_dict()["codex_farm_pipeline_pass4_knowledge"]
-        == "recipe.knowledge.v1"
+        f"llm_recipe_pipeline={_serialized(settings.llm_recipe_pipeline)}" in summary
     )
     assert (
-        settings.to_run_config_dict()["codex_farm_pipeline_pass5_tags"]
-        == "recipe.tags.v1"
+        f"line_role_pipeline={_serialized(settings.line_role_pipeline)}" in summary
     )
-    assert settings.to_run_config_dict()["codex_farm_context_blocks"] == 30
-    assert settings.to_run_config_dict()["codex_farm_knowledge_context_blocks"] == 12
-    assert settings.to_run_config_dict()["tag_catalog_json"] == "data/tagging/tag_catalog.json"
-    assert settings.to_run_config_dict()["codex_farm_failure_mode"] == "fail"
-    assert "codex_farm_workspace_root" not in settings.to_run_config_dict()
-    assert "workers=7" in settings.summary()
 
 
 def test_run_settings_schema_evolution_ignores_unknown_keys() -> None:

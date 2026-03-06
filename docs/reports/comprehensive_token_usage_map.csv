@@ -1,11 +1,8 @@
-# Usage Audit: Comprehensive Token Usage Map
-# Purpose: Broader census of all token-consuming activity found in history logs.
-# Use Case: Analyze total landscape driving costs, distinguishing between intentional high-volume benchmarks and unintentional leaks.
-# Categories:
-#   - Automated: Full LLM Stack (Both Recipe and LineRole LLMs active)
-#   - Automated: Recipe LLM Only (Recipe LLM active, LineRole deterministic)
-#   - Leak (LineRole Only): Invisible usage cases (Recipe LLM off, LineRole active)
-#   - Exhaustive Sweep: High-volume configurations from March 4th incident.
+# Usage Map: Supporting Local Token Census
+# Purpose: Summarize token-bearing rows retained in local history-derived artifacts.
+# Warning: This file is not authoritative proof of hidden-vs-intentional usage by itself; read it together with the markdown reports.
+# Important: Most large rows here are intentional codexfarm benchmark activity, not the hidden QualitySuite baseline issue.
+# Categories used here are descriptive helper labels, not billing-truth classes.
 timestamp,category,tokens,input_tokens,llm_recipe,line_role,file,run_dir,config_hash
 2026-03-04T20:39:54,Automated: Full LLM Stack,1970083,1877123,codex-farm-3pass-v1,codex-line-role-v1,/home/mcnal/projects/recipeimport/data/input/DinnerFor2CUTDOWN.epub,/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark/01_dinnerfor2cutdown/codexfarm,70b4ea61
 2026-03-04T20:38:38,Automated: Full LLM Stack,1656288,1567629,codex-farm-3pass-v1,codex-line-role-v1,/home/mcnal/projects/recipeimport/data/input/saltfatacidheatCUTDOWN.epub,/home/mcnal/projects/recipeimport/data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark/02_saltfatacidheatcutdown/codexfarm,70b4ea61

@@ -3008,26 +3008,42 @@ def _interactive_single_offline_variants(
     if current_pipeline != "codex-farm-3pass-v1":
         return [("vanilla", selected_benchmark_settings)]
 
-    vanilla_payload = selected_benchmark_settings.to_run_config_dict()
-    vanilla_payload["llm_recipe_pipeline"] = "off"
-    vanilla_payload["llm_knowledge_pipeline"] = "off"
-    vanilla_payload["llm_tags_pipeline"] = "off"
-    vanilla_payload["line_role_pipeline"] = "off"
-    vanilla_payload["atomic_block_splitter"] = "off"
+    vanilla_payload = _all_method_apply_baseline_contract(
+        selected_benchmark_settings.to_run_config_dict()
+    )
     vanilla_settings = RunSettings.from_dict(
         vanilla_payload,
         warn_context="interactive single-offline vanilla settings",
     )
-    codex_payload = selected_benchmark_settings.to_run_config_dict()
-    codex_payload["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
-    codex_payload["line_role_pipeline"] = "codex-line-role-v1"
-    codex_payload["atomic_block_splitter"] = "atomic-v1"
+    codex_payload = _all_method_apply_codex_contract_from_baseline(vanilla_payload)
     codex_settings = RunSettings.from_dict(
         codex_payload,
         warn_context="interactive single-offline codex settings",
     )
     # Run vanilla first so a baseline artifact exists even if codex run fails.
     return [("vanilla", vanilla_settings), ("codexfarm", codex_settings)]
+
+
+def _all_method_apply_baseline_contract(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    normalized = dict(payload)
+    normalized["llm_recipe_pipeline"] = "off"
+    normalized["llm_knowledge_pipeline"] = "off"
+    normalized["llm_tags_pipeline"] = "off"
+    normalized["line_role_pipeline"] = "off"
+    normalized["atomic_block_splitter"] = "off"
+    return normalized
+
+
+def _all_method_apply_codex_contract_from_baseline(
+    baseline_payload: dict[str, Any],
+) -> dict[str, Any]:
+    codex_payload = dict(baseline_payload)
+    codex_payload["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+    codex_payload["line_role_pipeline"] = "codex-line-role-v1"
+    codex_payload["atomic_block_splitter"] = "atomic-v1"
+    return codex_payload
 
 
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
@@ -13541,8 +13557,9 @@ def _build_all_method_variants(
         dimensions: dict[str, Any],
         sweep_tag: str,
     ) -> None:
+        baseline_payload = _all_method_apply_baseline_contract(payload)
         run_settings = RunSettings.from_dict(
-            dict(payload),
+            baseline_payload,
             warn_context="all-method variant",
         )
         stable_hash = run_settings.stable_hash()
@@ -13560,12 +13577,17 @@ def _build_all_method_variants(
             )
         )
         if include_codex_farm:
-            current_llm = str(payload.get("llm_recipe_pipeline") or "off").strip().lower()
+            current_llm = str(
+                baseline_payload.get("llm_recipe_pipeline") or "off"
+            ).strip().lower()
             if current_llm == "off":
-                codex_payload = dict(payload)
-                codex_payload["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+                codex_payload = _all_method_apply_codex_contract_from_baseline(
+                    baseline_payload
+                )
                 codex_dimensions = dict(dimensions)
                 codex_dimensions["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
+                codex_dimensions["line_role_pipeline"] = "codex-line-role-v1"
+                codex_dimensions["atomic_block_splitter"] = "atomic-v1"
                 add_variant(
                     slug=f"{slug}__llm_recipe_{_all_method_variant_token('codex-farm-3pass-v1')}",
                     payload=codex_payload,

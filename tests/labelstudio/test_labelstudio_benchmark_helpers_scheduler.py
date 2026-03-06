@@ -235,6 +235,105 @@ def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
     assert any("__llm_recipe_codex_farm_3pass_v1" in variant.slug for variant in variants)
 
 
+def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled() -> None:
+    base_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-v1",
+            "llm_tags_pipeline": "codex-tags-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+            "atomic_block_splitter": "atomic-v1",
+        },
+        warn_context="test",
+    )
+
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.epub"),
+        include_codex_farm=True,
+    )
+
+    baseline_variants = [
+        variant
+        for variant in variants
+        if "__llm_recipe_codex_farm_3pass_v1" not in variant.slug
+    ]
+    codex_variants = [
+        variant
+        for variant in variants
+        if "__llm_recipe_codex_farm_3pass_v1" in variant.slug
+    ]
+
+    assert len(baseline_variants) == 13
+    assert len(codex_variants) == 13
+    assert {
+        variant.run_settings.llm_recipe_pipeline.value for variant in baseline_variants
+    } == {"off"}
+    assert {
+        variant.run_settings.llm_knowledge_pipeline.value for variant in baseline_variants
+    } == {"off"}
+    assert {
+        variant.run_settings.llm_tags_pipeline.value for variant in baseline_variants
+    } == {"off"}
+    assert {
+        variant.run_settings.line_role_pipeline.value for variant in baseline_variants
+    } == {"off"}
+    assert {
+        variant.run_settings.atomic_block_splitter.value for variant in baseline_variants
+    } == {"off"}
+    assert {
+        variant.run_settings.llm_recipe_pipeline.value for variant in codex_variants
+    } == {"codex-farm-3pass-v1"}
+    assert {
+        variant.run_settings.line_role_pipeline.value for variant in codex_variants
+    } == {"codex-line-role-v1"}
+    assert {
+        variant.run_settings.atomic_block_splitter.value for variant in codex_variants
+    } == {"atomic-v1"}
+    assert {variant.run_settings.epub_extractor.value for variant in baseline_variants} == {
+        "ebooklib",
+        "bs4",
+        "trafilatura",
+        "unstructured",
+    }
+
+
+def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() -> None:
+    base_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-v1",
+            "llm_tags_pipeline": "codex-tags-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+            "atomic_block_splitter": "atomic-v1",
+        },
+        warn_context="test",
+    )
+
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.epub"),
+        include_codex_farm=False,
+    )
+
+    assert len(variants) == 13
+    assert {
+        variant.run_settings.llm_recipe_pipeline.value for variant in variants
+    } == {"off"}
+    assert {
+        variant.run_settings.llm_knowledge_pipeline.value for variant in variants
+    } == {"off"}
+    assert {
+        variant.run_settings.llm_tags_pipeline.value for variant in variants
+    } == {"off"}
+    assert {
+        variant.run_settings.line_role_pipeline.value for variant in variants
+    } == {"off"}
+    assert {
+        variant.run_settings.atomic_block_splitter.value for variant in variants
+    } == {"off"}
+
+
 def test_resolve_all_method_markdown_extractors_requires_policy_unlock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
