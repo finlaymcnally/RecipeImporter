@@ -219,6 +219,74 @@ Durable decisions:
 
 Source: `docs/understandings/2026-02-28_03.58.19-speed-suite-max-targets-causes-one-eval-per-label.md`
 
+## 2026-03-04 to 2026-03-05 migrated understanding ledger (dashboard + compare/control)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_19.28.54-dashboard-responsive-layout-notes.md`
+- `docs/understandings/2026-03-04_19.38.38-dashboard-filter-clause-edit-flow.md`
+- `docs/understandings/2026-03-04_19.40.07-dashboard-token-zero-vs-ai-model-metadata.md`
+- `docs/understandings/2026-03-04_19.46.34-compare-control-dynamic-chart-seam.md`
+- `docs/understandings/2026-03-04_19.53.42-compare-control-group-row-format.md`
+- `docs/understandings/2026-03-04_19.54.47-compare-control-chart-activation-gate.md`
+- `docs/understandings/2026-03-04_20.05.03-compare-control-group-table-rendering.md`
+- `docs/understandings/2026-03-04_20.10.12-compare-control-auto-bar-chart-routing.md`
+- `docs/understandings/2026-03-04_20.12.15-compare-control-table-header-label-cleanup.md`
+- `docs/understandings/2026-03-04_20.12.22-dashboard-compare-control-harness-data-dependency.md`
+- `docs/understandings/2026-03-04_20.14.21-dashboard-ai-model-system-error-label.md`
+- `docs/understandings/2026-03-04_20.14.32-compare-control-chart-activation-auto-restore.md`
+- `docs/understandings/2026-03-04_20.14.35-compare-control-table-number-format-threshold.md`
+- `docs/understandings/2026-03-04_20.19.00-compare-control-bar-color-weight-seam.md`
+- `docs/understandings/2026-03-04_20.19.15-compare-control-group-display-sort-order.md`
+- `docs/understandings/2026-03-04_20.24.25-ai-effort-ai-off-vs-unknown-seam.md`
+- `docs/understandings/2026-03-04_20.26.27-compare-control-categorical-color-stability.md`
+- `docs/understandings/2026-03-04_20.31.27-ai-effort-vanilla-fallback.md`
+- `docs/understandings/2026-03-04_20.40.02-ai-effort-runtime-error-no-ai.md`
+- `docs/understandings/2026-03-04_20.31.52-dashboard-metric-tooltip-autotagging-seam.md`
+- `docs/understandings/2026-03-04_20.44.54-single-profile-live-panel-wrapping-seam.md`
+- `docs/understandings/2026-03-04_20.47.00-compare-control-dual-set-render-seams.md`
+- `docs/understandings/2026-03-04_20.55.53-dashboard-per-label-remove-rolling-vanilla-columns.md`
+- `docs/understandings/2026-03-04_22.55.00-compare-control-previous-runs-decoupling.md`
+- `docs/understandings/2026-03-04_23.36.00-dashboard-metric-tooltip-seam.md`
+- `docs/understandings/2026-03-05_22.25.45-benchmark-labeling-semantics-gap.md`
+- `docs/understandings/2026-03-05_22.55.48-benchmark-review-findings.md`
+- `docs/understandings/2026-03-05_23.05.00-benchmark-labeling-semantics-implementation.md`
+- `docs/understandings/2026-03-05_23.17.34-compare-control-dual-column-layout.md`
+- `docs/understandings/2026-03-05_23.18.21-compare-control-live-dashboard-state.md`
+
+Problem cluster captured:
+- Dashboard render semantics and compare/control behavior were changing quickly enough that raw task closeouts were starting to hide key seams: activation gates, chart routing, table formatting, label semantics, and live-state ownership.
+
+Durable decisions and outcomes:
+- Previous Runs token columns must treat blank telemetry as unknown, not numeric zero. `AI Model` / `AI Effort` come from run-config/manifest metadata and can be present even when token telemetry is absent.
+- Fatal Codex runtime metadata is first-class analytics context. Dashboard labeling should surface `System error` rather than pretending a failed fallback run was a normal model-backed result.
+- AI Effort semantics intentionally do not grow a separate runtime-error bucket. Runtime error rows collapse into `AI off`, while truly missing effort metadata remains `-`.
+- Benchmark labeling is intentionally split:
+  - `benchmark_variant` keeps official paired benchmark identity only when the authored benchmark contract actually matches,
+  - `ai_assistance_profile` captures the real runtime assistance posture so hybrid runs do not get mislabeled as `vanilla` / `AI off`.
+- Compare & Control is builder-driven from the filtered Previous Runs dataset. The durable seam is:
+  - shared visible rows from Previous Runs,
+  - normalized compare/control state,
+  - field catalog metadata,
+  - chart-definition builders per chart type.
+- Chart activation is runtime-only and intentionally non-persistent. Blank-on-load remains the default, but valid restored non-`discover` selections should auto-activate so saved views reopen correctly.
+- Categorical compare/control output moved from ad hoc strings to a dynamic table with:
+  - display-name-only labels,
+  - two-line wrap-safe headers,
+  - threshold-based number formatting,
+  - display-oriented row ordering,
+  - stable per-category colors hashed from compare field + category key.
+- Numeric vs categorical compare fields should route to different chart builders (`scatter` vs `bar`) instead of forcing scatter semantics onto grouped categorical data.
+- Responsive/layout fixes that matter long-term:
+  - avoid hard Previous Runs table floors that prevent shrink on narrow screens,
+  - re-render charts on resize using measured host width,
+  - keep single-profile live status panels wrap-safe instead of clamping meaningful status text away.
+- Previous Runs and Compare & Control state ownership was intentionally decoupled from older isolate-style table mutations. Served dashboards read `assets/dashboard_ui_state.json`; updating that file with a fresher `saved_at` is enough to move the visible panel and chart.
+
+Testing and anti-loop notes preserved:
+- Node harness tests that call live-state compare/control helpers must seed `DATA.benchmark_records`; bootstrap-free harnesses otherwise fail for setup reasons, not analytics math reasons.
+- If restored compare/control charts stay blank, inspect activation-gate logic before touching chart builders.
+- If hybrid runs show up under `vanilla` paths or labels, inspect benchmark-variant classification and single-offline planner contracts together; dashboard relabeling alone is not enough.
+
 Findings preserved:
 - Latest benchmark diagnostics can legitimately show one eval when the most recent speed run selected one target.
 - This is a data-selection artifact, not necessarily collector/render failure.

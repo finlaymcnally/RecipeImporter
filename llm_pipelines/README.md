@@ -15,7 +15,9 @@ Editable pipeline specs:
 
 - `pipelines/recipe.chunking.v1.json`
 - `pipelines/recipe.schemaorg.v1.json`
+- `pipelines/recipe.schemaorg.compact.v1.json`
 - `pipelines/recipe.final.v1.json`
+- `pipelines/recipe.final.compact.v1.json`
 - `pipelines/recipe.knowledge.v1.json` (optional pass4 knowledge harvest)
 - `pipelines/recipe.tags.v1.json` (optional pass5 tag suggestions)
 
@@ -23,7 +25,9 @@ Editable prompt text:
 
 - `prompts/recipe.chunking.v1.prompt.md`
 - `prompts/recipe.schemaorg.v1.prompt.md`
+- `prompts/recipe.schemaorg.compact.v1.prompt.md`
 - `prompts/recipe.final.v1.prompt.md`
+- `prompts/recipe.final.compact.v1.prompt.md`
 - `prompts/recipe.knowledge.v1.prompt.md`
 - `prompts/recipe.tags.v1.prompt.md`
 
@@ -35,7 +39,7 @@ Output schemas:
 - `schemas/recipe.knowledge.v1.output.schema.json`
 - `schemas/recipe.tags.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/`.
+To tune pass behavior, edit prompt text files in `prompts/`. The compact `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1` variants keep the existing output schemas but use smaller input payloads.
 
 Prompt input contract:
 - `prompt_input_mode` is set to `"inline"` for recipe pipelines.

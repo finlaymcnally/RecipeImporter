@@ -178,6 +178,16 @@ class Pass2SchemaOrgInput(BaseModel):
     normalization_stats: dict[str, int] = Field(default_factory=dict)
 
 
+class Pass2SchemaOrgCompactInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    recipe_id: str
+    workbook_slug: str
+    source_hash: str
+    evidence_rows: list[tuple[int, str]] = Field(default_factory=list)
+
+
 class Pass2SchemaOrgOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -215,6 +225,23 @@ class Pass3FinalDraftInput(BaseModel):
     @classmethod
     def _coerce_schemaorg_recipe(cls, value: Any) -> dict[str, Any]:
         return _coerce_json_object_field(value, "schemaorg_recipe")
+
+
+class Pass3FinalDraftCompactInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    recipe_id: str
+    workbook_slug: str
+    source_hash: str
+    recipe_metadata: dict[str, Any]
+    extracted_ingredients: list[str] = Field(default_factory=list)
+    extracted_instructions: list[str] = Field(default_factory=list)
+
+    @field_validator("recipe_metadata", mode="before")
+    @classmethod
+    def _coerce_recipe_metadata(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "recipe_metadata")
 
 
 class Pass3FinalDraftOutput(BaseModel):

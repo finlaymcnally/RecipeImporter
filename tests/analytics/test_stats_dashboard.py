@@ -739,6 +739,8 @@ const payload = {
   ) || "",
   categorical_series_count: categoricalSeries.length,
   categorical_chart_type: String(categoricalChart.chart_type || ""),
+  categorical_title: String(categoricalChart.chart_title || ""),
+  categorical_subtitle: String(categoricalChart.chart_subtitle || ""),
   categorical_categories_count: (
     categoricalChart &&
     categoricalChart.x_axis &&
@@ -2797,6 +2799,8 @@ class TestRenderer:
         assert 'id="compare-control-toggle-second-set"' in html
         assert 'id="compare-control-chart-layout"' in html
         assert 'id="compare-control-combined-axis-mode"' in html
+        assert 'id="compare-control-workspace"' in html
+        assert 'id="compare-control-column-secondary"' in html
         assert 'id="compare-control-status"' in html
         assert 'id="compare-control-status-secondary"' in html
         assert 'id="compare-control-results"' in html
@@ -2952,6 +2956,18 @@ class TestRenderer:
         assert 'data-metric-tooltip-key="gold_unmatched"' in js
         assert 'data-metric-tooltip-key="quality_per_million_tokens"' in js
 
+    def test_compare_control_chart_styles_axis_titles_and_hides_placeholder_legend(
+        self, tmp_path
+    ):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js = (dash_dir / "assets" / "dashboard.js").read_text(encoding="utf-8")
+
+        assert 'fontSize: "1rem"' in js
+        assert 'next.title.margin = 18;' in js
+        assert 'legend: { enabled: compareControlChartLegendEnabled(series) },' in js
+        assert 'onlyName !== "All visible rows"' in js
+
     def test_dashboard_js_clamps_persisted_table_column_widths(self, tmp_path):
         dash_dir = tmp_path / "dash"
         render_dashboard(dash_dir, DashboardData())
@@ -3045,13 +3061,15 @@ class TestRenderer:
         assert result["numeric_chart_type"] == "scatter"
         assert result["numeric_series_count"] == 2
         assert result["numeric_point_total"] == 6
-        assert "numeric" in result["numeric_title"].lower()
-        assert "strict_accuracy" in result["numeric_subtitle"]
+        assert result["numeric_title"] == "Strict Accuracy vs All Token Use"
+        assert result["numeric_subtitle"] == "Raw comparison, split by Book"
         assert result["numeric_first_compare_value"] == pytest.approx(990)
         assert result["numeric_first_outcome_value"] == pytest.approx(0.60)
         assert result["numeric_first_split_label"] == "book_a.epub"
         assert result["categorical_chart_type"] == "bar"
         assert result["categorical_series_count"] == 2
+        assert result["categorical_title"] == "Average Strict Accuracy by Importer"
+        assert result["categorical_subtitle"] == "Raw comparison, split by Book"
         assert result["categorical_categories_count"] == 2
         assert result["categorical_point_total"] == 4
         assert result["categorical_first_series_unique_colors"] >= 2
@@ -3866,8 +3884,11 @@ class TestRenderer:
         assert "min-width: 0;" in previous_runs_subsection_block.group(1)
         assert ".compare-control-panel {" in css
         assert ".compare-control-global-actions {" in css
+        assert ".compare-control-workspace {" in css
+        assert ".compare-control-set-column {" in css
         assert ".compare-control-controls-split {" in css
         assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {" in css
+        assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-workspace {" in css
         assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {" in css
         assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-results-stack {" in css
         assert "#compare-control-panel-secondary {" in css

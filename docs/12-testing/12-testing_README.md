@@ -262,3 +262,16 @@ Current testing contracts reinforced:
 Known gotchas retained:
 - Split modules intentionally import shared non-test globals from base modules; copying dunder globals can trigger pytest import-file mismatch.
 - Browser/pixel harnesses are environment-sensitive and belong in the slow slice unless runtime profile changes materially.
+
+## 2026-03-06 merged understandings digest (default-policy assertions + runtime offenders)
+
+Current testing contracts reinforced:
+- Do not freeze mutable product policy into broad default-surface tests.
+  - `RunSettings` tests should assert serialization/sync contracts.
+  - CLI tests should assert explicit safe defaults only where the command contract is intentionally narrower (for example `labelstudio_benchmark`).
+- Interactive preset tests should compare against preset builders/harmonizers, not duplicated literal settings blobs.
+- Fast-suite runtime wins that are now part of the intended test shape:
+  - mock stage pipeline work when a test only needs output/report contract shape,
+  - force serial executor resolution in hot-path tests that do not exercise worker orchestration,
+  - isolate real EPUB/OCR/browser-wait coverage into explicit slow files,
+  - clamp or poll browser timing instead of relying on long fixed waits.

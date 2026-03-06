@@ -9,6 +9,7 @@ _PAGE_MARKER_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _HEADING_LINE_RE = re.compile(r"^[A-Z0-9][A-Z0-9 '&:/()\-]{2,80}$")
+_SPACED_FRACTION_RE = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _QUANTITY_START_RE = re.compile(
     r"(?<!\w)"
     r"(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])"
@@ -50,6 +51,7 @@ def normalize_pass2_evidence(
             text = _collapse_whitespace(raw_line)
             if not text:
                 continue
+            text = _normalize_numeric_slash_spacing(text)
             stats["input_line_count"] += 1
 
             if _is_heading_line(text, heading_level=heading_level):
@@ -171,8 +173,12 @@ def _split_quantity_item_join(text: str) -> list[str]:
     boundaries: list[int] = []
     for match in matches[1:]:
         candidate = match.start()
+        if candidate > 0 and text[candidate - 1] == "/":
+            continue
         left = text[:candidate].strip(" ;,|")
         right = text[candidate:].strip(" ;,|")
+        if left.endswith("/"):
+            continue
         if not _looks_like_ingredient_fragment(left):
             continue
         if not _looks_like_ingredient_fragment(right):
@@ -211,6 +217,11 @@ def _looks_like_ingredient_fragment(value: str) -> bool:
 
 def _collapse_whitespace(value: str) -> str:
     return " ".join(str(value).split()).strip()
+
+
+def _normalize_numeric_slash_spacing(value: str) -> str:
+    text = str(value or "")
+    return _SPACED_FRACTION_RE.sub(r"\1/\2", text)
 
 
 def _coerce_int(value: Any) -> int | None:

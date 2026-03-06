@@ -20,6 +20,8 @@ from cookimport.core.models import (
 )
 from cookimport.core.timing import TimingStats
 from cookimport.llm.codex_farm_orchestrator import (
+    COMPACT_PASS2_PIPELINE_ID,
+    COMPACT_PASS3_PIPELINE_ID,
     PASS1_PIPELINE_ID,
     PASS2_PIPELINE_ID,
     PASS3_PIPELINE_ID,
@@ -170,6 +172,8 @@ def _build_run_settings(
     failure_mode: str = "fail",
     pass3_skip_pass2_ok: bool = True,
     pass1_pattern_hints_enabled: bool = False,
+    pass2_pipeline: str = PASS2_PIPELINE_ID,
+    pass3_pipeline: str = PASS3_PIPELINE_ID,
 ) -> RunSettings:
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
@@ -182,12 +186,208 @@ def _build_run_settings(
             "codex_farm_failure_mode": failure_mode,
             "codex_farm_pass3_skip_pass2_ok": pass3_skip_pass2_ok,
             "codex_farm_pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
+            "codex_farm_pipeline_pass2": pass2_pipeline,
+            "codex_farm_pipeline_pass3": pass3_pipeline,
         }
     )
 
 
+def test_orchestrator_writes_compact_pass2_payload_and_reduces_bundle_size(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "TOAST"},
+        {"index": 2, "text": "1 slice bread"},
+        {"index": 3, "text": "1 tablespoon butter"},
+        {"index": 4, "text": "Toast the bread until golden."},
+        {"index": 5, "text": "Spread with butter and serve hot."},
+    ]
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {"name": "Toast"},
+                "extracted_ingredients": ["1 slice bread", "1 tablespoon butter"],
+                "extracted_instructions": [
+                    "Toast the bread until golden.",
+                    "Spread with butter and serve hot.",
+                ],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            COMPACT_PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {"name": "Toast"},
+                "extracted_ingredients": ["1 slice bread", "1 tablespoon butter"],
+                "extracted_instructions": [
+                    "Toast the bread until golden.",
+                    "Spread with butter and serve hot.",
+                ],
+                "field_evidence": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    legacy_apply = run_codex_farm_recipe_pipeline(
+        conversion_result=result.model_copy(deep=True),
+        run_settings=_build_run_settings(tmp_path / "legacy-pack"),
+        run_root=tmp_path / "legacy-run",
+        workbook_slug="book",
+        runner=runner,
+    )
+    compact_apply = run_codex_farm_recipe_pipeline(
+        conversion_result=result.model_copy(deep=True),
+        run_settings=_build_run_settings(
+            tmp_path / "compact-pack",
+            pass2_pipeline=COMPACT_PASS2_PIPELINE_ID,
+        ),
+        run_root=tmp_path / "compact-run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    legacy_input_path = next((legacy_apply.llm_raw_dir / "pass2_schemaorg" / "in").glob("*.json"))
+    compact_input_path = next((compact_apply.llm_raw_dir / "pass2_schemaorg" / "in").glob("*.json"))
+    legacy_payload = json.loads(
+        legacy_input_path.read_text(encoding="utf-8")
+    )
+    compact_payload = json.loads(
+        compact_input_path.read_text(encoding="utf-8")
+    )
+
+    assert "canonical_text" in legacy_payload
+    assert "normalized_evidence_text" in legacy_payload
+    assert "evidence_rows" not in legacy_payload
+    assert "evidence_rows" in compact_payload
+    assert "canonical_text" not in compact_payload
+    assert "normalized_evidence_text" not in compact_payload
+    assert compact_payload["evidence_rows"][0] == [1, "TOAST"]
+    legacy_bytes = len(json.dumps(legacy_payload, sort_keys=True).encode("utf-8"))
+    compact_bytes = len(json.dumps(compact_payload, sort_keys=True).encode("utf-8"))
+    assert compact_bytes < legacy_bytes * 0.65
 
 
+def test_orchestrator_writes_compact_pass3_payload_and_drops_duplicate_schema_lists(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "TOAST"},
+        {"index": 2, "text": "1 slice bread"},
+        {"index": 3, "text": "1 tablespoon butter"},
+        {"index": 4, "text": "Toast the bread until golden."},
+        {"index": 5, "text": "Spread with butter and serve hot."},
+    ]
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                    "recipeYield": "2 servings",
+                    "recipeIngredient": [
+                        "1 slice bread",
+                        "1 tablespoon butter",
+                    ],
+                    "recipeInstructions": [
+                        "Toast the bread until golden.",
+                        "Spread with butter and serve hot.",
+                    ],
+                },
+                "extracted_ingredients": ["1 slice bread", "1 tablespoon butter"],
+                "extracted_instructions": [
+                    "Toast the bread until golden.",
+                    "Spread with butter and serve hot.",
+                ],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {"instruction": "Toast the bread until golden.", "ingredient_lines": []}
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+            COMPACT_PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {"instruction": "Toast the bread until golden.", "ingredient_lines": []}
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    legacy_apply = run_codex_farm_recipe_pipeline(
+        conversion_result=result.model_copy(deep=True),
+        run_settings=_build_run_settings(
+            tmp_path / "legacy-pass3-pack",
+            pass3_skip_pass2_ok=False,
+        ),
+        run_root=tmp_path / "legacy-pass3-run",
+        workbook_slug="book",
+        runner=runner,
+    )
+    compact_apply = run_codex_farm_recipe_pipeline(
+        conversion_result=result.model_copy(deep=True),
+        run_settings=_build_run_settings(
+            tmp_path / "compact-pass3-pack",
+            pass3_skip_pass2_ok=False,
+            pass3_pipeline=COMPACT_PASS3_PIPELINE_ID,
+        ),
+        run_root=tmp_path / "compact-pass3-run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    legacy_input_path = next((legacy_apply.llm_raw_dir / "pass3_final" / "in").glob("*.json"))
+    compact_input_path = next((compact_apply.llm_raw_dir / "pass3_final" / "in").glob("*.json"))
+    legacy_payload = json.loads(
+        legacy_input_path.read_text(encoding="utf-8")
+    )
+    compact_payload = json.loads(
+        compact_input_path.read_text(encoding="utf-8")
+    )
+
+    assert "schemaorg_recipe" in legacy_payload
+    assert "recipeIngredient" in legacy_payload["schemaorg_recipe"]
+    assert "recipeInstructions" in legacy_payload["schemaorg_recipe"]
+    assert "schemaorg_recipe" not in compact_payload
+    assert "recipe_metadata" in compact_payload
+    assert compact_payload["recipe_metadata"]["name"] == "Toast"
+    assert "recipeIngredient" not in compact_payload["recipe_metadata"]
+    assert "recipeInstructions" not in compact_payload["recipe_metadata"]
+    legacy_bytes = len(json.dumps(legacy_payload, sort_keys=True).encode("utf-8"))
+    compact_bytes = len(json.dumps(compact_payload, sort_keys=True).encode("utf-8"))
+    assert compact_bytes < legacy_bytes * 0.85
 
 
 def test_orchestrator_runs_pass3_for_low_risk_pass2_ok_when_policy_disabled_in_run_settings(
@@ -1320,9 +1520,6 @@ def test_orchestrator_recipe_level_failures_fallback_without_crashing(tmp_path: 
     assert apply_result.final_overrides_by_recipe_id == {}
     assert len(apply_result.updated_conversion_result.recipes) == 1
     assert apply_result.llm_report["counts"]["pass2_errors"] == 1
-
-
-
 
 
 

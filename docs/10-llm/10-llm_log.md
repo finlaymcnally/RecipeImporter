@@ -2379,3 +2379,59 @@ Gap-state findings captured at this point:
 
 Anti-loop note:
 - Treat this as timestamped midpoint evidence. Follow-up compare-root + `toast` fix landed in later docs (`2026-03-04_11.33.00`) and should be checked before reopening these exact failure threads.
+
+## 2026-03-05 to 2026-03-06 migrated understanding ledger (Codex decision, telemetry, prompt-budget seams)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-05_22.08.22-hidden-line-role-token-estimate.md`
+- `docs/understandings/2026-03-05_22.12.11-hidden-line-role-billing-gap.md`
+- `docs/understandings/2026-03-05_22.24.41-problem-1-safe-defaults-context.md`
+- `docs/understandings/2026-03-05_22.25.41-line-role-telemetry-gap.md`
+- `docs/understandings/2026-03-05_22.43.32-codexfarm-explicit-decision-compromise.md`
+- `docs/understandings/2026-03-05_23.01.12-token-reduction-local-seams.md`
+- `docs/understandings/2026-03-04_21.10.10-codexfarm-thinking-trace-surface-map.md`
+- `docs/understandings/2026-03-04_21.19.48-prompt-sample-thinking-trace-section.md`
+- `docs/understandings/2026-03-05_23.06.10-codexfarm-reasoning-trace-upstream-dependency.md`
+- `docs/understandings/2026-03-05_23.06.16-line-role-prompt-provenance-seams.md`
+- `docs/understandings/2026-03-05_23.09.39-profixes-local-context-seams.md`
+- `docs/understandings/2026-03-05_23.12.00-execplan-token-reduction-shape.md`
+- `docs/understandings/2026-03-05_23.51.27-token-reduction-implementation-seams.md`
+- `docs/understandings/2026-03-05_23.28.00-codex-decision-current-architecture.md`
+- `docs/understandings/2026-03-05_23.58.30-codex-decision-implementation-seams.md`
+- `docs/understandings/2026-03-06_00.20.00-codex-decision-review-seams.md`
+
+Problem cluster captured:
+- Codex policy, telemetry, and prompt-budget work was drifting across plans, runtime helpers, analytics labels, and follow-up tooling. The main risk was treating one layer as the whole system and then fixing the wrong seam.
+
+Durable decisions and findings:
+- Hidden line-role usage was real enough to matter, but repo-local prompt-byte estimates are only lower-to-mid billing bounds. They prove missing telemetry, not exact account truth.
+- The smallest truthful telemetry fix was to persist line-role usage at the source. That produced `prediction-run/line-role-pipeline/telemetry_summary.json`; downstream reporting should aggregate it instead of inferring spend from prompt bytes forever.
+- Safe-default work had to flip all three live-Codex knobs together (`llm_recipe_pipeline`, `line_role_pipeline`, `atomic_block_splitter`). Partial default cleanup would still leave surprise Codex surfaces active.
+- The practical repo compromise for Codex safety is one shared decision layer that makes silent Codex impossible:
+  - command-boundary validation,
+  - explicit decision metadata in manifests,
+  - shared runtime classification reused by analytics.
+- Current architecture must be read as three aligned layers, not one profile switch:
+  - interactive top-tier family,
+  - paired benchmark variant contract,
+  - analytics/runtime classification.
+- `cookimport/config/codex_decision.py` became the shipped seam because it can sit below interactive menus and above artifact/report consumers at the same time.
+- Prompt-budget reduction work should target actual local duplication:
+  - pass2 still carries duplicated evidence payloads,
+  - pass3 duplication is now mostly structured-content overlap,
+  - line-role already has local telemetry, so the missing artifact is unified prompt-budget reporting rather than new capture plumbing,
+  - `prediction-run/prompt_budget_summary.json` is the repo-owned merge point because prediction-run generation already has both codex-farm pass telemetry and line-role telemetry in hand.
+- For provenance/follow-up work, line-role prompt truth lives in `prediction-run/line-role-pipeline/prompts/*.txt|*.json` plus `extracted_archive.json`, not in recipe `full_prompt_log.jsonl`.
+- Prompt-sample export now records trace metadata and reasoning excerpts when they exist, but zero-count reasoning traces should be treated as upstream data availability, not exporter failure.
+- Missing prompt-sample thinking traces are usually upstream trace-classification failures, not recipeimport exporter bugs. If `.trace.json` has zero reasoning events, fix CodexFarm capture first.
+- The ProFixes and token-reduction plans had to be rewritten against real repo seams (`RunSettings`, codex decision, labelstudio ingest, CLI helpers, existing line-role guardrails) rather than inventing a second config/orchestrator stack.
+
+Open risks retained:
+- `build_run_settings(...)` was a historically dangerous bypass because constructor/helper defaults can drift from `RunSettings()` even when the base model is safe.
+- Review pass found two runtime traps worth keeping visible:
+  - `labelstudio_benchmark(...)` had a variable-name mismatch around non-plan decision metadata,
+  - `labelstudio-import --prelabel` is a distinct Codex-backed path and can bypass recipe/line-role decision accounting if policy work forgets to review it.
+
+Anti-loop notes:
+- If a run looks mysteriously Codex-backed, inspect decision metadata and classifier outputs before adding another approval flag.
+- If token totals disagree with local prompt logs, remember prompt bytes are evidence of hidden work, not a perfect replacement for real telemetry.

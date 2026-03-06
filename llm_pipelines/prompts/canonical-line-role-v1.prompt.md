@@ -64,5 +64,8 @@ Hard output rules:
 3) Each `label` must be one of that target's `candidate_labels`.
 4) No markdown, no commentary, no extra keys.
 
-Targets (JSONL):
-{{TARGETS_JSONL}}
+Target row format:
+{{TARGET_ROW_FORMAT}}
+
+Targets:
+{{TARGETS_ROWS}}

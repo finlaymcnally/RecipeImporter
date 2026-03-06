@@ -26,7 +26,10 @@ Remember to do source .venv/bin/activate
 Behavior differences:
 
 - `cookimport` with no subcommand enters interactive mode.
-- `cf-debug` is a non-interactive follow-up/debugging CLI for existing benchmark `upload_bundle_v1/` directories. It currently exposes `select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `export-page-context`, `export-uncertainty`, `pack`, and `ablate`.
+- `cf-debug` is a non-interactive follow-up/debugging CLI for existing benchmark `upload_bundle_v1/` directories. Its high-level iterative workflow is:
+  - `request-template`: create a manifest you can fill with the web AI's asks.
+  - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
+  - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
 - `import` / `C3import`:
   - no args: runs `stage(path=data/input)` immediately (non-interactive)
   - one positive integer arg: treated as `--limit` and runs `stage(path=data/input, limit=N)`
@@ -203,6 +206,7 @@ Config keys and defaults:
 - `llm_recipe_pipeline` (default `off`)
 - `llm_knowledge_pipeline` (default `off`)
 - `llm_tags_pipeline` (default `off`)
+- `labelstudio-import --prelabel` is also a Codex-backed path and now requires `--allow-codex` even if `llm_recipe_pipeline=off`
 - `codex_farm_cmd` (default `codex-farm`)
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
@@ -858,6 +862,8 @@ Behavior note:
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
 - Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
 - Execution mode is configurable via `--execution-mode legacy|pipelined|predict-only` (default `legacy`).
+- Codex execution policy is configurable via `--codex-execution-policy execute|plan` (default `execute`).
+  - `plan` is offline-only, writes a zero-token Codex preview artifact, and exits before extraction/eval/upload.
 - Single-offline split-cache controls:
   - `--single-offline-split-cache-mode off|auto` toggles split cache usage.
   - `--single-offline-split-cache-dir PATH` overrides cache root.
@@ -896,6 +902,7 @@ Options:
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
+- `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` requires `--no-upload` and writes a zero-token Codex preview artifact instead of running extraction/eval/upload.
 - `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
 - `--single-offline-split-cache-dir PATH`: optional root for single-offline split-cache entries.
 - `--single-offline-split-cache-force / --no-single-offline-split-cache-force` (default disabled): force split-cache rebuild for the current run.

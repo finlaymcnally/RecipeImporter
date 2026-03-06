@@ -418,3 +418,34 @@ Durable outcomes:
 Verification evidence retained:
 - `. .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/cli/test_cli_output_structure_fast.py tests/cli/test_c3imp_interactive_menu.py`
 - Result: `37 passed`
+
+## 2026-03-04 to 2026-03-05 migrated understanding ledger (runtime offender remediation + policy-safe assertions)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_12.38.59-pytest-runtime-offender-remediation.md`
+- `docs/understandings/2026-03-05_22.00.42-test-suite-impact-audit-verification.md`
+- `docs/understandings/2026-03-05_22.29.01-default-surface-test-cleanup.md`
+- `docs/understandings/2026-03-05_22.35.25-c3imp-preset-test-cleanup.md`
+
+Problem cluster captured:
+- Some hot tests were still paying real orchestration/browser wait costs, while other tests were overfitting transient product policy instead of asserting durable contracts.
+
+Durable decisions and outcomes:
+- Biggest runtime wins came from removing real stage orchestration where tests only needed output/report contract shape. Mocked fast-stage helpers and serial executor forcing are now part of the intended fast-test toolbox.
+- Slow-path integrations remain intentionally isolated:
+  - real EPUB backend checks,
+  - OCR-heavy PDF checks,
+  - browser pixel-overflow dashboard checks.
+- Low-level `COOKIMPORT_ALLOW_LLM` kill-switch concerns were partially overstated in audit work because pytest already sets that env var and many cited tests use fake runners or monkeypatched subprocess seams rather than live Codex.
+- Default-policy cleanup rule:
+  - broad `RunSettings` tests should assert serialization/current-model sync,
+  - command-specific tests can still assert explicit safe defaults where the product contract really is narrower.
+- `c3imp` preset tests stay useful when they compare against preset builders/harmonizers rather than hardcoded copied settings blobs.
+
+Verification preserved:
+- `tests/llm/test_run_settings.py` + `tests/cli/test_cli_output_structure_fast.py`: cleanup pass kept those files green while removing policy snapshot assertions.
+- `tests/cli/test_c3imp_interactive_menu.py` stayed green after switching preset assertions to builder/harmonizer comparison.
+
+Anti-loop notes:
+- If a test breaks only because product defaults changed, first ask whether the test is asserting policy or contract.
+- If a fast test starts paying worker/bootstrap cost again, inspect whether it really needs orchestration fidelity or only artifact-shape fidelity.

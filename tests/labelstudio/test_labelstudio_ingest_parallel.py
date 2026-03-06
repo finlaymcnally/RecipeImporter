@@ -38,6 +38,97 @@ def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
     assert _normalize_llm_recipe_pipeline("codex-farm-3pass-v1") == "codex-farm-3pass-v1"
 
 
+def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, *_args, **_kwargs):
+            raise AssertionError("convert should not run in codex plan mode")
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        codex_execution_policy="plan",
+    )
+
+    run_root = Path(result["run_root"])
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    run_manifest = json.loads((run_root / "run_manifest.json").read_text(encoding="utf-8"))
+    plan_payload = json.loads(
+        (run_root / "codex_execution_plan.json").read_text(encoding="utf-8")
+    )
+
+    assert result["codex_execution_plan_only"] is True
+    assert manifest["codex_execution_plan_only"] is True
+    assert manifest["tasks_jsonl_status"] == "skipped_plan_only"
+    assert run_manifest["artifacts"]["codex_execution_plan_json"] == "codex_execution_plan.json"
+    assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
+    assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
+    assert plan_payload["plan_only"] is True
+    assert plan_payload["codex_surfaces"] == ["recipe"]
+
+
+def test_generate_pred_run_artifacts_plan_mode_tracks_prelabel_codex_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, *_args, **_kwargs):
+            raise AssertionError("convert should not run in codex plan mode")
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash",
+    )
+
+    result = generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        prelabel=True,
+        codex_execution_policy="plan",
+    )
+
+    run_root = Path(result["run_root"])
+    run_manifest = json.loads((run_root / "run_manifest.json").read_text(encoding="utf-8"))
+    plan_payload = json.loads(
+        (run_root / "codex_execution_plan.json").read_text(encoding="utf-8")
+    )
+
+    assert result["codex_execution_plan_only"] is True
+    assert run_manifest["run_config"]["prelabel_enabled"] is True
+    assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["prelabel"]
+    assert plan_payload["codex_surfaces"] == ["prelabel"]
+
+
 def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:
     path = Path("sample.pdf")
     monkeypatch.setattr(
@@ -981,6 +1072,7 @@ def test_generate_pred_run_artifacts_reports_prelabel_task_progress(
         output_dir=output_dir,
         pipeline="fake",
         prelabel=True,
+        allow_codex=True,
         prelabel_granularity="span",
         prelabel_workers=2,
         progress_callback=progress_messages.append,
@@ -1123,6 +1215,7 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
         output_dir=output_dir,
         pipeline="fake",
         prelabel=True,
+        allow_codex=True,
         prelabel_workers=1,
         prelabel_allow_partial=True,
         progress_callback=progress_messages.append,
@@ -2170,6 +2263,7 @@ def test_run_labelstudio_import_falls_back_to_post_import_annotations(
         sample=None,
         prelabel=True,
         prelabel_upload_as="annotations",
+        allow_codex=True,
         allow_labelstudio_write=True,
     )
 
@@ -2234,6 +2328,7 @@ def test_run_labelstudio_import_can_upload_prelabels_as_predictions(
         sample=None,
         prelabel=True,
         prelabel_upload_as="predictions",
+        allow_codex=True,
         allow_labelstudio_write=True,
     )
 

@@ -22,9 +22,21 @@ EXPECTED_PIPELINES = {
         "schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
         "required_keys": {"bundle_version", "recipe_id"},
     },
+    "recipe.schemaorg.compact.v1": {
+        "pipeline_file": "recipe.schemaorg.compact.v1.json",
+        "prompt_path": "prompts/recipe.schemaorg.compact.v1.prompt.md",
+        "schema_path": "schemas/recipe.schemaorg.v1.output.schema.json",
+        "required_keys": {"bundle_version", "recipe_id"},
+    },
     "recipe.final.v1": {
         "pipeline_file": "recipe.final.v1.json",
         "prompt_path": "prompts/recipe.final.v1.prompt.md",
+        "schema_path": "schemas/recipe.final.v1.output.schema.json",
+        "required_keys": {"bundle_version", "recipe_id"},
+    },
+    "recipe.final.compact.v1": {
+        "pipeline_file": "recipe.final.compact.v1.json",
+        "prompt_path": "prompts/recipe.final.compact.v1.prompt.md",
         "schema_path": "schemas/recipe.final.v1.output.schema.json",
         "required_keys": {"bundle_version", "recipe_id"},
     },

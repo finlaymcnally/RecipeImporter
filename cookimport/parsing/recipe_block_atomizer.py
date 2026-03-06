@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 from pydantic import BaseModel, ConfigDict, Field
 
 _WHITESPACE_RE = re.compile(r"\s+")
+_SPACED_FRACTION_RE = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
 _NOTE_PREFIX_RE = re.compile(r"^\s*note\s*:\s*", re.IGNORECASE)
 _YIELD_PREFIX_RE = re.compile(
     r"^\s*(?:makes|serves?|servings|yields?)\b",
@@ -216,7 +217,8 @@ def _normalize_atomic_block_splitter(value: str) -> str:
 
 
 def _normalize_text(text: str) -> str:
-    return _WHITESPACE_RE.sub(" ", text.replace("\r", " ").replace("\n", " ")).strip()
+    normalized = _WHITESPACE_RE.sub(" ", text.replace("\r", " ").replace("\n", " ")).strip()
+    return _SPACED_FRACTION_RE.sub(r"\1/\2", normalized)
 
 
 def _split_block_text(text: str) -> list[str]:

@@ -77,6 +77,9 @@ Report/model plumbing:
 ## Policy boundary (current behavior)
 
 - `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1` without env-gate coercion.
+- `cookimport/config/codex_decision.py` now carries both surface classification and execution-policy metadata:
+  - command decisions still enforce explicit approval in execute mode,
+  - prediction/benchmark plan mode writes `codex_execution_plan.json` without live Codex calls.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
 - Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
@@ -235,6 +238,35 @@ Report/model plumbing:
 Enable with:
 
 - `llm_knowledge_pipeline=codex-farm-knowledge-v1`
+
+## 2026-03-06 merged understandings digest (Codex decision + line-role telemetry)
+
+Current LLM contracts reinforced:
+- Codex decision logic is layered and must stay aligned across three surfaces:
+  - interactive top-tier profile selection,
+  - paired benchmark variant contracts,
+  - analytics/runtime classification persisted into run-config artifacts.
+- `cookimport/config/codex_decision.py` is the shared boundary:
+  - command-entry validation,
+  - explicit decision metadata stamping,
+  - runtime surface classification reused by analytics.
+- Anti-loop note on defaults:
+  - `RunSettings()` is now safe/off,
+  - if a command still behaves Codex-on by default, inspect constructor/helper bypasses and command-boundary validators before changing the base model again.
+- Line-role telemetry is now captured locally through `prediction-run/line-role-pipeline/telemetry_summary.json`; the remaining gap is unified reporting, not raw telemetry capture.
+- Prompt/provenance surfaces for line-role and prompt-budget work are:
+  - `prediction-run/line-role-pipeline/prompts/prompt_*.txt`
+  - `prediction-run/line-role-pipeline/prompts/response_*.txt`
+  - `prediction-run/line-role-pipeline/prompts/parsed_*.json`
+  - `prediction-run/line-role-pipeline/extracted_archive.json`
+- Prompt-budget reduction work should target:
+  - unified prompt-budget summary artifacts across recipe passes plus line-role,
+  - pass2 duplicate evidence payloads,
+  - pass3 duplicated structured content rather than already-removed raw block windows.
+  - pipeline-id-based compaction for pass2/pass3 and a line-role prompt-format selector are the intended rollout seams; new global prompt-mode settings are unnecessary.
+- Separate Codex-backed surface reminder:
+  - `labelstudio-import --prelabel` is not the same surface as recipe/line-role run-settings pipelines and needs its own approval/metadata review whenever Codex decision policy changes.
+- Prompt-sample thinking traces are only as good as upstream trace capture. If trace files exist but `reasoning_event_count` is zero, recipeimport should report the absence rather than fabricate excerpts.
 - `codex_farm_pipeline_pass4_knowledge`
 - `codex_farm_knowledge_context_blocks`
 

@@ -17,7 +17,7 @@ Agent onboarding/SOP for QualitySuite lives in `docs/07-bench/qualitysuite-agent
 Benchmarking in this repo covers three paths:
 - `cookimport bench ...` (offline speed/quality/eval workflows)
 - `cookimport labelstudio-benchmark` (single-run benchmark primitive also reused by interactive benchmark flows)
-- `cf-debug ...` (deterministic follow-up tooling that reads an existing `upload_bundle_v1/` and emits selectors, fact-only case packets, provenance audits, page-context windows, uncertainty slices, follow-up packs, and ablation matrices)
+- `cf-debug ...` (deterministic follow-up tooling for the post-triage loop where an external/web AI already has `upload_bundle_v1`, asks for more evidence, and you answer with a new `followup_dataN/` packet built from richer local run artifacts plus row-locator references back into the base bundle)
 
 Current scoring surfaces:
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels.
@@ -67,6 +67,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
+- `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
@@ -74,6 +75,10 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
+- `--codex-execution-policy plan` is the zero-token preview path for single-run Codex-backed benchmark settings:
+  - requires `--no-upload`,
+  - does not run extraction/eval/live Codex,
+  - writes `codex_execution_plan.json` inside the prediction-run root and links it from both prediction-run and benchmark `run_manifest.json`.
 - When codex benchmark runs omit explicit reasoning effort, benchmark metadata backfills a concrete effort from Codex config/model-cache defaults so benchmark CSV/runtime rows retain both model and effort when available.
 - `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=1` and
   `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown
@@ -188,6 +193,25 @@ Generated roots:
 - `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
 - Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, and `line-role-pipeline/extracted_archive.json`.
+
+## 2026-03-06 merged understandings digest (follow-up/debug/reuse seams)
+
+Current benchmark contracts reinforced:
+- `upload_bundle_v1` is the base reviewer handoff. Follow-up work should produce additive `followup_dataN/` packets keyed by a request manifest, not replacement bundles.
+- Deterministic follow-up tooling should reuse the existing bundle/export seam:
+  - builder: `scripts/benchmark_cutdown_for_external_ai.py::build_upload_bundle_for_existing_output(...)`
+  - call site: `cookimport/cli.py::_write_benchmark_upload_bundle(...)`
+- Oracle upload contract is file-based, not directory/glob-based:
+  - pass the three concrete bundle files individually,
+  - keep recipeimport's local preview fallback for oversized dry-run payloads.
+- Benchmark compare/debug anti-loop rules:
+  - canonical-text evaluate-only reruns via `--predictions-in` are the cheapest way to recheck gate failures,
+  - compare debug-artifact checks can fail on stale repo-relative artifact paths even when files exist on disk, so inspect artifact-key resolution before rerunning expensive prediction work.
+- Interactive single-profile shared-spinner mode should suppress nested benchmark summaries and per-run dashboard-refresh prints, then perform one deferred dashboard refresh after the batch, otherwise PTY output interleaves and the outer live panel becomes unreadable.
+- Token telemetry can remain permanently unknown for fallback/timeout runs if the prediction artifacts never captured process telemetry. Backfill is only truthful when manifest or line-role telemetry artifacts actually exist.
+- Reuse/cache identity should stay prediction-shaped:
+  - runtime-only knobs should not fragment all-method reuse keys,
+  - line-role cache identity should stay narrower than full `RunSettings.stable_hash()` because candidate text/context is already part of the fingerprint.
 
 ### 3.2 Gold artifacts
 

@@ -235,3 +235,23 @@ def test_atomize_blocks_respects_off_splitter_mode() -> None:
 
     assert len(candidates) == len(blocks)
     assert "TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER" in candidates[0].text
+
+
+def test_atomize_blocks_normalizes_spaced_fraction_yield_lines() -> None:
+    candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:yield:0",
+                "block_index": 0,
+                "text": "Makes about 1 / 2 cup 1 tablespoon lemon juice",
+            }
+        ],
+        recipe_id="recipe:0",
+        within_recipe_span=True,
+        atomic_block_splitter="atomic-v1",
+    )
+
+    assert [candidate.text for candidate in candidates] == [
+        "Makes about 1/2 cup",
+        "1 tablespoon lemon juice",
+    ]

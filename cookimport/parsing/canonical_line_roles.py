@@ -22,7 +22,10 @@ from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_LABELS,
     normalize_freeform_label,
 )
-from cookimport.llm.canonical_line_role_prompt import build_canonical_line_role_prompt
+from cookimport.llm.canonical_line_role_prompt import (
+    LineRolePromptFormat,
+    build_canonical_line_role_prompt,
+)
 from cookimport.llm.codex_exec import default_codex_exec_cmd, run_codex_json_prompt
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
@@ -141,6 +144,7 @@ _LINE_ROLE_OUTSIDE_SPAN_LOW_CONF_ESCALATION_ENV = (
     "COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION"
 )
 _DO_NO_HARM_SCHEMA_VERSION = "line_role_do_no_harm.v1"
+_LINE_ROLE_GUARDRAIL_SCHEMA_VERSION = "line_role_guardrail_report.v1"
 _DO_NO_HARM_TITLE_VARIANT_PARTIAL_THRESHOLD = 2
 _DO_NO_HARM_INSTR_ING_NO_EVIDENCE_PARTIAL_THRESHOLD = 4
 _DO_NO_HARM_TOTAL_PROMOTION_FULL_THRESHOLD = 8
@@ -157,6 +161,7 @@ _LINE_ROLE_CODEX_RETRY_BASE_SECONDS = 1.5
 _LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v2"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
+_LINE_ROLE_PROMPT_FORMAT_ENV = "COOKIMPORT_LINE_ROLE_PROMPT_FORMAT"
 
 
 class CanonicalLineRolePrediction(BaseModel):
@@ -180,6 +185,7 @@ class _CodexBatchTask:
     prompt_index: int
     candidates: tuple[AtomicLineCandidate, ...]
     allowed_by_index: dict[int, list[str]]
+    prompt_format: LineRolePromptFormat
 
 
 @dataclass(frozen=True)
@@ -305,6 +311,7 @@ def label_atomic_lines(
     if mode == "codex-line-role-v1" and unresolved:
         log_state = _PromptLogState(artifact_root=artifact_root)
         batch_tasks: list[_CodexBatchTask] = []
+        prompt_format = _resolve_line_role_prompt_format()
         for batch in _batch(unresolved, max(1, int(codex_batch_size))):
             batch_allowed = {
                 candidate.atomic_index: _candidate_allowlist(
@@ -318,6 +325,7 @@ def label_atomic_lines(
                     prompt_index=log_state.next_index(),
                     candidates=tuple(batch),
                     allowed_by_index=batch_allowed,
+                    prompt_format=prompt_format,
                 )
             )
 
@@ -396,17 +404,29 @@ def label_atomic_lines(
             by_atomic_index=by_atomic_index,
         )
     if mode == "codex-line-role-v1":
-        sanitized_by_index, do_no_harm_diagnostics, do_no_harm_changed_rows = (
-            _apply_do_no_harm_arbitration(
-                ordered_candidates=ordered,
-                candidate_predictions=sanitized_by_index,
-                baseline_predictions=sanitized_baseline_by_index,
+        guardrail_mode = _line_role_guardrail_mode(settings)
+        guardrail_diagnostics: dict[str, Any] | None = None
+        guardrail_changed_rows: list[dict[str, Any]] = []
+        if guardrail_mode != "off":
+            enforced_by_index, guardrail_diagnostics, guardrail_changed_rows = (
+                _apply_do_no_harm_arbitration(
+                    ordered_candidates=ordered,
+                    candidate_predictions=sanitized_by_index,
+                    baseline_predictions=sanitized_baseline_by_index,
+                )
             )
+            if guardrail_mode == "enforce":
+                sanitized_by_index = enforced_by_index
+        guardrail_report = _build_line_role_guardrail_report(
+            guardrail_mode=guardrail_mode,
+            diagnostics=guardrail_diagnostics,
+            changed_rows=guardrail_changed_rows,
         )
-        _write_do_no_harm_artifacts(
+        _write_line_role_guardrail_artifacts(
             artifact_root=artifact_root,
-            diagnostics=do_no_harm_diagnostics,
-            changed_rows=do_no_harm_changed_rows,
+            report=guardrail_report,
+            diagnostics=guardrail_diagnostics,
+            changed_rows=guardrail_changed_rows,
         )
         _write_line_role_telemetry_summary(
             artifact_root=artifact_root,
@@ -418,6 +438,49 @@ def label_atomic_lines(
         predictions=sanitized,
     )
     return sanitized
+
+
+def _line_role_guardrail_mode(settings: RunSettings) -> Literal["off", "preview", "enforce"]:
+    raw_value = getattr(settings, "line_role_guardrail_mode", "enforce")
+    raw = (
+        str(raw_value.value).strip().lower()
+        if hasattr(raw_value, "value")
+        else str(raw_value or "").strip().lower()
+    )
+    if raw in {"", "enforce"}:
+        return "enforce"
+    if raw in {"off", "preview"}:
+        return raw  # type: ignore[return-value]
+    return "enforce"
+
+
+def _build_line_role_guardrail_report(
+    *,
+    guardrail_mode: Literal["off", "preview", "enforce"],
+    diagnostics: dict[str, Any] | None,
+    changed_rows: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    decision_payload = (
+        dict(diagnostics.get("decision") or {})
+        if isinstance(diagnostics, dict)
+        else {}
+    )
+    if guardrail_mode == "off":
+        decision_payload.setdefault("scope", "disabled")
+        decision_payload.setdefault("reasons", [])
+        decision_payload.setdefault("changed_rows", 0)
+    applied = bool(guardrail_mode == "enforce" and changed_rows)
+    preview_only = guardrail_mode == "preview"
+    return {
+        "schema_version": _LINE_ROLE_GUARDRAIL_SCHEMA_VERSION,
+        "guardrail_name": "line_role_do_no_harm",
+        "mode": guardrail_mode,
+        "preview_only": preview_only,
+        "applied": applied,
+        "would_change_rows": len(changed_rows),
+        "decision": decision_payload,
+        "diagnostics": diagnostics or {},
+    }
 
 
 def _apply_do_no_harm_arbitration(
@@ -654,6 +717,35 @@ def _do_no_harm_changed_row(
     }
 
 
+def _write_line_role_guardrail_artifacts(
+    *,
+    artifact_root: Path | None,
+    report: dict[str, Any],
+    diagnostics: dict[str, Any] | None,
+    changed_rows: Sequence[dict[str, Any]],
+) -> None:
+    if artifact_root is None:
+        return
+    pipeline_dir = artifact_root / "line-role-pipeline"
+    pipeline_dir.mkdir(parents=True, exist_ok=True)
+    guardrail_report_path = pipeline_dir / "guardrail_report.json"
+    guardrail_report_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    guardrail_changed_rows_path = pipeline_dir / "guardrail_changed_rows.jsonl"
+    guardrail_changed_rows_path.write_text(
+        "".join(json.dumps(dict(row), sort_keys=True) + "\n" for row in changed_rows),
+        encoding="utf-8",
+    )
+    if diagnostics is not None:
+        _write_do_no_harm_artifacts(
+            artifact_root=artifact_root,
+            diagnostics=diagnostics,
+            changed_rows=changed_rows,
+        )
+
+
 def _write_do_no_harm_artifacts(
     *,
     artifact_root: Path | None,
@@ -704,6 +796,13 @@ def _line_role_progress_interval(total_tasks: int) -> int:
     return max(1, (total + _LINE_ROLE_PROGRESS_MAX_UPDATES - 1) // _LINE_ROLE_PROGRESS_MAX_UPDATES)
 
 
+def _resolve_line_role_prompt_format() -> LineRolePromptFormat:
+    raw_value = str(os.getenv(_LINE_ROLE_PROMPT_FORMAT_ENV, "legacy") or "").strip().lower()
+    if raw_value == "compact_v1":
+        return "compact_v1"
+    return "legacy"
+
+
 def _run_codex_batch(
     *,
     task: _CodexBatchTask,
@@ -720,7 +819,10 @@ def _run_codex_batch(
         )
         for candidate in batch
     ]
-    prompt_text = build_canonical_line_role_prompt(prompt_targets)
+    prompt_text = build_canonical_line_role_prompt(
+        prompt_targets,
+        prompt_format=task.prompt_format,
+    )
     prompt_path = log_state.prompt_path(task.prompt_index)
     if prompt_path is not None:
         prompt_path.write_text(prompt_text, encoding="utf-8")

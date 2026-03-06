@@ -1,0 +1,15 @@
+{
+  "pipeline_id": "recipe.final.compact.v1",
+  "description": "Convert compact recipe metadata plus extractive lines into final RecipeDraftV1 payloads.",
+  "prompt_template_path": "prompts/recipe.final.compact.v1.prompt.md",
+  "output_schema_path": "schemas/recipe.final.v1.output.schema.json",
+  "input_glob_default": "**/*.json",
+  "output_ext": ".json",
+  "prompt_input_mode": "inline",
+  "codex_model": "gpt-5.3-codex-spark",
+  "codex_sandbox": "read-only",
+  "codex_ask_for_approval": "never",
+  "codex_web_search": "disabled",
+  "codex_timeout_seconds": 600,
+  "codex_cd_mode": "asset_root"
+}

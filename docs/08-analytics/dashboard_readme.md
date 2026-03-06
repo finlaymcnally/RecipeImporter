@@ -191,7 +191,7 @@ Notes:
   - Compare/control now supports dual comparison sets at once:
     - `Set 2` expands from the right; when open, Set 1 and Set 2 controls split left/right and use a taller control workspace.
     - when Set 2 opens, the default dual layout now stays left/right all the way down: controls, result tables, and per-set charts render in two columns.
-    - chart layout auto-switches from `stacked` to `side by side` when Set 2 is opened; `combined` remains available as an explicit override and can use shared Y-axis or dual Y-axes (left/right) when chart types are compatible.
+    - chart layout now defaults to the split left/right view when Set 2 is opened; `combined` remains available as an explicit override and can use shared Y-axis or dual Y-axes (left/right) when chart types are compatible.
   - `Compare & Control` includes a `Reset` action to return panel controls to their default state (`discover`, default outcome field, no compare/hold/split/selected groups).
   - `Previous Runs` is split into two subsection cards: `History Table & Trend` and `Compare & Control Analysis`.
   - Previous Runs subsection layout is explicitly width-contained (`minmax(0, 1fr)` + child `min-width: 0`) so wide controls/tables stay inside local horizontal scrollers instead of expanding the whole dashboard to the right.
@@ -202,6 +202,7 @@ Notes:
   - `Group outcome means` now renders as a dynamic table (instead of text rows): `Group`, `Rows`, `Avg`, plus one column per available secondary metric in the current analysis scope.
   - Group-summary table headers are wrap-enabled and sized to a two-line header row for better readability when metric names are long.
   - Compare/control dropdowns and group-table headers now show human-readable labels only (internal field keys like `all_token_use` are hidden).
+  - Compare/control chart titles now describe the actual comparison (`Average <outcome> by <compare>` or `<outcome> vs <compare>`), Y-axis titles are styled larger for readability, and the synthetic single-series legend label `All visible rows` is hidden unless a real multi-series split is present.
   - Group-summary numeric cells use readability formatting: values with absolute magnitude `> 5` are shown as whole numbers with `en-US` commas (for example `939,297`), while small ratio-like values stay decimal (for example `0.904`).
   - Group-summary table rows are now display-sorted for readability (not count-first): placeholder labels like `-` are pushed to the bottom, and `AI Effort` uses natural ordering (`low`, `medium`, `high`, `xhigh`, `AI off`, then placeholders).
   - Controlled mode uses exact hold-constant strata and reports comparable coverage (`used rows / candidate rows`, `used strata / total strata`) so confounding is visible. Categorical controlled means are stratum-standardized (shared stratum weights) rather than per-group-mix weighted.

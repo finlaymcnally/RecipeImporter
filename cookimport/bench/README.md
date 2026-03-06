@@ -16,7 +16,7 @@ Current scoring contract:
 - canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so DMP alignment mappings can be audited directly.
 - line-role Milestone-5 diagnostics now live in `cutdown_export.py`, `pairwise_flips.py`, and `slice_metrics.py`; canonical line-role runs emit joined-line tables, flips, slice/knowledge metrics, and stable sampled cutdown JSONLs keyed by one `sample_id` source table.
 - `line-role-pipeline/joined_line_table.jsonl` is intentionally conservative: it only attaches candidate-label / `decided_by` / recipe-span metadata when a line-role prediction can be matched to the canonical line by exact text (same index+text first, then exact-text occurrence order). Split/merged lines stay unmatched instead of borrowing another line's telemetry.
-- `followup_bundle.py` now powers the standalone `cf-debug` CLI for deterministic follow-up work on `upload_bundle_v1/`: selector manifests, fact-only case exports, provenance audits, page-context slices, uncertainty exports, reproducible packs, and ablation matrices.
+- `followup_bundle.py` now powers the standalone `cf-debug` CLI for deterministic follow-up work on `upload_bundle_v1/`. The intended top-level loop is `upload_bundle_v1 -> web AI follow-up request manifest -> followup_dataN/` packet; lower-level selector/export/audit commands remain available under the same module.
 - Deterministic speed regression tooling lives in:
   - `speed_suite.py` (`bench speed-discover` target discovery from pulled gold exports)
   - `speed_runner.py` (`bench speed-run` repeated stage/benchmark timing samples, including optional `benchmark_all_method_multi_source`)

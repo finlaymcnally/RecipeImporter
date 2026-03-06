@@ -227,7 +227,7 @@ Benchmark scan details:
 - Compare/control supports two concurrent sets:
   - Set 2 expands from the right and the controls split left/right with a taller workspace.
   - when Set 2 opens, the default dual layout stays left/right the whole way down: controls, result tables, and per-set charts render in two columns.
-  - chart layout auto-switches from `stacked` to `side_by_side` when Set 2 is opened; `combined` remains available as an explicit override and can run with shared Y-axis or dual Y-axes (left/right) when compatible.
+  - chart layout now defaults to the split left/right view when Set 2 is opened; `combined` remains available as an explicit override and can run with shared Y-axis or dual Y-axes (left/right) when compatible.
 - Categorical compare/control bars are rendered with a calm pastel per-group palette and lighter column styling for lower visual weight.
 - Categorical compare/control bar colors use deterministic compare-field+category hashing, so mapping stays consistent when local subsets, filters, or category frequencies change.
 - `Compare & Control` also has a `Reset` action that restores default panel state without touching table filters.
@@ -765,3 +765,26 @@ Current analytics contracts reinforced:
 - `all_token_use` discounted token math is shared between runtime diagnostics and Previous Runs derived metrics.
 - `quality_per_million_tokens` uses deterministic quality-key fallback and discounted token denominator.
 - Trend tooltip point metadata contract (`sourceLabel/sourceTitle/variant/runTimestamp`) remains required for per-point hover context.
+
+## 2026-03-06 merged understandings digest (dashboard/compare-control seams)
+
+Current analytics contracts reinforced:
+- Benchmark labeling is two-layered on purpose:
+  - `benchmark_variant` is reserved for official paired benchmark identities (`vanilla` / `codexfarm`) when the authored runtime contract actually matches.
+  - `ai_assistance_profile` / `AI Profile` captures what really ran (`deterministic`, `line_role_only`, `recipe_only`, `full_stack`, `unknown`).
+- Missing token telemetry must stay unknown, not zero:
+  - `AI Model` and `AI Effort` come from run-config/manifest metadata and can legitimately be present when token fields are blank.
+  - explicit fatal Codex runtime metadata should surface as `System error` in `AI Model`.
+  - runtime-failure rows are intentionally folded into `AI off` on the effort axis; there is no separate `no AI` effort bucket.
+- Compare & Control charts are builder-driven from the currently visible `Previous Runs` rows, not cloned from the trend chart:
+  - numeric compare field -> scatter,
+  - categorical compare field -> bar,
+  - categorical summaries render from the same analysis payload into a dynamic table.
+- Compare & Control chart activation is intentionally gated:
+  - blank until the user interacts with compare/control controls,
+  - but valid restored state in non-`discover` mode should auto-activate.
+- Served-dashboard live control is file-driven. Updating `assets/dashboard_ui_state.json` with a newer `saved_at` timestamp is enough to move the visible Compare & Control panel; there is no separate API to keep in sync.
+- Responsive/dashboard sharp edges worth remembering:
+  - `Previous Runs` responsiveness depends on avoiding hard table floors and re-rendering charts on resize,
+  - tooltip coverage relies on alias-based auto-tagging for repeated metric text, not only hand-tagged nodes,
+  - compare/control harness tests must seed `DATA.benchmark_records` before calling live-state helpers outside normal bootstrap.

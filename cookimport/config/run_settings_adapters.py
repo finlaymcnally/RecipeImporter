@@ -200,6 +200,7 @@ def build_benchmark_call_kwargs_from_run_settings(
         "llm_recipe_pipeline": settings.llm_recipe_pipeline.value,
         "atomic_block_splitter": settings.atomic_block_splitter.value,
         "line_role_pipeline": settings.line_role_pipeline.value,
+        "line_role_guardrail_mode": settings.line_role_guardrail_mode.value,
         "codex_farm_recipe_mode": settings.codex_farm_recipe_mode.value,
         "codex_farm_cmd": settings.codex_farm_cmd,
         "codex_farm_model": settings.codex_farm_model,

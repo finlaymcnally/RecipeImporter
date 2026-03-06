@@ -7507,7 +7507,7 @@ def _upload_bundle_token_share_fields(
     total_tokens: int | None,
 ) -> dict[str, float | None]:
     fields: dict[str, float | None] = {}
-    for pass_name in ("pass1", "pass2", "pass3"):
+    for pass_name in sorted(by_pass):
         share_key = f"{pass_name}_token_share"
         pass_payload = by_pass.get(pass_name)
         pass_payload = pass_payload if isinstance(pass_payload, dict) else {}
@@ -7524,12 +7524,35 @@ def _upload_bundle_token_share_fields(
     return fields
 
 
+def _upload_bundle_load_prompt_budget_summary(
+    *,
+    pred_run_dir: Path,
+    pred_manifest: dict[str, Any],
+) -> dict[str, Any] | None:
+    candidates: list[Path] = []
+    manifest_path = str(pred_manifest.get("prompt_budget_summary_path") or "").strip()
+    if manifest_path:
+        candidate = Path(manifest_path)
+        if not candidate.is_absolute():
+            candidate = pred_run_dir / candidate
+        candidates.append(candidate)
+    candidates.append(pred_run_dir / "prompt_budget_summary.json")
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        payload = _upload_bundle_load_json_object(candidate)
+        if isinstance(payload.get("by_pass"), dict):
+            return payload
+    return None
+
+
 def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
     *,
     run_dirs: list[Path] | None = None,
     run_dir_by_id: dict[str, Path] | None = None,
 ) -> dict[str, Any] | None:
     aggregate_by_pass: dict[str, dict[str, Any]] = {}
+    used_prompt_budget_summary = False
     for run_dir in _upload_bundle_iter_unique_run_dirs(
         run_dirs=run_dirs,
         run_dir_by_id=run_dir_by_id,
@@ -7545,6 +7568,41 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
         if not pred_manifest_path.is_file():
             continue
         pred_manifest = _upload_bundle_load_json_object(pred_manifest_path)
+        prompt_budget_summary = _upload_bundle_load_prompt_budget_summary(
+            pred_run_dir=pred_run_dir,
+            pred_manifest=pred_manifest,
+        )
+        if isinstance(prompt_budget_summary, dict):
+            by_pass_payload = prompt_budget_summary.get("by_pass")
+            if isinstance(by_pass_payload, dict) and by_pass_payload:
+                used_prompt_budget_summary = True
+                for pass_name, pass_payload in sorted(by_pass_payload.items()):
+                    if not isinstance(pass_payload, dict):
+                        continue
+                    bucket = aggregate_by_pass.setdefault(
+                        str(pass_name),
+                        {
+                            "call_count": 0,
+                            "calls_known": False,
+                            "duration_total_ms": 0,
+                            "duration_known": False,
+                            "tokens_total": 0,
+                            "tokens_known": False,
+                        },
+                    )
+                    call_count = _coerce_int(pass_payload.get("call_count"))
+                    if call_count is not None:
+                        bucket["call_count"] += max(int(call_count), 0)
+                        bucket["calls_known"] = True
+                    duration_total_ms = _coerce_int(pass_payload.get("duration_total_ms"))
+                    if duration_total_ms is not None:
+                        bucket["duration_total_ms"] += max(int(duration_total_ms), 0)
+                        bucket["duration_known"] = True
+                    tokens_total = _coerce_int(pass_payload.get("tokens_total"))
+                    if tokens_total is not None:
+                        bucket["tokens_total"] += max(int(tokens_total), 0)
+                        bucket["tokens_known"] = True
+                continue
         llm_payload = (
             pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
         )
@@ -7675,7 +7733,11 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             ),
         },
         "by_pass": by_pass,
-        "runtime_source": "prediction_run_manifest_telemetry",
+        "runtime_source": (
+            "prediction_run_prompt_budget_summary"
+            if used_prompt_budget_summary
+            else "prediction_run_manifest_telemetry"
+        ),
     }
     summary.update(
         _upload_bundle_token_share_fields(by_pass=by_pass, total_tokens=total_tokens)

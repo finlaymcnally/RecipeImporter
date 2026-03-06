@@ -15,11 +15,14 @@ The user-visible result should be built on the commands this repo already expose
 - [x] (2026-03-05 23:09 EST) Verified the repo already has typed run settings, stable config hashes, run manifests, benchmark codex confirmation gates, deterministic-first line-role logic, and line-role do-no-harm arbitration.
 - [x] (2026-03-05 23:09 EST) Wrote local seam notes to `docs/understandings/2026-03-05_23.09.39-profixes-local-context-seams.md`.
 - [x] (2026-03-05 23:09 EST) Rewrote this ExecPlan so it targets the real modules, commands, and artifacts in this repository.
-- [ ] Milestone 1: centralize profile resolution and Codex execution policy across stage, Label Studio prediction runs, interactive top-tier flows, and benchmark helpers.
-- [ ] Milestone 2: add plan-versus-execute Codex policy artifacts on top of the existing low-level kill switch and benchmark confirmation behavior.
+- [x] (2026-03-05 23:30 EST) Added shared `CodexExecutionPolicy` helpers plus execution-policy metadata and plan-artifact writing in `cookimport/config/codex_decision.py`.
+- [x] (2026-03-05 23:30 EST) Added `labelstudio-benchmark --codex-execution-policy plan` plus prediction-run `codex_execution_plan.json` writing in `cookimport/cli.py` and `cookimport/labelstudio/ingest.py`.
+- [x] (2026-03-05 23:30 EST) Added focused tests for plan-mode approval boundaries and plan-only pred-run artifacts.
+- [ ] Milestone 1: centralize profile resolution and Codex execution policy across stage, Label Studio prediction runs, interactive top-tier flows, and benchmark helpers (completed: shared execution-policy layer now exists and benchmark/pred-run manifests use it; remaining: stage/import/speed/quality/helper parity).
+- [ ] Milestone 2: add plan-versus-execute Codex policy artifacts on top of the existing low-level kill switch and benchmark confirmation behavior (completed: offline benchmark/pred-run plan artifacts; remaining: live call-site plan artifacts for line-role and recipe pass work).
 - [ ] Milestone 3: turn the existing line-role and Codex routing protections into explicit preview/enforce guardrail reporting.
 - [ ] Milestone 4: improve deterministic line-role inputs and prompt boundaries in the existing parsing/LLM modules.
-- [ ] Milestone 5: update tests and docs so the new policy and artifact contracts are explicit and verifiable.
+- [ ] Milestone 5: update tests and docs so the new policy and artifact contracts are explicit and verifiable (completed: benchmark/Label Studio/CLI docs plus focused tests for plan mode; remaining: broader speed/quality/stage docs and guardrail docs).
 
 ## Surprises & Discoveries
 
@@ -40,6 +43,9 @@ The user-visible result should be built on the commands this repo already expose
 
 - Observation: the original “one preset system” framing is too simple for this repo.
   Evidence: the codebase already has three distinct decision layers that must agree: interactive top-tier profile selection in `cookimport/cli_ui/run_settings_flow.py`, paired benchmark contract helpers in `cookimport/config/codex_decision.py` and `cookimport/cli.py`, and runtime/analytics Codex surface classification in `cookimport/analytics/benchmark_semantics.py`.
+
+- Observation: zero-token benchmark preview cannot reuse the normal prediction bundle path unchanged.
+  Evidence: `_build_prediction_bundle_from_import_result(...)` assumes `stage_block_predictions.json` and `extracted_archive.json` exist, so plan mode needs an earlier `labelstudio-benchmark` return after writing plan/manifests.
 
 ## Decision Log
 
@@ -63,11 +69,15 @@ The user-visible result should be built on the commands this repo already expose
   Rationale: tests, dashboards, and existing docs already distinguish paired benchmark identity from actual Codex surface facts. The implementation should centralize those facts, not erase the distinction.
   Date/Author: 2026-03-05 / Codex
 
+- Decision: make the first shipped plan-mode surface `labelstudio-benchmark --no-upload --codex-execution-policy plan`, and have it stop before extraction/eval/upload while still writing pred-run and benchmark manifests.
+  Rationale: this is the smallest real command boundary that can produce an inspectable zero-token artifact without having to fake normal prediction outputs that downstream benchmark code expects.
+  Date/Author: 2026-03-05 / Codex
+
 ## Outcomes & Retrospective
 
-This document has been rewritten against the actual repository. The placeholder `src/<package>` paths, generic orchestrator assumptions, and imaginary `run --preset` examples have been removed. The new plan keeps the original goals but translates them into the existing `cookimport` command surface, `RunSettings` model, benchmark helpers, and line-role/Codex modules.
+The first implementation slice is now landed. `cookimport/config/codex_decision.py` has a shared execution-policy layer, prediction runs can write `codex_execution_plan.json`, and `cookimport labelstudio-benchmark --no-upload --codex-execution-policy plan` can produce a zero-token preview manifest without requiring `--allow-codex`.
 
-The remaining work is implementation only. The architectural unknowns that mattered for planning have been reduced: the real task is not “invent a framework” but “centralize and harden the policy and guardrail seams that already exist.”
+The remaining work is still substantial. Stage/import/SpeedSuite/QualitySuite parity has not been finished, and the plan artifact currently stops at the command boundary rather than enumerating concrete line-role batches or recipe pass work. Guardrail preview/enforce reporting and deterministic line-role tightening are still open.
 
 ## Context and Orientation
 
@@ -258,6 +268,8 @@ Useful repo-local search commands that were used to ground this plan:
 The local seam summary for this rewrite lives at:
 
     docs/understandings/2026-03-05_23.09.39-profixes-local-context-seams.md
+
+Revision note (2026-03-05 23:30 EST): updated this ExecPlan after landing the first execution-policy slice so the document reflects the real shipped `labelstudio-benchmark --codex-execution-policy plan` behavior and the remaining gaps.
 
 One important anti-goal for implementation: do not create a second disconnected configuration stack with new preset files and placeholder orchestrators while `RunSettings`, `codex_decision.py`, and the existing manifest writers continue to exist. That would make the repo harder to reason about and would not solve the actual problem.
 

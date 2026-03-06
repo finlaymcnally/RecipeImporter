@@ -46,3 +46,34 @@ def test_normalize_pass2_evidence_preserves_heading_lines() -> None:
 
     assert payload["normalized_evidence_lines"] == ["FOR THE SAUCE"]
     assert payload["line_rows"][0]["transform"] == "heading_preserved"
+
+
+def test_normalize_pass2_evidence_normalizes_spaced_fractions() -> None:
+    payload = normalize_pass2_evidence(
+        [
+            {
+                "index": 40,
+                "block_id": "b40",
+                "text": "Makes about 1 / 2 cup",
+            }
+        ]
+    )
+
+    assert payload["normalized_evidence_lines"] == ["Makes about 1/2 cup"]
+
+
+def test_normalize_pass2_evidence_keeps_dual_unit_lines_together() -> None:
+    payload = normalize_pass2_evidence(
+        [
+            {
+                "index": 50,
+                "block_id": "b50",
+                "text": "1 quart/1 L water 2 tbsp salt",
+            }
+        ]
+    )
+
+    assert payload["normalized_evidence_lines"] == [
+        "1 quart/1 L water",
+        "2 tbsp salt",
+    ]

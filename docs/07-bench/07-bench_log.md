@@ -16,6 +16,9 @@ Entries tied to removed benchmark surfaces were retired from this file.
 Problem captured:
 - QualitySuite all-method baseline variants could inherit AI-on defaults from incoming `RunSettings`, producing baseline artifacts with `llm_recipe_pipeline=off` but `line_role_pipeline=codex-line-role-v1`.
 
+Merged source note:
+- `docs/understandings/2026-03-05_22.35.10-qualitysuite-baseline-contract.md`
+
 Durable decision:
 - Normalize every all-method baseline payload through an explicit benchmark contract before hashing or emitting variants.
 - That contract is `llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, and `atomic_block_splitter=off`.
@@ -257,6 +260,71 @@ Durable decisions:
 
 Anti-loop note:
 - Low late-run CPU can be structurally normal on final-source canonical tails; use scheduler events, CPU, and cache-lock health before declaring stalls.
+
+## 11. 2026-03-04 to 2026-03-05 migrated understanding ledger (gate follow-ups, reuse, upload bundles)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-04_12.37.36-compare-gate-followup-findings.md`
+- `docs/understandings/2026-03-04_20.05.19-foodlab-token-unknown-fallback-timeout.md`
+- `docs/understandings/2026-03-04_20.43.34-bench-gc-data-folder-options.md`
+- `docs/understandings/2026-03-04_20.54.33-qualitysuite-run-cache-boundaries.md`
+- `docs/understandings/2026-03-04_20.58.02-qualitysuite-fast-loop-knobs.md`
+- `docs/understandings/2026-03-05_21.52.51-report-verification-qualitysuite-token-audit.md`
+- `docs/understandings/2026-03-05_22.26.52-reuse-key-scope-findings.md`
+- `docs/understandings/2026-03-05_22.40.00-reuse-key-implementation-seams.md`
+- `docs/understandings/2026-03-05_22.54.22-followup-bundle-seam-map.md`
+- `docs/understandings/2026-03-04_20.37.08-single-profile-shared-spinner-collision.md`
+- `docs/understandings/2026-03-04_21.25.55-followup-packet-artifact-join-map.md`
+- `docs/understandings/2026-03-05_22.55.48-benchmark-review-findings.md`
+- `docs/understandings/2026-03-05_23.01.17-interactive-benchmark-oracle-upload-seam.md`
+- `docs/understandings/2026-03-05_23.08.07-line-role-joined-table-mismatch.md`
+- `docs/understandings/2026-03-05_23.30.08-labelstudio-benchmark-plan-mode-seam.md`
+- `docs/understandings/2026-03-05_23.39.00-followup-request-packet-workflow.md`
+- `docs/understandings/2026-03-05_23.55.00-oracle-file-attachment-contract.md`
+
+Problem cluster captured:
+- Benchmark follow-up/debugging work had started to split across compare reruns, upload bundles, follow-up packets, reuse-key audits, and Oracle upload experiments. The risk was re-running expensive jobs when the real issue was path resolution, artifact naming, or over-broad identity keys.
+
+Durable decisions and outcomes:
+- Cheapest compare-gate recovery path:
+  - canonical-text evaluate-only reruns from `--predictions-in`,
+  - then compare against those reruns before re-importing or rerunning Codex.
+- Debug-artifact presence gates are sensitive to artifact-key resolution, not just on-disk files. Repo-relative paths stored in `eval_report.json` can make a valid debug artifact look missing until the candidate artifact key is corrected.
+- Token unknown is sometimes the truthful final state. Timeout/fallback runs with no manifest `process_runs` payload or line-role telemetry cannot be retroactively backfilled from bundle prose or CSV alone.
+- `bench gc` must reason about data folders by durability boundary:
+  - benchmark history CSV is the retention proof,
+  - processed outputs and ephemeral benchmark roots can be pruned only when that durability already exists,
+  - pytest temp eval fixtures remain exempt so tests can inspect artifacts after command completion.
+- QualitySuite speed/debug loops should prefer low-cost knobs before structural rewrites:
+  - smaller curated suites,
+  - evaluate-only / reuse-friendly reruns,
+  - explicit output reuse,
+  - canonical compare on preserved prediction artifacts.
+- Reuse-key identity must stay narrower than full `run_config` / `stable_hash()`:
+  - all-method prediction reuse should project only prediction-shaping settings,
+  - line-role cache identity should reuse the candidate fingerprint and keep extra key material limited to true line-role settings and timeout/batch controls,
+  - global `stable_hash()` semantics are too widely used to repurpose as a cache-identity cleanup tool.
+- `upload_bundle_v1` remains the base external-review handoff. Deterministic follow-up work should layer on top of it through request-manifest-driven `followup_dataN/` packets, not by inventing a second primary artifact stack.
+- Recipe-level follow-up slicing needs explicit joins because baseline wrong-line artifacts omit `recipe_id`. The safe path is:
+  - derive `line_index -> recipe_id` from codex context rows,
+  - join through `joined_line_table.jsonl`,
+  - then recover the corresponding vanilla wrong-line rows by index set.
+- Historical line-role follow-up exports built with direct `line_index == atomic_index` joins are unsafe. Safe exporter behavior is:
+  - same index plus exact normalized text first,
+  - then exact normalized-text occurrence order,
+  - otherwise leave the row unmatched instead of attaching another line's metadata.
+- Oracle upload contract, as validated on this machine:
+  - user-facing unit can still be a bundle directory,
+  - actual CLI attachment must pass the three concrete bundle files,
+  - directory/glob attachment patterns did not attach files reliably,
+  - oversized dry-run payloads need recipeimport's local preview fallback rather than literal Oracle inline dry-run.
+- `labelstudio-benchmark --codex-execution-policy plan` is an offline benchmark-boundary preview only. It writes manifests plus `codex_execution_plan.json` and must return before extraction/eval/upload assumptions kick in.
+- Shared single-profile spinner mode needs nested summary/dashboard-refresh suppression plus one deferred refresh after the batch; otherwise per-book output collides with the outer live panel and makes progress unreadable.
+
+Anti-loop notes:
+- If a benchmark row looks mislabeled `vanilla`, inspect single-offline planner output and artifact naming before assuming analytics is wrong.
+- If follow-up packets show impossible candidate labels, suspect exporter/join mismatch before blaming the model.
+- If an Oracle dry-run says no bundle files matched, switch immediately to explicit-file attachment; do not keep debugging bundle discovery logic.
 
 ## 11. 2026-02-27 speed-suite baseline/candidate workflow
 

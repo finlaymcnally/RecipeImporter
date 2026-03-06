@@ -379,3 +379,22 @@ Durable outcomes:
 
 Anti-loop note:
 - If compare fails on a direct `eval_report.json` input now, treat it as regression and inspect resolver branch selection before asking users to restructure run roots.
+
+## 2026-03-05 migrated understanding ledger (benchmark plan mode boundary)
+
+Source:
+- `docs/understandings/2026-03-05_23.30.08-labelstudio-benchmark-plan-mode-seam.md`
+
+Problem captured:
+- Zero-token Codex preview work was easy to overextend into normal benchmark replay/eval paths that assume real extraction artifacts already exist.
+
+Durable decision:
+- `labelstudio-benchmark --codex-execution-policy plan` belongs at the benchmark command boundary, not in lower-level replay/export helpers.
+- Safe plan-mode behavior is:
+  - offline-only,
+  - write prediction-run `codex_execution_plan.json`,
+  - link that artifact from manifests,
+  - return before extraction/eval/upload code that expects `stage_block_predictions.json` and `extracted_archive.json`.
+
+Anti-loop note:
+- If a plan-only run is failing because downstream artifacts are missing, the bug is probably that execution continued too far, not that plan mode needs fake extraction artifacts.

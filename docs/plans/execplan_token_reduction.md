@@ -26,11 +26,11 @@ This plan is intentionally scoped to prompt-size reduction and prompt-budget obs
 - [x] (2026-03-05_23.01.00) Confirmed the remaining compaction targets in local code: pass2 still serializes `canonical_text`, `blocks`, `normalized_evidence_text`, `normalized_evidence_lines`, and `normalization_stats` together; line-role still serializes one verbose JSON object per target row; pass3 no longer sends raw block windows but still sends duplicated ingredient/instruction content through `schemaorg_recipe` plus extractive arrays.
 - [x] (2026-03-05_23.01.00) Rewrote this ExecPlan for the local codebase, replacing stale implementation assumptions with repo-native files, rollout seams, tests, and validation commands.
 - [x] (2026-03-05_23.09.25) Added required docs front matter and normalized plan timestamps to the repository's `YYYY-MM-DD_HH.MM.SS` format so `docs:list` can index this file cleanly.
-- [ ] Add a unified `prediction-run/prompt_budget_summary.json` artifact and propagate it into benchmark reporting so `line_role` appears as a first-class pass.
-- [ ] Add compact pass2 assets and payload construction behind explicit compact pipeline ids.
-- [ ] Add compact line-role target serialization behind an explicit local prompt-format switch.
-- [ ] Measure pass3 duplication from the current local payload shape and ship a compact pass3 path that removes `schemaorg_recipe` ingredient/instruction duplication while preserving final-draft behavior.
-- [ ] Run focused tests plus legacy-vs-compact benchmark replays for `DinnerFor2CUTDOWN.epub` and `SaltFatAcidHeatCUTDOWN.epub`, then update this plan with measured deltas.
+- [x] (2026-03-05_23.51.27) Added `cookimport/llm/prompt_budget.py`, wrote `prediction-run/prompt_budget_summary.json` from `cookimport/labelstudio/ingest.py`, and updated benchmark runtime fallback logic so `line_role` appears in merged per-pass prompt budgets.
+- [x] (2026-03-05_23.51.27) Added compact pass2 assets (`recipe.schemaorg.compact.v1`) plus compact bundle construction in `cookimport/llm/codex_farm_orchestrator.py` and `cookimport/llm/codex_farm_contracts.py`.
+- [x] (2026-03-05_23.51.27) Added compact line-role target serialization in `cookimport/llm/canonical_line_role_prompt.py` plus the local `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` selector in `cookimport/parsing/canonical_line_roles.py`.
+- [x] (2026-03-05_23.51.27) Added compact pass3 assets (`recipe.final.compact.v1`) plus compact bundle construction that drops duplicated `recipeIngredient` and `recipeInstructions` content from the pass3 payload.
+- [ ] Run focused tests plus legacy-vs-compact benchmark replays for `DinnerFor2CUTDOWN.epub` and `SaltFatAcidHeatCUTDOWN.epub`, then update this plan with measured deltas. Completed so far: direct impacted unit tests pass. Remaining: real benchmark replays were not run in this turn.
 
 ## Surprises & Discoveries
 
@@ -54,6 +54,9 @@ This plan is intentionally scoped to prompt-size reduction and prompt-budget obs
 
 - Observation: the current line-role compaction target is mechanically clear and already covered by direct prompt tests.
   Evidence: `cookimport/llm/canonical_line_role_prompt.py` still writes one JSON object per target row, and `tests/parsing/test_canonical_line_roles.py` already contains direct prompt-shape assertions that can be extended for compact-vs-legacy comparisons.
+
+- Observation: one existing orchestrator eligibility test is already red in the current worktree and is not caused by the token-reduction slice.
+  Evidence: `pytest tests/llm/test_codex_farm_orchestrator.py::test_orchestrator_pass1_eligibility_gate_clamps_to_heuristic_bounds` currently fails with `eligibility_action == "proceed"` instead of `"clamp"` even when run alone after the compact-payload changes pass their own tests.
 
 ## Decision Log
 
@@ -85,11 +88,17 @@ This plan is intentionally scoped to prompt-size reduction and prompt-budget obs
   Rationale: for recipe prompts, rollback is selecting the legacy pipeline ids; for line-role, rollback is switching the local prompt-format selector back to `legacy`.
   Date/Author: 2026-03-05_23.01.00 / Codex
 
+- Decision: keep prompt-budget reporting as an additive prediction-run artifact instead of rewriting existing telemetry readers.
+  Rationale: `prediction-run/prompt_budget_summary.json` can be generated from the current manifest surfaces with minimal risk, and benchmark packaging can adopt it without disturbing the older telemetry fallbacks used by existing run roots.
+  Date/Author: 2026-03-05_23.51.27 / Codex
+
 ## Outcomes & Retrospective
 
-At the time this revision was written, no implementation code had been changed. The important outcome is that the token-reduction work is now aligned with the actual current repository instead of an external approximation. The updated plan preserves the original goal, but it now points at the real local seams: compact codex-farm pipeline assets, compact line-role serialization, and a unified prompt-budget artifact that exposes line-role together with the three codex-farm passes.
+Implementation is now partially complete. The repository writes a unified prompt-budget artifact, benchmark telemetry fallback can read `line_role` as a first-class pass, compact pass2 and pass3 pipeline assets exist, and line-role prompt construction can switch to the compact tuple format locally. The focused, directly impacted tests for those slices pass.
 
-The biggest correction is conceptual. In the current tree, "fix line-role telemetry" is already done, so the remaining work is about making that telemetry visible in the same benchmark-facing report as the recipe passes and then shrinking the prompt shapes that still dominate token use.
+The main remaining gap is real benchmark evidence. This turn did not run the paired `DinnerFor2CUTDOWN.epub` and `SaltFatAcidHeatCUTDOWN.epub` legacy-vs-compact replays, so the plan still lacks measured end-to-end token deltas and has not changed any defaults.
+
+Revision note (2026-03-05_23.51.27): updated this ExecPlan after shipping the repo-native prompt-budget artifact plus compact pass2/pass3/line-role implementations, and recorded the remaining validation gap plus the unrelated existing orchestrator eligibility test failure seen during verification.
 
 ## Context and Orientation
 

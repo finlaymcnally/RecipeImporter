@@ -218,6 +218,14 @@ Behavioral constraints:
 - benchmark can run evaluate-only with `--predictions-in`, or prediction-only with `--execution-mode predict-only`
 - benchmark co-locates prediction run under eval output as `prediction-run/`
 
+## Scripts Folder Note
+
+- `scripts/` is currently used for repo-local helpers only:
+  - test/dev wrappers,
+  - benchmark/export packaging utilities,
+  - narrow replay/smoke diagnostics.
+- Remove unrelated stack helpers instead of letting `scripts/` become a junk drawer. The documented standard is to keep only tools that map to real recipeimport workflows or explicit migration/debug guardrails.
+
 References:
 - commands + guards + benchmark flow: `cookimport/cli.py`
 - import/task generation/upload artifacts: `cookimport/labelstudio/ingest.py`

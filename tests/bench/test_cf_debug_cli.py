@@ -31,6 +31,33 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
     return rows
 
 
+def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> None:
+    out_path = tmp_path / "followup_request.json"
+    result = runner.invoke(
+        app,
+        [
+            "request-template",
+            "--bundle",
+            str(SAMPLE_BUNDLE),
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = _read_json(out_path)
+    assert payload["schema_version"] == "cf.followup_request.v1"
+    assert payload["requester_context"]["already_has_upload_bundle_v1"] is True
+    assert payload["asks"][0]["outputs"] == [
+        "case_export",
+        "line_role_audit",
+        "prompt_link_audit",
+        "page_context",
+        "uncertainty",
+    ]
+    assert payload["asks"][0]["selectors"]["include_case_ids"] == ["regression_c6"]
+
+
 def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
     out_path = tmp_path / "selectors.json"
     args = [
@@ -136,3 +163,101 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
 
     uncertainty_rows = _read_jsonl(pack_dir / "uncertainty.jsonl")
     assert uncertainty_rows
+
+
+def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None:
+    template_path = tmp_path / "template.json"
+    template_result = runner.invoke(
+        app,
+        [
+            "request-template",
+            "--bundle",
+            str(SAMPLE_BUNDLE),
+            "--out",
+            str(template_path),
+        ],
+    )
+    assert template_result.exit_code == 0
+    template_payload = _read_json(template_path)
+
+    request_path = tmp_path / "followup_request.json"
+    request_payload = {
+        "schema_version": "cf.followup_request.v1",
+        "bundle_dir": str(SAMPLE_BUNDLE),
+        "bundle_sha256": template_payload["bundle_sha256"],
+        "request_id": "followup_data1_request",
+        "request_summary": "Answer two targeted follow-up asks from the web AI.",
+        "requester_context": {
+            "already_has_upload_bundle_v1": True,
+            "prefer_new_local_artifacts_over_bundle_repeats": True,
+            "duplicate_bundle_payloads_only_when_needed_for_context": True,
+        },
+        "default_stage_filters": ["line_role"],
+        "asks": [
+            {
+                "ask_id": "ask_regression_c6",
+                "question": "Why is regression_c6 bad?",
+                "outputs": ["case_export", "line_role_audit", "prompt_link_audit"],
+                "selectors": {
+                    "include_case_ids": ["regression_c6"],
+                    "top_neg": 0,
+                    "top_pos": 0,
+                    "outside_span": 0,
+                    "stage_filters": ["line_role"],
+                },
+            },
+            {
+                "ask_id": "ask_outside_span",
+                "question": "Show context for the outside-span weird window.",
+                "outputs": ["page_context", "uncertainty"],
+                "selectors": {
+                    "include_case_ids": ["outside_span_window_628_657"],
+                    "top_neg": 0,
+                    "top_pos": 0,
+                    "outside_span": 0,
+                    "stage_filters": ["line_role"],
+                },
+            },
+        ],
+    }
+    request_path.write_text(json.dumps(request_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    out_dir = tmp_path / "followup_data1"
+    result = runner.invoke(
+        app,
+        [
+            "build-followup",
+            "--bundle",
+            str(SAMPLE_BUNDLE),
+            "--request",
+            str(request_path),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0
+
+    packet_index = _read_json(out_dir / "index.json")
+    assert packet_index["schema_version"] == "cf.followup_packet.v1"
+    assert packet_index["request_id"] == "followup_data1_request"
+    assert packet_index["ask_count"] == 2
+    assert (out_dir / "request_manifest.json").is_file()
+    assert (out_dir / "README.md").is_file()
+
+    ask1_dir = out_dir / "asks" / "ask_regression_c6"
+    ask1_index = _read_json(ask1_dir / "index.json")
+    assert ask1_index["delta_contract"]["requester_already_has_upload_bundle_v1"] is True
+    assert (ask1_dir / "selectors.json").is_file()
+    assert (ask1_dir / "case_export" / "case_export.jsonl").is_file()
+    assert (ask1_dir / "line_role_audit.jsonl").is_file()
+    assert (ask1_dir / "prompt_link_audit.jsonl").is_file()
+
+    ask2_dir = out_dir / "asks" / "ask_outside_span"
+    ask2_index = _read_json(ask2_dir / "index.json")
+    assert ask2_index["requested_outputs"] == ["page_context", "uncertainty"]
+    assert (ask2_dir / "page_context.jsonl").is_file()
+    assert (ask2_dir / "uncertainty.jsonl").is_file()
+    assert not (ask2_dir / "case_export").exists()
+
+    selectors_payload = _read_json(ask2_dir / "selectors.json")
+    assert selectors_payload["selectors"][0]["case_id"] == "outside_span_window_628_657"

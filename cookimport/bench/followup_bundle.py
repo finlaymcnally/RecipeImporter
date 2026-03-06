@@ -14,6 +14,8 @@ TRIAGE_PACKET_PAYLOAD_PATH = "_upload_bundle_derived/root/01_recipe_triage.packe
 PER_RECIPE_BREAKDOWN_PAYLOAD_PATH = "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json"
 
 SELECTOR_SCHEMA_VERSION = "cf.selector.v1"
+FOLLOWUP_REQUEST_SCHEMA_VERSION = "cf.followup_request.v1"
+FOLLOWUP_PACKET_SCHEMA_VERSION = "cf.followup_packet.v1"
 CASE_EXPORT_INDEX_SCHEMA_VERSION = "cf.case_export_index.v1"
 CASE_EXPORT_ROW_SCHEMA_VERSION = "cf.case_export.v1"
 LINE_ROLE_AUDIT_SCHEMA_VERSION = "cf.line_role_audit.v1"
@@ -950,6 +952,58 @@ def write_selector_manifest(
     return manifest
 
 
+def write_followup_request_template(
+    *,
+    bundle_dir: Path,
+    out_path: Path,
+) -> dict[str, Any]:
+    context = load_followup_bundle_context(bundle_dir)
+    template = {
+        "schema_version": FOLLOWUP_REQUEST_SCHEMA_VERSION,
+        "bundle_dir": str(context.bundle_dir),
+        "bundle_sha256": context.bundle_sha256,
+        "request_id": "followup_request_01",
+        "request_summary": (
+            "Fill in the web AI's follow-up asks. Assume the requester already has "
+            "upload_bundle_v1 and only needs new evidence or row-locator references."
+        ),
+        "requester_context": {
+            "already_has_upload_bundle_v1": True,
+            "prefer_new_local_artifacts_over_bundle_repeats": True,
+            "duplicate_bundle_payloads_only_when_needed_for_context": True,
+        },
+        "default_stage_filters": ["line_role"],
+        "asks": [
+            {
+                "ask_id": "ask_001",
+                "question": "Why does regression_c6 look wrong? Show provenance and nearby context.",
+                "outputs": [
+                    "case_export",
+                    "line_role_audit",
+                    "prompt_link_audit",
+                    "page_context",
+                    "uncertainty",
+                ],
+                "selectors": {
+                    "top_neg": 0,
+                    "top_pos": 0,
+                    "outside_span": 0,
+                    "stage_filters": ["line_role"],
+                    "include_case_ids": ["regression_c6"],
+                    "include_recipe_ids": [],
+                    "include_line_ranges": [],
+                },
+                "notes": (
+                    "Use case IDs, recipe IDs, or explicit line ranges that the requester "
+                    "can trace back to upload_bundle_v1."
+                ),
+            }
+        ],
+    }
+    _write_json(out_path, template)
+    return template
+
+
 def _load_selectors(selector_path: Path) -> list[dict[str, Any]]:
     payload = _read_json(selector_path)
     if not isinstance(payload, dict):
@@ -960,6 +1014,238 @@ def _load_selectors(selector_path: Path) -> list[dict[str, Any]]:
     rows = [row for row in selectors if isinstance(row, dict)]
     rows.sort(key=lambda row: str(row.get("selector_id") or ""))
     return rows
+
+
+def _load_followup_request(request_path: Path) -> dict[str, Any]:
+    payload = _read_json(request_path)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected follow-up request object in {request_path}")
+    schema_version = str(payload.get("schema_version") or "").strip()
+    if schema_version != FOLLOWUP_REQUEST_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported follow-up request schema_version: {schema_version or '<missing>'}"
+        )
+    asks = payload.get("asks")
+    if not isinstance(asks, list) or not asks:
+        raise ValueError("Follow-up request must contain at least one ask.")
+    return payload
+
+
+def _normalize_requested_outputs(value: Any) -> list[str]:
+    rows = _coerce_str_list(value)
+    if not rows:
+        raise ValueError("Each ask must request at least one output.")
+    expanded: list[str] = []
+    for row in rows:
+        normalized = row.strip().lower()
+        if normalized == "all":
+            expanded.extend(
+                [
+                    "case_export",
+                    "line_role_audit",
+                    "prompt_link_audit",
+                    "page_context",
+                    "uncertainty",
+                ]
+            )
+            continue
+        expanded.append(normalized)
+    allowed = {
+        "case_export",
+        "line_role_audit",
+        "prompt_link_audit",
+        "page_context",
+        "uncertainty",
+    }
+    invalid = sorted({row for row in expanded if row not in allowed})
+    if invalid:
+        raise ValueError(f"Unsupported ask output(s): {', '.join(invalid)}")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for row in expanded:
+        if row in seen:
+            continue
+        seen.add(row)
+        deduped.append(row)
+    return deduped
+
+
+def _normalize_followup_selector_config(
+    *,
+    ask: dict[str, Any],
+    default_stage_filters: list[str],
+) -> dict[str, Any]:
+    selectors = ask.get("selectors")
+    selectors = selectors if isinstance(selectors, dict) else {}
+    return {
+        "top_neg": int(_coerce_int(selectors.get("top_neg")) or 0),
+        "top_pos": int(_coerce_int(selectors.get("top_pos")) or 0),
+        "outside_span": int(_coerce_int(selectors.get("outside_span")) or 0),
+        "stage_filters": (
+            _coerce_str_list(selectors.get("stage_filters")) or list(default_stage_filters)
+        ),
+        "include_case_ids": _coerce_str_list(selectors.get("include_case_ids")),
+        "include_recipe_ids": _coerce_str_list(selectors.get("include_recipe_ids")),
+        "include_line_ranges": _coerce_str_list(selectors.get("include_line_ranges")),
+    }
+
+
+def _write_followup_readme(
+    *,
+    out_dir: Path,
+    request_payload: dict[str, Any],
+    ask_summaries: list[dict[str, Any]],
+) -> None:
+    lines = [
+        "# Follow-Up Data Packet",
+        "",
+        "This folder is a follow-up packet for a requester that already has `upload_bundle_v1`.",
+        "Use the request manifest and row locators here together with the original bundle.",
+        "",
+        f"- request_id: `{request_payload.get('request_id')}`",
+        f"- ask_count: `{len(ask_summaries)}`",
+        "",
+        "## Ask Folders",
+        "",
+    ]
+    for ask in ask_summaries:
+        lines.append(
+            f"- `{ask['ask_id']}`: {ask['question']} (`{', '.join(ask['requested_outputs'])}`)"
+        )
+    (out_dir / "README.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def write_followup_request_packet(
+    *,
+    bundle_dir: Path,
+    request_path: Path,
+    out_dir: Path,
+    include_readme: bool = True,
+    confidence_threshold: float = 0.9,
+) -> dict[str, Any]:
+    context = load_followup_bundle_context(bundle_dir)
+    request_payload = _load_followup_request(request_path)
+    manifest_bundle_sha = str(request_payload.get("bundle_sha256") or "").strip()
+    if manifest_bundle_sha and manifest_bundle_sha != context.bundle_sha256:
+        raise ValueError(
+            "Follow-up request bundle_sha256 does not match the provided upload bundle."
+        )
+
+    default_stage_filters = _coerce_str_list(request_payload.get("default_stage_filters"))
+    asks = [ask for ask in request_payload.get("asks", []) if isinstance(ask, dict)]
+    if not asks:
+        raise ValueError("Follow-up request must contain object asks.")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(out_dir / "request_manifest.json", request_payload)
+
+    ask_summaries: list[dict[str, Any]] = []
+    for ask_index, ask in enumerate(asks, start=1):
+        ask_id = str(ask.get("ask_id") or f"ask_{ask_index:03d}").strip() or f"ask_{ask_index:03d}"
+        question = str(ask.get("question") or "").strip()
+        if not question:
+            raise ValueError(f"Ask {ask_id} is missing `question`.")
+        requested_outputs = _normalize_requested_outputs(ask.get("outputs"))
+        selector_config = _normalize_followup_selector_config(
+            ask=ask,
+            default_stage_filters=default_stage_filters,
+        )
+        selectors_payload = build_selector_manifest(
+            context=context,
+            command=f"cf-debug build-followup --request {request_path} --ask-id {ask_id}",
+            stage_filters=selector_config["stage_filters"],
+            top_neg=selector_config["top_neg"],
+            top_pos=selector_config["top_pos"],
+            outside_span=selector_config["outside_span"],
+            include_case_ids=selector_config["include_case_ids"],
+            include_recipe_ids=selector_config["include_recipe_ids"],
+            include_line_ranges=selector_config["include_line_ranges"],
+        )
+
+        ask_dir = out_dir / "asks" / ask_id
+        ask_dir.mkdir(parents=True, exist_ok=True)
+        selectors_path = ask_dir / "selectors.json"
+        _write_json(selectors_path, selectors_payload)
+
+        files: dict[str, str] = {"selectors_json": "selectors.json"}
+        if "case_export" in requested_outputs:
+            write_case_export(bundle_dir=bundle_dir, selectors_path=selectors_path, out_dir=ask_dir / "case_export")
+            files["case_export_dir"] = "case_export"
+        if "line_role_audit" in requested_outputs:
+            write_line_role_audit(
+                bundle_dir=bundle_dir,
+                selectors_path=selectors_path,
+                out_path=ask_dir / "line_role_audit.jsonl",
+            )
+            files["line_role_audit_jsonl"] = "line_role_audit.jsonl"
+        if "prompt_link_audit" in requested_outputs:
+            write_prompt_link_audit(
+                bundle_dir=bundle_dir,
+                selectors_path=selectors_path,
+                out_path=ask_dir / "prompt_link_audit.jsonl",
+            )
+            files["prompt_link_audit_jsonl"] = "prompt_link_audit.jsonl"
+        if "page_context" in requested_outputs:
+            write_page_context(
+                bundle_dir=bundle_dir,
+                selectors_path=selectors_path,
+                out_path=ask_dir / "page_context.jsonl",
+            )
+            files["page_context_jsonl"] = "page_context.jsonl"
+        if "uncertainty" in requested_outputs:
+            write_uncertainty_export(
+                bundle_dir=bundle_dir,
+                selectors_path=selectors_path,
+                out_path=ask_dir / "uncertainty.jsonl",
+                confidence_threshold=confidence_threshold,
+            )
+            files["uncertainty_jsonl"] = "uncertainty.jsonl"
+
+        ask_index_payload = {
+            "schema_version": FOLLOWUP_PACKET_SCHEMA_VERSION,
+            "ask_id": ask_id,
+            "question": question,
+            "requested_outputs": requested_outputs,
+            "delta_contract": {
+                "requester_already_has_upload_bundle_v1": True,
+                "base_bundle_dir": str(context.bundle_dir),
+                "base_bundle_sha256": context.bundle_sha256,
+                "prefer_new_local_artifacts": True,
+            },
+            "selector_count": len(selectors_payload.get("selectors") or []),
+            "files": files,
+            "notes": str(ask.get("notes") or "").strip(),
+        }
+        _write_json(ask_dir / "index.json", ask_index_payload)
+        ask_summaries.append(
+            {
+                "ask_id": ask_id,
+                "question": question,
+                "requested_outputs": requested_outputs,
+                "selector_count": len(selectors_payload.get("selectors") or []),
+                "files": files,
+            }
+        )
+
+    packet_index = {
+        "schema_version": FOLLOWUP_PACKET_SCHEMA_VERSION,
+        "request_id": str(request_payload.get("request_id") or "").strip() or "followup_request",
+        "request_summary": str(request_payload.get("request_summary") or "").strip(),
+        "bundle_dir": str(context.bundle_dir),
+        "bundle_sha256": context.bundle_sha256,
+        "request_manifest_file": "request_manifest.json",
+        "ask_count": len(ask_summaries),
+        "requester_context": request_payload.get("requester_context"),
+        "asks": ask_summaries,
+    }
+    _write_json(out_dir / "index.json", packet_index)
+    if include_readme:
+        _write_followup_readme(
+            out_dir=out_dir,
+            request_payload=request_payload,
+            ask_summaries=ask_summaries,
+        )
+    return packet_index
 
 
 def _file_manifest_row(repo_root: Path, path: Path, *, kind: str) -> dict[str, Any]:

@@ -52,9 +52,14 @@ from cookimport.config.codex_decision import (
     apply_benchmark_baseline_contract,
     apply_benchmark_codex_contract_from_baseline,
     apply_codex_decision_metadata,
+    apply_codex_execution_policy_metadata,
     codex_surfaces_enabled,
     format_codex_command_summary,
+    format_codex_execution_policy_summary,
+    normalize_codex_execution_policy_mode,
     resolve_codex_command_decision,
+    resolve_codex_execution_policy,
+    write_codex_execution_plan,
 )
 from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
@@ -8476,6 +8481,19 @@ def _normalize_line_role_pipeline(value: str) -> str:
     return "off"
 
 
+def _normalize_line_role_guardrail_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if normalized in {"", "enforce", "default"}:
+        return "enforce"
+    if normalized in {"off", "preview"}:
+        return normalized
+    _fail(
+        f"Invalid line role guardrail mode: {value!r}. "
+        "Expected one of: off, preview, enforce."
+    )
+    return "enforce"
+
+
 def _benchmark_sequence_matcher_modes() -> tuple[str, ...]:
     return tuple(str(mode) for mode in supported_sequence_matcher_modes())
 
@@ -14435,12 +14453,25 @@ def _resolve_speedsuite_codex_farm_confirmation(
 
 
 def _print_codex_decision(decision: Any) -> None:
+    summary = (
+        format_codex_execution_policy_summary(decision)
+        if hasattr(decision, "requested_mode")
+        else format_codex_command_summary(decision)
+    )
+    surface = getattr(decision, "surface", None)
+    codex_requested = bool(getattr(decision, "codex_requested", False))
     color = (
         typer.colors.CYAN
-        if decision.surface.any_codex_enabled or decision.codex_requested
+        if (
+            surface is not None
+            and (
+                bool(getattr(surface, "any_codex_enabled", False))
+                or codex_requested
+            )
+        )
         else typer.colors.BRIGHT_BLACK
     )
-    typer.secho(format_codex_command_summary(decision), fg=color)
+    typer.secho(summary, fg=color)
 
 
 def _resolve_all_method_markdown_extractors_choice() -> bool:
@@ -24466,6 +24497,14 @@ def stage(
             "knowledge, or tags surface."
         ),
     ),
+    codex_execution_policy: str = typer.Option(
+        "execute",
+        "--codex-execution-policy",
+        help=(
+            "Codex execution policy: execute runs approved live Codex-backed surfaces; "
+            "plan writes a zero-token preview artifact and stops before processing."
+        ),
+    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -24651,6 +24690,7 @@ def stage(
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
     llm_tags_pipeline = _unwrap_typer_option_default(llm_tags_pipeline)
     allow_codex = _unwrap_typer_option_default(allow_codex)
+    codex_execution_policy = _unwrap_typer_option_default(codex_execution_policy)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -24785,6 +24825,9 @@ def stage(
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(llm_knowledge_pipeline)
     selected_llm_tags_pipeline = _normalize_llm_tags_pipeline(llm_tags_pipeline)
+    selected_codex_execution_policy = normalize_codex_execution_policy_mode(
+        codex_execution_policy
+    )
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
@@ -24948,31 +24991,66 @@ def stage(
             all_epub=all_epub,
         ),
     )
-    stage_codex_decision = resolve_codex_command_decision(
+    stage_codex_execution = resolve_codex_execution_policy(
         "stage",
         run_settings.to_run_config_dict(),
+        execution_policy_mode=selected_codex_execution_policy,
         allow_codex=bool(allow_codex),
     )
-    if not stage_codex_decision.allowed:
-        codex_surfaces = ", ".join(stage_codex_decision.surface.codex_surfaces) or "unknown"
+    if stage_codex_execution.blocked:
+        codex_surfaces = ", ".join(stage_codex_execution.surface.codex_surfaces) or "unknown"
         _fail(
             "stage enables Codex-backed surfaces "
             f"({codex_surfaces}) and requires explicit approval. "
             "Re-run with --allow-codex only after explicit positive user approval."
         )
-    _print_codex_decision(stage_codex_decision)
-    if warm_models:
-        with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
-            _warm_all_models(ocr_device=selected_ocr_device)
+    _print_codex_decision(stage_codex_execution)
     effective_workers = run_settings.effective_workers or workers
-    run_config = apply_codex_decision_metadata(
+    run_config = apply_codex_execution_policy_metadata(
         run_settings.to_run_config_dict(),
-        stage_codex_decision,
+        stage_codex_execution,
     )
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
     run_config["require_process_workers"] = bool(require_process_workers)
+    if stage_codex_execution.plan_only and stage_codex_execution.surface.any_codex_enabled:
+        source_hash: str | None = None
+        if path.is_file():
+            try:
+                source_hash = compute_file_hash(path)
+            except Exception:
+                source_hash = None
+        write_codex_execution_plan(
+            run_root=out,
+            policy=stage_codex_execution,
+            run_config=run_config,
+            source_path=str(path),
+            source_hash=source_hash,
+            notes=(
+                "Plan-only stage run. No files were processed and no live Codex-backed "
+                "work was executed."
+            ),
+        )
+        _write_run_manifest_best_effort(
+            out,
+            RunManifest(
+                run_kind="stage",
+                run_id=out.name,
+                created_at=run_dt.isoformat(timespec="seconds"),
+                source=RunSource(
+                    path=str(path),
+                    source_hash=source_hash,
+                ),
+                run_config=run_config,
+                artifacts={"codex_execution_plan_json": "codex_execution_plan.json"},
+                notes="Plan-only stage preview. No source files were processed.",
+            ),
+        )
+        return out
+    if warm_models:
+        with console.status("[bold cyan]Warming models...[/bold cyan]", spinner="dots"):
+            _warm_all_models(ocr_device=selected_ocr_device)
 
     def _stable_run_config_hash(payload: dict[str, Any]) -> str:
         canonical = json.dumps(
@@ -27447,6 +27525,14 @@ def labelstudio_import(
         "--allow-codex/--no-allow-codex",
         help="Required when Label Studio import enables Codex-backed recipe parsing.",
     ),
+    codex_execution_policy: str = typer.Option(
+        "execute",
+        "--codex-execution-policy",
+        help=(
+            "Codex execution policy: execute runs approved live Codex-backed work; "
+            "plan writes a zero-token preview artifact and skips upload."
+        ),
+    ),
     codex_farm_cmd: str = typer.Option(
         "codex-farm",
         "--codex-farm-cmd",
@@ -27535,6 +27621,7 @@ def labelstudio_import(
     prelabel_allow_partial = _unwrap_typer_option_default(prelabel_allow_partial)
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     allow_codex = _unwrap_typer_option_default(allow_codex)
+    codex_execution_policy = _unwrap_typer_option_default(codex_execution_policy)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
     codex_farm_root = _unwrap_typer_option_default(codex_farm_root)
     codex_farm_workspace_root = _unwrap_typer_option_default(codex_farm_workspace_root)
@@ -27550,7 +27637,6 @@ def labelstudio_import(
     )
     codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
 
-    _require_labelstudio_write_consent(allow_labelstudio_write)
     normalized_prelabel_upload_as = prelabel_upload_as.strip().lower()
     if normalized_prelabel_upload_as not in {"annotations", "predictions"}:
         _fail(
@@ -27589,18 +27675,79 @@ def labelstudio_import(
         codex_farm_pipeline_pass3,
         option="--codex-farm-pipeline-pass3",
     )
-    import_codex_decision = resolve_codex_command_decision(
+    selected_codex_execution_policy = normalize_codex_execution_policy_mode(
+        codex_execution_policy
+    )
+    import_codex_execution = resolve_codex_execution_policy(
         "labelstudio_import",
-        {"llm_recipe_pipeline": selected_llm_recipe_pipeline},
+        {
+            "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+            "prelabel_enabled": bool(prelabel),
+            "prelabel_provider": prelabel_provider,
+        },
+        execution_policy_mode=selected_codex_execution_policy,
         allow_codex=bool(allow_codex),
     )
-    if not import_codex_decision.allowed:
+    if import_codex_execution.blocked:
+        codex_surfaces = ", ".join(import_codex_execution.surface.codex_surfaces) or "unknown"
         _fail(
-            "labelstudio-import enables Codex-backed recipe parsing and requires "
+            "labelstudio-import enables Codex-backed surfaces "
+            f"({codex_surfaces}) and requires "
             "explicit approval. Re-run with --allow-codex only after explicit "
             "positive user approval."
         )
-    _print_codex_decision(import_codex_decision)
+    _print_codex_decision(import_codex_execution)
+    if import_codex_execution.plan_only and import_codex_execution.surface.any_codex_enabled:
+        try:
+            result = generate_pred_run_artifacts(
+                path=path,
+                output_dir=output_dir,
+                pipeline=pipeline,
+                segment_blocks=segment_blocks,
+                segment_overlap=segment_overlap,
+                segment_focus_blocks=resolved_segment_focus_blocks,
+                target_task_count=target_task_count,
+                limit=limit,
+                sample=sample,
+                prelabel=prelabel,
+                prelabel_provider=prelabel_provider,
+                codex_cmd=codex_cmd,
+                codex_model=codex_model,
+                codex_reasoning_effort=normalized_codex_reasoning_effort,
+                prelabel_timeout_seconds=prelabel_timeout_seconds,
+                prelabel_cache_dir=prelabel_cache_dir,
+                prelabel_workers=prelabel_workers,
+                prelabel_granularity=normalized_prelabel_granularity,
+                prelabel_allow_partial=prelabel_allow_partial,
+                prelabel_track_token_usage=False,
+                llm_recipe_pipeline=selected_llm_recipe_pipeline,
+                codex_farm_cmd=codex_farm_cmd,
+                codex_farm_root=codex_farm_root,
+                codex_farm_workspace_root=codex_farm_workspace_root,
+                codex_farm_pass1_pattern_hints_enabled=bool(
+                    codex_farm_pass1_pattern_hints_enabled
+                ),
+                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+                codex_farm_context_blocks=codex_farm_context_blocks,
+                codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
+                codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                allow_codex=bool(allow_codex),
+                codex_execution_policy=selected_codex_execution_policy,
+                write_label_studio_tasks=False,
+                run_manifest_kind="labelstudio_import",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _fail(str(exc))
+        typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
+        if result.get("codex_execution_plan_path") is not None:
+            typer.secho(
+                f"Codex plan: {result['codex_execution_plan_path']}",
+                fg=typer.colors.CYAN,
+            )
+        return
+    _require_labelstudio_write_consent(allow_labelstudio_write)
     url, api_key = _resolve_labelstudio_settings(label_studio_url, label_studio_api_key)
     import_timeseries_path = _processing_timeseries_history_path(
         root=output_dir,
@@ -27654,6 +27801,7 @@ def labelstudio_import(
                 codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_codex=bool(allow_codex),
+                codex_execution_policy=selected_codex_execution_policy,
                 allow_labelstudio_write=True,
             ),
         )
@@ -28614,6 +28762,13 @@ def labelstudio_benchmark(
             "knowledge, or tags surfaces."
         ),
     )] = False,
+    codex_execution_policy: Annotated[str, typer.Option(
+        "--codex-execution-policy",
+        help=(
+            "Codex execution policy: execute runs live Codex-backed surfaces after "
+            "explicit approval; plan writes a zero-token preview artifact instead."
+        ),
+    )] = "execute",
     atomic_block_splitter: Annotated[str, typer.Option(
         "--atomic-block-splitter",
         help=(
@@ -28628,6 +28783,10 @@ def labelstudio_benchmark(
             "experiments: off, deterministic-v1, or codex-line-role-v1."
         ),
     )] = "off",
+    line_role_guardrail_mode: Annotated[str, typer.Option(
+        "--line-role-guardrail-mode",
+        help="Line-role guardrail mode for codex-line-role-v1: off, preview, or enforce.",
+    )] = "enforce",
     line_role_gated: Annotated[bool, typer.Option(
         "--line-role-gated/--no-line-role-gated",
         help=(
@@ -28893,6 +29052,9 @@ def labelstudio_benchmark(
         atomic_block_splitter
     )
     selected_line_role_pipeline = _normalize_line_role_pipeline(line_role_pipeline)
+    selected_line_role_guardrail_mode = _normalize_line_role_guardrail_mode(
+        line_role_guardrail_mode
+    )
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
@@ -28931,24 +29093,28 @@ def labelstudio_benchmark(
         # Line-role/atomic paths are canonical-text benchmark features.
         selected_atomic_block_splitter = "off"
         selected_line_role_pipeline = "off"
-    benchmark_codex_decision = resolve_codex_command_decision(
+    selected_codex_execution_policy = normalize_codex_execution_policy_mode(
+        codex_execution_policy
+    )
+    benchmark_codex_execution = resolve_codex_execution_policy(
         "labelstudio_benchmark",
         {
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
             "line_role_pipeline": selected_line_role_pipeline,
         },
+        execution_policy_mode=selected_codex_execution_policy,
         allow_codex=bool(allow_codex),
     )
-    if not benchmark_codex_decision.allowed:
+    if benchmark_codex_execution.blocked:
         codex_surfaces = (
-            ", ".join(benchmark_codex_decision.surface.codex_surfaces) or "unknown"
+            ", ".join(benchmark_codex_execution.surface.codex_surfaces) or "unknown"
         )
         _fail(
             "labelstudio-benchmark enables Codex-backed surfaces "
             f"({codex_surfaces}) and requires explicit approval. "
             "Re-run with --allow-codex only after explicit positive user approval."
         )
-    _print_codex_decision(benchmark_codex_decision)
+    _print_codex_decision(benchmark_codex_execution)
     selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
         gold_adaptation_mode
     )
@@ -29009,6 +29175,11 @@ def labelstudio_benchmark(
         selected_single_offline_split_cache_mode = "off"
         selected_single_offline_split_cache_dir = None
         selected_single_offline_split_cache_key = None
+    if benchmark_codex_execution.plan_only:
+        if should_upload_predictions:
+            _fail("--codex-execution-policy plan requires --no-upload.")
+        if predictions_in_path is not None:
+            _fail("--codex-execution-policy plan cannot be combined with --predictions-in.")
 
     if should_upload_predictions and not write_label_studio_tasks:
         _fail("--no-write-labelstudio-tasks can only be used with --no-upload.")
@@ -29033,6 +29204,168 @@ def labelstudio_benchmark(
         timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
         eval_output_dir = _golden_benchmark_root() / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
+    if benchmark_codex_execution.plan_only and benchmark_codex_execution.surface.any_codex_enabled:
+        plan_prediction_result = generate_pred_run_artifacts(
+            path=selected_source,
+            output_dir=output_dir,
+            pipeline=pipeline,
+            segment_blocks=40,
+            segment_overlap=5,
+            limit=None,
+            sample=None,
+            workers=workers,
+            pdf_split_workers=pdf_split_workers,
+            epub_split_workers=epub_split_workers,
+            pdf_pages_per_job=pdf_pages_per_job,
+            epub_spine_items_per_job=epub_spine_items_per_job,
+            epub_extractor=selected_epub_extractor,
+            epub_unstructured_html_parser_version=selected_html_parser_version,
+            epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
+            epub_unstructured_preprocess_mode=selected_preprocess_mode,
+            ocr_device=selected_ocr_device,
+            pdf_ocr_policy=selected_pdf_ocr_policy,
+            ocr_batch_size=ocr_batch_size,
+            pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
+            warm_models=False,
+            section_detector_backend=selected_section_detector_backend,
+            multi_recipe_splitter=selected_multi_recipe_splitter,
+            multi_recipe_trace=selected_multi_recipe_trace,
+            multi_recipe_min_ingredient_lines=selected_multi_recipe_min_ingredient_lines,
+            multi_recipe_min_instruction_lines=selected_multi_recipe_min_instruction_lines,
+            multi_recipe_for_the_guardrail=selected_multi_recipe_for_the_guardrail,
+            instruction_step_segmentation_policy=selected_instruction_step_segmentation_policy,
+            instruction_step_segmenter=selected_instruction_step_segmenter,
+            web_schema_extractor=selected_web_schema_extractor,
+            web_schema_normalizer=selected_web_schema_normalizer,
+            web_html_text_extractor=selected_web_html_text_extractor,
+            web_schema_policy=selected_web_schema_policy,
+            web_schema_min_confidence=selected_web_schema_min_confidence,
+            web_schema_min_ingredients=selected_web_schema_min_ingredients,
+            web_schema_min_instruction_steps=selected_web_schema_min_instruction_steps,
+            ingredient_text_fix_backend=selected_ingredient_text_fix_backend,
+            ingredient_pre_normalize_mode=selected_ingredient_pre_normalize_mode,
+            ingredient_packaging_mode=selected_ingredient_packaging_mode,
+            ingredient_parser_backend=selected_ingredient_parser_backend,
+            ingredient_unit_canonicalizer=selected_ingredient_unit_canonicalizer,
+            ingredient_missing_unit_policy=selected_ingredient_missing_unit_policy,
+            p6_time_backend=selected_p6_time_backend,
+            p6_time_total_strategy=selected_p6_time_total_strategy,
+            p6_temperature_backend=selected_p6_temperature_backend,
+            p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
+            p6_ovenlike_mode=selected_p6_ovenlike_mode,
+            p6_yield_mode=selected_p6_yield_mode,
+            p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
+            recipe_scorer_backend=selected_recipe_scorer_backend,
+            recipe_score_gold_min=selected_recipe_score_gold_min,
+            recipe_score_silver_min=selected_recipe_score_silver_min,
+            recipe_score_bronze_min=selected_recipe_score_bronze_min,
+            recipe_score_min_ingredient_lines=selected_recipe_score_min_ingredient_lines,
+            recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
+            llm_recipe_pipeline=selected_llm_recipe_pipeline,
+            atomic_block_splitter=selected_atomic_block_splitter,
+            line_role_pipeline=selected_line_role_pipeline,
+            line_role_guardrail_mode=selected_line_role_guardrail_mode,
+            codex_farm_cmd=codex_farm_cmd,
+            codex_farm_model=selected_codex_farm_model,
+            codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
+            codex_farm_root=codex_farm_root,
+            codex_farm_workspace_root=codex_farm_workspace_root,
+            codex_farm_pass1_pattern_hints_enabled=selected_codex_farm_pass1_pattern_hints_enabled,
+            codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
+            codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
+            codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
+            codex_farm_context_blocks=codex_farm_context_blocks,
+            codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+            codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
+            codex_farm_failure_mode=selected_codex_farm_failure_mode,
+            allow_codex=bool(allow_codex),
+            codex_execution_policy=selected_codex_execution_policy,
+            processed_output_root=processed_output_dir,
+            write_markdown=write_markdown,
+            write_label_studio_tasks=write_label_studio_tasks,
+            scheduler_event_callback=scheduler_event_callback,
+            progress_callback=(
+                _emit_external_progress if external_progress_callback is not None else None
+            ),
+            run_manifest_kind="bench_pred_run",
+        )
+        plan_pred_run = Path(plan_prediction_result["run_root"])
+        benchmark_plan_run_config = apply_codex_execution_policy_metadata(
+            {
+                "eval_mode": selected_eval_mode,
+                "execution_mode": selected_execution_mode,
+                "predict_only": True,
+                "upload": False,
+                "write_markdown": bool(write_markdown),
+                "write_label_studio_tasks": bool(write_label_studio_tasks),
+                "llm_recipe_pipeline": selected_llm_recipe_pipeline,
+                "atomic_block_splitter": selected_atomic_block_splitter,
+                "line_role_pipeline": selected_line_role_pipeline,
+                "line_role_guardrail_mode": selected_line_role_guardrail_mode,
+                "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
+                "codex_farm_cmd": codex_farm_cmd,
+                "codex_farm_model": selected_codex_farm_model,
+                "codex_farm_reasoning_effort": (
+                    selected_codex_farm_reasoning_effort
+                    if selected_codex_farm_reasoning_effort is not None
+                    else None
+                ),
+            },
+            benchmark_codex_execution,
+        )
+        if plan_prediction_result.get("run_config") is not None:
+            benchmark_plan_run_config["prediction_run_config"] = plan_prediction_result[
+                "run_config"
+            ]
+        if plan_prediction_result.get("run_config_hash"):
+            benchmark_plan_run_config["prediction_run_config_hash"] = (
+                plan_prediction_result["run_config_hash"]
+            )
+        if plan_prediction_result.get("run_config_summary"):
+            benchmark_plan_run_config["prediction_run_config_summary"] = (
+                plan_prediction_result["run_config_summary"]
+            )
+        benchmark_plan_artifacts = {
+            "pred_run_dir": _path_for_manifest(eval_output_dir, plan_pred_run),
+            "prediction_manifest_json": _path_for_manifest(
+                eval_output_dir,
+                plan_prediction_result.get("manifest_path"),
+            ),
+            "prediction_codex_execution_plan_json": _path_for_manifest(
+                eval_output_dir,
+                plan_prediction_result.get("codex_execution_plan_path"),
+            ),
+        }
+        _write_eval_run_manifest(
+            run_root=eval_output_dir,
+            run_kind="labelstudio_benchmark",
+            source_path=str(selected_source),
+            source_hash=str(plan_prediction_result.get("source_hash") or "") or None,
+            importer_name=(
+                str(plan_prediction_result.get("importer_name") or "") or None
+            ),
+            run_config=benchmark_plan_run_config,
+            artifacts=benchmark_plan_artifacts,
+            notes=(
+                "Plan-only benchmark preview. No extraction, upload, evaluation, or "
+                "live Codex-backed execution was performed."
+            ),
+        )
+        if not suppress_summary:
+            typer.secho(
+                "Benchmark plan-only preview complete.",
+                fg=typer.colors.CYAN,
+            )
+            if plan_prediction_result.get("codex_execution_plan_path") is not None:
+                typer.secho(
+                    f"Codex plan: {plan_prediction_result['codex_execution_plan_path']}",
+                    fg=typer.colors.CYAN,
+                )
+            typer.secho(
+                f"Benchmark manifest: {eval_output_dir / 'run_manifest.json'}",
+                fg=typer.colors.CYAN,
+            )
+        return
     if selected_single_offline_split_cache_mode != "off":
         if selected_single_offline_split_cache_dir is None:
             selected_single_offline_split_cache_dir = eval_output_dir / ".split-cache"
@@ -29093,6 +29426,7 @@ def labelstudio_benchmark(
                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
                 atomic_block_splitter=selected_atomic_block_splitter,
                 line_role_pipeline=selected_line_role_pipeline,
+                line_role_guardrail_mode=selected_line_role_guardrail_mode,
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_model=selected_codex_farm_model,
                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -29220,6 +29554,7 @@ def labelstudio_benchmark(
                                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
+                                line_role_guardrail_mode=selected_line_role_guardrail_mode,
                                 codex_farm_cmd=codex_farm_cmd,
                                 codex_farm_model=selected_codex_farm_model,
                                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -29238,6 +29573,7 @@ def labelstudio_benchmark(
                                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                                 allow_codex=bool(allow_codex),
+                                codex_execution_policy=selected_codex_execution_policy,
                                 processed_output_root=processed_output_dir,
                                 write_markdown=write_markdown,
                                 write_label_studio_tasks=write_label_studio_tasks,
@@ -29333,6 +29669,7 @@ def labelstudio_benchmark(
                             llm_recipe_pipeline=selected_llm_recipe_pipeline,
                             atomic_block_splitter=selected_atomic_block_splitter,
                             line_role_pipeline=selected_line_role_pipeline,
+                            line_role_guardrail_mode=selected_line_role_guardrail_mode,
                             codex_farm_cmd=codex_farm_cmd,
                             codex_farm_model=selected_codex_farm_model,
                             codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -29559,7 +29896,7 @@ def labelstudio_benchmark(
                 max(0.0, time.monotonic() - benchmark_started),
             ),
         )
-        predict_only_run_config: dict[str, Any] = apply_codex_decision_metadata(
+        predict_only_run_config: dict[str, Any] = apply_codex_execution_policy_metadata(
             {
             "eval_mode": selected_eval_mode,
             "gold_adaptation_mode": selected_gold_adaptation_mode,
@@ -29627,6 +29964,7 @@ def labelstudio_benchmark(
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
+            "line_role_guardrail_mode": selected_line_role_guardrail_mode,
             "line_role_gated": bool(line_role_gated),
             "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
             "codex_farm_cmd": codex_farm_cmd,
@@ -29641,7 +29979,7 @@ def labelstudio_benchmark(
             "codex_farm_failure_mode": selected_codex_farm_failure_mode,
             "stage_block_predictions_path": str(stage_predictions_path),
             },
-            benchmark_codex_decision,
+            benchmark_codex_execution,
         )
         if single_offline_split_cache_run_config is not None:
             predict_only_run_config["single_offline_split_cache"] = (
@@ -30170,6 +30508,14 @@ def labelstudio_benchmark(
                 eval_output_dir,
                 line_role_output_dir / "line_role_flips_vs_baseline.sample.jsonl",
             ),
+            "guardrail_report_json": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "guardrail_report.json",
+            ),
+            "guardrail_changed_rows_jsonl": _path_for_manifest(
+                eval_output_dir,
+                line_role_output_dir / "guardrail_changed_rows.jsonl",
+            ),
             "do_no_harm_diagnostics_json": _path_for_manifest(
                 eval_output_dir,
                 line_role_output_dir / "do_no_harm_diagnostics.json",
@@ -30245,7 +30591,7 @@ def labelstudio_benchmark(
                 line_role_gate_md_path,
             )
 
-    benchmark_run_config: dict[str, Any] = apply_codex_decision_metadata(
+    benchmark_run_config: dict[str, Any] = apply_codex_execution_policy_metadata(
         {
         "eval_mode": selected_eval_mode,
         "gold_adaptation_mode": selected_gold_adaptation_mode,
@@ -30318,6 +30664,7 @@ def labelstudio_benchmark(
         "llm_recipe_pipeline": selected_llm_recipe_pipeline,
         "atomic_block_splitter": selected_atomic_block_splitter,
         "line_role_pipeline": selected_line_role_pipeline,
+        "line_role_guardrail_mode": selected_line_role_guardrail_mode,
         "line_role_gated": bool(line_role_gated),
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
@@ -30332,7 +30679,7 @@ def labelstudio_benchmark(
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
         "stage_block_predictions_path": str(stage_predictions_path),
         },
-        benchmark_codex_decision,
+        benchmark_codex_execution,
     )
     if single_offline_split_cache_run_config is not None:
         benchmark_run_config["single_offline_split_cache"] = (
@@ -30941,7 +31288,7 @@ def bench_speed_run(
         run_settings_payload,
         warn_context=run_settings_context,
     )
-    speed_codex_decision = resolve_codex_command_decision(
+    speed_codex_decision = resolve_codex_execution_policy(
         "bench_speed_run",
         run_settings.to_run_config_dict(),
         include_codex_farm_requested=include_codex_farm,
@@ -31631,7 +31978,7 @@ def bench_quality_run(
         confirmation=qualitysuite_codex_farm_confirmation,
     )
     _print_codex_decision(
-        resolve_codex_command_decision(
+        resolve_codex_execution_policy(
             "bench_quality_run",
             {},
             include_codex_farm_requested=include_codex_farm,

@@ -953,6 +953,9 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["pdf_ocr_policy"] == "always"
     assert run_manifest["run_config"]["pdf_column_gap_ratio"] == 0.21
     assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "execute"
+    assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "execute"
+    assert run_manifest["run_config"]["codex_execution_live_llm_allowed"] is True
     assert run_manifest["run_config"]["codex_decision_context"] == "labelstudio_benchmark"
     assert run_manifest["run_config"]["codex_decision_allowed"] is True
     assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["recipe"]

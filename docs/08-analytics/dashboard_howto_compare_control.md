@@ -123,9 +123,8 @@ Click **Clear groups** (or uncheck the selected groups).
 
 When Set 2 is open, use **Chart layout**:
 
-1. `stacked`: Set 1 chart on top, Set 2 chart below.
-2. `side by side`: Set 1 chart left, Set 2 chart right.
-3. `combined`: one shared chart (when compatible).
+1. `side by side`: the default. Set 1 chart stays in the left column and Set 2 chart stays in the right column.
+2. `combined`: one shared chart (when compatible).
 
 For `combined`, you can choose:
 

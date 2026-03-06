@@ -17,4 +17,8 @@ When a caller provides a progress callback, `SubprocessCodexFarmRunner` now exec
 
 Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` (prompt construction) and `codex_exec.py` (shared `codex exec -` invocation helper reused by prelabel + line-role paths).
 
+Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which merges codex-farm pass telemetry plus line-role telemetry into one repo-owned per-pass budget artifact.
+
+Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1` and `recipe.final.compact.v1`), and line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`.
+
 Default behavior remains deterministic unless `llm_recipe_pipeline=codex-farm-3pass-v1` is explicitly enabled.

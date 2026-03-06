@@ -65,9 +65,17 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "reasoning_tags": ["fake-runner"],
             "excluded_block_ids": [],
         }
-    if pipeline_id == "recipe.schemaorg.v1":
+    if pipeline_id in {"recipe.schemaorg.v1", "recipe.schemaorg.compact.v1"}:
         canonical_text = str(payload.get("canonical_text") or "").strip()
+        evidence_rows = payload.get("evidence_rows")
         first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
+        if not first_line and isinstance(evidence_rows, list):
+            for row in evidence_rows:
+                if not isinstance(row, list | tuple) or len(row) < 2:
+                    continue
+                first_line = str(row[1] or "").strip()
+                if first_line:
+                    break
         recipe_name = first_line or str(payload.get("recipe_id") or "Untitled Recipe")
         return {
             "bundle_version": "1",
@@ -85,7 +93,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "field_evidence": "{}",
             "warnings": [],
         }
-    if pipeline_id == "recipe.final.v1":
+    if pipeline_id in {"recipe.final.v1", "recipe.final.compact.v1"}:
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),

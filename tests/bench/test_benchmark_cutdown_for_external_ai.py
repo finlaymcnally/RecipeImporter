@@ -2119,6 +2119,66 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
     assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
+def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_role(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    run_id = "2026-03-04_10.00.00"
+    session_root = tmp_path / "single-profile-benchmark"
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=None,
+        line_role_pipeline="codex-line-role-v1",
+    )
+    codex_run_dir = session_root / run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _write_json(codex_run_dir / "prediction-run" / "manifest.json", {})
+    _write_json(
+        codex_run_dir / "prediction-run" / "prompt_budget_summary.json",
+        {
+            "schema_version": "prompt_budget_summary.v1",
+            "by_pass": {
+                "pass1": {
+                    "call_count": 2,
+                    "duration_total_ms": 2200,
+                    "tokens_total": 120000,
+                },
+                "pass2": {
+                    "call_count": 2,
+                    "duration_total_ms": 4200,
+                    "tokens_total": 130000,
+                },
+                "pass3": {
+                    "call_count": 1,
+                    "duration_total_ms": 5100,
+                    "tokens_total": 250000,
+                },
+                "line_role": {
+                    "call_count": 3,
+                    "duration_total_ms": 900,
+                    "tokens_total": 50000,
+                },
+            },
+        },
+    )
+
+    runtime_inventory = module._upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
+        run_dirs=[codex_run_dir],
+        run_dir_by_id={run_id: codex_run_dir},
+    )
+    assert isinstance(runtime_inventory, dict)
+    runtime_summary = runtime_inventory["summary"]
+    assert runtime_summary["runtime_source"] == "prediction_run_prompt_budget_summary"
+    assert int(runtime_summary["call_count"]) == 8
+    assert int(runtime_summary["total_tokens"]) == 550000
+    assert float(runtime_summary["line_role_token_share"]) == round(50000 / 550000, 4)
+    assert int(runtime_summary["by_pass"]["line_role"]["total_tokens"]) == 50000
+
+
 def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
     tmp_path: Path,
 ) -> None:

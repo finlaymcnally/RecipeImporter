@@ -325,3 +325,20 @@ Upload-bundle sequence also matters:
 2. Later starterpack/triage upgrades changed first-pass navigation to JSONL-first and added deterministic blame/config/low-confidence/locator hardening.
 ````
 
+## 2026-03-05 migrated understanding ledger (scripts folder audit)
+
+Source:
+- `docs/understandings/2026-03-05_23.40.00-scripts-folder-audit.md`
+
+Problem captured:
+- `scripts/` was at risk of becoming a generic junk drawer instead of a recipeimport-specific tooling surface.
+
+Durable findings:
+- The folder currently serves three legitimate roles:
+  - test/dev wrappers,
+  - benchmark/packaging helpers,
+  - narrow replay/smoke diagnostics.
+- Unrelated stack helpers should be removed immediately instead of being grandfathered in as "just one script." The concrete bad example in this audit was a stray Next.js/Supabase cleanup helper that did not map to this repo's runtime at all.
+
+Anti-loop note:
+- When deciding whether a new helper belongs in `scripts/`, require a direct recipeimport workflow owner. If it only makes sense for some unrelated local stack, it does not belong here.

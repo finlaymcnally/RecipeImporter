@@ -2208,95 +2208,94 @@ _HTML = """\
             <option value="dual">dual y-axis (left/right)</option>
           </select>
         </div>
-        <div id="compare-control-controls-split" class="compare-control-controls-split">
-          <section id="compare-control-panel" class="compare-control-panel compare-control-set-panel">
-            <h3>Set 1</h3>
-            <div class="compare-control-controls">
-              <label for="compare-control-view-mode">View</label>
-              <select id="compare-control-view-mode">
-                <option value="discover">discover</option>
-                <option value="raw">raw</option>
-                <option value="controlled">controlled</option>
-              </select>
-              <label for="compare-control-outcome-field">Outcome</label>
-              <select id="compare-control-outcome-field"></select>
-              <label for="compare-control-compare-field">Compare by</label>
-              <select id="compare-control-compare-field"></select>
-              <label for="compare-control-split-field">Split by</label>
-              <select id="compare-control-split-field"></select>
-            </div>
-            <div class="compare-control-hold">
-              <span class="compare-control-hold-label">Hold constant</span>
-              <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
-            </div>
-            <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
-            <div class="compare-control-actions">
-              <button id="compare-control-filter-subset" type="button">Apply local subset</button>
-              <button id="compare-control-clear-selection" type="button">Clear groups</button>
-              <button id="compare-control-reset" type="button">Reset set 1</button>
-            </div>
-          </section>
-          <section id="compare-control-panel-secondary" class="compare-control-panel compare-control-set-panel compare-control-set-panel-secondary" hidden>
-            <h3>Set 2</h3>
-            <div class="compare-control-controls">
-              <label for="compare-control-view-mode-secondary">View</label>
-              <select id="compare-control-view-mode-secondary">
-                <option value="discover">discover</option>
-                <option value="raw">raw</option>
-                <option value="controlled">controlled</option>
-              </select>
-              <label for="compare-control-outcome-field-secondary">Outcome</label>
-              <select id="compare-control-outcome-field-secondary"></select>
-              <label for="compare-control-compare-field-secondary">Compare by</label>
-              <select id="compare-control-compare-field-secondary"></select>
-              <label for="compare-control-split-field-secondary">Split by</label>
-              <select id="compare-control-split-field-secondary"></select>
-            </div>
-            <div class="compare-control-hold">
-              <span class="compare-control-hold-label">Hold constant</span>
-              <div id="compare-control-hold-fields-secondary" class="compare-control-hold-fields"></div>
-            </div>
-            <div id="compare-control-group-selection-secondary" class="compare-control-group-selection"></div>
-            <div class="compare-control-actions">
-              <button id="compare-control-filter-subset-secondary" type="button">Apply local subset</button>
-              <button id="compare-control-clear-selection-secondary" type="button">Clear groups</button>
-              <button id="compare-control-reset-secondary" type="button">Reset set 2</button>
-            </div>
-          </section>
-        </div>
-        <div id="compare-control-results-stack" class="compare-control-results-stack">
-          <section id="compare-control-results-card-primary" class="compare-control-results-card compare-control-results-card-primary">
-            <h4>Set 1 table</h4>
-            <p id="compare-control-status" class="section-note"></p>
-            <div id="compare-control-results" class="compare-control-results"></div>
-          </section>
-          <section id="compare-control-results-card-secondary" class="compare-control-results-card compare-control-results-card-secondary" hidden>
-            <h4>Set 2 table</h4>
-            <p id="compare-control-status-secondary" class="section-note"></p>
-            <div id="compare-control-results-secondary" class="compare-control-results"></div>
-          </section>
-        </div>
-        <div class="trend-chart-wrap compare-control-trend-wrap">
-          <h4>Compare &amp; Control Dynamic Chart</h4>
-          <p class="section-note">Auto-built from Compare &amp; Control scope and settings only (numeric compare: scatter, categorical compare: bars).</p>
-          <div id="compare-control-chart-grid" class="compare-control-chart-grid layout-stacked">
+        <div id="compare-control-workspace" class="compare-control-workspace">
+          <div id="compare-control-column-primary" class="compare-control-set-column compare-control-set-column-primary">
+            <section id="compare-control-panel" class="compare-control-panel compare-control-set-panel">
+              <h3>Set 1</h3>
+              <div class="compare-control-controls">
+                <label for="compare-control-view-mode">View</label>
+                <select id="compare-control-view-mode">
+                  <option value="discover">discover</option>
+                  <option value="raw">raw</option>
+                  <option value="controlled">controlled</option>
+                </select>
+                <label for="compare-control-outcome-field">Outcome</label>
+                <select id="compare-control-outcome-field"></select>
+                <label for="compare-control-compare-field">Compare by</label>
+                <select id="compare-control-compare-field"></select>
+                <label for="compare-control-split-field">Split by</label>
+                <select id="compare-control-split-field"></select>
+              </div>
+              <div class="compare-control-hold">
+                <span class="compare-control-hold-label">Hold constant</span>
+                <div id="compare-control-hold-fields" class="compare-control-hold-fields"></div>
+              </div>
+              <div id="compare-control-group-selection" class="compare-control-group-selection"></div>
+              <div class="compare-control-actions">
+                <button id="compare-control-filter-subset" type="button">Apply local subset</button>
+                <button id="compare-control-clear-selection" type="button">Clear groups</button>
+                <button id="compare-control-reset" type="button">Reset set 1</button>
+              </div>
+            </section>
+            <section id="compare-control-results-card-primary" class="compare-control-results-card compare-control-results-card-primary">
+              <h4>Set 1 table</h4>
+              <p id="compare-control-status" class="section-note"></p>
+              <div id="compare-control-results" class="compare-control-results"></div>
+            </section>
             <section id="compare-control-chart-card-primary" class="compare-control-chart-card compare-control-chart-card-primary">
               <h5>Set 1 chart</h5>
+              <p class="section-note">Auto-built from Compare &amp; Control scope and settings only (numeric compare: scatter, categorical compare: bars).</p>
               <div id="compare-control-trend-chart" class="highcharts-host" aria-label="Compare and control score trend chart"></div>
               <p id="compare-control-trend-fallback" class="empty-note" hidden></p>
             </section>
+          </div>
+          <div id="compare-control-column-secondary" class="compare-control-set-column compare-control-set-column-secondary" hidden>
+            <section id="compare-control-panel-secondary" class="compare-control-panel compare-control-set-panel compare-control-set-panel-secondary" hidden>
+              <h3>Set 2</h3>
+              <div class="compare-control-controls">
+                <label for="compare-control-view-mode-secondary">View</label>
+                <select id="compare-control-view-mode-secondary">
+                  <option value="discover">discover</option>
+                  <option value="raw">raw</option>
+                  <option value="controlled">controlled</option>
+                </select>
+                <label for="compare-control-outcome-field-secondary">Outcome</label>
+                <select id="compare-control-outcome-field-secondary"></select>
+                <label for="compare-control-compare-field-secondary">Compare by</label>
+                <select id="compare-control-compare-field-secondary"></select>
+                <label for="compare-control-split-field-secondary">Split by</label>
+                <select id="compare-control-split-field-secondary"></select>
+              </div>
+              <div class="compare-control-hold">
+                <span class="compare-control-hold-label">Hold constant</span>
+                <div id="compare-control-hold-fields-secondary" class="compare-control-hold-fields"></div>
+              </div>
+              <div id="compare-control-group-selection-secondary" class="compare-control-group-selection"></div>
+              <div class="compare-control-actions">
+                <button id="compare-control-filter-subset-secondary" type="button">Apply local subset</button>
+                <button id="compare-control-clear-selection-secondary" type="button">Clear groups</button>
+                <button id="compare-control-reset-secondary" type="button">Reset set 2</button>
+              </div>
+            </section>
+            <section id="compare-control-results-card-secondary" class="compare-control-results-card compare-control-results-card-secondary" hidden>
+              <h4>Set 2 table</h4>
+              <p id="compare-control-status-secondary" class="section-note"></p>
+              <div id="compare-control-results-secondary" class="compare-control-results"></div>
+            </section>
             <section id="compare-control-chart-card-secondary" class="compare-control-chart-card compare-control-chart-card-secondary" hidden>
               <h5>Set 2 chart</h5>
+              <p class="section-note">Auto-built from Compare &amp; Control scope and settings only (numeric compare: scatter, categorical compare: bars).</p>
               <div id="compare-control-trend-chart-secondary" class="highcharts-host" aria-label="Compare and control score trend chart set 2"></div>
               <p id="compare-control-trend-fallback-secondary" class="empty-note" hidden></p>
             </section>
-            <section id="compare-control-chart-card-combined" class="compare-control-chart-card compare-control-chart-card-combined" hidden>
-              <h5>Combined chart</h5>
-              <div id="compare-control-trend-chart-combined" class="highcharts-host" aria-label="Combined compare and control score trend chart"></div>
-              <p id="compare-control-trend-fallback-combined" class="empty-note" hidden></p>
-            </section>
           </div>
         </div>
+        <section id="compare-control-chart-card-combined" class="compare-control-chart-card compare-control-chart-card-combined" hidden>
+          <h5>Combined chart</h5>
+          <p class="section-note">Use combined mode only when you want one merged chart instead of the default left/right split.</p>
+          <div id="compare-control-trend-chart-combined" class="highcharts-host" aria-label="Combined compare and control score trend chart"></div>
+          <p id="compare-control-trend-fallback-combined" class="empty-note" hidden></p>
+        </section>
       </section>
     </div>
 	  </section>
@@ -2633,6 +2632,19 @@ svg [data-metric-tooltip-key]:hover * {
   gap: 0.58rem;
   align-items: stretch;
 }
+.compare-control-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+}
+.compare-control-set-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.58rem;
+  min-width: 0;
+  align-content: start;
+}
 .compare-control-panel {
   margin: 0;
   background: #fbfcf7;
@@ -2651,6 +2663,9 @@ svg [data-metric-tooltip-key]:hover * {
   transition: transform 180ms ease, opacity 180ms ease;
 }
 #compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+#compare-control-analysis-section.compare-control-dual-enabled .compare-control-workspace {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 #compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {
@@ -2916,6 +2931,7 @@ svg [data-metric-tooltip-key]:hover * {
   border-radius: 9px;
   background: #f9fcf6;
   padding: 0.42rem 0.48rem;
+  min-width: 0;
 }
 .compare-control-chart-card > h5 {
   margin: 0 0 0.24rem;
@@ -2932,6 +2948,7 @@ svg [data-metric-tooltip-key]:hover * {
 .compare-control-chart-card-combined {
   border-color: #d2ddd2;
   background: #f9fbf9;
+  margin-top: 0.65rem;
 }
 .compare-control-chart-card-combined > h5 {
   color: #42513f;
@@ -4148,6 +4165,10 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   #compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {
     grid-template-columns: minmax(0, 1fr);
   }
+  .compare-control-workspace,
+  #compare-control-analysis-section.compare-control-dual-enabled .compare-control-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
   #compare-control-analysis-section.compare-control-dual-enabled .compare-control-results-stack {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -5028,17 +5049,22 @@ _JS = """\
 
   function syncCompareControlLayoutChrome() {
     const section = document.getElementById("compare-control-analysis-section");
+    const secondaryColumn = document.getElementById("compare-control-column-secondary");
     const secondaryPanel = document.getElementById("compare-control-panel-secondary");
     const secondaryResults = document.getElementById("compare-control-results-card-secondary");
-    const chartGrid = document.getElementById("compare-control-chart-grid");
     const chartLayoutSelect = document.getElementById("compare-control-chart-layout");
     const axisModeSelect = document.getElementById("compare-control-combined-axis-mode");
     const toggleBtn = document.getElementById("compare-control-toggle-second-set");
+    const primaryChartCard = document.getElementById("compare-control-chart-card-primary");
     const secondaryChartCard = document.getElementById("compare-control-chart-card-secondary");
     const combinedChartCard = document.getElementById("compare-control-chart-card-combined");
 
     const secondEnabled = Boolean(compareControlSecondSetEnabled);
-    const layout = normalizeCompareControlChartLayout(compareControlChartLayout);
+    let layout = normalizeCompareControlChartLayout(compareControlChartLayout);
+    if (secondEnabled && layout !== "combined") {
+      layout = "side_by_side";
+      compareControlChartLayout = layout;
+    }
     compareControlChartLayout = layout;
     compareControlCombinedAxisMode = normalizeCompareControlCombinedAxisMode(
       compareControlCombinedAxisMode
@@ -5052,6 +5078,9 @@ _JS = """\
     }
     if (secondaryResults) {
       secondaryResults.hidden = !secondEnabled;
+    }
+    if (secondaryColumn) {
+      secondaryColumn.hidden = !secondEnabled;
     }
 
     if (toggleBtn) {
@@ -5070,8 +5099,12 @@ _JS = """\
       chartLayoutSelect.value = secondEnabled ? layout : "stacked";
       Array.from(chartLayoutSelect.options).forEach(option => {
         const value = String(option.value || "").trim();
-        if (!value || value === "stacked") {
+        if (!value) {
           option.disabled = false;
+          return;
+        }
+        if (value === "stacked") {
+          option.disabled = true;
           return;
         }
         option.disabled = !secondEnabled;
@@ -5095,18 +5128,9 @@ _JS = """\
       }
     }
 
-    if (chartGrid) {
-      chartGrid.classList.remove("layout-stacked", "layout-side-by-side", "layout-combined");
-      const effectiveLayout = secondEnabled ? layout : "stacked";
-      if (effectiveLayout === "side_by_side") {
-        chartGrid.classList.add("layout-side-by-side");
-      } else if (effectiveLayout === "combined") {
-        chartGrid.classList.add("layout-combined");
-      } else {
-        chartGrid.classList.add("layout-stacked");
-      }
+    if (primaryChartCard) {
+      primaryChartCard.hidden = Boolean(secondEnabled && layout === "combined");
     }
-
     if (secondaryChartCard) {
       const showSecondaryChart = secondEnabled && compareControlChartLayoutAllowsDualSets(layout);
       secondaryChartCard.hidden = !showSecondaryChart;
@@ -7187,6 +7211,27 @@ _JS = """\
 
   function compareControlFieldLabel(fieldName) {
     return analysisFieldLabel(fieldName);
+  }
+
+  function compareControlChartLabelText(rawLabel) {
+    const text = String(rawLabel || "").trim();
+    if (!text) return "";
+    const normalized = text.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+    const uppercaseWords = new Set(["ai", "api", "csv", "epub", "f1", "html", "id", "json", "llm", "ocr", "pdf", "url"]);
+    return normalized
+      .split(" ")
+      .filter(Boolean)
+      .map(word => {
+        const lower = word.toLowerCase();
+        if (uppercaseWords.has(lower)) return lower.toUpperCase();
+        if (/^\d+$/.test(word)) return word;
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      })
+      .join(" ");
+  }
+
+  function compareControlChartFieldLabel(fieldName) {
+    return compareControlChartLabelText(compareControlFieldLabel(fieldName) || fieldName);
   }
 
   function compareControlPlaceholderLabelForSort(rawLabel) {
@@ -10123,9 +10168,31 @@ _JS = """\
     ];
   }
 
+  function compareControlChartModeSummary(state) {
+    const normalizedState = normalizeCompareControlState(state);
+    if (normalizedState.view_mode === "controlled") {
+      if (normalizedState.split_field) {
+        return "Controlled comparison, split by " + compareControlChartFieldLabel(normalizedState.split_field);
+      }
+      return "Controlled comparison";
+    }
+    if (normalizedState.split_field) {
+      return "Raw comparison, split by " + compareControlChartFieldLabel(normalizedState.split_field);
+    }
+    return "Raw comparison";
+  }
+
+  function compareControlChartLegendEnabled(seriesList) {
+    const series = Array.isArray(seriesList) ? seriesList : [];
+    if (series.length > 1) return true;
+    if (!series.length) return false;
+    const onlyName = String((series[0] && series[0].name) || "").trim();
+    return Boolean(onlyName && onlyName !== "All visible rows");
+  }
+
   function buildCompareControlNumericScatterSeries(records, state, catalog) {
-    const compareLabel = compareControlFieldLabel(state.compare_field);
-    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const compareLabel = compareControlChartFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
     const series = [];
     const segments = compareControlChartSegments(records, state, catalog);
     segments.forEach((segment, index) => {
@@ -10169,8 +10236,8 @@ _JS = """\
   }
 
   function buildCompareControlCategoricalScatterSeries(records, state, catalog) {
-    const compareLabel = compareControlFieldLabel(state.compare_field);
-    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const compareLabel = compareControlChartFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
     const segments = compareControlChartSegments(records, state, catalog);
     const categoriesByKey = Object.create(null);
     const seriesPayloads = [];
@@ -10264,8 +10331,8 @@ _JS = """\
   }
 
   function buildCompareControlCategoricalBarSeries(records, state, catalog) {
-    const compareLabel = compareControlFieldLabel(state.compare_field);
-    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
+    const compareLabel = compareControlChartFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
     const segments = compareControlChartSegments(records, state, catalog);
     const categoriesByKey = Object.create(null);
     const seriesPayloads = [];
@@ -10377,12 +10444,8 @@ _JS = """\
       (context && context.state) || compareControlState
     );
     const compareInfo = (context && context.compare_info) || catalog.by_field[state.compare_field];
-    const compareLabel = compareControlFieldLabel(state.compare_field);
-    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
-    const modeLabel = state.view_mode === "controlled" ? "Controlled" : "Raw";
-    const splitLabel = state.split_field
-      ? " | split by " + compareControlFieldLabel(state.split_field)
-      : "";
+    const compareLabel = compareControlChartFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
 
     if (!records.length) {
       const selectedGroups = uniqueStringList(state.selected_groups)
@@ -10447,8 +10510,8 @@ _JS = """\
       const series = buildCompareControlNumericScatterSeries(records, state, catalog);
       return {
         chart_type: "scatter",
-        chart_title: "Compare/Control Scatter (" + modeLabel + ", numeric)",
-        chart_subtitle: outcomeLabel + " vs " + compareLabel + splitLabel,
+        chart_title: outcomeLabel + " vs " + compareLabel,
+        chart_subtitle: compareControlChartModeSummary(state),
         x_axis: {
           title: { text: compareLabel },
         },
@@ -10468,8 +10531,8 @@ _JS = """\
     const categorical = buildCompareControlCategoricalScatterSeries(records, state, catalog);
     return {
       chart_type: "scatter",
-      chart_title: "Compare/Control Scatter (" + modeLabel + ", categorical means)",
-      chart_subtitle: "Group outcome means for " + compareLabel + splitLabel,
+      chart_title: "Average " + outcomeLabel + " by " + compareLabel,
+      chart_subtitle: compareControlChartModeSummary(state),
       x_axis: {
         title: { text: compareLabel + " groups" },
         categories: categorical.categories,
@@ -10501,12 +10564,8 @@ _JS = """\
       (context && context.state) || compareControlState
     );
     const compareInfo = (context && context.compare_info) || catalog.by_field[state.compare_field];
-    const compareLabel = compareControlFieldLabel(state.compare_field);
-    const outcomeLabel = compareControlFieldLabel(state.outcome_field);
-    const modeLabel = state.view_mode === "controlled" ? "Controlled" : "Raw";
-    const splitLabel = state.split_field
-      ? " | split by " + compareControlFieldLabel(state.split_field)
-      : "";
+    const compareLabel = compareControlChartFieldLabel(state.compare_field);
+    const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
 
     if (!records.length) {
       const selectedGroups = uniqueStringList(state.selected_groups)
@@ -10573,8 +10632,8 @@ _JS = """\
     const categorical = buildCompareControlCategoricalBarSeries(records, state, catalog);
     return {
       chart_type: "bar",
-      chart_title: "Compare/Control Bar (" + modeLabel + ", categorical means)",
-      chart_subtitle: "Group outcome means for " + compareLabel + splitLabel,
+      chart_title: "Average " + outcomeLabel + " by " + compareLabel,
+      chart_subtitle: compareControlChartModeSummary(state),
       x_axis: {
         title: { text: compareLabel + " groups" },
         categories: categorical.categories,
@@ -10744,6 +10803,18 @@ _JS = """\
       if (!next.title || typeof next.title !== "object") {
         next.title = { text: axisIdx === 0 ? "Outcome field" : "Outcome field (set 2)" };
       }
+      next.title = {
+        ...next.title,
+        style: {
+          color: "#4f5d68",
+          fontSize: "1rem",
+          fontWeight: "600",
+          ...(next.title && typeof next.title.style === "object" ? next.title.style : {}),
+        },
+      };
+      if (!Number.isFinite(Number(next.title.margin))) {
+        next.title.margin = 18;
+      }
       if (chartType === "bar") {
         next.gridLineColor = "#eef1f4";
         next.gridLineWidth = 1;
@@ -10764,7 +10835,7 @@ _JS = """\
           }
           : undefined,
       },
-      legend: { enabled: true },
+      legend: { enabled: compareControlChartLegendEnabled(series) },
       xAxis: xAxisConfig,
       yAxis: normalizedYAxisConfigs.length === 1
         ? normalizedYAxisConfigs[0]

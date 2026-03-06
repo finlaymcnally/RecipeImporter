@@ -17,8 +17,10 @@ from .codex_farm_contracts import (
     PatternHint,
     Pass1RecipeChunkingInput,
     Pass1RecipeChunkingOutput,
+    Pass2SchemaOrgCompactInput,
     Pass2SchemaOrgInput,
     Pass2SchemaOrgOutput,
+    Pass3FinalDraftCompactInput,
     Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
     load_contract_json,
@@ -40,6 +42,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_PASS1_PIPELINE_ID = "recipe.chunking.v1"
 DEFAULT_PASS2_PIPELINE_ID = "recipe.schemaorg.v1"
 DEFAULT_PASS3_PIPELINE_ID = "recipe.final.v1"
+COMPACT_PASS2_PIPELINE_ID = "recipe.schemaorg.compact.v1"
+COMPACT_PASS3_PIPELINE_ID = "recipe.final.compact.v1"
 
 # Backward-compatible exports used by tests/docs.
 PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
@@ -495,25 +499,21 @@ def run_codex_farm_recipe_pipeline(
             },
             evidence_normalization_dir / recipe_artifact_name,
         )
-        pass2_input = Pass2SchemaOrgInput(
-            recipe_id=state.recipe_id,
-            workbook_slug=workbook_slug,
-            source_hash=source_hash,
-            canonical_text=canonical_text,
-            blocks=[_to_block_lite(block) for block in included_blocks],
-            normalized_evidence_text=str(
-                normalization_payload.get("normalized_evidence_text") or ""
-            ),
-            normalized_evidence_lines=[
-                str(line)
-                for line in list(normalization_payload.get("normalized_evidence_lines") or [])
-            ],
-            normalization_stats={
-                str(key): int(value)
-                for key, value in dict(normalization_payload.get("stats") or {}).items()
-                if isinstance(value, (int, float))
-            },
-        )
+        if _uses_compact_pass2_payload(pipelines["pass2"]):
+            pass2_input = _build_pass2_input_compact(
+                state=state,
+                workbook_slug=workbook_slug,
+                source_hash=source_hash,
+                included_blocks=included_blocks,
+            )
+        else:
+            pass2_input = _build_pass2_input_legacy(
+                state=state,
+                workbook_slug=workbook_slug,
+                source_hash=source_hash,
+                included_blocks=included_blocks,
+                normalization_payload=normalization_payload,
+            )
         _write_json(
             pass2_input.model_dump(mode="json", by_alias=True),
             pass2_in_dir / state.bundle_name,
@@ -659,14 +659,18 @@ def run_codex_farm_recipe_pipeline(
 
     for state in pass3_llm_states:
         assert state.pass2_output is not None
-        pass3_input = Pass3FinalDraftInput(
-            recipe_id=state.recipe_id,
-            workbook_slug=workbook_slug,
-            source_hash=source_hash,
-            schemaorg_recipe=state.pass2_output.schemaorg_recipe,
-            extracted_ingredients=list(state.pass2_output.extracted_ingredients),
-            extracted_instructions=list(state.pass2_output.extracted_instructions),
-        )
+        if _uses_compact_pass3_payload(pipelines["pass3"]):
+            pass3_input = _build_pass3_input_compact(
+                state=state,
+                workbook_slug=workbook_slug,
+                source_hash=source_hash,
+            )
+        else:
+            pass3_input = _build_pass3_input_legacy(
+                state=state,
+                workbook_slug=workbook_slug,
+                source_hash=source_hash,
+            )
         _write_json(
             pass3_input.model_dump(mode="json", by_alias=True),
             pass3_in_dir / state.bundle_name,
@@ -1096,6 +1100,103 @@ def _write_json(payload: Any, path: Path) -> None:
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _build_pass2_input_legacy(
+    *,
+    state: _RecipeState,
+    workbook_slug: str,
+    source_hash: str,
+    included_blocks: list[dict[str, Any]],
+    normalization_payload: dict[str, Any],
+) -> Pass2SchemaOrgInput:
+    return Pass2SchemaOrgInput(
+        recipe_id=state.recipe_id,
+        workbook_slug=workbook_slug,
+        source_hash=source_hash,
+        canonical_text=state.canonical_text,
+        blocks=[_to_block_lite(block) for block in included_blocks],
+        normalized_evidence_text=str(
+            normalization_payload.get("normalized_evidence_text") or ""
+        ),
+        normalized_evidence_lines=[
+            str(line)
+            for line in list(normalization_payload.get("normalized_evidence_lines") or [])
+        ],
+        normalization_stats={
+            str(key): int(value)
+            for key, value in dict(normalization_payload.get("stats") or {}).items()
+            if isinstance(value, (int, float))
+        },
+    )
+
+
+def _build_pass2_input_compact(
+    *,
+    state: _RecipeState,
+    workbook_slug: str,
+    source_hash: str,
+    included_blocks: list[dict[str, Any]],
+) -> Pass2SchemaOrgCompactInput:
+    return Pass2SchemaOrgCompactInput(
+        recipe_id=state.recipe_id,
+        workbook_slug=workbook_slug,
+        source_hash=source_hash,
+        evidence_rows=[
+            (int(block.get("index", 0)), str(block.get("text") or "").strip())
+            for block in included_blocks
+        ],
+    )
+
+
+def _build_pass3_input_legacy(
+    *,
+    state: _RecipeState,
+    workbook_slug: str,
+    source_hash: str,
+) -> Pass3FinalDraftInput:
+    assert state.pass2_output is not None
+    return Pass3FinalDraftInput(
+        recipe_id=state.recipe_id,
+        workbook_slug=workbook_slug,
+        source_hash=source_hash,
+        schemaorg_recipe=state.pass2_output.schemaorg_recipe,
+        extracted_ingredients=list(state.pass2_output.extracted_ingredients),
+        extracted_instructions=list(state.pass2_output.extracted_instructions),
+    )
+
+
+def _build_pass3_recipe_metadata(schemaorg_recipe: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): value
+        for key, value in dict(schemaorg_recipe).items()
+        if str(key) not in {"recipeIngredient", "recipeInstructions"}
+    }
+
+
+def _build_pass3_input_compact(
+    *,
+    state: _RecipeState,
+    workbook_slug: str,
+    source_hash: str,
+) -> Pass3FinalDraftCompactInput:
+    assert state.pass2_output is not None
+    return Pass3FinalDraftCompactInput(
+        recipe_id=state.recipe_id,
+        workbook_slug=workbook_slug,
+        source_hash=source_hash,
+        recipe_metadata=_build_pass3_recipe_metadata(state.pass2_output.schemaorg_recipe),
+        extracted_ingredients=list(state.pass2_output.extracted_ingredients),
+        extracted_instructions=list(state.pass2_output.extracted_instructions),
+    )
+
+
+def _uses_compact_pass2_payload(pipeline_id: str) -> bool:
+    return pipeline_id == COMPACT_PASS2_PIPELINE_ID
+
+
+def _uses_compact_pass3_payload(pipeline_id: str) -> bool:
+    return pipeline_id == COMPACT_PASS3_PIPELINE_ID
 
 
 def _resolve_pipeline_root(run_settings: RunSettings) -> Path:

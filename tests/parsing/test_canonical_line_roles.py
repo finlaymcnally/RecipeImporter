@@ -5,7 +5,11 @@ import re
 import time
 
 from cookimport.config.run_settings import RunSettings
-from cookimport.llm.canonical_line_role_prompt import build_canonical_line_role_prompt
+from cookimport.llm.canonical_line_role_prompt import (
+    build_canonical_line_role_prompt,
+    serialize_line_role_targets_compact,
+    serialize_line_role_targets_legacy,
+)
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
@@ -664,12 +668,57 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         next_text="2 tablespoons olive oil",
         rule_tags=["yield_prefix"],
     )
-    prompt = build_canonical_line_role_prompt([candidate])
+    prompt = build_canonical_line_role_prompt([candidate], prompt_format="legacy")
     assert "schema.org extraction" in prompt
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert '"atomic_index": 0' in prompt
     assert '"candidate_labels": ["YIELD_LINE", "OTHER"]' in prompt
+
+
+def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="r1",
+            block_id="block:1",
+            block_index=1,
+            atomic_index=0,
+            text="SERVES 4",
+            within_recipe_span=True,
+            candidate_labels=["YIELD_LINE", "OTHER"],
+            prev_text="",
+            next_text="2 tablespoons olive oil",
+            rule_tags=["yield_prefix"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="r1",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=1,
+            text="2 tablespoons olive oil",
+            within_recipe_span=True,
+            candidate_labels=["INGREDIENT_LINE", "OTHER"],
+            prev_text="SERVES 4",
+            next_text="Whisk and serve.",
+            rule_tags=["ingredient_like"],
+        ),
+    ]
+
+    prompt = build_canonical_line_role_prompt(candidates, prompt_format="compact_v1")
+    assert "within_recipe_span_1_or_0" in prompt
+    assert prompt.count("within_recipe_span_1_or_0") == 1
+    assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil", ["YIELD_LINE", "OTHER"]]' in prompt
+    assert '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve.", ["INGREDIENT_LINE", "OTHER"]]' in prompt
+
+    legacy_rows = serialize_line_role_targets_legacy(
+        candidates,
+        allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+    )
+    compact_rows = serialize_line_role_targets_compact(
+        candidates,
+        allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+    )
+    assert len(compact_rows.encode("utf-8")) < len(legacy_rows.encode("utf-8")) * 0.8
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
@@ -1050,6 +1099,190 @@ def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
     assert len(changed_rows) == 10
 
 
+def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:preview:0",
+            block_index=0,
+            atomic_index=0,
+            text="candidate 0",
+            within_recipe_span=False,
+            candidate_labels=["OTHER", "RECIPE_TITLE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["outside_recipe_span"],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:preview:1",
+            block_index=1,
+            atomic_index=1,
+            text="candidate 1",
+            within_recipe_span=False,
+            candidate_labels=["OTHER", "RECIPE_VARIANT"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["outside_recipe_span"],
+        ),
+    ]
+    candidates.extend(
+        [
+            AtomicLineCandidate(
+                recipe_id=f"recipe:{index}",
+                block_id=f"block:inside:{index}",
+                block_index=index + 2,
+                atomic_index=index + 2,
+                text=f"inside {index}",
+                within_recipe_span=True,
+                candidate_labels=["INSTRUCTION_LINE", "OTHER"],
+                prev_text=None,
+                next_text=None,
+                rule_tags=["instruction_like"],
+            )
+            for index in range(8)
+        ]
+    )
+    candidate_predictions = {
+        0: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:preview:0",
+            block_index=0,
+            atomic_index=0,
+            text="candidate 0",
+            within_recipe_span=False,
+            label="RECIPE_TITLE",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["OTHER", "RECIPE_TITLE"],
+            reason_tags=["codex_line_role"],
+        ),
+        1: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:preview:1",
+            block_index=1,
+            atomic_index=1,
+            text="candidate 1",
+            within_recipe_span=False,
+            label="RECIPE_VARIANT",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["OTHER", "RECIPE_VARIANT"],
+            reason_tags=["codex_line_role"],
+        ),
+    }
+    baseline_predictions = {
+        0: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:preview:0",
+            block_index=0,
+            atomic_index=0,
+            text="candidate 0",
+            within_recipe_span=False,
+            label="OTHER",
+            confidence=0.7,
+            decided_by="rule",
+            candidate_labels=["OTHER"],
+            reason_tags=["outside_recipe_span"],
+        ),
+        1: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:preview:1",
+            block_index=1,
+            atomic_index=1,
+            text="candidate 1",
+            within_recipe_span=False,
+            label="OTHER",
+            confidence=0.7,
+            decided_by="rule",
+            candidate_labels=["OTHER"],
+            reason_tags=["outside_recipe_span"],
+        ),
+    }
+    for index in range(2, 10):
+        candidate_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=f"recipe:{index}",
+            block_id=f"block:inside:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"inside {index}",
+            within_recipe_span=True,
+            label="INSTRUCTION_LINE",
+            confidence=0.9,
+            decided_by="rule",
+            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
+            reason_tags=["instruction_like"],
+        )
+        baseline_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=f"recipe:{index}",
+            block_id=f"block:inside:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"inside {index}",
+            within_recipe_span=True,
+            label="INSTRUCTION_LINE",
+            confidence=0.9,
+            decided_by="rule",
+            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
+            reason_tags=["instruction_like"],
+        )
+
+    _accepted, diagnostics, changed_rows = canonical_line_roles_module._apply_do_no_harm_arbitration(
+        ordered_candidates=candidates,
+        candidate_predictions=candidate_predictions,
+        baseline_predictions=baseline_predictions,
+    )
+    report = canonical_line_roles_module._build_line_role_guardrail_report(
+        guardrail_mode="preview",
+        diagnostics=diagnostics,
+        changed_rows=changed_rows,
+    )
+    canonical_line_roles_module._write_line_role_guardrail_artifacts(
+        artifact_root=tmp_path,
+        report=report,
+        diagnostics=diagnostics,
+        changed_rows=changed_rows,
+    )
+
+    guardrail_report = json.loads(
+        (tmp_path / "line-role-pipeline" / "guardrail_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guardrail_report["mode"] == "preview"
+    assert guardrail_report["applied"] is False
+    assert guardrail_report["would_change_rows"] == 2
+    assert (tmp_path / "line-role-pipeline" / "guardrail_changed_rows.jsonl").exists()
+    assert (tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json").exists()
+
+
+def test_line_role_guardrail_off_report_disables_arbitration_artifacts(
+    tmp_path,
+) -> None:
+    report = canonical_line_roles_module._build_line_role_guardrail_report(
+        guardrail_mode="off",
+        diagnostics=None,
+        changed_rows=[],
+    )
+    canonical_line_roles_module._write_line_role_guardrail_artifacts(
+        artifact_root=tmp_path,
+        report=report,
+        diagnostics=None,
+        changed_rows=[],
+    )
+
+    guardrail_report = json.loads(
+        (tmp_path / "line-role-pipeline" / "guardrail_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guardrail_report["mode"] == "off"
+    assert guardrail_report["decision"]["scope"] == "disabled"
+    assert not (tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json").exists()
+
+
 def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -1425,6 +1658,56 @@ def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
     ).read_text(encoding="utf-8").splitlines()
     assert len(dedup_lines) == 4
     assert all("\tprompt_" in line for line in dedup_lines)
+
+
+def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:compact:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line 0",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text="Before",
+            next_text="After",
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", "compact_v1")
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+    )
+
+    assert predictions[0].label == "OTHER"
+    prompt_text = (tmp_path / "line-role-pipeline" / "prompts" / "prompt_0001.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "within_recipe_span_1_or_0" in prompt_text
+    assert '[0, 1, "Before", "Ambiguous line 0", "After", ["OTHER"]]' in prompt_text
 
 
 def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(

@@ -28,8 +28,9 @@ from cookimport.config.run_settings import (
     compute_effective_workers,
 )
 from cookimport.config.codex_decision import (
-    apply_codex_decision_metadata,
-    resolve_codex_command_decision,
+    apply_codex_execution_policy_metadata,
+    resolve_codex_execution_policy,
+    write_codex_execution_plan,
 )
 from cookimport.core.progress_messages import (
     format_task_counter,
@@ -49,6 +50,10 @@ from cookimport.core.reporting import (
 from cookimport.core.scoring import summarize_recipe_likeness
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
+from cookimport.llm.prompt_budget import (
+    build_prediction_run_prompt_budget_summary,
+    write_prediction_run_prompt_budget_summary,
+)
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.parsing.tips import partition_tip_candidates
@@ -1684,6 +1689,7 @@ def generate_pred_run_artifacts(
     codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
+    line_role_guardrail_mode: str = "enforce",
     processed_output_root: Path | None = None,
     write_markdown: bool = True,
     write_label_studio_tasks: bool = True,
@@ -1706,6 +1712,7 @@ def generate_pred_run_artifacts(
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
     allow_codex: bool = False,
+    codex_execution_policy: str = "execute",
     codex_command_context: str = "labelstudio_benchmark",
     benchmark_variant: str | None = None,
     scheduler_event_callback: Callable[[dict[str, Any]], None] | None = None,
@@ -1854,6 +1861,7 @@ def generate_pred_run_artifacts(
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         atomic_block_splitter=atomic_block_splitter,
         line_role_pipeline=line_role_pipeline,
+        line_role_guardrail_mode=line_role_guardrail_mode,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
@@ -1877,19 +1885,27 @@ def generate_pred_run_artifacts(
             all_epub=path.suffix.lower() == ".epub",
         ),
     )
-    codex_command_decision = resolve_codex_command_decision(
+    codex_decision_payload = {
+        **run_settings.to_run_config_dict(),
+        "prelabel_enabled": bool(prelabel),
+        "prelabel_provider": prelabel_provider,
+    }
+    codex_execution = resolve_codex_execution_policy(
         codex_command_context,
-        run_settings.to_run_config_dict(),
+        codex_decision_payload,
+        execution_policy_mode=codex_execution_policy,
         allow_codex=bool(allow_codex),
         benchmark_variant=benchmark_variant,
     )
-    if not codex_command_decision.allowed:
+    if codex_execution.blocked:
         raise RuntimeError(
             f"{codex_command_context} requires allow_codex=True when Codex-backed "
             "surfaces are enabled."
         )
     worker_run_config = run_settings.to_run_config_dict()
-    run_config = apply_codex_decision_metadata(worker_run_config, codex_command_decision)
+    run_config = apply_codex_execution_policy_metadata(worker_run_config, codex_execution)
+    run_config["prelabel_enabled"] = bool(prelabel)
+    run_config["prelabel_provider"] = prelabel_provider if prelabel else None
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
@@ -1912,6 +1928,91 @@ def generate_pred_run_artifacts(
             ocr_device=run_settings.ocr_device.value,
             ocr_batch_size=run_settings.ocr_batch_size,
         )
+    file_hash = compute_file_hash(path)
+    if codex_execution.plan_only and codex_execution.surface.any_codex_enabled:
+        codex_plan_path = write_codex_execution_plan(
+            run_root=run_root,
+            policy=codex_execution,
+            run_config=run_config,
+            source_path=str(path),
+            source_hash=file_hash,
+            importer_name=importer.name,
+            notes=(
+                "Prediction-run planning preview only. No extraction, Codex calls, "
+                "or Label Studio task generation were performed."
+            ),
+        )
+        manifest = {
+            "schema_version": 1,
+            "path": str(path),
+            "file_hash": file_hash,
+            "pipeline": importer.name,
+            "run_started_at": timestamp,
+            "codex_execution_plan_only": True,
+            "tasks_total": 0,
+            "tasks_jsonl_status": "skipped_plan_only",
+            "coverage": None,
+            "timing": {
+                "prediction_seconds": 0.0,
+                "total_seconds": max(0.0, time.monotonic() - run_started),
+            },
+            "run_config": run_config,
+            "run_config_hash": run_config_hash,
+            "run_config_summary": run_config_summary,
+            "codex_execution_plan_path": str(codex_plan_path),
+        }
+        manifest_path = run_root / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        run_manifest_payload = RunManifest(
+            run_kind=run_manifest_kind,
+            run_id=run_root.name,
+            created_at=run_dt.isoformat(timespec="seconds"),
+            source=RunSource(
+                path=str(path),
+                source_hash=file_hash,
+                importer_name=importer.name,
+            ),
+            run_config=run_config,
+            artifacts={
+                "prediction_manifest_json": "manifest.json",
+                "tasks_jsonl_status": "skipped_plan_only",
+                "codex_execution_plan_json": "codex_execution_plan.json",
+            },
+            notes=(
+                "Plan-only Codex preview run. No live Codex execution or extraction "
+                "artifacts were produced."
+            ),
+        )
+        _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
+        return {
+            "run_root": run_root,
+            "processed_run_root": None,
+            "processed_report_path": None,
+            "processed_stage_block_predictions_path": None,
+            "stage_block_predictions_path": None,
+            "line_role_pipeline_stage_block_predictions_path": None,
+            "line_role_pipeline_extracted_archive_path": None,
+            "line_role_pipeline_line_role_predictions_path": None,
+            "line_role_pipeline_projected_spans_path": None,
+            "line_role_pipeline_guardrail_report_path": None,
+            "line_role_pipeline_guardrail_changed_rows_path": None,
+            "line_role_pipeline_do_no_harm_diagnostics_path": None,
+            "line_role_pipeline_do_no_harm_changed_rows_path": None,
+            "tasks_total": 0,
+            "tasks_jsonl_status": "skipped_plan_only",
+            "manifest_path": manifest_path,
+            "run_config": run_config,
+            "run_config_hash": run_config_hash,
+            "run_config_summary": run_config_summary,
+            "source_hash": file_hash,
+            "importer_name": importer.name,
+            "timing": manifest["timing"],
+            "codex_execution_plan_only": True,
+            "codex_execution_plan_path": codex_plan_path,
+        }
     selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
         single_offline_split_cache_mode
     )
@@ -3057,6 +3158,18 @@ def generate_pred_run_artifacts(
             and line_role_artifacts.get("projected_spans_path") is not None
             else None
         ),
+        "line_role_pipeline_guardrail_report_path": (
+            str(line_role_artifacts["guardrail_report_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("guardrail_report_path") is not None
+            else None
+        ),
+        "line_role_pipeline_guardrail_changed_rows_path": (
+            str(line_role_artifacts["guardrail_changed_rows_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("guardrail_changed_rows_path") is not None
+            else None
+        ),
         "line_role_pipeline_do_no_harm_diagnostics_path": (
             str(line_role_artifacts["do_no_harm_diagnostics_path"])
             if isinstance(line_role_artifacts, dict)
@@ -3099,6 +3212,18 @@ def generate_pred_run_artifacts(
     }
     if single_offline_split_cache_summary is not None:
         manifest["single_offline_split_cache"] = single_offline_split_cache_summary
+
+    prompt_budget_summary_path: Path | None = None
+    prompt_budget_summary = build_prediction_run_prompt_budget_summary(
+        manifest,
+        run_root,
+    )
+    if isinstance(prompt_budget_summary.get("by_pass"), dict) and prompt_budget_summary["by_pass"]:
+        prompt_budget_summary_path = write_prediction_run_prompt_budget_summary(
+            run_root,
+            prompt_budget_summary,
+        )
+        manifest["prompt_budget_summary_path"] = str(prompt_budget_summary_path)
 
     manifest_path = run_root / "manifest.json"
     manifest_path.write_text(
@@ -3190,6 +3315,22 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "line_role_pipeline_projected_spans_jsonl"
             ] = line_role_spans_manifest_path
+        line_role_guardrail_report_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("guardrail_report_path"),
+        )
+        if line_role_guardrail_report_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_guardrail_report_json"
+            ] = line_role_guardrail_report_manifest_path
+        line_role_guardrail_changed_rows_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("guardrail_changed_rows_path"),
+        )
+        if line_role_guardrail_changed_rows_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_guardrail_changed_rows_jsonl"
+            ] = line_role_guardrail_changed_rows_manifest_path
         line_role_do_no_harm_diagnostics_manifest_path = _path_for_manifest(
             run_root,
             line_role_artifacts.get("do_no_harm_diagnostics_path"),
@@ -3210,6 +3351,11 @@ def generate_pred_run_artifacts(
         run_manifest_artifacts[
             "line_role_pipeline_recipe_projection"
         ] = dict(line_role_recipe_projection_summary)
+    if prompt_budget_summary_path is not None:
+        run_manifest_artifacts["prompt_budget_summary_json"] = _path_for_manifest(
+            run_root,
+            prompt_budget_summary_path,
+        )
     run_manifest_artifacts["timing"] = timing_payload
     llm_manifest_path = (
         run_root
@@ -3321,6 +3467,16 @@ def generate_pred_run_artifacts(
             if isinstance(line_role_artifacts, dict)
             else None
         ),
+        "line_role_pipeline_guardrail_report_path": (
+            line_role_artifacts.get("guardrail_report_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_guardrail_changed_rows_path": (
+            line_role_artifacts.get("guardrail_changed_rows_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
         "line_role_pipeline_do_no_harm_diagnostics_path": (
             line_role_artifacts.get("do_no_harm_diagnostics_path")
             if isinstance(line_role_artifacts, dict)
@@ -3331,6 +3487,7 @@ def generate_pred_run_artifacts(
             if isinstance(line_role_artifacts, dict)
             else None
         ),
+        "prompt_budget_summary_path": prompt_budget_summary_path,
         "line_role_pipeline_recipe_projection": line_role_recipe_projection_summary,
         "tasks_total": len(tasks),
         "tasks_jsonl_path": tasks_path,
@@ -3440,6 +3597,7 @@ def run_labelstudio_import(
     codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
+    codex_execution_policy: str = "execute",
     processed_output_root: Path | None = None,
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
@@ -3547,6 +3705,7 @@ def run_labelstudio_import(
         codex_farm_pass3_skip_pass2_ok=codex_farm_pass3_skip_pass2_ok,
         codex_farm_recipe_mode=codex_farm_recipe_mode,
         codex_farm_failure_mode=codex_farm_failure_mode,
+        codex_execution_policy=codex_execution_policy,
         processed_output_root=processed_output_root,
         split_phase_slots=split_phase_slots,
         split_phase_gate_dir=split_phase_gate_dir,
@@ -3859,6 +4018,22 @@ def run_labelstudio_import(
         run_manifest_artifacts[
             "line_role_pipeline_projected_spans_jsonl"
         ] = line_role_spans_manifest_path
+    line_role_guardrail_report_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_guardrail_report_path"),
+    )
+    if line_role_guardrail_report_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_guardrail_report_json"
+        ] = line_role_guardrail_report_manifest_path
+    line_role_guardrail_changed_rows_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_guardrail_changed_rows_path"),
+    )
+    if line_role_guardrail_changed_rows_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_guardrail_changed_rows_jsonl"
+        ] = line_role_guardrail_changed_rows_manifest_path
     line_role_do_no_harm_diagnostics_manifest_path = _path_for_manifest(
         run_root,
         pred.get("line_role_pipeline_do_no_harm_diagnostics_path"),
@@ -3917,6 +4092,12 @@ def run_labelstudio_import(
         ),
         "line_role_pipeline_projected_spans_path": pred.get(
             "line_role_pipeline_projected_spans_path"
+        ),
+        "line_role_pipeline_guardrail_report_path": pred.get(
+            "line_role_pipeline_guardrail_report_path"
+        ),
+        "line_role_pipeline_guardrail_changed_rows_path": pred.get(
+            "line_role_pipeline_guardrail_changed_rows_path"
         ),
         "line_role_pipeline_do_no_harm_diagnostics_path": pred.get(
             "line_role_pipeline_do_no_harm_diagnostics_path"

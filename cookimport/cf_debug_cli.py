@@ -8,6 +8,8 @@ from cookimport.bench.followup_bundle import (
     write_ablation_matrix,
     write_case_export,
     write_followup_pack,
+    write_followup_request_packet,
+    write_followup_request_template,
     write_line_role_audit,
     write_page_context,
     write_prompt_link_audit,
@@ -21,6 +23,15 @@ app = typer.Typer(
     no_args_is_help=True,
     help="Deterministic follow-up exporters and audits for benchmark upload bundles.",
 )
+
+
+@app.command("request-template")
+def request_template(
+    bundle: Path = typer.Option(..., "--bundle", exists=True, file_okay=False, dir_okay=True),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    write_followup_request_template(bundle_dir=bundle, out_path=out)
+    typer.echo(str(out))
 
 
 def _select_cases_command_text(
@@ -97,6 +108,24 @@ def select_cases(
         include_case_ids=include_case_values,
         include_recipe_ids=include_recipe_values,
         include_line_ranges=include_line_range_values,
+    )
+    typer.echo(str(out))
+
+
+@app.command("build-followup")
+def build_followup(
+    bundle: Path = typer.Option(..., "--bundle", exists=True, file_okay=False, dir_okay=True),
+    request: Path = typer.Option(..., "--request", exists=True, file_okay=True, dir_okay=False),
+    out: Path = typer.Option(..., "--out"),
+    readme: bool = typer.Option(True, "--readme/--no-readme"),
+    confidence_threshold: float = typer.Option(0.9, "--confidence-threshold"),
+) -> None:
+    write_followup_request_packet(
+        bundle_dir=bundle,
+        request_path=request,
+        out_dir=out,
+        include_readme=readme,
+        confidence_threshold=confidence_threshold,
     )
     typer.echo(str(out))
 

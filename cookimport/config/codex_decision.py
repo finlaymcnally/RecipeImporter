@@ -16,6 +16,7 @@ LINE_ROLE_CODEX_PIPELINE = "codex-line-role-v1"
 LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
 TAGS_CODEX_PIPELINE = "codex-farm-tags-v1"
+PRELABEL_CODEX_PROVIDER = "codex-cli"
 
 _TOP_TIER_CODEXFARM_PATCH: dict[str, Any] = {
     "llm_recipe_pipeline": RECIPE_CODEX_PIPELINE,
@@ -65,11 +66,13 @@ class CodexSurfaceDecision:
     line_role_pipeline: str
     knowledge_pipeline: str
     tags_pipeline: str
+    prelabel_provider: str
     recipe_codex_enabled: bool
     line_role_codex_enabled: bool
     deterministic_line_role_enabled: bool
     knowledge_codex_enabled: bool
     tags_codex_enabled: bool
+    prelabel_codex_enabled: bool
     any_codex_enabled: bool
     codex_surfaces: tuple[str, ...]
     deterministic_surfaces: tuple[str, ...]
@@ -124,18 +127,33 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         normalized_payload.get("llm_knowledge_pipeline") or "off"
     )
     tags_pipeline = _normalize_text(normalized_payload.get("llm_tags_pipeline") or "off")
+    prelabel_provider = _normalize_text(
+        normalized_payload.get("prelabel_provider")
+        or (
+            PRELABEL_CODEX_PROVIDER
+            if bool(
+                normalized_payload.get("prelabel")
+                or normalized_payload.get("prelabel_enabled")
+            )
+            else "off"
+        )
+    )
 
     recipe_codex_enabled = recipe_pipeline == RECIPE_CODEX_PIPELINE
     line_role_codex_enabled = line_role_pipeline == LINE_ROLE_CODEX_PIPELINE
     deterministic_line_role_enabled = line_role_pipeline == LINE_ROLE_DETERMINISTIC_PIPELINE
     knowledge_codex_enabled = knowledge_pipeline == KNOWLEDGE_CODEX_PIPELINE
     tags_codex_enabled = tags_pipeline == TAGS_CODEX_PIPELINE
+    prelabel_codex_enabled = bool(
+        normalized_payload.get("prelabel") or normalized_payload.get("prelabel_enabled")
+    ) and prelabel_provider in {"", PRELABEL_CODEX_PROVIDER}
     any_codex_enabled = any(
         (
             recipe_codex_enabled,
             line_role_codex_enabled,
             knowledge_codex_enabled,
             tags_codex_enabled,
+            prelabel_codex_enabled,
         )
     )
     codex_surfaces = _surface_list(
@@ -143,6 +161,7 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         (line_role_codex_enabled, "line_role"),
         (knowledge_codex_enabled, "knowledge"),
         (tags_codex_enabled, "tags"),
+        (prelabel_codex_enabled, "prelabel"),
     )
     deterministic_surfaces = _surface_list(
         (deterministic_line_role_enabled, "line_role"),
@@ -178,11 +197,13 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         line_role_pipeline=line_role_pipeline,
         knowledge_pipeline=knowledge_pipeline,
         tags_pipeline=tags_pipeline,
+        prelabel_provider=prelabel_provider,
         recipe_codex_enabled=recipe_codex_enabled,
         line_role_codex_enabled=line_role_codex_enabled,
         deterministic_line_role_enabled=deterministic_line_role_enabled,
         knowledge_codex_enabled=knowledge_codex_enabled,
         tags_codex_enabled=tags_codex_enabled,
+        prelabel_codex_enabled=prelabel_codex_enabled,
         any_codex_enabled=any_codex_enabled,
         codex_surfaces=codex_surfaces,
         deterministic_surfaces=deterministic_surfaces,

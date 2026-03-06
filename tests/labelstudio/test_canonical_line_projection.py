@@ -54,6 +54,8 @@ def test_projection_keeps_explicit_span_flag_even_for_recipe_index_ids() -> None
 def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) -> None:
     pipeline_dir = tmp_path / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
+    (pipeline_dir / "guardrail_report.json").write_text("{}", encoding="utf-8")
+    (pipeline_dir / "guardrail_changed_rows.jsonl").write_text("", encoding="utf-8")
     (pipeline_dir / "do_no_harm_diagnostics.json").write_text("{}", encoding="utf-8")
     (pipeline_dir / "do_no_harm_changed_rows.jsonl").write_text("", encoding="utf-8")
 
@@ -78,5 +80,7 @@ def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) ->
         ],
     )
 
+    assert artifacts["guardrail_report_path"].name == "guardrail_report.json"
+    assert artifacts["guardrail_changed_rows_path"].name == "guardrail_changed_rows.jsonl"
     assert artifacts["do_no_harm_diagnostics_path"].name == "do_no_harm_diagnostics.json"
     assert artifacts["do_no_harm_changed_rows_path"].name == "do_no_harm_changed_rows.jsonl"

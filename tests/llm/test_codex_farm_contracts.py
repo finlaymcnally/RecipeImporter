@@ -5,7 +5,9 @@ from pydantic import ValidationError
 
 from cookimport.llm.codex_farm_contracts import (
     Pass1RecipeChunkingInput,
+    Pass2SchemaOrgCompactInput,
     Pass2SchemaOrgOutput,
+    Pass3FinalDraftCompactInput,
     Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
 )
@@ -130,6 +132,46 @@ def test_pass3_input_accepts_json_string_schemaorg() -> None:
         }
     )
     assert payload.schemaorg_recipe == {"name": "T"}
+
+
+def test_pass2_compact_input_uses_evidence_rows_only() -> None:
+    payload = Pass2SchemaOrgCompactInput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "workbook_slug": "book",
+            "source_hash": "hash",
+            "evidence_rows": [[3, "Dish Title"], [4, "1 cup flour"]],
+        }
+    )
+    assert payload.evidence_rows == [(3, "Dish Title"), (4, "1 cup flour")]
+
+    with pytest.raises(ValidationError):
+        Pass2SchemaOrgCompactInput.model_validate(
+            {
+                "bundle_version": "1",
+                "recipe_id": "urn:recipe:test",
+                "workbook_slug": "book",
+                "source_hash": "hash",
+                "evidence_rows": [],
+                "canonical_text": "legacy field should be rejected",
+            }
+        )
+
+
+def test_pass3_compact_input_accepts_json_string_recipe_metadata() -> None:
+    payload = Pass3FinalDraftCompactInput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "workbook_slug": "book",
+            "source_hash": "hash",
+            "recipe_metadata": "{\"name\":\"Toast\",\"recipeYield\":\"2 servings\"}",
+            "extracted_ingredients": ["1 slice bread"],
+            "extracted_instructions": ["Toast the bread."],
+        }
+    )
+    assert payload.recipe_metadata == {"name": "Toast", "recipeYield": "2 servings"}
 
 
 def test_pass2_contract_repairs_mismatched_json_closers() -> None:

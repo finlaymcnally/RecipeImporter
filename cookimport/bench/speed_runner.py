@@ -18,9 +18,9 @@ from typing import Any, Callable, Iterable
 
 from cookimport.bench.speed_suite import SpeedSuite, SpeedTarget, resolve_repo_path
 from cookimport.config.codex_decision import (
-    apply_codex_decision_metadata,
-    codex_decision_metadata,
-    resolve_codex_command_decision,
+    apply_codex_execution_policy_metadata,
+    codex_execution_policy_metadata,
+    resolve_codex_execution_policy,
 )
 from cookimport.config.run_settings import RunSettings
 from cookimport.config.run_settings_adapters import (
@@ -138,14 +138,14 @@ def run_speed_suite(
     process_worker_probe_available, process_worker_probe_error = (
         _probe_process_worker_availability()
     )
-    command_codex_decision = resolve_codex_command_decision(
+    command_codex_execution = resolve_codex_execution_policy(
         "bench_speed_run",
         run_settings.to_run_config_dict(),
         include_codex_farm_requested=include_codex_farm_requested,
         explicit_confirmation_granted=codex_farm_confirmed,
     )
 
-    run_config_payload = apply_codex_decision_metadata(
+    run_config_payload = apply_codex_execution_policy_metadata(
         {
             "suite_name": suite.name,
             "suite_generated_at": str(suite.generated_at),
@@ -159,7 +159,7 @@ def run_speed_suite(
             "include_codex_farm_requested": bool(include_codex_farm_requested),
             "include_codex_farm_confirmed": bool(codex_farm_confirmed),
         },
-        command_codex_decision,
+        command_codex_execution,
     )
     if resume_run_dir is not None:
         _validate_speed_resume_compatibility(
@@ -467,7 +467,7 @@ def run_speed_suite(
     )
     _write_checkpoint("complete")
 
-    manifest_codex_decision = resolve_codex_command_decision(
+    manifest_codex_execution = resolve_codex_execution_policy(
         "bench_speed_run",
         run_settings.to_run_config_dict(),
         include_codex_farm_requested=include_codex_farm_requested,
@@ -499,7 +499,9 @@ def run_speed_suite(
             "run_settings_hash": run_settings.stable_hash(),
             "include_codex_farm_requested": bool(include_codex_farm_requested),
             "include_codex_farm_confirmed": bool(codex_farm_confirmed),
-            "codex_decision": codex_decision_metadata(manifest_codex_decision),
+            "codex_execution_policy": codex_execution_policy_metadata(
+                manifest_codex_execution
+            ),
         },
         artifacts={
             "suite_resolved_json": "suite_resolved.json",
@@ -1052,7 +1054,7 @@ def _build_summary_payload(
         )
 
     run_settings_payload = run_settings.to_run_config_dict()
-    command_codex_decision = resolve_codex_command_decision(
+    command_codex_execution = resolve_codex_execution_policy(
         "bench_speed_run",
         run_settings_payload,
         include_codex_farm_requested=include_codex_farm_requested,
@@ -1075,7 +1077,9 @@ def _build_summary_payload(
         "run_settings_hash": run_settings.stable_hash(),
         "include_codex_farm_requested": bool(include_codex_farm_requested),
         "include_codex_farm_confirmed": bool(codex_farm_confirmed),
-        "codex_decision": codex_decision_metadata(command_codex_decision),
+        "codex_execution_policy": codex_execution_policy_metadata(
+            command_codex_execution
+        ),
         "max_parallel_tasks_requested": (
             parallel_tasks_requested if parallel_tasks_requested is not None else "auto"
         ),
@@ -1111,7 +1115,7 @@ def _format_speed_run_report(summary_payload: dict[str, Any]) -> str:
         f"- Warmups: {summary_payload.get('warmups')}",
         f"- Repeats: {summary_payload.get('repeats')}",
         "- Codex decision: "
-        f"{((summary_payload.get('codex_decision') or {}).get('codex_decision_summary') or 'n/a')}",
+        f"{((summary_payload.get('codex_execution_policy') or {}).get('codex_execution_summary') or 'n/a')}",
         "- Parallel tasks: "
         f"{summary_payload.get('max_parallel_tasks_effective')} "
         f"(mode={summary_payload.get('max_parallel_tasks_mode')}, "

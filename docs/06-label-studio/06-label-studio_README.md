@@ -64,6 +64,7 @@ Active Label Studio runtime scope is `freeform-spans`.
 ### 2.1 Upload consent
 
 - `labelstudio-import` requires `--allow-labelstudio-write`.
+- `labelstudio-import --prelabel` also requires `--allow-codex` even when recipe parsing stays deterministic, because freeform prelabel uses the Codex CLI path.
 - `labelstudio-benchmark` requires `--allow-labelstudio-write` only when upload is enabled.
 - `labelstudio-benchmark --no-upload` is offline and skips Label Studio writes.
 
@@ -131,6 +132,7 @@ If inline annotation import fails, runtime falls back to:
 
 ### 4.3 Reliability behaviors
 
+- Prelabel is part of the Codex decision boundary and shows up as the `prelabel` Codex surface in manifests and plan previews.
 - Preflight model-access check happens once before task loop.
 - Prompt calls are one-task-per-prompt (no cross-task conversation memory).
 - Prompt cache is deterministic and can make reruns appear stateful.
@@ -217,6 +219,22 @@ Execution modes:
 - `legacy` (default)
 - `pipelined`
 - `predict-only`
+
+### 5.4 Codex plan/approval boundary notes
+
+- `labelstudio-benchmark --codex-execution-policy plan` belongs at the benchmark command boundary:
+  - writes `codex_execution_plan.json` plus manifests,
+  - requires `--no-upload`,
+  - stops before extraction, evaluation, and live Codex work.
+- `labelstudio-import --prelabel` is a separate Codex-backed surface from recipe/line-role benchmark settings.
+  - Do not assume recipe/line-role decision metadata or approval checks automatically cover prelabel behavior.
+  - If operator-intent policy changes, review prelabel command wiring separately.
+
+Codex preview mode:
+
+- `--codex-execution-policy execute|plan` is available on `labelstudio-benchmark`.
+- `execute` keeps the existing explicit-approval behavior (`--allow-codex` still required when Codex-backed surfaces are enabled).
+- `plan` is offline-only (`--no-upload`), skips extraction/eval/upload, and writes a prediction-run `codex_execution_plan.json` plus benchmark/pred-run manifests so a later execute-mode rerun can be inspected before spending tokens.
 
 Eval modes:
 

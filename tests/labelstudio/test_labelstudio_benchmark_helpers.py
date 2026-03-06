@@ -25,6 +25,10 @@ from cookimport.core.progress_messages import (
     format_worker_activity,
     format_worker_activity_reset,
 )
+from cookimport.llm.prompt_budget import (
+    build_prediction_run_prompt_budget_summary,
+    write_prediction_run_prompt_budget_summary,
+)
 
 
 def _write_fake_all_method_prediction_phase_artifacts(
@@ -382,6 +386,7 @@ def test_labelstudio_import_prints_prelabel_failure_summary(
     cli.labelstudio_import(
         path=source,
         allow_labelstudio_write=True,
+        allow_codex=True,
         label_studio_url="http://example",
         label_studio_api_key="api-key",
         segment_blocks=40,
@@ -448,6 +453,7 @@ def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
     cli.labelstudio_import(
         path=source,
         allow_labelstudio_write=True,
+        allow_codex=True,
         label_studio_url="http://example",
         label_studio_api_key="api-key",
         segment_blocks=40,
@@ -3193,6 +3199,74 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
     assert context.tokens_total == 171
 
 
+def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 2,
+                    "attempt_count": 3,
+                    "tokens_input": 50,
+                    "tokens_cached_input": 5,
+                    "tokens_output": 7,
+                    "tokens_reasoning": 2,
+                    "tokens_total": 64,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    pred_manifest = {
+        "line_role_pipeline_telemetry_path": str(telemetry_path),
+        "llm_codex_farm": {
+            "process_runs": {
+                "pass1": {
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 2,
+                            "duration_total_ms": 1200,
+                            "tokens_input": 101,
+                            "tokens_cached_input": 9,
+                            "tokens_output": 12,
+                            "tokens_reasoning": 1,
+                            "tokens_total": 123,
+                        }
+                    }
+                },
+                "pass2": {
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 1,
+                            "duration_total_ms": 2200,
+                            "tokens_input": 80,
+                            "tokens_cached_input": 0,
+                            "tokens_output": 20,
+                            "tokens_reasoning": 4,
+                            "tokens_total": 104,
+                        }
+                    }
+                },
+            }
+        },
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+    summary_path = write_prediction_run_prompt_budget_summary(pred_run, summary)
+
+    written = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert written["by_pass"]["pass1"]["call_count"] == 2
+    assert written["by_pass"]["pass2"]["tokens_total"] == 104
+    assert written["by_pass"]["line_role"]["call_count"] == 2
+    assert written["by_pass"]["line_role"]["attempt_count"] == 3
+    assert written["totals"]["tokens_total"] == 291
+
+
 def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3468,9 +3542,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
-
-
 
 
 
