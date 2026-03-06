@@ -1085,7 +1085,7 @@ class RunSettings(BaseModel):
         ),
     )
     codex_farm_pipeline_pass2: str = Field(
-        default="recipe.schemaorg.v1",
+        default="recipe.schemaorg.compact.v1",
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass2 Pipeline",
@@ -1094,7 +1094,7 @@ class RunSettings(BaseModel):
         ),
     )
     codex_farm_pipeline_pass3: str = Field(
-        default="recipe.final.v1",
+        default="recipe.final.compact.v1",
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass3 Pipeline",
@@ -1601,8 +1601,8 @@ def build_run_settings(
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pass1_pattern_hints_enabled: bool = False,
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: str = "recipe.schemaorg.v1",
-    codex_farm_pipeline_pass3: str = "recipe.final.v1",
+    codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
+    codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
     codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_pipeline_pass5_tags: str = "recipe.tags.v1",
@@ -1738,10 +1738,12 @@ def build_run_settings(
                 str(codex_farm_pipeline_pass1).strip() or "recipe.chunking.v1"
             ),
             "codex_farm_pipeline_pass2": (
-                str(codex_farm_pipeline_pass2).strip() or "recipe.schemaorg.v1"
+                str(codex_farm_pipeline_pass2).strip()
+                or "recipe.schemaorg.compact.v1"
             ),
             "codex_farm_pipeline_pass3": (
-                str(codex_farm_pipeline_pass3).strip() or "recipe.final.v1"
+                str(codex_farm_pipeline_pass3).strip()
+                or "recipe.final.compact.v1"
             ),
             "codex_farm_pass3_skip_pass2_ok": bool(codex_farm_pass3_skip_pass2_ok),
             "codex_farm_pipeline_pass4_knowledge": (

@@ -1193,6 +1193,98 @@ def test_subprocess_runner_tolerates_no_last_agent_message_failures(
     ]
 
 
+def test_subprocess_runner_routes_recoverable_partial_output_warning_to_progress_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+
+    process_calls: list[list[str]] = []
+
+    def _fake_stream(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        process_calls.append(argv)
+        return SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps(
+                {
+                    "run_id": "run-progress-123",
+                    "status": "failed",
+                    "exit_code": 1,
+                }
+            ),
+            stderr="pipeline failed",
+        )
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        process_calls.append(argv)
+        if argv[1:3] == ["run", "errors"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "errors": [
+                            {
+                                "message": (
+                                    "codex auth failed: run `codex` once and sign in with ChatGPT, "
+                                    "then retry this run. Warning: no last agent message; wrote empty "
+                                    "content to /tmp/file.tmp"
+                                )
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(returncode=1, stdout="{}", stderr="unsupported")
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    progress_messages: list[str] = []
+    warning_messages: list[str] = []
+    debug_messages: list[str] = []
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner._run_codex_farm_command_streaming",
+        _fake_stream,
+    )
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner._run_codex_farm_command", _fake_run)
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner.logger.warning",
+        lambda message, *args: warning_messages.append(
+            message % args if args else str(message)
+        ),
+    )
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner.logger.debug",
+        lambda message, *args: debug_messages.append(
+            message % args if args else str(message)
+        ),
+    )
+
+    runner = SubprocessCodexFarmRunner(
+        cmd="codex-farm",
+        progress_callback=progress_messages.append,
+    )
+    run_result = runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+
+    assert run_result.run_id == "run-progress-123"
+    assert run_result.subprocess_exit_code == 1
+    assert run_result.process_exit_code == 1
+    assert warning_messages == []
+    assert debug_messages
+    assert any(
+        "recoverable non-zero exit; continuing with partial outputs" in message
+        for message in progress_messages
+    )
+    assert any("run-progress-123" in message for message in progress_messages)
+
+
 def test_ensure_codex_farm_pipelines_exist_queries_cli(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

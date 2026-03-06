@@ -30,6 +30,7 @@ This plan is intentionally scoped to prompt-size reduction and prompt-budget obs
 - [x] (2026-03-05_23.51.27) Added compact pass2 assets (`recipe.schemaorg.compact.v1`) plus compact bundle construction in `cookimport/llm/codex_farm_orchestrator.py` and `cookimport/llm/codex_farm_contracts.py`.
 - [x] (2026-03-05_23.51.27) Added compact line-role target serialization in `cookimport/llm/canonical_line_role_prompt.py` plus the local `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` selector in `cookimport/parsing/canonical_line_roles.py`.
 - [x] (2026-03-05_23.51.27) Added compact pass3 assets (`recipe.final.compact.v1`) plus compact bundle construction that drops duplicated `recipeIngredient` and `recipeInstructions` content from the pass3 payload.
+- [x] (2026-03-06_17.55.00) Flipped the repository defaults to compact pass2/pass3 pipeline ids plus compact line-role prompt format after explicit user request. Remaining validation caveat: paired legacy-vs-compact benchmark evidence is still incomplete in this plan.
 - [ ] Run focused tests plus legacy-vs-compact benchmark replays for `DinnerFor2CUTDOWN.epub` and `SaltFatAcidHeatCUTDOWN.epub`, then update this plan with measured deltas. Completed so far: direct impacted unit tests pass. Remaining: real benchmark replays were not run in this turn.
 
 ## Surprises & Discoveries
@@ -92,11 +93,15 @@ This plan is intentionally scoped to prompt-size reduction and prompt-budget obs
   Rationale: `prediction-run/prompt_budget_summary.json` can be generated from the current manifest surfaces with minimal risk, and benchmark packaging can adopt it without disturbing the older telemetry fallbacks used by existing run roots.
   Date/Author: 2026-03-05_23.51.27 / Codex
 
+- Decision: flip compact prompts to the default selection before the full paired benchmark evidence loop is recorded in this plan.
+  Rationale: the user explicitly requested the default flip, and the repo still retains straightforward rollback surfaces through explicit legacy pipeline ids and `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=legacy`.
+  Date/Author: 2026-03-06_17.55.00 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation is now partially complete. The repository writes a unified prompt-budget artifact, benchmark telemetry fallback can read `line_role` as a first-class pass, compact pass2 and pass3 pipeline assets exist, and line-role prompt construction can switch to the compact tuple format locally. The focused, directly impacted tests for those slices pass.
+Implementation is now partially complete. The repository writes a unified prompt-budget artifact, benchmark telemetry fallback can read `line_role` as a first-class pass, compact pass2 and pass3 pipeline assets exist, and line-role prompt construction can switch to the compact tuple format locally. Compact pass2/pass3 pipeline ids and compact line-role prompt format are now also the default selections. The focused, directly impacted tests for those slices pass.
 
-The main remaining gap is real benchmark evidence. This turn did not run the paired `DinnerFor2CUTDOWN.epub` and `SaltFatAcidHeatCUTDOWN.epub` legacy-vs-compact replays, so the plan still lacks measured end-to-end token deltas and has not changed any defaults.
+The main remaining gap is real benchmark evidence. This plan still lacks the paired `DinnerFor2CUTDOWN.epub` and `SaltFatAcidHeatCUTDOWN.epub` legacy-vs-compact replay record with measured end-to-end token deltas, even though defaults were flipped later by explicit user request.
 
 Revision note (2026-03-05_23.51.27): updated this ExecPlan after shipping the repo-native prompt-budget artifact plus compact pass2/pass3/line-role implementations, and recorded the remaining validation gap plus the unrelated existing orchestrator eligibility test failure seen during verification.
 

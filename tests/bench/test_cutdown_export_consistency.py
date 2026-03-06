@@ -297,6 +297,76 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
     assert all(int(row["line_index"]) != 2 for row in flips)
 
 
+def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
+    tmp_path: Path,
+) -> None:
+    eval_output_dir = tmp_path / "eval"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    canonical_text = "Salt\nPepper\nSalt\nOil\n"
+    canonical_text_path = tmp_path / "canonical_text.txt"
+    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
+    canonical_text_path.write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(canonical_span_labels_path, _build_line_spans(canonical_text))
+    _write_jsonl(eval_output_dir / "wrong_label_lines.jsonl", [])
+
+    line_role_predictions_path = tmp_path / "line_role_predictions.jsonl"
+    _write_jsonl(
+        line_role_predictions_path,
+        [
+            {
+                "atomic_index": 10,
+                "text": "Salt",
+                "decided_by": "rule",
+                "within_recipe_span": False,
+                "recipe_id": None,
+                "candidate_labels": ["OTHER"],
+            },
+            {
+                "atomic_index": 11,
+                "text": "Salt",
+                "decided_by": "rule",
+                "within_recipe_span": True,
+                "recipe_id": "recipe:0",
+                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
+            },
+            {
+                "atomic_index": 12,
+                "text": "Pepper",
+                "decided_by": "rule",
+                "within_recipe_span": True,
+                "recipe_id": "recipe:0",
+                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
+            },
+            {
+                "atomic_index": 13,
+                "text": "Oil",
+                "decided_by": "rule",
+                "within_recipe_span": True,
+                "recipe_id": "recipe:0",
+                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
+            },
+        ],
+    )
+
+    report = {
+        "canonical": {
+            "canonical_text_path": str(canonical_text_path),
+            "canonical_span_labels_path": str(canonical_span_labels_path),
+        }
+    }
+    joined_rows = build_line_role_joined_line_rows(
+        report=report,
+        eval_output_dir=eval_output_dir,
+        line_role_predictions_path=line_role_predictions_path,
+    )
+    by_line_index = {int(row["line_index"]): row for row in joined_rows}
+
+    assert by_line_index[0]["candidate_labels"] == ["INGREDIENT_LINE", "OTHER"]
+    assert by_line_index[0]["line_role_prediction_atomic_index"] == 11
+    assert by_line_index[2]["candidate_labels"] == []
+    assert by_line_index[2]["line_role_match_kind"] == "unmatched"
+
+
 def test_line_role_flips_uses_paired_history_baseline_rows() -> None:
     candidate_rows = [
         {

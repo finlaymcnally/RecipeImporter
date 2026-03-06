@@ -101,6 +101,9 @@ def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
     assets_dir.mkdir(exist_ok=True)
 
     data_json = data.model_dump_json(indent=2)
+    asset_version = re.sub(r"[^A-Za-z0-9]+", "-", data.generated_at).strip("-")
+    if not asset_version:
+        asset_version = data.schema_version or "dashboard"
 
     # Write data JSON
     data_path = assets_dir / "dashboard_data.json"
@@ -132,7 +135,9 @@ def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
     html_path = out_dir / "index.html"
     html_data_json = data_json.replace("</", "<\\/")
     html_path.write_text(
-        _HTML.replace("__DASHBOARD_DATA_INLINE__", html_data_json),
+        _HTML
+        .replace("__DASHBOARD_DATA_INLINE__", html_data_json)
+        .replace("__ASSET_VERSION__", asset_version),
         encoding="utf-8",
     )
 
@@ -1927,7 +1932,10 @@ _HTML = """\
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cookimport – Lifetime Stats Dashboard</title>
-<link rel="stylesheet" href="assets/style.css">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<link rel="stylesheet" href="assets/style.css?v=__ASSET_VERSION__">
 </head>
 <body>
 <header id="dash-header">
@@ -2316,7 +2324,7 @@ if (!window.Highcharts || !window.Highcharts.seriesTypes || typeof window.Highch
   document.write('<script src="https://cdn.jsdelivr.net/npm/highcharts/highcharts-more.js"><\\/script>');
 }
 </script>
-<script src="assets/dashboard.js"></script>
+<script src="assets/dashboard.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>
 """
@@ -4517,6 +4525,11 @@ _JS = """\
       title: "Single-offline conversion time divided by predicted recipe count.",
       numeric: true,
     },
+    "run_config.single_offline_split_cache.conversion_seconds": {
+      label: "Conversion seconds",
+      title: "Single-offline split-cache conversion time for this benchmark row.",
+      numeric: true,
+    },
     all_token_use_per_recipe: {
       label: "Token use / recipe",
       title: "Discounted token use divided by predicted recipe count.",
@@ -4550,6 +4563,11 @@ _JS = """\
     source_label: {
       label: "Source",
       title: "Which source file/book was evaluated.",
+      numeric: false,
+    },
+    source_file_basename: {
+      label: "Book",
+      title: "Source file basename for the evaluated book.",
       numeric: false,
     },
     importer_name: {
@@ -5250,13 +5268,22 @@ _JS = """\
     return Number.isFinite(parsed) ? parsed : -1;
   }
 
-  function applyDashboardUiStatePayload(parsed, savedAtMs) {
+  function applyDashboardUiStatePayload(parsed, savedAtMs, options) {
+    const opts = options && typeof options === "object" && !Array.isArray(options)
+      ? options
+      : Object.create(null);
+    const preferIncoming = Boolean(opts.preferIncoming);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
     const nextSavedAtMs = Number.isFinite(savedAtMs) ? savedAtMs : -1;
-    if (dashboardUiStateSavedAtMs >= 0 && nextSavedAtMs >= 0 && nextSavedAtMs <= dashboardUiStateSavedAtMs) {
+    if (
+      !preferIncoming &&
+      dashboardUiStateSavedAtMs >= 0 &&
+      nextSavedAtMs >= 0 &&
+      nextSavedAtMs <= dashboardUiStateSavedAtMs
+    ) {
       return false;
     }
-    if (dashboardUiStateSavedAtMs >= 0 && nextSavedAtMs < 0) return false;
+    if (!preferIncoming && dashboardUiStateSavedAtMs >= 0 && nextSavedAtMs < 0) return false;
     const version = Number(parsed.version || 0);
     if (version && version !== DASHBOARD_UI_STATE_VERSION) return false;
     dashboardTableColumnWidths = sanitizeDashboardTableColumnWidths(parsed.table_column_widths);
@@ -5420,6 +5447,7 @@ _JS = """\
   function loadDashboardUiStateFromProgramStore() {
     const options = arguments.length > 0 ? arguments[0] : null;
     const force = Boolean(options && options.force);
+    const preferIncoming = Boolean(options && options.preferIncoming);
     if (!force && dashboardUiProgramStateLoadAttempted) return Promise.resolve(false);
     if (!force) {
       dashboardUiProgramStateLoadAttempted = true;
@@ -5436,7 +5464,8 @@ _JS = """\
         dashboardUiProgramStoreAvailable = true;
         const applied = applyDashboardUiStatePayload(
           parsed,
-          dashboardUiStateSavedAtMsFromValue(parsed && parsed.saved_at)
+          dashboardUiStateSavedAtMsFromValue(parsed && parsed.saved_at),
+          { preferIncoming }
         );
         if (applied) {
           persistDashboardUiStateToBrowserStorage(parsed);
@@ -5601,7 +5630,7 @@ _JS = """\
   }
 
   function loadFromFetch(previousError) {
-    fetch("assets/dashboard_data.json")
+    fetch("assets/dashboard_data.json", { cache: "no-store" })
       .then(r => {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -5631,7 +5660,7 @@ _JS = """\
   function init() {
     applyHighchartsGlobalDefaults();
     loadDashboardUiState();
-    loadDashboardUiStateFromProgramStore()
+    loadDashboardUiStateFromProgramStore({ preferIncoming: true })
       .then(() => {
         setupMetricHoverTooltips();
         renderHeader();
@@ -6181,9 +6210,17 @@ _JS = """\
   }
 
   function benchmarkArtifactPath(record) {
-    return String((record && record.artifact_dir) || "")
-      .replace(/\\\\/g, "/")
-      .toLowerCase();
+    const pathCandidates = [
+      String((record && record.artifact_dir) || "").trim(),
+      String((record && record.run_dir) || "").trim(),
+      String((record && record.report_path) || "").trim(),
+    ];
+    for (let i = 0; i < pathCandidates.length; i++) {
+      const candidate = pathCandidates[i];
+      if (!candidate) continue;
+      return candidate.replace(/\\\\/g, "/").toLowerCase();
+    }
+    return "";
   }
 
   function isSpeedBenchmarkRecord(record) {
@@ -7228,7 +7265,7 @@ _JS = """\
   function compareControlChartLabelText(rawLabel) {
     const text = String(rawLabel || "").trim();
     if (!text) return "";
-    const normalized = text.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+    const normalized = text.replace(/[_-]+/g, " ").replace(/\\s+/g, " ").trim();
     const uppercaseWords = new Set(["ai", "api", "csv", "epub", "f1", "html", "id", "json", "llm", "ocr", "pdf", "url"]);
     return normalized
       .split(" ")
@@ -9716,19 +9753,49 @@ _JS = """\
   function aiAssistanceProfileForRecord(record) {
     const explicit = cleanConfigValue(record && record.ai_assistance_profile);
     if (explicit) {
-      const explicitKey = String(explicit).toLowerCase().replace(/[-\s]+/g, "_");
+      const explicitKey = String(explicit).toLowerCase().replace(/[-\\s]+/g, "_");
       if (["deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
         return explicitKey;
       }
     }
+    const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);
+    const path = benchmarkArtifactPath(record);
+    const isOfficialPairedBenchmark =
+      path.includes("/benchmark-vs-golden/") &&
+      (
+        path.includes("/single-offline-benchmark/") ||
+        path.includes("/single-profile-benchmark/")
+      );
     const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
     const lineRolePipeline = runConfigValue(record, ["line_role_pipeline"]);
     const recipeOn = recipePipeline && String(recipePipeline).toLowerCase() !== "off";
     const lineRoleOn = lineRolePipeline && String(lineRolePipeline).toLowerCase() !== "off";
     if (recipeOn && lineRoleOn) return "full_stack";
+    if (
+      isOfficialPairedBenchmark &&
+      pipelineOrPathVariant === "codexfarm" &&
+      recipeOn &&
+      !lineRoleOn
+    ) {
+      return "full_stack";
+    }
     if (recipeOn) return "recipe_only";
     if (lineRoleOn) return "line_role_only";
+    if (
+      isOfficialPairedBenchmark &&
+      pipelineOrPathVariant === "vanilla" &&
+      (!recipePipeline || String(recipePipeline).toLowerCase() === "off") &&
+      !lineRoleOn
+    ) {
+      return "deterministic";
+    }
     if (recipePipeline || lineRolePipeline) return "deterministic";
+    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codexfarm") {
+      return "full_stack";
+    }
+    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla") {
+      return "deterministic";
+    }
     if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "full_stack";
     return "other";
   }
@@ -9745,7 +9812,7 @@ _JS = """\
   function benchmarkVariantForRecord(record) {
     const explicit = cleanConfigValue(record && record.benchmark_variant);
     if (explicit) {
-      const explicitKey = String(explicit).toLowerCase().replace(/[-\s]+/g, "_");
+      const explicitKey = String(explicit).toLowerCase().replace(/[-\\s]+/g, "_");
       if (["vanilla", "codexfarm", "deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
         return explicitKey;
       }
@@ -9876,7 +9943,28 @@ _JS = """\
     return best;
   }
 
-  function buildTrendRegression(points) {
+  function rollingTrendWindowSize(count) {
+    const n = Math.max(0, Number(count || 0));
+    if (n <= 3) return n;
+    if (n <= 5) return 3;
+    if (n <= 9) return 5;
+    return 7;
+  }
+
+  function medianFromSortedNumbers(values) {
+    const usable = Array.isArray(values)
+      ? values
+        .map(value => Number(value))
+        .filter(value => Number.isFinite(value))
+        .sort((a, b) => a - b)
+      : [];
+    if (!usable.length) return null;
+    const mid = Math.floor(usable.length / 2);
+    if (usable.length % 2 === 1) return usable[mid];
+    return (usable[mid - 1] + usable[mid]) / 2;
+  }
+
+  function aggregateTrendSeriesPoints(points) {
     const usable = Array.isArray(points)
       ? points
         .map(point => {
@@ -9884,46 +9972,61 @@ _JS = """\
           const y = Number(point && point.y);
           if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
           const custom = (point && point.custom) || {};
-          return { x, y, custom };
+          const runGroupKey = String(custom.runGroupKey || "").trim();
+          return { x, y, custom, runGroupKey };
         })
         .filter(point => point !== null)
-        .sort((a, b) => a.x - b.x)
       : [];
+    if (!usable.length) return [];
+    const groups = Object.create(null);
+    usable.forEach(point => {
+      const key = point.runGroupKey || ("x:" + String(point.x));
+      if (!Object.prototype.hasOwnProperty.call(groups, key)) {
+        groups[key] = [];
+      }
+      groups[key].push(point);
+    });
+    return Object.keys(groups)
+      .map(key => {
+        const group = groups[key];
+        if (!Array.isArray(group) || !group.length) return null;
+        const medianY = medianFromSortedNumbers(group.map(point => point.y));
+        if (!Number.isFinite(medianY)) return null;
+        const anchor = group[0];
+        return {
+          x: anchor.x,
+          y: medianY,
+          custom: {
+            ...anchor.custom,
+            aggregatedRunGroup: true,
+            aggregatedPointCount: group.length,
+          },
+        };
+      })
+      .filter(point => point !== null)
+      .sort((a, b) => a.x - b.x);
+  }
+
+  function buildRollingTrend(points) {
+    const usable = aggregateTrendSeriesPoints(points);
     if (!usable.length) return null;
 
-    const count = usable.length;
-    const meanX = usable.reduce((sum, point) => sum + point.x, 0) / count;
-    const meanY = usable.reduce((sum, point) => sum + point.y, 0) / count;
-    let varianceX = 0;
-    let covarianceXY = 0;
-    usable.forEach(point => {
-      const dx = point.x - meanX;
-      varianceX += dx * dx;
-      covarianceXY += dx * (point.y - meanY);
+    const windowSize = rollingTrendWindowSize(usable.length);
+    if (!windowSize) return null;
+    const halfWindow = Math.floor(windowSize / 2);
+    const trendPoints = usable.map((point, index) => {
+      const start = Math.max(0, index - halfWindow);
+      const end = Math.min(usable.length, start + windowSize);
+      const adjustedStart = Math.max(0, end - windowSize);
+      const windowPoints = usable.slice(adjustedStart, end);
+      const meanY = windowPoints.reduce((sum, item) => sum + item.y, 0) / windowPoints.length;
+      return {
+        x: point.x,
+        y: meanY,
+        custom: point.custom,
+      };
     });
-    const slope = varianceX > 0 ? covarianceXY / varianceX : 0;
-    const intercept = meanY - slope * meanX;
-
-    const trendPoints = usable.map(point => ({
-      x: point.x,
-      y: intercept + slope * point.x,
-      custom: point.custom,
-    }));
-    let squaredError = 0;
-    usable.forEach((point, index) => {
-      const residual = point.y - trendPoints[index].y;
-      squaredError += residual * residual;
-    });
-    const stdDev = Math.sqrt(squaredError / count);
-    if (!Number.isFinite(stdDev)) return null;
-
-    const bandPoints = trendPoints.map(point => ({
-      x: point.x,
-      low: point.y - stdDev,
-      high: point.y + stdDev,
-      custom: point.custom,
-    }));
-    return { trendPoints, bandPoints, stdDev };
+    return { trendPoints, windowSize };
   }
 
   function trendSeriesIdPart(name, index) {
@@ -9936,7 +10039,6 @@ _JS = """\
   }
 
   function withTrendOverlays(baseSeriesList) {
-    const supportsAreaRange = hasHighchartsAreaRange();
     const output = [];
     (baseSeriesList || []).forEach((baseSeries, index) => {
       if (!baseSeries) return;
@@ -9947,30 +10049,12 @@ _JS = """\
       };
       output.push(baseWithId);
 
-      const regression = buildTrendRegression(baseSeries.data);
-      if (!regression) return;
-
-      if (supportsAreaRange) {
-        output.push({
-          id: baseId + "-std-band",
-          name: baseSeries.name + " \u00b11\u03c3",
-          type: "arearange",
-          linkedTo: baseId,
-          showInLegend: false,
-          enableMouseTracking: false,
-          color: baseSeries.color,
-          fillOpacity: 0.14,
-          lineWidth: 0,
-          zIndex: 1,
-          custom: { isTrendOverlay: true },
-          data: regression.bandPoints,
-          turboThreshold: 0,
-        });
-      }
+      const rollingTrend = buildRollingTrend(baseSeries.data);
+      if (!rollingTrend) return;
 
       output.push({
         id: baseId + "-trendline",
-        name: baseSeries.name + " trend",
+        name: baseSeries.name + " rolling trend",
         type: "line",
         linkedTo: baseId,
         showInLegend: false,
@@ -9981,7 +10065,7 @@ _JS = """\
         marker: { enabled: false },
         zIndex: 2,
         custom: { isTrendOverlay: true },
-        data: regression.trendPoints,
+        data: rollingTrend.trendPoints,
         turboThreshold: 0,
       });
     });
@@ -13751,11 +13835,22 @@ _JS = """\
     }
   }
 
-  function rollingPerLabelByVariant(records, variant, windowSize) {
+  function mapBenchmarkVariantForPerLabel(record, fallbackFullStackAsCodexfarm) {
+    const variant = benchmarkVariantForRecord(record);
+    if (!fallbackFullStackAsCodexfarm) return variant;
+    return variant === "full_stack" ? "codexfarm" : variant;
+  }
+
+  function rollingPerLabelByVariant(records, variant, windowSize, perLabelVariantMapper) {
     const byRunTimestamp = Object.create(null);
+    const normalizeVariant = typeof perLabelVariantMapper === "function"
+      ? perLabelVariantMapper
+      : function(item) {
+          return benchmarkVariantForRecord(item);
+        };
     (records || []).forEach(record => {
       if (!record) return;
-      if (benchmarkVariantForRecord(record) !== variant) return;
+      if (normalizeVariant(record) !== variant) return;
       const ts = String(record.run_timestamp || "").trim();
       if (!ts) return;
       if (!Array.isArray(record.per_label) || !record.per_label.length) return;
@@ -13884,8 +13979,16 @@ _JS = """\
     }
     tbody.innerHTML = "";
     const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);
+    const hasOfficialVariants = latestRunRecords.some(record => {
+      const variant = benchmarkVariantForRecord(record);
+      return variant === "codexfarm" || variant === "vanilla";
+    });
+    const mapVariant = record => mapBenchmarkVariantForPerLabel(
+      record,
+      !hasOfficialVariants
+    );
     const runCodexFarmRows = aggregatePerLabelRows(
-      latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "codexfarm")
+      latestRunRecords.filter(record => mapVariant(record) === "codexfarm")
     );
     const runVanillaRows = aggregatePerLabelRows(
       latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "vanilla")
@@ -13897,6 +14000,7 @@ _JS = """\
       candidateRecords,
       "codexfarm",
       rollingWindowSize,
+      mapVariant,
     );
 
     latestRows.forEach(lbl => {

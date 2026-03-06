@@ -48,13 +48,19 @@ from cookimport.core.reporting import (
     finalize_report_totals,
 )
 from cookimport.core.scoring import summarize_recipe_likeness
-from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
+from cookimport.llm.codex_farm_orchestrator import (
+    build_codex_farm_recipe_execution_plan,
+    run_codex_farm_recipe_pipeline,
+)
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.prompt_budget import (
     build_prediction_run_prompt_budget_summary,
     write_prediction_run_prompt_budget_summary,
 )
-from cookimport.parsing.canonical_line_roles import label_atomic_lines
+from cookimport.parsing.canonical_line_roles import (
+    build_line_role_codex_execution_plan,
+    label_atomic_lines,
+)
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.parsing.tips import partition_tip_candidates
 from cookimport.parsing.chunks import (
@@ -1929,90 +1935,6 @@ def generate_pred_run_artifacts(
             ocr_batch_size=run_settings.ocr_batch_size,
         )
     file_hash = compute_file_hash(path)
-    if codex_execution.plan_only and codex_execution.surface.any_codex_enabled:
-        codex_plan_path = write_codex_execution_plan(
-            run_root=run_root,
-            policy=codex_execution,
-            run_config=run_config,
-            source_path=str(path),
-            source_hash=file_hash,
-            importer_name=importer.name,
-            notes=(
-                "Prediction-run planning preview only. No extraction, Codex calls, "
-                "or Label Studio task generation were performed."
-            ),
-        )
-        manifest = {
-            "schema_version": 1,
-            "path": str(path),
-            "file_hash": file_hash,
-            "pipeline": importer.name,
-            "run_started_at": timestamp,
-            "codex_execution_plan_only": True,
-            "tasks_total": 0,
-            "tasks_jsonl_status": "skipped_plan_only",
-            "coverage": None,
-            "timing": {
-                "prediction_seconds": 0.0,
-                "total_seconds": max(0.0, time.monotonic() - run_started),
-            },
-            "run_config": run_config,
-            "run_config_hash": run_config_hash,
-            "run_config_summary": run_config_summary,
-            "codex_execution_plan_path": str(codex_plan_path),
-        }
-        manifest_path = run_root / "manifest.json"
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        run_manifest_payload = RunManifest(
-            run_kind=run_manifest_kind,
-            run_id=run_root.name,
-            created_at=run_dt.isoformat(timespec="seconds"),
-            source=RunSource(
-                path=str(path),
-                source_hash=file_hash,
-                importer_name=importer.name,
-            ),
-            run_config=run_config,
-            artifacts={
-                "prediction_manifest_json": "manifest.json",
-                "tasks_jsonl_status": "skipped_plan_only",
-                "codex_execution_plan_json": "codex_execution_plan.json",
-            },
-            notes=(
-                "Plan-only Codex preview run. No live Codex execution or extraction "
-                "artifacts were produced."
-            ),
-        )
-        _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
-        return {
-            "run_root": run_root,
-            "processed_run_root": None,
-            "processed_report_path": None,
-            "processed_stage_block_predictions_path": None,
-            "stage_block_predictions_path": None,
-            "line_role_pipeline_stage_block_predictions_path": None,
-            "line_role_pipeline_extracted_archive_path": None,
-            "line_role_pipeline_line_role_predictions_path": None,
-            "line_role_pipeline_projected_spans_path": None,
-            "line_role_pipeline_guardrail_report_path": None,
-            "line_role_pipeline_guardrail_changed_rows_path": None,
-            "line_role_pipeline_do_no_harm_diagnostics_path": None,
-            "line_role_pipeline_do_no_harm_changed_rows_path": None,
-            "tasks_total": 0,
-            "tasks_jsonl_status": "skipped_plan_only",
-            "manifest_path": manifest_path,
-            "run_config": run_config,
-            "run_config_hash": run_config_hash,
-            "run_config_summary": run_config_summary,
-            "source_hash": file_hash,
-            "importer_name": importer.name,
-            "timing": manifest["timing"],
-            "codex_execution_plan_only": True,
-            "codex_execution_plan_path": codex_plan_path,
-        }
     selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
         single_offline_split_cache_mode
     )
@@ -2382,6 +2304,141 @@ def generate_pred_run_artifacts(
         split_wait_seconds=split_wait_seconds,
     )
 
+    _notify("Computing source file hash...")
+    _notify("Building extracted archive...")
+    prepared_archive = prepare_extracted_archive(
+        result=result,
+        raw_artifacts=result.raw_artifacts,
+        source_file=path.name,
+        source_hash=file_hash,
+        archive_builder=build_extracted_archive,
+    )
+    archive = list(prepared_archive.blocks)
+    book_id = result.workbook or path.stem
+    line_role_artifacts: dict[str, Path] | None = None
+    line_role_recipe_projection_summary: dict[str, Any] | None = None
+    line_role_codex_max_inflight = _resolve_line_role_codex_max_inflight_override(
+        split_phase_slots
+    )
+    line_role_candidates: list[AtomicLineCandidate] = []
+    if run_settings.line_role_pipeline.value != "off":
+        archive_payload_rows = prepared_archive_payload(prepared_archive)
+        line_role_candidates = _build_line_role_candidates_from_archive(
+            archive_payload=archive_payload_rows,
+            result=result,
+            atomic_block_splitter=run_settings.atomic_block_splitter.value,
+        )
+    if codex_execution.plan_only and codex_execution.surface.any_codex_enabled:
+        planned_work: dict[str, Any] = {
+            "source_analysis": {
+                "archive_block_count": len(archive),
+                "recipe_count": len(result.recipes),
+            }
+        }
+        if run_settings.llm_recipe_pipeline.value != "off":
+            planned_work["recipe_codex_farm"] = build_codex_farm_recipe_execution_plan(
+                conversion_result=result,
+                run_settings=run_settings,
+                workbook_slug=book_slug,
+            )
+        if run_settings.line_role_pipeline.value != "off":
+            planned_work["line_role"] = build_line_role_codex_execution_plan(
+                line_role_candidates,
+                run_settings,
+            )
+        if prelabel:
+            planned_work["prelabel"] = {
+                "enabled": True,
+                "provider": prelabel_provider,
+                "granularity": normalized_prelabel_granularity,
+                "archive_block_count": len(archive),
+            }
+        codex_plan_path = write_codex_execution_plan(
+            run_root=run_root,
+            policy=codex_execution,
+            run_config=run_config,
+            planned_work=planned_work,
+            source_path=str(path),
+            source_hash=file_hash,
+            importer_name=importer.name,
+            notes=(
+                "Prediction-run planning preview only. Deterministic extraction and "
+                "planning completed, but no live Codex calls or Label Studio task "
+                "generation were performed."
+            ),
+        )
+        manifest = {
+            "schema_version": 1,
+            "path": str(path),
+            "file_hash": file_hash,
+            "pipeline": importer.name,
+            "run_started_at": timestamp,
+            "codex_execution_plan_only": True,
+            "tasks_total": 0,
+            "tasks_jsonl_status": "skipped_plan_only",
+            "coverage": None,
+            "timing": {
+                "prediction_seconds": max(0.0, time.monotonic() - run_started),
+                "total_seconds": max(0.0, time.monotonic() - run_started),
+            },
+            "run_config": run_config,
+            "run_config_hash": run_config_hash,
+            "run_config_summary": run_config_summary,
+            "codex_execution_plan_path": str(codex_plan_path),
+        }
+        manifest_path = run_root / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        run_manifest_payload = RunManifest(
+            run_kind=run_manifest_kind,
+            run_id=run_root.name,
+            created_at=run_dt.isoformat(timespec="seconds"),
+            source=RunSource(
+                path=str(path),
+                source_hash=file_hash,
+                importer_name=importer.name,
+            ),
+            run_config=run_config,
+            artifacts={
+                "prediction_manifest_json": "manifest.json",
+                "tasks_jsonl_status": "skipped_plan_only",
+                "codex_execution_plan_json": "codex_execution_plan.json",
+            },
+            notes=(
+                "Plan-only Codex preview run. Deterministic extraction completed, "
+                "but no live Codex execution or task-generation artifacts were produced."
+            ),
+        )
+        _write_manifest_best_effort(run_root, run_manifest_payload, notify=_notify)
+        return {
+            "run_root": run_root,
+            "processed_run_root": None,
+            "processed_report_path": None,
+            "processed_stage_block_predictions_path": None,
+            "stage_block_predictions_path": None,
+            "line_role_pipeline_stage_block_predictions_path": None,
+            "line_role_pipeline_extracted_archive_path": None,
+            "line_role_pipeline_line_role_predictions_path": None,
+            "line_role_pipeline_projected_spans_path": None,
+            "line_role_pipeline_guardrail_report_path": None,
+            "line_role_pipeline_guardrail_changed_rows_path": None,
+            "line_role_pipeline_do_no_harm_diagnostics_path": None,
+            "line_role_pipeline_do_no_harm_changed_rows_path": None,
+            "tasks_total": 0,
+            "tasks_jsonl_status": "skipped_plan_only",
+            "manifest_path": manifest_path,
+            "run_config": run_config,
+            "run_config_hash": run_config_hash,
+            "run_config_summary": run_config_summary,
+            "source_hash": file_hash,
+            "importer_name": importer.name,
+            "timing": manifest["timing"],
+            "codex_execution_plan_only": True,
+            "codex_execution_plan_path": codex_plan_path,
+        }
+
     llm_schema_overrides: dict[str, dict[str, Any]] | None = None
     llm_draft_overrides: dict[str, dict[str, Any]] | None = None
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
@@ -2425,31 +2482,8 @@ def generate_pred_run_artifacts(
         result.report = ConversionReport()
     result.report.llm_codex_farm = llm_report
 
-    _notify("Computing source file hash...")
-    file_hash = compute_file_hash(path)
-    _notify("Building extracted archive...")
-    prepared_archive = prepare_extracted_archive(
-        result=result,
-        raw_artifacts=result.raw_artifacts,
-        source_file=path.name,
-        source_hash=file_hash,
-        archive_builder=build_extracted_archive,
-    )
-    archive = list(prepared_archive.blocks)
-    book_id = result.workbook or path.stem
-    line_role_artifacts: dict[str, Path] | None = None
-    line_role_recipe_projection_summary: dict[str, Any] | None = None
-    line_role_codex_max_inflight = _resolve_line_role_codex_max_inflight_override(
-        split_phase_slots
-    )
     if run_settings.line_role_pipeline.value != "off":
         _notify("Running canonical line-role pipeline...")
-        archive_payload_rows = prepared_archive_payload(prepared_archive)
-        line_role_candidates = _build_line_role_candidates_from_archive(
-            archive_payload=archive_payload_rows,
-            result=result,
-            atomic_block_splitter=run_settings.atomic_block_splitter.value,
-        )
         if line_role_candidates:
             line_role_predictions = label_atomic_lines(
                 line_role_candidates,
@@ -3365,6 +3399,22 @@ def generate_pred_run_artifacts(
         / "llm_manifest.json"
     )
     if llm_manifest_path.exists():
+        recipe_guardrail_report_manifest_path = _path_for_manifest(
+            run_root,
+            llm_manifest_path.parent / "guardrail_report.json",
+        )
+        if recipe_guardrail_report_manifest_path:
+            run_manifest_artifacts[
+                "recipe_codex_guardrail_report_json"
+            ] = recipe_guardrail_report_manifest_path
+        recipe_guardrail_rows_manifest_path = _path_for_manifest(
+            run_root,
+            llm_manifest_path.parent / "guardrail_rows.jsonl",
+        )
+        if recipe_guardrail_rows_manifest_path:
+            run_manifest_artifacts[
+                "recipe_codex_guardrail_rows_jsonl"
+            ] = recipe_guardrail_rows_manifest_path
         llm_run_dir = llm_manifest_path.parent.parent
         prompt_inputs_manifest_path = run_root / "prompt_inputs_manifest.txt"
         prompt_outputs_manifest_path = run_root / "prompt_outputs_manifest.txt"

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
 _FORCE_VERBOSE_OUTPUT_ENV = "COOKIMPORT_PYTEST_VERBOSE_OUTPUT"
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_TEST_SUITE_ENV = "COOKIMPORT_TEST_SUITE"
 
 _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_atoms.py": ("core", "parsing"),
@@ -178,11 +180,66 @@ _LOG_HINTS = {
 
 _FAILED_MARKERS: set[str] = set()
 _HINTS_EMITTED = False
+_RAW_PYTEST_GUIDANCE_EMITTED = False
 
 
 def _env_truthy(name: str) -> bool:
     value = os.environ.get(name, "")
     return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _looks_like_test_target(arg: str) -> bool:
+    return arg.startswith("tests") or arg.endswith(".py")
+
+
+def _classify_test_target(arg: str) -> tuple[str, bool] | None:
+    normalized = arg.split("::", 1)[0]
+    target = Path(normalized)
+    parts = target.parts
+    if not parts:
+        return None
+    if parts[0] == "tests":
+        if len(parts) == 1:
+            return ("tests", True)
+        if len(parts) >= 2 and parts[1].endswith(".py"):
+            return ("root-file", False)
+        return (parts[1], target.suffix == "")
+    if target.suffix == ".py":
+        return ("file", False)
+    return None
+
+
+def _should_emit_raw_pytest_guidance(config: pytest.Config) -> bool:
+    if _env_truthy(_TEST_SUITE_ENV):
+        return False
+    args = [str(arg) for arg in config.invocation_params.args]
+    if not args:
+        return False
+    if any(arg in {"--collect-only", "--fixtures", "--help", "-h"} for arg in args):
+        return False
+    if any(arg == "-m" or arg.startswith("-m") for arg in args):
+        return False
+
+    test_targets = [arg for arg in args if _looks_like_test_target(arg)]
+    if not test_targets:
+        return False
+
+    classified = [_classify_test_target(arg) for arg in test_targets]
+    domains = {entry[0] for entry in classified if entry is not None}
+    includes_dir = any(entry and entry[1] for entry in classified)
+    if includes_dir:
+        return True
+    return len(test_targets) >= 3 or len(domains) >= 2
+
+
+def _emit_raw_pytest_guidance(terminalreporter) -> None:
+    global _RAW_PYTEST_GUIDANCE_EMITTED
+    if _RAW_PYTEST_GUIDANCE_EMITTED or terminalreporter is None:
+        return
+    terminalreporter.write_line(
+        "note: broad raw pytest run detected; prefer ./scripts/test-suite.sh or make test-fast / make test-domain DOMAIN=<domain> for routine loops."
+    )
+    _RAW_PYTEST_GUIDANCE_EMITTED = True
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -212,6 +269,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.slow)
         if file_name in _SMOKE_FILES:
             item.add_marker(pytest.mark.smoke)
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    if not _should_emit_raw_pytest_guidance(session.config):
+        return
+    terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    _emit_raw_pytest_guidance(terminalreporter)
 
 
 def pytest_report_teststatus(

@@ -50,7 +50,40 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
         name = "fake"
 
         def convert(self, *_args, **_kwargs):
-            raise AssertionError("convert should not run in codex plan mode")
+            return ConversionResult(
+                recipes=[
+                    RecipeCandidate(
+                        name="Toast",
+                        identifier="urn:test:toast",
+                        recipeIngredient=["1 slice bread"],
+                        recipeInstructions=["Toast the bread."],
+                        provenance={"location": {"start_block": 0, "end_block": 1}},
+                    )
+                ],
+                tips=[],
+                tipCandidates=[],
+                topicCandidates=[],
+                nonRecipeBlocks=[],
+                rawArtifacts=[
+                    RawArtifact(
+                        importer="fake",
+                        sourceHash="hash",
+                        locationId="full_text",
+                        extension="json",
+                        content={
+                            "blocks": [
+                                {"index": 0, "text": "Toast"},
+                                {"index": 1, "text": "1 slice bread"},
+                                {"index": 2, "text": "Toast the bread."},
+                            ]
+                        },
+                        metadata={"artifact_type": "extracted_blocks"},
+                    )
+                ],
+                report=ConversionReport(),
+                workbook="book",
+                workbookPath=str(source),
+            )
 
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.registry.get_importer",
@@ -84,6 +117,7 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
     assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
     assert plan_payload["plan_only"] is True
     assert plan_payload["codex_surfaces"] == ["recipe"]
+    assert plan_payload["planned_work"]["recipe_codex_farm"]["recipe_count"] == 1
 
 
 def test_generate_pred_run_artifacts_plan_mode_tracks_prelabel_codex_surface(
@@ -98,7 +132,31 @@ def test_generate_pred_run_artifacts_plan_mode_tracks_prelabel_codex_surface(
         name = "fake"
 
         def convert(self, *_args, **_kwargs):
-            raise AssertionError("convert should not run in codex plan mode")
+            return ConversionResult(
+                recipes=[],
+                tips=[],
+                tipCandidates=[],
+                topicCandidates=[],
+                nonRecipeBlocks=[],
+                rawArtifacts=[
+                    RawArtifact(
+                        importer="fake",
+                        sourceHash="hash",
+                        locationId="full_text",
+                        extension="json",
+                        content={
+                            "blocks": [
+                                {"index": 0, "text": "Toast"},
+                                {"index": 1, "text": "1 slice bread"},
+                            ]
+                        },
+                        metadata={"artifact_type": "extracted_blocks"},
+                    )
+                ],
+                report=ConversionReport(),
+                workbook="book",
+                workbookPath=str(source),
+            )
 
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.registry.get_importer",
@@ -127,6 +185,7 @@ def test_generate_pred_run_artifacts_plan_mode_tracks_prelabel_codex_surface(
     assert run_manifest["run_config"]["prelabel_enabled"] is True
     assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["prelabel"]
     assert plan_payload["codex_surfaces"] == ["prelabel"]
+    assert plan_payload["planned_work"]["prelabel"]["enabled"] is True
 
 
 def test_plan_parallel_convert_jobs_pdf_splits(monkeypatch) -> None:

@@ -78,8 +78,9 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
 - `--codex-execution-policy plan` is the zero-token preview path for single-run Codex-backed benchmark settings:
   - requires `--no-upload`,
-  - does not run extraction/eval/live Codex,
-  - writes `codex_execution_plan.json` inside the prediction-run root and links it from both prediction-run and benchmark `run_manifest.json`.
+  - does not run eval or live Codex,
+  - still performs deterministic extraction/archive preparation so `codex_execution_plan.json` inside the prediction-run root can enumerate planned line-role batches and recipe CodexFarm pass work,
+  - links that plan artifact from both prediction-run and benchmark `run_manifest.json`.
 - `bench speed-run` and `bench quality-run` now resolve through the same execution-policy metadata layer for manifest/report summaries, but they still execute only through the existing explicit confirmation tokens rather than a new plan-mode early return.
 - When codex benchmark runs omit explicit reasoning effort, benchmark metadata backfills a concrete effort from Codex config/model-cache defaults so benchmark CSV/runtime rows retain both model and effort when available.
 - `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=1` and
@@ -149,12 +150,13 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_overview.md`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
-  - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
-  - high-level group bundles still retain discovered per-run `full_prompt_log.jsonl` rows in payload (deprioritized in default navigation, not removed).
+  - this group bundle uses a high-level-only mode with a target size budget of about 30MB and automatically reduces per-book sampled detail as selected-book count increases.
+  - high-level group bundles are curated first-pass packets: raw `full_prompt_log.jsonl` and similar full-context trace artifacts stay out of the group payload and are expected to come back later through follow-up packets.
   - interactive multi-book single-profile runs auto-upload only this top-level group bundle to Oracle; per-book bundles are kept for manual inspection and can be uploaded later with `cookimport bench oracle-upload <path>`.
   - `cookimport bench oracle-upload --mode dry-run` stays useful for existing large bundles: when Oracle's inline dry-run rejects the payload file for size, recipeimport falls back to a local preview instead of failing the no-rerun validation path.
+  - the group-bundle index now records `analysis.group_high_level.final_bundle_bytes`, `serialized_size_capped`, and `omitted_artifacts` against the actual three written files, not just a source-artifact estimate.
   - when the group bundle is truly multi-book (more than one source key), the index now also includes per-book scorecards (vanilla/codex/delta), ablation summary, outside-span-by-book, chapter/page-type breakdown, runtime-by-book, and top regression packets with explicit decision traces.
-- interactive single-profile multi-book runs now use one shared spinner dashboard for the full batch; inner per-book benchmark calls suppress their own spinners and emit progress into shared queue/task lines so concurrent books stay readable.
+- interactive single-profile multi-book runs now use one shared spinner dashboard for the full batch; the panel renders one column per selected book plus per-book state/progress/ETA rows and worker rows, while inner per-book benchmark calls suppress their own spinners and emit raw progress into that shared grid.
 - while the shared single-profile spinner is active, nested per-book benchmark summaries and per-run dashboard rebuild prints are suppressed to avoid frame collisions; one dashboard refresh runs after the full batch append.
 - interactive single-profile multi-book runs inherit the shared split-gated default (`4`) because scheduler split-slot gating is enabled in that path.
 - transient benchmark slop run roots are auto-pruned at command end after CSV history append (gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped artifacts); normal interactive single-offline outputs are retained.
@@ -170,7 +172,7 @@ When `--line-role-pipeline != off`, eval runs also write diagnostics under `line
   - rows now include `candidate_labels` from canonical line-role allowlists.
 - `joined_line_table.jsonl`
   - rows include `candidate_labels` and `candidate_label_count` for joined-line triage.
-  - exporter matching is conservative: metadata is attached only when a line-role prediction matches the canonical line by exact normalized text (same index+text first, then occurrence order); split/merged lines stay unmatched rather than inheriting another line's telemetry.
+  - exporter matching is conservative: metadata is attached only when a line-role prediction matches the canonical line by exact normalized text (same index+text first, then exact-text sequence alignment); split/merged or ambiguous duplicate lines stay unmatched rather than inheriting another line's telemetry.
 - `line_role_flips_vs_baseline.jsonl`
   - baseline source is paired history eval rows when available (same source, canonical mode, `line_role_pipeline=off`, preferring matching `llm_recipe_pipeline`); fallback remains inferred baseline from `decided_by` metadata when no paired baseline exists.
 - `slice_metrics.json`
@@ -180,6 +182,9 @@ When `--line-role-pipeline != off`, eval runs also write diagnostics under `line
 - prediction-run side also writes guardrail diagnostics:
   - `guardrail_report.json`
   - `guardrail_changed_rows.jsonl`
+- CodexFarm recipe runs additionally emit raw LLM guardrail diagnostics under `raw/llm/<workbook_slug>/`:
+  - `guardrail_report.json`
+  - `guardrail_rows.jsonl`
 - if `--line-role-gated`: `regression_gates.json` + `regression_gates.md`
   - comparator gates (`*_delta_min`, confusion-drop gates, sea non-regression gates) are strict and fail when required benchmark-history baselines are unavailable.
   - candidate recall floors remain enforced in gated mode: `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`.
@@ -198,6 +203,7 @@ Generated roots:
 - `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
 - Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, `line-role-pipeline/extracted_archive.json`, `line-role-pipeline/guardrail_report.json`, and `line-role-pipeline/guardrail_changed_rows.jsonl`.
+- CodexFarm recipe prediction runs additionally emit `raw/llm/<workbook_slug>/guardrail_report.json` and `raw/llm/<workbook_slug>/guardrail_rows.jsonl`; those paths are also linked from `llm_manifest.json` and the prediction-run manifest when present.
 
 ## 2026-03-06 merged understandings digest (follow-up/debug/reuse seams)
 
@@ -1897,7 +1903,7 @@ Current benchmark contracts reinforced:
   - up to `3` books in parallel,
   - per-book worker knobs scaled for concurrency,
   - shared split conversion gating (`split slots=1`) to serialize split-heavy phases.
-- Multi-book single-profile roots write a group-level `upload_bundle_v1` in high-level-only mode with explicit size budgeting (~40MB target).
+- Multi-book single-profile roots write a group-level `upload_bundle_v1` in high-level-only mode with explicit size budgeting (~30MB target).
 - Canonical line-role progress emits task counters for deterministic and codex phases so ETA remains visible; spinner suppresses standalone `active workers: 0` noise rows.
 - Historical interactive-only inflight env wrappers (`8` single, `4` multi) are superseded by shared ingest/parsing propagation; wrapper wiring should not be reintroduced as primary policy seam.
 - Feedback-exec benchmark hardening contract remains active:
@@ -1956,7 +1962,7 @@ Merged source notes (timestamp order):
 
 Current benchmark contracts reinforced:
 - Group multi-book upload bundles must be source-aware at run-row level (`output_subdir`-aware lookup) so repeated variant IDs (`vanilla`, `codexfarm`) do not collide across books.
-- High-level-only group bundles still retain per-run `full_prompt_log.jsonl` payload rows (deprioritized for navigation, not dropped).
+- High-level-only group bundles prefer compact per-run summaries such as `prompt_budget_summary.json` and leave raw prompt logs/full-context trace dumps for follow-up packets.
 - Follow-up packet joins for atomic line-role rows must map `source_block_index` from `prediction-run/line-role-pipeline/extracted_archive.json` back through base `prediction-run/extracted_archive.json` to restore spine/page metadata.
 - Existing upload bundles are sufficient to build changed-line, triage, runtime/cost, and prompt-trace reviewer packets without rerunning benchmarks.
 - Candidate label margins are still unavailable in current line-role artifacts; follow-up packets should mark margin as unavailable instead of inferring it.

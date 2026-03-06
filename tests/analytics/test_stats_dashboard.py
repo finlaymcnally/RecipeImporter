@@ -13,6 +13,11 @@ from pathlib import Path
 
 import pytest
 
+from cookimport.analytics.benchmark_semantics import (
+    ai_assistance_profile_for_record,
+    benchmark_variant_for_record,
+    is_official_golden_benchmark_record,
+)
 from cookimport.analytics.dashboard_schema import (
     BenchmarkLabelMetrics,
     BenchmarkRecord,
@@ -1123,8 +1128,11 @@ js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" 
 js = js.replace(/\n\}\)\(\);\s*$/, `
   globalThis.__qualityTokensHarness = {
     aiAssistanceProfileLabelForRecord,
+    aiAssistanceProfileForRecord,
     aiModelLabelForRecord,
     aiEffortLabelForRecord,
+    benchmarkVariantForRecord,
+    isOfficialGoldenBenchmarkRecord,
     previousRunsAllTokenUseDisplay,
     previousRunsFieldValue,
     previousRunsRowFieldValue,
@@ -1205,6 +1213,34 @@ const lineRoleOnlyEffortRecord = {
     line_role_pipeline: "codex-line-role-v1",
   },
 };
+const legacyCodexfarmRecord = {
+  strict_accuracy: 0.54,
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm",
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    codex_farm_model: "gpt-5.1-codex-mini",
+  },
+};
+const legacyVanillaRecord = {
+  strict_accuracy: 0.54,
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/vanilla",
+  run_config: {},
+};
+const legacyRunDirCodexfarmRecord = {
+  strict_accuracy: 0.54,
+  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm",
+  report_path: "/tmp/output/2026-03-03_13.00.00/single-offline-benchmark/my-book/codexfarm/2026-03-03_13.08.47/report.json",
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    line_role_pipeline: "off",
+  },
+};
+const legacyRunDirVanillaRecord = {
+  strict_accuracy: 0.54,
+  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-offline-benchmark/my-book/vanilla",
+  report_path: "/tmp/output/2026-03-03_13.00.00/single-offline-benchmark/my-book/vanilla/2026-03-03_13.07.43/report.json",
+  run_config: {},
+};
 const unknownEffortRecord = {
   strict_accuracy: 0.54,
   run_config: {},
@@ -1247,6 +1283,18 @@ const payload = {
   line_role_only_profile_label: String(
     hooks.aiAssistanceProfileLabelForRecord(lineRoleOnlyEffortRecord) || ""
   ),
+  legacy_codexfarm_profile: String(hooks.aiAssistanceProfileForRecord(legacyCodexfarmRecord) || ""),
+  legacy_codexfarm_variant: String(hooks.benchmarkVariantForRecord(legacyCodexfarmRecord) || ""),
+  legacy_codexfarm_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyCodexfarmRecord)),
+  legacy_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(legacyVanillaRecord) || ""),
+  legacy_vanilla_variant: String(hooks.benchmarkVariantForRecord(legacyVanillaRecord) || ""),
+  legacy_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyVanillaRecord)),
+  legacy_rundir_codexfarm_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirCodexfarmRecord) || ""),
+  legacy_rundir_codexfarm_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirCodexfarmRecord) || ""),
+  legacy_rundir_codexfarm_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirCodexfarmRecord)),
+  legacy_rundir_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirVanillaRecord) || ""),
+  legacy_rundir_vanilla_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirVanillaRecord) || ""),
+  legacy_rundir_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirVanillaRecord)),
   unknown_effort_label: String(hooks.aiEffortLabelForRecord(unknownEffortRecord) || ""),
 };
 process.stdout.write(JSON.stringify(payload));
@@ -1260,6 +1308,163 @@ process.stdout.write(JSON.stringify(payload));
     if completed.returncode != 0:
         raise AssertionError(
             "Quality/tokens behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_per_label_variant_fallback_harness(js_path: Path) -> dict[str, object]:
+    """Run generated dashboard JS and verify per-label variant fallback behavior."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for per-label variant fallback harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__perLabelVariantHarness = {
+    mapBenchmarkVariantForPerLabel,
+    aggregatePerLabelRows,
+    perLabelRowsByLabel,
+    benchmarkVariantForRecord,
+    rollingPerLabelByVariant,
+  };
+})();
+`);
+eval(js);
+
+const hooks = globalThis.__perLabelVariantHarness;
+if (!hooks) {
+  throw new Error("Per-label harness exports were not attached");
+}
+
+const singleProfileRecord = {
+  run_timestamp: "2026-03-06T00.45.00",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/mybook/2026-03-06_00.45.00",
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    line_role_pipeline: "codex-line-role-v1",
+    codex_farm_model: "gpt-5.3-codex-spark",
+  },
+  per_label: [
+    {
+      label: "INGREDIENT_LINE",
+      precision: 0.35,
+      recall: 0.40,
+      gold_total: 10,
+      pred_total: 20,
+    },
+  ],
+};
+const olderSingleProfileRecord = {
+  run_timestamp: "2026-03-06T00.44.00",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/mybook/2026-03-06_00.44.00",
+  run_config: {
+    llm_recipe_pipeline: "codex-farm-3pass-v1",
+    line_role_pipeline: "codex-line-role-v1",
+    codex_farm_model: "gpt-5.3-codex-spark",
+  },
+  per_label: [
+    {
+      label: "INGREDIENT_LINE",
+      precision: 0.15,
+      recall: 0.20,
+      gold_total: 8,
+      pred_total: 16,
+    },
+  ],
+};
+const explicitVanillaRecord = {
+  run_timestamp: "2026-03-06T00.40.00",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.40.00/single-profile-benchmark/mybook/2026-03-06_00.40.00/vanilla",
+  run_config: {
+    llm_recipe_pipeline: "off",
+    line_role_pipeline: "off",
+  },
+  per_label: [
+    {
+      label: "INGREDIENT_LINE",
+      precision: 0.05,
+      recall: 0.10,
+      gold_total: 8,
+      pred_total: 16,
+    },
+  ],
+};
+
+const noOfficialRecords = [singleProfileRecord, olderSingleProfileRecord];
+const noOfficialHasCodexOrVanilla = noOfficialRecords.some(record => {
+  const variant = hooks.benchmarkVariantForRecord(record);
+  return variant === "codexfarm" || variant === "vanilla";
+});
+const withOfficialRecords = [singleProfileRecord, explicitVanillaRecord];
+const withOfficialHasCodexOrVanilla = withOfficialRecords.some(record => {
+  const variant = hooks.benchmarkVariantForRecord(record);
+  return variant === "codexfarm" || variant === "vanilla";
+});
+const mappedNoFallback = hooks.mapBenchmarkVariantForPerLabel(singleProfileRecord, false);
+const mappedWithoutOfficial = hooks.mapBenchmarkVariantForPerLabel(
+  singleProfileRecord,
+  !noOfficialHasCodexOrVanilla
+);
+
+const noOfficialCodexRows = hooks.aggregatePerLabelRows(
+  noOfficialRecords.filter(record => hooks.mapBenchmarkVariantForPerLabel(record, true) === "codexfarm")
+);
+const noOfficialCodexByLabel = hooks.perLabelRowsByLabel(noOfficialCodexRows);
+const noOfficialCodexRow = noOfficialCodexByLabel["INGREDIENT_LINE"] || {};
+const withOfficialCodexRows = hooks.aggregatePerLabelRows(
+  withOfficialRecords.filter(record => hooks.mapBenchmarkVariantForPerLabel(record, false) === "codexfarm")
+);
+const withOfficialCodexByLabel = hooks.perLabelRowsByLabel(withOfficialCodexRows);
+const withOfficialCodexRow = withOfficialCodexByLabel["INGREDIENT_LINE"] || {};
+const noOfficialVanillaRows = hooks.aggregatePerLabelRows(
+  noOfficialRecords.filter(record => hooks.benchmarkVariantForRecord(record) === "vanilla")
+);
+const noOfficialVanillaByLabel = hooks.perLabelRowsByLabel(noOfficialVanillaRows);
+const noOfficialVanillaRow = noOfficialVanillaByLabel["INGREDIENT_LINE"] || {};
+const rollingCodex = hooks.rollingPerLabelByVariant(
+  noOfficialRecords,
+  "codexfarm",
+  2,
+  record => hooks.mapBenchmarkVariantForPerLabel(record, !noOfficialHasCodexOrVanilla),
+);
+const rollingRow = rollingCodex["INGREDIENT_LINE"] || {};
+
+const payload = {
+  noOfficialHasCodexOrVanilla: Boolean(noOfficialHasCodexOrVanilla),
+  singleProfileVariant: String(hooks.benchmarkVariantForRecord(singleProfileRecord) || ""),
+  singleProfileMappedWithoutOfficial: String(mappedWithoutOfficial || ""),
+  singleProfileMappedNoFallback: String(mappedNoFallback || ""),
+  baseline_no_official_codex_precision: Number(noOfficialCodexRow.precision),
+  baseline_no_official_codex_recall: Number(noOfficialCodexRow.recall),
+  baseline_with_official_codex_precision: Number(withOfficialCodexRow.precision),
+  baseline_vanilla_precision_no_official: Number(noOfficialVanillaRow.precision),
+  rolling_no_official_codex_precision: Number(rollingRow.precision),
+  rolling_no_official_codex_recall: Number(rollingRow.recall),
+  withOfficialHasCodexOrVanilla: Boolean(withOfficialHasCodexOrVanilla),
+};
+process.stdout.write(JSON.stringify(payload));
+"""
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Per-label variant fallback harness failed.\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
@@ -3159,6 +3364,9 @@ class TestRenderer:
         assert 'id="dashboard-data-inline"' in html
         assert "__DASHBOARD_DATA_INLINE__" not in html
         assert '"file_name": "local.xlsx"' in html
+        assert 'href="assets/style.css?v=' in html
+        assert 'src="assets/dashboard.js?v=' in html
+        assert 'http-equiv="Cache-Control"' in html
 
     def test_html_includes_highcharts_secondary_cdn_fallback(self, tmp_path):
         html_path = render_dashboard(tmp_path / "dash", DashboardData())
@@ -3511,7 +3719,7 @@ class TestRenderer:
         assert "function normalizePerLabelRunGroupKey(value)" in js
         assert "function perLabelRunGroups(records)" in js
         assert "function syncPerLabelRunGroupUi(runGroups)" in js
-        assert "function rollingPerLabelByVariant(records, variant, windowSize)" in js
+        assert "function rollingPerLabelByVariant(records, variant, windowSize, perLabelVariantMapper)" in js
         assert "const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);" in js
         assert "per_label_comparison_mode: normalizePerLabelComparisonMode(perLabelComparisonMode)" in js
         assert "const runGroups = perLabelRunGroups(candidateRecords);" in js
@@ -3520,8 +3728,9 @@ class TestRenderer:
         assert 'const checkbox = document.getElementById("per-label-comparison-point-value");' in js
         assert "const rawDelta = baselineNum - valueNum;" in js
         assert 'if (typeof candidate === "string" && candidate.trim() === "") return null;' in js
-        assert 'benchmarkVariantForRecord(record) === "codexfarm"' in js
+        assert "mapBenchmarkVariantForPerLabel(record" in js
         assert 'benchmarkVariantForRecord(record) === "vanilla"' in js
+        assert 'fetch("assets/dashboard_data.json", { cache: "no-store" })' in js
 
     def test_js_boundary_prefers_non_speed_records_when_available(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -3652,7 +3861,58 @@ class TestRenderer:
         assert result["vanilla_path_ai_off_effort_label"] == "AI off"
         assert result["line_role_only_effort_label"] == "Line-role only"
         assert result["line_role_only_profile_label"] == "Line-role only"
+        assert result["legacy_codexfarm_profile"] == "full_stack"
+        assert result["legacy_codexfarm_variant"] == "codexfarm"
+        assert result["legacy_codexfarm_official"] is True
+        assert result["legacy_vanilla_profile"] == "deterministic"
+        assert result["legacy_vanilla_variant"] == "vanilla"
+        assert result["legacy_vanilla_official"] is True
+        assert result["legacy_rundir_codexfarm_profile"] == "full_stack"
+        assert result["legacy_rundir_codexfarm_variant"] == "codexfarm"
+        assert result["legacy_rundir_codexfarm_official"] is True
+        assert result["legacy_rundir_vanilla_profile"] == "deterministic"
+        assert result["legacy_rundir_vanilla_variant"] == "vanilla"
+        assert result["legacy_rundir_vanilla_official"] is True
         assert result["unknown_effort_label"] == "Unknown"
+
+    def test_per_label_full_stack_single_profile_uses_codexfarm_baseline(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_per_label_variant_fallback_harness(js_path)
+
+        assert result["singleProfileVariant"] == "full_stack"
+        assert result["singleProfileMappedNoFallback"] == "full_stack"
+        assert result["singleProfileMappedWithoutOfficial"] == "codexfarm"
+        assert result["noOfficialHasCodexOrVanilla"] is False
+        assert result["withOfficialHasCodexOrVanilla"] is True
+        assert result["baseline_no_official_codex_precision"] == pytest.approx(0.2083333333, rel=1e-6)
+        assert result["baseline_no_official_codex_recall"] == pytest.approx(0.4166666667, rel=1e-6)
+        assert result["baseline_with_official_codex_precision"] is None
+        assert result["baseline_vanilla_precision_no_official"] is None
+        assert result["rolling_no_official_codex_precision"] == pytest.approx(0.2, rel=1e-6)
+        assert result["rolling_no_official_codex_recall"] == pytest.approx(0.4, rel=1e-6)
+
+
+class TestBenchmarkSemantics:
+    def test_legacy_rundir_codexfarm_rows_stay_official_codexfarm(self):
+        record = {
+            "run_dir": (
+                "/tmp/golden/benchmark-vs-golden/2026-03-03_13.07.22/"
+                "single-offline-benchmark/seaandsmokecutdown/codexfarm"
+            ),
+            "report_path": (
+                "/tmp/output/2026-03-03_13.07.22/single-offline-benchmark/"
+                "seaandsmokecutdown/codexfarm/2026-03-03_13.07.43/report.json"
+            ),
+            "run_config": {
+                "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                "line_role_pipeline": "off",
+            },
+        }
+        assert ai_assistance_profile_for_record(record) == "full_stack"
+        assert benchmark_variant_for_record(record) == "codexfarm"
+        assert is_official_golden_benchmark_record(record) is True
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -3704,7 +3964,10 @@ class TestRenderer:
         assert "const xMs = benchmarkRunGroupXAxisTimestampMs(record, runGroup);" in js
         assert "if (xMs == null) return null;" in js
         assert "function trendSeriesPointForRunGroup(series, runGroupKey, hoveredX)" in js
-        assert "function buildTrendRegression(points)" in js
+        assert "function rollingTrendWindowSize(count)" in js
+        assert "function medianFromSortedNumbers(values)" in js
+        assert "function aggregateTrendSeriesPoints(points)" in js
+        assert "function buildRollingTrend(points)" in js
         assert "function withTrendOverlays(baseSeriesList)" in js
         assert "function isTrendOverlaySeries(series)" in js
         assert "function buildBenchmarkTrendSeries(records)" in js
@@ -3714,9 +3977,10 @@ class TestRenderer:
         assert 'name: metric.key + " (" + variant + ")"' in js
         assert "series: trendSeries," in js
         assert 'type: "scatter"' in js
-        assert 'type: "arearange"' in js
-        assert 'name: baseSeries.name + " trend"' in js
-        assert 'name: baseSeries.name + " ±1σ"' in js
+        assert 'name: baseSeries.name + " trend"' not in js
+        assert 'type: "arearange"' not in js
+        assert 'name: baseSeries.name + " rolling range"' not in js
+        assert 'name: baseSeries.name + " rolling trend"' in js
         assert "lineWidth: 0," in js
         assert "shared: false," in js
         assert "formatter: function()" in js

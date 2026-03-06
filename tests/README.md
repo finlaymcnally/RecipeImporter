@@ -5,6 +5,7 @@ Use marker filters so AI runs only what is needed.
 Durable low-noise and modularity contracts live in `tests/CONVENTIONS.md`.
 
 For agent/day-to-day loops, do not run raw `pytest` directly because it can become a long-running full-suite loop. Use `./scripts/test-suite.sh` domain batches instead: `smoke`, `domain <domain>`, `all-fast`, `fast`, and `full` only when intentionally required.
+`make test-smoke`, `make test-fast`, `make test-domain DOMAIN=<domain>`, `make test-all-fast`, and `make test-full` are equivalent entry points.
 
 ## Folder Layout
 

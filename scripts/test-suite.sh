@@ -7,6 +7,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 PYTEST_BIN="${COOKIMPORT_PYTEST_BIN:-.venv/bin/pytest}"
 PYTEST_PATH="$repo_root/$PYTEST_BIN"
 MAXFAIL="${COOKIMPORT_TEST_MAXFAIL:-1}"
+export COOKIMPORT_TEST_SUITE=1
 
 domains=(analytics bench cli core ingestion labelstudio llm parsing staging tagging)
 

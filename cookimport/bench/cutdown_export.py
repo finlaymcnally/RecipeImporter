@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import difflib
 import json
 import re
-from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
@@ -264,30 +264,49 @@ def _build_line_role_meta_by_line_index(
         )
         matched_prediction_positions.add(position)
 
-    remaining_line_indices_by_text: dict[str, deque[int]] = defaultdict(deque)
+    remaining_canonical: list[tuple[int, str]] = []
     for row in canonical_lines:
         line_index = int(row["line_index"])
         if line_index in meta_by_line_index:
             continue
-        normalized_text = _normalize_line_text(row.get("text"))
-        if not normalized_text:
-            continue
-        remaining_line_indices_by_text[normalized_text].append(line_index)
+        remaining_canonical.append(
+            (
+                line_index,
+                _normalize_line_text(row.get("text")),
+            )
+        )
 
+    remaining_predictions: list[tuple[int, dict[str, Any], str]] = []
     for position, row in enumerate(prediction_rows):
         if position in matched_prediction_positions:
             continue
-        normalized_text = _normalize_line_text(row.get("text"))
-        if not normalized_text:
-            continue
-        remaining = remaining_line_indices_by_text.get(normalized_text)
-        if not remaining:
-            continue
-        line_index = remaining.popleft()
-        meta_by_line_index[line_index] = _line_role_meta_payload(
-            row,
-            match_kind="exact_text_occurrence",
+        remaining_predictions.append(
+            (
+                position,
+                row,
+                _normalize_line_text(row.get("text")),
+            )
         )
+
+    canonical_texts = [text for _, text in remaining_canonical]
+    prediction_texts = [text for _, _, text in remaining_predictions]
+    matcher = difflib.SequenceMatcher(
+        a=canonical_texts,
+        b=prediction_texts,
+        autojunk=False,
+    )
+    for tag, canon_start, canon_end, pred_start, pred_end in matcher.get_opcodes():
+        if tag != "equal":
+            continue
+        for offset in range(canon_end - canon_start):
+            line_index, normalized_text = remaining_canonical[canon_start + offset]
+            _, row, prediction_text = remaining_predictions[pred_start + offset]
+            if not normalized_text or normalized_text != prediction_text:
+                continue
+            meta_by_line_index[line_index] = _line_role_meta_payload(
+                row,
+                match_kind="exact_text_occurrence",
+            )
 
     return meta_by_line_index
 

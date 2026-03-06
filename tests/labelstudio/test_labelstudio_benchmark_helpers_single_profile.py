@@ -269,7 +269,10 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
         progress_callback = cli._BENCHMARK_PROGRESS_CALLBACK.get()
         observed_progress_callbacks.append(callable(progress_callback))
         if callable(progress_callback):
-            progress_callback("Running benchmark... task 1/2")
+            progress_callback(
+                "codex-farm recipe.schemaorg.v1 task 1/2 | "
+                "running 1 | active [r0001.json]"
+            )
             progress_callback("Evaluating predictions... task 2/2")
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", _fake_labelstudio_benchmark)
@@ -323,7 +326,8 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
     snapshots = captured_status.get("snapshots")
     assert isinstance(snapshots, list)
     assert snapshots
-    assert any("queue:" in snapshot for snapshot in snapshots)
+    assert any("books:" in snapshot for snapshot in snapshots)
+    assert any("w01" in snapshot for snapshot in snapshots)
     assert len(refresh_calls) == 1
     assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
         processed_output_root
@@ -338,7 +342,35 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
     assert refresh_calls[0]["reason"] == "single-profile benchmark variant batch append"
 
 
-def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_per_book(
+def test_print_codex_decision_is_suppressed_inside_benchmark_summary_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = cli.resolve_codex_execution_policy(
+        "labelstudio_benchmark",
+        {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+        },
+        allow_codex=True,
+    )
+    captured: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: captured.append(str(message)),
+    )
+
+    cli._print_codex_decision(policy)
+    assert captured
+
+    captured.clear()
+    with cli._benchmark_progress_overrides(suppress_summary=True):
+        cli._print_codex_decision(policy)
+
+    assert captured == []
+
+
+def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfarm_per_book(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -377,19 +409,6 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_pe
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
 
-    comparison_calls: list[dict[str, object]] = []
-
-    def _fake_write_single_offline_comparison_artifacts(**kwargs):
-        comparison_calls.append(dict(kwargs))
-        session_root = kwargs["session_root"]
-        assert isinstance(session_root, Path)
-        return session_root / "codex_vs_vanilla_comparison.json", None
-
-    monkeypatch.setattr(
-        cli,
-        "_write_single_offline_comparison_artifacts",
-        _fake_write_single_offline_comparison_artifacts,
-    )
     monkeypatch.setattr(
         cli,
         "_write_benchmark_upload_bundle",
@@ -418,6 +437,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_pe
         "off",
         "atomic-v1",
     ]
+    assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla",
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codexfarm",
@@ -434,19 +454,6 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_pe
         / "01_book_a"
         / "codexfarm",
     ]
-
-    assert len(comparison_calls) == 1
-    assert comparison_calls[0]["run_timestamp"] == benchmark_eval_output.name
-    assert comparison_calls[0]["session_root"] == (
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_a"
-    )
-    assert comparison_calls[0]["source_file"] == str(source_a)
-    assert comparison_calls[0]["vanilla_eval_output_dir"] == (
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla"
-    )
-    assert comparison_calls[0]["codex_eval_output_dir"] == (
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codexfarm"
-    )
 
 
 def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bundle(
@@ -742,11 +749,6 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
         cli,
         "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
-    )
-    monkeypatch.setattr(
-        cli,
-        "_write_single_offline_comparison_artifacts",
-        lambda **kwargs: (kwargs["session_root"] / "codex_vs_vanilla_comparison.json", None),
     )
     monkeypatch.setattr(
         cli,

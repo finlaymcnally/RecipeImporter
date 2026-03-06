@@ -107,6 +107,7 @@ The renderer writes:
 Notes:
 
 - `index.html` embeds an inline copy of `dashboard_data.json`, so it still works via `file://` even when browser local fetches are restricted.
+- Regenerated dashboards also append a version query string to `assets/style.css` and `assets/dashboard.js`, and the JSON fetch fallback uses `cache: no-store`, so browser subresource caches do not preserve stale UI logic after a rebuild.
 - Collectors are read-only. They do not modify the source metrics in `data/output` or `data/golden`.
 - Benchmark rows classified as test/gate noise are ignored before rendering (`/bench/`, pytest temp eval paths, and timestamp-suffix tokens like `_...-gated-...` / `_...-smoke-...` / `_...-test-...`) so those runs never appear in `Previous Runs` or latest diagnostics.
 - All-method standalone pages are built from benchmark CSV rows (`run_dir` / `artifact_dir`) grouped by benchmark sweep paths:
@@ -117,6 +118,8 @@ Notes:
 - Analytics semantics note:
   - `vanilla` is reserved for official paired benchmark variants that are actually deterministic (`llm_recipe_pipeline=off` and `line_role_pipeline=off`).
   - Rows with recipe AI off but line-role AI on are shown as `Line-role only`, not `vanilla`.
+  - Legacy single-offline rows that predate explicit `line_role_pipeline` capture still fall back to the path variant (`.../vanilla` / `.../codexfarm`) so older benchmark trend history remains visible under the default `Official benchmarks only` quick filter.
+  - Path-based benchmark classification now falls back across `artifact_dir`, `run_dir`, and `report_path`, because older CSV rows often omitted `artifact_dir`.
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout
@@ -150,11 +153,12 @@ Notes:
   - Horizontal scrolling is enabled; table keeps a minimum width so wide benchmark columns stay readable instead of over-compressing.
   - Click any table header to toggle sort direction for that column (`A→Z` / `Z→A`), including timestamps.
   - Includes a `+/-` button beside the table header row that opens a small checkbox menu for show/hide column selection; drag headers to reorder and drag header edges to resize.
-  - `Quick Filters` uses a compact layout: benchmark toggles + `Clear all filters` in one toolbar row, with `View presets` controls directly below.
-  - Previous Runs UI preferences persist in browser local storage (`localStorage`): column visibility/order/widths, column filters, quick-filter toggles, current sort, and named view presets are restored across page reloads and dashboard regenerations at the same dashboard URL/path.
-  - Compare & Control state (`outcome_field`, `compare_field`, `chart_type`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`) persists across reloads too, but it is stored independently from Previous Runs view presets.
-  - When opened via `cookimport stats-dashboard --serve`, the same UI state is also synced to `assets/dashboard_ui_state.json` so settings carry across browsers on the same machine.
-  - While the page stays open, program-side state is polled every few seconds and newer remote state is applied live without a page refresh.
+- `Quick Filters` uses a compact layout: benchmark toggles + `Clear all filters` in one toolbar row, with `View presets` controls directly below.
+- Previous Runs UI preferences persist in browser local storage (`localStorage`): column visibility/order/widths, column filters, quick-filter toggles, current sort, and named view presets are restored across page reloads and dashboard regenerations at the same dashboard URL/path.
+- Compare & Control state (`outcome_field`, `compare_field`, `chart_type`, `hold_constant_fields`, `split_field`, `view_mode`, `selected_groups`) persists across reloads too, but it is stored independently from Previous Runs view presets.
+- When opened via `cookimport stats-dashboard --serve`, the same UI state is also synced to `assets/dashboard_ui_state.json` so settings carry across browsers on the same machine.
+- Served dashboards now treat `assets/dashboard_ui_state.json` as canonical on initial page load, so stale browser `localStorage` does not hide current benchmark rows after a rebuild or restart.
+- While the page stays open, program-side state is polled every few seconds and newer remote state is applied live without a page refresh.
   - Diagnostic table resize is limited to `Per-Label Breakdown`; `Boundary Classification` and `Benchmark Runtime` are fixed-fit cards (no horizontal scroll/resize) to keep the top row stable.
   - Normal benchmark rows: timestamp links to `artifact_dir`.
   - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
@@ -221,7 +225,8 @@ Notes:
     - `Exclude AI test/smoke benchmark runs` remains available mainly as a legacy cleanup toggle for older saved dashboard payloads.
     - `Clear all filters` resets quick filters and per-column table filters in one click.
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
-  - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed linear trendlines and matching-color `±1σ` deviation bands.
+  - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed rolling trend overlays only.
+  - Rolling trend overlays are built from one median point per benchmark run-group (`runGroupKey`), so large multi-book runs do not outweigh smaller runs just because they emitted more rows.
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
   - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
   - Trend run-group timestamp extraction now checks `artifact_dir`, `run_dir`, and `report_path`; when `benchmark-vs-golden` appears in a path, it uses the first timestamp token after that marker so deeper variant-local timestamp folders do not shift paired `codexfarm`/`vanilla` points onto different x positions.

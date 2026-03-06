@@ -11,6 +11,8 @@ from .dashboard_collect import collect_dashboard_data
 
 COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy"
 ANALYSIS_FIELD_LABEL_OVERRIDES = {
+    "source_file_basename": "Book",
+    "run_config.single_offline_split_cache.conversion_seconds": "Conversion seconds",
     "conversion_seconds_per_recipe": "Conversion seconds per recipe",
     "all_token_use_per_recipe": "Token use per recipe",
 }

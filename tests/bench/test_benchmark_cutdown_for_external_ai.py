@@ -73,6 +73,14 @@ def _read_jsonl_gzip(path: Path) -> list[dict[str, object]]:
     return rows
 
 
+def _bundle_dir_size_bytes(path: Path) -> int:
+    return sum(
+        int(candidate.stat().st_size)
+        for candidate in path.rglob("*")
+        if candidate.is_file()
+    )
+
+
 def _run_main(module, argv: list[str]) -> int:
     prior_argv = list(sys.argv)
     try:
@@ -2183,7 +2191,7 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    target_bundle_size_bytes = 200_000
+    target_bundle_size_bytes = 300_000
 
     def _make_wrong_rows() -> list[dict[str, object]]:
         return [
@@ -2226,6 +2234,20 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
             line_role_pipeline="codex-line-role-v1",
             wrong_label_rows=_make_wrong_rows(),
             full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        )
+        run_dir = multi_root / f"2026-03-04_10.0{index}.00"
+        _write_prediction_run(run_dir, with_extracted_archive=False)
+        _set_pred_run_artifact(run_dir, "prediction-run")
+        _write_json(
+            run_dir / "prediction-run" / "prompt_budget_summary.json",
+            {
+                "schema_version": "prompt_budget_summary.v1",
+                "by_pass": {
+                    "pass1": {"call_count": 2, "duration_total_ms": 100, "tokens_total": 1000},
+                    "pass2": {"call_count": 2, "duration_total_ms": 200, "tokens_total": 2000},
+                    "pass3": {"call_count": 1, "duration_total_ms": 300, "tokens_total": 3000},
+                },
+            },
         )
     multi_bundle_dir = multi_root / "upload_bundle_v1"
     multi_metadata = module.build_upload_bundle_for_existing_output(
@@ -2285,21 +2307,114 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
         for row in multi_index_payload.get("artifact_index", [])
         if isinstance(row, dict)
     }
-    full_prompt_log_paths = sorted(
-        path for path in multi_artifact_paths if path.endswith("full_prompt_log.jsonl")
+    prompt_budget_summary_paths = sorted(
+        path for path in multi_artifact_paths if path.endswith("prompt_budget_summary.json")
     )
-    assert len(full_prompt_log_paths) == 3
+    assert len(prompt_budget_summary_paths) == 3
+    assert not any(path.endswith("full_prompt_log.jsonl") for path in multi_artifact_paths)
     heavy_rows = (
         multi_index_payload.get("navigation", {})
         .get("row_locators", {})
         .get("deprioritized_heavy_artifacts", [])
     )
     assert isinstance(heavy_rows, list)
-    assert any(
+    assert not any(
         isinstance(row, dict)
         and str(row.get("path") or "").endswith("full_prompt_log.jsonl")
         for row in heavy_rows
     )
+
+
+def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    target_bundle_size_bytes = 260_000
+    session_root = tmp_path / "single-profile-benchmark"
+    session_root.mkdir(parents=True, exist_ok=True)
+
+    def _make_large_prompt_rows(run_label: str) -> list[dict[str, object]]:
+        return [
+            {
+                "pass": "pass3",
+                "call_id": f"{run_label}-pass3-{index}",
+                "recipe_id": f"recipe:{run_label}:{index}",
+                "parsed_response": {
+                    "warnings": [f"warning {index}"],
+                    "ingredient_step_mapping": "{}",
+                },
+                "request_input_payload": {
+                    "blocks_candidate": [
+                        {
+                            "text": f"{run_label} " + ("x" * 1800),
+                        }
+                    ]
+                },
+            }
+            for index in range(90)
+        ]
+
+    (session_root / module.TARGETED_PROMPT_CASES_FILE_NAME).write_text(
+        "targeted\n" + ("y" * 170_000),
+        encoding="utf-8",
+    )
+
+    for index in range(1, 4):
+        run_id = f"2026-03-04_11.0{index}.00"
+        _make_run_record(
+            module,
+            run_root=session_root,
+            run_id=run_id,
+            llm_recipe_pipeline="codex-farm-3pass-v1",
+            line_role_pipeline="codex-line-role-v1",
+            wrong_label_rows=[
+                {
+                    "line_index": row_index,
+                    "gold_label": "INGREDIENT_LINE",
+                    "pred_label": "RECIPE_NOTES",
+                    "line_text": f"Run {index} line {row_index} " + ("z" * 120),
+                }
+                for row_index in range(1, 121)
+            ],
+            full_prompt_rows=_make_large_prompt_rows(f"run{index}"),
+        )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    metadata = module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+        high_level_only=True,
+        target_bundle_size_bytes=target_bundle_size_bytes,
+    )
+
+    bundle_size_bytes = _bundle_dir_size_bytes(bundle_dir)
+    assert bundle_size_bytes <= target_bundle_size_bytes
+    assert metadata["high_level_only"] is True
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    artifact_paths = {
+        str(row.get("path") or "")
+        for row in index_payload.get("artifact_index", [])
+        if isinstance(row, dict)
+    }
+    group_summary = index_payload["analysis"]["group_high_level"]
+
+    assert group_summary["enabled"] is True
+    assert group_summary["serialized_size_capped"] is True
+    assert int(group_summary["final_bundle_bytes"]) == bundle_size_bytes
+    assert int(group_summary["final_payload_bytes"]) < target_bundle_size_bytes
+    omitted_rows = group_summary.get("omitted_artifacts")
+    assert isinstance(omitted_rows, list)
+    assert any(
+        isinstance(row, dict)
+        and str(row.get("path") or "") == module.TARGETED_PROMPT_CASES_FILE_NAME
+        and str(row.get("reason") or "") == "final_size_trim"
+        for row in omitted_rows
+    )
+    assert module.TARGETED_PROMPT_CASES_FILE_NAME not in artifact_paths
+    assert not any(path.endswith("full_prompt_log.jsonl") for path in artifact_paths)
 
 
 def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(

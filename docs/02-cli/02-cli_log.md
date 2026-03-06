@@ -8,6 +8,15 @@ read_when:
 
 This file is the anti-loop log for CLI work. Read it before retrying approaches that may already have failed.
 
+### 2026-03-06_00.30.31 single-profile benchmark terminal noise suppression
+
+Preserved finding:
+- Shared single-profile benchmark status was still getting polluted by nested codex decision banners and recoverable codex-farm warning logs, which made the PTY look corrupted even though the benchmark runner itself was still alive.
+
+Current rule:
+- `_print_codex_decision(...)` is suppressed when benchmark summary suppression is active.
+- Recoverable codex-farm partial-output failures should surface as one short progress line through the shared callback path during interactive/shared-status runs, not as multiline warning logs directly into the terminal.
+
 ### 2026-03-03_23.30.00 single-profile selected-matched benchmark mode
 
 Preserved finding:

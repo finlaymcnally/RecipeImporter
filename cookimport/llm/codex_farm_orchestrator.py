@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -104,6 +105,7 @@ _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
     "chart",
     "mixed_content",
 )
+_RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION = "recipe_codex_guardrail_report.v1"
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -229,6 +231,14 @@ def run_codex_farm_recipe_pipeline(
     transport_audits: dict[str, dict[str, Any]] = {}
     evidence_normalizations: dict[str, dict[str, Any]] = {}
     if not states:
+        recipe_guardrail_report, recipe_guardrail_rows = _build_recipe_guardrail_report(states)
+        recipe_guardrail_report_path, recipe_guardrail_rows_path = (
+            _write_recipe_guardrail_artifacts(
+                llm_raw_dir=llm_raw_dir,
+                report=recipe_guardrail_report,
+                rows=recipe_guardrail_rows,
+            )
+        )
         _write_json(
             {
                 "schema_version": "pass1_recipe_eligibility.v1",
@@ -283,11 +293,17 @@ def run_codex_farm_recipe_pipeline(
                 transport_audit_dir=transport_audit_dir,
                 evidence_normalization_dir=evidence_normalization_dir,
                 pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
+                recipe_guardrail_report_path=recipe_guardrail_report_path,
+                recipe_guardrail_rows_path=recipe_guardrail_rows_path,
             ),
             "process_runs": {},
             "recipes": {},
             "transport": {"audits": {}, "mismatches": []},
             "evidence_normalization": {"recipes": {}},
+            "recipe_guardrails": {
+                "report": recipe_guardrail_report,
+                "rows": recipe_guardrail_rows,
+            },
             "pass3_policy": {
                 "pass2_ok_deterministic_skip_enabled": pass3_skip_pass2_ok_enabled,
                 "pass2_ok_min_non_placeholder_instructions": (
@@ -312,6 +328,8 @@ def run_codex_farm_recipe_pipeline(
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
                 "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
                 "evidence_normalization": {"recipes_logged": 0},
+                "recipe_guardrail_report_path": str(recipe_guardrail_report_path),
+                "recipe_guardrail_rows_path": str(recipe_guardrail_rows_path),
                 "pass1_recipe_eligibility_diagnostics_path": str(
                     pass1_eligibility_diagnostics_path
                 ),
@@ -801,6 +819,12 @@ def run_codex_farm_recipe_pipeline(
         )
 
     llm_manifest_path = llm_raw_dir / "llm_manifest.json"
+    recipe_guardrail_report, recipe_guardrail_rows = _build_recipe_guardrail_report(states)
+    recipe_guardrail_report_path, recipe_guardrail_rows_path = _write_recipe_guardrail_artifacts(
+        llm_raw_dir=llm_raw_dir,
+        report=recipe_guardrail_report,
+        rows=recipe_guardrail_rows,
+    )
     llm_manifest = _build_llm_manifest(
         run_settings=run_settings,
         llm_raw_dir=llm_raw_dir,
@@ -823,6 +847,10 @@ def run_codex_farm_recipe_pipeline(
         transport_audits=transport_audits,
         evidence_normalizations=evidence_normalizations,
         pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
+        recipe_guardrail_report_path=recipe_guardrail_report_path,
+        recipe_guardrail_rows_path=recipe_guardrail_rows_path,
+        recipe_guardrail_report=recipe_guardrail_report,
+        recipe_guardrail_rows=recipe_guardrail_rows,
     )
     _write_json(llm_manifest, llm_manifest_path)
 
@@ -846,6 +874,8 @@ def run_codex_farm_recipe_pipeline(
         "evidence_normalization": {
             "recipes_logged": llm_manifest["counts"].get("evidence_normalization_logs", 0),
         },
+        "recipe_guardrail_report_path": str(recipe_guardrail_report_path),
+        "recipe_guardrail_rows_path": str(recipe_guardrail_rows_path),
         "pass1_recipe_eligibility_diagnostics_path": str(
             pass1_eligibility_diagnostics_path
         ),
@@ -864,6 +894,123 @@ def run_codex_farm_recipe_pipeline(
     )
 
 
+def build_codex_farm_recipe_execution_plan(
+    *,
+    conversion_result: ConversionResult,
+    run_settings: RunSettings,
+    workbook_slug: str,
+    full_blocks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if run_settings.llm_recipe_pipeline.value == "off":
+        return {
+            "enabled": False,
+            "pipeline": "off",
+            "recipe_count": len(conversion_result.recipes),
+            "planned_tasks": [],
+        }
+
+    full_blocks_payload = _prepare_full_blocks(
+        full_blocks if full_blocks is not None else _extract_full_blocks(conversion_result)
+    )
+    full_blocks_by_index = {int(block["index"]): block for block in full_blocks_payload}
+    source_hash = _resolve_source_hash(conversion_result)
+    states = _build_states(conversion_result, workbook_slug=workbook_slug)
+    pipelines = _resolve_pipeline_ids(run_settings)
+    pass1_pattern_hints_enabled = bool(run_settings.codex_farm_pass1_pattern_hints_enabled)
+    planned_tasks: list[dict[str, Any]] = []
+
+    for recipe_index, state in enumerate(states):
+        pattern_hints = (
+            _pattern_hints_for_state(state) if pass1_pattern_hints_enabled else []
+        )
+        pass1_input = Pass1RecipeChunkingInput(
+            recipe_id=state.recipe_id,
+            workbook_slug=workbook_slug,
+            source_hash=source_hash,
+            heuristic_start_block_index=state.heuristic_start,
+            heuristic_end_block_index=state.heuristic_end,
+            blocks_before=_block_lites_for_range(
+                full_blocks_by_index,
+                start=(state.heuristic_start or 0) - run_settings.codex_farm_context_blocks,
+                end=(state.heuristic_start or 0) - 1,
+                end_inclusive=True,
+            ),
+            blocks_candidate=_block_lites_for_range(
+                full_blocks_by_index,
+                start=state.heuristic_start,
+                end=state.heuristic_end,
+                end_inclusive=True,
+            ),
+            blocks_after=_block_lites_for_range(
+                full_blocks_by_index,
+                start=(state.heuristic_end or 0) + 1,
+                end=(
+                    (state.heuristic_end or 0)
+                    + run_settings.codex_farm_context_blocks
+                ),
+                end_inclusive=True,
+            ),
+            pattern_hints=pattern_hints,
+        )
+        pass1_payload = pass1_input.model_dump(mode="json", by_alias=True)
+        planned_tasks.append(
+            {
+                "recipe_id": state.recipe_id,
+                "recipe_index": recipe_index,
+                "bundle_name": state.bundle_name,
+                "planned_passes": [
+                    {
+                        "pass": "pass1",
+                        "pipeline_id": pipelines["pass1"],
+                        "input_fingerprint": _codex_plan_fingerprint(pass1_payload),
+                        "input_block_count": (
+                            len(pass1_payload.get("blocks_before") or [])
+                            + len(pass1_payload.get("blocks_candidate") or [])
+                            + len(pass1_payload.get("blocks_after") or [])
+                        ),
+                        "contingent": False,
+                    },
+                    {
+                        "pass": "pass2",
+                        "pipeline_id": pipelines["pass2"],
+                        "depends_on": "pass1",
+                        "heuristic_block_range": [state.heuristic_start, state.heuristic_end],
+                        "contingent": True,
+                    },
+                    {
+                        "pass": "pass3",
+                        "pipeline_id": pipelines["pass3"],
+                        "depends_on": "pass2",
+                        "heuristic_block_range": [state.heuristic_start, state.heuristic_end],
+                        "contingent": True,
+                    },
+                ],
+            }
+        )
+
+    return {
+        "enabled": True,
+        "pipeline": run_settings.llm_recipe_pipeline.value,
+        "recipe_count": len(states),
+        "pipelines": dict(pipelines),
+        "codex_farm_model": run_settings.codex_farm_model,
+        "codex_farm_reasoning_effort": _effort_override_value(
+            run_settings.codex_farm_reasoning_effort
+        ),
+        "planned_tasks": planned_tasks,
+    }
+
+
+def _codex_plan_fingerprint(payload: Any) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _paths_payload(
     *,
     pass1_in_dir: Path,
@@ -876,6 +1023,8 @@ def _paths_payload(
     transport_audit_dir: Path | None = None,
     evidence_normalization_dir: Path | None = None,
     pass1_eligibility_diagnostics_path: Path | None = None,
+    recipe_guardrail_report_path: Path | None = None,
+    recipe_guardrail_rows_path: Path | None = None,
 ) -> dict[str, str]:
     payload = {
         "pass1_in": str(pass1_in_dir),
@@ -894,7 +1043,107 @@ def _paths_payload(
         payload["pass1_recipe_eligibility_diagnostics"] = str(
             pass1_eligibility_diagnostics_path
         )
+    if recipe_guardrail_report_path is not None:
+        payload["recipe_guardrail_report"] = str(recipe_guardrail_report_path)
+    if recipe_guardrail_rows_path is not None:
+        payload["recipe_guardrail_rows"] = str(recipe_guardrail_rows_path)
     return payload
+
+
+def _build_recipe_guardrail_rows(states: list[_RecipeState]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for state in states:
+        if state.pass1_eligibility_action in {"clamp", "drop"}:
+            rows.append(
+                {
+                    "recipe_id": state.recipe_id,
+                    "guardrail_type": "pass1_eligibility",
+                    "applied": True,
+                    "decision": state.pass1_eligibility_action,
+                    "reasons": list(state.pass1_eligibility_reasons),
+                }
+            )
+        if state.pass3_routing_reason == "transport_invariant_failed":
+            rows.append(
+                {
+                    "recipe_id": state.recipe_id,
+                    "guardrail_type": "transport_invariant",
+                    "applied": True,
+                    "decision": "deterministic_fallback",
+                    "reasons": ["transport_invariant_failed"],
+                }
+            )
+        if state.pass2_status == "degraded":
+            rows.append(
+                {
+                    "recipe_id": state.recipe_id,
+                    "guardrail_type": "pass2_degradation",
+                    "applied": True,
+                    "decision": state.pass2_degradation_severity or "degraded",
+                    "reasons": list(state.pass2_degradation_reasons),
+                }
+            )
+        if state.pass3_execution_mode == "deterministic" and state.pass3_routing_reason:
+            rows.append(
+                {
+                    "recipe_id": state.recipe_id,
+                    "guardrail_type": "pass3_routing",
+                    "applied": True,
+                    "decision": state.pass3_routing_reason,
+                    "reasons": (
+                        list(state.pass2_degradation_reasons)
+                        if state.pass2_degradation_reasons
+                        else []
+                    ),
+                }
+            )
+    return rows
+
+
+def _build_recipe_guardrail_report(
+    states: list[_RecipeState],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    rows = _build_recipe_guardrail_rows(states)
+    report = {
+        "schema_version": _RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION,
+        "guardrail_name": "recipe_codex_routing",
+        "mode": "enforce",
+        "preview_only": False,
+        "applied": bool(rows),
+        "would_change_rows": len(rows),
+        "summary": {
+            "recipes_total": len(states),
+            "pass1_eligibility_rows": sum(
+                1 for row in rows if row["guardrail_type"] == "pass1_eligibility"
+            ),
+            "transport_rows": sum(
+                1 for row in rows if row["guardrail_type"] == "transport_invariant"
+            ),
+            "pass2_degradation_rows": sum(
+                1 for row in rows if row["guardrail_type"] == "pass2_degradation"
+            ),
+            "pass3_routing_rows": sum(
+                1 for row in rows if row["guardrail_type"] == "pass3_routing"
+            ),
+        },
+    }
+    return report, rows
+
+
+def _write_recipe_guardrail_artifacts(
+    *,
+    llm_raw_dir: Path,
+    report: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> tuple[Path, Path]:
+    report_path = llm_raw_dir / "guardrail_report.json"
+    rows_path = llm_raw_dir / "guardrail_rows.jsonl"
+    _write_json(report, report_path)
+    rows_path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    return report_path, rows_path
 
 
 def _build_llm_manifest(
@@ -920,6 +1169,10 @@ def _build_llm_manifest(
     transport_audits: dict[str, dict[str, Any]],
     evidence_normalizations: dict[str, dict[str, Any]],
     pass1_eligibility_diagnostics_path: Path,
+    recipe_guardrail_report_path: Path,
+    recipe_guardrail_rows_path: Path,
+    recipe_guardrail_report: dict[str, Any],
+    recipe_guardrail_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -1074,6 +1327,8 @@ def _build_llm_manifest(
             transport_audit_dir=transport_audit_dir,
             evidence_normalization_dir=evidence_normalization_dir,
             pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
+            recipe_guardrail_report_path=recipe_guardrail_report_path,
+            recipe_guardrail_rows_path=recipe_guardrail_rows_path,
         ),
         "process_runs": dict(process_runs),
         "failures": failures,
@@ -1084,6 +1339,10 @@ def _build_llm_manifest(
             "audits": dict(transport_audits),
         },
         "evidence_normalization": {"recipes": dict(evidence_normalizations)},
+        "recipe_guardrails": {
+            "report": dict(recipe_guardrail_report),
+            "rows": list(recipe_guardrail_rows),
+        },
         "pass3_policy": {
             "pass2_ok_deterministic_skip_enabled": pass3_skip_pass2_ok_enabled,
             "pass2_ok_min_non_placeholder_instructions": (
@@ -1785,6 +2044,8 @@ def _eligibility_looks_ingredient_line(text: str) -> bool:
 def _eligibility_looks_instruction_line(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
+        return False
+    if _ELIGIBILITY_TITLE_LIKE_RE.match(stripped) and "." not in stripped:
         return False
     if _ELIGIBILITY_INSTRUCTION_VERB_RE.match(stripped):
         return True

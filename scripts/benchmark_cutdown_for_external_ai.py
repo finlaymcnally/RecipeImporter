@@ -51,13 +51,15 @@ DEFAULT_PROMPT_PAIRS_PER_CATEGORY = 3
 DEFAULT_TARGETED_PROMPT_CASES = 10
 ALIGNMENT_HEALTHY_COVERAGE_MIN = 0.98
 ALIGNMENT_HEALTHY_MATCH_RATIO_MIN = 0.98
-GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 40 * 1024 * 1024
+GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 GROUP_UPLOAD_BUNDLE_RESERVED_BYTES = 3 * 1024 * 1024
 GROUP_UPLOAD_BUNDLE_ROOT_ARTIFACT_BUDGET_SHARE = 0.8
 GROUP_UPLOAD_BUNDLE_MIN_ARTIFACT_BUDGET_BYTES = 4 * 1024 * 1024
 GROUP_UPLOAD_BUNDLE_GROUP_PACKET_FILE_NAME = "group_high_level_packet.json"
 GROUP_UPLOAD_BUNDLE_MIN_WRONG_LINE_SAMPLES_PER_RUN = 1
 GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN = 240
+GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_SHARE = 0.08
+GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_MIN_BYTES = 64 * 1024
 UPLOAD_BUNDLE_MIN_PAIRS_FOR_GENERALIZATION = 2
 UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD = 0.90
 UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING = {
@@ -120,6 +122,11 @@ GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES: tuple[tuple[str, bool], ...] = (
     ("run_manifest.json", True),
     ("eval_report.json", False),
     ("need_to_know_summary.json", False),
+)
+GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES: tuple[str, ...] = (
+    "prompts/prompt_request_response_log.txt",
+    "prediction-run/extracted_archive.json",
+    "prediction-run/line-role-pipeline/extracted_archive.json",
 )
 UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "upload_bundle_overview.md"
 UPLOAD_BUNDLE_INDEX_FILE_NAME = "upload_bundle_index.json"
@@ -5839,6 +5846,209 @@ def _json_size_bytes(value: Any) -> int:
         return 0
 
 
+def _json_dump_bytes(
+    value: Any,
+    *,
+    indent: int | None = None,
+    sort_keys: bool = False,
+) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        indent=indent,
+        sort_keys=sort_keys,
+    ).encode("utf-8")
+
+
+def _upload_bundle_payload_row_line_bytes(payload_row: dict[str, Any]) -> int:
+    return len(_json_dump_bytes(payload_row)) + 1
+
+
+def _resolve_prompt_budget_summary_path(
+    *,
+    pred_run_dir: Path,
+    pred_manifest: dict[str, Any],
+) -> Path | None:
+    candidates: list[Path] = []
+    manifest_path = str(pred_manifest.get("prompt_budget_summary_path") or "").strip()
+    if manifest_path:
+        candidate = Path(manifest_path)
+        if not candidate.is_absolute():
+            candidate = pred_run_dir / candidate
+        candidates.append(candidate)
+    candidates.append(pred_run_dir / "prompt_budget_summary.json")
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen or not candidate.is_file():
+            continue
+        seen.add(resolved)
+        payload = _upload_bundle_load_json_object(candidate)
+        if isinstance(payload.get("by_pass"), dict):
+            return candidate
+    return None
+
+
+def _upload_bundle_high_level_final_reserve_bytes(target_bundle_size_bytes: int) -> int:
+    target_bytes = max(int(target_bundle_size_bytes), 1)
+    reserve_bytes = max(
+        int(target_bytes * GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_SHARE),
+        GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_MIN_BYTES,
+    )
+    return min(reserve_bytes, max(target_bytes - 1, 0))
+
+
+def _upload_bundle_high_level_trim_priority(path: str) -> tuple[int, str] | None:
+    normalized = str(path or "").strip().lower()
+    if not normalized:
+        return None
+    direct_suffixes = (
+        (
+            (
+                FULL_PROMPT_LOG_FILE_NAME,
+                WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
+                PREPROCESS_TRACE_FAILURES_FILE_NAME,
+                PROMPT_REQUEST_RESPONSE_LOG_NAME,
+                "llm_manifest.json",
+            ),
+            0,
+        ),
+        (
+            (
+                TARGETED_PROMPT_CASES_FILE_NAME,
+                LABEL_POLICY_NOTES_FILE_NAME,
+                STARTER_PACK_CASEBOOK_FILE_NAME,
+                STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
+                STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME,
+            ),
+            1,
+        ),
+        (
+            (
+                STARTER_PACK_LOW_CONFIDENCE_CHANGED_LINES_FILE_NAME,
+                "low_confidence_changed_lines.packet.jsonl",
+                STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
+                "baseline_trace_parity.json",
+                STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
+                "config_version_metadata.json",
+                STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+                "net_error_blame_summary.json",
+                CHANGED_LINES_FILE_NAME.rsplit("/", 1)[-1],
+                "prediction-run/extracted_archive.json",
+                "prediction-run/line-role-pipeline/extracted_archive.json",
+                "extracted_archive.json",
+            ),
+            2,
+        ),
+        (
+            (
+                "need_to_know_summary.json",
+                "eval_report.json",
+                "prompt_budget_summary.json",
+            ),
+            3,
+        ),
+    )
+    for suffixes, priority in direct_suffixes:
+        if normalized.endswith(suffixes):
+            return (priority, "final_size_trim")
+    if f"/{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{STARTER_PACK_DIR_NAME}/" in normalized:
+        return (1, "final_size_trim")
+    if f"/{STARTER_PACK_DIR_NAME}/" in normalized:
+        return (2, "final_size_trim")
+    return None
+
+
+def _upload_bundle_trim_high_level_payload_rows(
+    *,
+    payload_rows: list[dict[str, Any]],
+    target_payload_bytes: int,
+    preserve_paths: set[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    current_payload_bytes = sum(
+        _upload_bundle_payload_row_line_bytes(row)
+        for row in payload_rows
+        if isinstance(row, dict)
+    )
+    omitted_rows: list[dict[str, Any]] = []
+    if current_payload_bytes <= max(int(target_payload_bytes), 0):
+        return payload_rows, {
+            "target_payload_bytes": max(int(target_payload_bytes), 0),
+            "final_payload_bytes": current_payload_bytes,
+            "omitted_artifact_count": 0,
+            "omitted_bytes_estimate": 0,
+            "omitted_artifacts": [],
+        }
+
+    candidate_rows: list[tuple[int, str, int, int]] = []
+    for index, row in enumerate(payload_rows):
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or "").strip()
+        if not path or path in preserve_paths:
+            continue
+        priority = _upload_bundle_high_level_trim_priority(path)
+        if priority is None:
+            continue
+        candidate_rows.append(
+            (
+                int(priority[0]),
+                path,
+                _upload_bundle_payload_row_line_bytes(row),
+                index,
+            )
+        )
+
+    candidate_rows.sort(
+        key=lambda item: (
+            int(item[0]),
+            -int(item[2]),
+            str(item[1]),
+        )
+    )
+
+    dropped_paths: set[str] = set()
+    omitted_bytes_estimate = 0
+    for priority, path, estimated_payload_bytes, _index in candidate_rows:
+        if current_payload_bytes <= target_payload_bytes:
+            break
+        dropped_paths.add(path)
+        current_payload_bytes -= estimated_payload_bytes
+        omitted_bytes_estimate += estimated_payload_bytes
+        omitted_rows.append(
+            {
+                "path": path,
+                "reason": "final_size_trim",
+                "trim_priority": priority,
+                "estimated_payload_bytes": estimated_payload_bytes,
+            }
+        )
+
+    if not dropped_paths:
+        return payload_rows, {
+            "target_payload_bytes": max(int(target_payload_bytes), 0),
+            "final_payload_bytes": current_payload_bytes,
+            "omitted_artifact_count": 0,
+            "omitted_bytes_estimate": 0,
+            "omitted_artifacts": [],
+        }
+
+    trimmed_rows = [
+        row
+        for row in payload_rows
+        if isinstance(row, dict) and str(row.get("path") or "").strip() not in dropped_paths
+    ]
+    return trimmed_rows, {
+        "target_payload_bytes": max(int(target_payload_bytes), 0),
+        "final_payload_bytes": sum(
+            _upload_bundle_payload_row_line_bytes(row) for row in trimmed_rows
+        ),
+        "omitted_artifact_count": len(omitted_rows),
+        "omitted_bytes_estimate": omitted_bytes_estimate,
+        "omitted_artifacts": omitted_rows,
+    }
+
+
 def _upload_bundle_select_high_level_artifact_paths(
     *,
     source_root: Path,
@@ -5878,6 +6088,21 @@ def _upload_bundle_select_high_level_artifact_paths(
         _append_if_allowed(source_root / relative_path, required=False)
 
     included_run_rows: list[dict[str, Any]] = []
+    policy_omitted_artifacts: list[dict[str, Any]] = []
+
+    def _record_policy_omission(path: Path, *, reason: str) -> None:
+        try:
+            relative_path = str(path.relative_to(source_root).as_posix())
+        except ValueError:
+            relative_path = str(path)
+        policy_omitted_artifacts.append(
+            {
+                "path": relative_path,
+                "reason": reason,
+                "source_bytes": _path_size(path),
+            }
+        )
+
     for run_dir in discovered_run_dirs:
         run_rel = ""
         try:
@@ -5885,11 +6110,66 @@ def _upload_bundle_select_high_level_artifact_paths(
         except ValueError:
             run_rel = run_dir.name
         included_files: list[str] = []
+        omitted_files: list[dict[str, Any]] = []
         run_manifest_payload = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
         for file_name, required in GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES:
             candidate = run_dir / file_name
             if _append_if_allowed(candidate, required=required):
                 included_files.append(file_name)
+            elif candidate.is_file():
+                omitted_files.append(
+                    {
+                        "path": file_name,
+                        "reason": "artifact_budget_exceeded",
+                        "source_bytes": _path_size(candidate),
+                    }
+                )
+        pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest_payload)
+        pred_manifest = (
+            _upload_bundle_load_json_object(pred_run_dir / "manifest.json")
+            if pred_run_dir is not None
+            else {}
+        )
+        prompt_budget_summary_path = (
+            _resolve_prompt_budget_summary_path(
+                pred_run_dir=pred_run_dir,
+                pred_manifest=pred_manifest,
+            )
+            if pred_run_dir is not None
+            else None
+        )
+        if prompt_budget_summary_path is not None:
+            if _append_if_allowed(prompt_budget_summary_path, required=False):
+                try:
+                    included_files.append(
+                        str(prompt_budget_summary_path.relative_to(run_dir).as_posix())
+                    )
+                except ValueError:
+                    included_files.append(str(prompt_budget_summary_path))
+            else:
+                try:
+                    omitted_path = str(prompt_budget_summary_path.relative_to(run_dir).as_posix())
+                except ValueError:
+                    omitted_path = str(prompt_budget_summary_path)
+                omitted_files.append(
+                    {
+                        "path": omitted_path,
+                        "reason": "artifact_budget_exceeded",
+                        "source_bytes": _path_size(prompt_budget_summary_path),
+                    }
+                )
+        for relative_path in GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES:
+            candidate = run_dir / relative_path
+            if _append_if_allowed(candidate, required=False):
+                included_files.append(relative_path)
+            elif candidate.is_file():
+                omitted_files.append(
+                    {
+                        "path": relative_path,
+                        "reason": "artifact_budget_exceeded",
+                        "source_bytes": _path_size(candidate),
+                    }
+                )
         # Keep full prompt logs in high-level bundles (deprioritized in navigation).
         full_prompt_log_path = _resolve_full_prompt_log_path(run_dir, run_manifest_payload)
         if full_prompt_log_path is not None and full_prompt_log_path.is_file():
@@ -5897,18 +6177,42 @@ def _upload_bundle_select_high_level_artifact_paths(
                 full_prompt_log_path.relative_to(source_root)
             except ValueError:
                 full_prompt_log_path = None
-        if (
-            full_prompt_log_path is not None
-            and _append_if_allowed(full_prompt_log_path, required=True)
-        ):
+        if full_prompt_log_path is not None:
             try:
-                included_files.append(str(full_prompt_log_path.relative_to(run_dir).as_posix()))
+                omitted_path = str(full_prompt_log_path.relative_to(run_dir).as_posix())
             except ValueError:
-                included_files.append(str(full_prompt_log_path))
+                omitted_path = str(full_prompt_log_path)
+            omitted_files.append(
+                {
+                    "path": omitted_path,
+                    "reason": "followup_only_heavy_prompt_log",
+                    "source_bytes": _path_size(full_prompt_log_path),
+                }
+            )
+            _record_policy_omission(
+                full_prompt_log_path,
+                reason="followup_only_heavy_prompt_log",
+            )
+        for heavy_name, omission_reason in (
+            (WRONG_LABEL_FULL_CONTEXT_FILE_NAME, "followup_only_full_context_trace"),
+            (PREPROCESS_TRACE_FAILURES_FILE_NAME, "followup_only_full_context_trace"),
+        ):
+            heavy_path = run_dir / heavy_name
+            if not heavy_path.is_file():
+                continue
+            omitted_files.append(
+                {
+                    "path": heavy_name,
+                    "reason": omission_reason,
+                    "source_bytes": _path_size(heavy_path),
+                }
+            )
+            _record_policy_omission(heavy_path, reason=omission_reason)
         included_run_rows.append(
             {
                 "run_dir": run_rel,
                 "included_files": included_files,
+                "omitted_files": omitted_files,
             }
         )
 
@@ -5920,6 +6224,8 @@ def _upload_bundle_select_high_level_artifact_paths(
         "selected_artifact_bytes": selected_bytes,
         "discovered_run_count": len(discovered_run_dirs),
         "per_run_included_files": included_run_rows,
+        "policy_omitted_artifacts": policy_omitted_artifacts,
+        "policy_omitted_artifact_count": len(policy_omitted_artifacts),
     }
     return selected, metadata
 
@@ -10547,92 +10853,79 @@ def _write_upload_bundle_three_files(
             artifact_paths.append(path)
 
     payload_path = output_root / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
-    artifact_index: list[dict[str, Any]] = []
-    with payload_path.open("w", encoding="utf-8") as handle:
-        for payload_row_number, artifact_path in enumerate(artifact_paths, start=1):
-            relative_path = str(artifact_path.relative_to(source_root).as_posix())
-            raw_bytes = artifact_path.read_bytes()
-            content_type = _upload_bundle_content_type(artifact_path)
-            category, run_subdir = _upload_bundle_category(relative_path, run_output_dirs)
-            sha256 = hashlib.sha256(raw_bytes).hexdigest()
+    payload_rows: list[dict[str, Any]] = []
+    payload_paths_seen: set[str] = set()
 
-            payload_row: dict[str, Any] = {
-                "path": relative_path,
-                "content_type": content_type,
-                "category": category,
-                "run_subdir": run_subdir,
-                "bytes": len(raw_bytes),
-                "sha256": sha256,
-            }
-            parsed_mode = "base64"
-            try:
-                if content_type == "json":
-                    text = raw_bytes.decode("utf-8")
-                    payload_row["content_json"] = json.loads(text)
-                    parsed_mode = "json"
-                elif content_type == "jsonl":
-                    text = raw_bytes.decode("utf-8")
-                    payload_row["content_jsonl_rows"] = _upload_bundle_parse_jsonl_text(text)
-                    parsed_mode = "jsonl"
-                elif content_type in {"markdown", "text"}:
-                    payload_row["content_text"] = raw_bytes.decode("utf-8")
-                    parsed_mode = "utf8_text"
-                elif content_type == "csv":
-                    text = raw_bytes.decode("utf-8")
-                    payload_row["content_text"] = text
-                    payload_row["content_csv"] = _upload_bundle_parse_csv_text(text)
-                    parsed_mode = "csv_plus_text"
-                elif content_type == "jsonl_gzip":
-                    payload_row["raw_gzip_base64"] = base64.b64encode(raw_bytes).decode("ascii")
-                    decompressed_text = gzip.decompress(raw_bytes).decode("utf-8")
-                    payload_row["content_jsonl_rows"] = _upload_bundle_parse_jsonl_text(
-                        decompressed_text
+    def _append_payload_row(payload_row: dict[str, Any]) -> None:
+        relative_path = str(payload_row.get("path") or "").strip()
+        if not relative_path or relative_path in payload_paths_seen:
+            return
+        payload_paths_seen.add(relative_path)
+        payload_rows.append(payload_row)
+
+    for artifact_path in artifact_paths:
+        relative_path = str(artifact_path.relative_to(source_root).as_posix())
+        raw_bytes = artifact_path.read_bytes()
+        content_type = _upload_bundle_content_type(artifact_path)
+        category, run_subdir = _upload_bundle_category(relative_path, run_output_dirs)
+        sha256 = hashlib.sha256(raw_bytes).hexdigest()
+
+        payload_row: dict[str, Any] = {
+            "path": relative_path,
+            "content_type": content_type,
+            "category": category,
+            "run_subdir": run_subdir,
+            "bytes": len(raw_bytes),
+            "sha256": sha256,
+        }
+        parsed_mode = "base64"
+        try:
+            if content_type == "json":
+                text = raw_bytes.decode("utf-8")
+                payload_row["content_json"] = json.loads(text)
+                parsed_mode = "json"
+            elif content_type == "jsonl":
+                text = raw_bytes.decode("utf-8")
+                payload_row["content_jsonl_rows"] = _upload_bundle_parse_jsonl_text(text)
+                parsed_mode = "jsonl"
+            elif content_type in {"markdown", "text"}:
+                payload_row["content_text"] = raw_bytes.decode("utf-8")
+                parsed_mode = "utf8_text"
+            elif content_type == "csv":
+                text = raw_bytes.decode("utf-8")
+                payload_row["content_text"] = text
+                payload_row["content_csv"] = _upload_bundle_parse_csv_text(text)
+                parsed_mode = "csv_plus_text"
+            elif content_type == "jsonl_gzip":
+                payload_row["raw_gzip_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+                decompressed_text = gzip.decompress(raw_bytes).decode("utf-8")
+                payload_row["content_jsonl_rows"] = _upload_bundle_parse_jsonl_text(
+                    decompressed_text
+                )
+                parsed_mode = "gzip_plus_jsonl"
+            elif content_type == "gzip":
+                payload_row["raw_gzip_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+                try:
+                    payload_row["decompressed_text"] = gzip.decompress(raw_bytes).decode(
+                        "utf-8"
                     )
-                    parsed_mode = "gzip_plus_jsonl"
-                elif content_type == "gzip":
-                    payload_row["raw_gzip_base64"] = base64.b64encode(raw_bytes).decode("ascii")
-                    try:
-                        payload_row["decompressed_text"] = gzip.decompress(raw_bytes).decode("utf-8")
-                        parsed_mode = "gzip_plus_text"
-                    except (OSError, UnicodeDecodeError):
-                        parsed_mode = "gzip_base64"
-                else:
-                    payload_row["content_base64"] = base64.b64encode(raw_bytes).decode("ascii")
-                    parsed_mode = "base64"
-            except (UnicodeDecodeError, json.JSONDecodeError, csv.Error, OSError) as exc:
-                payload_row["parse_error"] = f"{exc.__class__.__name__}: {exc}"
+                    parsed_mode = "gzip_plus_text"
+                except (OSError, UnicodeDecodeError):
+                    parsed_mode = "gzip_base64"
+            else:
                 payload_row["content_base64"] = base64.b64encode(raw_bytes).decode("ascii")
-                parsed_mode = "base64_fallback"
+                parsed_mode = "base64"
+        except (UnicodeDecodeError, json.JSONDecodeError, csv.Error, OSError) as exc:
+            payload_row["parse_error"] = f"{exc.__class__.__name__}: {exc}"
+            payload_row["content_base64"] = base64.b64encode(raw_bytes).decode("ascii")
+            parsed_mode = "base64_fallback"
 
-            payload_row["parsed_mode"] = parsed_mode
-            handle.write(json.dumps(payload_row, ensure_ascii=False))
-            handle.write("\n")
+        payload_row["parsed_mode"] = parsed_mode
+        _append_payload_row(payload_row)
 
-            artifact_index.append(
-                {
-                    "path": relative_path,
-                    "payload_row": payload_row_number,
-                    "content_type": content_type,
-                    "category": category,
-                    "run_subdir": run_subdir,
-                    "bytes": len(raw_bytes),
-                    "sha256": sha256,
-                    "parsed_mode": parsed_mode,
-                }
-            )
-
-    artifact_row_lookup = {
-        str(row.get("path") or ""): int(row.get("payload_row") or 0)
-        for row in artifact_index
-        if isinstance(row, dict)
-        and str(row.get("path") or "")
-        and _coerce_int(row.get("payload_row")) is not None
-    }
+    artifact_index: list[dict[str, Any]] = []
+    artifact_row_lookup: dict[str, int] = {}
     artifact_paths_by_basename: dict[str, list[str]] = defaultdict(list)
-    for artifact_path in artifact_row_lookup:
-        basename = artifact_path.rsplit("/", 1)[-1]
-        if basename:
-            artifact_paths_by_basename[basename].append(artifact_path)
 
     def _best_locator_path(paths: list[str]) -> str | None:
         if not paths:
@@ -10696,10 +10989,8 @@ def _write_upload_bundle_three_files(
         content_text: str | None = None,
     ) -> None:
         relative_path = str(path or "").strip()
-        if not relative_path or relative_path in artifact_row_lookup:
+        if not relative_path or relative_path in payload_paths_seen:
             return
-
-        payload_row_number = len(artifact_index) + 1
         payload_row: dict[str, Any] = {
             "path": relative_path,
             "content_type": content_type,
@@ -10751,27 +11042,7 @@ def _write_upload_bundle_three_files(
         payload_row["bytes"] = len(raw_bytes)
         payload_row["sha256"] = sha256
         payload_row["parsed_mode"] = parsed_mode
-
-        with payload_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload_row, ensure_ascii=False))
-            handle.write("\n")
-
-        artifact_index.append(
-            {
-                "path": relative_path,
-                "payload_row": payload_row_number,
-                "content_type": content_type,
-                "category": "derived_artifact",
-                "run_subdir": None,
-                "bytes": len(raw_bytes),
-                "sha256": sha256,
-                "parsed_mode": parsed_mode,
-            }
-        )
-        artifact_row_lookup[relative_path] = payload_row_number
-        basename = relative_path.rsplit("/", 1)[-1]
-        if basename:
-            artifact_paths_by_basename[basename].append(relative_path)
+        _append_payload_row(payload_row)
 
     run_diagnostics: list[dict[str, Any]] = []
     for row in run_rows:
@@ -11225,13 +11496,19 @@ def _write_upload_bundle_three_files(
         "runs_with_sampled_rows": 0,
         "sampled_wrong_line_rows_total": 0,
         "sampled_wrong_line_bytes_total": 0,
+        "final_payload_target_bytes": None,
+        "final_payload_bytes": None,
+        "final_bundle_bytes": None,
+        "serialized_size_capped": None,
+        "omitted_artifact_count": 0,
+        "omitted_bytes_estimate": 0,
+        "omitted_artifacts": [],
     }
+    group_high_level_packet: dict[str, Any] | None = None
     if high_level_only:
-        payload_bytes_before_group_packet = 0
-        try:
-            payload_bytes_before_group_packet = int(payload_path.stat().st_size)
-        except OSError:
-            payload_bytes_before_group_packet = 0
+        payload_bytes_before_group_packet = sum(
+            _upload_bundle_payload_row_line_bytes(row) for row in payload_rows
+        )
         group_high_level_packet = _upload_bundle_build_group_high_level_packet(
             source_root=source_root,
             discovered_run_dirs=discovered_run_dirs,
@@ -11296,6 +11573,89 @@ def _write_upload_bundle_three_files(
                 "run_count": len(discovered_run_dirs),
             },
         )
+
+    if high_level_only:
+        final_payload_target_bytes = max(
+            group_target_size_bytes
+            - _upload_bundle_high_level_final_reserve_bytes(group_target_size_bytes),
+            1,
+        )
+        payload_rows, trim_meta = _upload_bundle_trim_high_level_payload_rows(
+            payload_rows=payload_rows,
+            target_payload_bytes=final_payload_target_bytes,
+            preserve_paths={
+                "run_index.json",
+                "comparison_summary.json",
+                "process_manifest.json",
+                derived_root_paths["run_index_json"],
+                derived_root_paths["comparison_summary_json"],
+                derived_root_paths["process_manifest_json"],
+                derived_root_paths["group_high_level_packet_json"],
+            },
+        )
+        payload_paths_seen = {
+            str(row.get("path") or "").strip()
+            for row in payload_rows
+            if isinstance(row, dict)
+        }
+        group_artifact_selection["final_trim"] = trim_meta
+        group_high_level_packet_summary["final_payload_target_bytes"] = int(
+            trim_meta.get("target_payload_bytes") or final_payload_target_bytes
+        )
+        group_high_level_packet_summary["final_payload_bytes"] = int(
+            trim_meta.get("final_payload_bytes") or 0
+        )
+        group_high_level_packet_summary["omitted_artifact_count"] = int(
+            trim_meta.get("omitted_artifact_count") or 0
+        )
+        group_high_level_packet_summary["omitted_bytes_estimate"] = int(
+            trim_meta.get("omitted_bytes_estimate") or 0
+        )
+        group_high_level_packet_summary["omitted_artifacts"] = list(
+            trim_meta.get("omitted_artifacts") or []
+        )
+        if isinstance(group_high_level_packet, dict):
+            group_high_level_packet["final_payload_target_bytes"] = int(
+                trim_meta.get("target_payload_bytes") or final_payload_target_bytes
+            )
+            group_high_level_packet["final_payload_bytes"] = int(
+                trim_meta.get("final_payload_bytes") or 0
+            )
+            group_high_level_packet["omitted_artifact_count"] = int(
+                trim_meta.get("omitted_artifact_count") or 0
+            )
+            group_high_level_packet["omitted_bytes_estimate"] = int(
+                trim_meta.get("omitted_bytes_estimate") or 0
+            )
+            group_high_level_packet["omitted_artifacts"] = list(
+                trim_meta.get("omitted_artifacts") or []
+            )
+
+    artifact_index = []
+    artifact_row_lookup = {}
+    artifact_paths_by_basename = defaultdict(list)
+    for payload_row_number, payload_row in enumerate(payload_rows, start=1):
+        if not isinstance(payload_row, dict):
+            continue
+        relative_path = str(payload_row.get("path") or "").strip()
+        if not relative_path:
+            continue
+        artifact_index.append(
+            {
+                "path": relative_path,
+                "payload_row": payload_row_number,
+                "content_type": str(payload_row.get("content_type") or ""),
+                "category": payload_row.get("category"),
+                "run_subdir": payload_row.get("run_subdir"),
+                "bytes": int(_coerce_int(payload_row.get("bytes")) or 0),
+                "sha256": str(payload_row.get("sha256") or ""),
+                "parsed_mode": str(payload_row.get("parsed_mode") or ""),
+            }
+        )
+        artifact_row_lookup[relative_path] = payload_row_number
+        basename = relative_path.rsplit("/", 1)[-1]
+        if basename:
+            artifact_paths_by_basename[basename].append(relative_path)
 
     alias_metadata = _upload_bundle_build_alias_metadata(
         artifact_index=artifact_index,
@@ -11795,8 +12155,16 @@ def _write_upload_bundle_three_files(
             "join_key": "path",
             "row_locator_field": "payload_row",
             "lossless_guarantee": (
-                "Every source artifact is represented in payload with sha256/bytes and "
-                "full content (UTF-8 structured/text fields or base64 when binary/compressed)."
+                (
+                    "High-level group bundles are intentionally curated first-pass packets: "
+                    "heavy prompt/trace artifacts may be omitted and the omission list is "
+                    "recorded in analysis.group_high_level."
+                )
+                if high_level_only
+                else (
+                    "Every source artifact is represented in payload with sha256/bytes and "
+                    "full content (UTF-8 structured/text fields or base64 when binary/compressed)."
+                )
             ),
         },
         "topline": topline,
@@ -11918,7 +12286,11 @@ def _write_upload_bundle_three_files(
         "",
         f"- `{UPLOAD_BUNDLE_OVERVIEW_FILE_NAME}`: human quick-start + topline diagnostics.",
         f"- `{UPLOAD_BUNDLE_INDEX_FILE_NAME}`: navigation index, topline metrics, artifact lookup.",
-        f"- `{UPLOAD_BUNDLE_PAYLOAD_FILE_NAME}`: full artifact payload rows (lossless source data).",
+        (
+            f"- `{UPLOAD_BUNDLE_PAYLOAD_FILE_NAME}`: curated payload rows for the first-pass group handoff."
+            if high_level_only
+            else f"- `{UPLOAD_BUNDLE_PAYLOAD_FILE_NAME}`: full artifact payload rows (lossless source data)."
+        ),
         "",
         "## Quick Start",
         "",
@@ -12007,6 +12379,22 @@ def _write_upload_bundle_three_files(
                 (
                     "- sampled_wrong_line_bytes_total: "
                     f"{int(_coerce_int(group_high_level_packet_summary.get('sampled_wrong_line_bytes_total')) or 0)}"
+                ),
+                (
+                    "- final_payload_target_bytes: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('final_payload_target_bytes')) or 0)}"
+                ),
+                (
+                    "- final_payload_bytes: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('final_payload_bytes')) or 0)}"
+                ),
+                (
+                    "- omitted_artifact_count: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('omitted_artifact_count')) or 0)}"
+                ),
+                (
+                    "- omitted_bytes_estimate: "
+                    f"{int(_coerce_int(group_high_level_packet_summary.get('omitted_bytes_estimate')) or 0)}"
                 ),
                 "",
             ]
@@ -12289,18 +12677,150 @@ def _write_upload_bundle_three_files(
             (
                 "Each artifact row carries `sha256` and `bytes`. Text/structured files are embedded "
                 "directly for easy browsing, while compressed/binary payloads are embedded as base64."
+            )
+            if not high_level_only
+            else (
+                "Each retained artifact row still carries `sha256` and `bytes`, but this high-level "
+                "bundle is curated rather than lossless. Omitted heavy rows are listed in "
+                "`analysis.group_high_level.omitted_artifacts`."
             ),
             (
                 "Heavy artifacts (full prompt logs, raw manifests, transport traces, split-cache blobs) "
                 "are retained in payload but deprioritized in default navigation."
+            )
+            if not high_level_only
+            else (
+                "Heavy prompt and full-context trace artifacts are reserved for follow-up packets so "
+                "the first-pass group bundle stays small enough to move around."
             ),
             "",
         ]
     )
-    (output_root / UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).write_text(
-        "\n".join(overview_lines),
-        encoding="utf-8",
+
+    def _render_group_final_size_lines() -> list[str]:
+        if not high_level_only:
+            return []
+        return [
+            "## Final Bundle Size",
+            "",
+            (
+                "- final_payload_target_bytes: "
+                f"{int(_coerce_int(group_high_level_packet_summary.get('final_payload_target_bytes')) or 0)}"
+            ),
+            (
+                "- final_payload_bytes: "
+                f"{int(_coerce_int(group_high_level_packet_summary.get('final_payload_bytes')) or 0)}"
+            ),
+            (
+                "- final_bundle_bytes: "
+                f"{int(_coerce_int(group_high_level_packet_summary.get('final_bundle_bytes')) or 0)}"
+            ),
+            (
+                "- serialized_size_capped: "
+                f"{'true' if bool(group_high_level_packet_summary.get('serialized_size_capped')) else 'false'}"
+            ),
+            (
+                "- omitted_artifact_count: "
+                f"{int(_coerce_int(group_high_level_packet_summary.get('omitted_artifact_count')) or 0)}"
+            ),
+            (
+                "- omitted_bytes_estimate: "
+                f"{int(_coerce_int(group_high_level_packet_summary.get('omitted_bytes_estimate')) or 0)}"
+            ),
+            "",
+        ]
+
+    def _render_overview_text() -> str:
+        if not high_level_only:
+            return "\n".join(overview_lines)
+        return "\n".join(overview_lines).rstrip() + "\n\n" + "\n".join(
+            _render_group_final_size_lines()
+        )
+
+    def _write_payload_rows_to_disk() -> None:
+        with payload_path.open("w", encoding="utf-8") as handle:
+            for payload_row in payload_rows:
+                handle.write(json.dumps(payload_row, ensure_ascii=False))
+                handle.write("\n")
+
+    def _bundle_output_size_bytes() -> int:
+        return sum(
+            int(candidate.stat().st_size)
+            for candidate in output_root.iterdir()
+            if candidate.is_file()
+            and candidate.name in UPLOAD_BUNDLE_FILE_NAMES
+        )
+
+    payload_serialized_bytes = sum(
+        _upload_bundle_payload_row_line_bytes(row)
+        for row in payload_rows
+        if isinstance(row, dict)
     )
+    group_high_level_packet_summary["final_payload_bytes"] = int(payload_serialized_bytes)
+    if isinstance(group_high_level_packet, dict):
+        group_high_level_packet["final_payload_bytes"] = int(payload_serialized_bytes)
+
+    overview_text = "\n".join(overview_lines)
+    if high_level_only:
+        index_serialized_bytes = len(_json_dump_bytes(index_payload, indent=2, sort_keys=False)) + 1
+        provisional_bundle_bytes = (
+            payload_serialized_bytes
+            + index_serialized_bytes
+            + len(overview_text.encode("utf-8"))
+        )
+        group_high_level_packet_summary["final_bundle_bytes"] = int(provisional_bundle_bytes)
+        group_high_level_packet_summary["serialized_size_capped"] = (
+            provisional_bundle_bytes <= group_target_size_bytes
+        )
+        if isinstance(group_high_level_packet, dict):
+            group_high_level_packet["final_bundle_bytes"] = int(provisional_bundle_bytes)
+            group_high_level_packet["serialized_size_capped"] = (
+                provisional_bundle_bytes <= group_target_size_bytes
+            )
+        overview_text = overview_text.rstrip() + "\n\n" + "\n".join(
+            _render_group_final_size_lines()
+        )
+        index_serialized_bytes = len(_json_dump_bytes(index_payload, indent=2, sort_keys=False)) + 1
+        final_bundle_bytes = (
+            payload_serialized_bytes
+            + index_serialized_bytes
+            + len(overview_text.encode("utf-8"))
+        )
+        group_high_level_packet_summary["final_bundle_bytes"] = int(final_bundle_bytes)
+        group_high_level_packet_summary["serialized_size_capped"] = (
+            final_bundle_bytes <= group_target_size_bytes
+        )
+        if isinstance(group_high_level_packet, dict):
+            group_high_level_packet["final_bundle_bytes"] = int(final_bundle_bytes)
+            group_high_level_packet["serialized_size_capped"] = (
+                final_bundle_bytes <= group_target_size_bytes
+            )
+        overview_text = _render_overview_text()
+
+    for _ in range(2 if high_level_only else 1):
+        _write_payload_rows_to_disk()
+        _write_json(output_root / UPLOAD_BUNDLE_INDEX_FILE_NAME, index_payload)
+        (output_root / UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).write_text(
+            overview_text,
+            encoding="utf-8",
+        )
+        if not high_level_only:
+            break
+        actual_bundle_bytes = _bundle_output_size_bytes()
+        if actual_bundle_bytes == int(
+            _coerce_int(group_high_level_packet_summary.get("final_bundle_bytes")) or 0
+        ):
+            break
+        group_high_level_packet_summary["final_bundle_bytes"] = int(actual_bundle_bytes)
+        group_high_level_packet_summary["serialized_size_capped"] = (
+            actual_bundle_bytes <= group_target_size_bytes
+        )
+        if isinstance(group_high_level_packet, dict):
+            group_high_level_packet["final_bundle_bytes"] = int(actual_bundle_bytes)
+            group_high_level_packet["serialized_size_capped"] = (
+                actual_bundle_bytes <= group_target_size_bytes
+            )
+        overview_text = _render_overview_text()
 
     return {
         "file_names": list(UPLOAD_BUNDLE_FILE_NAMES),
@@ -12308,6 +12828,16 @@ def _write_upload_bundle_three_files(
         "payload_rows": len(artifact_index),
         "topline": topline,
         "self_check": self_check,
+        "final_bundle_bytes": (
+            int(_coerce_int(group_high_level_packet_summary.get("final_bundle_bytes")) or 0)
+            if high_level_only
+            else (
+                payload_serialized_bytes
+                + len(_json_dump_bytes(index_payload, indent=2, sort_keys=False))
+                + 1
+                + len(overview_text.encode("utf-8"))
+            )
+        ),
     }
 
 

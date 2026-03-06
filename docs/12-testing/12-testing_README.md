@@ -134,6 +134,7 @@ Common run patterns:
 - `./scripts/test-suite.sh domain parsing --collect-only`
 
 For fast-feedback agent workflows, use these `scripts/test-suite.sh` modes by default. Avoid raw `pytest` routine loops; the unchunked full path can exceed 5 minutes and should be used only intentionally.
+`make test-smoke`, `make test-fast`, `make test-domain DOMAIN=<domain>`, `make test-all-fast`, and `make test-full` are the same wrapper entry points when a shorter command helps.
 
 ## Compact Output Behavior
 

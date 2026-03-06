@@ -39,7 +39,7 @@ Output schemas:
 - `schemas/recipe.knowledge.v1.output.schema.json`
 - `schemas/recipe.tags.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/`. The compact `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1` variants keep the existing output schemas but use smaller input payloads.
+To tune pass behavior, edit prompt text files in `prompts/`. The compact `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1` variants keep the existing output schemas but use smaller input payloads, and they are now the default pass2/pass3 pipeline ids when CodexFarm recipe parsing is enabled.
 
 Prompt input contract:
 - `prompt_input_mode` is set to `"inline"` for recipe pipelines.

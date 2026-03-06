@@ -73,6 +73,7 @@ Report/model plumbing:
   - subprocess runner requests `codex-farm process --progress-events --json` when callback-driven status is active.
   - stderr `__codex_farm_progress__` events are translated into spinner text with `task X/Y` counters, and, when present, active task labels (for running workers) are included as an `active [...]` section.
   - when older codex-farm binaries reject `--progress-events`, runner retries once without that flag and continues with phase-only status.
+  - recoverable partial-output failures (`no last agent message` / `nonzero_exit_no_payload`) now emit one short callback progress line during shared-status runs instead of logging multiline terminal warnings.
 
 ## Policy boundary (current behavior)
 
@@ -82,10 +83,13 @@ Report/model plumbing:
   - prediction/benchmark plan mode writes `codex_execution_plan.json` without live Codex calls.
 - `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint now share the same `--codex-execution-policy execute|plan` command-boundary behavior.
   - `plan` writes manifests plus `codex_execution_plan.json` and returns before live Codex work.
+  - prediction-run plan mode is now deeper than the stage boundary preview: it still performs deterministic extraction/archive preparation so the plan artifact can enumerate concrete line-role batches and recipe CodexFarm pass work.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
 - Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
 - `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
+- When CodexFarm recipe parsing is enabled, default pass pipeline ids now point at the compact prompt assets: `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1`.
+- Canonical line-role prompt construction now defaults to `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` when the env var is unset; set it back to `legacy` for rollback or A/B checks.
 - `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
 - Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint require explicit `--allow-codex` approval only in execute mode when their resolved run settings enable a Codex-backed surface.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
@@ -790,6 +794,7 @@ Merged source notes (timestamp order):
 Current LLM/line-role contracts reinforced:
 - Runtime line-role guardrail arbitration for codex line-role is active post-sanitization, with explicit outside-span containment rules and diagnostics artifacts (`guardrail_report.json`, `guardrail_changed_rows.jsonl`).
 - Legacy compatibility copies remain available as `do_no_harm_diagnostics.json` and `do_no_harm_changed_rows.jsonl` when guardrail diagnostics are emitted.
+- CodexFarm recipe orchestration now also writes recipe-side guardrail diagnostics (`guardrail_report.json`, `guardrail_rows.jsonl`) beside `llm_manifest.json`, and the manifest `paths` payload links those files when present.
 - Outside-span low-confidence escalation is default-off; opt-in remains `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION`.
 - Pass1 eligibility is an explicit score-gated pre-pass2 contract, with persisted score/reason/component telemetry and diagnostics artifact output.
 - Pass1 eligibility now treats chapter/page metadata as explicit negative evidence (`chapter_page_negative_score=-2` when triggered).

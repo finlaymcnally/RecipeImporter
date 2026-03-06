@@ -23,9 +23,12 @@ The user-visible result should be built on the commands this repo already expose
 - [x] (2026-03-05 23:56 EST) Added explicit line-role guardrail mode (`off|preview|enforce`) plus new `guardrail_report.json` / `guardrail_changed_rows.jsonl` artifacts with legacy do-no-harm compatibility sidecars.
 - [x] (2026-03-05 23:56 EST) Tightened deterministic fraction handling in `recipe_block_atomizer.py` and `evidence_normalizer.py` so spaced fractions and dual-unit quantities stay intact.
 - [x] (2026-03-05 23:56 EST) Added deterministic tests for stage/import plan boundaries, line-role guardrail artifacts, spaced-fraction normalization, dual-unit evidence preservation, and projection artifact plumbing.
+- [x] (2026-03-06 13:40 EST) Deepened prediction-run plan mode so `codex_execution_plan.json` now includes concrete planned line-role batches and recipe CodexFarm pass work derived from deterministic extraction.
+- [x] (2026-03-06 13:40 EST) Added recipe-side guardrail reporting under the CodexFarm raw artifact tree (`guardrail_report.json`, `guardrail_rows.jsonl`) and linked those paths from `llm_manifest.json` / prediction-run manifests.
+- [x] (2026-03-06 13:40 EST) Tightened pass1 eligibility so all-caps title-like headings no longer count as instruction evidence in the clamp-vs-proceed seam.
 - [x] Milestone 1: centralize profile resolution and Codex execution policy across the public CLI surfaces and benchmark helpers.
-- [ ] Milestone 2: add plan-versus-execute Codex policy artifacts on top of the existing low-level kill switch and benchmark confirmation behavior (completed: command-boundary plan artifacts for stage/import/benchmark; remaining: live call-site plan artifacts for line-role and recipe pass work).
-- [ ] Milestone 3: turn the existing line-role and Codex routing protections into explicit preview/enforce guardrail reporting (completed for line-role prediction + projection manifests; remaining: recipe Codex pass parity if needed later).
+- [x] Milestone 2: add plan-versus-execute Codex policy artifacts on top of the existing low-level kill switch and benchmark confirmation behavior (completed for prediction-run recipe + line-role work planning and command-boundary plan manifests).
+- [x] Milestone 3: turn the existing line-role and Codex routing protections into explicit preview/enforce guardrail reporting (completed for line-role prediction + projection manifests and recipe CodexFarm routing artifacts).
 - [x] Milestone 4: improve deterministic line-role inputs and prompt boundaries in the existing parsing/LLM modules (completed for the fraction/quantity regressions found in the current code path).
 - [x] Milestone 5: update tests and docs so the new policy and artifact contracts are explicit and verifiable.
 
@@ -54,6 +57,9 @@ The user-visible result should be built on the commands this repo already expose
 
 - Observation: guardrail-mode normalization can silently collapse to enforce mode if enum values are not flattened before string comparison.
   Evidence: `RunSettings.line_role_guardrail_mode` is an enum-backed field, so the helper in `cookimport/parsing/canonical_line_roles.py` had to read `.value` explicitly to keep `preview` from behaving like `enforce`.
+
+- Observation: command-boundary plan mode was too early to be useful for real review.
+  Evidence: the first shipped `codex_execution_plan.json` only knew the requested surfaces, while real review required deterministic conversion plus archive/candidate preparation so planned line-role batches and recipe pass tasks could be enumerated.
 
 ## Decision Log
 
@@ -85,13 +91,17 @@ The user-visible result should be built on the commands this repo already expose
   Rationale: benchmark/projection/debug readers already know the legacy filenames, so the safe migration path is additive naming rather than an abrupt rename.
   Date/Author: 2026-03-05 / Codex
 
+- Decision: keep `stage --codex-execution-policy plan` as a command-boundary preview for now, but deepen prediction-run plan mode into deterministic extraction-backed work planning.
+  Rationale: prediction runs already have one-file manifests and archive preparation seams, so they can describe concrete line-role and recipe work without dragging the larger multi-file `stage` command into a heavier planning implementation.
+  Date/Author: 2026-03-06 / Codex
+
 ## Outcomes & Retrospective
 
-The practical public-command slice is now landed. `cookimport/config/codex_decision.py` is the shared execution-policy layer, `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint can all write a zero-token `codex_execution_plan.json`, and SpeedSuite/QualitySuite now record the same execution-policy facts in their manifest/report payloads.
+The practical public-command slice is now landed. `cookimport/config/codex_decision.py` is the shared execution-policy layer, `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint can all write a zero-token `codex_execution_plan.json`, and prediction-run plan mode now performs deterministic extraction first so the plan artifact can enumerate the concrete pending line-role batches and recipe CodexFarm pass tasks.
 
-The line-role guardrail work is also landed for the current prediction path. `line_role_guardrail_mode=off|preview|enforce` is part of `RunSettings`, prediction runs/projected artifacts now expose `guardrail_report.json` and `guardrail_changed_rows.jsonl`, and deterministic fraction handling was tightened so known `1 / 2` and dual-unit regressions no longer fragment the input boundary before line-role or pass2 evidence assembly.
+The guardrail work is also landed on both major current paths. `line_role_guardrail_mode=off|preview|enforce` remains the explicit line-role control surface, prediction runs/projected artifacts expose `guardrail_report.json` and `guardrail_changed_rows.jsonl`, and CodexFarm now writes recipe-side `guardrail_report.json` / `guardrail_rows.jsonl` alongside `llm_manifest.json` so pass1 eligibility, transport, degradation, and deterministic routing decisions are inspectable in one place.
 
-The remaining gap is narrower than before but real: the plan artifact still stops at the command boundary rather than enumerating concrete live line-role batches or recipe CodexFarm pass work, and the new explicit guardrail mode has not been generalized onto recipe-pass routing artifacts.
+The intentionally deferred limitation is narrower now: batch suites still expose confirmation-driven Codex enablement rather than a full `plan` execution surface of their own, and `stage` plan mode remains command-boundary rather than extraction-backed.
 
 ## Context and Orientation
 

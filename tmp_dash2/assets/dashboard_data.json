@@ -1,0 +1,18 @@
+{
+  "schema_version": "13",
+  "generated_at": "",
+  "output_root": "data/output",
+  "golden_root": "data/golden",
+  "stage_records": [],
+  "benchmark_records": [],
+  "summary": {
+    "total_stage_records": 0,
+    "total_benchmark_records": 0,
+    "total_recipes": 0,
+    "total_tips": 0,
+    "total_runtime_seconds": null,
+    "latest_stage_timestamp": null,
+    "latest_benchmark_timestamp": null
+  },
+  "collector_warnings": []
+}

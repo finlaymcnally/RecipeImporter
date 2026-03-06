@@ -304,7 +304,7 @@ SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
 SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
-BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 40 * 1024 * 1024
+BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
     "upload_bundle_overview.md",
     "upload_bundle_index.json",
@@ -526,6 +526,18 @@ _STATUS_AGENT_HINT_ENV_KEYS = (
     "CLAUDE_CODE_SSE_PORT",
 )
 _STATUS_COUNTER_PATTERN = re.compile(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)")
+_STATUS_ACTIVE_TASKS_RE = re.compile(
+    r"\bactive\s*\[([^]]*)\]",
+    re.IGNORECASE,
+)
+_STATUS_CODEX_FARM_PIPELINE_PREFIX_RE = re.compile(
+    r"^codex-farm\s+(?P<pipeline>\S+)",
+    re.IGNORECASE,
+)
+_STATUS_RUNNING_WORKERS_RE = re.compile(
+    r"\brunning\s+(\d+)\b",
+    re.IGNORECASE,
+)
 _StatusReturn = TypeVar("_StatusReturn")
 _DASHBOARD_REFRESH_SENTINEL_DIRNAME = "__dashboard_refresh__"
 
@@ -2611,7 +2623,7 @@ def _interactive_single_profile_all_matched_benchmark(
     scaled_worker_overrides: dict[str, int] = {}
     status_initial = "Running single-profile benchmark..."
     status_prefix = "Single-profile benchmark"
-    single_profile_dashboard: _AllMethodProgressDashboard | None = None
+    single_profile_dashboard: _SingleProfileProgressDashboard | None = None
     dashboard_emit_lock = threading.RLock()
 
     def _scale_parallel_workers(raw_value: Any) -> int:
@@ -2627,9 +2639,9 @@ def _interactive_single_profile_all_matched_benchmark(
         split_phase_slots = 1
         split_phase_gate_dir = single_profile_root / ".split_phase_slots"
         split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
-        single_profile_dashboard = _AllMethodProgressDashboard(
+        single_profile_dashboard = _SingleProfileProgressDashboard(
             rows=[
-                _AllMethodSourceDashboardRow(
+                _SingleProfileBookDashboardRow(
                     source_name=target.source_file_name,
                     total_configs=max(1, runs_per_target),
                 )
@@ -2659,8 +2671,6 @@ def _interactive_single_profile_all_matched_benchmark(
         if update_progress is None or single_profile_dashboard is None:
             return
         with dashboard_emit_lock:
-            if task_message is not None:
-                single_profile_dashboard.set_task(task_message)
             update_progress(single_profile_dashboard.render())
 
     def _run_single_profile_target(
@@ -2746,15 +2756,13 @@ def _interactive_single_profile_all_matched_benchmark(
                 cleaned = str(message or "").strip()
                 if not cleaned:
                     return
-                if parse_worker_activity(cleaned) is not None:
-                    return
+                if single_profile_dashboard is not None:
+                    single_profile_dashboard.ingest_progress(
+                        source_index=source_index,
+                        message=cleaned,
+                    )
                 _emit_single_profile_dashboard(
                     update_progress,
-                    task_message=(
-                        f"{format_task_counter('Running', variant_index, max(1, runs_per_target), noun='variant')} "
-                        f"({variant_slug}) | book {index}/{max(1, total_targets)}: "
-                        f"{target.source_file_name} | {cleaned}"
-                    ),
                 )
 
             try:
@@ -3026,31 +3034,35 @@ def _interactive_single_profile_all_matched_benchmark(
 def _interactive_single_offline_variants(
     selected_benchmark_settings: RunSettings,
 ) -> list[tuple[str, RunSettings]]:
-    current_pipeline = (
-        selected_benchmark_settings.llm_recipe_pipeline.value.strip().lower()
-    )
-    if current_pipeline != "codex-farm-3pass-v1":
+    run_config = selected_benchmark_settings.to_run_config_dict()
+    current_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
+    if current_pipeline == "codex-farm-3pass-v1":
+        baseline_payload = _all_method_apply_baseline_contract(run_config)
+        codex_payload = _all_method_apply_codex_contract_from_baseline(
+            baseline_payload
+        )
         return [
             (
-                _single_offline_variant_slug(selected_benchmark_settings),
-                selected_benchmark_settings,
-            )
+                "vanilla",
+                RunSettings.from_dict(
+                    baseline_payload,
+                    warn_context="interactive benchmark vanilla variant",
+                ),
+            ),
+            (
+                "codexfarm",
+                RunSettings.from_dict(
+                    codex_payload,
+                    warn_context="interactive benchmark codexfarm variant",
+                ),
+            ),
         ]
-
-    vanilla_payload = _all_method_apply_baseline_contract(
-        selected_benchmark_settings.to_run_config_dict()
-    )
-    vanilla_settings = RunSettings.from_dict(
-        vanilla_payload,
-        warn_context="interactive single-offline vanilla settings",
-    )
-    codex_payload = _all_method_apply_codex_contract_from_baseline(vanilla_payload)
-    codex_settings = RunSettings.from_dict(
-        codex_payload,
-        warn_context="interactive single-offline codex settings",
-    )
-    # Run vanilla first so a baseline artifact exists even if codex run fails.
-    return [("vanilla", vanilla_settings), ("codexfarm", codex_settings)]
+    return [
+        (
+            _single_offline_variant_slug(selected_benchmark_settings),
+            selected_benchmark_settings,
+        )
+    ]
 
 
 def _single_offline_variant_slug(settings: RunSettings) -> str:
@@ -5142,7 +5154,11 @@ def _interactive_single_offline_benchmark(
                     fg=typer.colors.CYAN,
                 )
 
-    if not comparison_written and isinstance(codex_result, dict):
+    if (
+        not comparison_written
+        and isinstance(codex_result, dict)
+        and isinstance(vanilla_result, dict)
+    ):
         typer.secho(
             (
                 "Skipped codex-vs-vanilla comparison artifact: "
@@ -8840,6 +8856,75 @@ def _extract_progress_counter(message: str) -> tuple[int, int] | None:
     return None
 
 
+def _extract_active_tasks(message: str) -> list[str] | None:
+    match = _STATUS_ACTIVE_TASKS_RE.search(str(message or ""))
+    if match is None:
+        return None
+    raw = str(match.group(1)).strip()
+    if not raw:
+        return []
+    values = [item.strip() for item in raw.split(",")]
+    return [value for value in values if value]
+
+
+def _extract_running_workers(message: str) -> int | None:
+    match = _STATUS_RUNNING_WORKERS_RE.search(str(message or ""))
+    if match is None:
+        return None
+    try:
+        return max(0, int(match.group(1)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _humanize_codex_pipeline_stage_label(pipeline_id: str) -> str:
+    normalized = str(pipeline_id or "").strip()
+    lowered = normalized.lower()
+    if not normalized:
+        return "codex stage"
+    if "chunking" in lowered:
+        return "pass1 chunking"
+    if "schemaorg" in lowered:
+        return "pass2 schemaorg"
+    if ".final." in lowered or lowered.endswith(".final") or "final" in lowered:
+        return "pass3 final"
+    if "knowledge" in lowered:
+        return "pass4 knowledge"
+    if "tags" in lowered:
+        return "pass5 tags"
+    return normalized
+
+
+def _summarize_codex_progress_message(message: str) -> tuple[str, str | None]:
+    trimmed = str(message or "").strip()
+    match = _STATUS_CODEX_FARM_PIPELINE_PREFIX_RE.match(trimmed)
+    if match is None:
+        return trimmed, None
+
+    raw_pipeline = str(match.group("pipeline") or "").strip()
+    pipeline_id = raw_pipeline[:-1] if raw_pipeline.endswith(":") else raw_pipeline
+    stage_label = _humanize_codex_pipeline_stage_label(pipeline_id)
+    counter = _extract_progress_counter(trimmed)
+    running = _extract_running_workers(trimmed)
+
+    if counter is not None:
+        current, total = counter
+        parts = [
+            f"codex-farm {stage_label}",
+            f"task {current}/{total}",
+        ]
+        if running is not None and running > 0:
+            parts.append(f"running {running}")
+        return " | ".join(parts), stage_label
+
+    suffix = trimmed[match.end() :].strip()
+    if suffix.startswith(":"):
+        suffix = suffix[1:].strip()
+    if suffix:
+        return f"codex-farm {stage_label}: {suffix}", stage_label
+    return f"codex-farm {stage_label}", stage_label
+
+
 def _format_seconds_per_task(seconds_per_task: float) -> str:
     formatted = f"{max(0.0, seconds_per_task):.1f}".rstrip("0").rstrip(".")
     return f"{formatted}s/task"
@@ -11004,6 +11089,393 @@ class _AllMethodProgressDashboard:
             return self._core.render()
 
 
+@dataclass
+class _SingleProfileBookDashboardRow:
+    source_name: str
+    total_configs: int
+    status: str = "pending"
+    completed_configs: int = 0
+    successful_configs: int = 0
+    failed_configs: int = 0
+    current_variant_index: int = 0
+    current_variant_total: int = 0
+    current_variant_slug: str = ""
+    current_stage_label: str = ""
+    current_message: str = ""
+    current_counter: tuple[int, int] | None = None
+    worker_total: int = 0
+    worker_statuses: dict[int, str] = field(default_factory=dict)
+    phase_started_at: float | None = None
+    rate_total: int | None = None
+    rate_last_current: int | None = None
+    rate_last_progress_at: float | None = None
+    rate_sampled_seconds: float = 0.0
+    rate_sampled_units: int = 0
+    rate_recent_samples: deque[tuple[float, int]] = field(
+        default_factory=lambda: deque(maxlen=_STATUS_RATE_RECENT_WINDOW),
+        repr=False,
+        compare=False,
+    )
+
+    @property
+    def short_name(self) -> str:
+        stem = Path(self.source_name).stem.strip()
+        return stem or self.source_name
+
+
+@dataclass
+class _SingleProfileProgressDashboard:
+    rows: list[_SingleProfileBookDashboardRow]
+    total_planned_configs: int
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
+
+    def _completed_sources(self) -> int:
+        return sum(1 for row in self.rows if row.status in {"done", "failed"})
+
+    def _completed_configs(self) -> int:
+        return sum(max(0, row.completed_configs) for row in self.rows)
+
+    @staticmethod
+    def _truncate_cell(value: str, width: int) -> str:
+        text = str(value or "").strip()
+        if width <= 0:
+            return ""
+        if len(text) <= width:
+            return text.ljust(width)
+        if width <= 3:
+            return text[:width]
+        return f"{text[: max(1, width - 3)]}...".ljust(width)
+
+    def _book_column_width(self, book_count: int) -> int:
+        if book_count <= 0:
+            return 12
+        max_table_width = 118
+        label_width = 7
+        overhead = label_width + (3 * book_count) + 2
+        available = max(8, max_table_width - overhead)
+        return max(8, min(24, available // max(1, book_count)))
+
+    def _render_grid_row(
+        self,
+        label: str,
+        cells: Sequence[str],
+        *,
+        label_width: int,
+        col_width: int,
+    ) -> str:
+        rendered_cells = [
+            self._truncate_cell(cell, col_width)
+            for cell in cells
+        ]
+        return (
+            f"{str(label or '').strip()[:label_width].ljust(label_width)} | "
+            + " | ".join(rendered_cells)
+        ).rstrip()
+
+    @staticmethod
+    def _estimate_eta_seconds(row: _SingleProfileBookDashboardRow, now: float) -> int | None:
+        counter = row.current_counter
+        if counter is None:
+            return None
+        current, total = counter
+        remaining = max(0, total - current)
+        if remaining <= 0:
+            return 0
+        avg_seconds_per_task = _recent_rate_average_seconds_per_task(
+            row.rate_recent_samples
+        )
+        if avg_seconds_per_task is None and row.rate_sampled_units > 0 and row.rate_sampled_seconds > 0:
+            avg_seconds_per_task = row.rate_sampled_seconds / float(row.rate_sampled_units)
+        if (
+            avg_seconds_per_task is None
+            and current > 0
+            and row.phase_started_at is not None
+        ):
+            bootstrap_elapsed = max(0.0, now - row.phase_started_at)
+            if bootstrap_elapsed >= _STATUS_ETA_BOOTSTRAP_MIN_SECONDS:
+                avg_seconds_per_task = bootstrap_elapsed / float(current)
+        if avg_seconds_per_task is None or avg_seconds_per_task <= 0:
+            return None
+        return max(0, int(round(avg_seconds_per_task * remaining)))
+
+    def start_source(self, source_index: int) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            self.rows[source_index].status = "running"
+
+    def finish_source(self, source_index: int, *, failed: bool = False) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            row.status = "failed" if failed else "done"
+            row.current_stage_label = "failed" if failed else "done"
+            row.current_message = row.current_stage_label
+            row.current_counter = None
+            row.worker_total = 0
+            row.worker_statuses = {}
+
+    def start_config(
+        self,
+        *,
+        source_index: int,
+        config_index: int,
+        config_total: int,
+        config_slug: str,
+    ) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            row.status = "running"
+            row.current_variant_index = max(0, config_index)
+            row.current_variant_total = max(0, config_total)
+            row.current_variant_slug = str(config_slug or "").strip()
+            row.current_stage_label = "queued"
+            row.current_message = row.current_variant_slug or "queued"
+            row.current_counter = None
+            row.worker_total = 0
+            row.worker_statuses = {}
+            row.phase_started_at = time.monotonic()
+            row.rate_total = None
+            row.rate_last_current = None
+            row.rate_last_progress_at = None
+            row.rate_sampled_seconds = 0.0
+            row.rate_sampled_units = 0
+            row.rate_recent_samples.clear()
+
+    def complete_config(
+        self,
+        *,
+        source_index: int,
+        success: bool,
+        config_index: int | None = None,
+    ) -> None:
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            row.completed_configs = min(
+                row.total_configs,
+                max(0, row.completed_configs + 1),
+            )
+            if success:
+                row.successful_configs = min(
+                    row.total_configs,
+                    max(0, row.successful_configs + 1),
+                )
+            else:
+                row.failed_configs = min(
+                    row.total_configs,
+                    max(0, row.failed_configs + 1),
+                )
+            if config_index is not None and row.current_variant_index == max(0, config_index):
+                row.current_counter = None
+                row.worker_total = 0
+                row.worker_statuses = {}
+                row.current_stage_label = "done" if success else "failed"
+                row.current_message = row.current_stage_label
+
+    def ingest_progress(
+        self,
+        *,
+        source_index: int,
+        message: str,
+    ) -> None:
+        cleaned = str(message or "").strip()
+        if not cleaned:
+            return
+        with self._lock:
+            if source_index < 0 or source_index >= len(self.rows):
+                return
+            row = self.rows[source_index]
+            payload = parse_worker_activity(cleaned)
+            now = time.monotonic()
+            if payload is not None:
+                payload_type = str(payload.get("type") or "").strip().lower()
+                if payload_type == "reset":
+                    row.worker_total = 0
+                    row.worker_statuses = {}
+                    return
+                if payload_type == "activity":
+                    worker_total = max(1, int(payload.get("worker_total", 1)))
+                    worker_index = max(1, int(payload.get("worker_index", 1)))
+                    status = str(payload.get("status") or "").strip()
+                    row.worker_total = worker_total
+                    row.worker_statuses[worker_index] = status or "processing"
+                    return
+
+            row.status = "running"
+            row.current_message = cleaned
+            row.phase_started_at = row.phase_started_at or now
+
+            counter = _extract_progress_counter(cleaned)
+            if counter is None:
+                row.current_counter = None
+                row.rate_total = None
+                row.rate_last_current = None
+                row.rate_last_progress_at = None
+                row.rate_sampled_seconds = 0.0
+                row.rate_sampled_units = 0
+                row.rate_recent_samples.clear()
+            else:
+                current_value, total_value = counter
+                should_reset = (
+                    row.rate_total is None
+                    or row.rate_last_current is None
+                    or row.rate_last_progress_at is None
+                    or total_value != row.rate_total
+                    or current_value < row.rate_last_current
+                )
+                if should_reset:
+                    row.rate_total = total_value
+                    row.rate_last_current = current_value
+                    row.rate_last_progress_at = now
+                    row.rate_sampled_seconds = 0.0
+                    row.rate_sampled_units = 0
+                    row.rate_recent_samples.clear()
+                else:
+                    delta = current_value - row.rate_last_current
+                    if delta > 0:
+                        elapsed_since_progress = max(0.0, now - row.rate_last_progress_at)
+                        if elapsed_since_progress > 0:
+                            row.rate_sampled_seconds += elapsed_since_progress
+                            row.rate_sampled_units += delta
+                            row.rate_recent_samples.append((elapsed_since_progress, delta))
+                        row.rate_last_current = current_value
+                        row.rate_last_progress_at = now
+                row.current_counter = counter
+
+            if cleaned.lower().startswith("codex-farm "):
+                summary, stage_label = _summarize_codex_progress_message(cleaned)
+                row.current_message = summary
+                row.current_stage_label = stage_label or "codex-farm"
+                active_tasks = _extract_active_tasks(cleaned)
+                running_workers = _extract_running_workers(cleaned)
+                if active_tasks is not None:
+                    row.worker_statuses = {
+                        worker_index: task
+                        for worker_index, task in enumerate(active_tasks, start=1)
+                    }
+                else:
+                    row.worker_statuses = {}
+                worker_total = len(row.worker_statuses)
+                if running_workers is not None:
+                    worker_total = max(worker_total, running_workers)
+                row.worker_total = max(0, worker_total)
+                return
+
+            stage_text = cleaned.split("|", 1)[0].strip()
+            if counter is not None and stage_text:
+                stage_text = stage_text.rsplit(" task ", 1)[0].strip()
+            row.current_stage_label = stage_text or "running"
+            running_workers = _extract_running_workers(cleaned)
+            row.worker_total = max(0, running_workers or 0)
+            row.worker_statuses = {}
+
+    def render(self) -> str:
+        with self._lock:
+            source_total = len(self.rows)
+            source_done = self._completed_sources()
+            config_done = self._completed_configs()
+            lines = [
+                (
+                    "overall "
+                    f"source {source_done}/{source_total} | "
+                    f"config {config_done}/{max(0, self.total_planned_configs)}"
+                )
+            ]
+            if not self.rows:
+                return "\n".join(lines)
+
+            col_width = self._book_column_width(len(self.rows))
+            label_width = 7
+            now = time.monotonic()
+            lines.append("books:")
+            lines.append(
+                self._render_grid_row(
+                    "book",
+                    [row.short_name for row in self.rows],
+                    label_width=label_width,
+                    col_width=col_width,
+                )
+            )
+            lines.append(
+                self._render_grid_row(
+                    "state",
+                    [
+                        (
+                            "queued"
+                            if row.status == "pending"
+                            else ("failed" if row.status == "failed" else row.current_stage_label or row.status)
+                        )
+                        for row in self.rows
+                    ],
+                    label_width=label_width,
+                    col_width=col_width,
+                )
+            )
+            lines.append(
+                self._render_grid_row(
+                    "prog",
+                    [
+                        (
+                            f"t{counter[0]}/{counter[1]} v{row.completed_configs}/{row.total_configs}"
+                            if (counter := row.current_counter) is not None
+                            else f"v{row.completed_configs}/{row.total_configs} ok{row.successful_configs} f{row.failed_configs}"
+                        )
+                        for row in self.rows
+                    ],
+                    label_width=label_width,
+                    col_width=col_width,
+                )
+            )
+            lines.append(
+                self._render_grid_row(
+                    "eta",
+                    [
+                        (
+                            "--"
+                            if row.status != "running"
+                            else (
+                                _format_processing_time(float(eta_seconds))
+                                if (eta_seconds := self._estimate_eta_seconds(row, now)) is not None
+                                else "--"
+                            )
+                        )
+                        for row in self.rows
+                    ],
+                    label_width=label_width,
+                    col_width=col_width,
+                )
+            )
+
+            max_worker_rows = max(
+                [
+                    max(0, row.worker_total, len(row.worker_statuses))
+                    for row in self.rows
+                ],
+                default=0,
+            )
+            for worker_index in range(1, max_worker_rows + 1):
+                worker_cells = []
+                for row in self.rows:
+                    worker_text = str(row.worker_statuses.get(worker_index) or "").strip()
+                    if not worker_text and worker_index <= row.worker_total:
+                        worker_text = "busy"
+                    worker_cells.append(worker_text or "--")
+                lines.append(
+                    self._render_grid_row(
+                        f"w{worker_index:02d}",
+                        worker_cells,
+                        label_width=label_width,
+                        col_width=col_width,
+                    )
+                )
+            return "\n".join(lines)
+
+
 def _load_pred_run_recipe_context(
     pred_run: Path,
 ) -> PredRunContext:
@@ -11510,8 +11982,8 @@ def _build_codex_farm_prompt_response_log(
     }
     pass_pipeline_map: dict[str, str] = {
         "pass1": "recipe.chunking.v1",
-        "pass2": "recipe.schemaorg.v1",
-        "pass3": "recipe.final.v1",
+        "pass2": "recipe.schemaorg.compact.v1",
+        "pass3": "recipe.final.compact.v1",
         "pass4": "recipe.knowledge.v1",
         "pass5": "recipe.tags.v1",
     }
@@ -14453,6 +14925,8 @@ def _resolve_speedsuite_codex_farm_confirmation(
 
 
 def _print_codex_decision(decision: Any) -> None:
+    if bool(_BENCHMARK_SUPPRESS_SUMMARY.get()):
+        return
     summary = (
         format_codex_execution_policy_summary(decision)
         if hasattr(decision, "requested_mode")
@@ -24537,12 +25011,12 @@ def stage(
         help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
     ),
     codex_farm_pipeline_pass2: str = typer.Option(
-        "recipe.schemaorg.v1",
+        "recipe.schemaorg.compact.v1",
         "--codex-farm-pipeline-pass2",
         help="Pass-2 codex-farm pipeline id (schema.org extraction).",
     ),
     codex_farm_pipeline_pass3: str = typer.Option(
-        "recipe.final.v1",
+        "recipe.final.compact.v1",
         "--codex-farm-pipeline-pass3",
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     ),
@@ -27565,12 +28039,12 @@ def labelstudio_import(
         help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
     ),
     codex_farm_pipeline_pass2: str = typer.Option(
-        "recipe.schemaorg.v1",
+        "recipe.schemaorg.compact.v1",
         "--codex-farm-pipeline-pass2",
         help="Pass-2 codex-farm pipeline id (schema.org extraction).",
     ),
     codex_farm_pipeline_pass3: str = typer.Option(
-        "recipe.final.v1",
+        "recipe.final.compact.v1",
         "--codex-farm-pipeline-pass3",
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     ),
@@ -28846,11 +29320,11 @@ def labelstudio_benchmark(
     codex_farm_pipeline_pass2: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass2",
         help="Pass-2 codex-farm pipeline id (schema.org extraction).",
-    )] = "recipe.schemaorg.v1",
+    )] = "recipe.schemaorg.compact.v1",
     codex_farm_pipeline_pass3: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass3",
         help="Pass-3 codex-farm pipeline id (final draft generation).",
-    )] = "recipe.final.v1",
+    )] = "recipe.final.compact.v1",
     codex_farm_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-context-blocks",
         min=0,

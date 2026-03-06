@@ -2049,7 +2049,7 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     assert not any("uploads to Label Studio" in title for title in mode_titles)
 
 
-def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_writes_comparison(
+def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2118,6 +2118,11 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
             AssertionError("starter pack should not run by default for single-offline")
         ),
     )
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -2126,54 +2131,21 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
     )
 
     assert completed is True
-    assert len(benchmark_calls) == 2
-    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-farm-3pass-v1",
-    ]
-    assert [call["line_role_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-line-role-v1",
-    ]
-    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
-        "off",
-        "atomic-v1",
-    ]
-    expected_split_cache_dir = (
-        benchmark_eval_output / "single-offline-benchmark" / ".split-cache"
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "off"
+    assert benchmark_calls[0]["atomic_block_splitter"] == "off"
+    assert benchmark_calls[0]["allow_codex"] is True
+    assert "single_offline_split_cache_mode" not in benchmark_calls[0]
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-offline-benchmark" / "codexfarm"
     )
-    assert [call["single_offline_split_cache_mode"] for call in benchmark_calls] == [
-        "auto",
-        "auto",
-    ]
-    assert [call["single_offline_split_cache_dir"] for call in benchmark_calls] == [
-        expected_split_cache_dir,
-        expected_split_cache_dir,
-    ]
-    split_cache_keys = [
-        str(call.get("single_offline_split_cache_key") or "")
-        for call in benchmark_calls
-    ]
-    assert split_cache_keys[0]
-    assert split_cache_keys[0] == split_cache_keys[1]
-    assert [call["single_offline_split_cache_force"] for call in benchmark_calls] == [
-        False,
-        False,
-    ]
-    assert [call["eval_output_dir"] for call in benchmark_calls] == [
-        benchmark_eval_output / "single-offline-benchmark" / "vanilla",
-        benchmark_eval_output / "single-offline-benchmark" / "codexfarm",
-    ]
-    assert [call["processed_output_dir"] for call in benchmark_calls] == [
+    assert benchmark_calls[0]["processed_output_dir"] == (
         processed_output_root
         / benchmark_eval_output.name
         / "single-offline-benchmark"
-        / "vanilla",
-        processed_output_root
-        / benchmark_eval_output.name
-        / "single-offline-benchmark"
-        / "codexfarm",
-    ]
+        / "codexfarm"
+    )
 
     comparison_json = (
         benchmark_eval_output
@@ -2185,30 +2157,8 @@ def test_interactive_single_offline_codex_enabled_runs_vanilla_then_codex_and_wr
         / "single-offline-benchmark"
         / "codex_vs_vanilla_comparison.md"
     )
-    assert comparison_json.exists()
+    assert not comparison_json.exists()
     assert not comparison_md.exists()
-    payload = json.loads(comparison_json.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "codex_vs_vanilla_comparison.v2"
-    assert payload["run_timestamp"] == benchmark_eval_output.name
-    assert payload["source_file"] == source_path
-    assert payload["variants"]["codexfarm"]["eval_output_dir"].endswith(
-        "/single-offline-benchmark/codexfarm"
-    )
-    assert payload["variants"]["vanilla"]["eval_output_dir"].endswith(
-        "/single-offline-benchmark/vanilla"
-    )
-    assert payload["metrics"]["codexfarm"]["strict_accuracy"] == pytest.approx(0.42)
-    assert payload["metrics"]["vanilla"]["strict_accuracy"] == pytest.approx(0.39)
-    assert "precision" not in payload["metrics"]["codexfarm"]
-    assert "precision" not in payload["metrics"]["vanilla"]
-    assert "precision" not in payload["deltas"]["codex_minus_vanilla"]
-    assert payload["deltas"]["codex_minus_vanilla"]["strict_accuracy"] == pytest.approx(0.03)
-    assert payload["deltas"]["codex_minus_vanilla"]["macro_f1_excluding_other"] is None
-    assert payload["metadata"]["codex_farm_runtime"]["codex_model"] == "gpt-5.3-codex-spark"
-    assert (
-        payload["metadata"]["codex_farm_runtime"]["codex_reasoning_effort"] == "low"
-    )
-    assert "starter_pack_v1" not in payload["metadata"]
     assert len(refresh_calls) == 1
     assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
     assert refresh_calls[0]["csv_path"] == cli.history_csv_for_output(
@@ -3267,7 +3217,7 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     assert written["totals"]["tokens_total"] == 291
 
 
-def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(
+def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3284,20 +3234,7 @@ def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_co
 
     def fake_labelstudio_benchmark(**kwargs):
         benchmark_calls.append(kwargs)
-        eval_output_dir = kwargs["eval_output_dir"]
-        assert isinstance(eval_output_dir, Path)
-        llm_pipeline = str(kwargs.get("llm_recipe_pipeline") or "").strip().lower()
-        if llm_pipeline == "codex-farm-3pass-v1":
-            raise cli.typer.Exit(2)
-        eval_output_dir.mkdir(parents=True, exist_ok=True)
-        (eval_output_dir / "eval_report.json").write_text(
-            json.dumps({"precision": 0.30, "recall": 0.20, "f1": 0.24}),
-            encoding="utf-8",
-        )
-        (eval_output_dir / "run_manifest.json").write_text(
-            json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
-            encoding="utf-8",
-        )
+        raise cli.typer.Exit(2)
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
     monkeypatch.setattr(
@@ -3307,6 +3244,11 @@ def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_co
             AssertionError("starter pack should not run when codex variant fails")
         ),
     )
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
 
     completed = cli._interactive_single_offline_benchmark(
         selected_benchmark_settings=selected_settings,
@@ -3314,14 +3256,9 @@ def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_co
         processed_output_root=processed_output_root,
     )
 
-    assert completed is True
-    assert len(benchmark_calls) == 2
-    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-farm-3pass-v1",
-    ]
-    vanilla_eval_dir = benchmark_eval_output / "single-offline-benchmark" / "vanilla"
-    assert (vanilla_eval_dir / "eval_report.json").exists()
+    assert completed is False
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
     assert not (
         benchmark_eval_output
         / "single-offline-benchmark"
@@ -3542,8 +3479,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
-
 
 
 

@@ -8,6 +8,7 @@ Repo-local wrappers and diagnostics live here. Keep unrelated stack helpers out 
   - `./scripts/test-suite.sh domain <domain>`
   - `./scripts/test-suite.sh all-fast`
   - `./scripts/test-suite.sh full`
+  - `make test-smoke`, `make test-fast`, `make test-domain DOMAIN=<domain>`, `make test-all-fast`, and `make test-full` forward to the same wrapper.
   - extra pytest args can be appended, for example `./scripts/test-suite.sh domain parsing --collect-only`
   - For agent workflows, prefer these `test-suite.sh` modes over raw `pytest` to avoid monolithic long-running runs.
 

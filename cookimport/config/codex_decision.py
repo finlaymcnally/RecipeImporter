@@ -457,6 +457,7 @@ def write_codex_execution_plan(
     run_root: Path,
     policy: CodexExecutionPolicy,
     run_config: Mapping[str, Any],
+    planned_work: Mapping[str, Any] | None = None,
     source_path: str | None = None,
     source_hash: str | None = None,
     importer_name: str | None = None,
@@ -491,6 +492,8 @@ def write_codex_execution_plan(
             "source_hash": source_hash,
             "importer_name": importer_name,
         }
+    if planned_work:
+        payload["planned_work"] = dict(planned_work)
     if notes:
         payload["notes"] = str(notes).strip()
     plan_path = run_root / "codex_execution_plan.json"

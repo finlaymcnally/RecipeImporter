@@ -1081,6 +1081,25 @@ def _is_recoverable_no_last_agent_message_failure(
     return nonzero_failure_categories <= {"nonzero_exit_no_payload"}
 
 
+def _format_recoverable_partial_output_message(
+    *,
+    pipeline_id: str,
+    run_id: str | None,
+    error_summary: str | None,
+) -> str:
+    summary = re.sub(r"\s+", " ", str(error_summary or "").strip())
+    if len(summary) > 220:
+        summary = summary[:217].rstrip() + "..."
+    message = (
+        f"codex-farm {pipeline_id}: recoverable non-zero exit; continuing with partial outputs"
+    )
+    if run_id:
+        message += f" (run_id={run_id})"
+    if summary:
+        message += f" | {summary}"
+    return message
+
+
 def _fetch_run_autotune_payload(
     *,
     cmd: str,
@@ -1358,11 +1377,24 @@ class SubprocessCodexFarmRunner:
                 error_summary=error_summary,
                 telemetry_payload=telemetry_payload,
             ):
-                logger.warning(
-                    "codex-farm returned non-zero for %s; continuing with partial outputs (%s)",
-                    pipeline_id,
-                    ", ".join(details),
+                recoverable_message = _format_recoverable_partial_output_message(
+                    pipeline_id=pipeline_id,
+                    run_id=run_id,
+                    error_summary=error_summary,
                 )
+                if progress_callback is not None:
+                    _emit_progress(recoverable_message)
+                    logger.debug(
+                        "codex-farm returned non-zero for %s; continuing with partial outputs (%s)",
+                        pipeline_id,
+                        ", ".join(details),
+                    )
+                else:
+                    logger.warning(
+                        "codex-farm returned non-zero for %s; continuing with partial outputs (%s)",
+                        pipeline_id,
+                        ", ".join(details),
+                    )
             else:
                 raise CodexFarmRunnerError(
                     f"codex-farm failed for {pipeline_id} ({', '.join(details)})"

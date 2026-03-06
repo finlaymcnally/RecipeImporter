@@ -495,6 +495,7 @@ Stage completion also prints a compact `Quick run summary` block (books, codex-f
 When `--write-markdown` is enabled (default), stage also writes `<run_dir>/run_summary.md`; `--no-write-markdown` suppresses the markdown summary file.
 Codex-backed stage runs also support `--codex-execution-policy execute|plan` (default `execute`).
 `plan` writes `codex_execution_plan.json` plus `run_manifest.json` and exits before live processing.
+For `stage`, this remains a command-boundary preview of the requested Codex-backed surfaces rather than an extraction-backed work plan.
 
 Arguments:
 
@@ -787,6 +788,7 @@ Options:
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload.
 - `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes pred-run manifests plus `codex_execution_plan.json` and exits before upload/prelabel/live Codex work.
+  In prediction-run flows, plan mode still performs deterministic extraction first so `codex_execution_plan.json` can enumerate planned line-role batches and recipe CodexFarm pass work without spending tokens.
 - `--limit, -n INTEGER>=1`: cap chunks generated.
 - `--sample INTEGER>=1`: randomly sample chunks.
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.

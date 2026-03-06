@@ -440,6 +440,84 @@ def label_atomic_lines(
     return sanitized
 
 
+def build_line_role_codex_execution_plan(
+    candidates: Sequence[AtomicLineCandidate],
+    settings: RunSettings,
+    *,
+    codex_batch_size: int = 40,
+) -> dict[str, Any]:
+    ordered = list(candidates)
+    mode = _line_role_pipeline_name(settings)
+    if mode != "codex-line-role-v1":
+        return {
+            "enabled": False,
+            "pipeline": mode,
+            "candidate_count": len(ordered),
+            "planned_batch_count": 0,
+            "planned_candidate_count": 0,
+            "batches": [],
+        }
+
+    by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
+    unresolved: list[AtomicLineCandidate] = []
+    for candidate in ordered:
+        label, confidence, _tags = _deterministic_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        if label is None:
+            unresolved.append(candidate)
+            continue
+        if _should_escalate_low_confidence_candidate(
+            candidate=candidate,
+            deterministic_label=label,
+            confidence=confidence,
+            by_atomic_index=by_atomic_index,
+        ):
+            unresolved.append(candidate)
+
+    planned_batches: list[dict[str, Any]] = []
+    for prompt_index, batch in enumerate(
+        _batch(unresolved, max(1, int(codex_batch_size))),
+        start=1,
+    ):
+        rows: list[dict[str, Any]] = []
+        for candidate in batch:
+            candidate_allowlist = _candidate_allowlist(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+            rows.append(
+                {
+                    "atomic_index": int(candidate.atomic_index),
+                    "block_index": int(candidate.block_index),
+                    "block_id": str(candidate.block_id),
+                    "recipe_id": candidate.recipe_id,
+                    "within_recipe_span": bool(candidate.within_recipe_span),
+                    "candidate_labels": list(candidate_allowlist),
+                    "text": str(candidate.text),
+                }
+            )
+        planned_batches.append(
+            {
+                "prompt_index": prompt_index,
+                "candidate_count": len(rows),
+                "atomic_indices": [row["atomic_index"] for row in rows],
+                "rows": rows,
+            }
+        )
+
+    return {
+        "enabled": True,
+        "pipeline": mode,
+        "candidate_count": len(ordered),
+        "planned_candidate_count": len(unresolved),
+        "planned_batch_count": len(planned_batches),
+        "codex_batch_size": max(1, int(codex_batch_size)),
+        "batches": planned_batches,
+    }
+
+
 def _line_role_guardrail_mode(settings: RunSettings) -> Literal["off", "preview", "enforce"]:
     raw_value = getattr(settings, "line_role_guardrail_mode", "enforce")
     raw = (
@@ -797,7 +875,7 @@ def _line_role_progress_interval(total_tasks: int) -> int:
 
 
 def _resolve_line_role_prompt_format() -> LineRolePromptFormat:
-    raw_value = str(os.getenv(_LINE_ROLE_PROMPT_FORMAT_ENV, "legacy") or "").strip().lower()
+    raw_value = str(os.getenv(_LINE_ROLE_PROMPT_FORMAT_ENV, "compact_v1") or "").strip().lower()
     if raw_value == "compact_v1":
         return "compact_v1"
     return "legacy"
@@ -1629,6 +1707,8 @@ def _sanitize_prediction(
             label = _outside_span_fallback_label(candidate)
             decided_by = "fallback"
             reason_tags.append("outside_span_structured_label_needs_local_evidence")
+    if label not in candidate_labels:
+        candidate_labels = [label, *candidate_labels]
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,

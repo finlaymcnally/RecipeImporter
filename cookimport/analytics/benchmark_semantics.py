@@ -27,6 +27,14 @@ def _normalize_path(path_value: Any) -> str:
     return str(path_value or "").strip().replace("\\", "/").lower()
 
 
+def _benchmark_path(record: Any) -> str:
+    for key in ("artifact_dir", "run_dir", "report_path"):
+        path = _normalize_path(_record_value(record, key))
+        if path:
+            return path
+    return ""
+
+
 def _record_value(record: Any, key: str) -> Any:
     if isinstance(record, dict):
         return record.get(key)
@@ -96,7 +104,7 @@ def explicit_variant_for_record(record: Any) -> str | None:
 
 
 def artifact_variant_for_record(record: Any) -> str | None:
-    path = _normalize_path(_record_value(record, "artifact_dir"))
+    path = _benchmark_path(record)
     if "/codexfarm/" in path or path.endswith("/codexfarm"):
         return "codexfarm"
     if "/vanilla/" in path or path.endswith("/vanilla"):
@@ -128,8 +136,25 @@ def ai_assistance_profile_for_record(record: Any) -> str:
     if tags_pipeline is not None:
         surface_payload["llm_tags_pipeline"] = tags_pipeline
     surface = classify_codex_surfaces(surface_payload)
+    artifact_variant = artifact_variant_for_record(record)
+    official_paired = is_official_paired_benchmark_record(record)
+    recipe_on = recipe_pipeline is not None and recipe_pipeline.lower() != "off"
+    line_role_on = line_role_pipeline is not None and line_role_pipeline.lower() != "off"
+    if official_paired and artifact_variant == "codexfarm" and recipe_on and not line_role_on:
+        return "full_stack"
+    if (
+        official_paired
+        and artifact_variant == "vanilla"
+        and not recipe_on
+        and not line_role_on
+    ):
+        return "deterministic"
     if surface.ai_assistance_profile != "other":
         return surface.ai_assistance_profile
+    if official_paired and artifact_variant == "codexfarm":
+        return "full_stack"
+    if official_paired and artifact_variant == "vanilla":
+        return "deterministic"
 
     if run_config_value(
         record,
@@ -155,12 +180,12 @@ def ai_assistance_profile_label_for_record(record: Any) -> str:
 
 
 def is_official_golden_benchmark_record(record: Any) -> bool:
-    path = _normalize_path(_record_value(record, "artifact_dir"))
+    path = _benchmark_path(record)
     return "/benchmark-vs-golden/" in path and "/single-offline-benchmark/" in path
 
 
 def is_official_paired_benchmark_record(record: Any) -> bool:
-    path = _normalize_path(_record_value(record, "artifact_dir"))
+    path = _benchmark_path(record)
     if "/benchmark-vs-golden/" not in path:
         return False
     return "/single-offline-benchmark/" in path or "/single-profile-benchmark/" in path

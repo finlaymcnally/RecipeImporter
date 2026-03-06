@@ -891,12 +891,12 @@ def test_run_with_progress_status_wraps_long_lines_and_uses_larger_spinner(
     def _run(update_progress):
         update_progress(
             "overall source 0/1 | config 0/2\n"
-            "current source: DinnerFor2CUTDOWN.epub (1 of 2 configs; ok 1, fail 0)\n"
-            "queue:\n"
-            "  [>] DinnerFor2CUTDOWN.epub - 1 of 2 (ok 1, fail 0)\n"
-            "task: Running variant 2/2 (codexfarm) | "
-            "book 1/1: DinnerFor2CUTDOWN.epub | "
-            f"codex-farm recipe.final.v1 stage detail {tail_token}"
+            "books:\n"
+            "book    | DinnerFor2CUTDOWN\n"
+            "state   | pass3 final\n"
+            "prog    | t3/9 v1/2\n"
+            "eta     | 14s\n"
+            f"w01     | codex stage detail {tail_token}"
         )
         return {"ok": True}
 
@@ -1167,6 +1167,71 @@ def test_all_method_dashboard_renders_multiple_running_sources() -> None:
     assert "active sources: 2" in rendered
     assert "  [>] book-a.epub" in rendered
     assert "  [>] book-b.epub" in rendered
+
+
+def test_single_profile_dashboard_renders_book_columns_worker_rows_and_eta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = {"value": 100.0}
+    monkeypatch.setattr(cli.time, "monotonic", lambda: clock["value"])
+
+    dashboard = cli._SingleProfileProgressDashboard(
+        rows=[
+            cli._SingleProfileBookDashboardRow(
+                source_name="AMatterOfTasteCUTDOWN.epub",
+                total_configs=1,
+            ),
+            cli._SingleProfileBookDashboardRow(
+                source_name="SeaAndSmokeCUTDOWN.epub",
+                total_configs=1,
+            ),
+        ],
+        total_planned_configs=2,
+    )
+    dashboard.start_source(0)
+    dashboard.start_source(1)
+    dashboard.start_config(
+        source_index=0,
+        config_index=1,
+        config_total=1,
+        config_slug="codexfarm",
+    )
+    dashboard.start_config(
+        source_index=1,
+        config_index=1,
+        config_total=1,
+        config_slug="codexfarm",
+    )
+    dashboard.ingest_progress(
+        source_index=0,
+        message=(
+            "codex-farm recipe.schemaorg.v1 task 1/4 | running 2 | "
+            "active [r0001.json, r0002.json]"
+        ),
+    )
+    clock["value"] = 106.0
+    dashboard.ingest_progress(
+        source_index=0,
+        message=(
+            "codex-farm recipe.schemaorg.v1 task 2/4 | running 2 | "
+            "active [r0003.json, r0004.json]"
+        ),
+    )
+    dashboard.ingest_progress(
+        source_index=1,
+        message="Running benchmark evaluation... task 1/2"
+    )
+
+    rendered = dashboard.render()
+    assert "books:" in rendered
+    assert "AMatterOfTasteCUTDOWN" in rendered
+    assert "SeaAndSmokeCUTDOWN" in rendered
+    assert "state   | pass2 schemaorg" in rendered
+    assert "prog    | t2/4 v0/1" in rendered
+    assert "eta     | 12s" in rendered
+    assert "| 6s" in rendered
+    assert "w01     | r0003.json" in rendered
+    assert "w02     | r0004.json" in rendered
 
 
 def test_run_with_progress_status_escapes_dashboard_markers(

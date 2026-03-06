@@ -541,6 +541,67 @@ def test_orchestrator_skips_pass3_for_low_risk_pass2_ok_when_policy_enabled_in_r
     assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is True
 
 
+def test_orchestrator_writes_recipe_guardrail_report_artifacts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=True)
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"][3]["text"] = (
+        "Toast slowly until deeply golden and crisp on both sides."
+    )
+    result.raw_artifacts[0].content["blocks"][4]["text"] = (
+        "Serve immediately while the crust is still hot and crackling."
+    )
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": [
+                    "Toast slowly until deeply golden and crisp on both sides.",
+                    "Serve immediately while the crust is still hot and crackling.",
+                ],
+                "field_evidence": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    guardrail_report = json.loads(
+        (apply_result.llm_raw_dir / "guardrail_report.json").read_text(encoding="utf-8")
+    )
+    guardrail_rows = (
+        apply_result.llm_raw_dir / "guardrail_rows.jsonl"
+    ).read_text(encoding="utf-8")
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert guardrail_report["schema_version"] == "recipe_codex_guardrail_report.v1"
+    assert guardrail_report["summary"]["pass3_routing_rows"] >= 1
+    assert "pass2_ok_high_confidence_deterministic" in guardrail_rows
+    assert manifest["paths"]["recipe_guardrail_report"].endswith("guardrail_report.json")
+    assert manifest["paths"]["recipe_guardrail_rows"].endswith("guardrail_rows.jsonl")
+
+
 def test_orchestrator_records_pass1_span_loss_metrics_when_midpoint_clamp_shrinks_span(
     tmp_path: Path,
 ) -> None:
@@ -1520,7 +1581,6 @@ def test_orchestrator_recipe_level_failures_fallback_without_crashing(tmp_path: 
     assert apply_result.final_overrides_by_recipe_id == {}
     assert len(apply_result.updated_conversion_result.recipes) == 1
     assert apply_result.llm_report["counts"]["pass2_errors"] == 1
-
 
 
 

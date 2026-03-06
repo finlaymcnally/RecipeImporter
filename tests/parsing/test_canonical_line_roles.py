@@ -128,6 +128,7 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
     predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
     assert len(predictions) == 1
     assert predictions[0].label == "INSTRUCTION_LINE"
+    assert "INSTRUCTION_LINE" in predictions[0].candidate_labels
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_time_to_instruction" in predictions[0].reason_tags
 
@@ -206,6 +207,7 @@ def test_label_atomic_lines_outside_recipe_howto_heading_is_hard_denied() -> Non
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label != "HOWTO_SECTION"
+    assert predictions[0].label in predictions[0].candidate_labels
 
 
 def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_notes() -> None:
@@ -467,6 +469,7 @@ def test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction() -> 
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "INSTRUCTION_LINE"
+    assert "INSTRUCTION_LINE" in predictions[0].candidate_labels
     assert "sanitized_yield_to_instruction" in predictions[0].reason_tags
 
 
@@ -1283,6 +1286,46 @@ def test_line_role_guardrail_off_report_disables_arbitration_artifacts(
     assert not (tmp_path / "line-role-pipeline" / "do_no_harm_diagnostics.json").exists()
 
 
+def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous title-ish line",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "RECIPE_TITLE"],
+            prev_text=None,
+            next_text="1 cup flour",
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:1",
+            block_index=1,
+            atomic_index=1,
+            text="1 cup flour",
+            within_recipe_span=True,
+            candidate_labels=["INGREDIENT_LINE", "OTHER"],
+            prev_text="Ambiguous title-ish line",
+            next_text=None,
+            rule_tags=["ingredient_like"],
+        ),
+    ]
+
+    plan = canonical_line_roles_module.build_line_role_codex_execution_plan(
+        candidates,
+        _settings("codex-line-role-v1"),
+        codex_batch_size=10,
+    )
+
+    assert plan["enabled"] is True
+    assert plan["planned_batch_count"] == 1
+    assert plan["planned_candidate_count"] == 1
+    assert plan["batches"][0]["atomic_indices"] == [0]
+
+
 def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -1708,6 +1751,14 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     )
     assert "within_recipe_span_1_or_0" in prompt_text
     assert '[0, 1, "Before", "Ambiguous line 0", "After", ["OTHER"]]' in prompt_text
+
+
+def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", raising=False)
+
+    assert canonical_line_roles_module._resolve_line_role_prompt_format() == "compact_v1"
 
 
 def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(

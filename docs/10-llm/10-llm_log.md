@@ -10,6 +10,15 @@ read_when:
 
 Use this file for LLM debugging history that still applies to the current codebase.
 
+## 2026-03-06_00.30.31 codex-farm recoverable warning routing during shared progress
+
+Problem captured:
+- Recoverable codex-farm partial-output failures were logged as terminal warnings even when the caller was using a shared progress callback/dashboard, so benchmark PTYs filled with multiline auth/retry noise.
+
+Durable decisions/actions:
+- `SubprocessCodexFarmRunner` now keeps detailed recoverable-failure diagnostics in debug logs/artifacts, but emits only one short progress callback message during callback-driven runs.
+- Non-callback runs still log the warning normally so direct CLI/manual runs keep visible diagnostics.
+
 ## 2026-03-03_23.50.00 codex-farm no-last-agent-message partial-output recovery
 
 Problem captured:
