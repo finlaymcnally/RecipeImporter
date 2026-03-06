@@ -198,6 +198,7 @@ Notes:
   - `#previous-runs-section`/subsections now enforce horizontal containment, and Compare & Control rendered text wraps long unbroken tokens (`overflow-wrap:anywhere`) to avoid page-level rightward overflow when categorical values are very long.
   - Persisted dashboard table column widths are clamped/sanitized (`72..1200px`) across load/save/drag paths, so stale browser UI-state cannot inflate Previous Runs width indefinitely.
   - Raw categorical compare now includes optional per-group secondary means (runtime/token/cost style numeric fields when present) alongside outcome means.
+  - Compare/control derived outcome fields include `conversion_seconds_per_recipe` and `all_token_use_per_recipe`, so per-book charts can normalize processing time and token spend by predicted recipe count.
   - Compare/control secondary means skip constant-valued fields (for example all-zero benchmark timing columns), so `Group outcome means` shows only varying side metrics.
   - `Group outcome means` now renders as a dynamic table (instead of text rows): `Group`, `Rows`, `Avg`, plus one column per available secondary metric in the current analysis scope.
   - Group-summary table headers are wrap-enabled and sized to a two-line header row for better readability when metric names are long.

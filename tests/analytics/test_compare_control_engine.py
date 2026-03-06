@@ -106,10 +106,14 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
         "tokens_cached_input": 200,
         "tokens_output": 300,
         "tokens_total": 1300,
+        "recipes": 4,
         "run_config": {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
             "codex_farm_model": "gpt-5",
             "codex_farm_reasoning_effort": "medium",
+            "single_offline_split_cache": {
+                "conversion_seconds": 20,
+            },
         },
     }
 
@@ -119,6 +123,12 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
     assert engine.previous_runs_field_value(record, "all_method_record") is False
     assert engine.previous_runs_field_value(record, "speed_suite_record") is False
     assert engine.previous_runs_field_value(record, "all_token_use") == pytest.approx(1120.0)
+    assert engine.previous_runs_field_value(record, "conversion_seconds_per_recipe") == pytest.approx(
+        5.0
+    )
+    assert engine.previous_runs_field_value(record, "all_token_use_per_recipe") == pytest.approx(
+        280.0
+    )
 
 
 def test_ai_model_label_system_error_for_runtime_failure() -> None:

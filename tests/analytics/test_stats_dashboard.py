@@ -1141,6 +1141,12 @@ const record = {
   tokens_cached_input: 200,
   tokens_output: 100,
   tokens_total: 1100,
+  recipes: 4,
+  run_config: {
+    single_offline_split_cache: {
+      conversion_seconds: 20,
+    },
+  },
 };
 const allMethodRow = {
   type: "all_method",
@@ -1206,6 +1212,12 @@ const unknownEffortRecord = {
 const payload = {
   record_quality_per_million_tokens: Number(
     hooks.previousRunsFieldValue(record, "quality_per_million_tokens")
+  ),
+  record_conversion_seconds_per_recipe: Number(
+    hooks.previousRunsFieldValue(record, "conversion_seconds_per_recipe")
+  ),
+  record_all_token_use_per_recipe: Number(
+    hooks.previousRunsFieldValue(record, "all_token_use_per_recipe")
   ),
   all_method_quality_per_million_tokens: Number(
     hooks.previousRunsRowFieldValue(allMethodRow, "quality_per_million_tokens")
@@ -3062,14 +3074,14 @@ class TestRenderer:
         assert result["numeric_series_count"] == 2
         assert result["numeric_point_total"] == 6
         assert result["numeric_title"] == "Strict Accuracy vs All Token Use"
-        assert result["numeric_subtitle"] == "Raw comparison, split by Book"
+        assert result["numeric_subtitle"] == "Raw comparison, split by Source"
         assert result["numeric_first_compare_value"] == pytest.approx(990)
         assert result["numeric_first_outcome_value"] == pytest.approx(0.60)
         assert result["numeric_first_split_label"] == "book_a.epub"
         assert result["categorical_chart_type"] == "bar"
         assert result["categorical_series_count"] == 2
         assert result["categorical_title"] == "Average Strict Accuracy by Importer"
-        assert result["categorical_subtitle"] == "Raw comparison, split by Book"
+        assert result["categorical_subtitle"] == "Raw comparison, split by Source"
         assert result["categorical_categories_count"] == 2
         assert result["categorical_point_total"] == 4
         assert result["categorical_first_series_unique_colors"] >= 2
@@ -3625,6 +3637,8 @@ class TestRenderer:
         assert result["record_quality_per_million_tokens"] == pytest.approx(
             543.47826087, rel=1e-6
         )
+        assert result["record_conversion_seconds_per_recipe"] == pytest.approx(5.0)
+        assert result["record_all_token_use_per_recipe"] == pytest.approx(230.0)
         assert result["all_method_quality_per_million_tokens"] == pytest.approx(125.0)
         assert result["missing_telemetry_ai_model"] == "gpt-5.1-codex-mini"
         assert result["missing_telemetry_token_display"] == "-"

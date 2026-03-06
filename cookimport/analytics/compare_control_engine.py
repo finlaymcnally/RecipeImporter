@@ -18,6 +18,8 @@ COMPARE_CONTROL_OUTCOME_PREFERRED = (
     "f1",
     "practical_f1",
     "supported_practical_f1",
+    "conversion_seconds_per_recipe",
+    "all_token_use_per_recipe",
 )
 ANALYSIS_FIELD_PREFERRED = (
     "source_label",
@@ -489,6 +491,17 @@ def previous_runs_discounted_token_total(
     return effective_input + effective_output
 
 
+def previous_runs_metric_per_recipe(
+    metric_value: Any,
+    recipes_value: Any,
+) -> float | None:
+    metric = maybe_number(metric_value)
+    recipes = maybe_number(recipes_value)
+    if metric is None or recipes is None or recipes <= 0:
+        return None
+    return metric / recipes
+
+
 def previous_runs_field_value(record: dict[str, Any], field_path: str) -> Any:
     field = str(field_path or "").strip()
     if field == "source_file_basename":
@@ -507,6 +520,19 @@ def previous_runs_field_value(record: dict[str, Any], field_path: str) -> Any:
             record.get("tokens_cached_input"),
             record.get("tokens_output"),
             record.get("tokens_total"),
+        )
+    if field == "conversion_seconds_per_recipe":
+        return previous_runs_metric_per_recipe(
+            previous_runs_field_value(
+                record,
+                "run_config.single_offline_split_cache.conversion_seconds",
+            ),
+            record.get("recipes"),
+        )
+    if field == "all_token_use_per_recipe":
+        return previous_runs_metric_per_recipe(
+            previous_runs_field_value(record, "all_token_use"),
+            record.get("recipes"),
         )
     if field == "artifact_dir_basename":
         return _basename(record.get("artifact_dir"))
@@ -588,7 +614,9 @@ def collect_benchmark_field_paths(records: list[dict[str, Any]]) -> list[str]:
         "gold_total",
         "gold_matched",
         "recipes",
+        "conversion_seconds_per_recipe",
         "all_token_use",
+        "all_token_use_per_recipe",
         "tokens_input",
         "tokens_cached_input",
         "tokens_output",
@@ -611,6 +639,8 @@ def collect_benchmark_field_paths(records: list[dict[str, Any]]) -> list[str]:
             "artifact_dir_basename",
             "all_method_record",
             "speed_suite_record",
+            "conversion_seconds_per_recipe",
+            "all_token_use_per_recipe",
         }
     )
     discovered.update(PREVIOUS_RUNS_DEFAULT_COLUMNS)

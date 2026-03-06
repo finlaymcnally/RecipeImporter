@@ -4635,6 +4635,8 @@ _JS = """\
     "f1",
     "practical_f1",
     "supported_practical_f1",
+    "conversion_seconds_per_recipe",
+    "all_token_use_per_recipe",
   ];
   const COMPARE_CONTROL_FIELD_SKIP = new Set([
     "artifact_dir",
@@ -9302,6 +9304,18 @@ _JS = """\
     if (fieldPath === "all_token_use") {
       return discountedTokenTotalForRecord(record);
     }
+    if (fieldPath === "conversion_seconds_per_recipe") {
+      return previousRunsMetricPerRecipe(
+        previousRunsFieldValue(record, "run_config.single_offline_split_cache.conversion_seconds"),
+        record && record.recipes,
+      );
+    }
+    if (fieldPath === "all_token_use_per_recipe") {
+      return previousRunsMetricPerRecipe(
+        previousRunsFieldValue(record, "all_token_use"),
+        record && record.recipes,
+      );
+    }
     if (fieldPath === "quality_per_million_tokens") {
       return benchmarkQualityPerMillionTokensForRecord(record);
     }
@@ -12648,6 +12662,15 @@ _JS = """\
       maybeNumber(record && record.tokens_output),
       maybeNumber(record && record.tokens_total),
     );
+  }
+
+  function previousRunsMetricPerRecipe(metricValue, recipesValue) {
+    const metric = maybeNumber(metricValue);
+    const recipes = maybeNumber(recipesValue);
+    if (metric == null || recipes == null || !Number.isFinite(recipes) || recipes <= 0) {
+      return null;
+    }
+    return metric / recipes;
   }
 
   function discountedTokenTotalForRecords(records) {
