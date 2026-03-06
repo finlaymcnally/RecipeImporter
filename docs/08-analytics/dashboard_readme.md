@@ -180,6 +180,7 @@ Notes:
   - `Compare & Control` in `Previous Runs` scores discovery candidates when no compare field is selected, supports raw vs controlled analysis, and can split results by an optional field.
   - `Compare & Control Analysis` now uses its own benchmark-row scope (independent from Previous Runs table/quick/column filters) and renders a dynamic chart from compare/control settings (not a clone of the benchmark trend chart).
   - Compare/control chart starts blank on load/state-restore only when no valid compare selection is active; if a valid non-discover compare selection is already saved, it renders automatically.
+  - When the dashboard is opened with `cookimport stats-dashboard --serve`, `cookimport compare-control dashboard-state ...` can rewrite the visible Compare & Control controls/charts by updating `assets/dashboard_ui_state.json`; the browser polls that file every few seconds and applies newer `saved_at` payloads live.
   - Current dynamic chart mode auto-selects by compare-field type:
     - numeric compare fields plot row-level scatter (`compare field` on X, `outcome` on Y),
     - categorical compare fields plot group outcome-mean bars by category.
@@ -189,8 +190,8 @@ Notes:
   - Compare/control chart generation is builder-based (`buildCompareControlChartDefinition` -> chart-type builders), so additional chart types can be added without replacing host/render plumbing.
   - Compare/control now supports dual comparison sets at once:
     - `Set 2` expands from the right; when open, Set 1 and Set 2 controls split left/right and use a taller control workspace.
-    - set result tables stay stacked full-width (`Set 1` table then `Set 2` table) with subtle per-set shading to preserve scan flow.
-    - chart layout supports `stacked`, `side by side`, or `combined`; combined mode can use shared Y-axis or dual Y-axes (left/right) when chart types are compatible.
+    - when Set 2 opens, the default dual layout now stays left/right all the way down: controls, result tables, and per-set charts render in two columns.
+    - chart layout auto-switches from `stacked` to `side by side` when Set 2 is opened; `combined` remains available as an explicit override and can use shared Y-axis or dual Y-axes (left/right) when chart types are compatible.
   - `Compare & Control` includes a `Reset` action to return panel controls to their default state (`discover`, default outcome field, no compare/hold/split/selected groups).
   - `Previous Runs` is split into two subsection cards: `History Table & Trend` and `Compare & Control Analysis`.
   - Previous Runs subsection layout is explicitly width-contained (`minmax(0, 1fr)` + child `min-width: 0`) so wide controls/tables stay inside local horizontal scrollers instead of expanding the whole dashboard to the right.

@@ -2881,6 +2881,7 @@ class TestRenderer:
         assert "function compareControlStateForSet(setKey)" in js
         assert "function setCompareControlStateForSet(setKey, nextState)" in js
         assert "function setCompareControlSecondSetEnabled(enabled)" in js
+        assert 'compareControlChartLayout = "side_by_side";' in js
         assert "function syncCompareControlLayoutChrome()" in js
         assert "function renderCompareControlPanel(context, config)" in js
         assert "function resetCompareControlState(setKey)" in js
@@ -3868,6 +3869,7 @@ class TestRenderer:
         assert ".compare-control-controls-split {" in css
         assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {" in css
         assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {" in css
+        assert "#compare-control-analysis-section.compare-control-dual-enabled .compare-control-results-stack {" in css
         assert "#compare-control-panel-secondary {" in css
         assert "transform: translateX(22px);" in css
         compare_control_results_block = re.search(

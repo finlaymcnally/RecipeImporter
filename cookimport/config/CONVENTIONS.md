@@ -5,6 +5,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 ## Run Settings Source of Truth
 
 - `cookimport/config/run_settings.py` is the canonical definition of per-run knobs (`RunSettings`), UI metadata, summary rendering, and stable hash generation.
+- `cookimport/config/codex_decision.py` is the single source of truth for Codex-backed surface classification, top-tier profile contract patches, paired benchmark Codex/vanilla contracts, and command-boundary approval metadata.
 - `cookimport/config/run_settings_adapters.py` is the canonical mapping from `RunSettings` to `stage(...)` / `labelstudio_benchmark(...)` kwargs; avoid duplicating field-by-field mapping in CLI or speed-suite callers.
 - When a run-setting value changes split capability (for example `epub_extractor=markitdown`), update both split planners (`cookimport/cli.py:_plan_jobs`, `cookimport/labelstudio/ingest.py:_plan_parallel_convert_jobs`) and `compute_effective_workers(...)` together.
 - EPUB unstructured tuning knobs (`epub_unstructured_html_parser_version`, `epub_unstructured_skip_headers_footers`, `epub_unstructured_preprocess_mode`) are part of canonical run settings and must propagate in both stage and benchmark prediction paths; do not wire them only in one flow.
@@ -22,6 +23,7 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 - `table_extraction` is a run setting (`off|on`) that gates deterministic table detection/export (`tables/<workbook>/tables.jsonl` + `tables.md`), table-aware chunking, and optional pass4 `chunk.blocks[*].table_hint` enrichment; keep these surfaces in sync when changing table behavior.
 - Chunk-consolidation contract: table chunks (`provenance.table_ids` present) must never merge with non-table chunks (or other table chunks) in either `merge_small_chunks` or adjacent-topic consolidation. Debug/rollback knob for consolidation remains `COOKIMPORT_CONSOLIDATE_ADJACENT_KNOWLEDGE_CHUNKS=0`.
 - `llm_recipe_pipeline` accepts `off|codex-farm-3pass-v1` without environment gating; CLI/pred-run normalization should enforce only enum validity.
+- Direct run surfaces (`stage`, `labelstudio-import`, `labelstudio-benchmark`, and the `import` entrypoint) must fail closed unless Codex-backed settings are accompanied by explicit command approval (`--allow-codex` or the shared equivalent at the caller boundary).
 - codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
 - pass5 tags artifacts are stage-run scoped and should stay in:
   - `tags/<workbook_slug>/r{index}.tags.json`

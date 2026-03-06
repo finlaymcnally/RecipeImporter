@@ -84,7 +84,12 @@ If you want to compare two different hypotheses side by side:
 
 Both control panels are shown left/right in a taller workspace.
 
-Tables stay stacked (Set 1 table first, then Set 2 table) so they remain readable.
+When Set 2 opens, the analysis area also splits left/right the whole way down by default:
+
+- Set 1 controls, table, and chart stay in the left column.
+- Set 2 controls, table, and chart stay in the right column.
+
+If you want a merged chart instead, switch **Chart layout** to `combined`.
 
 ### Reading group results quickly (table view)
 
@@ -141,6 +146,17 @@ You can run the same analysis from terminal:
 `cookimport compare-control agent`
 
 Agent mode reads one JSON request per line and writes one JSON response per line, so external tools can loop quickly without reopening the dashboard.
+
+## Live browser control from CLI
+
+If the dashboard is open from `cookimport stats-dashboard --serve`, you can also push visible Compare & Control changes into the browser:
+
+1. Show Set 1 live:
+`cookimport compare-control dashboard-state --compare-field ai_model --view raw --outcome-field strict_accuracy`
+2. Show Set 2 live:
+`cookimport compare-control dashboard-state --set secondary --compare-field ai_effort --view controlled --enable-second-set --chart-layout combined`
+
+The browser polls `assets/dashboard_ui_state.json`, so the panel and chart update a few seconds after each write.
 
 ## Tune discovery cards from CLI (backend-driven)
 

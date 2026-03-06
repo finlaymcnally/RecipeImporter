@@ -921,6 +921,7 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
+        allow_codex=True,
         llm_recipe_pipeline="codex-farm-3pass-v1",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
@@ -937,6 +938,7 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert captured_generate["pdf_ocr_policy"] == "always"
     assert captured_generate["pdf_column_gap_ratio"] == 0.21
     assert captured_generate["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert captured_generate["allow_codex"] is True
     assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert captured_generate["codex_farm_reasoning_effort"] == "low"
     assert captured_generate["atomic_block_splitter"] == "off"
@@ -951,6 +953,9 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["pdf_ocr_policy"] == "always"
     assert run_manifest["run_config"]["pdf_column_gap_ratio"] == 0.21
     assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert run_manifest["run_config"]["codex_decision_context"] == "labelstudio_benchmark"
+    assert run_manifest["run_config"]["codex_decision_allowed"] is True
+    assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["recipe"]
     assert run_manifest["run_config"]["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert run_manifest["run_config"]["codex_farm_reasoning_effort"] == "low"
     assert run_manifest["run_config"]["atomic_block_splitter"] == "off"

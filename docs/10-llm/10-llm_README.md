@@ -80,7 +80,9 @@ Report/model plumbing:
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
 - Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
-- Global defaults now use the top-tier profile (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`).
+- `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
+- `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
+- Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint now require explicit `--allow-codex` approval when their resolved run settings enable a Codex-backed surface.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 - Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
@@ -156,6 +158,7 @@ Report/model plumbing:
 - Historical note: this task used an env-gated rollout (`COOKIMPORT_ALLOW_CODEX_FARM=1`); that gating was later removed by `2026-02-28_04.05.00`.
 - Durable behavior that remains relevant:
   - all-method codex variants are explicit/opt-in (`--include-codex-farm`),
+  - bench speed/quality runs persist command-level Codex decision metadata alongside the existing confirmation-token contract,
   - deterministic sweeps remain independent from codex inclusion choices.
 
 ### 2026-02-28_02.48.43 codex-farm CLI setup for EPUB benchmark runs

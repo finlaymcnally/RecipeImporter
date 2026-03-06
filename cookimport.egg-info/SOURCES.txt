@@ -35,6 +35,7 @@ cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
 cookimport/bench/followup_bundle.py
 cookimport/bench/noise.py
+cookimport/bench/oracle_upload.py
 cookimport/bench/pairwise_flips.py
 cookimport/bench/prediction_records.py
 cookimport/bench/quality_compare.py

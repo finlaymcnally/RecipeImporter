@@ -127,6 +127,7 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-offline-benchmark/<source_slug>/upload_bundle_v1/upload_bundle_overview.md`
   - `.../single-offline-benchmark/<source_slug>/upload_bundle_v1/upload_bundle_index.json`
   - `.../single-offline-benchmark/<source_slug>/upload_bundle_v1/upload_bundle_payload.jsonl`
+  - interactive single-offline runs auto-upload that session bundle to Oracle after the bundle is built.
 - interactive single-profile all-matched runs write the same 3-file upload bundle per target eval root:
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
   - `.../single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
@@ -143,6 +144,8 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 40MB and automatically reduces per-book sampled detail as selected-book count increases.
   - high-level group bundles still retain discovered per-run `full_prompt_log.jsonl` rows in payload (deprioritized in default navigation, not removed).
+  - interactive multi-book single-profile runs auto-upload only this top-level group bundle to Oracle; per-book bundles are kept for manual inspection and can be uploaded later with `cookimport bench oracle-upload <path>`.
+  - `cookimport bench oracle-upload --mode dry-run` stays useful for existing large bundles: when Oracle's inline dry-run rejects the payload file for size, recipeimport falls back to a local preview instead of failing the no-rerun validation path.
   - when the group bundle is truly multi-book (more than one source key), the index now also includes per-book scorecards (vanilla/codex/delta), ablation summary, outside-span-by-book, chapter/page-type breakdown, runtime-by-book, and top regression packets with explicit decision traces.
 - interactive single-profile multi-book runs now use one shared spinner dashboard for the full batch; inner per-book benchmark calls suppress their own spinners and emit progress into shared queue/task lines so concurrent books stay readable.
 - while the shared single-profile spinner is active, nested per-book benchmark summaries and per-run dashboard rebuild prints are suppressed to avoid frame collisions; one dashboard refresh runs after the full batch append.

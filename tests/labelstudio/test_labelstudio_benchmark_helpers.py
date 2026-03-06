@@ -2930,6 +2930,71 @@ def test_interactive_single_offline_markdown_enabled_writes_one_top_level_summar
     assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
 
 
+def test_interactive_single_offline_uploads_oracle_bundle_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test oracle single-offline",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-05_23.01.17"
+    )
+    processed_output_root = tmp_path / "output"
+
+    def fake_labelstudio_benchmark(**kwargs):
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.20, "recall": 0.30, "f1": 0.24}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_refresh_dashboard_after_history_write",
+        lambda **_kwargs: None,
+    )
+
+    session_bundle_dir = (
+        benchmark_eval_output
+        / "single-offline-benchmark"
+        / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **_kwargs: session_bundle_dir,
+    )
+    oracle_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cli,
+        "_maybe_upload_benchmark_bundle_to_oracle",
+        lambda **kwargs: oracle_calls.append(dict(kwargs)),
+    )
+
+    completed = cli._interactive_single_offline_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+    )
+
+    assert completed is True
+    assert oracle_calls == [
+        {
+            "bundle_dir": session_bundle_dir,
+            "scope": "single_offline",
+        }
+    ]
+
+
 def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3403,7 +3468,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
 
 
 

@@ -32,7 +32,7 @@ from concurrent.futures import (
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import product
 from pathlib import Path
 from typing import Iterable, Iterator, Dict, Any, Annotated, Callable, TypeVar, cast
@@ -124,6 +124,13 @@ from cookimport.bench.cutdown_export import (
     build_line_role_joined_line_rows,
     write_line_role_stable_samples,
     write_prompt_eval_alignment_doc,
+)
+from cookimport.bench.oracle_upload import (
+    ORACLE_DEFAULT_MODEL,
+    OracleBenchmarkBundleTarget,
+    OracleUploadResult,
+    resolve_oracle_benchmark_bundle,
+    run_oracle_benchmark_upload,
 )
 from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
 from cookimport.bench.slice_metrics import (
@@ -2966,6 +2973,10 @@ def _interactive_single_profile_all_matched_benchmark(
                 f"External-AI group upload bundle: {group_upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
+            _maybe_upload_benchmark_bundle_to_oracle(
+                bundle_dir=group_upload_bundle_dir,
+                scope="single_profile_group",
+            )
 
     if single_profile_dashboard is not None:
         history_csv_path = history_csv_for_output(
@@ -4705,6 +4716,90 @@ def _write_benchmark_upload_bundle(
     return output_dir
 
 
+def _oracle_upload_output_excerpt(result: OracleUploadResult, *, limit: int = 12) -> list[str]:
+    lines: list[str] = []
+    for block in (result.stdout, result.stderr):
+        if not block:
+            continue
+        for raw_line in block.splitlines():
+            line = raw_line.strip()
+            if line:
+                lines.append(line)
+    if len(lines) <= limit:
+        return lines
+    return lines[-limit:]
+
+
+def _print_oracle_upload_summary(
+    *,
+    target: OracleBenchmarkBundleTarget,
+    result: OracleUploadResult,
+    success_color: str,
+) -> None:
+    typer.secho(f"Oracle benchmark bundle: {target.bundle_dir}", fg=typer.colors.CYAN)
+    typer.secho(f"Oracle mode: {result.mode}", fg=typer.colors.CYAN)
+    typer.secho(
+        f"Oracle command: {shlex.join(result.command)}",
+        fg=typer.colors.BRIGHT_BLACK,
+    )
+    excerpt = _oracle_upload_output_excerpt(result)
+    if excerpt:
+        typer.secho("Oracle output:", fg=success_color)
+        for line in excerpt:
+            typer.echo(f"  {line}")
+
+
+def _maybe_upload_benchmark_bundle_to_oracle(
+    *,
+    bundle_dir: Path,
+    scope: str,
+    mode: str = "browser",
+    model: str = ORACLE_DEFAULT_MODEL,
+) -> None:
+    try:
+        target = resolve_oracle_benchmark_bundle(bundle_dir)
+        target = replace(target, scope=scope)
+        result = run_oracle_benchmark_upload(
+            target=target,
+            mode=mode,
+            model=model,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Oracle benchmark upload skipped for {bundle_dir}: {exc}",
+            fg=typer.colors.YELLOW,
+        )
+        typer.secho(
+            f"Retry manually: cookimport bench oracle-upload {bundle_dir}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+        return
+
+    status_color = typer.colors.GREEN if result.success else typer.colors.YELLOW
+    typer.secho(
+        (
+            "Oracle benchmark upload "
+            f"{'completed' if result.success else 'failed'} "
+            f"for {target.scope}."
+        ),
+        fg=status_color,
+    )
+    _print_oracle_upload_summary(
+        target=target,
+        result=result,
+        success_color=status_color,
+    )
+    if not result.success:
+        typer.secho(
+            f"Retry manually: cookimport bench oracle-upload {bundle_dir}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+        typer.secho(
+            "If the Oracle session detached, inspect it with `oracle status --hours 72`.",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+
+
 def _write_single_offline_summary_markdown(
     *,
     run_timestamp: str,
@@ -5071,6 +5166,10 @@ def _interactive_single_offline_benchmark(
             typer.secho(
                 f"External-AI upload bundle: {upload_bundle_dir}",
                 fg=typer.colors.CYAN,
+            )
+            _maybe_upload_benchmark_bundle_to_oracle(
+                bundle_dir=upload_bundle_dir,
+                scope="single_offline",
             )
 
     history_csv_path = history_csv_for_output(
@@ -26250,6 +26349,120 @@ def _compare_control_dispatch_action(
     )
 
 
+COMPARE_CONTROL_DASHBOARD_CHART_LAYOUTS = {"stacked", "side_by_side", "combined"}
+COMPARE_CONTROL_DASHBOARD_DEFAULT_CHART_LAYOUT = "stacked"
+COMPARE_CONTROL_DASHBOARD_COMBINED_AXIS_MODES = {"single", "dual"}
+COMPARE_CONTROL_DASHBOARD_DEFAULT_COMBINED_AXIS_MODE = "single"
+
+
+def _resolve_compare_control_dashboard_dir(
+    output_root: Path,
+    dashboard_dir: Path | None,
+) -> Path:
+    return (
+        Path(dashboard_dir)
+        if dashboard_dir is not None
+        else history_root_for_output(Path(output_root)) / "dashboard"
+    )
+
+
+def _compare_control_ui_state_path_for_dashboard(dashboard_dir: Path) -> Path:
+    return Path(dashboard_dir) / "assets" / "dashboard_ui_state.json"
+
+
+def _load_compare_control_dashboard_ui_state_payload(
+    ui_state_path: Path,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"version": 1}
+    if ui_state_path.exists():
+        try:
+            loaded = json.loads(ui_state_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            _fail(f"Invalid JSON in dashboard UI state file: {exc}")
+        except OSError as exc:
+            _fail(f"Unable to read dashboard UI state file: {exc}")
+        if not isinstance(loaded, dict):
+            _fail("Dashboard UI state file must contain a JSON object.")
+        payload = dict(loaded)
+    if not isinstance(payload.get("version"), int):
+        payload["version"] = 1
+    return payload
+
+
+def _write_compare_control_dashboard_ui_state_payload(
+    ui_state_path: Path,
+    payload: dict[str, Any],
+) -> None:
+    ui_state_path.parent.mkdir(parents=True, exist_ok=True)
+    payload["saved_at"] = dt.datetime.now(dt.UTC).isoformat()
+    try:
+        ui_state_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        _fail(f"Unable to write dashboard UI state file: {exc}")
+
+
+def _clean_compare_control_string_list(values: list[str] | None) -> list[str]:
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for raw in values or []:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
+    return cleaned
+
+
+def _normalize_compare_control_discovery_prefs_for_dashboard(
+    raw: Any,
+) -> dict[str, Any]:
+    source = raw if isinstance(raw, dict) else {}
+    max_cards_raw = source.get("max_cards")
+    if max_cards_raw is None:
+        max_cards_value = 10
+    else:
+        try:
+            max_cards_value = int(max_cards_raw)
+        except (TypeError, ValueError):
+            max_cards_value = 10
+    max_cards_value = max(1, min(40, max_cards_value))
+    return {
+        "exclude_fields": _clean_compare_control_string_list(
+            source.get("exclude_fields")
+            if isinstance(source.get("exclude_fields"), list)
+            else None
+        ),
+        "prefer_fields": _clean_compare_control_string_list(
+            source.get("prefer_fields")
+            if isinstance(source.get("prefer_fields"), list)
+            else None
+        ),
+        "demote_patterns": _clean_compare_control_string_list(
+            source.get("demote_patterns")
+            if isinstance(source.get("demote_patterns"), list)
+            else None
+        ),
+        "max_cards": max_cards_value,
+    }
+
+
+def _normalize_compare_control_dashboard_chart_layout(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    if key in COMPARE_CONTROL_DASHBOARD_CHART_LAYOUTS:
+        return key
+    return COMPARE_CONTROL_DASHBOARD_DEFAULT_CHART_LAYOUT
+
+
+def _normalize_compare_control_dashboard_combined_axis_mode(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    if key in COMPARE_CONTROL_DASHBOARD_COMBINED_AXIS_MODES:
+        return key
+    return COMPARE_CONTROL_DASHBOARD_DEFAULT_COMBINED_AXIS_MODE
+
+
 @compare_control_app.command("discovery-preferences")
 def compare_control_discovery_preferences(
     output_root: Path = typer.Option(
@@ -26308,67 +26521,12 @@ def compare_control_discovery_preferences(
     demote_patterns = _unwrap_typer_option_default(demote_patterns)
     max_cards = _unwrap_typer_option_default(max_cards)
 
-    resolved_dashboard_dir = (
-        Path(dashboard_dir)
-        if dashboard_dir is not None
-        else history_root_for_output(Path(output_root)) / "dashboard"
+    resolved_dashboard_dir = _resolve_compare_control_dashboard_dir(
+        Path(output_root),
+        dashboard_dir,
     )
-    ui_state_path = resolved_dashboard_dir / "assets" / "dashboard_ui_state.json"
-
-    def _clean_list(values: list[str] | None) -> list[str]:
-        seen: set[str] = set()
-        cleaned: list[str] = []
-        for raw in values or []:
-            value = str(raw or "").strip()
-            if not value or value in seen:
-                continue
-            seen.add(value)
-            cleaned.append(value)
-        return cleaned
-
-    def _normalize_prefs(raw: Any) -> dict[str, Any]:
-        source = raw if isinstance(raw, dict) else {}
-        max_cards_raw = source.get("max_cards")
-        if max_cards_raw is None:
-            max_cards_value = 10
-        else:
-            try:
-                max_cards_value = int(max_cards_raw)
-            except (TypeError, ValueError):
-                max_cards_value = 10
-        max_cards_value = max(1, min(40, max_cards_value))
-        return {
-            "exclude_fields": _clean_list(
-                source.get("exclude_fields")
-                if isinstance(source.get("exclude_fields"), list)
-                else None
-            ),
-            "prefer_fields": _clean_list(
-                source.get("prefer_fields")
-                if isinstance(source.get("prefer_fields"), list)
-                else None
-            ),
-            "demote_patterns": _clean_list(
-                source.get("demote_patterns")
-                if isinstance(source.get("demote_patterns"), list)
-                else None
-            ),
-            "max_cards": max_cards_value,
-        }
-
-    payload: dict[str, Any] = {"version": 1}
-    if ui_state_path.exists():
-        try:
-            loaded = json.loads(ui_state_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            _fail(f"Invalid JSON in dashboard UI state file: {exc}")
-        except OSError as exc:
-            _fail(f"Unable to read dashboard UI state file: {exc}")
-        if not isinstance(loaded, dict):
-            _fail("Dashboard UI state file must contain a JSON object.")
-        payload = dict(loaded)
-    if not isinstance(payload.get("version"), int):
-        payload["version"] = 1
+    ui_state_path = _compare_control_ui_state_path_for_dashboard(resolved_dashboard_dir)
+    payload = _load_compare_control_dashboard_ui_state_payload(ui_state_path)
 
     previous_runs_payload = payload.get("previous_runs")
     if not isinstance(previous_runs_payload, dict):
@@ -26377,7 +26535,9 @@ def compare_control_discovery_preferences(
     if not isinstance(compare_control_payload, dict):
         compare_control_payload = {}
 
-    current_prefs = _normalize_prefs(compare_control_payload.get("discovery_preferences"))
+    current_prefs = _normalize_compare_control_discovery_prefs_for_dashboard(
+        compare_control_payload.get("discovery_preferences")
+    )
     updates_requested = any(
         value is not None
         for value in (
@@ -26400,15 +26560,15 @@ def compare_control_discovery_preferences(
             )
         return
 
-    next_prefs = _normalize_prefs({})
+    next_prefs = _normalize_compare_control_discovery_prefs_for_dashboard({})
     if not reset:
-        next_prefs = _normalize_prefs(current_prefs)
+        next_prefs = _normalize_compare_control_discovery_prefs_for_dashboard(current_prefs)
     if exclude_fields is not None:
-        next_prefs["exclude_fields"] = _clean_list(exclude_fields)
+        next_prefs["exclude_fields"] = _clean_compare_control_string_list(exclude_fields)
     if prefer_fields is not None:
-        next_prefs["prefer_fields"] = _clean_list(prefer_fields)
+        next_prefs["prefer_fields"] = _clean_compare_control_string_list(prefer_fields)
     if demote_patterns is not None:
-        next_prefs["demote_patterns"] = _clean_list(demote_patterns)
+        next_prefs["demote_patterns"] = _clean_compare_control_string_list(demote_patterns)
     if max_cards is not None:
         next_prefs["max_cards"] = int(max_cards)
 
@@ -26416,17 +26576,250 @@ def compare_control_discovery_preferences(
     previous_runs_payload["compare_control"] = compare_control_payload
     payload["previous_runs"] = previous_runs_payload
 
-    ui_state_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        ui_state_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        _fail(f"Unable to write dashboard UI state file: {exc}")
+    _write_compare_control_dashboard_ui_state_payload(ui_state_path, payload)
 
     typer.secho(f"Updated discovery preferences in {ui_state_path}", fg=typer.colors.GREEN)
     typer.echo(json.dumps(next_prefs, indent=2, sort_keys=True))
+
+
+@compare_control_app.command("dashboard-state")
+def compare_control_dashboard_state(
+    output_root: Path = typer.Option(
+        DEFAULT_OUTPUT,
+        "--output-root",
+        help="Output root used to resolve the default dashboard location.",
+    ),
+    dashboard_dir: Path | None = typer.Option(
+        None,
+        "--dashboard-dir",
+        help=(
+            "Dashboard directory containing assets/dashboard_ui_state.json. "
+            "Defaults to <history root for output>/dashboard."
+        ),
+    ),
+    target_set: str = typer.Option(
+        "primary",
+        "--set",
+        help="Which compare/control set to edit: primary or secondary.",
+    ),
+    show_only: bool = typer.Option(
+        False,
+        "--show-only",
+        help="Print the current compare/control dashboard state without writing.",
+    ),
+    reset: bool = typer.Option(
+        False,
+        "--reset",
+        help="Reset the targeted set to default state before applying updates.",
+    ),
+    outcome_field: str | None = typer.Option(
+        None,
+        "--outcome-field",
+        help="Visible Compare & Control outcome field.",
+    ),
+    compare_field: str | None = typer.Option(
+        None,
+        "--compare-field",
+        help="Visible Compare & Control compare field.",
+    ),
+    view_mode: str | None = typer.Option(
+        None,
+        "--view",
+        help="Visible Compare & Control view: discover, raw, or controlled.",
+    ),
+    hold_constant_fields: list[str] | None = typer.Option(
+        None,
+        "--hold-constant-field",
+        help="Visible hold-constant field (repeatable). Replaces the target set list.",
+    ),
+    split_field: str | None = typer.Option(
+        None,
+        "--split-field",
+        help="Visible Compare & Control split field.",
+    ),
+    selected_groups: list[str] | None = typer.Option(
+        None,
+        "--selected-group",
+        help="Visible categorical group subset (repeatable). Replaces the target set list.",
+    ),
+    enable_second_set: bool = typer.Option(
+        False,
+        "--enable-second-set",
+        help="Enable Set 2 in the visible dashboard layout.",
+    ),
+    disable_second_set: bool = typer.Option(
+        False,
+        "--disable-second-set",
+        help="Disable Set 2 in the visible dashboard layout.",
+    ),
+    chart_layout: str | None = typer.Option(
+        None,
+        "--chart-layout",
+        help="Visible dual-set chart layout: stacked, side_by_side, or combined.",
+    ),
+    combined_axis_mode: str | None = typer.Option(
+        None,
+        "--combined-axis-mode",
+        help="Visible combined-chart Y-axis mode: single or dual.",
+    ),
+) -> None:
+    """Read or update the live Compare & Control state used by the dashboard UI."""
+    output_root = _unwrap_typer_option_default(output_root)
+    dashboard_dir = _unwrap_typer_option_default(dashboard_dir)
+    target_set = _unwrap_typer_option_default(target_set)
+    show_only = _unwrap_typer_option_default(show_only)
+    reset = _unwrap_typer_option_default(reset)
+    outcome_field = _unwrap_typer_option_default(outcome_field)
+    compare_field = _unwrap_typer_option_default(compare_field)
+    view_mode = _unwrap_typer_option_default(view_mode)
+    hold_constant_fields = _unwrap_typer_option_default(hold_constant_fields)
+    split_field = _unwrap_typer_option_default(split_field)
+    selected_groups = _unwrap_typer_option_default(selected_groups)
+    enable_second_set = _unwrap_typer_option_default(enable_second_set)
+    disable_second_set = _unwrap_typer_option_default(disable_second_set)
+    chart_layout = _unwrap_typer_option_default(chart_layout)
+    combined_axis_mode = _unwrap_typer_option_default(combined_axis_mode)
+
+    set_key = str(target_set or "primary").strip().lower()
+    if set_key not in {"primary", "secondary"}:
+        _fail("--set must be either 'primary' or 'secondary'.")
+    if enable_second_set and disable_second_set:
+        _fail("Choose only one of --enable-second-set or --disable-second-set.")
+
+    resolved_dashboard_dir = _resolve_compare_control_dashboard_dir(
+        Path(output_root),
+        dashboard_dir,
+    )
+    ui_state_path = _compare_control_ui_state_path_for_dashboard(resolved_dashboard_dir)
+    payload = _load_compare_control_dashboard_ui_state_payload(ui_state_path)
+
+    previous_runs_payload = payload.get("previous_runs")
+    if not isinstance(previous_runs_payload, dict):
+        previous_runs_payload = {}
+    compare_control_payload = previous_runs_payload.get("compare_control")
+    if not isinstance(compare_control_payload, dict):
+        compare_control_payload = {}
+
+    current_state = (
+        compare_control_payload.get("second_set")
+        if set_key == "secondary"
+        else compare_control_payload
+    )
+    if not isinstance(current_state, dict):
+        current_state = {}
+
+    updates_requested = any(
+        value is not None
+        for value in (
+            outcome_field,
+            compare_field,
+            view_mode,
+            hold_constant_fields,
+            split_field,
+            selected_groups,
+            chart_layout,
+            combined_axis_mode,
+        )
+    ) or enable_second_set or disable_second_set
+    should_write = bool(reset or updates_requested) and not bool(show_only)
+
+    if not should_write:
+        shown_state = dict(current_state)
+        if set_key == "secondary":
+            shown_state["second_set_enabled"] = bool(
+                compare_control_payload.get("second_set_enabled")
+            )
+        shown_state["chart_layout"] = _normalize_compare_control_dashboard_chart_layout(
+            compare_control_payload.get("chart_layout")
+        )
+        shown_state["combined_axis_mode"] = (
+            _normalize_compare_control_dashboard_combined_axis_mode(
+                compare_control_payload.get("combined_axis_mode")
+            )
+        )
+        typer.secho(f"Dashboard UI state: {ui_state_path}", fg=typer.colors.CYAN)
+        typer.echo(json.dumps(shown_state, indent=2, sort_keys=True))
+        if not ui_state_path.exists():
+            typer.secho(
+                "Note: state file does not exist yet; run `cookimport stats-dashboard` first "
+                "or pass explicit update flags to create it.",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+        return
+
+    next_state: dict[str, Any] = {} if reset else dict(current_state)
+    if outcome_field is not None:
+        next_state["outcome_field"] = str(outcome_field or "").strip()
+    if compare_field is not None:
+        next_state["compare_field"] = str(compare_field or "").strip()
+    if view_mode is not None:
+        next_state["view_mode"] = str(view_mode or "").strip().lower()
+    if hold_constant_fields is not None:
+        next_state["hold_constant_fields"] = _clean_compare_control_string_list(
+            hold_constant_fields
+        )
+    if split_field is not None:
+        next_state["split_field"] = str(split_field or "").strip()
+    if selected_groups is not None:
+        next_state["selected_groups"] = _clean_compare_control_string_list(selected_groups)
+    if (
+        compare_field is not None
+        and view_mode is None
+        and str(next_state.get("compare_field") or "").strip()
+        and str(next_state.get("view_mode") or "").strip().lower() in {"", "discover"}
+    ):
+        next_state["view_mode"] = "raw"
+
+    next_state["discovery_preferences"] = (
+        _normalize_compare_control_discovery_prefs_for_dashboard(
+            next_state.get("discovery_preferences")
+        )
+    )
+
+    if set_key == "secondary":
+        compare_control_payload["second_set"] = next_state
+        if enable_second_set or compare_field is not None or outcome_field is not None:
+            compare_control_payload["second_set_enabled"] = True
+    else:
+        compare_control_payload.update(next_state)
+
+    if enable_second_set:
+        compare_control_payload["second_set_enabled"] = True
+    if disable_second_set:
+        compare_control_payload["second_set_enabled"] = False
+    if chart_layout is not None:
+        compare_control_payload["chart_layout"] = (
+            _normalize_compare_control_dashboard_chart_layout(chart_layout)
+        )
+    if combined_axis_mode is not None:
+        compare_control_payload["combined_axis_mode"] = (
+            _normalize_compare_control_dashboard_combined_axis_mode(combined_axis_mode)
+        )
+
+    previous_runs_payload["compare_control"] = compare_control_payload
+    payload["previous_runs"] = previous_runs_payload
+    _write_compare_control_dashboard_ui_state_payload(ui_state_path, payload)
+
+    result_state = (
+        compare_control_payload.get("second_set")
+        if set_key == "secondary"
+        else compare_control_payload
+    )
+    shown_state = dict(result_state if isinstance(result_state, dict) else {})
+    shown_state["second_set_enabled"] = bool(compare_control_payload.get("second_set_enabled"))
+    shown_state["chart_layout"] = _normalize_compare_control_dashboard_chart_layout(
+        compare_control_payload.get("chart_layout")
+    )
+    shown_state["combined_axis_mode"] = (
+        _normalize_compare_control_dashboard_combined_axis_mode(
+            compare_control_payload.get("combined_axis_mode")
+        )
+    )
+    typer.secho(
+        f"Updated compare/control dashboard state in {ui_state_path}",
+        fg=typer.colors.GREEN,
+    )
+    typer.echo(json.dumps(shown_state, indent=2, sort_keys=True))
 
 
 @compare_control_app.command("run")
@@ -29166,7 +29559,8 @@ def labelstudio_benchmark(
                 max(0.0, time.monotonic() - benchmark_started),
             ),
         )
-        predict_only_run_config: dict[str, Any] = {
+        predict_only_run_config: dict[str, Any] = apply_codex_decision_metadata(
+            {
             "eval_mode": selected_eval_mode,
             "gold_adaptation_mode": selected_gold_adaptation_mode,
             "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
@@ -29246,7 +29640,9 @@ def labelstudio_benchmark(
             "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
             "codex_farm_failure_mode": selected_codex_farm_failure_mode,
             "stage_block_predictions_path": str(stage_predictions_path),
-        }
+            },
+            benchmark_codex_decision,
+        )
         if single_offline_split_cache_run_config is not None:
             predict_only_run_config["single_offline_split_cache"] = (
                 single_offline_split_cache_run_config
@@ -29849,7 +30245,8 @@ def labelstudio_benchmark(
                 line_role_gate_md_path,
             )
 
-    benchmark_run_config: dict[str, Any] = {
+    benchmark_run_config: dict[str, Any] = apply_codex_decision_metadata(
+        {
         "eval_mode": selected_eval_mode,
         "gold_adaptation_mode": selected_gold_adaptation_mode,
         "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
@@ -29934,7 +30331,9 @@ def labelstudio_benchmark(
         "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
         "stage_block_predictions_path": str(stage_predictions_path),
-    }
+        },
+        benchmark_codex_decision,
+    )
     if single_offline_split_cache_run_config is not None:
         benchmark_run_config["single_offline_split_cache"] = (
             single_offline_split_cache_run_config
@@ -30246,6 +30645,54 @@ def labelstudio_benchmark(
                 f"External-AI upload bundle: {upload_bundle_dir}",
                 fg=typer.colors.CYAN,
             )
+
+
+@bench_app.command("oracle-upload")
+def bench_oracle_upload(
+    path: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=True,
+        help="Existing benchmark session root or upload_bundle_v1 directory.",
+    ),
+    mode: str = typer.Option(
+        "browser",
+        "--mode",
+        help="Oracle execution mode: browser or dry-run.",
+    ),
+    model: str = typer.Option(
+        ORACLE_DEFAULT_MODEL,
+        "--model",
+        help="Oracle model used for browser uploads.",
+    ),
+) -> None:
+    """Upload an existing benchmark upload bundle to Oracle."""
+    try:
+        target = resolve_oracle_benchmark_bundle(path)
+        result = run_oracle_benchmark_upload(
+            target=target,
+            mode=mode,
+            model=model,
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"Oracle benchmark upload failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(1) from exc
+
+    status_color = typer.colors.GREEN if result.success else typer.colors.RED
+    typer.secho(
+        f"Oracle benchmark upload {'completed' if result.success else 'failed'}.",
+        fg=status_color,
+    )
+    _print_oracle_upload_summary(
+        target=target,
+        result=result,
+        success_color=status_color,
+    )
+    if not result.success:
+        raise typer.Exit(1)
 
 
 @bench_app.command("speed-discover")

@@ -279,3 +279,83 @@ def test_compare_control_discovery_preferences_writes_dashboard_ui_state(
     assert prefs["prefer_fields"] == ["ai_model"]
     assert prefs["demote_patterns"] == ["hash"]
     assert prefs["max_cards"] == 5
+
+
+def test_compare_control_dashboard_state_writes_primary_set(
+    tmp_path: Path,
+) -> None:
+    dashboard_dir = tmp_path / "dashboard"
+
+    result = runner.invoke(
+        app,
+        [
+            "compare-control",
+            "dashboard-state",
+            "--dashboard-dir",
+            str(dashboard_dir),
+            "--outcome-field",
+            "strict_accuracy",
+            "--compare-field",
+            "ai_model",
+            "--hold-constant-field",
+            "source_name",
+            "--split-field",
+            "ai_effort",
+        ],
+    )
+
+    assert result.exit_code == 0
+    ui_state_path = dashboard_dir / "assets" / "dashboard_ui_state.json"
+    assert ui_state_path.exists()
+    payload = json.loads(ui_state_path.read_text(encoding="utf-8"))
+    compare_control = payload["previous_runs"]["compare_control"]
+    assert compare_control["outcome_field"] == "strict_accuracy"
+    assert compare_control["compare_field"] == "ai_model"
+    assert compare_control["view_mode"] == "raw"
+    assert compare_control["hold_constant_fields"] == ["source_name"]
+    assert compare_control["split_field"] == "ai_effort"
+    assert payload["saved_at"]
+
+
+def test_compare_control_dashboard_state_writes_secondary_set_layout(
+    tmp_path: Path,
+) -> None:
+    dashboard_dir = tmp_path / "dashboard"
+
+    result = runner.invoke(
+        app,
+        [
+            "compare-control",
+            "dashboard-state",
+            "--dashboard-dir",
+            str(dashboard_dir),
+            "--set",
+            "secondary",
+            "--outcome-field",
+            "strict_accuracy",
+            "--compare-field",
+            "ai_effort",
+            "--view",
+            "controlled",
+            "--selected-group",
+            "high",
+            "--enable-second-set",
+            "--chart-layout",
+            "combined",
+            "--combined-axis-mode",
+            "dual",
+        ],
+    )
+
+    assert result.exit_code == 0
+    ui_state_path = dashboard_dir / "assets" / "dashboard_ui_state.json"
+    payload = json.loads(ui_state_path.read_text(encoding="utf-8"))
+    compare_control = payload["previous_runs"]["compare_control"]
+    assert compare_control["second_set_enabled"] is True
+    assert compare_control["chart_layout"] == "combined"
+    assert compare_control["combined_axis_mode"] == "dual"
+    second_set = compare_control["second_set"]
+    assert second_set["outcome_field"] == "strict_accuracy"
+    assert second_set["compare_field"] == "ai_effort"
+    assert second_set["view_mode"] == "controlled"
+    assert second_set["selected_groups"] == ["high"]

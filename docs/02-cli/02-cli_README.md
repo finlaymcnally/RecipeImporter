@@ -375,6 +375,7 @@ Interactive benchmark now has a mode submenu before execution:
        - `upload_bundle_overview.md`
        - `upload_bundle_index.json`
        - `upload_bundle_payload.jsonl`
+     - after that bundle is written, interactive single-offline mode automatically sends it to Oracle via the same path used by `cookimport bench oracle-upload`
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`
    - if one variant fails, successful variant artifacts are preserved and comparison artifacts are skipped,
@@ -415,6 +416,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_index.json`
      - `single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
      - group mode targets ~40MB and automatically lowers per-book sampled detail as selected-book count increases.
+     - when that group bundle is written, interactive multi-book single-profile mode automatically uploads only that top-level bundle to Oracle; per-book bundles are retained but not auto-uploaded
    - writes processed cookbook outputs under `<interactive output_dir>/<benchmark_timestamp>/single-profile-benchmark/<index_source_slug>/...`.
 4. Returns to the main menu on completion.
 
@@ -451,9 +453,11 @@ Top-level command groups:
 - `cookimport perf-report`
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
-- `cookimport bench <speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-leaderboard|quality-compare|eval-stage>`
+- `cookimport bench <oracle-upload|speed-discover|speed-run|speed-compare|quality-discover|quality-run|quality-leaderboard|quality-compare|eval-stage>`
 - `cookimport tag-catalog export`
 - `cookimport tag-recipes <debug-signals|suggest|apply>`
+
+`cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
 
 Every command supports `--help`.
 

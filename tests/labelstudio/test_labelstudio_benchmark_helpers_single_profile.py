@@ -524,6 +524,90 @@ def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bu
     )
 
 
+def test_interactive_single_profile_uploads_only_group_oracle_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b = tmp_path / "Book B.docx"
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="gold-a",
+        ),
+        cli.AllMethodTarget(
+            gold_spans_path=gold_b,
+            source_file=source_b,
+            source_file_name=source_b.name,
+            gold_display="gold-b",
+        ),
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-03-05_23.01.17"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict({}, warn_context="test oracle group upload")
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", lambda **_kwargs: None)
+
+    group_bundle_dir = (
+        benchmark_eval_output
+        / "single-profile-benchmark"
+        / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+
+    def _fake_write_benchmark_upload_bundle(**kwargs):
+        output_dir = kwargs.get("output_dir")
+        assert isinstance(output_dir, Path)
+        if output_dir == group_bundle_dir:
+            return group_bundle_dir
+        return output_dir
+
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        _fake_write_benchmark_upload_bundle,
+    )
+    oracle_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        cli,
+        "_maybe_upload_benchmark_bundle_to_oracle",
+        lambda **kwargs: oracle_calls.append(dict(kwargs)),
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert completed is True
+    assert oracle_calls == [
+        {
+            "bundle_dir": group_bundle_dir,
+            "scope": "single_profile_group",
+        }
+    ]
+
+
 def test_interactive_single_profile_selected_matched_benchmark_runs_selected_targets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

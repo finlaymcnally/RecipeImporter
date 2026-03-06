@@ -2781,6 +2781,10 @@ svg [data-metric-tooltip-key]:hover * {
   gap: 0.52rem;
   margin-top: 0.58rem;
 }
+#compare-control-analysis-section.compare-control-dual-enabled .compare-control-results-stack {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
 .compare-control-results-card {
   border: 1px solid #dde7d2;
   border-radius: 9px;
@@ -4144,6 +4148,9 @@ footer { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top
   #compare-control-analysis-section.compare-control-dual-enabled .compare-control-controls-split {
     grid-template-columns: minmax(0, 1fr);
   }
+  #compare-control-analysis-section.compare-control-dual-enabled .compare-control-results-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
   #compare-control-analysis-section.compare-control-dual-enabled .compare-control-set-panel {
     min-height: 0;
   }
@@ -5008,6 +5015,10 @@ _JS = """\
       if (compareControlChartLayout !== "stacked") {
         compareControlChartLayout = "stacked";
       }
+      return;
+    }
+    if (compareControlChartLayout === "stacked") {
+      compareControlChartLayout = "side_by_side";
     }
   }
 

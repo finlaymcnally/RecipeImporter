@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from cookimport.config.run_settings import (
     RunSettings,
+    build_run_settings,
     compute_effective_workers,
     run_settings_ui_specs,
 )
@@ -100,6 +101,24 @@ def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
     settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
 
     assert settings.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+
+
+def test_build_run_settings_defaults_match_safe_run_settings_defaults() -> None:
+    settings = build_run_settings(
+        workers=2,
+        pdf_split_workers=2,
+        epub_split_workers=2,
+        pdf_pages_per_job=10,
+        epub_spine_items_per_job=5,
+        epub_extractor="unstructured",
+        ocr_device="auto",
+        ocr_batch_size=1,
+        warm_models=False,
+    )
+
+    assert settings.llm_recipe_pipeline.value == "off"
+    assert settings.atomic_block_splitter.value == "off"
+    assert settings.line_role_pipeline.value == "off"
 
 
 def test_run_settings_accepts_codex_farm_recipe_mode_aliases() -> None:

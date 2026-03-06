@@ -226,8 +226,8 @@ Benchmark scan details:
 - Compare/control chart generation auto-selects by compare-field type (numeric -> scatter, categorical -> bars) and stays builder-based (`buildCompareControlChartDefinition` + chart-type builders), so future chart types can be added without replacing host/render wiring.
 - Compare/control supports two concurrent sets:
   - Set 2 expands from the right and the controls split left/right with a taller workspace.
-  - per-set analysis tables remain stacked full-width with per-set shading (not side-by-side/squished).
-  - chart layout can be `stacked`, `side_by_side`, or `combined`; combined mode can run with shared Y-axis or dual Y-axes (left/right) when compatible.
+  - when Set 2 opens, the default dual layout stays left/right the whole way down: controls, result tables, and per-set charts render in two columns.
+  - chart layout auto-switches from `stacked` to `side_by_side` when Set 2 is opened; `combined` remains available as an explicit override and can run with shared Y-axis or dual Y-axes (left/right) when compatible.
 - Categorical compare/control bars are rendered with a calm pastel per-group palette and lighter column styling for lower visual weight.
 - Categorical compare/control bar colors use deterministic compare-field+category hashing, so mapping stays consistent when local subsets, filters, or category frequencies change.
 - `Compare & Control` also has a `Reset` action that restores default panel state without touching table filters.
