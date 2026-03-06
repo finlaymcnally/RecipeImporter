@@ -1120,6 +1120,7 @@ if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
 js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
 js = js.replace(/\n\}\)\(\);\s*$/, `
   globalThis.__qualityTokensHarness = {
+    aiAssistanceProfileLabelForRecord,
     aiModelLabelForRecord,
     aiEffortLabelForRecord,
     previousRunsAllTokenUseDisplay,
@@ -1169,6 +1170,7 @@ const runtimeErrorRecord = {
   strict_accuracy: 0.54,
   run_config: {
     llm_recipe_pipeline: "codex-farm-3pass-v1",
+    line_role_pipeline: "off",
     codex_farm_model: "gpt-5.1-codex-mini",
     codex_farm_runtime_error: "codex-farm failed for recipe.schemaorg.v1 (subprocess_exit=124)",
   },
@@ -1177,19 +1179,27 @@ const aiOffEffortRecord = {
   strict_accuracy: 0.54,
   run_config: {
     llm_recipe_pipeline: "off",
+    line_role_pipeline: "off",
   },
 };
 const vanillaPathAiOffEffortRecord = {
   strict_accuracy: 0.54,
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-offline-benchmark/my-book/vanilla",
-  run_config: {},
+  run_config: {
+    llm_recipe_pipeline: "off",
+    line_role_pipeline: "off",
+  },
+};
+const lineRoleOnlyEffortRecord = {
+  strict_accuracy: 0.54,
+  run_config: {
+    llm_recipe_pipeline: "off",
+    line_role_pipeline: "codex-line-role-v1",
+  },
 };
 const unknownEffortRecord = {
   strict_accuracy: 0.54,
-  run_config: {
-    llm_recipe_pipeline: "codex-farm-3pass-v1",
-    codex_farm_model: "gpt-5.1-codex-mini",
-  },
+  run_config: {},
 };
 const payload = {
   record_quality_per_million_tokens: Number(
@@ -1218,6 +1228,10 @@ const payload = {
   ai_off_effort_label: String(hooks.aiEffortLabelForRecord(aiOffEffortRecord) || ""),
   vanilla_path_ai_off_effort_label: String(
     hooks.aiEffortLabelForRecord(vanillaPathAiOffEffortRecord) || ""
+  ),
+  line_role_only_effort_label: String(hooks.aiEffortLabelForRecord(lineRoleOnlyEffortRecord) || ""),
+  line_role_only_profile_label: String(
+    hooks.aiAssistanceProfileLabelForRecord(lineRoleOnlyEffortRecord) || ""
   ),
   unknown_effort_label: String(hooks.aiEffortLabelForRecord(unknownEffortRecord) || ""),
 };
@@ -1642,7 +1656,7 @@ def _run_benchmark_trend_host_width_drift_harness(
 class TestSchema:
     def test_dashboard_data_minimal(self):
         d = DashboardData()
-        assert d.schema_version == "12"
+        assert d.schema_version == "13"
         assert d.stage_records == []
         assert d.benchmark_records == []
 
@@ -3177,11 +3191,13 @@ class TestRenderer:
         assert "function aiModelEffortLabelForRecord(record)" in js
         assert "function aiModelLabelForRecord(record)" in js
         assert "function aiEffortLabelForRecord(record)" in js
+        assert "function aiAssistanceProfileForRecord(record)" in js
+        assert "function aiAssistanceProfileLabelForRecord(record)" in js
         assert "function benchmarkVariantFromPathOrPipeline(record)" in js
         assert "function rawAiModelForRecord(record)" in js
         assert "function rawAiEffortForRecord(record)" in js
         assert 'const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
-        assert 'if (benchmarkVariantForRecord(record) === "vanilla") return null;' in js
+        assert 'if (aiAssistanceProfileForRecord(record) === "deterministic") return null;' in js
         assert "function previousRunsAllTokenUseDisplay(row)" in js
         assert "function previousRunsAllTokenUseTitle(row)" in js
         assert "function previousRunsQualityPerMillionTokensTitle(row)" in js
@@ -3194,11 +3210,10 @@ class TestRenderer:
         assert "formatTokenCountCompact(parts.total)" in js
         assert "formatTokenCountCompact(parts.input)" in js
         assert "formatTokenCountCompact(parts.output)" in js
-        assert 'if (pipelineText === "off") return "off";' in js
         assert 'const runtimeError = codexRuntimeErrorForRecord(record);' in js
-        assert 'if (runtimeError) return "AI off";' in js
-        assert 'if (benchmarkVariantForRecord(record) === "vanilla") return "AI off";' in js
-        assert "return \"-\";" in js
+        assert 'if (runtimeError) return "System error";' in js
+        assert 'if (profile === "deterministic") return "AI off";' in js
+        assert 'return aiAssistanceProfileLabelForRecord(record);' in js
         assert 'lower === "<default>"' in js
         assert "function renderLatestRuntime()" in js
         assert "function latestRuntimeSummaryForRecords(records)" in js
@@ -3313,7 +3328,9 @@ class TestRenderer:
         assert "function isOfficialGoldenBenchmarkRecord(record)" in js
         assert 'if (!path.includes("/benchmark-vs-golden/")) return false;' in js
         assert 'if (!path.includes("/single-offline-benchmark/")) return false;' in js
-        assert 'return variant === "vanilla" || variant === "codexfarm";' in js
+        assert 'const pathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
+        assert '(pathVariant === "vanilla" && profile === "deterministic")' in js
+        assert '(pathVariant === "codexfarm" && profile === "full_stack")' in js
         assert 'const clearBtn = document.getElementById("previous-runs-clear-filters");' in js
         assert 'const clearAllBtn = document.getElementById("previous-runs-clear-all-filters");' in js
         assert "function clearAllPreviousRunsFilters()" in js
@@ -3500,10 +3517,11 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:12:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-profile-benchmark/book_a/2026-03-04_08.12.01/vanilla"
+                    "2026-03-04_08.00.00/single-offline-benchmark/book_a/2026-03-04_08.12.01/vanilla"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "off",
                 },
                 "strict_accuracy": 0.40,
                 "tokens_input": 100,
@@ -3514,10 +3532,11 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:11:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-profile-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
+                    "2026-03-04_08.00.00/single-offline-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "low",
                 },
@@ -3530,10 +3549,11 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:10:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-profile-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
+                    "2026-03-04_08.00.00/single-offline-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "low",
                 },
@@ -3546,10 +3566,11 @@ class TestRenderer:
                 "run_timestamp": "2026-03-03T20:10:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-03_20.00.00/single-profile-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
+                    "2026-03-03_20.00.00/single-offline-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "medium",
                 },
@@ -3592,10 +3613,12 @@ class TestRenderer:
         assert result["explicit_zero_telemetry_token_display"] == "0 total | 0 in | 0 out"
         assert result["explicit_zero_telemetry_all_token_use"] == pytest.approx(0.0)
         assert result["runtime_error_ai_model"] == "System error"
-        assert result["runtime_error_effort_label"] == "AI off"
+        assert result["runtime_error_effort_label"] == "Recipe only"
         assert result["ai_off_effort_label"] == "AI off"
         assert result["vanilla_path_ai_off_effort_label"] == "AI off"
-        assert result["unknown_effort_label"] == "-"
+        assert result["line_role_only_effort_label"] == "Line-role only"
+        assert result["line_role_only_profile_label"] == "Line-role only"
+        assert result["unknown_effort_label"] == "Unknown"
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -3682,6 +3705,10 @@ class TestRenderer:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.01.00/vanilla"
                 ),
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "off",
+                },
                 "strict_accuracy": 0.42,
             },
             {
@@ -3691,6 +3718,10 @@ class TestRenderer:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.06.00/codexfarm"
                 ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
+                },
                 "strict_accuracy": 0.58,
             },
         ]
@@ -3713,6 +3744,10 @@ class TestRenderer:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.01.00/vanilla"
                 ),
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "off",
+                },
                 "tokens_total": 1500,
             },
             {
@@ -3722,6 +3757,10 @@ class TestRenderer:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.06.00/codexfarm"
                 ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
+                },
                 "tokens_total": 2300,
             },
         ]
@@ -3749,6 +3788,10 @@ class TestRenderer:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.01.00/vanilla"
                 ),
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "off",
+                },
                 "strict_accuracy": 0.42,
             },
             {
@@ -3759,6 +3802,10 @@ class TestRenderer:
                     "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/"
                     "2026-03-01_10.06.00/codexfarm"
                 ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
+                },
                 "strict_accuracy": 0.58,
             },
         ]
@@ -4848,3 +4895,141 @@ class TestBenchmarkCsv:
             row = next(csv.DictReader(fh))
         assert row["recipes"] == "11"
         assert row["report_path"] == ""
+
+    def test_backfill_benchmark_csv_fills_line_role_tokens_from_manifest(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.30.00"
+        pred_run = eval_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path.write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "tokens_input": 40,
+                        "tokens_cached_input": 4,
+                        "tokens_output": 6,
+                        "tokens_reasoning": 1,
+                        "tokens_total": 46,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": "book.epub",
+                    "line_role_pipeline_telemetry_path": str(telemetry_path),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bench_row = {field: "" for field in _CSV_FIELDS}
+        bench_row.update(
+            {
+                "run_timestamp": "2026-02-16T14:31:00",
+                "run_dir": str(eval_dir),
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+            }
+        )
+        with csv_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDS)
+            writer.writeheader()
+            writer.writerow(bench_row)
+
+        summary = backfill_benchmark_history_csv(csv_path)
+
+        assert summary.token_rows_filled == 1
+        assert summary.token_fields_filled == 5
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            row = next(csv.DictReader(fh))
+        assert row["tokens_input"] == "40"
+        assert row["tokens_cached_input"] == "4"
+        assert row["tokens_output"] == "6"
+        assert row["tokens_reasoning"] == "1"
+        assert row["tokens_total"] == "46"
+
+    def test_dashboard_collector_sums_codex_farm_and_line_role_manifest_tokens(self, tmp_path):
+        history_dir = tmp_path / "output" / ".history"
+        history_dir.mkdir(parents=True)
+        csv_path = history_dir / "performance_history.csv"
+        eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.40.00"
+        pred_run = eval_dir / "prediction-run"
+        pred_run.mkdir(parents=True, exist_ok=True)
+        telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+        telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path.write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "tokens_input": 50,
+                        "tokens_cached_input": 5,
+                        "tokens_output": 7,
+                        "tokens_reasoning": 2,
+                        "tokens_total": 57,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (pred_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": "book.epub",
+                    "line_role_pipeline_telemetry_path": str(telemetry_path),
+                    "llm_codex_farm": {
+                        "process_runs": {
+                            "pass1": {
+                                "process_payload": {
+                                    "telemetry": {
+                                        "rows": [
+                                            {
+                                                "tokens_input": 101,
+                                                "tokens_cached_input": 9,
+                                                "tokens_output": 12,
+                                                "tokens_reasoning": 1,
+                                                "tokens_total": 114,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        bench_row = _sample_csv_row(
+            {
+                "run_timestamp": "2026-02-16T14:41:00",
+                "run_dir": str(eval_dir),
+                "file_name": "book.epub",
+                "run_category": "benchmark_eval",
+                "eval_scope": "freeform-spans",
+                "precision": "0.05",
+                "recall": "0.25",
+                "f1": "0.08",
+            }
+        )
+        csv_path.write_text(SAMPLE_CSV_HEADER + "\n" + bench_row + "\n", encoding="utf-8")
+
+        data = collect_dashboard_data(
+            output_root=tmp_path / "output",
+            golden_root=tmp_path / "golden",
+        )
+
+        assert len(data.benchmark_records) == 1
+        record = data.benchmark_records[0]
+        assert record.tokens_input == 151
+        assert record.tokens_cached_input == 14
+        assert record.tokens_output == 19
+        assert record.tokens_reasoning == 3
+        assert record.tokens_total == 171

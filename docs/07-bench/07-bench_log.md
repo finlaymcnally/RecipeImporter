@@ -11,6 +11,24 @@ read_when:
 This log was pruned to retain only history that still maps to active benchmark features.
 Entries tied to removed benchmark surfaces were retired from this file.
 
+## 0.1 2026-03-05_22.35.10 QualitySuite deterministic baseline contract
+
+Problem captured:
+- QualitySuite all-method baseline variants could inherit AI-on defaults from incoming `RunSettings`, producing baseline artifacts with `llm_recipe_pipeline=off` but `line_role_pipeline=codex-line-role-v1`.
+
+Durable decision:
+- Normalize every all-method baseline payload through an explicit benchmark contract before hashing or emitting variants.
+- That contract is `llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, and `atomic_block_splitter=off`.
+- Build Codex variants from that normalized baseline contract, but do not send those Codex payloads back through the baseline normalizer.
+
+Evidence preserved:
+- `cookimport/cli.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
+- `/tmp/qualitysuite-baseline-validation/2026-03-05_22.36.13/experiments_resolved.json`
+
+Anti-loop note:
+- If `include_codex_farm=True` suddenly stops producing Codex variants, check whether Codex payloads are being re-normalized before stable-hash dedupe.
+
 ## 0. 2026-02-28 `docs/tasks` merge batch (quality suite + runtime adaptation)
 
 ### 2026-02-28_00.45.27 quality suite curated CUTDOWN targets

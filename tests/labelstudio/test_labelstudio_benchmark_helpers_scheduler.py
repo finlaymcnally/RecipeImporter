@@ -239,8 +239,8 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     base_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
-            "llm_knowledge_pipeline": "codex-knowledge-v1",
-            "llm_tags_pipeline": "codex-tags-v1",
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_tags_pipeline": "codex-farm-tags-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
         },
@@ -291,19 +291,22 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
         variant.run_settings.atomic_block_splitter.value for variant in codex_variants
     } == {"atomic-v1"}
     assert {variant.run_settings.epub_extractor.value for variant in baseline_variants} == {
-        "ebooklib",
-        "bs4",
-        "trafilatura",
+        "beautifulsoup",
         "unstructured",
     }
+    assert {
+        variant.run_settings.epub_unstructured_html_parser_version.value
+        for variant in baseline_variants
+        if variant.run_settings.epub_extractor.value == "unstructured"
+    } == {"v1", "v2"}
 
 
 def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() -> None:
     base_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
-            "llm_knowledge_pipeline": "codex-knowledge-v1",
-            "llm_tags_pipeline": "codex-tags-v1",
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "llm_tags_pipeline": "codex-farm-tags-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
         },
@@ -2006,6 +2009,208 @@ def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts(
 
     second_prediction_record = root_output_dir / str(second_row["prediction_record_jsonl"])
     assert second_prediction_record.exists()
+
+
+def test_run_all_method_prediction_once_reuses_across_runtime_only_setting_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant_a = cli.AllMethodVariant(
+        slug="reuse-workers-a",
+        run_settings=cli.RunSettings.from_dict(
+            {
+                **base_settings.to_run_config_dict(),
+                "workers": 1,
+                "pdf_split_workers": 1,
+                "epub_split_workers": 1,
+                "pdf_pages_per_job": 1,
+                "epub_spine_items_per_job": 1,
+                "warm_models": False,
+            },
+            warn_context="test",
+        ),
+        dimensions={"workers": 1},
+    )
+    variant_b = cli.AllMethodVariant(
+        slug="reuse-workers-b",
+        run_settings=cli.RunSettings.from_dict(
+            {
+                **base_settings.to_run_config_dict(),
+                "workers": 8,
+                "pdf_split_workers": 4,
+                "epub_split_workers": 3,
+                "pdf_pages_per_job": 10,
+                "epub_spine_items_per_job": 6,
+                "warm_models": True,
+            },
+            warn_context="test",
+        ),
+        dimensions={"workers": 8},
+    )
+
+    benchmark_calls = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal benchmark_calls
+        benchmark_calls += 1
+        _write_fake_all_method_prediction_phase_artifacts(
+            kwargs=kwargs,
+            source_file=source_file,
+            extractor="unstructured",
+            prediction_seconds=1.5,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    root_output_dir = tmp_path / "all-method"
+    scratch_root = root_output_dir / ".scratch"
+    processed_output_root = tmp_path / "processed-output"
+    scheduler_events_dir = tmp_path / "events"
+    split_phase_gate_dir = tmp_path / "split-gate"
+
+    first_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant_a,
+        config_index=1,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+    second_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant_b,
+        config_index=2,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+
+    assert benchmark_calls == 1
+    assert first_row["prediction_result_source"] == "executed"
+    assert second_row["prediction_result_source"] == "reused_in_run"
+    assert first_row["prediction_reuse_key"] == second_row["prediction_reuse_key"]
+    assert (
+        first_row["prediction_split_convert_input_key"]
+        == second_row["prediction_split_convert_input_key"]
+    )
+
+
+def test_run_all_method_prediction_once_misses_reuse_when_prediction_shape_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    variant_a = cli.AllMethodVariant(
+        slug="reuse-shape-a",
+        run_settings=cli.RunSettings.from_dict(
+            {
+                **base_settings.to_run_config_dict(),
+                "line_role_pipeline": "off",
+            },
+            warn_context="test",
+        ),
+        dimensions={"line_role_pipeline": "off"},
+    )
+    variant_b = cli.AllMethodVariant(
+        slug="reuse-shape-b",
+        run_settings=cli.RunSettings.from_dict(
+            {
+                **base_settings.to_run_config_dict(),
+                "line_role_pipeline": "deterministic-v1",
+            },
+            warn_context="test",
+        ),
+        dimensions={"line_role_pipeline": "deterministic-v1"},
+    )
+
+    benchmark_calls = 0
+
+    def fake_labelstudio_benchmark(**kwargs):
+        nonlocal benchmark_calls
+        benchmark_calls += 1
+        _write_fake_all_method_prediction_phase_artifacts(
+            kwargs=kwargs,
+            source_file=source_file,
+            extractor="unstructured",
+            prediction_seconds=1.5,
+        )
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    root_output_dir = tmp_path / "all-method"
+    scratch_root = root_output_dir / ".scratch"
+    processed_output_root = tmp_path / "processed-output"
+    scheduler_events_dir = tmp_path / "events"
+    split_phase_gate_dir = tmp_path / "split-gate"
+
+    first_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant_a,
+        config_index=1,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+    second_row = cli._run_all_method_prediction_once(
+        gold_spans_path=gold_spans,
+        source_file=source_file,
+        variant=variant_b,
+        config_index=2,
+        total_variants=2,
+        root_output_dir=root_output_dir,
+        scratch_root=scratch_root,
+        processed_output_root=processed_output_root,
+        overlap_threshold=0.5,
+        force_source_match=False,
+        max_concurrent_split_phases=1,
+        split_phase_gate_dir=split_phase_gate_dir,
+        scheduler_events_dir=scheduler_events_dir,
+        alignment_cache_dir=None,
+        split_worker_cap_per_config=None,
+    )
+
+    assert benchmark_calls == 2
+    assert first_row["prediction_result_source"] == "executed"
+    assert second_row["prediction_result_source"] == "executed"
+    assert first_row["prediction_reuse_key"] != second_row["prediction_reuse_key"]
 
 
 def test_run_all_method_prediction_once_reuses_cached_prediction_artifacts_across_roots(

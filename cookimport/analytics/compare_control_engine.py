@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import benchmark_semantics
 from .dashboard_collect import collect_dashboard_data
 
 COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy"
@@ -24,6 +25,7 @@ ANALYSIS_FIELD_PREFERRED = (
     "importer_name",
     "ai_model",
     "ai_effort",
+    "ai_assistance_profile",
     "run_config.llm_recipe_pipeline",
     "run_config.epub_extractor",
     "run_config.epub_extractor_effective",
@@ -44,6 +46,7 @@ PREVIOUS_RUNS_DEFAULT_COLUMNS = (
     "importer_name",
     "ai_model",
     "ai_effort",
+    "ai_assistance_profile",
 )
 COMPARE_CONTROL_FIELD_SKIP = {
     "artifact_dir",
@@ -87,6 +90,7 @@ COMPARE_CONTROL_DISCOVERY_DEMOTE_FACTOR = 0.2
 INSIGHTS_COMPARE_FIELD_PREFERRED = (
     "ai_model",
     "ai_effort",
+    "ai_assistance_profile",
     "run_config.llm_recipe_pipeline",
     "run_config.line_role_pipeline",
     "run_config.atomic_block_splitter",
@@ -289,15 +293,8 @@ def _benchmark_artifact_path(record: dict[str, Any]) -> str:
 
 
 def _benchmark_variant_from_path_or_pipeline(record: dict[str, Any]) -> str | None:
-    path = _benchmark_artifact_path(record)
-    if "/codexfarm/" in path or path.endswith("/codexfarm"):
-        return "codexfarm"
-    if "/vanilla/" in path or path.endswith("/vanilla"):
-        return "vanilla"
-    pipeline = _run_config_value(record, ("llm_recipe_pipeline", "llm_pipeline"))
-    if pipeline:
-        return "vanilla" if pipeline.lower() == "off" else "codexfarm"
-    return None
+    variant = benchmark_semantics.artifact_variant_for_record(record)
+    return variant if variant in {"vanilla", "codexfarm"} else None
 
 
 def _raw_ai_model_for_record(record: dict[str, Any]) -> str | None:
@@ -327,28 +324,31 @@ def _raw_ai_effort_for_record(record: dict[str, Any]) -> str | None:
 
 
 def benchmark_variant_for_record(record: dict[str, Any]) -> str:
-    variant = _benchmark_variant_from_path_or_pipeline(record)
-    if variant:
-        return variant
-    if _raw_ai_model_for_record(record) or _raw_ai_effort_for_record(record):
-        return "codexfarm"
-    return "other"
+    return benchmark_semantics.benchmark_variant_for_record(record)
+
+
+def ai_assistance_profile_for_record(record: dict[str, Any]) -> str:
+    return benchmark_semantics.ai_assistance_profile_for_record(record)
+
+
+def ai_assistance_profile_label_for_record(record: dict[str, Any]) -> str:
+    return benchmark_semantics.ai_assistance_profile_label_for_record(record)
 
 
 def _ai_model_for_record(record: dict[str, Any]) -> str | None:
-    if benchmark_variant_for_record(record) == "vanilla":
+    if ai_assistance_profile_for_record(record) == "deterministic":
         return None
     return _raw_ai_model_for_record(record)
 
 
 def _ai_effort_for_record(record: dict[str, Any]) -> str | None:
-    if benchmark_variant_for_record(record) == "vanilla":
+    if ai_assistance_profile_for_record(record) == "deterministic":
         return None
     return _raw_ai_effort_for_record(record)
 
 
 def _codex_runtime_error_for_record(record: dict[str, Any]) -> str | None:
-    if benchmark_variant_for_record(record) == "vanilla":
+    if ai_assistance_profile_for_record(record) == "deterministic":
         return None
     return _run_config_value(
         record,
@@ -367,21 +367,16 @@ def ai_model_label_for_record(record: dict[str, Any]) -> str:
     model = _ai_model_for_record(record)
     if model:
         return model
-    pipeline = _run_config_value(record, ("llm_recipe_pipeline", "llm_pipeline"))
-    if pipeline and pipeline.lower() == "off":
+    if ai_assistance_profile_for_record(record) == "deterministic":
         return "off"
     return "-"
 
 
 def ai_effort_label_for_record(record: dict[str, Any]) -> str:
-    if _codex_runtime_error_for_record(record):
-        return "AI off"
     effort = _ai_effort_for_record(record)
     if effort:
         return effort
-    if benchmark_variant_for_record(record) == "vanilla":
-        return "AI off"
-    return "-"
+    return ai_assistance_profile_label_for_record(record)
 
 
 def source_label_for_record(record: dict[str, Any]) -> str:
@@ -431,12 +426,7 @@ def is_likely_ai_test_benchmark_record(record: dict[str, Any]) -> bool:
 
 
 def is_official_golden_benchmark_record(record: dict[str, Any]) -> bool:
-    path = _benchmark_artifact_path(record)
-    if not path:
-        return False
-    if "/benchmark-vs-golden/" not in path:
-        return False
-    if "/single-offline-benchmark/" not in path:
+    if not benchmark_semantics.is_official_golden_benchmark_record(record):
         return False
     variant = benchmark_variant_for_record(record)
     return variant in {"vanilla", "codexfarm"}
@@ -509,6 +499,8 @@ def previous_runs_field_value(record: dict[str, Any], field_path: str) -> Any:
         return ai_model_label_for_record(record)
     if field == "ai_effort":
         return ai_effort_label_for_record(record)
+    if field == "ai_assistance_profile":
+        return ai_assistance_profile_label_for_record(record)
     if field == "all_token_use":
         return previous_runs_discounted_token_total(
             record.get("tokens_input"),
@@ -579,6 +571,7 @@ def collect_benchmark_field_paths(records: list[dict[str, Any]]) -> list[str]:
         "importer_name",
         "ai_model",
         "ai_effort",
+        "ai_assistance_profile",
         "run_timestamp",
         "run_config_hash",
         "run_config_summary",
@@ -614,6 +607,7 @@ def collect_benchmark_field_paths(records: list[dict[str, Any]]) -> list[str]:
             "source_label",
             "ai_model",
             "ai_effort",
+            "ai_assistance_profile",
             "artifact_dir_basename",
             "all_method_record",
             "speed_suite_record",

@@ -198,7 +198,7 @@ Config keys and defaults:
 - `pdf_pages_per_job` (default `50`)
 - `epub_spine_items_per_job` (default `10`)
 - `warm_models` (default `false`)
-- `llm_recipe_pipeline` (default `codex-farm-3pass-v1`)
+- `llm_recipe_pipeline` (default `off`)
 - `llm_knowledge_pipeline` (default `off`)
 - `llm_tags_pipeline` (default `off`)
 - `codex_farm_cmd` (default `codex-farm`)
@@ -528,7 +528,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `codex-farm-3pass-v1`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.

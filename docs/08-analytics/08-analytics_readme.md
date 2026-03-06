@@ -33,7 +33,7 @@ This README intentionally documents only active behavior. Historical implementat
 - Standalone all-method pages:
   - `all-method-benchmark/all-method-benchmark-run__<run_ts>.html`
   - `all-method-benchmark/all-method-benchmark__<run_ts>__<source_slug>.html`
-- Data contract: `cookimport/analytics/dashboard_schema.py` (`SCHEMA_VERSION = "12"`)
+- Data contract: `cookimport/analytics/dashboard_schema.py` (`SCHEMA_VERSION = "13"`)
 - Collect/render path: `dashboard_collect.py` -> `dashboard_render.py`
 
 ## 2) Code map
@@ -105,6 +105,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`):
 - Per-label durability field: `per_label_json` (compact JSON list used by CSV-first dashboard collection when eval artifacts are no longer present).
 - Recipe-level context: `recipes`, `gold_recipe_headers`
 - Codex token-usage fields: `tokens_input`, `tokens_cached_input`, `tokens_output`, `tokens_reasoning`, `tokens_total`
+- Manifest backfill now merges `llm_codex_farm` token telemetry with `line_role_pipeline_telemetry_path` when both exist, so line-role-only runs no longer stay blank in history/dashboard token columns.
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`, eval checkpoint timing columns
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 
@@ -199,7 +200,9 @@ Benchmark scan details:
 - `Previous Runs` includes separate `AI Model` and `AI Effort` columns; `Source` uses source-file basename first, then artifact-path slug fallback when source-file metadata is missing.
   - `AI Model` shows only model-derived runtime values (plus `off`); pipeline profile IDs are not displayed in that column.
   - `AI Model` renders `System error` when collector manifest enrichment finds a Codex runtime fatal error (`llm_codex_farm.fatalError`/equivalent), so failed fallback runs are visually distinct from successful model runs.
-  - `AI Effort` shows concrete effort values when present; `AI off` is shown for vanilla/pipeline-off runs and codex runtime failures, and `-` is used for unknown/missing effort (`<default>`, `default`, etc.).
+  - `AI Effort` shows concrete effort values when present; when effort metadata is missing it falls back to benchmark semantics: `AI off` only when both recipe and line-role AI are off, `Line-role only` / `Recipe only` / `Full-stack AI` for hybrid or AI-on rows, and `Unknown` when metadata is too sparse to classify.
+  - `AI Profile` is a first-class derived field backed by benchmark semantics, so compare/control and Previous Runs filters can isolate deterministic, line-role-only, recipe-only, full-stack, and unknown rows directly.
+  - `benchmark_variant` keeps `vanilla` / `codexfarm` only for official paired single-offline or single-profile benchmark paths that also match the expected deterministic/full-stack runtime contract; generic rows fall back to semantic variants instead of impersonating `vanilla`.
   - `All token use` and `Quality / 1M tokens` are part of the default `Previous Runs` columns.
   - `All token use` displays combined `total | input | output` with compact `k`/`m` formatting for large values.
   - Missing/blank token telemetry is treated as unknown (`-` in UI) rather than coerced to numeric zero; explicit zero token values still render as `0`.

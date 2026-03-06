@@ -405,3 +405,16 @@ Durable outcomes:
 Verification evidence retained:
 - `. .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/cli/test_cli_output_structure_fast.py`
 - Result: `16 passed`
+
+### 2026-03-05_22.35.25 c3imp preset-test cleanup
+
+Problem captured:
+- Some interactive-menu tests were checking named preset behavior correctly, but duplicated the preset values inline instead of asserting against the preset builders.
+
+Durable outcomes:
+- `tests/cli/test_c3imp_interactive_menu.py` now compares selected settings to `run_settings_flow` preset-builder / harmonizer outputs for codexfarm and vanilla branches.
+- Explicit preset-flow coverage was kept; only the duplicated literal-value assertions were removed.
+
+Verification evidence retained:
+- `. .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/cli/test_cli_output_structure_fast.py tests/cli/test_c3imp_interactive_menu.py`
+- Result: `37 passed`

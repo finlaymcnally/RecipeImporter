@@ -60,6 +60,9 @@ from cookimport.config.run_settings_adapters import (
     build_benchmark_call_kwargs_from_run_settings,
     build_stage_call_kwargs_from_run_settings,
 )
+from cookimport.config.prediction_identity import (
+    build_all_method_prediction_identity_payload,
+)
 from cookimport.epub_extractor_names import (
     EPUB_EXTRACTOR_CANONICAL_SET,
     EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
@@ -371,7 +374,7 @@ ALL_METHOD_ADAPTIVE_CPU_HOT_PCT = 95.0
 ALL_METHOD_ADAPTIVE_SATURATION_BACKLOG_MULTIPLIER = 2
 ALL_METHOD_MATCHER_GUARDRAIL_EVAL_RATIO_WARN = 0.10
 ALL_METHOD_MATCHER_GUARDRAIL_CACHE_HIT_WARN = 0.50
-ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION = "all_method_prediction_reuse.v1"
+ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION = "all_method_prediction_reuse.v2"
 ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION = "all_method_split_convert_input.v1"
 ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION = (
     "all_method_prediction_reuse_cache_entry.v1"
@@ -388,11 +391,6 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "pdf_ocr_policy",
     "ocr_batch_size",
     "pdf_column_gap_ratio",
-    "workers",
-    "pdf_split_workers",
-    "epub_split_workers",
-    "pdf_pages_per_job",
-    "epub_spine_items_per_job",
     "section_detector_backend",
     "multi_recipe_splitter",
     "multi_recipe_trace",
@@ -407,7 +405,6 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "web_schema_min_ingredients",
     "web_schema_min_instruction_steps",
     "llm_recipe_pipeline",
-    "codex_farm_cmd",
     "codex_farm_pass1_pattern_hints_enabled",
     "codex_farm_pipeline_pass1",
     "codex_farm_pipeline_pass2",
@@ -955,9 +952,9 @@ def _load_settings() -> Dict[str, Any]:
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": True,
         "epub_unstructured_preprocess_mode": "semantic_v1",
-        "llm_recipe_pipeline": "codex-farm-3pass-v1",
-        "line_role_pipeline": "codex-line-role-v1",
-        "atomic_block_splitter": "atomic-v1",
+        "llm_recipe_pipeline": "off",
+        "line_role_pipeline": "off",
+        "atomic_block_splitter": "off",
         "benchmark_sequence_matcher": "dmp",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
@@ -3570,6 +3567,53 @@ def _extract_codex_farm_token_usage_from_llm_manifest(
             ("tokens_reasoning", pass_tokens_reasoning),
             ("tokens_total", pass_tokens_total),
         ):
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _extract_line_role_token_usage_from_manifest(
+    payload: dict[str, Any],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    telemetry_path = str(payload.get("line_role_pipeline_telemetry_path") or "").strip()
+    if not telemetry_path:
+        return (None, None, None, None, None)
+    telemetry_payload = _load_json_dict(Path(telemetry_path))
+    if not isinstance(telemetry_payload, dict):
+        return (None, None, None, None, None)
+    summary = telemetry_payload.get("summary")
+    if not isinstance(summary, dict):
+        return (None, None, None, None, None)
+    return (
+        _single_offline_nonnegative_int_or_none(summary.get("tokens_input")),
+        _single_offline_nonnegative_int_or_none(summary.get("tokens_cached_input")),
+        _single_offline_nonnegative_int_or_none(summary.get("tokens_output")),
+        _single_offline_nonnegative_int_or_none(summary.get("tokens_reasoning")),
+        _single_offline_nonnegative_int_or_none(summary.get("tokens_total")),
+    )
+
+
+def _sum_token_usage(
+    *token_sets: tuple[int | None, int | None, int | None, int | None, int | None],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    keys = (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    )
+    totals: dict[str, int | None] = {key: None for key in keys}
+    for token_values in token_sets:
+        for key, value in zip(keys, token_values):
             if value is None:
                 continue
             current = totals.get(key)
@@ -10892,23 +10936,24 @@ def _load_pred_run_recipe_context(
     run_config_hash = str(payload.get("run_config_hash") or "").strip() or None
     run_config_summary = str(payload.get("run_config_summary") or "").strip() or None
     llm_codex_farm_payload = payload.get("llm_codex_farm")
+    tokens_input = None
+    tokens_cached_input = None
+    tokens_output = None
+    tokens_reasoning = None
+    tokens_total = None
+    codex_farm_tokens = (None, None, None, None, None)
+    if isinstance(llm_codex_farm_payload, dict):
+        codex_farm_tokens = _extract_codex_farm_token_usage_from_llm_manifest(
+            llm_codex_farm_payload
+        )
+    line_role_tokens = _extract_line_role_token_usage_from_manifest(payload)
     (
         tokens_input,
         tokens_cached_input,
         tokens_output,
         tokens_reasoning,
         tokens_total,
-    ) = (None, None, None, None, None)
-    if isinstance(llm_codex_farm_payload, dict):
-        (
-            tokens_input,
-            tokens_cached_input,
-            tokens_output,
-            tokens_reasoning,
-            tokens_total,
-        ) = _extract_codex_farm_token_usage_from_llm_manifest(
-            llm_codex_farm_payload
-        )
+    ) = _sum_token_usage(codex_farm_tokens, line_role_tokens)
     if isinstance(run_config, dict) and isinstance(llm_codex_farm_payload, dict):
         merged_run_config = dict(run_config)
         run_config_updated = False
@@ -13556,10 +13601,15 @@ def _build_all_method_variants(
         payload: dict[str, Any],
         dimensions: dict[str, Any],
         sweep_tag: str,
+        apply_baseline_contract: bool = True,
     ) -> None:
-        baseline_payload = _all_method_apply_baseline_contract(payload)
+        normalized_payload = (
+            _all_method_apply_baseline_contract(payload)
+            if apply_baseline_contract
+            else dict(payload)
+        )
         run_settings = RunSettings.from_dict(
-            baseline_payload,
+            normalized_payload,
             warn_context="all-method variant",
         )
         stable_hash = run_settings.stable_hash()
@@ -13578,11 +13628,11 @@ def _build_all_method_variants(
         )
         if include_codex_farm:
             current_llm = str(
-                baseline_payload.get("llm_recipe_pipeline") or "off"
+                normalized_payload.get("llm_recipe_pipeline") or "off"
             ).strip().lower()
             if current_llm == "off":
                 codex_payload = _all_method_apply_codex_contract_from_baseline(
-                    baseline_payload
+                    normalized_payload
                 )
                 codex_dimensions = dict(dimensions)
                 codex_dimensions["llm_recipe_pipeline"] = "codex-farm-3pass-v1"
@@ -13593,6 +13643,7 @@ def _build_all_method_variants(
                     payload=codex_payload,
                     dimensions=codex_dimensions,
                     sweep_tag=sweep_tag,
+                    apply_baseline_contract=False,
                 )
 
     def base_dimensions(payload: dict[str, Any]) -> dict[str, Any]:
@@ -15029,13 +15080,12 @@ def _all_method_prediction_reuse_key_payload(
     source_file: Path,
     run_settings: RunSettings,
 ) -> dict[str, Any]:
-    run_config = dict(run_settings.to_run_config_dict())
-    # Sequence matcher is evaluate-only for all-method; prediction artifacts are identical.
-    run_config.pop("benchmark_sequence_matcher", None)
     return {
         "schema_version": ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION,
         "source_file": str(source_file),
-        "run_config": run_config,
+        "prediction_identity": build_all_method_prediction_identity_payload(
+            run_settings
+        ),
     }
 
 
@@ -24215,7 +24265,7 @@ def stage(
         help="Soft minimum instruction lines used by scoring/gating.",
     ),
     llm_recipe_pipeline: str = typer.Option(
-        "codex-farm-3pass-v1",
+        "off",
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
@@ -26891,7 +26941,7 @@ def labelstudio_import(
         ),
     ),
     llm_recipe_pipeline: str = typer.Option(
-        "codex-farm-3pass-v1",
+        "off",
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "

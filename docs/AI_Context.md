@@ -227,6 +227,7 @@ Important clarification:
   - recipe correction: `llm_recipe_pipeline=codex-farm-3pass-v1`
   - knowledge harvesting: `llm_knowledge_pipeline=codex-farm-knowledge-v1` (pass4)
   - tag suggestion pass: `llm_tags_pipeline=codex-farm-tags-v1` (pass5)
+- Shared defaults are deterministic: `llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`. Codex-enabled paths are explicit opt-ins.
 - Label Studio freeform prelabel uses local Codex CLI invocation (`codex exec -` fallback path included).
 - Deterministic stage behavior remains the baseline when LLM settings are `off`.
 - Legacy modules (`cookimport/llm/client.py`, `cookimport/llm/repair.py`) still exist but are not the primary active stage path.

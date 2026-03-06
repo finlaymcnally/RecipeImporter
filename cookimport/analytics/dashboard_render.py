@@ -4441,6 +4441,7 @@ _JS = """\
     "importer_name",
     "ai_model",
     "ai_effort",
+    "ai_assistance_profile",
   ];
   const PREVIOUS_RUNS_COLUMN_META = {
     run_timestamp: {
@@ -4528,6 +4529,11 @@ _JS = """\
       title: "Best-effort AI thinking effort from benchmark run config metadata.",
       numeric: false,
     },
+    ai_assistance_profile: {
+      label: "AI Profile",
+      title: "Semantic benchmark labeling based on which AI paths actually ran.",
+      numeric: false,
+    },
   };
   const PREVIOUS_RUNS_SCORE_FIELDS = new Set([
     "strict_accuracy",
@@ -4564,6 +4570,7 @@ _JS = """\
     "importer_name",
     "ai_model",
     "ai_effort",
+    "ai_assistance_profile",
     "quality_per_million_tokens",
     "all_token_use",
     "run_config.llm_recipe_pipeline",
@@ -6168,8 +6175,12 @@ _JS = """\
     if (!path) return false;
     if (!path.includes("/benchmark-vs-golden/")) return false;
     if (!path.includes("/single-offline-benchmark/")) return false;
-    const variant = benchmarkVariantForRecord(record);
-    return variant === "vanilla" || variant === "codexfarm";
+    const pathVariant = benchmarkVariantFromPathOrPipeline(record);
+    const profile = aiAssistanceProfileForRecord(record);
+    return (
+      (pathVariant === "vanilla" && profile === "deterministic") ||
+      (pathVariant === "codexfarm" && profile === "full_stack")
+    );
   }
 
   function activePreviousRunsQuickFilterLabels(enabled) {
@@ -8935,6 +8946,7 @@ _JS = """\
       "importer_name",
       "ai_model",
       "ai_effort",
+      "ai_assistance_profile",
       "run_timestamp",
       "run_config_hash",
       "run_config_summary",
@@ -8970,6 +8982,7 @@ _JS = """\
     discovered.add("source_label");
     discovered.add("ai_model");
     discovered.add("ai_effort");
+    discovered.add("ai_assistance_profile");
     discovered.add("artifact_dir_basename");
     discovered.add("all_method_record");
     discovered.add("speed_suite_record");
@@ -9228,6 +9241,7 @@ _JS = """\
     if (fieldPath === "source_label") return sourceLabelForRecord(record);
     if (fieldPath === "ai_model") return aiModelLabelForRecord(record);
     if (fieldPath === "ai_effort") return aiEffortLabelForRecord(record);
+    if (fieldPath === "ai_assistance_profile") return aiAssistanceProfileLabelForRecord(record);
     if (fieldPath === "ai_model_effort") return aiModelEffortLabelForRecord(record);
     if (fieldPath === "all_token_use") {
       return discountedTokenTotalForRecord(record);
@@ -9616,20 +9630,62 @@ _JS = """\
     const path = benchmarkArtifactPath(record);
     if (path.includes("/codexfarm/") || path.endsWith("/codexfarm")) return "codexfarm";
     if (path.includes("/vanilla/") || path.endsWith("/vanilla")) return "vanilla";
-    const pipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
-    if (pipeline) {
-      const pipelineText = String(pipeline).toLowerCase();
-      if (pipelineText === "off") return "vanilla";
-      return "codexfarm";
-    }
     return null;
   }
 
-  function benchmarkVariantForRecord(record) {
-    const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);
-    if (pipelineOrPathVariant) return pipelineOrPathVariant;
-    if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "codexfarm";
+  function aiAssistanceProfileForRecord(record) {
+    const explicit = cleanConfigValue(record && record.ai_assistance_profile);
+    if (explicit) {
+      const explicitKey = String(explicit).toLowerCase().replace(/[-\s]+/g, "_");
+      if (["deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
+        return explicitKey;
+      }
+    }
+    const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
+    const lineRolePipeline = runConfigValue(record, ["line_role_pipeline"]);
+    const recipeOn = recipePipeline && String(recipePipeline).toLowerCase() !== "off";
+    const lineRoleOn = lineRolePipeline && String(lineRolePipeline).toLowerCase() !== "off";
+    if (recipeOn && lineRoleOn) return "full_stack";
+    if (recipeOn) return "recipe_only";
+    if (lineRoleOn) return "line_role_only";
+    if (recipePipeline || lineRolePipeline) return "deterministic";
+    if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "full_stack";
     return "other";
+  }
+
+  function aiAssistanceProfileLabelForRecord(record) {
+    const profile = aiAssistanceProfileForRecord(record);
+    if (profile === "deterministic") return "AI off";
+    if (profile === "line_role_only") return "Line-role only";
+    if (profile === "recipe_only") return "Recipe only";
+    if (profile === "full_stack") return "Full-stack AI";
+    return "Unknown";
+  }
+
+  function benchmarkVariantForRecord(record) {
+    const explicit = cleanConfigValue(record && record.benchmark_variant);
+    if (explicit) {
+      const explicitKey = String(explicit).toLowerCase().replace(/[-\s]+/g, "_");
+      if (["vanilla", "codexfarm", "deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
+        return explicitKey;
+      }
+    }
+    const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);
+    const profile = aiAssistanceProfileForRecord(record);
+    const path = benchmarkArtifactPath(record);
+    const isOfficialPairedBenchmark =
+      path.includes("/benchmark-vs-golden/") &&
+      (
+        path.includes("/single-offline-benchmark/") ||
+        path.includes("/single-profile-benchmark/")
+      );
+    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla" && profile === "deterministic") {
+      return "vanilla";
+    }
+    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codexfarm" && profile === "full_stack") {
+      return "codexfarm";
+    }
+    return profile;
   }
 
   function benchmarkRunGroupInfo(record) {
@@ -12449,6 +12505,7 @@ _JS = """\
       if (fieldName === "importer_name") return row.importer_name || "-";
       if (fieldName === "ai_model") return row.ai_model || "-";
       if (fieldName === "ai_effort") return row.ai_effort || "-";
+      if (fieldName === "ai_assistance_profile") return row.ai_assistance_profile || "-";
       if (fieldName === "ai_model_effort") return row.ai_model_effort || "-";
       if (fieldName === "all_token_use") {
         return discountedTokenTotalForRecord(row);
@@ -12469,6 +12526,7 @@ _JS = """\
     if (fieldName === "importer_name") return importerLabelForRecord(record);
     if (fieldName === "ai_model") return aiModelLabelForRecord(record);
     if (fieldName === "ai_effort") return aiEffortLabelForRecord(record);
+    if (fieldName === "ai_assistance_profile") return aiAssistanceProfileLabelForRecord(record);
     if (fieldName === "ai_model_effort") return aiModelEffortLabelForRecord(record);
     if (fieldName === "all_token_use") {
       return discountedTokenTotalForRecord(record);
@@ -13105,6 +13163,7 @@ _JS = """\
       const sourceCounts = Object.create(null);
       const aiModelCounts = Object.create(null);
       const aiEffortCounts = Object.create(null);
+      const aiProfileCounts = Object.create(null);
 
       groups.forEach(group => {
         const groupRecords = group.records.map(entry => entry.record);
@@ -13163,6 +13222,10 @@ _JS = """\
           const aiEffort = aiEffortLabelForRecord(r);
           if (aiEffort && aiEffort !== "-") {
             aiEffortCounts[aiEffort] = (aiEffortCounts[aiEffort] || 0) + 1;
+          }
+          const aiProfile = aiAssistanceProfileLabelForRecord(r);
+          if (aiProfile && aiProfile !== "-") {
+            aiProfileCounts[aiProfile] = (aiProfileCounts[aiProfile] || 0) + 1;
           }
           if (r.strict_accuracy != null) agg.strictAccuracyValues.push(Number(r.strict_accuracy));
           if (r.macro_f1_excluding_other != null) agg.macroF1Values.push(Number(r.macro_f1_excluding_other));
@@ -13227,6 +13290,7 @@ _JS = """\
       const sourceSummary = summarizeAllMethodSource(sourceCounts);
       const aiModel = mostCommonValue(aiModelCounts) || "-";
       const aiEffort = mostCommonValue(aiEffortCounts) || "-";
+      const aiAssistanceProfile = mostCommonValue(aiProfileCounts) || "-";
 
       return {
         type: "all_method",
@@ -13245,6 +13309,7 @@ _JS = """\
         importer_name: best ? best.importer_name : "-",
         ai_model: aiModel,
         ai_effort: aiEffort,
+        ai_assistance_profile: aiAssistanceProfile,
       };
     }
 
@@ -14112,11 +14177,11 @@ _JS = """\
     ]);
   }
   function aiModelForRecord(record) {
-    if (benchmarkVariantForRecord(record) === "vanilla") return null;
+    if (aiAssistanceProfileForRecord(record) === "deterministic") return null;
     return rawAiModelForRecord(record);
   }
   function codexRuntimeErrorForRecord(record) {
-    if (benchmarkVariantForRecord(record) === "vanilla") return null;
+    if (aiAssistanceProfileForRecord(record) === "deterministic") return null;
     return runConfigValue(record, [
       "codex_farm_runtime_error",
       "codex_farm_fatal_error",
@@ -14125,7 +14190,7 @@ _JS = """\
     ]);
   }
   function aiEffortForRecord(record) {
-    if (benchmarkVariantForRecord(record) === "vanilla") return null;
+    if (aiAssistanceProfileForRecord(record) === "deterministic") return null;
     return rawAiEffortForRecord(record);
   }
   function aiModelEffortLabelForRecord(record) {
@@ -14147,17 +14212,13 @@ _JS = """\
     if (runtimeError) return "System error";
     const model = aiModelForRecord(record);
     if (model) return model;
-    const pipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
-    if (pipeline && String(pipeline).toLowerCase() === "off") return "off";
+    if (aiAssistanceProfileForRecord(record) === "deterministic") return "off";
     return "-";
   }
   function aiEffortLabelForRecord(record) {
-    const runtimeError = codexRuntimeErrorForRecord(record);
-    if (runtimeError) return "AI off";
     const effort = aiEffortForRecord(record);
     if (effort) return effort;
-    if (benchmarkVariantForRecord(record) === "vanilla") return "AI off";
-    return "-";
+    return aiAssistanceProfileLabelForRecord(record);
   }
   function basename(path) {
     if (!path) return "";

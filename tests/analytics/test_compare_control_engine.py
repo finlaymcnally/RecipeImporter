@@ -139,31 +139,44 @@ def test_ai_model_label_system_error_for_runtime_failure() -> None:
     assert engine.previous_runs_field_value(record, "ai_model") == "System error"
 
 
-def test_ai_effort_label_distinguishes_ai_off_vs_unknown() -> None:
-    ai_off_record = {
+def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
+    deterministic_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
             "single-offline-benchmark/my-book/vanilla"
         ),
         "run_config": {
             "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
         },
     }
-    vanilla_without_pipeline_record = {
-        "artifact_dir": (
-            "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-offline-benchmark/my-book/vanilla"
-        ),
-        "run_config": {},
-    }
-    unknown_record = {
+    full_stack_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
             "single-offline-benchmark/my-book/codexfarm"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "codex-line-role-v1",
         },
+    }
+    line_role_only = {
+        "artifact_dir": "/tmp/qualitysuite/my-book/eval",
+        "run_config": {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "codex-line-role-v1",
+        },
+    }
+    recipe_only = {
+        "artifact_dir": "/tmp/qualitysuite/my-book/eval",
+        "run_config": {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "off",
+        },
+    }
+    unknown = {
+        "artifact_dir": "/tmp/qualitysuite/my-book/eval",
+        "run_config": {},
     }
     runtime_error_record = {
         "artifact_dir": (
@@ -172,21 +185,37 @@ def test_ai_effort_label_distinguishes_ai_off_vs_unknown() -> None:
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "off",
             "codex_farm_runtime_error": "codex auth failed",
         },
     }
 
-    assert engine.ai_effort_label_for_record(ai_off_record) == "AI off"
-    assert engine.previous_runs_field_value(ai_off_record, "ai_effort") == "AI off"
-    assert engine.ai_effort_label_for_record(vanilla_without_pipeline_record) == "AI off"
-    assert (
-        engine.previous_runs_field_value(vanilla_without_pipeline_record, "ai_effort")
-        == "AI off"
+    assert engine.benchmark_variant_for_record(deterministic_official) == "vanilla"
+    assert engine.ai_assistance_profile_for_record(deterministic_official) == "deterministic"
+    assert engine.ai_effort_label_for_record(deterministic_official) == "AI off"
+    assert engine.previous_runs_field_value(deterministic_official, "ai_effort") == "AI off"
+
+    assert engine.benchmark_variant_for_record(full_stack_official) == "codexfarm"
+    assert engine.ai_assistance_profile_for_record(full_stack_official) == "full_stack"
+    assert engine.previous_runs_field_value(full_stack_official, "ai_assistance_profile") == (
+        "Full-stack AI"
     )
-    assert engine.ai_effort_label_for_record(runtime_error_record) == "AI off"
-    assert engine.previous_runs_field_value(runtime_error_record, "ai_effort") == "AI off"
-    assert engine.ai_effort_label_for_record(unknown_record) == "-"
-    assert engine.previous_runs_field_value(unknown_record, "ai_effort") == "-"
+
+    assert engine.benchmark_variant_for_record(line_role_only) == "line_role_only"
+    assert engine.ai_assistance_profile_for_record(line_role_only) == "line_role_only"
+    assert engine.ai_effort_label_for_record(line_role_only) == "Line-role only"
+    assert engine.ai_model_label_for_record(line_role_only) == "-"
+
+    assert engine.benchmark_variant_for_record(recipe_only) == "recipe_only"
+    assert engine.ai_assistance_profile_for_record(recipe_only) == "recipe_only"
+    assert engine.ai_effort_label_for_record(recipe_only) == "Recipe only"
+
+    assert engine.benchmark_variant_for_record(unknown) == "other"
+    assert engine.ai_assistance_profile_for_record(unknown) == "other"
+    assert engine.ai_effort_label_for_record(unknown) == "Unknown"
+
+    assert engine.ai_model_label_for_record(runtime_error_record) == "System error"
+    assert engine.ai_effort_label_for_record(runtime_error_record) == "Recipe only"
 
 
 def test_controlled_categorical_standardizes_strata() -> None:

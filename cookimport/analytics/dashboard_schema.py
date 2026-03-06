@@ -18,6 +18,7 @@ Schema version history:
     10 – removed retired EPUB auto-score field from stage records
     11 – explicit benchmark metric fields (`strict_accuracy`, `macro_f1_excluding_other`)
     12 – CodexFarm benchmark token usage fields (`tokens_*`)
+    13 – benchmark semantics fields (`benchmark_variant`, `ai_assistance_profile`)
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-SCHEMA_VERSION = "12"
+SCHEMA_VERSION = "13"
 
 
 class RunCategory(str, Enum):
@@ -156,6 +157,8 @@ class BenchmarkRecord(BaseModel):
     run_config_hash: str | None = None
     run_config_summary: str | None = None
     processed_report_path: str | None = None
+    benchmark_variant: str | None = None
+    ai_assistance_profile: str | None = None
 
 
 class DashboardSummary(BaseModel):

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cookimport.config.prediction_identity import (
+    build_all_method_prediction_identity_payload,
+    build_line_role_cache_identity_payload,
+)
 from cookimport.config.run_settings import RunSettings
 from cookimport.config.run_settings_adapters import (
     build_benchmark_call_kwargs_from_run_settings,
@@ -149,3 +153,73 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["codex_farm_reasoning_effort"] == "low"
     assert kwargs["codex_farm_pass1_pattern_hints_enabled"] is True
     assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False
+
+
+def test_prediction_identity_excludes_runtime_only_settings() -> None:
+    baseline = RunSettings(
+        workers=1,
+        pdf_split_workers=1,
+        epub_split_workers=1,
+        pdf_pages_per_job=2,
+        epub_spine_items_per_job=3,
+        warm_models=False,
+        benchmark_sequence_matcher="dmp",
+        codex_farm_cmd="codex-a",
+        codex_farm_root="/tmp/codex-a",
+        codex_farm_workspace_root="/tmp/work-a",
+        line_role_pipeline="deterministic-v1",
+        section_detector_backend="legacy",
+    )
+    runtime_only_changed = RunSettings(
+        workers=8,
+        pdf_split_workers=7,
+        epub_split_workers=6,
+        pdf_pages_per_job=11,
+        epub_spine_items_per_job=12,
+        warm_models=True,
+        codex_farm_cmd="codex-b",
+        codex_farm_root="/tmp/codex-b",
+        codex_farm_workspace_root="/tmp/work-b",
+        line_role_pipeline="deterministic-v1",
+        section_detector_backend="legacy",
+    )
+
+    assert build_all_method_prediction_identity_payload(
+        baseline
+    ) == build_all_method_prediction_identity_payload(runtime_only_changed)
+
+
+def test_prediction_identity_changes_when_prediction_shape_changes() -> None:
+    baseline = RunSettings(
+        line_role_pipeline="off",
+        section_detector_backend="legacy",
+    )
+    changed = RunSettings(
+        line_role_pipeline="deterministic-v1",
+        section_detector_backend="legacy",
+    )
+
+    assert build_all_method_prediction_identity_payload(
+        baseline
+    ) != build_all_method_prediction_identity_payload(changed)
+
+
+def test_line_role_cache_identity_only_tracks_line_role_pipeline() -> None:
+    baseline = RunSettings(
+        line_role_pipeline="codex-line-role-v1",
+        workers=1,
+        codex_farm_cmd="codex-a",
+    )
+    runtime_only_changed = RunSettings(
+        line_role_pipeline="codex-line-role-v1",
+        workers=9,
+        codex_farm_cmd="codex-b",
+    )
+    changed_pipeline = RunSettings(line_role_pipeline="deterministic-v1")
+
+    assert build_line_role_cache_identity_payload(
+        baseline
+    ) == build_line_role_cache_identity_payload(runtime_only_changed)
+    assert build_line_role_cache_identity_payload(
+        baseline
+    ) != build_line_role_cache_identity_payload(changed_pipeline)

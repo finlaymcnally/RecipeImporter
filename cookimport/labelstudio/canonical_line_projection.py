@@ -174,6 +174,9 @@ def write_line_role_projection_artifacts(
         "stage_block_predictions_path": stage_path,
         "extracted_archive_path": extracted_archive_path,
     }
+    telemetry_summary_path = pipeline_dir / "telemetry_summary.json"
+    if telemetry_summary_path.exists():
+        artifact_paths["telemetry_summary_path"] = telemetry_summary_path
     do_no_harm_diagnostics_path = pipeline_dir / "do_no_harm_diagnostics.json"
     if do_no_harm_diagnostics_path.exists():
         artifact_paths["do_no_harm_diagnostics_path"] = do_no_harm_diagnostics_path

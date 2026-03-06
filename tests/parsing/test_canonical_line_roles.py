@@ -17,8 +17,8 @@ def _load_fixture(name: str) -> dict[str, object]:
     return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
-def _settings(mode: str = "deterministic-v1"):
-    return RunSettings(line_role_pipeline=mode)
+def _settings(mode: str = "deterministic-v1", **kwargs):
+    return RunSettings(line_role_pipeline=mode, **kwargs)
 
 
 def test_label_atomic_lines_hollandaise_note_and_howto_rules() -> None:
@@ -1171,6 +1171,186 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(
     assert second[0].decided_by == first[0].decided_by
     cache_files = list((tmp_path / "line-role-cache").rglob("*.json"))
     assert cache_files
+
+
+def test_label_atomic_lines_writes_line_role_telemetry_summary_with_retry_usage(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:telemetry:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+    responses = iter(
+        [
+            {
+                "response": "",
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "transient",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 2,
+                    "output_tokens": 3,
+                    "reasoning_tokens": 1,
+                },
+                "turn_failed_message": "retry me",
+            },
+            {
+                "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+                "usage": {
+                    "input_tokens": 20,
+                    "cached_input_tokens": 4,
+                    "output_tokens": 5,
+                    "reasoning_tokens": 2,
+                },
+                "turn_failed_message": None,
+            },
+        ]
+    )
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        lambda **_kwargs: next(responses),
+    )
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+        artifact_root=tmp_path,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].label == "OTHER"
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["batch_count"] == 1
+    assert telemetry_payload["summary"]["attempt_count"] == 2
+    assert telemetry_payload["summary"]["attempts_with_usage"] == 2
+    assert telemetry_payload["summary"]["tokens_input"] == 30
+    assert telemetry_payload["summary"]["tokens_cached_input"] == 6
+    assert telemetry_payload["summary"]["tokens_output"] == 8
+    assert telemetry_payload["summary"]["tokens_reasoning"] == 3
+    assert telemetry_payload["summary"]["tokens_total"] == 38
+    assert telemetry_payload["batches"][0]["attempt_count"] == 2
+
+
+def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:cache:runtime",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+    call_count = {"value": 0}
+
+    def _fake_codex_call(**_kwargs):
+        call_count["value"] += 1
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "OTHER"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _fake_codex_call,
+    )
+    first = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1", workers=1, codex_farm_cmd="codex-a"),
+        artifact_root=tmp_path / "artifacts",
+        source_hash="source-hash-runtime",
+        cache_root=tmp_path / "line-role-cache",
+    )
+    assert call_count["value"] == 1
+    assert first[0].decided_by == "codex"
+
+    def _runner_should_not_execute(**_kwargs):
+        raise AssertionError("cache hit should skip codex call")
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        _runner_should_not_execute,
+    )
+    second = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1", workers=9, codex_farm_cmd="codex-b"),
+        artifact_root=tmp_path / "artifacts",
+        source_hash="source-hash-runtime",
+        cache_root=tmp_path / "line-role-cache",
+    )
+    assert second[0].label == first[0].label
+
+
+def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:cache:path",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            candidate_labels=["OTHER", "KNOWLEDGE"],
+            prev_text=None,
+            next_text=None,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    off_path = canonical_line_roles_module._resolve_line_role_cache_path(
+        source_hash="source-hash-path",
+        settings=_settings("off"),
+        ordered_candidates=candidates,
+        artifact_root=tmp_path / "artifacts",
+        cache_root=tmp_path / "line-role-cache",
+        codex_timeout_seconds=30,
+        codex_batch_size=8,
+    )
+    codex_path = canonical_line_roles_module._resolve_line_role_cache_path(
+        source_hash="source-hash-path",
+        settings=_settings("codex-line-role-v1"),
+        ordered_candidates=candidates,
+        artifact_root=tmp_path / "artifacts",
+        cache_root=tmp_path / "line-role-cache",
+        codex_timeout_seconds=30,
+        codex_batch_size=8,
+    )
+
+    assert off_path is not None
+    assert codex_path is not None
+    assert off_path != codex_path
 
 
 def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(

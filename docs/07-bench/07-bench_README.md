@@ -67,6 +67,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
+- shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
@@ -97,6 +98,7 @@ Interactive `single_offline` now writes into one session root:
 - paired single-offline variant normalization now enforces:
   - `vanilla`: deterministic-only (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`)
   - `codexfarm`: LLM-adjusted recipe + line-role path (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
+  - Analytics treat the `vanilla` label as valid only when both recipe AI and line-role AI are off; a row with `llm_recipe_pipeline=off` but line-role AI still on is a hybrid run, not vanilla.
 - prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/prompts/` (legacy runs may still use `.../codexfarm/codexfarm/`):
   - `prompt_request_response_log.txt` (combined full dump),

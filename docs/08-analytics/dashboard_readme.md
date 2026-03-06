@@ -114,6 +114,9 @@ Notes:
   - `single-profile-benchmark/<source_slug>`
   (CSV-first; no extra dashboard-only metric store). The hierarchy is run summary -> per-book detail, and all pages are written under `.history/dashboard/all-method-benchmark/`.
 - `single-offline-benchmark/{vanilla,codexfarm}` eval directories are collected and shown in the regular benchmark tables/metrics (not grouped into all-method standalone pages).
+- Analytics semantics note:
+  - `vanilla` is reserved for official paired benchmark variants that are actually deterministic (`llm_recipe_pipeline=off` and `line_role_pipeline=off`).
+  - Rows with recipe AI off but line-role AI on are shown as `Line-role only`, not `vanilla`.
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout
@@ -157,7 +160,8 @@ Notes:
   - `AI Model` and `AI Effort` are separate columns and only show model/effort-derived runtime values; pipeline profile names are not used as fallback (`AI Model=off` still displays as `off`).
   - `AI Model` now shows `System error` when benchmark manifest metadata reports a Codex runtime fatal error (for example timeout/fallback runs that never emitted pass telemetry).
   - Placeholder effort values like `<default>`/`default` are treated as unknown effort; CSV backfill resolves model-default effort where available.
-  - `AI Effort` now distinguishes non-effort states: `AI off` for vanilla/pipeline-off runs and codex runtime failures; `-` for unknown/missing effort.
+  - `AI Effort` now doubles as a semantic fallback label when explicit effort metadata is missing: `AI off` only when both recipe and line-role AI are off, `Line-role only` / `Recipe only` / `Full-stack AI` for hybrid or AI-on rows, and `Unknown` when metadata is too sparse to classify.
+  - `AI Profile` is available in `Previous Runs` and compare/control field pickers so hybrid rows can be filtered directly without reading raw run-config fields.
   - `All token use` and `Quality / 1M tokens` are shown by default. `All token use` displays `discounted_total | input | output` in one cell, abbreviated with `k`/`m` where large (for example `854k`, `2.27m`).
   - Discounted total applies cached-input tokens at `0.1x` weight (`(input - cached_input) + 0.1*cached_input + output`).
   - Missing/blank token telemetry now renders as `-` (unknown), while explicit numeric zero token values still render as `0 ...`; empty numeric fields are no longer coerced to zero in the UI.

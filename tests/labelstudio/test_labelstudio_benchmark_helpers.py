@@ -2976,6 +2976,22 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
 
     pred_run = tmp_path / "prediction-run"
     pred_run.mkdir(parents=True, exist_ok=True)
+    line_role_telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    line_role_telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    line_role_telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "tokens_input": 50,
+                    "tokens_cached_input": 5,
+                    "tokens_output": 7,
+                    "tokens_reasoning": 2,
+                    "tokens_total": 57,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     (pred_run / "manifest.json").write_text(
         json.dumps(
             {
@@ -2989,6 +3005,7 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
                 },
                 "run_config_hash": "cfg-hash",
                 "run_config_summary": "workers=1",
+                "line_role_pipeline_telemetry_path": str(line_role_telemetry_path),
                 "llm_codex_farm": {
                     "process_runs": {
                         "pass1": {
@@ -3032,11 +3049,11 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
     assert context.run_config.get("codex_farm_reasoning_effort") == "high"
     assert context.run_config_hash is None
     assert context.run_config_summary is None
-    assert context.tokens_input == 101
-    assert context.tokens_cached_input == 9
-    assert context.tokens_output == 12
-    assert context.tokens_reasoning == 1
-    assert context.tokens_total == 114
+    assert context.tokens_input == 151
+    assert context.tokens_cached_input == 14
+    assert context.tokens_output == 19
+    assert context.tokens_reasoning == 3
+    assert context.tokens_total == 171
 
 
 def test_interactive_single_offline_codex_failure_preserves_vanilla_and_skips_comparison(
@@ -3314,7 +3331,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
 
 
 

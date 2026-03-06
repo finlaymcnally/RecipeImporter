@@ -13,6 +13,9 @@ from typing import Any, Callable, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cookimport.config.prediction_identity import (
+    build_line_role_cache_identity_payload,
+)
 from cookimport.config.run_settings import RunSettings
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
@@ -151,7 +154,7 @@ _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT = 4
 _LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
 _LINE_ROLE_CODEX_RETRY_ATTEMPTS = 3
 _LINE_ROLE_CODEX_RETRY_BASE_SECONDS = 1.5
-_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v1"
+_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v2"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 
@@ -184,6 +187,13 @@ class _CodexBatchResult:
     prompt_index: int
     predictions: tuple[CanonicalLineRolePrediction, ...]
     parse_error: bool
+    telemetry: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _CodexPromptRetryResult:
+    payload: dict[str, Any]
+    attempts: tuple[dict[str, Any], ...]
 
 
 def label_atomic_lines(
@@ -291,6 +301,7 @@ def label_atomic_lines(
             )
 
     parse_error_count = 0
+    telemetry_batches: list[dict[str, Any]] = []
     if mode == "codex-line-role-v1" and unresolved:
         log_state = _PromptLogState(artifact_root=artifact_root)
         batch_tasks: list[_CodexBatchTask] = []
@@ -354,6 +365,7 @@ def label_atomic_lines(
 
         for task in batch_tasks:
             batch_result = results_by_prompt_index[task.prompt_index]
+            telemetry_batches.append(dict(batch_result.telemetry))
             if batch_result.parse_error:
                 parse_error_count += 1
             for prediction in batch_result.predictions:
@@ -395,6 +407,10 @@ def label_atomic_lines(
             artifact_root=artifact_root,
             diagnostics=do_no_harm_diagnostics,
             changed_rows=do_no_harm_changed_rows,
+        )
+        _write_line_role_telemetry_summary(
+            artifact_root=artifact_root,
+            telemetry_batches=telemetry_batches,
         )
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
     _write_cached_predictions(
@@ -711,8 +727,9 @@ def _run_codex_batch(
 
     raw_response = ""
     codex_failure: str | None = None
+    retry_result: _CodexPromptRetryResult | None = None
     try:
-        response_payload = _run_codex_prompt_with_retry(
+        retry_result = _run_codex_prompt_with_retry(
             prompt=prompt_text,
             timeout_seconds=codex_timeout_seconds,
             cmd=codex_cmd or default_codex_exec_cmd(),
@@ -721,7 +738,16 @@ def _run_codex_batch(
     except Exception as exc:  # pragma: no cover - defensive fallback path
         codex_failure = f"codex_call_failed:{exc.__class__.__name__}:{exc}"
     else:
+        response_payload = retry_result.payload
         raw_response = str(response_payload.get("response") or "")
+
+    telemetry = _build_batch_telemetry(
+        prompt_index=task.prompt_index,
+        requested=batch,
+        attempts=retry_result.attempts if retry_result is not None else (),
+        parse_error=False,
+        codex_failure=codex_failure,
+    )
 
     response_path = log_state.response_path(task.prompt_index)
     if response_path is not None:
@@ -761,6 +787,13 @@ def _run_codex_batch(
             prompt_index=task.prompt_index,
             predictions=fallback_predictions,
             parse_error=True,
+            telemetry=_build_batch_telemetry(
+                prompt_index=task.prompt_index,
+                requested=batch,
+                attempts=retry_result.attempts if retry_result is not None else (),
+                parse_error=True,
+                codex_failure=codex_failure,
+            ),
         )
 
     parsed_rows, error = _parse_codex_line_role_response(
@@ -801,6 +834,13 @@ def _run_codex_batch(
             prompt_index=task.prompt_index,
             predictions=fallback_predictions,
             parse_error=True,
+            telemetry=_build_batch_telemetry(
+                prompt_index=task.prompt_index,
+                requested=batch,
+                attempts=retry_result.attempts if retry_result is not None else (),
+                parse_error=True,
+                codex_failure=error,
+            ),
         )
 
     codex_predictions = tuple(
@@ -835,6 +875,7 @@ def _run_codex_batch(
         prompt_index=task.prompt_index,
         predictions=codex_predictions,
         parse_error=False,
+        telemetry=telemetry,
     )
 
 
@@ -844,38 +885,219 @@ def _run_codex_prompt_with_retry(
     timeout_seconds: int,
     cmd: str,
     runner: Callable[..., Any] | None,
-) -> dict[str, Any]:
+) -> _CodexPromptRetryResult:
     attempts = max(1, int(_LINE_ROLE_CODEX_RETRY_ATTEMPTS))
     backoff_seconds = max(0.0, float(_LINE_ROLE_CODEX_RETRY_BASE_SECONDS))
     last_payload: dict[str, Any] | None = None
     last_exception: Exception | None = None
+    attempt_records: list[dict[str, Any]] = []
     for attempt_index in range(attempts):
         try:
             payload = run_codex_json_prompt(
                 prompt=prompt,
                 timeout_seconds=timeout_seconds,
                 cmd=cmd,
-                track_usage=False,
+                track_usage=True,
                 runner=runner,
             )
         except Exception as exc:
             last_exception = exc
+            attempt_records.append(
+                {
+                    "attempt_index": attempt_index + 1,
+                    "error": f"{exc.__class__.__name__}: {exc}",
+                    "returncode": None,
+                    "response_present": False,
+                    "turn_failed_message": None,
+                    "usage": None,
+                }
+            )
             if attempt_index >= attempts - 1:
                 raise
             time.sleep(backoff_seconds * (2**attempt_index))
             continue
+        attempt_records.append(
+            _codex_attempt_record(payload=payload, attempt_index=attempt_index + 1)
+        )
         last_payload = payload
         if _codex_payload_looks_complete(payload):
-            return payload
+            return _CodexPromptRetryResult(
+                payload=payload,
+                attempts=tuple(attempt_records),
+            )
         if attempt_index >= attempts - 1:
-            return payload
+            return _CodexPromptRetryResult(
+                payload=payload,
+                attempts=tuple(attempt_records),
+            )
         time.sleep(backoff_seconds * (2**attempt_index))
 
     if last_payload is not None:
-        return last_payload
+        return _CodexPromptRetryResult(
+            payload=last_payload,
+            attempts=tuple(attempt_records),
+        )
     if last_exception is not None:
         raise last_exception
     raise RuntimeError("codex prompt retries exhausted without payload or exception")
+
+
+def _codex_attempt_record(
+    *,
+    payload: dict[str, Any],
+    attempt_index: int,
+) -> dict[str, Any]:
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else None
+    tokens_input = _safe_int_value(usage.get("input_tokens")) if usage is not None else None
+    tokens_cached_input = (
+        _safe_int_value(usage.get("cached_input_tokens")) if usage is not None else None
+    )
+    tokens_output = _safe_int_value(usage.get("output_tokens")) if usage is not None else None
+    tokens_reasoning = (
+        _safe_int_value(usage.get("reasoning_tokens")) if usage is not None else None
+    )
+    tokens_total = (
+        tokens_input + tokens_output
+        if tokens_input is not None and tokens_output is not None
+        else None
+    )
+    return {
+        "attempt_index": int(attempt_index),
+        "returncode": _safe_int_value(payload.get("returncode")),
+        "response_present": bool(str(payload.get("response") or "").strip()),
+        "turn_failed_message": str(payload.get("turn_failed_message") or "").strip() or None,
+        "usage": {
+            "tokens_input": tokens_input,
+            "tokens_cached_input": tokens_cached_input,
+            "tokens_output": tokens_output,
+            "tokens_reasoning": tokens_reasoning,
+            "tokens_total": tokens_total,
+        }
+        if usage is not None
+        else None,
+    }
+
+
+def _build_batch_telemetry(
+    *,
+    prompt_index: int,
+    requested: Sequence[AtomicLineCandidate],
+    attempts: Sequence[dict[str, Any]],
+    parse_error: bool,
+    codex_failure: str | None,
+) -> dict[str, Any]:
+    totals = _sum_attempt_usage(attempts)
+    return {
+        "prompt_index": int(prompt_index),
+        "candidate_count": len(requested),
+        "requested_atomic_indices": [int(candidate.atomic_index) for candidate in requested],
+        "parse_error": bool(parse_error),
+        "codex_failure": str(codex_failure).strip() or None,
+        "attempt_count": len(attempts),
+        "attempts_with_usage": sum(
+            1
+            for attempt in attempts
+            if isinstance(attempt.get("usage"), dict)
+        ),
+        "attempts": [dict(attempt) for attempt in attempts],
+        "tokens_input": totals.get("tokens_input"),
+        "tokens_cached_input": totals.get("tokens_cached_input"),
+        "tokens_output": totals.get("tokens_output"),
+        "tokens_reasoning": totals.get("tokens_reasoning"),
+        "tokens_total": totals.get("tokens_total"),
+    }
+
+
+def _write_line_role_telemetry_summary(
+    *,
+    artifact_root: Path | None,
+    telemetry_batches: Sequence[dict[str, Any]],
+) -> None:
+    if artifact_root is None:
+        return
+    pipeline_dir = artifact_root / "line-role-pipeline"
+    pipeline_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = pipeline_dir / "telemetry_summary.json"
+    totals = _sum_batch_usage(telemetry_batches)
+    attempt_count = sum(
+        _safe_int_value(batch.get("attempt_count")) or 0 for batch in telemetry_batches
+    )
+    attempts_with_usage = sum(
+        _safe_int_value(batch.get("attempts_with_usage")) or 0
+        for batch in telemetry_batches
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pipeline": "codex-line-role-v1",
+                "token_usage_enabled": True,
+                "summary": {
+                    "batch_count": len(telemetry_batches),
+                    "attempt_count": attempt_count,
+                    "attempts_with_usage": attempts_with_usage,
+                    "attempts_without_usage": max(0, attempt_count - attempts_with_usage),
+                    "tokens_input": totals.get("tokens_input"),
+                    "tokens_cached_input": totals.get("tokens_cached_input"),
+                    "tokens_output": totals.get("tokens_output"),
+                    "tokens_reasoning": totals.get("tokens_reasoning"),
+                    "tokens_total": totals.get("tokens_total"),
+                },
+                "batches": [dict(batch) for batch in telemetry_batches],
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _sum_attempt_usage(attempts: Sequence[dict[str, Any]]) -> dict[str, int | None]:
+    totals: dict[str, int | None] = {key: None for key in (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    )}
+    for attempt in attempts:
+        usage = attempt.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        for key in totals:
+            value = _safe_int_value(usage.get(key))
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return totals
+
+
+def _sum_batch_usage(batches: Sequence[dict[str, Any]]) -> dict[str, int | None]:
+    totals: dict[str, int | None] = {key: None for key in (
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+    )}
+    for batch in batches:
+        for key in totals:
+            value = _safe_int_value(batch.get(key))
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return totals
+
+
+def _safe_int_value(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _codex_payload_looks_complete(payload: dict[str, Any]) -> bool:
@@ -927,7 +1149,7 @@ def _resolve_line_role_cache_path(
     key_payload = {
         "schema_version": _LINE_ROLE_CACHE_SCHEMA_VERSION,
         "source_hash": normalized_source_hash,
-        "run_settings_hash": settings.stable_hash(),
+        "line_role_identity": build_line_role_cache_identity_payload(settings),
         "candidate_fingerprint": candidate_fingerprint,
         "codex_timeout_seconds": int(codex_timeout_seconds),
         "codex_batch_size": int(codex_batch_size),

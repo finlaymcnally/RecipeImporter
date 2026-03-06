@@ -921,18 +921,18 @@ class RunSettings(BaseModel):
         ),
     )
     llm_recipe_pipeline: LlmRecipePipeline = Field(
-        default=LlmRecipePipeline.codex_farm_3pass_v1,
+        default=LlmRecipePipeline.off,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Recipe LLM Pipeline",
             order=110,
             description=(
-                "Recipe codex-farm parsing correction."
+                "Recipe codex-farm parsing correction. Off keeps deterministic behavior."
             ),
         ),
     )
     atomic_block_splitter: AtomicBlockSplitter = Field(
-        default=AtomicBlockSplitter.atomic_v1,
+        default=AtomicBlockSplitter.off,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Atomic Block Splitter",
@@ -944,14 +944,14 @@ class RunSettings(BaseModel):
         ),
     )
     line_role_pipeline: LineRolePipeline = Field(
-        default=LineRolePipeline.codex_line_role_v1,
+        default=LineRolePipeline.off,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Line Role Pipeline",
             order=112,
             description=(
                 "Optional canonical line-role labeling path used for benchmark-native "
-                "experiments."
+                "experiments. Off keeps deterministic behavior."
             ),
         ),
     )

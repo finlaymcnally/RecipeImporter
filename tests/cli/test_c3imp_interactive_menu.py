@@ -340,15 +340,12 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
     )
 
     assert selected is not None
-    assert selected.epub_extractor.value == "unstructured"
-    assert selected.epub_unstructured_html_parser_version.value == "v1"
-    assert selected.epub_unstructured_preprocess_mode.value == "semantic_v1"
-    assert selected.epub_unstructured_skip_headers_footers is True
-    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
-    assert selected.line_role_pipeline.value == "codex-line-role-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
-    assert selected.codex_farm_pass1_pattern_hints_enabled is False
-    assert selected.codex_farm_pass3_skip_pass2_ok is True
+    expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
+        run_settings_flow._default_top_tier_settings(global_defaults),
+        profile="codexfarm",
+        warn_context="test expected codex top-tier settings",
+    )
+    assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
 def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs(
@@ -384,11 +381,12 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_pipeline_knobs
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
-    assert selected.line_role_pipeline.value == "codex-line-role-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
-    assert selected.codex_farm_pass1_pattern_hints_enabled is True
-    assert selected.codex_farm_pass3_skip_pass2_ok is False
+    expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
+        stale_winner_settings,
+        profile="codexfarm",
+        warn_context="test expected harmonized winner settings",
+    )
+    assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
 def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
@@ -429,14 +427,12 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     )
 
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "off"
-    assert selected.line_role_pipeline.value == "deterministic-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
-    assert selected.epub_unstructured_html_parser_version.value == "v1"
-    assert selected.epub_unstructured_preprocess_mode.value == "br_split_v1"
-    assert selected.epub_unstructured_skip_headers_footers is False
-    assert selected.codex_farm_pass1_pattern_hints_enabled is False
-    assert selected.codex_farm_pass3_skip_pass2_ok is True
+    expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
+        run_settings_flow._default_vanilla_top_tier_settings(global_defaults),
+        profile="vanilla",
+        warn_context="test expected vanilla top-tier settings",
+    )
+    assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
 def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
@@ -472,9 +468,12 @@ def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
 
     assert seen_default["value"] is False
     assert selected is not None
-    assert selected.llm_recipe_pipeline.value == "off"
-    assert selected.line_role_pipeline.value == "deterministic-v1"
-    assert selected.atomic_block_splitter.value == "atomic-v1"
+    expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
+        run_settings_flow._default_vanilla_top_tier_settings(global_defaults),
+        profile="vanilla",
+        warn_context="test expected codex-prompt-default settings",
+    )
+    assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
 def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(

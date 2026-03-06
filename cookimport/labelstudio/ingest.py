@@ -3027,6 +3027,12 @@ def generate_pred_run_artifacts(
             and line_role_artifacts.get("line_role_predictions_path") is not None
             else None
         ),
+        "line_role_pipeline_telemetry_path": (
+            str(line_role_artifacts["telemetry_summary_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("telemetry_summary_path") is not None
+            else None
+        ),
         "line_role_pipeline_projected_spans_path": (
             str(line_role_artifacts["projected_spans_path"])
             if isinstance(line_role_artifacts, dict)
@@ -3150,6 +3156,14 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "line_role_pipeline_line_role_predictions_jsonl"
             ] = line_role_predictions_manifest_path
+        line_role_telemetry_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("telemetry_summary_path"),
+        )
+        if line_role_telemetry_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_telemetry_json"
+            ] = line_role_telemetry_manifest_path
         line_role_spans_manifest_path = _path_for_manifest(
             run_root,
             line_role_artifacts.get("projected_spans_path"),

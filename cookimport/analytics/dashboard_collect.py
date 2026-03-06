@@ -28,6 +28,10 @@ from typing import Any
 
 from cookimport.paths import history_csv_for_output
 
+from .benchmark_semantics import (
+    ai_assistance_profile_for_record,
+    benchmark_variant_for_record,
+)
 from .dashboard_schema import (
     BenchmarkLabelMetrics,
     BenchmarkRecord,
@@ -62,6 +66,11 @@ _BENCHMARK_ARTIFACT_EXCLUDE_TOKEN_RE = re.compile(
 _TIMESTAMP_WITH_SUFFIX_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}[t_]\d{2}[.:]\d{2}[.:]\d{2}_(.+)$"
 )
+
+
+def _apply_benchmark_semantics(record: BenchmarkRecord) -> None:
+    record.ai_assistance_profile = ai_assistance_profile_for_record(record)
+    record.benchmark_variant = benchmark_variant_for_record(record)
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +265,51 @@ def _extract_codex_token_usage_from_manifest(
             ("tokens_reasoning", pass_tokens_reasoning),
             ("tokens_total", pass_tokens_total),
         ):
+            if value is None:
+                continue
+            current = totals.get(key)
+            totals[key] = value if current is None else current + value
+    return (
+        totals.get("tokens_input"),
+        totals.get("tokens_cached_input"),
+        totals.get("tokens_output"),
+        totals.get("tokens_reasoning"),
+        totals.get("tokens_total"),
+    )
+
+
+def _extract_line_role_token_usage_from_manifest(
+    manifest: dict[str, Any] | None,
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    if not isinstance(manifest, dict):
+        return (None, None, None, None, None)
+    telemetry_path = str(manifest.get("line_role_pipeline_telemetry_path") or "").strip()
+    if not telemetry_path:
+        return (None, None, None, None, None)
+    try:
+        telemetry_payload = json.loads(Path(telemetry_path).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return (None, None, None, None, None)
+    if not isinstance(telemetry_payload, dict):
+        return (None, None, None, None, None)
+    summary = telemetry_payload.get("summary")
+    if not isinstance(summary, dict):
+        return (None, None, None, None, None)
+    return (
+        _nonnegative_int(summary.get("tokens_input")),
+        _nonnegative_int(summary.get("tokens_cached_input")),
+        _nonnegative_int(summary.get("tokens_output")),
+        _nonnegative_int(summary.get("tokens_reasoning")),
+        _nonnegative_int(summary.get("tokens_total")),
+    )
+
+
+def _sum_token_usage(
+    *token_sets: tuple[int | None, int | None, int | None, int | None, int | None],
+) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+    totals: dict[str, int | None] = {key: None for key in _TOKEN_USAGE_KEYS}
+    for token_values in token_sets:
+        for key, value in zip(_TOKEN_USAGE_KEYS, token_values):
             if value is None:
                 continue
             current = totals.get(key)
@@ -1162,7 +1216,10 @@ def _enrich_csv_benchmark_records_from_manifests(
                 token_output,
                 token_reasoning,
                 token_total,
-            ) = _extract_codex_token_usage_from_manifest(manifest)
+            ) = _sum_token_usage(
+                _extract_codex_token_usage_from_manifest(manifest),
+                _extract_line_role_token_usage_from_manifest(manifest),
+            )
             if (
                 codex_model is not None
                 or codex_reasoning_effort is not None
@@ -2173,6 +2230,8 @@ def collect_dashboard_data(
         )
     else:
         benchmark_records = _collect_benchmarks(golden_root, cutoff, warnings)
+    for record in benchmark_records:
+        _apply_benchmark_semantics(record)
     benchmark_records.sort(key=lambda r: _timestamp_sort_key(r.run_timestamp))
 
     # -- Summary --
