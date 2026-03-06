@@ -18,11 +18,16 @@ The user-visible result should be built on the commands this repo already expose
 - [x] (2026-03-05 23:30 EST) Added shared `CodexExecutionPolicy` helpers plus execution-policy metadata and plan-artifact writing in `cookimport/config/codex_decision.py`.
 - [x] (2026-03-05 23:30 EST) Added `labelstudio-benchmark --codex-execution-policy plan` plus prediction-run `codex_execution_plan.json` writing in `cookimport/cli.py` and `cookimport/labelstudio/ingest.py`.
 - [x] (2026-03-05 23:30 EST) Added focused tests for plan-mode approval boundaries and plan-only pred-run artifacts.
-- [ ] Milestone 1: centralize profile resolution and Codex execution policy across stage, Label Studio prediction runs, interactive top-tier flows, and benchmark helpers (completed: shared execution-policy layer now exists and benchmark/pred-run manifests use it; remaining: stage/import/speed/quality/helper parity).
-- [ ] Milestone 2: add plan-versus-execute Codex policy artifacts on top of the existing low-level kill switch and benchmark confirmation behavior (completed: offline benchmark/pred-run plan artifacts; remaining: live call-site plan artifacts for line-role and recipe pass work).
-- [ ] Milestone 3: turn the existing line-role and Codex routing protections into explicit preview/enforce guardrail reporting.
-- [ ] Milestone 4: improve deterministic line-role inputs and prompt boundaries in the existing parsing/LLM modules.
-- [ ] Milestone 5: update tests and docs so the new policy and artifact contracts are explicit and verifiable (completed: benchmark/Label Studio/CLI docs plus focused tests for plan mode; remaining: broader speed/quality/stage docs and guardrail docs).
+- [x] (2026-03-05 23:56 EST) Extended command-boundary plan mode to `cookimport stage`, `cookimport labelstudio-import`, and the `import` entrypoint; execute-mode approval stays explicit while plan mode writes manifests plus `codex_execution_plan.json` without `--allow-codex`.
+- [x] (2026-03-05 23:56 EST) Threaded shared execution-policy metadata through Label Studio import, benchmark helpers, SpeedSuite, and QualitySuite manifests/report summaries.
+- [x] (2026-03-05 23:56 EST) Added explicit line-role guardrail mode (`off|preview|enforce`) plus new `guardrail_report.json` / `guardrail_changed_rows.jsonl` artifacts with legacy do-no-harm compatibility sidecars.
+- [x] (2026-03-05 23:56 EST) Tightened deterministic fraction handling in `recipe_block_atomizer.py` and `evidence_normalizer.py` so spaced fractions and dual-unit quantities stay intact.
+- [x] (2026-03-05 23:56 EST) Added deterministic tests for stage/import plan boundaries, line-role guardrail artifacts, spaced-fraction normalization, dual-unit evidence preservation, and projection artifact plumbing.
+- [x] Milestone 1: centralize profile resolution and Codex execution policy across the public CLI surfaces and benchmark helpers.
+- [ ] Milestone 2: add plan-versus-execute Codex policy artifacts on top of the existing low-level kill switch and benchmark confirmation behavior (completed: command-boundary plan artifacts for stage/import/benchmark; remaining: live call-site plan artifacts for line-role and recipe pass work).
+- [ ] Milestone 3: turn the existing line-role and Codex routing protections into explicit preview/enforce guardrail reporting (completed for line-role prediction + projection manifests; remaining: recipe Codex pass parity if needed later).
+- [x] Milestone 4: improve deterministic line-role inputs and prompt boundaries in the existing parsing/LLM modules (completed for the fraction/quantity regressions found in the current code path).
+- [x] Milestone 5: update tests and docs so the new policy and artifact contracts are explicit and verifiable.
 
 ## Surprises & Discoveries
 
@@ -46,6 +51,9 @@ The user-visible result should be built on the commands this repo already expose
 
 - Observation: zero-token benchmark preview cannot reuse the normal prediction bundle path unchanged.
   Evidence: `_build_prediction_bundle_from_import_result(...)` assumes `stage_block_predictions.json` and `extracted_archive.json` exist, so plan mode needs an earlier `labelstudio-benchmark` return after writing plan/manifests.
+
+- Observation: guardrail-mode normalization can silently collapse to enforce mode if enum values are not flattened before string comparison.
+  Evidence: `RunSettings.line_role_guardrail_mode` is an enum-backed field, so the helper in `cookimport/parsing/canonical_line_roles.py` had to read `.value` explicitly to keep `preview` from behaving like `enforce`.
 
 ## Decision Log
 
@@ -73,11 +81,17 @@ The user-visible result should be built on the commands this repo already expose
   Rationale: this is the smallest real command boundary that can produce an inspectable zero-token artifact without having to fake normal prediction outputs that downstream benchmark code expects.
   Date/Author: 2026-03-05 / Codex
 
+- Decision: keep legacy `do_no_harm_*` artifact names as compatibility sidecars while promoting `guardrail_report.json` and `guardrail_changed_rows.jsonl` as the new explicit contract.
+  Rationale: benchmark/projection/debug readers already know the legacy filenames, so the safe migration path is additive naming rather than an abrupt rename.
+  Date/Author: 2026-03-05 / Codex
+
 ## Outcomes & Retrospective
 
-The first implementation slice is now landed. `cookimport/config/codex_decision.py` has a shared execution-policy layer, prediction runs can write `codex_execution_plan.json`, and `cookimport labelstudio-benchmark --no-upload --codex-execution-policy plan` can produce a zero-token preview manifest without requiring `--allow-codex`.
+The practical public-command slice is now landed. `cookimport/config/codex_decision.py` is the shared execution-policy layer, `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint can all write a zero-token `codex_execution_plan.json`, and SpeedSuite/QualitySuite now record the same execution-policy facts in their manifest/report payloads.
 
-The remaining work is still substantial. Stage/import/SpeedSuite/QualitySuite parity has not been finished, and the plan artifact currently stops at the command boundary rather than enumerating concrete line-role batches or recipe pass work. Guardrail preview/enforce reporting and deterministic line-role tightening are still open.
+The line-role guardrail work is also landed for the current prediction path. `line_role_guardrail_mode=off|preview|enforce` is part of `RunSettings`, prediction runs/projected artifacts now expose `guardrail_report.json` and `guardrail_changed_rows.jsonl`, and deterministic fraction handling was tightened so known `1 / 2` and dual-unit regressions no longer fragment the input boundary before line-role or pass2 evidence assembly.
+
+The remaining gap is narrower than before but real: the plan artifact still stops at the command boundary rather than enumerating concrete live line-role batches or recipe CodexFarm pass work, and the new explicit guardrail mode has not been generalized onto recipe-pass routing artifacts.
 
 ## Context and Orientation
 
@@ -270,6 +284,8 @@ The local seam summary for this rewrite lives at:
     docs/understandings/2026-03-05_23.09.39-profixes-local-context-seams.md
 
 Revision note (2026-03-05 23:30 EST): updated this ExecPlan after landing the first execution-policy slice so the document reflects the real shipped `labelstudio-benchmark --codex-execution-policy plan` behavior and the remaining gaps.
+
+Revision note (2026-03-05 23:56 EST): updated this ExecPlan after landing command-boundary plan mode for `stage` and `labelstudio-import`, explicit line-role guardrail reporting, deterministic fraction fixes, and the matching deterministic tests/docs.
 
 One important anti-goal for implementation: do not create a second disconnected configuration stack with new preset files and placeholder orchestrators while `RunSettings`, `codex_decision.py`, and the existing manifest writers continue to exist. That would make the repo harder to reason about and would not solve the actual problem.
 

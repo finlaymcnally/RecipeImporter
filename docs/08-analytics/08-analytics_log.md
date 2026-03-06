@@ -2962,3 +2962,81 @@ Anti-loop reminders:
 - If trends look chopped after migration, validate CSV earliest timestamp and supplement path before enabling full scan-by-default.
 - If runtime/token or quality-per-token numbers disagree across cards/tables, debug shared `all_token_use` and quality-key selection first.
 - If tooltip context regresses to run-group-only, inspect trend point `custom` payload population before chart config changes.
+
+## 2026-03-04 to 2026-03-05 docs/tasks consolidation batch (Compare & Control + semantics)
+
+### 2026-03-04_19.46.52 to 2026-03-04_20.24.25 Compare & Control dynamic-chart and table iteration burst
+
+Source tasks:
+- `docs/tasks/2026-03-04_19.46.52-compare-control-dynamic-scatter-chart.md`
+- `docs/tasks/2026-03-04_19.55.30-compare-control-group-row-csv-format.md`
+- `docs/tasks/2026-03-04_20.05.03-compare-control-group-outcome-table.md`
+- `docs/tasks/2026-03-04_20.10.03-compare-control-categorical-auto-bar-chart.md`
+- `docs/tasks/2026-03-04_20.12.15-compare-control-header-wrap-and-labels.md`
+- `docs/tasks/2026-03-04_20.14.35-compare-control-table-number-format-threshold.md`
+- `docs/tasks/2026-03-04_20.19.15-compare-control-group-display-sort-order.md`
+- `docs/tasks/2026-03-04_20.24.25-ai-effort-ai-off-vs-unknown.md`
+
+Problem cluster captured:
+- Compare & Control started as a cloned trend chart and text-heavy summary, so it was weak at reflecting live state, categorical comparisons, and readability-sensitive summaries.
+
+Durable outcomes:
+- Replaced the clone path with a builder-driven Compare & Control chart definition.
+- Added scatter as the default dynamic chart for numeric compare fields.
+- Added bar-chart auto-switch for categorical compare fields, with deterministic per-group pastel coloring stable across subset/order changes.
+- Promoted categorical summary output from text rows into a dynamic scrollable table.
+- Iterated the table/readability layer:
+  - human-only labels in headers and dropdowns,
+  - wrapped two-line header row,
+  - threshold-based number formatting,
+  - semantic display ordering with placeholders last,
+  - `AI off` vs unknown (`-`) split on the effort axis.
+
+Evidence retained from tasks:
+- Repeated targeted coverage centered on `tests/analytics/test_stats_dashboard.py -k "dashboard_js_supports_compare_control_analysis"` and nearby compare-control slices.
+- The initial dynamic-chart task also preserved a broader proof run: `77 passed`.
+
+Anti-loop notes:
+- Keep chart/data math unchanged when working on table/render-only tweaks.
+- If color stability regresses for categorical bars, inspect compare-field + group-key hashing before changing palette order.
+
+### 2026-03-04_20.33.52 to 2026-03-04_23.35.00 dual-set compare/control, decoupling, and tooltip follow-ups
+
+Source tasks:
+- `docs/tasks/2026-03-04_20.33.52-compare-control-dual-set-layouts.md`
+- `docs/tasks/2026-03-04_20.46.24-compare-control-dual-set-layouts.md`
+- `docs/tasks/2026-03-04_23.00.00-compare-control-previous-runs-sever.md`
+- `docs/tasks/2026-03-04_23.35.00-dashboard-metric-hover-tooltips.md`
+
+Problem cluster captured:
+- One monolithic compare/control state and one chart host made it impossible to compare two setups side by side without constant reconfiguration. At the same time, compare/control still had accidental coupling to Previous Runs table filters, and dashboard metric labels lacked low-noise hover help.
+
+Durable outcomes:
+- Added independent primary/secondary compare-control state, backward-compatible save/load handling, and split control wiring.
+- Added stacked full-width result tables plus chart layout modes (`stacked`, `side-by-side`, `combined`) with combined-axis selection (`single` / `dual` Y).
+- Preserved the newer design rule that compare/control local subset choices must not write Previous Runs table filters.
+- Added delayed hover tooltips across dashboard metric labels and related data labels.
+
+Anti-loop notes:
+- If dual-set state restore looks wrong, inspect the state object and host-ID plumbing before editing layout CSS.
+- If compare/control mysteriously changes the Previous Runs table again, treat that as regression and inspect local-subset save/write paths first.
+
+### 2026-03-05_22.25.45 benchmark labeling semantics split
+
+Source task:
+- `docs/tasks/2026-03-05_22.25.45-fix-benchmark-labeling-semantics.md`
+
+Problem captured:
+- Analytics had started treating `llm_recipe_pipeline=off` as effectively synonymous with `vanilla` / `AI off`, which mislabeled hybrid line-role-only rows and contaminated dashboard + compare/control interpretation.
+
+Durable outcomes:
+- Added shared benchmark semantics with separate concepts for official paired `benchmark_variant` and actual `ai_assistance_profile`.
+- Preserved `vanilla` / `codexfarm` for official single-offline and single-profile paired runs only.
+- Stopped hybrid rows from inheriting `vanilla` or `AI off`.
+- Kept the dashboard `Official benchmarks only` quick filter intentionally narrower than the broader paired-variant semantics.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest -q tests/analytics`
+
+Anti-loop note:
+- If a row “looks vanilla” again, inspect the shared semantics helper and compare/control mirror first; do not fix only the browser text.

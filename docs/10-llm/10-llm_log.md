@@ -2435,3 +2435,79 @@ Open risks retained:
 Anti-loop notes:
 - If a run looks mysteriously Codex-backed, inspect decision metadata and classifier outputs before adding another approval flag.
 - If token totals disagree with local prompt logs, remember prompt bytes are evidence of hidden work, not a perfect replacement for real telemetry.
+
+## 2026-03-04 to 2026-03-06 docs/tasks consolidation batch (reasoning traces, safe defaults, telemetry, and decision policy)
+
+### 2026-03-04_22.15.00 reasoning-trace capture restoration
+
+Source task:
+- `docs/tasks/2026-03-04_22.15.00-fix-codexfarm-reasoning-trace-capture.md`
+
+Problem captured:
+- CodexFarm-backed prompt samples were showing `_No thinking trace captured for this sample._` even when upstream runs should have had reasoning traces.
+
+Durable outcome:
+- Recipeimport now consumes restored nested reasoning capture from CodexFarm so prompt-sample artifacts can show real trace excerpts when upstream data exists.
+
+Anti-loop note:
+- If prompt samples still show zero traces, inspect upstream trace-classification/capture artifacts before rewriting markdown exporters.
+
+### 2026-03-05_22.24.41 safe deterministic shared defaults
+
+Source task:
+- `docs/tasks/2026-03-05_22.24.41-fix-safe-deterministic-defaults.md`
+
+Problem captured:
+- Shared defaults still resolved to live Codex paths, so generic CLI and helper flows could become Codex-backed without explicit intent.
+
+Durable outcomes:
+- `RunSettings()` now resolves to deterministic `off/off/off`.
+- `_load_settings()` and generic CLI default-loading were aligned to the same safe posture.
+- Explicit codex-enabled benchmark/profile variants were preserved as opt-in paths rather than ambient defaults.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/llm/test_run_settings.py tests/cli/test_cli_output_structure_fast.py -q`
+- Result: exit code `0`
+
+Anti-loop note:
+- If a generic flow becomes Codex-on again, inspect defaults and helper construction before blaming the low-level `COOKIMPORT_ALLOW_LLM` kill switch.
+
+### 2026-03-05_22.25.41 line-role token telemetry gap
+
+Source task:
+- `docs/tasks/2026-03-05_22.25.41-fix-line-role-token-telemetry-gap.md`
+
+Problem captured:
+- Canonical line-role runs could spend Codex tokens while leaving benchmark history token columns blank because line-role prompt calls did not persist usage telemetry.
+
+Durable outcomes:
+- `canonical_line_roles.py` now tracks usage for line-role Codex prompts and includes retry attempts in totals.
+- `prediction-run/line-role-pipeline/telemetry_summary.json` became the durable artifact.
+- Prediction manifests, run manifests, analytics perf report collection, and dashboard collection now merge line-role telemetry with codex-farm telemetry.
+
+Anti-loop note:
+- If token totals are missing on a line-role run, inspect line-role telemetry artifact generation first; do not fall back immediately to prompt-byte estimation.
+
+### 2026-03-05_22.43.31 to 2026-03-06_00.35.00 human-owned Codex decision boundary
+
+Source task:
+- `docs/tasks/2026-03-05_22.43.31-human-owned-codexfarm-decision-boundary.md`
+
+Problem captured:
+- The real repo problem was not “perfect human-only security”; it was silent or ambiguous Codex activation spread across helpers, benchmarks, CLI presets, and prelabel paths.
+
+Durable outcomes:
+- Added shared decision/policy layer in `cookimport/config/codex_decision.py`.
+- Routed interactive top-tier profile patching, benchmark baseline/codex helpers, and command-context validation through that shared layer.
+- Removed stale Codex-on helper defaults from `build_run_settings(...)`.
+- Persisted Codex decision metadata into stage summaries, Label Studio manifests, and speed/quality benchmark artifacts.
+- Corrected follow-up gaps:
+  - benchmark manifest annotation now distinguishes command-decision metadata from execution-policy metadata,
+  - Label Studio prelabel is explicitly classified as the `prelabel` Codex surface and requires explicit approval.
+
+Evidence retained from task:
+- Regression coverage added for safe defaults, direct command validation, import entrypoint forwarding, analytics deterministic-vs-Codex classification, benchmark manifest metadata, and prelabel-only approval.
+
+Anti-loop notes:
+- If a run uses Codex “mysteriously,” inspect decision metadata first.
+- If prelabel starts bypassing approval again, treat it as decision-boundary regression, not a Label Studio-only quirk.

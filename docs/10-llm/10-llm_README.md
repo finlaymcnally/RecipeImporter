@@ -80,15 +80,18 @@ Report/model plumbing:
 - `cookimport/config/codex_decision.py` now carries both surface classification and execution-policy metadata:
   - command decisions still enforce explicit approval in execute mode,
   - prediction/benchmark plan mode writes `codex_execution_plan.json` without live Codex calls.
+- `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint now share the same `--codex-execution-policy execute|plan` command-boundary behavior.
+  - `plan` writes manifests plus `codex_execution_plan.json` and returns before live Codex work.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
 - Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
 - `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
 - `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
-- Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint now require explicit `--allow-codex` approval when their resolved run settings enable a Codex-backed surface.
+- Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint require explicit `--allow-codex` approval only in execute mode when their resolved run settings enable a Codex-backed surface.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 - Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
+- `RunSettings` now also carries `line_role_guardrail_mode=off|preview|enforce` (default `enforce`) for explicit line-role post-sanitization arbitration behavior.
 - Canonical line-role allowlists now auto-offer `RECIPE_TITLE` for title-like lines, and low-confidence deterministic `RECIPE_TITLE` labels are kept on-rule instead of escalated away.
 - Canonical line-role prompt few-shots now include an explicit `RECIPE_TITLE` positive example (in addition to `RECIPE_VARIANT`) to reduce title-vs-variant confusion.
 
@@ -785,7 +788,8 @@ Merged source notes (timestamp order):
 - `2026-03-04_11.14.01-profeedback-og-vs-completed-code-gap-audit.md`
 
 Current LLM/line-role contracts reinforced:
-- Runtime do-no-harm arbitration for codex line-role is active post-sanitization, with explicit outside-span containment rules and diagnostics artifacts (`do_no_harm_diagnostics.json`, `do_no_harm_changed_rows.jsonl`).
+- Runtime line-role guardrail arbitration for codex line-role is active post-sanitization, with explicit outside-span containment rules and diagnostics artifacts (`guardrail_report.json`, `guardrail_changed_rows.jsonl`).
+- Legacy compatibility copies remain available as `do_no_harm_diagnostics.json` and `do_no_harm_changed_rows.jsonl` when guardrail diagnostics are emitted.
 - Outside-span low-confidence escalation is default-off; opt-in remains `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION`.
 - Pass1 eligibility is an explicit score-gated pre-pass2 contract, with persisted score/reason/component telemetry and diagnostics artifact output.
 - Pass1 eligibility now treats chapter/page metadata as explicit negative evidence (`chapter_page_negative_score=-2` when triggered).
@@ -797,3 +801,33 @@ Open-context reminder from this batch:
 Anti-loop reminders:
 - If pass1 clamp/drop behavior regresses, inspect `eligibility_score_components` and chapter/page metadata fields before modifying prompt/schema layers.
 - If outside-span contamination resurfaces, inspect do-no-harm artifacts first rather than retuning benchmark gates.
+
+## 2026-03-04 to 2026-03-06 docs/tasks merge digest (safe defaults, decision boundary, telemetry, and reasoning traces)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_22.15.00-fix-codexfarm-reasoning-trace-capture.md`
+- `docs/tasks/2026-03-05_22.24.41-fix-safe-deterministic-defaults.md`
+- `docs/tasks/2026-03-05_22.25.41-fix-line-role-token-telemetry-gap.md`
+- `docs/tasks/2026-03-05_22.43.31-human-owned-codexfarm-decision-boundary.md`
+
+Current LLM contracts reinforced:
+- Shared defaults are now deterministic and safe:
+  - `RunSettings()` defaults to `llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`,
+  - helper-based settings construction must match that safe posture rather than silently reintroducing codex-enabled defaults,
+  - explicit codex-enabled modes still exist and must opt in deliberately.
+- Codex-backed behavior now has one explicit decision layer:
+  - `cookimport/config/codex_decision.py` classifies codex surfaces, resolves benchmark/profile contracts, validates command context, and emits manifest metadata,
+  - ordinary command surfaces should fail loudly when Codex is implicitly requested without explicit approval,
+  - `labelstudio-import --prelabel` counts as its own Codex surface and is not exempt just because recipe parsing is deterministic.
+- Line-role Codex usage must produce durable telemetry even when recipe Codex is off:
+  - line-role retries are counted,
+  - `prediction-run/line-role-pipeline/telemetry_summary.json` is the durable local artifact,
+  - benchmark history and analytics must aggregate line-role telemetry with codex-farm telemetry rather than treating them as mutually exclusive.
+- Reasoning-trace availability is an upstream-capture contract, not only an exporter contract:
+  - prompt sample markdown should include reasoning excerpts when traces exist,
+  - `_No thinking trace captured for this sample._` usually means upstream trace capture/classification failed,
+  - fix nested capture and trace ingestion before rewriting prompt-sample rendering.
+
+Known bad / anti-loop reminders carried forward:
+- `build_run_settings(...)` was a historical bypass seam. If safe-default behavior regresses, inspect helper defaults and decision-layer routing before adding more approval flags.
+- Prompt-byte estimates can prove hidden work happened, but they are not a replacement for durable telemetry once the repo now writes telemetry artifacts directly.

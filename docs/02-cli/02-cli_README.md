@@ -493,6 +493,8 @@ Use `--require-process-workers` to fail fast instead of using any fallback backe
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
 Stage completion also prints a compact `Quick run summary` block (books, codex-farm on/off state, selected major settings, topline metrics) and always writes `<run_dir>/run_summary.json`.
 When `--write-markdown` is enabled (default), stage also writes `<run_dir>/run_summary.md`; `--no-write-markdown` suppresses the markdown summary file.
+Codex-backed stage runs also support `--codex-execution-policy execute|plan` (default `execute`).
+`plan` writes `codex_execution_plan.json` plus `run_manifest.json` and exits before live processing.
 
 Arguments:
 
@@ -541,6 +543,8 @@ Options:
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
+- `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
+- `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes a zero-token `codex_execution_plan.json` and returns before stage processing.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -782,6 +786,7 @@ Options:
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
 - `--allow-labelstudio-write / --no-allow-labelstudio-write` (default disabled): required gate for upload.
+- `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` writes pred-run manifests plus `codex_execution_plan.json` and exits before upload/prelabel/live Codex work.
 - `--limit, -n INTEGER>=1`: cap chunks generated.
 - `--sample INTEGER>=1`: randomly sample chunks.
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
@@ -813,6 +818,7 @@ Prelabel behavior notes:
 Hard requirement:
 
 - Upload is blocked unless `--allow-labelstudio-write` is set.
+- Execute-mode Codex-backed import work still requires explicit `--allow-codex`; plan mode does not.
 
 ### `cookimport labelstudio-export`
 
@@ -903,6 +909,7 @@ Options:
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
 - `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` requires `--no-upload` and writes a zero-token Codex preview artifact instead of running extraction/eval/upload.
+- `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
 - `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
 - `--single-offline-split-cache-dir PATH`: optional root for single-offline split-cache entries.
 - `--single-offline-split-cache-force / --no-single-offline-split-cache-force` (default disabled): force split-cache rebuild for the current run.

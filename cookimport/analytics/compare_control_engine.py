@@ -10,6 +10,10 @@ from . import benchmark_semantics
 from .dashboard_collect import collect_dashboard_data
 
 COMPARE_CONTROL_DEFAULT_OUTCOME_FIELD = "strict_accuracy"
+ANALYSIS_FIELD_LABEL_OVERRIDES = {
+    "conversion_seconds_per_recipe": "Conversion seconds per recipe",
+    "all_token_use_per_recipe": "Token use per recipe",
+}
 COMPARE_CONTROL_OUTCOME_PREFERRED = (
     "strict_accuracy",
     "macro_f1_excluding_other",
@@ -660,6 +664,9 @@ def collect_benchmark_field_paths(records: list[dict[str, Any]]) -> list[str]:
 
 
 def _analysis_field_label(field_name: str) -> str:
+    override = ANALYSIS_FIELD_LABEL_OVERRIDES.get(field_name)
+    if override:
+        return override
     pretty = field_name.replace("_", " ").replace(".", " ").strip()
     if not pretty:
         return field_name

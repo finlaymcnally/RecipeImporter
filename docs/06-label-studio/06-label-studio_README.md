@@ -226,6 +226,10 @@ Execution modes:
   - writes `codex_execution_plan.json` plus manifests,
   - requires `--no-upload`,
   - stops before extraction, evaluation, and live Codex work.
+- `labelstudio-import --codex-execution-policy plan` now offers the same zero-token preview shape for direct import runs:
+  - writes pred-run manifests plus `codex_execution_plan.json`,
+  - skips upload, prelabel, and other live Codex work,
+  - does not require `--allow-codex`.
 - `labelstudio-import --prelabel` is a separate Codex-backed surface from recipe/line-role benchmark settings.
   - Do not assume recipe/line-role decision metadata or approval checks automatically cover prelabel behavior.
   - If operator-intent policy changes, review prelabel command wiring separately.
@@ -235,6 +239,7 @@ Codex preview mode:
 - `--codex-execution-policy execute|plan` is available on `labelstudio-benchmark`.
 - `execute` keeps the existing explicit-approval behavior (`--allow-codex` still required when Codex-backed surfaces are enabled).
 - `plan` is offline-only (`--no-upload`), skips extraction/eval/upload, and writes a prediction-run `codex_execution_plan.json` plus benchmark/pred-run manifests so a later execute-mode rerun can be inspected before spending tokens.
+- `labelstudio-import` also accepts `--codex-execution-policy execute|plan`; its `plan` mode writes the same pred-run plan artifact and exits before task upload or prelabel execution.
 
 Eval modes:
 
@@ -272,6 +277,8 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/freeform_span_predictions.jsonl`
 - `line-role-pipeline/stage_block_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
+- `line-role-pipeline/guardrail_report.json`
+- `line-role-pipeline/guardrail_changed_rows.jsonl`
 - `line-role-pipeline/do_no_harm_diagnostics.json`
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
 Prediction-generation defaults for canonical line-role codex inflight are now shared at ingest seam: non-split jobs use `8`, split-gated jobs use `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` still overrides both.
@@ -309,6 +316,9 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`
   - `line_role_pipeline_do_no_harm_changed_rows_jsonl`
+- Line-role manifests also surface explicit guardrail pointers:
+  - `line_role_pipeline_guardrail_report_json`
+  - `line_role_pipeline_guardrail_changed_rows_jsonl`
 
 ## 7) Troubleshooting Checklist
 

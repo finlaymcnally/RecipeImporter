@@ -2978,6 +2978,7 @@ class TestRenderer:
         assert 'fontSize: "1rem"' in js
         assert 'next.title.margin = 18;' in js
         assert 'legend: { enabled: compareControlChartLegendEnabled(series) },' in js
+        assert 'align: "left"' in js
         assert 'onlyName !== "All visible rows"' in js
 
     def test_dashboard_js_clamps_persisted_table_column_widths(self, tmp_path):

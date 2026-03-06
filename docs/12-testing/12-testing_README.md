@@ -275,3 +275,27 @@ Current testing contracts reinforced:
   - force serial executor resolution in hot-path tests that do not exercise worker orchestration,
   - isolate real EPUB/OCR/browser-wait coverage into explicit slow files,
   - clamp or poll browser timing instead of relying on long fixed waits.
+
+## 2026-03-04 docs/tasks merge digest (pytest runtime offenders and remediation)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_01.59.29-pytest-runtime-offenders-fast-slow.md`
+- `docs/tasks/2026-03-04_12.38.59-pytest-runtime-offender-remediation.md`
+
+Current testing contracts reinforced:
+- Runtime work should start from measured offender reports, not intuition. The March 4 baseline recorded:
+  - fast suite (`-m "not slow"`) wall time `160.331s`,
+  - slow suite (`-m "slow"`) wall time `63.613s`.
+- Runtime wins came from narrowing high-cost seams, not from broad marker churn:
+  - heavy artifact-shape tests should mock stage/orchestration work,
+  - real EPUB/OCR/browser flows belong in explicit slow modules,
+  - expensive mixed modules should be split when targeted speedups are not practical.
+- The top March 4 remediation results that are now part of the intended suite shape:
+  - `tests/ingestion/test_performance_features.py`: `43.24s -> 10.83s`
+  - `tests/cli/test_cli_output_structure_text_fast.py`: `21.22s -> 7.20s`
+  - `tests/analytics/test_stats_dashboard_slow.py`: `27.98s -> 5.05s`
+  - `tests/analytics/test_stats_dashboard.py`: `18.04s -> 13.75s`
+- Marker mapping in `tests/conftest.py` remains the control plane for fast/slow routing; do not “fix” runtime by casually reclassifying files without first remeasuring them.
+
+Anti-loop reminder:
+- When a suite gets slow again, profile the file/case offenders first. Reclassifying tests into `slow` without measurement tends to hide regressions instead of solving them.

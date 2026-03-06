@@ -6212,3 +6212,123 @@ Durable conclusion:
 
 Anti-loop note:
 - When processing-quality closure is questioned, start from this final audit entry before reopening earlier partial-gap threads.
+
+## 2026-03-04 to 2026-03-05 docs/tasks consolidation batch (bench integrity and reviewer tooling)
+
+### 2026-03-04_08.40.46 processing-quality reliability recovery
+
+Source task:
+- `docs/tasks/2026-03-04_08.40.46-processing-quality-reliability-recovery.md`
+
+Problem captured:
+- Processing output and benchmark truth had drifted apart:
+  - report totals could disagree with written artifacts,
+  - stage-block evaluation could fail when current extraction differed from gold-era extraction,
+  - vanilla and codex final draft shapes diverged,
+  - narrative-heavy segmentation/tip-topic noise remained high on known problem books such as `seaandsmoke`.
+
+Durable outcomes:
+- Stage report finalization now rewrites totals from `ConversionResult` truth and emits mismatch diagnostics when pre-finalized values drift.
+- Stage-block evaluation now supports adaptive gold remap with explicit `off|auto|force` modes plus coverage / ambiguity gates and diagnostics artifacts.
+- Processing-quality closure kept gold immutable and adapted benchmark comparison instead of rolling extraction back to old settings.
+- Final audits on 2026-03-04 confirmed no remaining OG-plan implementation gaps after the follow-up gap-closure pass.
+
+Anti-loop notes:
+- If totals disagree again, inspect finalization and mismatch-diagnostic artifacts before touching report readers.
+- If a new extractor/preprocess combo mismatches gold, start with adaptation diagnostics before editing gold files or reverting extraction settings.
+
+### 2026-03-04_20.44.39 single-profile spinner dashboard readability
+
+Source task:
+- `docs/tasks/2026-03-04_20.44.39-single-profile-spinner-dashboard-readability.md`
+
+Problem captured:
+- Single-profile benchmark live status had become hard to scan because the spinner was visually small, the panel width was tight, and long task/detail rows were clipped.
+
+Durable outcomes:
+- Live benchmark panel uses a larger spinner in benchmark panel mode.
+- Box width can consume more terminal width before clamping.
+- Long status lines wrap across rows instead of collapsing to one ellipsis line.
+- Single-profile task rows no longer hard-cap at 180 characters.
+
+Evidence retained from task:
+- `source .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py -k "clamps_live_box_width_to_terminal or wraps_long_lines_and_uses_larger_spinner or preserves_long_task_message or preserves_eta_when_live_line_is_truncated or humanizes_codex_stage_in_live_panel"`
+- Result: `5 passed, 22 deselected, 1 warning in 2.65s`
+
+### 2026-03-05_22.25.47 QualitySuite deterministic baseline construction
+
+Source task:
+- `docs/tasks/2026-03-05_22.25.47-fix-qualitysuite-baseline-construction.md`
+
+Problem captured:
+- QualitySuite all-method baseline rows could still carry `line_role_pipeline=codex-line-role-v1` even when `llm_recipe_pipeline=off`, creating fake baselines.
+
+Durable outcomes:
+- `_all_method_apply_baseline_contract(...)` now forces baseline-style variants to `off/off/off`.
+- `_all_method_apply_codex_contract_from_baseline(...)` builds codex candidates explicitly from that deterministic baseline.
+- Interactive paired benchmark helpers and all-method builders now reuse the same explicit contract helpers instead of relying on ambient defaults.
+
+Evidence retained from task:
+- Retained March 4 `experiments_resolved.json` artifacts proved the bug by showing `llm_recipe_pipeline=off` plus `line_role_pipeline=codex-line-role-v1` in baseline rows.
+- Focused scheduler regression tests were added in `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`.
+
+Anti-loop note:
+- If a “baseline” row ever shows line-role AI again, inspect contract helper usage first; do not paper over it with analytics relabeling.
+
+### 2026-03-05_22.26.52 prediction reuse-key scope narrowing
+
+Source task:
+- `docs/tasks/2026-03-05_22.26.52-fix-reuse-key-scope.md`
+
+Problem captured:
+- Runtime-only settings such as worker counts and scheduler knobs were blocking safe reuse for all-method predictions and line-role cache outputs.
+
+Durable outcomes:
+- Added explicit prediction-identity helpers in `cookimport/config/prediction_identity.py`.
+- All-method prediction reuse and line-role cache identity now ignore runtime-shape settings that do not change output artifacts.
+- `RunSettings.stable_hash()` remained unchanged; reuse narrowing happens in stage-specific identity helpers instead of globally.
+
+Anti-loop note:
+- If reuse regresses, compare the stage-specific identity payloads before proposing a `stable_hash()` rewrite.
+
+### 2026-03-05_22.54.21 deterministic follow-up exporters
+
+Source task:
+- `docs/tasks/2026-03-05_22.54.21-deterministic-followup-exporters.md`
+
+Problem captured:
+- Reviewer follow-up packets were hand-built and ambiguous, even though `upload_bundle_v1` already held the stable base handoff.
+
+Durable outcomes:
+- Added `cookimport/bench/followup_bundle.py` and standalone `cf-debug`.
+- Low-level follow-up commands landed (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`).
+- High-level request-driven workflow landed:
+  - `cf.followup_request.v1` manifests,
+  - `cf-debug request-template`,
+  - `cf-debug build-followup`,
+  - per-ask `followup_dataN/asks/<ask_id>/...` packets.
+
+Durable reviewer-loop decisions:
+- `upload_bundle_v1` remains the base bundle and should not be replaced.
+- Follow-up packets are delta responses for someone who already has the base bundle.
+- Legacy named case IDs can be preserved as compatibility selectors, but new packets are generated from bundle rows plus live run artifacts.
+
+### 2026-03-05_23.01.17 interactive benchmark Oracle upload
+
+Source task:
+- `docs/tasks/2026-03-05_23.01.17-interactive-benchmark-oracle-upload.md`
+
+Problem captured:
+- Interactive benchmark flows stopped after writing `upload_bundle_v1`, leaving Oracle upload as a manual separate step.
+
+Durable outcomes:
+- Added `cookimport/bench/oracle_upload.py` with bundle resolution and explicit-file Oracle command assembly.
+- Added `cookimport bench oracle-upload` for rerunning upload from an existing session root or `upload_bundle_v1` folder.
+- Interactive single-offline and multi-book single-profile flows now auto-upload the correct bundle after generation.
+- Dry-run path falls back to local preview when Oracle inline preview rejects oversized payload files.
+
+Evidence retained from task:
+- Verified against the checked-in multi-book sample bundle; dry-run succeeded as local preview because Oracle inline dry-run rejected the 22.2 MB payload file.
+
+Anti-loop note:
+- If upload rerun behavior differs from interactive behavior, inspect shared bundle resolution in `oracle_upload.py` before touching interactive benchmark flows.

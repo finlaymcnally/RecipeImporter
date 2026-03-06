@@ -449,3 +449,60 @@ Verification preserved:
 Anti-loop notes:
 - If a test breaks only because product defaults changed, first ask whether the test is asserting policy or contract.
 - If a fast test starts paying worker/bootstrap cost again, inspect whether it really needs orchestration fidelity or only artifact-shape fidelity.
+
+## 2026-03-04 docs/tasks consolidation batch (pytest runtime offenders)
+
+### 2026-03-04_01.59.29 runtime offender report
+
+Source task:
+- `docs/tasks/2026-03-04_01.59.29-pytest-runtime-offenders-fast-slow.md`
+
+Problem captured:
+- Needed a measured file-level and case-level view of what was actually dominating fast and slow pytest slices before splitting or optimizing modules.
+
+Durable evidence preserved:
+- Fast suite wall time: `160.331s` (`pytest --maxfail=0 -m "not slow"`)
+- Slow suite wall time: `63.613s` (`pytest --maxfail=0 -m "slow"`)
+- Post-remediation spot checks retained from the report:
+  - `tests/ingestion/test_performance_features.py`: `43.24s -> 10.83s`
+  - `tests/cli/test_cli_output_structure_text_fast.py`: `21.22s -> 7.20s`
+  - `tests/bench/test_quality_suite_runner.py` top cases: `12.64 / 10.52 -> 6.61 / 9.35`
+  - `tests/analytics/test_stats_dashboard.py`: `18.04s -> 13.75s`
+  - `tests/analytics/test_stats_dashboard_slow.py`: `27.98s -> 5.05s`
+
+Anti-loop note:
+- Reuse this offender report pattern before doing another broad test-suite refactor; otherwise it is easy to optimize the wrong file.
+
+### 2026-03-04_12.38.59 runtime offender remediation
+
+Source task:
+- `docs/tasks/2026-03-04_12.38.59-pytest-runtime-offender-remediation.md`
+
+Problem captured:
+- A small set of modules dominated wall-clock runtime in both fast and slow slices.
+
+Durable outcomes:
+- Reduced runtime for the hot offenders where possible.
+- Split heavy modules where clean speedups were not practical.
+- Kept marker mapping accurate in `tests/conftest.py`.
+- Updated touched docs to match the new module split boundaries.
+
+Verification sweep retained from task:
+- Focused tests across ingestion, CLI structure, QualitySuite runner, analytics dashboard, Label Studio benchmark helpers, and split-merge status.
+- Consolidated sweep included:
+  - `tests/fast_stage_pipeline.py`
+  - `tests/ingestion/test_performance_features.py`
+  - `tests/bench/test_quality_suite_runner.py` targeted auto-parallel cases
+  - `tests/cli/test_cli_output_structure_text_fast.py`
+  - `tests/cli/test_cli_output_structure_epub_fast.py`
+  - `tests/cli/test_cli_output_structure_slow.py`
+  - `tests/ingestion/test_pdf_importer.py`
+  - `tests/ingestion/test_pdf_importer_ocr_slow.py`
+  - `tests/analytics/test_stats_dashboard.py`
+  - `tests/analytics/test_stats_dashboard_slow.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
+  - `tests/staging/test_split_merge_status.py`
+
+Anti-loop note:
+- If runtime grows in one of these areas, inspect whether a regression reintroduced real orchestration / browser waits before splitting more files.

@@ -788,3 +788,55 @@ Current analytics contracts reinforced:
   - `Previous Runs` responsiveness depends on avoiding hard table floors and re-rendering charts on resize,
   - tooltip coverage relies on alias-based auto-tagging for repeated metric text, not only hand-tagged nodes,
   - compare/control harness tests must seed `DATA.benchmark_records` before calling live-state helpers outside normal bootstrap.
+
+## 2026-03-04 to 2026-03-05 docs/tasks merge digest (Compare & Control expansion and benchmark semantics)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_19.46.52-compare-control-dynamic-scatter-chart.md`
+- `docs/tasks/2026-03-04_19.55.30-compare-control-group-row-csv-format.md`
+- `docs/tasks/2026-03-04_20.05.03-compare-control-group-outcome-table.md`
+- `docs/tasks/2026-03-04_20.10.03-compare-control-categorical-auto-bar-chart.md`
+- `docs/tasks/2026-03-04_20.12.15-compare-control-header-wrap-and-labels.md`
+- `docs/tasks/2026-03-04_20.14.35-compare-control-table-number-format-threshold.md`
+- `docs/tasks/2026-03-04_20.19.15-compare-control-group-display-sort-order.md`
+- `docs/tasks/2026-03-04_20.24.25-ai-effort-ai-off-vs-unknown.md`
+- `docs/tasks/2026-03-04_20.33.52-compare-control-dual-set-layouts.md`
+- `docs/tasks/2026-03-04_20.46.24-compare-control-dual-set-layouts.md`
+- `docs/tasks/2026-03-04_23.00.00-compare-control-previous-runs-sever.md`
+- `docs/tasks/2026-03-04_23.35.00-dashboard-metric-hover-tooltips.md`
+- `docs/tasks/2026-03-05_22.25.45-fix-benchmark-labeling-semantics.md`
+
+Current analytics contracts reinforced:
+- Compare & Control charting is state-driven and built from the currently visible Previous Runs rows:
+  - numeric compare fields render scatter,
+  - categorical compare fields render bar charts,
+  - split-by still creates separate series,
+  - categorical summaries render as dynamic tables from the same payload instead of text lists.
+- Compare & Control display/readability rules are now explicit:
+  - table headers wrap to a two-line row,
+  - UI labels hide internal field IDs and use human-readable labels,
+  - table values above `5` render as comma-separated whole numbers while small ratios keep decimals,
+  - categorical display sorting pushes placeholders to the bottom and gives `AI Effort` a semantic order (`low`, `medium`, `high`, `xhigh`, then placeholders).
+- Compare & Control keeps two independent state layers when dual-set mode is active:
+  - Set 2 expands from the right,
+  - result tables stay stacked full-width with per-set shading,
+  - chart layout can be stacked, side-by-side, or combined,
+  - combined charts can use single-Y or dual-Y axes.
+- Compare & Control is intentionally decoupled from Previous Runs table filters:
+  - local subset/filter choices should not rewrite global table filters,
+  - valid restored state may auto-activate chart rendering,
+  - blank-on-load behavior still applies until the user has a valid compare/control selection.
+- Dashboard hover behavior is now broader and delayed on purpose:
+  - metric labels and data labels share the delayed tooltip contract,
+  - coverage depends on the dashboard’s metric-tagging aliases, not only individually wired DOM nodes.
+- Benchmark labeling now has two separate meanings and both matter:
+  - `benchmark_variant` preserves authored paired identity (`vanilla`, `codexfarm`) only for true official paired runs,
+  - `ai_assistance_profile` reports what actually ran (`deterministic`, `line-role-only`, `recipe-only`, `full-stack`, `unknown`).
+- `AI off` and `AI Effort` must not collapse hybrid rows:
+  - `AI off` means both recipe and line-role AI are off,
+  - `AI off` is distinct from unknown/missing effort (`-`),
+  - line-role-only rows must not impersonate `vanilla` or `AI off`.
+
+Known bad / anti-loop reminders carried forward:
+- `cookimport/analytics/dashboard_render.py` is still a large string-template renderer. When UI behavior changes, start from the builder/helper seams already present rather than cloning benchmark-trend logic again.
+- If dashboard and compare/control disagree on labels, fix the shared semantics layer first; do not patch only emitted JS copy.

@@ -4512,6 +4512,16 @@ _JS = """\
       title: "Quality-efficiency score: preferred quality metric (strict_accuracy, then macro_f1_excluding_other, then f1) per 1,000,000 discounted tokens.",
       numeric: true,
     },
+    conversion_seconds_per_recipe: {
+      label: "Conversion sec / recipe",
+      title: "Single-offline conversion time divided by predicted recipe count.",
+      numeric: true,
+    },
+    all_token_use_per_recipe: {
+      label: "Token use / recipe",
+      title: "Discounted token use divided by predicted recipe count.",
+      numeric: true,
+    },
     tokens_input: {
       label: "Tokens In",
       title: "CodexFarm input tokens summed for this benchmark run.",
@@ -10841,6 +10851,7 @@ _JS = """\
       credits: { enabled: false },
       title: {
         text: chartTitle,
+        align: "left",
         style: chartType === "bar"
           ? {
             color: "#4f5d68",
@@ -10936,6 +10947,7 @@ _JS = """\
     if (chartSubtitle) {
       chartOptions.subtitle = {
         text: chartSubtitle,
+        align: "left",
         style: chartType === "bar"
           ? {
             color: "#73808b",
@@ -11372,7 +11384,7 @@ _JS = """\
     const nextChart = window.Highcharts.stockChart(hostId, {
       chart: chartConfig,
       credits: { enabled: false },
-      title: { text: chartTitle },
+      title: { text: chartTitle, align: "left" },
       legend: { enabled: true },
       rangeSelector: {
         // Start on full history so default chart span matches long-run table context.

@@ -474,8 +474,12 @@ Gates include:
 - Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
 - Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
 - Outside-span low-confidence escalation is disabled by default; codex escalation remains inside-span-first (optional override: `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION=1`).
-- Codex mode now applies a runtime do-no-harm arbitration step after sanitization. Harmful outside-span promotions trigger partial downgrade or full-source fallback to deterministic baseline labels.
-- Do-no-harm diagnostics are written under `line-role-pipeline/`:
+- Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
+- `preview` computes the same downgrade decisions as enforce mode but leaves accepted predictions unchanged; `enforce` applies partial downgrades or full-source fallback to deterministic baseline labels.
+- Guardrail diagnostics are written under `line-role-pipeline/`:
+  - `guardrail_report.json`
+  - `guardrail_changed_rows.jsonl`
+- Legacy compatibility sidecars remain available when guardrail diagnostics exist:
   - `do_no_harm_diagnostics.json`
   - `do_no_harm_changed_rows.jsonl`
 - Codex fallback batches now run with bounded in-flight concurrency (parser default `4` per book; explicit env override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`; ingest callers can pass `codex_max_inflight`) and merge back deterministically by atomic index/prompt order.

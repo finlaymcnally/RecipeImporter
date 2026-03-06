@@ -67,6 +67,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--instruction-step-segmenter heuristic_v1|pysbd_v1`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
+- `--line-role-guardrail-mode off|preview|enforce`
 - `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
@@ -79,6 +80,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   - requires `--no-upload`,
   - does not run extraction/eval/live Codex,
   - writes `codex_execution_plan.json` inside the prediction-run root and links it from both prediction-run and benchmark `run_manifest.json`.
+- `bench speed-run` and `bench quality-run` now resolve through the same execution-policy metadata layer for manifest/report summaries, but they still execute only through the existing explicit confirmation tokens rather than a new plan-mode early return.
 - When codex benchmark runs omit explicit reasoning effort, benchmark metadata backfills a concrete effort from Codex config/model-cache defaults so benchmark CSV/runtime rows retain both model and effort when available.
 - `C3imp` interactive runs set `COOKIMPORT_BENCH_WRITE_MARKDOWN=1` and
   `COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS=0` by default, so markdown
@@ -175,6 +177,9 @@ When `--line-role-pipeline != off`, eval runs also write diagnostics under `line
 - `knowledge_budget.json`
 - `prompt_eval_alignment.md`
 - stable sampled cutdowns (`wrong_label_lines.sample.jsonl`, `correct_label_lines.sample.jsonl`, `aligned_prediction_blocks.sample.jsonl`, `line_role_flips_vs_baseline.sample.jsonl`)
+- prediction-run side also writes guardrail diagnostics:
+  - `guardrail_report.json`
+  - `guardrail_changed_rows.jsonl`
 - if `--line-role-gated`: `regression_gates.json` + `regression_gates.md`
   - comparator gates (`*_delta_min`, confusion-drop gates, sea non-regression gates) are strict and fail when required benchmark-history baselines are unavailable.
   - candidate recall floors remain enforced in gated mode: `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`.
@@ -192,7 +197,7 @@ Required supporting artifact:
 Generated roots:
 - `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
-- Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, and `line-role-pipeline/extracted_archive.json`.
+- Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, `line-role-pipeline/extracted_archive.json`, `line-role-pipeline/guardrail_report.json`, and `line-role-pipeline/guardrail_changed_rows.jsonl`.
 
 ## 2026-03-06 merged understandings digest (follow-up/debug/reuse seams)
 
@@ -1968,3 +1973,46 @@ Anti-loop reminders:
 - If group upload-bundle locators/runtime look wrong, check source-aware run-dir resolution before changing triage packet builders.
 - If stage-block runs unexpectedly use line-role/atomic behavior, inspect effective eval-mode normalization before touching scorer logic.
 - If processing-quality closure questions re-open, compare against the final audit note first (`2026-03-04_11.30.25`) before replaying already-closed milestone debates.
+
+## 2026-03-04 to 2026-03-05 docs/tasks merge digest (processing recovery, benchmark integrity, and reviewer handoff)
+
+Merged source task files (timestamp order):
+- `docs/tasks/2026-03-04_08.40.46-processing-quality-reliability-recovery.md`
+- `docs/tasks/2026-03-04_20.44.39-single-profile-spinner-dashboard-readability.md`
+- `docs/tasks/2026-03-05_22.25.47-fix-qualitysuite-baseline-construction.md`
+- `docs/tasks/2026-03-05_22.26.52-fix-reuse-key-scope.md`
+- `docs/tasks/2026-03-05_22.54.21-deterministic-followup-exporters.md`
+- `docs/tasks/2026-03-05_23.01.17-interactive-benchmark-oracle-upload.md`
+
+Current benchmark contracts reinforced:
+- Processing-quality recovery is now part of the active benchmark contract:
+  - stage report totals are finalized from actual `ConversionResult` outputs,
+  - mismatches emit `*.report_totals_mismatch_diagnostics.json`,
+  - stage-block gold adaptation is explicit and guarded (`off|auto|force` with coverage and ambiguity thresholds),
+  - gold data under `data/golden/pulled-from-labelstudio/**` stays immutable even when extractor/preprocess settings evolve.
+- QualitySuite / all-method benchmark identity must be explicit:
+  - deterministic baseline variants are true baseline runs (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`),
+  - codex candidate variants are built by explicit codex contract helpers, not by inheriting shared defaults,
+  - stable-hash dedupe must not collapse those explicit codex variants back into baseline.
+- Prediction reuse is now stage-specific rather than tied to global `RunSettings.stable_hash()`:
+  - all-method prediction reuse keys exclude runtime-only scheduling knobs,
+  - line-role cache identity is based on output-changing settings only,
+  - changing worker counts or scheduler limits should not trigger fresh prediction work when artifacts would be identical.
+- Interactive benchmark operator flow is now explicitly two-stage for external review:
+  - `upload_bundle_v1` is the base handoff,
+  - `cf-debug` builds additive `followup_dataN/` packets from request manifests for a reviewer who already has the base bundle.
+- Oracle upload is part of the benchmark handoff contract:
+  - interactive single-offline runs auto-upload their session bundle after bundle generation,
+  - interactive multi-book single-profile runs auto-upload only the top-level group bundle,
+  - `cookimport bench oracle-upload <session_or_bundle_path>` reuses the same resolver without rerunning benchmarks,
+  - `--mode dry-run` falls back to a local preview when Oracle inline preview rejects oversized payload files.
+- Single-profile live benchmark status remains a readability-first CLI surface:
+  - larger spinner in live panel mode,
+  - wider boxed panel before clamp,
+  - wrapped long lines instead of one-line truncation,
+  - no hard `180`-character cap on task rows.
+
+Known bad / anti-loop reminders carried forward:
+- Do not “fix” benchmark baseline drift by changing global defaults again; baseline construction is a benchmark-specific contract and now has dedicated helpers.
+- Do not repurpose `upload_bundle_v1` as a mutable follow-up packet. New reviewer asks belong in `followup_dataN/`.
+- If reuse seems broken, inspect prediction-identity payloads before changing `stable_hash()` or widening cache invalidation globally.
