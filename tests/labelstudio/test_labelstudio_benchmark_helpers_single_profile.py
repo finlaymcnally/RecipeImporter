@@ -270,7 +270,7 @@ def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(
         observed_progress_callbacks.append(callable(progress_callback))
         if callable(progress_callback):
             progress_callback(
-                "codex-farm recipe.schemaorg.v1 task 1/2 | "
+                "codex-farm recipe.schemaorg.compact.v1 task 1/2 | "
                 "running 1 | active [r0001.json]"
             )
             progress_callback("Evaluating predictions... task 2/2")
@@ -822,3 +822,89 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
         benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "vanilla",
         benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "codexfarm",
     ]
+
+
+def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_display(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Book A.epub"
+    source.write_text("a", encoding="utf-8")
+    gold = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold,
+            source_file=source,
+            source_file_name=source.name,
+            gold_display="gold-a",
+        )
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    monkeypatch.setattr(cli, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        cli,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_maybe_upload_benchmark_bundle_to_oracle",
+        lambda **_kwargs: None,
+    )
+
+    failure_text = (
+        "codex-farm failed for recipe.chunking.v1 "
+        "(subprocess_exit=1, out_dir=/tmp/pass1/out, "
+        "stderr_summary=codex execution precheck failed before `process`: "
+        "OpenAI Codex v0.111.0 (research preview); "
+        "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.)"
+    )
+
+    def _fake_labelstudio_benchmark(**kwargs):
+        if kwargs.get("llm_recipe_pipeline") == "codex-farm-3pass-v1":
+            raise RuntimeError(failure_text)
+        return None
+
+    monkeypatch.setattr(cli, "labelstudio_benchmark", _fake_labelstudio_benchmark)
+
+    captured_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: captured_messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-03-06_15.05.00"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test single-profile codex failure formatting",
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert completed is True
+    failure_messages = [
+        message
+        for message in captured_messages
+        if "Single-profile benchmark failed for" in message
+    ]
+    assert len(failure_messages) == 1
+    assert "codexfarm=codex-farm recipe.chunking.v1:" in failure_messages[0]
+    assert "codex execution precheck failed before `process`" in failure_messages[0]
+    assert "usage limit for GPT-5.3-Codex-Spark" in failure_messages[0]
+    assert "out_dir=/tmp/pass1/out" not in failure_messages[0]

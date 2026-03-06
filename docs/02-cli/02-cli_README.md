@@ -422,6 +422,7 @@ Interactive benchmark now has a mode submenu before execution:
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
    - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
    - concurrent single-profile runs now use one shared spinner dashboard for the whole batch; inner per-book benchmark runs suppress their own spinners and stream progress into shared per-book queue/task lines,
+   - codex-farm subprocess failures that expose `stderr_summary=` are condensed before display in the interactive single-profile summary so precheck/auth/quota failures show the real precheck message instead of raw `out_dir=...` exception details,
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codexfarm`),
    - writes a dedicated 3-file upload folder per target eval root:

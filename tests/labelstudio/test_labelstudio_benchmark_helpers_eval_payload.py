@@ -905,6 +905,26 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
 
     def fake_generate_pred_run_artifacts(**kwargs):
         captured_generate.update(kwargs)
+        (prediction_run / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_file": str(source_file),
+                    "source_hash": "fixture-hash",
+                    "run_config": {
+                        "selective_retry_attempted": True,
+                        "selective_retry_pass2_attempts": 1,
+                        "selective_retry_pass2_recovered": 1,
+                        "selective_retry_pass3_attempts": 0,
+                        "selective_retry_pass3_recovered": 0,
+                    },
+                    "run_config_hash": "hash-1",
+                    "run_config_summary": "selective retry summary",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
         return {
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
@@ -925,6 +945,8 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
         llm_recipe_pipeline="codex-farm-3pass-v1",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
+        codex_farm_benchmark_selective_retry_enabled=False,
+        codex_farm_benchmark_selective_retry_max_attempts=3,
         write_markdown=False,
         write_label_studio_tasks=False,
         pdf_ocr_policy="always",
@@ -941,6 +963,8 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert captured_generate["allow_codex"] is True
     assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert captured_generate["codex_farm_reasoning_effort"] == "low"
+    assert captured_generate["codex_farm_benchmark_selective_retry_enabled"] is False
+    assert captured_generate["codex_farm_benchmark_selective_retry_max_attempts"] == 3
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
@@ -963,6 +987,13 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     assert run_manifest["run_config"]["codex_farm_reasoning_effort"] == "low"
     assert run_manifest["run_config"]["atomic_block_splitter"] == "off"
     assert run_manifest["run_config"]["line_role_pipeline"] == "off"
+    assert run_manifest["run_config"]["selective_retry_attempted"] is True
+    assert run_manifest["run_config"]["selective_retry_pass2_attempts"] == 1
+    assert run_manifest["run_config"]["selective_retry_pass2_recovered"] == 1
+    assert (
+        run_manifest["run_config"]["prediction_run_config"]["selective_retry_attempted"]
+        is True
+    )
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
     upload_bundle_dir = eval_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME

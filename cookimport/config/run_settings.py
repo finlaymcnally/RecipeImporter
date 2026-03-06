@@ -91,6 +91,8 @@ _SUMMARY_ORDER = (
     "codex_farm_pipeline_pass2",
     "codex_farm_pipeline_pass3",
     "codex_farm_pass3_skip_pass2_ok",
+    "codex_farm_benchmark_selective_retry_enabled",
+    "codex_farm_benchmark_selective_retry_max_attempts",
     "codex_farm_pipeline_pass4_knowledge",
     "codex_farm_pipeline_pass5_tags",
     "codex_farm_context_blocks",
@@ -1114,12 +1116,38 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    codex_farm_benchmark_selective_retry_enabled: bool = Field(
+        default=True,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Benchmark Selective Retry",
+            order=139,
+            description=(
+                "Benchmark-only retry for missing Codex Farm pass2/pass3 bundle files "
+                "after recoverable partial-output runs."
+            ),
+        ),
+    )
+    codex_farm_benchmark_selective_retry_max_attempts: int = Field(
+        default=1,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Benchmark Retry Attempts",
+            order=140,
+            description=(
+                "Maximum benchmark-only retry attempts for missing Codex Farm pass2/"
+                "pass3 bundle files."
+            ),
+            minimum=1,
+        ),
+    )
     codex_farm_pipeline_pass4_knowledge: str = Field(
         default="recipe.knowledge.v1",
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass4 Knowledge Pipeline",
-            order=139,
+            order=141,
             description="codex-farm pipeline id used for knowledge harvesting (pass4).",
         ),
     )
@@ -1128,7 +1156,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass5 Tags Pipeline",
-            order=140,
+            order=142,
             description="codex-farm pipeline id used for tag suggestions (pass5).",
         ),
     )
@@ -1139,7 +1167,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Context Blocks",
-            order=141,
+            order=143,
             description="Blocks before/after a candidate included in pass-1 bundles.",
             step=1,
             minimum=0,
@@ -1153,7 +1181,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Knowledge Context Blocks",
-            order=142,
+            order=144,
             description="Blocks before/after a knowledge chunk included as context in pass-4 bundles.",
             step=1,
             minimum=0,
@@ -1165,7 +1193,7 @@ class RunSettings(BaseModel):
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Tag Catalog JSON",
-            order=143,
+            order=145,
             description=(
                 "Tag catalog snapshot path used by pass-5 tag suggestions when llm_tags_pipeline is enabled."
             ),
@@ -1604,6 +1632,8 @@ def build_run_settings(
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
     codex_farm_pass3_skip_pass2_ok: bool = True,
+    codex_farm_benchmark_selective_retry_enabled: bool = True,
+    codex_farm_benchmark_selective_retry_max_attempts: int = 1,
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_pipeline_pass5_tags: str = "recipe.tags.v1",
     codex_farm_context_blocks: int = 30,
@@ -1746,6 +1776,12 @@ def build_run_settings(
                 or "recipe.final.compact.v1"
             ),
             "codex_farm_pass3_skip_pass2_ok": bool(codex_farm_pass3_skip_pass2_ok),
+            "codex_farm_benchmark_selective_retry_enabled": bool(
+                codex_farm_benchmark_selective_retry_enabled
+            ),
+            "codex_farm_benchmark_selective_retry_max_attempts": int(
+                codex_farm_benchmark_selective_retry_max_attempts
+            ),
             "codex_farm_pipeline_pass4_knowledge": (
                 str(codex_farm_pipeline_pass4_knowledge).strip()
                 or "recipe.knowledge.v1"

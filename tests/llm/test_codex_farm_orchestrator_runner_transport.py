@@ -1123,6 +1123,46 @@ def test_subprocess_runner_uses_run_errors_followup_on_failure(
     assert calls[1] == ["codex-farm", "run", "errors", "--run-id", "run-123", "--json"]
 
 
+def test_subprocess_runner_surfaces_precheck_stderr_when_failure_has_no_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+
+    def _fake_run(_command, **_kwargs):  # noqa: ANN001
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr=(
+                "codex execution precheck failed before `process`: "
+                "OpenAI Codex v0.111.0 (research preview)\n"
+                "--------\n"
+                "workdir: /home/mcnal/projects/recipeimport\n"
+                "model: gpt-5.3-codex-spark\n"
+                "reasoning effort: high\n"
+                "user\n"
+                "Reply with exactly: OK\n"
+                "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.\n"
+                "Run `codex` once and confirm non-interactive `codex exec` works before retrying.\n"
+            ),
+        )
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    with pytest.raises(CodexFarmRunnerError) as exc_info:
+        runner.run_pipeline("recipe.chunking.v1", in_dir, out_dir, {})
+
+    message = str(exc_info.value)
+    assert "codex-farm failed for recipe.chunking.v1" in message
+    assert "subprocess_exit=1" in message
+    assert "stderr_summary=codex execution precheck failed before `process`" in message
+    assert "usage limit for GPT-5.3-Codex-Spark" in message
+
+
 def test_subprocess_runner_tolerates_no_last_agent_message_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1285,6 +1325,168 @@ def test_subprocess_runner_routes_recoverable_partial_output_warning_to_progress
     assert any("run-progress-123" in message for message in progress_messages)
 
 
+def test_subprocess_runner_recovers_high_coverage_benchmark_partial_timeout_mix(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for index in range(5):
+        (in_dir / f"r{index:04d}.json").write_text("{}", encoding="utf-8")
+    for index in range(4):
+        (out_dir / f"r{index:04d}.json").write_text("{}", encoding="utf-8")
+
+    def _fake_stream(command, **_kwargs):  # noqa: ANN001
+        return SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps(
+                {
+                    "run_id": "run-benchmark-123",
+                    "status": "failed",
+                    "exit_code": 1,
+                }
+            ),
+            stderr="pipeline failed",
+        )
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        if argv[1:3] == ["run", "errors"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "errors": [
+                            {
+                                "message": (
+                                    "codex content_filter blocked response stream (exit=1): "
+                                    "Warning: no last agent message; wrote empty content to /tmp/file.tmp"
+                                )
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(returncode=1, stdout="{}", stderr="unsupported")
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner._run_codex_farm_command_streaming",
+        _fake_stream,
+    )
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner._run_codex_farm_command", _fake_run)
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner._collect_codex_exec_run_telemetry",
+        lambda **_kwargs: {
+            "row_count": 5,
+            "summary": {
+                "failure_category_counts": {
+                    "nonzero_exit_no_payload": 1,
+                    "timeout": 1,
+                }
+            },
+        },
+    )
+
+    progress_messages: list[str] = []
+    debug_messages: list[str] = []
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner.logger.debug",
+        lambda message, *args: debug_messages.append(
+            message % args if args else str(message)
+        ),
+    )
+
+    runner = SubprocessCodexFarmRunner(
+        cmd="codex-farm",
+        progress_callback=progress_messages.append,
+    )
+    run_result = runner.run_pipeline(
+        "recipe.schemaorg.compact.v1",
+        in_dir,
+        out_dir,
+        {"COOKIMPORT_CODEX_FARM_RECIPE_MODE": "benchmark"},
+    )
+
+    assert run_result.run_id == "run-benchmark-123"
+    assert run_result.subprocess_exit_code == 1
+    assert run_result.process_exit_code == 1
+    assert debug_messages
+    assert any("4/5 bundles written; 1 missing" in message for message in progress_messages)
+    assert any("run-benchmark-123" in message for message in progress_messages)
+
+
+def test_subprocess_runner_keeps_timeout_mixed_partial_failure_hard_outside_benchmark_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for index in range(5):
+        (in_dir / f"r{index:04d}.json").write_text("{}", encoding="utf-8")
+    for index in range(4):
+        (out_dir / f"r{index:04d}.json").write_text("{}", encoding="utf-8")
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        if argv[1] == "process":
+            return SimpleNamespace(
+                returncode=1,
+                stdout=json.dumps(
+                    {
+                        "run_id": "run-extract-123",
+                        "status": "failed",
+                        "exit_code": 1,
+                    }
+                ),
+                stderr="pipeline failed",
+            )
+        if argv[1:3] == ["run", "errors"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "errors": [
+                            {
+                                "message": (
+                                    "codex content_filter blocked response stream (exit=1): "
+                                    "Warning: no last agent message; wrote empty content to /tmp/file.tmp"
+                                )
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(returncode=1, stdout="{}", stderr="unsupported")
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner._run_codex_farm_command", _fake_run)
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_runner._collect_codex_exec_run_telemetry",
+        lambda **_kwargs: {
+            "row_count": 5,
+            "summary": {
+                "failure_category_counts": {
+                    "nonzero_exit_no_payload": 1,
+                    "timeout": 1,
+                }
+            },
+        },
+    )
+
+    runner = SubprocessCodexFarmRunner(cmd="codex-farm")
+    with pytest.raises(CodexFarmRunnerError, match="failure_categories=nonzero_exit_no_payload:1,timeout:1"):
+        runner.run_pipeline("recipe.schemaorg.compact.v1", in_dir, out_dir, {})
+
+
 def test_ensure_codex_farm_pipelines_exist_queries_cli(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1346,6 +1548,6 @@ def test_ensure_codex_farm_pipelines_exist_raises_for_missing_pipeline(
         ensure_codex_farm_pipelines_exist(
             cmd="codex-farm",
             root_dir=pack_root,
-            pipeline_ids=("recipe.final.v1",),
+            pipeline_ids=("recipe.final.compact.v1",),
         )
-    assert "recipe.final.v1" in str(exc_info.value)
+    assert "recipe.final.compact.v1" in str(exc_info.value)

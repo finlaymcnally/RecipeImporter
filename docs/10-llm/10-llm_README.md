@@ -36,7 +36,11 @@ Recipe codex-farm pass modules:
 - `cookimport/llm/evidence_normalizer.py` (deterministic additive pass2 evidence normalization)
 - `cookimport/llm/codex_farm_ids.py` (stable slug/id/bundle filename helpers)
 - `cookimport/llm/codex_farm_runner.py` (subprocess runner + shared error type)
-  - runner now treats `no last agent message` / `nonzero_exit_no_payload` process failures as recoverable partial-output mode; other process failures remain hard errors.
+  - runner now treats `no last agent message` / `nonzero_exit_no_payload` process failures as recoverable partial-output mode.
+  - in benchmark mode, mixed `nonzero_exit_no_payload` + `timeout` failures are also recoverable when output coverage stays high (currently at least 80% bundles written, with at most 3 missing bundles), so downstream scoring can drop only the missing recipes instead of failing the whole book.
+  - benchmark recipe mode can now use that same recoverable partial-output contract to trigger pass-boundary selective retry: pass2/pass3 rerun only the missing bundle files, write retry evidence under `retry_attempt_XX/`, and never overwrite successful original outputs.
+  - outside benchmark mode, those mixed timeout failures remain hard errors.
+  - hard failures that exit before `codex-farm` emits a `run_id` now carry a condensed `stderr_summary` in the raised error so benchmark/stage logs expose login-precheck/auth/quota failures instead of only `subprocess_exit=1`.
 
 Canonical line-role helper modules:
 
@@ -133,7 +137,9 @@ Report/model plumbing:
   - per-recipe `pass1_span_loss_metrics` (raw span vs midpoint-clamped span, with block-loss count/ratio),
   - pass2 degradation counts/reasons (`pass2_degraded`, per-recipe `pass2_degradation_reasons`),
   - evidence-normalization row summaries/counts,
-  - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output).
+  - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output),
+  - `selective_retries.pass2|pass3` payloads with a resolved retry settings snapshot, attempted/recovered/unrecovered bundles, recipe ids, retry directories, and per-attempt `process_run` payloads,
+  - concise retry counts (`selective_retry_attempted`, `selective_retry_pass2_attempts`, `selective_retry_pass2_recovered`, `selective_retry_pass3_attempts`, `selective_retry_pass3_recovered`) that are mirrored into prediction-run and benchmark `run_manifest.json`.
 - Pass2 degradation is now severity-scoped before pass3 routing:
   - hard degradation (`missing_instructions`, placeholder-only instruction evidence, or non-soft warning buckets) still fail-closes to deterministic fallback (`pass3_status=fallback`);
   - soft degradation (`warning_bucket:page_or_layout_artifact` only) stays `pass2_status=degraded` but is eligible for selective pass3 routing.

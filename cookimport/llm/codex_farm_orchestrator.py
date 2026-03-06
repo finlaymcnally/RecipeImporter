@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,10 +42,12 @@ from .codex_farm_runner import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_PASS1_PIPELINE_ID = "recipe.chunking.v1"
-DEFAULT_PASS2_PIPELINE_ID = "recipe.schemaorg.v1"
-DEFAULT_PASS3_PIPELINE_ID = "recipe.final.v1"
+LEGACY_PASS2_PIPELINE_ID = "recipe.schemaorg.v1"
+LEGACY_PASS3_PIPELINE_ID = "recipe.final.v1"
 COMPACT_PASS2_PIPELINE_ID = "recipe.schemaorg.compact.v1"
 COMPACT_PASS3_PIPELINE_ID = "recipe.final.compact.v1"
+DEFAULT_PASS2_PIPELINE_ID = COMPACT_PASS2_PIPELINE_ID
+DEFAULT_PASS3_PIPELINE_ID = COMPACT_PASS3_PIPELINE_ID
 
 # Backward-compatible exports used by tests/docs.
 PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
@@ -53,6 +56,9 @@ PASS3_PIPELINE_ID = DEFAULT_PASS3_PIPELINE_ID
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
 _PASS3_PASS2_OK_MIN_NON_PLACEHOLDER_INSTRUCTIONS = 2
 _PASS3_PASS2_OK_MIN_CANONICAL_CHARS = 80
+_BENCHMARK_SELECTIVE_RETRY_ALLOWED_FAILURE_CATEGORIES = frozenset(
+    {"nonzero_exit_no_payload", "timeout"}
+)
 _ELIGIBILITY_INGREDIENT_LEAD_RE = re.compile(
     r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s+[A-Za-z]"
 )
@@ -168,6 +174,258 @@ def _recipe_artifact_filename(recipe_id: str) -> str:
     return f"{rendered}.json"
 
 
+def _json_bundle_filenames(path: Path) -> list[str]:
+    return sorted(child.name for child in path.glob("*.json") if child.is_file())
+
+
+def _missing_bundle_filenames(expected_bundle_filenames: list[str], out_dir: Path) -> list[str]:
+    existing = {path.name for path in out_dir.glob("*.json") if path.is_file()}
+    return [name for name in sorted(expected_bundle_filenames) if name not in existing]
+
+
+def _process_run_nonzero_exit(process_run: dict[str, Any] | None) -> bool:
+    if not isinstance(process_run, dict):
+        return False
+    for key in ("subprocess_exit_code", "process_exit_code"):
+        value = process_run.get(key)
+        if value is None:
+            continue
+        try:
+            if int(value) != 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _process_run_failure_category_counts(process_run: dict[str, Any] | None) -> dict[str, int]:
+    if not isinstance(process_run, dict):
+        return {}
+    telemetry_payload = process_run.get("telemetry")
+    if not isinstance(telemetry_payload, dict):
+        return {}
+    summary_payload = telemetry_payload.get("summary")
+    if not isinstance(summary_payload, dict):
+        return {}
+    raw_counts = summary_payload.get("failure_category_counts")
+    if not isinstance(raw_counts, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key, value in raw_counts.items():
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            counts[str(key)] = count
+    return counts
+
+
+def _selective_retry_eligible_process_run(process_run: dict[str, Any] | None) -> bool:
+    failure_counts = _process_run_failure_category_counts(process_run)
+    if not failure_counts or not _process_run_nonzero_exit(process_run):
+        return False
+    failure_categories = set(failure_counts)
+    return (
+        "nonzero_exit_no_payload" in failure_categories
+        and failure_categories <= _BENCHMARK_SELECTIVE_RETRY_ALLOWED_FAILURE_CATEGORIES
+    )
+
+
+def _recipe_ids_for_bundle_filenames(
+    *,
+    states_by_bundle_name: dict[str, _RecipeState],
+    bundle_filenames: list[str],
+) -> list[str]:
+    recipe_ids: list[str] = []
+    for bundle_name in bundle_filenames:
+        state = states_by_bundle_name.get(bundle_name)
+        if state is None:
+            continue
+        recipe_ids.append(state.recipe_id)
+    return recipe_ids
+
+
+def _relative_retry_dir(base_dir: Path, attempt_dir: Path) -> str:
+    try:
+        return str(attempt_dir.relative_to(base_dir))
+    except ValueError:
+        return str(attempt_dir)
+
+
+def _selective_retry_settings_snapshot(
+    *,
+    run_settings: RunSettings,
+    max_attempts: int,
+) -> dict[str, Any]:
+    return {
+        "llm_recipe_pipeline": run_settings.llm_recipe_pipeline.value,
+        "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
+        "codex_farm_failure_mode": run_settings.codex_farm_failure_mode.value,
+        "codex_farm_benchmark_selective_retry_enabled": (
+            run_settings.codex_farm_benchmark_selective_retry_enabled
+        ),
+        "codex_farm_benchmark_selective_retry_max_attempts": max_attempts,
+        "codex_farm_model": run_settings.codex_farm_model,
+        "codex_farm_reasoning_effort": (
+            run_settings.codex_farm_reasoning_effort.value
+            if run_settings.codex_farm_reasoning_effort is not None
+            else None
+        ),
+    }
+
+
+def _run_benchmark_selective_retry(
+    *,
+    pass_name: str,
+    pipeline_id: str,
+    pass_dir: Path,
+    llm_raw_dir: Path,
+    original_in_dir: Path,
+    original_out_dir: Path,
+    expected_bundle_filenames: list[str],
+    states_by_bundle_name: dict[str, _RecipeState],
+    original_process_run: dict[str, Any] | None,
+    run_settings: RunSettings,
+    codex_runner: CodexFarmRunner,
+    env: dict[str, str],
+    pipeline_root: Path,
+    workspace_root: Path | None,
+    codex_model: str | None,
+    codex_reasoning_effort: str | None,
+) -> dict[str, Any] | None:
+    original_missing_bundle_filenames = _missing_bundle_filenames(
+        expected_bundle_filenames,
+        original_out_dir,
+    )
+    if not original_missing_bundle_filenames:
+        return None
+    if run_settings.codex_farm_recipe_mode.value != "benchmark":
+        return None
+    if not run_settings.codex_farm_benchmark_selective_retry_enabled:
+        return None
+    if not _selective_retry_eligible_process_run(original_process_run):
+        return None
+
+    max_attempts = int(run_settings.codex_farm_benchmark_selective_retry_max_attempts)
+    remaining_missing_bundle_filenames = list(original_missing_bundle_filenames)
+    attempts: list[dict[str, Any]] = []
+    current_process_run = original_process_run
+
+    for attempt_index in range(1, max_attempts + 1):
+        if not remaining_missing_bundle_filenames:
+            break
+        attempt_dir = pass_dir / f"retry_attempt_{attempt_index:02d}"
+        if attempt_dir.exists():
+            shutil.rmtree(attempt_dir)
+        retry_in_dir = attempt_dir / "in"
+        retry_out_dir = attempt_dir / "out"
+        retry_in_dir.mkdir(parents=True, exist_ok=True)
+        retry_out_dir.mkdir(parents=True, exist_ok=True)
+
+        attempted_bundle_filenames: list[str] = []
+        for bundle_name in remaining_missing_bundle_filenames:
+            source_path = original_in_dir / bundle_name
+            if not source_path.is_file():
+                continue
+            shutil.copy2(source_path, retry_in_dir / bundle_name)
+            attempted_bundle_filenames.append(bundle_name)
+        if not attempted_bundle_filenames:
+            break
+
+        retry_run = codex_runner.run_pipeline(
+            pipeline_id,
+            retry_in_dir,
+            retry_out_dir,
+            env,
+            root_dir=pipeline_root,
+            workspace_root=workspace_root,
+            model=codex_model,
+            reasoning_effort=codex_reasoning_effort,
+        )
+        retry_process_run = as_pipeline_run_result_payload(retry_run)
+
+        copied_output_filenames: list[str] = []
+        for bundle_name in attempted_bundle_filenames:
+            retry_output_path = retry_out_dir / bundle_name
+            original_output_path = original_out_dir / bundle_name
+            if not retry_output_path.is_file() or original_output_path.exists():
+                continue
+            shutil.copy2(retry_output_path, original_output_path)
+            copied_output_filenames.append(bundle_name)
+
+        remaining_missing_bundle_filenames = _missing_bundle_filenames(
+            expected_bundle_filenames,
+            original_out_dir,
+        )
+        attempts.append(
+            {
+                "attempt_index": attempt_index,
+                "retry_dir": _relative_retry_dir(llm_raw_dir, attempt_dir),
+                "attempted_bundle_filenames": list(attempted_bundle_filenames),
+                "attempted_recipe_ids": _recipe_ids_for_bundle_filenames(
+                    states_by_bundle_name=states_by_bundle_name,
+                    bundle_filenames=attempted_bundle_filenames,
+                ),
+                "copied_output_filenames": list(copied_output_filenames),
+                "copied_recipe_ids": _recipe_ids_for_bundle_filenames(
+                    states_by_bundle_name=states_by_bundle_name,
+                    bundle_filenames=copied_output_filenames,
+                ),
+                "remaining_missing_bundle_filenames": list(
+                    remaining_missing_bundle_filenames
+                ),
+                "remaining_missing_recipe_ids": _recipe_ids_for_bundle_filenames(
+                    states_by_bundle_name=states_by_bundle_name,
+                    bundle_filenames=remaining_missing_bundle_filenames,
+                ),
+                "process_run": retry_process_run,
+            }
+        )
+        current_process_run = retry_process_run
+        if not remaining_missing_bundle_filenames:
+            break
+        if not _selective_retry_eligible_process_run(current_process_run):
+            break
+
+    recovered_bundle_filenames = sorted(
+        set(original_missing_bundle_filenames) - set(remaining_missing_bundle_filenames)
+    )
+    unrecovered_bundle_filenames = list(remaining_missing_bundle_filenames)
+    return {
+        "enabled": True,
+        "max_attempts": max_attempts,
+        "pass": pass_name,
+        "pipeline_id": pipeline_id,
+        "settings": _selective_retry_settings_snapshot(
+            run_settings=run_settings,
+            max_attempts=max_attempts,
+        ),
+        "allowed_failure_categories": sorted(
+            _BENCHMARK_SELECTIVE_RETRY_ALLOWED_FAILURE_CATEGORIES
+        ),
+        "original_missing_bundle_count": len(original_missing_bundle_filenames),
+        "recovered_bundle_count": len(recovered_bundle_filenames),
+        "unrecovered_bundle_count": len(unrecovered_bundle_filenames),
+        "attempted_bundle_filenames": list(original_missing_bundle_filenames),
+        "recovered_bundle_filenames": list(recovered_bundle_filenames),
+        "unrecovered_bundle_filenames": list(unrecovered_bundle_filenames),
+        "attempted_recipe_ids": _recipe_ids_for_bundle_filenames(
+            states_by_bundle_name=states_by_bundle_name,
+            bundle_filenames=original_missing_bundle_filenames,
+        ),
+        "recovered_recipe_ids": _recipe_ids_for_bundle_filenames(
+            states_by_bundle_name=states_by_bundle_name,
+            bundle_filenames=recovered_bundle_filenames,
+        ),
+        "unrecovered_recipe_ids": _recipe_ids_for_bundle_filenames(
+            states_by_bundle_name=states_by_bundle_name,
+            bundle_filenames=unrecovered_bundle_filenames,
+        ),
+        "attempts": attempts,
+    }
+
+
 def run_codex_farm_recipe_pipeline(
     *,
     conversion_result: ConversionResult,
@@ -280,6 +538,11 @@ def run_codex_farm_recipe_pipeline(
                 "pass3_pass2_ok_skip_candidates": 0,
                 "pass3_pass2_ok_deterministic_skips": 0,
                 "pass3_pass2_ok_llm_calls": 0,
+                "selective_retry_attempted": 0,
+                "selective_retry_pass2_attempts": 0,
+                "selective_retry_pass2_recovered": 0,
+                "selective_retry_pass3_attempts": 0,
+                "selective_retry_pass3_recovered": 0,
             },
             "timing": {"pass1_seconds": 0.0, "pass2_seconds": 0.0, "pass3_seconds": 0.0},
             "paths": _paths_payload(
@@ -297,6 +560,7 @@ def run_codex_farm_recipe_pipeline(
                 recipe_guardrail_rows_path=recipe_guardrail_rows_path,
             ),
             "process_runs": {},
+            "selective_retries": {},
             "recipes": {},
             "transport": {"audits": {}, "mismatches": []},
             "evidence_normalization": {"recipes": {}},
@@ -324,6 +588,7 @@ def run_codex_farm_recipe_pipeline(
                 "counts": llm_manifest["counts"],
                 "output_schema_paths": dict(output_schema_paths),
                 "process_runs": {},
+                "selective_retries": {},
                 "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
                 "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
@@ -376,6 +641,7 @@ def run_codex_farm_recipe_pipeline(
         "pass3_seconds": 0.0,
     }
     process_runs: dict[str, dict[str, Any]] = {}
+    selective_retries: dict[str, dict[str, Any]] = {}
     intermediate_overrides: dict[str, dict[str, Any]] = {}
     final_overrides: dict[str, dict[str, Any]] = {}
 
@@ -552,6 +818,26 @@ def run_codex_farm_recipe_pipeline(
         if pass2_payload is not None:
             process_runs["pass2"] = pass2_payload
         pass_timing["pass2_seconds"] = round(time.perf_counter() - pass2_started, 3)
+        pass2_selective_retry = _run_benchmark_selective_retry(
+            pass_name="pass2",
+            pipeline_id=pipelines["pass2"],
+            pass_dir=pass2_in_dir.parent,
+            llm_raw_dir=llm_raw_dir,
+            original_in_dir=pass2_in_dir,
+            original_out_dir=pass2_out_dir,
+            expected_bundle_filenames=_json_bundle_filenames(pass2_in_dir),
+            states_by_bundle_name={state.bundle_name: state for state in pass2_states},
+            original_process_run=pass2_payload,
+            run_settings=run_settings,
+            codex_runner=codex_runner,
+            env=env,
+            pipeline_root=pipeline_root,
+            workspace_root=workspace_root,
+            codex_model=codex_model,
+            codex_reasoning_effort=codex_reasoning_effort,
+        )
+        if pass2_selective_retry is not None:
+            selective_retries["pass2"] = pass2_selective_retry
     for state in pass2_states:
         if state.pass2_status == "error":
             continue
@@ -709,6 +995,26 @@ def run_codex_farm_recipe_pipeline(
         if pass3_payload is not None:
             process_runs["pass3"] = pass3_payload
         pass_timing["pass3_seconds"] = round(time.perf_counter() - pass3_started, 3)
+        pass3_selective_retry = _run_benchmark_selective_retry(
+            pass_name="pass3",
+            pipeline_id=pipelines["pass3"],
+            pass_dir=pass3_in_dir.parent,
+            llm_raw_dir=llm_raw_dir,
+            original_in_dir=pass3_in_dir,
+            original_out_dir=pass3_out_dir,
+            expected_bundle_filenames=_json_bundle_filenames(pass3_in_dir),
+            states_by_bundle_name={state.bundle_name: state for state in pass3_llm_states},
+            original_process_run=pass3_payload,
+            run_settings=run_settings,
+            codex_runner=codex_runner,
+            env=env,
+            pipeline_root=pipeline_root,
+            workspace_root=workspace_root,
+            codex_model=codex_model,
+            codex_reasoning_effort=codex_reasoning_effort,
+        )
+        if pass3_selective_retry is not None:
+            selective_retries["pass3"] = pass3_selective_retry
     for state in pass3_llm_states:
         out_path = pass3_out_dir / state.bundle_name
         pass3_error: str | None = None
@@ -842,6 +1148,7 @@ def run_codex_farm_recipe_pipeline(
         pipelines=pipelines,
         output_schema_paths=output_schema_paths,
         process_runs=process_runs,
+        selective_retries=selective_retries,
         pass1_pattern_hints_enabled=pass1_pattern_hints_enabled,
         pass3_skip_pass2_ok_enabled=pass3_skip_pass2_ok_enabled,
         transport_audits=transport_audits,
@@ -864,6 +1171,7 @@ def run_codex_farm_recipe_pipeline(
         "timing": llm_manifest["timing"],
         "failures": llm_manifest["failures"],
         "process_runs": llm_manifest.get("process_runs", {}),
+        "selective_retries": llm_manifest.get("selective_retries", {}),
         "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
         "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
         "transport": {
@@ -1164,6 +1472,7 @@ def _build_llm_manifest(
     pipelines: dict[str, str],
     output_schema_paths: dict[str, str],
     process_runs: dict[str, dict[str, Any]],
+    selective_retries: dict[str, dict[str, Any]],
     pass1_pattern_hints_enabled: bool,
     pass3_skip_pass2_ok_enabled: bool,
     transport_audits: dict[str, dict[str, Any]],
@@ -1225,6 +1534,12 @@ def _build_llm_manifest(
         recipe_id
         for recipe_id, audit in transport_audits.items()
         if isinstance(audit, dict) and bool(audit.get("mismatch"))
+    )
+    pass2_retry_payload = (
+        selective_retries.get("pass2") if isinstance(selective_retries.get("pass2"), dict) else None
+    )
+    pass3_retry_payload = (
+        selective_retries.get("pass3") if isinstance(selective_retries.get("pass3"), dict) else None
     )
     counts = {
         "recipes_total": len(states),
@@ -1294,6 +1609,29 @@ def _build_llm_manifest(
             if state.pass2_status == "ok"
             and state.pass3_execution_mode in {"llm", "llm_then_deterministic_fallback"}
         ),
+        "selective_retry_attempted": int(
+            bool(pass2_retry_payload) or bool(pass3_retry_payload)
+        ),
+        "selective_retry_pass2_attempts": len(
+            list(pass2_retry_payload.get("attempts") or [])
+        )
+        if isinstance(pass2_retry_payload, dict)
+        else 0,
+        "selective_retry_pass2_recovered": int(
+            pass2_retry_payload.get("recovered_bundle_count") or 0
+        )
+        if isinstance(pass2_retry_payload, dict)
+        else 0,
+        "selective_retry_pass3_attempts": len(
+            list(pass3_retry_payload.get("attempts") or [])
+        )
+        if isinstance(pass3_retry_payload, dict)
+        else 0,
+        "selective_retry_pass3_recovered": int(
+            pass3_retry_payload.get("recovered_bundle_count") or 0
+        )
+        if isinstance(pass3_retry_payload, dict)
+        else 0,
         "transport_audits": len(transport_audits),
         "transport_mismatches": len(mismatch_recipe_ids),
         "evidence_normalization_logs": len(evidence_normalizations),
@@ -1331,6 +1669,7 @@ def _build_llm_manifest(
             recipe_guardrail_rows_path=recipe_guardrail_rows_path,
         ),
         "process_runs": dict(process_runs),
+        "selective_retries": dict(selective_retries),
         "failures": failures,
         "recipes": recipe_rows,
         "llm_raw_dir": str(llm_raw_dir),

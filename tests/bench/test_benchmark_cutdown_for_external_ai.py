@@ -195,6 +195,135 @@ def _write_prediction_run_stage_outputs(
     )
 
 
+def _write_pass4_knowledge_artifacts(
+    run_dir: Path,
+    *,
+    workbook_slug: str = "fixture-slug",
+    pass4_call_count: int = 4,
+) -> None:
+    prompts_dir = run_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    (prompts_dir / "prompt_type_samples_from_full_prompt_log.md").write_text(
+        "\n".join(
+            [
+                "# Prompt samples",
+                "",
+                "## pass4 (Knowledge Harvest)",
+                "",
+                "call_id: `fixture-pass4`",
+                "",
+                "Knowledge prompt body",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (prompts_dir / "prompt_task4_pass4_knowledge.txt").write_text(
+        "pass4 raw prompt body\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        run_dir / "prediction-run" / "prompt_budget_summary.json",
+        {
+            "schema_version": "prompt_budget_summary.v1",
+            "by_pass": {
+                "pass4": {
+                    "call_count": pass4_call_count,
+                    "duration_total_ms": pass4_call_count * 100,
+                    "tokens_total": pass4_call_count * 1000,
+                }
+            },
+        },
+    )
+    _write_json(
+        run_dir / "prediction-run" / "manifest.json",
+        {
+            "llm_codex_farm": {
+                "knowledge": {
+                    "enabled": True,
+                    "pipeline": "codex-farm-knowledge-v1",
+                    "pipeline_id": "recipe.knowledge.v1",
+                    "counts": {
+                        "jobs_written": pass4_call_count,
+                        "outputs_parsed": pass4_call_count,
+                        "snippets_written": pass4_call_count * 2,
+                    },
+                    "paths": {
+                        "manifest_path": str(
+                            run_dir
+                            / "prediction-run"
+                            / "raw"
+                            / "llm"
+                            / workbook_slug
+                            / "pass4_knowledge_manifest.json"
+                        )
+                    },
+                }
+            }
+        },
+    )
+    _write_json(
+        run_dir
+        / "prediction-run"
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "pass4_knowledge_manifest.json",
+        {
+            "pipeline_id": "recipe.knowledge.v1",
+            "counts": {
+                "jobs_written": pass4_call_count,
+                "outputs_parsed": pass4_call_count,
+                "snippets_written": pass4_call_count * 2,
+            },
+        },
+    )
+
+
+def _write_prediction_run_pass4_stage_outputs(
+    prediction_run: Path,
+    *,
+    workbook_slug: str = "fixture-slug",
+    chunk_id: str = "knowledge:c0",
+) -> None:
+    llm_run_dir = prediction_run / "raw" / "llm" / workbook_slug
+    _write_json(
+        llm_run_dir / "pass4_knowledge" / "in" / "r0000.json",
+        {
+            "chunk_id": chunk_id,
+            "blocks": [
+                {"index": 1, "text": "Roast until deeply browned."},
+                {"index": 2, "text": "Let the pan stay hot for 2 minutes."},
+            ],
+        },
+    )
+    _write_json(
+        llm_run_dir / "pass4_knowledge" / "out" / "r0000.json",
+        {
+            "chunk_id": chunk_id,
+            "snippets": [
+                {"topic": "browning", "evidence": "Roast until deeply browned."},
+            ],
+        },
+    )
+    _write_json(
+        prediction_run / "manifest.json",
+        {
+            "llm_codex_farm": {
+                "knowledge": {
+                    "enabled": True,
+                    "pipeline": "codex-farm-knowledge-v1",
+                    "pipeline_id": "recipe.knowledge.v1",
+                    "process_run": {
+                        "run_id": "run-pass4-reconstruct",
+                        "pipeline_id": "recipe.knowledge.v1",
+                    },
+                }
+            }
+        },
+    )
+
+
 def _set_eval_report_per_label(
     run_dir: Path,
     *,
@@ -2185,6 +2314,163 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
     assert int(runtime_summary["total_tokens"]) == 550000
     assert float(runtime_summary["line_role_token_share"]) == round(50000 / 550000, 4)
     assert int(runtime_summary["by_pass"]["line_role"]["total_tokens"]) == 50000
+
+
+def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-profile-benchmark" / "book_a"
+    run_id = "codexfarm"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    run_dir = session_root / run_id
+    _write_prediction_run(run_dir, with_extracted_archive=False)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+    _write_pass4_knowledge_artifacts(run_dir, workbook_slug="fixture-slug", pass4_call_count=4)
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    pass4_summary = index_payload["analysis"]["pass4_knowledge"]
+    assert pass4_summary["enabled_run_count"] == 1
+    assert pass4_summary["runs_with_prompt_samples"] == 1
+    assert pass4_summary["runs_with_pass4_manifest"] == 1
+    assert pass4_summary["total_pass4_call_count"] == 4
+    row = pass4_summary["rows"][0]
+    assert row["run_id"] == run_id
+    assert row["enabled"] is True
+    assert row["prompt_samples_status"] == "written"
+    assert row["prompt_task4_status"] == "written"
+    assert row["pass4_manifest_status"] == "written"
+    assert row["prompt_budget_summary_status"] == "written"
+    assert row["prompt_samples_in_bundle"] is True
+    assert row["prompt_task4_in_bundle"] is True
+    assert row["pass4_manifest_in_bundle"] is True
+    assert row["prompt_budget_summary_in_bundle"] is True
+
+    row_locators = index_payload["navigation"]["row_locators"]["pass4_by_run"]
+    assert isinstance(row_locators, list)
+    locator_row = next(
+        item for item in row_locators if str(item.get("run_id") or "") == run_id
+    )
+    assert locator_row["prompt_samples_md"]["path"].endswith(
+        "prompts/prompt_type_samples_from_full_prompt_log.md"
+    )
+    assert locator_row["prompt_task4_txt"]["path"].endswith(
+        "prompts/prompt_task4_pass4_knowledge.txt"
+    )
+    assert locator_row["pass4_manifest_json"]["path"].endswith(
+        "prediction-run/raw/llm/fixture-slug/pass4_knowledge_manifest.json"
+    )
+    assert locator_row["prompt_budget_summary_json"]["path"].endswith(
+        "prediction-run/prompt_budget_summary.json"
+    )
+
+
+def test_reconstruct_full_prompt_log_includes_pass4_rows(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    run_dir = tmp_path / "single-profile-benchmark" / "book_a" / "codexfarm"
+    _make_run_record(
+        module,
+        run_root=tmp_path / "single-profile-benchmark" / "book_a",
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=[],
+    )
+    prediction_run = _write_prediction_run(run_dir, with_extracted_archive=False)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+    _write_prediction_run_pass4_stage_outputs(prediction_run, workbook_slug="fixture-slug")
+
+    output_path = tmp_path / "reconstructed" / "full_prompt_log.jsonl"
+    rows_written = module._reconstruct_full_prompt_log(
+        run_dir=run_dir,
+        run_manifest=_read_json(run_dir / "run_manifest.json"),
+        output_path=output_path,
+    )
+
+    assert rows_written == 1
+    rows = _read_jsonl(output_path)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["pass"] == "pass4"
+    assert row["pipeline_id"] == "recipe.knowledge.v1"
+    assert row["process_run_id"] == "run-pass4-reconstruct"
+    assert row["recipe_id"] == "knowledge:c0"
+    assert row["parsed_response"] == {
+        "chunk_id": "knowledge:c0",
+        "snippets": [
+            {"topic": "browning", "evidence": "Roast until deeply browned."},
+        ],
+    }
+
+
+def test_build_upload_bundle_high_level_includes_lightweight_pass4_artifacts(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-profile-benchmark"
+    run_id = "codexfarm"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-farm-3pass-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    run_dir = session_root / run_id
+    _write_prediction_run(run_dir, with_extracted_archive=False)
+    _set_pred_run_artifact(run_dir, "prediction-run")
+    _write_pass4_knowledge_artifacts(run_dir, workbook_slug="fixture-slug", pass4_call_count=3)
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+        high_level_only=True,
+        target_bundle_size_bytes=300_000,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    artifact_paths = {
+        str(row.get("path") or "")
+        for row in index_payload.get("artifact_index", [])
+        if isinstance(row, dict)
+    }
+    assert f"{run_id}/prompts/prompt_type_samples_from_full_prompt_log.md" in artifact_paths
+    assert (
+        f"{run_id}/prediction-run/raw/llm/fixture-slug/pass4_knowledge_manifest.json"
+        in artifact_paths
+    )
+    assert f"{run_id}/prompts/prompt_task4_pass4_knowledge.txt" not in artifact_paths
+
+    pass4_summary = index_payload["analysis"]["pass4_knowledge"]["rows"][0]
+    assert pass4_summary["prompt_samples_in_bundle"] is True
+    assert pass4_summary["pass4_manifest_in_bundle"] is True
+    assert pass4_summary["prompt_task4_in_bundle"] is False
 
 
 def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(

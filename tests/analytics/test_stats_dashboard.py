@@ -924,6 +924,7 @@ js = js.replace(/\n\}\)\(\);\s*$/, `
   globalThis.__trendHarness = {
     benchmarkRunGroupInfo,
     buildBenchmarkTrendSeries,
+    buildRollingTrend,
     setBenchmarkTrendSelectedFields,
   };
 })();
@@ -1010,6 +1011,67 @@ process.stdout.write(JSON.stringify(payload));
     if completed.returncode != 0:
         raise AssertionError(
             "Benchmark trend behavior harness failed.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip())
+
+
+def _run_benchmark_trend_overlay_tail_harness(
+    js_path: Path,
+    points: list[dict[str, object]],
+) -> dict[str, object]:
+    """Run generated dashboard JS and inspect rolling-trend tail behavior."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for benchmark trend behavior harness")
+    harness = r"""
+const fs = require("fs");
+const jsPath = process.argv[1];
+let js = fs.readFileSync(jsPath, "utf8");
+const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
+const initNeedle = '  function init() {';
+const bootStart = js.indexOf(bootNeedle);
+const initStart = js.indexOf(initNeedle);
+if (bootStart < 0 || initStart < 0 || initStart <= bootStart) {
+  throw new Error("Could not find dashboard bootstrap block in JS output");
+}
+js = js.slice(0, bootStart) + "  // boot disabled in node behavior harness\n\n" + js.slice(initStart);
+js = js.replace(/\n\}\)\(\);\s*$/, `
+  globalThis.__trendOverlayHarness = {
+    buildRollingTrend,
+  };
+})();
+`);
+eval(js);
+const hooks = globalThis.__trendOverlayHarness;
+if (!hooks || typeof hooks.buildRollingTrend !== "function") {
+  throw new Error("Trend overlay harness exports were not attached");
+}
+
+const points = __POINTS_JSON__;
+const result = hooks.buildRollingTrend(points);
+const trendPoints = result && Array.isArray(result.trendPoints) ? result.trendPoints : [];
+const tail = trendPoints.slice(-2).map(point => ({
+  x: Number(point && point.x),
+  y: Number(point && point.y),
+}));
+process.stdout.write(JSON.stringify({
+  window_size: result ? Number(result.windowSize || 0) : 0,
+  trend_point_count: trendPoints.length,
+  tail,
+}));
+"""
+    harness = harness.replace("__POINTS_JSON__", json.dumps(points))
+    completed = subprocess.run(
+        [node, "-e", harness, str(js_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            "Benchmark trend overlay harness failed.\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
@@ -4118,6 +4180,21 @@ class TestBenchmarkSemantics:
         assert result["codex_point_variant"] == "codexfarm"
         assert result["vanilla_point_run_timestamp"] == "2026-03-01T10:01:00"
         assert result["codex_point_run_timestamp"] == "2026-03-01T10:06:00"
+
+    def test_benchmark_trend_overlay_recomputes_tail_windows(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        points = [
+            {"x": index + 1, "y": value, "custom": {"runGroupKey": f"group-{index + 1}"}}
+            for index, value in enumerate([0, 0, 0, 0, 10, 20, 30, 40])
+        ]
+        result = _run_benchmark_trend_overlay_tail_harness(js_path, points)
+        assert result["window_size"] == 5
+        assert result["trend_point_count"] == len(points)
+        assert len(result["tail"]) == 2
+        assert result["tail"][0]["y"] == pytest.approx(25.0)
+        assert result["tail"][1]["y"] == pytest.approx(30.0)
 
     def test_benchmark_trend_host_rerender_starts_from_clean_host(self, tmp_path):
         dash_dir = tmp_path / "dash"

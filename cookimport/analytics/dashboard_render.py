@@ -10016,9 +10016,8 @@ _JS = """\
     const halfWindow = Math.floor(windowSize / 2);
     const trendPoints = usable.map((point, index) => {
       const start = Math.max(0, index - halfWindow);
-      const end = Math.min(usable.length, start + windowSize);
-      const adjustedStart = Math.max(0, end - windowSize);
-      const windowPoints = usable.slice(adjustedStart, end);
+      const end = Math.min(usable.length, index + halfWindow + 1);
+      const windowPoints = usable.slice(start, end);
       const meanY = windowPoints.reduce((sum, item) => sum + item.y, 0) / windowPoints.length;
       return {
         x: point.x,

@@ -2,14 +2,7 @@
 
 This note is for a web AI that is reviewing a benchmark handoff rooted at `upload_bundle_v1` and wants to ask for narrower, better-targeted local follow-up data.
 
-The specific example that motivated this document is:
-
-`data/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/upload_bundle_v1`
-
 ## What You Already Have
-
-Assume the requester already has the full `upload_bundle_v1` directory. Do not ask them to resend the whole bundle unless there is a checksum mismatch or a truly missing file.
-
 The `upload_bundle_v1` contract is always three files:
 
 - `upload_bundle_overview.md`: human summary and quick-start.
@@ -20,9 +13,7 @@ Important implication: most follow-up requests should ask for new derived artifa
 
 ## The Full Run Data Layout
 
-The upload bundle is a compact handoff layer built from a larger benchmark session folder. In the motivating example, that larger folder is:
-
-`data/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark`
+The upload bundle is a compact handoff layer built from a larger benchmark session folder. 
 
 The session root typically contains:
 
@@ -353,6 +344,4 @@ If the bundle already contains a row locator for the needed artifact, cite that 
 }
 ```
 
-## Short Prompt You Can Hand To A Web AI
 
-You already have `upload_bundle_v1`. Read `upload_bundle_overview.md`, then `upload_bundle_index.json`, especially `topline`, `self_check`, `run_diagnostics`, `navigation.default_initial_views`, and `navigation.row_locators`. Use existing row locators before asking for more data. If you need follow-up artifacts, ask for the smallest local `cf-debug` output that answers the question: `select-cases` for stable selectors, `case_export` for case facts, `line_role_audit` for label-stage provenance, `prompt_link_audit` for prompt joins, `page_context` for layout/span issues, `uncertainty` for confidence slices, `pack` for a compact one-shot packet, `build-followup` for multiple asks, and `ablate` for subsystem attribution. Prefer `include_case_ids` over broad data dumps.

@@ -112,6 +112,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         codex_farm_pass1_pattern_hints_enabled=True,
         codex_farm_pipeline_pass4_knowledge="recipe.knowledge.custom.v9",
         codex_farm_pass3_skip_pass2_ok=False,
+        codex_farm_benchmark_selective_retry_enabled=False,
+        codex_farm_benchmark_selective_retry_max_attempts=3,
         codex_farm_knowledge_context_blocks=21,
     )
 
@@ -158,6 +160,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["codex_farm_pass1_pattern_hints_enabled"] is True
     assert kwargs["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
     assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False
+    assert kwargs["codex_farm_benchmark_selective_retry_enabled"] is False
+    assert kwargs["codex_farm_benchmark_selective_retry_max_attempts"] == 3
     assert kwargs["codex_farm_knowledge_context_blocks"] == 21
 
 

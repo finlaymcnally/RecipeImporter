@@ -357,8 +357,8 @@ def test_labelstudio_import_prints_processing_time(
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
         codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
-        codex_farm_pipeline_pass3="recipe.final.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert "Processing time: 1m 5s" in secho_messages
@@ -415,8 +415,8 @@ def test_labelstudio_import_prints_prelabel_failure_summary(
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
         codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
-        codex_farm_pipeline_pass3="recipe.final.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert any("PRELABEL ERRORS: 8/9 tasks failed (1 succeeded)." in line for line in secho_messages)
@@ -482,8 +482,8 @@ def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
         codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
-        codex_farm_pipeline_pass3="recipe.final.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert any(
@@ -543,8 +543,8 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
         codex_farm_pipeline_pass1="recipe.chunking.v1",
-        codex_farm_pipeline_pass2="recipe.schemaorg.v1",
-        codex_farm_pipeline_pass3="recipe.final.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
     )
 
     assert captured["segment_blocks"] == 40
@@ -2148,21 +2148,46 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
     )
 
     assert completed is True
-    assert len(benchmark_calls) == 1
-    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
-    assert benchmark_calls[0]["line_role_pipeline"] == "off"
-    assert benchmark_calls[0]["atomic_block_splitter"] == "off"
-    assert benchmark_calls[0]["allow_codex"] is True
-    assert "single_offline_split_cache_mode" not in benchmark_calls[0]
-    assert benchmark_calls[0]["eval_output_dir"] == (
-        benchmark_eval_output / "single-offline-benchmark" / "codexfarm"
-    )
-    assert benchmark_calls[0]["processed_output_dir"] == (
+    assert len(benchmark_calls) == 2
+    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
+        "off",
+        "codex-farm-3pass-v1",
+    ]
+    assert [call["line_role_pipeline"] for call in benchmark_calls] == [
+        "deterministic-v1",
+        "codex-line-role-v1",
+    ]
+    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
+        "atomic-v1",
+        "atomic-v1",
+    ]
+    assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
+    assert [call["single_offline_split_cache_mode"] for call in benchmark_calls] == [
+        "auto",
+        "auto",
+    ]
+    assert [call["codex_farm_pipeline_pass2"] for call in benchmark_calls] == [
+        "recipe.schemaorg.compact.v1",
+        "recipe.schemaorg.compact.v1",
+    ]
+    assert [call["codex_farm_pipeline_pass3"] for call in benchmark_calls] == [
+        "recipe.final.compact.v1",
+        "recipe.final.compact.v1",
+    ]
+    assert [call["eval_output_dir"] for call in benchmark_calls] == [
+        benchmark_eval_output / "single-offline-benchmark" / "vanilla",
+        benchmark_eval_output / "single-offline-benchmark" / "codexfarm",
+    ]
+    assert [call["processed_output_dir"] for call in benchmark_calls] == [
         processed_output_root
         / benchmark_eval_output.name
         / "single-offline-benchmark"
-        / "codexfarm"
-    )
+        / "vanilla",
+        processed_output_root
+        / benchmark_eval_output.name
+        / "single-offline-benchmark"
+        / "codexfarm",
+    ]
 
     comparison_json = (
         benchmark_eval_output
@@ -2174,7 +2199,7 @@ def test_interactive_single_offline_codex_enabled_runs_only_codexfarm(
         / "single-offline-benchmark"
         / "codex_vs_vanilla_comparison.md"
     )
-    assert not comparison_json.exists()
+    assert comparison_json.exists()
     assert not comparison_md.exists()
     assert len(refresh_calls) == 1
     assert refresh_calls[0]["reason"] == "single-offline benchmark variant batch append"
@@ -3166,6 +3191,42 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
     assert context.tokens_total == 171
 
 
+def test_pred_run_context_preserves_selective_retry_summary_fields(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": "book.epub",
+                "source_hash": "hash-1",
+                "run_config": {
+                    "selective_retry_attempted": True,
+                    "selective_retry_pass2_attempts": 1,
+                    "selective_retry_pass2_recovered": 1,
+                    "selective_retry_pass3_attempts": 1,
+                    "selective_retry_pass3_recovered": 0,
+                },
+                "run_config_hash": "cfg-hash",
+                "run_config_summary": "selective retry summary",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    context = cli._load_pred_run_recipe_context(pred_run)
+
+    assert context.run_config is not None
+    assert context.run_config["selective_retry_attempted"] is True
+    assert context.run_config["selective_retry_pass2_attempts"] == 1
+    assert context.run_config["selective_retry_pass2_recovered"] == 1
+    assert context.run_config["selective_retry_pass3_attempts"] == 1
+    assert context.run_config["selective_retry_pass3_recovered"] == 0
+    assert context.run_config_hash == "cfg-hash"
+    assert context.run_config_summary == "selective retry summary"
+
+
 def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     tmp_path: Path,
 ) -> None:
@@ -3496,10 +3557,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
-
-
-
 
 
 

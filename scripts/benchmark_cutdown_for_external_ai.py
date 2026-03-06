@@ -231,6 +231,9 @@ STARTER_PACK_TRIAGE_HEADER = (
 AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
+PROMPT_TYPE_SAMPLES_FILE_NAME = "prompt_type_samples_from_full_prompt_log.md"
+PASS4_PROMPT_TASK_FILE_NAME = "prompt_task4_pass4_knowledge.txt"
+PASS4_KNOWLEDGE_MANIFEST_FILE_NAME = "pass4_knowledge_manifest.json"
 PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
 PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
 CHANGED_LINES_FILE_NAME = "changed_lines.codex_vs_vanilla.jsonl"
@@ -245,6 +248,9 @@ FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS = (
     "full_prompt_log_path",
     "codexfarm_full_prompt_log_jsonl",
 )
+PROMPT_TYPE_SAMPLES_MANIFEST_ARTIFACT_KEYS = (
+    "codexfarm_prompt_type_samples_from_full_prompt_log_md",
+)
 PROMPT_LOG_SEPARATOR = "--------------------------------------------------------------------------------"
 PROMPT_SECTION_HEADER_RE = re.compile(
     r"^---\s+([0-9A-Za-z_-]+)\s+(INPUT|RESPONSE)\s+FILES\s+---$"
@@ -255,11 +261,13 @@ PASS_DIR_MAP = {
     "pass1": "pass1_chunking",
     "pass2": "pass2_schemaorg",
     "pass3": "pass3_final",
+    "pass4": "pass4_knowledge",
 }
 PASS_PIPELINE_MAP = {
     "pass1": "recipe.chunking.v1",
-    "pass2": "recipe.schemaorg.v1",
-    "pass3": "recipe.final.v1",
+    "pass2": "recipe.schemaorg.compact.v1",
+    "pass3": "recipe.final.compact.v1",
+    "pass4": "recipe.knowledge.v1",
 }
 _UPLOAD_BUNDLE_YIELD_LINE_RE = re.compile(
     r"\b(yield|serves?|servings?|makes?)\b",
@@ -2209,6 +2217,53 @@ def _resolve_full_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -
     return None
 
 
+def _resolve_prompt_type_samples_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    candidate_paths: list[Path] = []
+
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        for key in PROMPT_TYPE_SAMPLES_MANIFEST_ARTIFACT_KEYS:
+            manifest_path_raw = artifacts.get(key)
+            if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
+                manifest_path = Path(manifest_path_raw.strip())
+                candidate_paths.append(
+                    manifest_path if manifest_path.is_absolute() else run_dir / manifest_path
+                )
+
+    candidate_paths.extend(
+        [
+            run_dir / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
+            run_dir / "codexfarm" / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _resolve_pass4_prompt_task_path(run_dir: Path) -> Path | None:
+    candidate_paths = [
+        run_dir / "prompts" / PASS4_PROMPT_TASK_FILE_NAME,
+        run_dir / "codexfarm" / "prompts" / PASS4_PROMPT_TASK_FILE_NAME,
+    ]
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
     artifacts = run_manifest.get("artifacts")
     if isinstance(artifacts, dict):
@@ -2221,6 +2276,56 @@ def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> 
     fallback = run_dir / "prediction-run"
     if fallback.exists() and fallback.is_dir():
         return fallback
+    return None
+
+
+def _resolve_pass4_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    if pred_run_dir is None:
+        return None
+
+    candidate_paths: list[Path] = []
+    pred_manifest_path = pred_run_dir / "manifest.json"
+    pred_manifest = (
+        _upload_bundle_load_json_object(pred_manifest_path)
+        if pred_manifest_path.is_file()
+        else {}
+    )
+    llm_payload = (
+        pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
+    )
+    llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
+    knowledge_payload = llm_payload.get("knowledge")
+    knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
+    knowledge_paths = (
+        knowledge_payload.get("paths") if isinstance(knowledge_payload.get("paths"), dict) else {}
+    )
+    manifest_path_raw = (
+        knowledge_paths.get("manifest_path")
+        or knowledge_payload.get("manifest_path")
+        or ""
+    )
+    if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
+        manifest_path = Path(manifest_path_raw.strip())
+        candidate_paths.append(
+            manifest_path if manifest_path.is_absolute() else pred_run_dir / manifest_path
+        )
+
+    raw_llm_dir = pred_run_dir / "raw" / "llm"
+    if raw_llm_dir.is_dir():
+        candidate_paths.extend(
+            sorted(raw_llm_dir.glob(f"*/{PASS4_KNOWLEDGE_MANIFEST_FILE_NAME}"))
+        )
+        candidate_paths.append(raw_llm_dir / PASS4_KNOWLEDGE_MANIFEST_FILE_NAME)
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
     return None
 
 
@@ -2471,6 +2576,8 @@ def _reconstruct_full_prompt_log(
     pred_manifest = _load_json(pred_manifest_path) if pred_manifest_path.is_file() else {}
     llm_payload = pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
     process_runs = llm_payload.get("process_runs") if isinstance(llm_payload, dict) else {}
+    knowledge_payload = llm_payload.get("knowledge") if isinstance(llm_payload, dict) else {}
+    knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
     source_payload = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
     source_file = source_payload.get("path") if isinstance(source_payload, dict) else None
     source_file = str(source_file).strip() if isinstance(source_file, str) else None
@@ -2497,9 +2604,16 @@ def _reconstruct_full_prompt_log(
                     continue
                 input_by_name = {path.name: path for path in input_files}
                 output_by_name = {path.name: path for path in output_files}
-                pass_process_payload = (
-                    process_runs.get(pass_name) if isinstance(process_runs, dict) else None
-                )
+                if pass_name == "pass4":
+                    pass_process_payload = (
+                        knowledge_payload.get("process_run")
+                        if isinstance(knowledge_payload.get("process_run"), dict)
+                        else None
+                    )
+                else:
+                    pass_process_payload = (
+                        process_runs.get(pass_name) if isinstance(process_runs, dict) else None
+                    )
                 pass_run_id = None
                 if isinstance(pass_process_payload, dict):
                     pass_run_id = str(pass_process_payload.get("run_id") or "").strip() or None
@@ -2543,6 +2657,13 @@ def _reconstruct_full_prompt_log(
                         recipe_id = str(parsed_input.get("recipe_id") or "").strip() or None
                     if recipe_id is None and isinstance(parsed_output, dict):
                         recipe_id = str(parsed_output.get("recipe_id") or "").strip() or None
+                    if recipe_id is None and pass_name == "pass4":
+                        chunk_id = None
+                        if isinstance(parsed_input, dict):
+                            chunk_id = str(parsed_input.get("chunk_id") or "").strip() or None
+                        if chunk_id is None and isinstance(parsed_output, dict):
+                            chunk_id = str(parsed_output.get("chunk_id") or "").strip() or None
+                        recipe_id = chunk_id
                     rendered_prompt = _render_prompt(
                         prompt_template_text,
                         input_text,
@@ -5933,6 +6054,8 @@ def _upload_bundle_high_level_trim_priority(path: str) -> tuple[int, str] | None
                 "config_version_metadata.json",
                 STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
                 "net_error_blame_summary.json",
+                PROMPT_TYPE_SAMPLES_FILE_NAME,
+                PASS4_KNOWLEDGE_MANIFEST_FILE_NAME,
                 CHANGED_LINES_FILE_NAME.rsplit("/", 1)[-1],
                 "prediction-run/extracted_archive.json",
                 "prediction-run/line-role-pipeline/extracted_archive.json",
@@ -6158,6 +6281,64 @@ def _upload_bundle_select_high_level_artifact_paths(
                         "source_bytes": _path_size(prompt_budget_summary_path),
                     }
                 )
+        prompt_type_samples_path = _resolve_prompt_type_samples_path(
+            run_dir,
+            run_manifest_payload,
+        )
+        if prompt_type_samples_path is not None:
+            try:
+                prompt_type_samples_path.relative_to(source_root)
+            except ValueError:
+                prompt_type_samples_path = None
+        if prompt_type_samples_path is not None:
+            if _append_if_allowed(prompt_type_samples_path, required=False):
+                try:
+                    included_files.append(
+                        str(prompt_type_samples_path.relative_to(run_dir).as_posix())
+                    )
+                except ValueError:
+                    included_files.append(str(prompt_type_samples_path))
+            else:
+                try:
+                    omitted_path = str(prompt_type_samples_path.relative_to(run_dir).as_posix())
+                except ValueError:
+                    omitted_path = str(prompt_type_samples_path)
+                omitted_files.append(
+                    {
+                        "path": omitted_path,
+                        "reason": "artifact_budget_exceeded",
+                        "source_bytes": _path_size(prompt_type_samples_path),
+                    }
+                )
+        pass4_manifest_path = _resolve_pass4_knowledge_manifest_path(
+            run_dir,
+            run_manifest_payload,
+        )
+        if pass4_manifest_path is not None:
+            try:
+                pass4_manifest_path.relative_to(source_root)
+            except ValueError:
+                pass4_manifest_path = None
+        if pass4_manifest_path is not None:
+            if _append_if_allowed(pass4_manifest_path, required=False):
+                try:
+                    included_files.append(
+                        str(pass4_manifest_path.relative_to(run_dir).as_posix())
+                    )
+                except ValueError:
+                    included_files.append(str(pass4_manifest_path))
+            else:
+                try:
+                    omitted_path = str(pass4_manifest_path.relative_to(run_dir).as_posix())
+                except ValueError:
+                    omitted_path = str(pass4_manifest_path)
+                omitted_files.append(
+                    {
+                        "path": omitted_path,
+                        "reason": "artifact_budget_exceeded",
+                        "source_bytes": _path_size(pass4_manifest_path),
+                    }
+                )
         for relative_path in GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES:
             candidate = run_dir / relative_path
             if _append_if_allowed(candidate, required=False):
@@ -6192,6 +6373,23 @@ def _upload_bundle_select_high_level_artifact_paths(
             _record_policy_omission(
                 full_prompt_log_path,
                 reason="followup_only_heavy_prompt_log",
+            )
+        pass4_prompt_task_path = _resolve_pass4_prompt_task_path(run_dir)
+        if pass4_prompt_task_path is not None and pass4_prompt_task_path.is_file():
+            try:
+                omitted_path = str(pass4_prompt_task_path.relative_to(run_dir).as_posix())
+            except ValueError:
+                omitted_path = str(pass4_prompt_task_path)
+            omitted_files.append(
+                {
+                    "path": omitted_path,
+                    "reason": "followup_only_heavy_prompt_context",
+                    "source_bytes": _path_size(pass4_prompt_task_path),
+                }
+            )
+            _record_policy_omission(
+                pass4_prompt_task_path,
+                reason="followup_only_heavy_prompt_context",
             )
         for heavy_name, omission_reason in (
             (WRONG_LABEL_FULL_CONTEXT_FILE_NAME, "followup_only_full_context_trace"),
@@ -6411,6 +6609,202 @@ def _upload_bundle_build_group_high_level_packet(
         "sampled_wrong_line_bytes_total": sampled_wrong_line_bytes_total,
         "runs": run_payloads,
     }
+
+
+def _upload_bundle_optional_artifact_status(*, path: Path | None, enabled: bool) -> str:
+    if isinstance(path, Path) and path.is_file():
+        return "written"
+    return "missing" if enabled else "not_applicable"
+
+
+def _upload_bundle_relative_path_within_root(
+    *,
+    source_root: Path,
+    candidate: Path | None,
+) -> str | None:
+    if not isinstance(candidate, Path):
+        return None
+    try:
+        return str(candidate.resolve().relative_to(source_root).as_posix())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _upload_bundle_build_pass4_knowledge_summary(
+    *,
+    source_root: Path,
+    discovered_run_dirs: list[Path],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    locator_rows: list[dict[str, Any]] = []
+    enabled_run_count = 0
+    runs_with_prompt_samples = 0
+    runs_with_pass4_manifest = 0
+    total_pass4_call_count = 0
+    jobs_written_total = 0
+    outputs_parsed_total = 0
+    snippets_written_total = 0
+
+    for run_dir in discovered_run_dirs:
+        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
+        run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
+        try:
+            output_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
+        except Exception:  # noqa: BLE001
+            output_subdir = run_dir.name
+
+        run_config = run_manifest.get("run_config")
+        run_config = run_config if isinstance(run_config, dict) else {}
+        prediction_run_config = run_config.get("prediction_run_config")
+        prediction_run_config = (
+            prediction_run_config if isinstance(prediction_run_config, dict) else {}
+        )
+        llm_knowledge_pipeline = str(
+            prediction_run_config.get("llm_knowledge_pipeline")
+            or run_config.get("llm_knowledge_pipeline")
+            or ""
+        ).strip()
+
+        pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+        pred_manifest = (
+            _upload_bundle_load_json_object(pred_run_dir / "manifest.json")
+            if pred_run_dir is not None
+            else {}
+        )
+        llm_payload = (
+            pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
+        )
+        llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
+        knowledge_payload = llm_payload.get("knowledge")
+        knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
+        knowledge_counts = (
+            knowledge_payload.get("counts")
+            if isinstance(knowledge_payload.get("counts"), dict)
+            else {}
+        )
+
+        prompt_budget_summary = (
+            _upload_bundle_load_prompt_budget_summary(
+                pred_run_dir=pred_run_dir,
+                pred_manifest=pred_manifest,
+            )
+            if pred_run_dir is not None
+            else None
+        )
+        prompt_budget_by_pass = (
+            prompt_budget_summary.get("by_pass")
+            if isinstance(prompt_budget_summary, dict)
+            else {}
+        )
+        prompt_budget_by_pass = (
+            prompt_budget_by_pass if isinstance(prompt_budget_by_pass, dict) else {}
+        )
+        pass4_budget = (
+            prompt_budget_by_pass.get("pass4")
+            if isinstance(prompt_budget_by_pass.get("pass4"), dict)
+            else {}
+        )
+        pass4_call_count = _coerce_int(pass4_budget.get("call_count"))
+        pass4_token_total = _coerce_int(pass4_budget.get("tokens_total"))
+
+        prompt_samples_path = _resolve_prompt_type_samples_path(run_dir, run_manifest)
+        pass4_prompt_task_path = _resolve_pass4_prompt_task_path(run_dir)
+        pass4_manifest_path = _resolve_pass4_knowledge_manifest_path(run_dir, run_manifest)
+        prompt_budget_path = (
+            _resolve_prompt_budget_summary_path(
+                pred_run_dir=pred_run_dir,
+                pred_manifest=pred_manifest,
+            )
+            if pred_run_dir is not None
+            else None
+        )
+
+        knowledge_enabled = bool(_coerce_bool(knowledge_payload.get("enabled")))
+        enabled = bool(
+            knowledge_enabled
+            or (pass4_call_count is not None and pass4_call_count > 0)
+            or isinstance(pass4_manifest_path, Path)
+            or llm_knowledge_pipeline not in {"", "off", "none"}
+        )
+
+        if enabled:
+            enabled_run_count += 1
+        if isinstance(prompt_samples_path, Path) and prompt_samples_path.is_file():
+            runs_with_prompt_samples += 1
+        if isinstance(pass4_manifest_path, Path) and pass4_manifest_path.is_file():
+            runs_with_pass4_manifest += 1
+        total_pass4_call_count += int(pass4_call_count or 0)
+        jobs_written_total += int(_coerce_int(knowledge_counts.get("jobs_written")) or 0)
+        outputs_parsed_total += int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0)
+        snippets_written_total += int(_coerce_int(knowledge_counts.get("snippets_written")) or 0)
+
+        rows.append(
+            {
+                "run_id": run_id,
+                "output_subdir": output_subdir,
+                "enabled": enabled,
+                "llm_knowledge_pipeline": llm_knowledge_pipeline or "off",
+                "pipeline": str(knowledge_payload.get("pipeline") or "").strip(),
+                "pipeline_id": str(knowledge_payload.get("pipeline_id") or "").strip(),
+                "pass4_call_count": int(pass4_call_count or 0),
+                "pass4_token_total": int(pass4_token_total or 0),
+                "jobs_written": int(_coerce_int(knowledge_counts.get("jobs_written")) or 0),
+                "outputs_parsed": int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0),
+                "snippets_written": int(_coerce_int(knowledge_counts.get("snippets_written")) or 0),
+                "prompt_samples_status": _upload_bundle_optional_artifact_status(
+                    path=prompt_samples_path,
+                    enabled=enabled,
+                ),
+                "prompt_task4_status": _upload_bundle_optional_artifact_status(
+                    path=pass4_prompt_task_path,
+                    enabled=enabled,
+                ),
+                "pass4_manifest_status": _upload_bundle_optional_artifact_status(
+                    path=pass4_manifest_path,
+                    enabled=enabled,
+                ),
+                "prompt_budget_summary_status": _upload_bundle_optional_artifact_status(
+                    path=prompt_budget_path,
+                    enabled=enabled,
+                ),
+            }
+        )
+        locator_rows.append(
+            {
+                "run_id": run_id,
+                "output_subdir": output_subdir,
+                "prompt_samples_path": _upload_bundle_relative_path_within_root(
+                    source_root=source_root,
+                    candidate=prompt_samples_path,
+                ),
+                "prompt_task4_path": _upload_bundle_relative_path_within_root(
+                    source_root=source_root,
+                    candidate=pass4_prompt_task_path,
+                ),
+                "pass4_manifest_path": _upload_bundle_relative_path_within_root(
+                    source_root=source_root,
+                    candidate=pass4_manifest_path,
+                ),
+                "prompt_budget_summary_path": _upload_bundle_relative_path_within_root(
+                    source_root=source_root,
+                    candidate=prompt_budget_path,
+                ),
+            }
+        )
+
+    summary = {
+        "schema_version": "upload_bundle_pass4_knowledge.v1",
+        "run_count": len(rows),
+        "enabled_run_count": enabled_run_count,
+        "runs_with_prompt_samples": runs_with_prompt_samples,
+        "runs_with_pass4_manifest": runs_with_pass4_manifest,
+        "total_pass4_call_count": total_pass4_call_count,
+        "jobs_written_total": jobs_written_total,
+        "outputs_parsed_total": outputs_parsed_total,
+        "snippets_written_total": snippets_written_total,
+        "rows": rows,
+    }
+    return summary, locator_rows
 
 
 def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
@@ -11192,6 +11586,13 @@ def _write_upload_bundle_three_files(
         run_dir_by_id=run_dir_by_id,
         run_dirs=run_dirs_for_analysis,
     )
+    (
+        pass4_knowledge_summary,
+        pass4_locator_hints,
+    ) = _upload_bundle_build_pass4_knowledge_summary(
+        source_root=source_root,
+        discovered_run_dirs=run_dirs_for_analysis,
+    )
     line_role_signal_summary = _upload_bundle_build_line_role_confidence_summary(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
@@ -11841,6 +12242,46 @@ def _write_upload_bundle_three_files(
         for item in run_diagnostics
         if isinstance(item, dict) and str(item.get("need_to_know_summary_path") or "")
     ]
+    pass4_row_locators = [
+        {
+            "run_id": str(item.get("run_id") or ""),
+            "output_subdir": str(item.get("output_subdir") or ""),
+            "prompt_samples_md": _payload_locator(
+                paths=tuple(
+                    path
+                    for path in (str(item.get("prompt_samples_path") or ""),)
+                    if path
+                ),
+                basenames=(PROMPT_TYPE_SAMPLES_FILE_NAME,),
+            ),
+            "prompt_task4_txt": _payload_locator(
+                paths=tuple(
+                    path
+                    for path in (str(item.get("prompt_task4_path") or ""),)
+                    if path
+                ),
+                basenames=(PASS4_PROMPT_TASK_FILE_NAME,),
+            ),
+            "pass4_manifest_json": _payload_locator(
+                paths=tuple(
+                    path
+                    for path in (str(item.get("pass4_manifest_path") or ""),)
+                    if path
+                ),
+                basenames=(PASS4_KNOWLEDGE_MANIFEST_FILE_NAME,),
+            ),
+            "prompt_budget_summary_json": _payload_locator(
+                paths=tuple(
+                    path
+                    for path in (str(item.get("prompt_budget_summary_path") or ""),)
+                    if path
+                ),
+                basenames=("prompt_budget_summary.json",),
+            ),
+        }
+        for item in pass4_locator_hints
+        if isinstance(item, dict) and str(item.get("run_id") or "")
+    ]
 
     row_locators = {
         "root_files": {
@@ -12036,8 +12477,43 @@ def _write_upload_bundle_three_files(
             ),
         },
         "per_run_summaries": per_run_summary_locators,
+        "pass4_by_run": pass4_row_locators,
         "deprioritized_heavy_artifacts": heavy_artifact_locators[:80],
     }
+
+    pass4_rows = (
+        pass4_knowledge_summary.get("rows")
+        if isinstance(pass4_knowledge_summary.get("rows"), list)
+        else []
+    )
+    pass4_locator_by_key = {
+        (
+            str(row.get("run_id") or ""),
+            str(row.get("output_subdir") or ""),
+        ): row
+        for row in pass4_row_locators
+        if isinstance(row, dict)
+    }
+    for row in pass4_rows:
+        if not isinstance(row, dict):
+            continue
+        locator_row = pass4_locator_by_key.get(
+            (
+                str(row.get("run_id") or ""),
+                str(row.get("output_subdir") or ""),
+            )
+        )
+        locator_row = locator_row if isinstance(locator_row, dict) else {}
+        row["prompt_samples_in_bundle"] = isinstance(locator_row.get("prompt_samples_md"), dict)
+        row["prompt_task4_in_bundle"] = isinstance(locator_row.get("prompt_task4_txt"), dict)
+        row["pass4_manifest_in_bundle"] = isinstance(
+            locator_row.get("pass4_manifest_json"),
+            dict,
+        )
+        row["prompt_budget_summary_in_bundle"] = isinstance(
+            locator_row.get("prompt_budget_summary_json"),
+            dict,
+        )
 
     starter_pack_locators = row_locators.get("starter_pack")
     starter_pack_locators = (
@@ -12114,6 +12590,7 @@ def _write_upload_bundle_three_files(
         "analysis.triage_packet",
         "analysis.net_error_blame_summary",
         "analysis.config_version_metadata",
+        "analysis.pass4_knowledge",
         "analysis.per_label_metrics",
         "analysis.per_recipe_breakdown",
         "analysis.stage_separated_comparison",
@@ -12235,6 +12712,7 @@ def _write_upload_bundle_three_files(
             "triage_packet": triage_packet_summary,
             "net_error_blame_summary": net_error_blame_summary,
             "config_version_metadata": config_version_metadata,
+            "pass4_knowledge": pass4_knowledge_summary,
             "group_high_level": group_high_level_packet_summary,
             "per_label_metrics": per_label_metrics,
             "top_confusion_deltas": _aggregate_confusion_deltas(
@@ -12339,6 +12817,34 @@ def _write_upload_bundle_three_files(
             (
                 "- topline_consistent: "
                 f"{'true' if self_check['topline_consistent'] else 'false'}"
+            ),
+            "",
+        ]
+    )
+    overview_lines.extend(
+        [
+            "## Pass4 Knowledge",
+            "",
+            (
+                "- enabled_run_count: "
+                f"{int(_coerce_int(pass4_knowledge_summary.get('enabled_run_count')) or 0)}"
+            ),
+            (
+                "- runs_with_prompt_samples: "
+                f"{int(_coerce_int(pass4_knowledge_summary.get('runs_with_prompt_samples')) or 0)}"
+            ),
+            (
+                "- runs_with_pass4_manifest: "
+                f"{int(_coerce_int(pass4_knowledge_summary.get('runs_with_pass4_manifest')) or 0)}"
+            ),
+            (
+                "- total_pass4_call_count: "
+                f"{int(_coerce_int(pass4_knowledge_summary.get('total_pass4_call_count')) or 0)}"
+            ),
+            (
+                "- prompt navigation: "
+                "`upload_bundle_index.json -> analysis.pass4_knowledge` and "
+                "`navigation.row_locators.pass4_by_run`."
             ),
             "",
         ]

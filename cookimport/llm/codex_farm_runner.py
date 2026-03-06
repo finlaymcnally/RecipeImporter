@@ -18,6 +18,8 @@ _CODEX_FARM_PROGRESS_PREFIX = "__codex_farm_progress__ "
 _CODEX_FARM_RECIPE_MODE_ENV = "COOKIMPORT_CODEX_FARM_RECIPE_MODE"
 _CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
 _CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
+_BENCHMARK_RECOVERABLE_PARTIAL_MAX_MISSING_OUTPUTS = 3
+_BENCHMARK_RECOVERABLE_PARTIAL_MIN_SUCCESS_RATIO = 0.8
 
 
 class CodexFarmRunnerError(RuntimeError):
@@ -358,6 +360,79 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
             continue
         lines.append(raw_line.rstrip("\r\n"))
     return lines
+
+
+_STDERR_SUMMARY_SKIP_PREFIXES = (
+    "workdir:",
+    "model:",
+    "provider:",
+    "approval:",
+    "sandbox:",
+    "reasoning effort:",
+    "reasoning summaries:",
+    "session id:",
+    "mcp startup:",
+)
+
+
+def _summarize_failure_stderr(stderr_text: str) -> str | None:
+    raw_lines = _extract_non_progress_stderr_lines(stderr_text)
+    if not raw_lines:
+        return None
+
+    summary_lines: list[str] = []
+    for raw_line in raw_lines:
+        line = str(raw_line).strip()
+        lowered = line.lower()
+        if not line or line == "--------":
+            continue
+        if lowered == "user":
+            continue
+        if line == "Reply with exactly: OK":
+            continue
+        if any(lowered.startswith(prefix) for prefix in _STDERR_SUMMARY_SKIP_PREFIXES):
+            continue
+        summary_lines.append(line)
+
+    if not summary_lines:
+        return None
+
+    precheck_line = next(
+        (
+            line
+            for line in summary_lines
+            if line.startswith("codex execution precheck failed before")
+        ),
+        None,
+    )
+    error_line = next(
+        (
+            line
+            for line in summary_lines
+            if line.startswith("ERROR:")
+        ),
+        None,
+    )
+    auth_or_hint_line = next(
+        (
+            line
+            for line in summary_lines
+            if "run `codex` once" in line.lower()
+            or "sign in with chatgpt" in line.lower()
+            or "usage limit" in line.lower()
+        ),
+        None,
+    )
+
+    if precheck_line and error_line:
+        return f"{precheck_line}; {error_line}"
+    if precheck_line and auth_or_hint_line and auth_or_hint_line != precheck_line:
+        return f"{precheck_line}; {auth_or_hint_line}"
+    if error_line:
+        return error_line
+
+    condensed = summary_lines[:2]
+    return "; ".join(condensed)
 
 
 def _collect_progress_task_label(task: Any) -> str | None:
@@ -1055,30 +1130,53 @@ def _fetch_run_errors_summary(
     return _summarize_run_errors_payload(payload)
 
 
+def _count_json_bundle_files(path: Path) -> int:
+    try:
+        return sum(1 for child in path.iterdir() if child.is_file() and child.suffix == ".json")
+    except FileNotFoundError:
+        return 0
+
+
 def _is_recoverable_no_last_agent_message_failure(
     *,
     error_summary: str | None,
     telemetry_payload: dict[str, Any] | None,
+    recipe_mode: str | None,
+    input_bundle_count: int,
+    output_bundle_count: int,
 ) -> bool:
     summary_text = str(error_summary or "").strip().lower()
     if "no last agent message" not in summary_text:
         return False
-    if telemetry_payload is None:
-        return True
-    telemetry_summary = telemetry_payload.get("summary")
-    if not isinstance(telemetry_summary, dict):
-        return True
-    failure_counts = telemetry_summary.get("failure_category_counts")
-    if not isinstance(failure_counts, dict):
-        return True
-    nonzero_failure_categories = {
-        str(key)
-        for key, value in failure_counts.items()
-        if (_coerce_int(value) or 0) > 0
-    }
+    nonzero_failure_categories: set[str] = set()
+    if telemetry_payload is not None:
+        telemetry_summary = telemetry_payload.get("summary")
+        if isinstance(telemetry_summary, dict):
+            failure_counts = telemetry_summary.get("failure_category_counts")
+            if isinstance(failure_counts, dict):
+                nonzero_failure_categories = {
+                    str(key)
+                    for key, value in failure_counts.items()
+                    if (_coerce_int(value) or 0) > 0
+                }
     if not nonzero_failure_categories:
         return True
-    return nonzero_failure_categories <= {"nonzero_exit_no_payload"}
+    if nonzero_failure_categories <= {"nonzero_exit_no_payload"}:
+        return True
+    if recipe_mode != _CODEX_FARM_RECIPE_MODE_BENCHMARK:
+        return False
+    if not nonzero_failure_categories <= {"nonzero_exit_no_payload", "timeout"}:
+        return False
+    if input_bundle_count <= 0 or output_bundle_count <= 0:
+        return False
+    missing_bundle_count = max(input_bundle_count - output_bundle_count, 0)
+    if missing_bundle_count <= 0:
+        return False
+    success_ratio = output_bundle_count / input_bundle_count
+    return (
+        missing_bundle_count <= _BENCHMARK_RECOVERABLE_PARTIAL_MAX_MISSING_OUTPUTS
+        and success_ratio >= _BENCHMARK_RECOVERABLE_PARTIAL_MIN_SUCCESS_RATIO
+    )
 
 
 def _format_recoverable_partial_output_message(
@@ -1086,6 +1184,8 @@ def _format_recoverable_partial_output_message(
     pipeline_id: str,
     run_id: str | None,
     error_summary: str | None,
+    input_bundle_count: int,
+    output_bundle_count: int,
 ) -> str:
     summary = re.sub(r"\s+", " ", str(error_summary or "").strip())
     if len(summary) > 220:
@@ -1093,8 +1193,14 @@ def _format_recoverable_partial_output_message(
     message = (
         f"codex-farm {pipeline_id}: recoverable non-zero exit; continuing with partial outputs"
     )
+    if input_bundle_count > 0:
+        missing_bundle_count = max(input_bundle_count - output_bundle_count, 0)
+        message += (
+            f" ({output_bundle_count}/{input_bundle_count} bundles written; "
+            f"{missing_bundle_count} missing)"
+        )
     if run_id:
-        message += f" (run_id={run_id})"
+        message += f" [run_id={run_id}]"
     if summary:
         message += f" | {summary}"
     return message
@@ -1333,6 +1439,8 @@ class SubprocessCodexFarmRunner:
         payload_exit_code = _extract_exit_code(process_payload)
         telemetry_report_payload = _extract_telemetry_report(process_payload)
         telemetry_payload: dict[str, Any] | None = None
+        input_bundle_count = _count_json_bundle_files(in_dir)
+        output_bundle_count = _count_json_bundle_files(out_dir)
         if run_id:
             telemetry_payload = _collect_codex_exec_run_telemetry(
                 cmd=self.cmd,
@@ -1342,6 +1450,7 @@ class SubprocessCodexFarmRunner:
         failed = completed.returncode != 0 or (payload_exit_code not in {None, 0})
         if failed:
             error_summary: str | None = None
+            stderr_summary = _summarize_failure_stderr(completed.stderr)
             if run_id:
                 error_summary = _fetch_run_errors_summary(cmd=self.cmd, run_id=run_id, env=env)
             details: list[str] = []
@@ -1351,6 +1460,12 @@ class SubprocessCodexFarmRunner:
                 details.append(f"process_exit_code={payload_exit_code}")
             details.append(f"subprocess_exit={completed.returncode}")
             details.append(f"out_dir={out_dir}")
+            if input_bundle_count > 0:
+                details.append(f"input_bundles={input_bundle_count}")
+                details.append(f"output_bundles={output_bundle_count}")
+                details.append(
+                    f"missing_output_bundles={max(input_bundle_count - output_bundle_count, 0)}"
+                )
             if telemetry_payload is not None:
                 details.append(f"telemetry_rows={_coerce_int(telemetry_payload.get('row_count')) or 0}")
                 summary = telemetry_payload.get("summary")
@@ -1373,14 +1488,21 @@ class SubprocessCodexFarmRunner:
                         )
             if error_summary:
                 details.append(f"first_error={error_summary}")
+            elif stderr_summary:
+                details.append(f"stderr_summary={stderr_summary}")
             if _is_recoverable_no_last_agent_message_failure(
                 error_summary=error_summary,
                 telemetry_payload=telemetry_payload,
+                recipe_mode=selected_recipe_mode,
+                input_bundle_count=input_bundle_count,
+                output_bundle_count=output_bundle_count,
             ):
                 recoverable_message = _format_recoverable_partial_output_message(
                     pipeline_id=pipeline_id,
                     run_id=run_id,
                     error_summary=error_summary,
+                    input_bundle_count=input_bundle_count,
+                    output_bundle_count=output_bundle_count,
                 )
                 if progress_callback is not None:
                     _emit_progress(recoverable_message)

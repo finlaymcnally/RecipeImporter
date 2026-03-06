@@ -1256,6 +1256,29 @@ def _resolve_knowledge_snippets_path(llm_report: dict[str, Any] | None) -> Path 
     return candidate
 
 
+def _llm_selective_retry_run_config_summary(
+    llm_report: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(llm_report, dict):
+        return {}
+    counts = llm_report.get("counts")
+    if not isinstance(counts, dict):
+        return {}
+    pass2_attempts = int(counts.get("selective_retry_pass2_attempts") or 0)
+    pass3_attempts = int(counts.get("selective_retry_pass3_attempts") or 0)
+    return {
+        "selective_retry_attempted": bool(pass2_attempts or pass3_attempts),
+        "selective_retry_pass2_attempts": pass2_attempts,
+        "selective_retry_pass2_recovered": int(
+            counts.get("selective_retry_pass2_recovered") or 0
+        ),
+        "selective_retry_pass3_attempts": pass3_attempts,
+        "selective_retry_pass3_recovered": int(
+            counts.get("selective_retry_pass3_recovered") or 0
+        ),
+    }
+
+
 def _resolve_pdf_page_count(path: Path) -> int | None:
     importer = registry.get_importer("pdf")
     if importer is None:
@@ -1698,6 +1721,8 @@ def generate_pred_run_artifacts(
     codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_pass3_skip_pass2_ok: bool = True,
+    codex_farm_benchmark_selective_retry_enabled: bool = True,
+    codex_farm_benchmark_selective_retry_max_attempts: int = 1,
     codex_farm_knowledge_context_blocks: int = 12,
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
@@ -1903,6 +1928,12 @@ def generate_pred_run_artifacts(
         codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+        codex_farm_benchmark_selective_retry_enabled=(
+            codex_farm_benchmark_selective_retry_enabled
+        ),
+        codex_farm_benchmark_selective_retry_max_attempts=(
+            codex_farm_benchmark_selective_retry_max_attempts
+        ),
         codex_farm_knowledge_context_blocks=selected_codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -2583,6 +2614,20 @@ def generate_pred_run_artifacts(
                 )
         else:
             _notify("Canonical line-role pipeline skipped (no atomic candidates).")
+
+    run_config.update(_llm_selective_retry_run_config_summary(llm_report))
+    run_config_hash = hashlib.sha256(
+        json.dumps(
+            run_config,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    run_config_summary = " | ".join(
+        f"{key}={'true' if value is True else 'false' if value is False else value}"
+        for key, value in sorted(run_config.items())
+    )
 
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None

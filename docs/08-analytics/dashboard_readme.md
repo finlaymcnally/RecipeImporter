@@ -227,6 +227,7 @@ Notes:
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
   - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed rolling trend overlays only.
   - Rolling trend overlays are built from one median point per benchmark run-group (`runGroupKey`), so large multi-book runs do not outweigh smaller runs just because they emitted more rows.
+  - Rolling trend overlays now shrink their averaging window at the beginning/end of a series instead of reusing the same full tail window, which avoids artificially flat final segments when the last few runs are still moving.
   - When filtered rows include paired benchmark variants (`codexfarm`/`vanilla`), trend points split into separate series per metric+variant so paired runs are visually distinct.
   - Paired benchmark variants now share one x-axis position per benchmark run-group timestamp token (artifact-path token preferred, row timestamp fallback), so same-run `codexfarm`/`vanilla` points no longer drift horizontally.
   - Trend run-group timestamp extraction now checks `artifact_dir`, `run_dir`, and `report_path`; when `benchmark-vs-golden` appears in a path, it uses the first timestamp token after that marker so deeper variant-local timestamp folders do not shift paired `codexfarm`/`vanilla` points onto different x positions.

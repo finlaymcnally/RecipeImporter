@@ -2448,6 +2448,22 @@ def _interactive_single_profile_all_matched_benchmark(
     allow_subset_selection: bool = False,
 ) -> bool:
     """Run one benchmark profile across matched gold/source pairs."""
+
+    def _friendly_single_profile_failure_reason(reason: object) -> str:
+        text = str(reason or "").strip()
+        if not text or "stderr_summary=" not in text:
+            return text
+        pipeline_match = re.search(r"codex-farm failed for (\S+)", text)
+        pipeline_id = (
+            str(pipeline_match.group(1)).strip() if pipeline_match is not None else None
+        )
+        summary = text.split("stderr_summary=", 1)[1].strip()
+        if summary.endswith(")"):
+            summary = summary[:-1].rstrip()
+        if pipeline_id:
+            return f"codex-farm {pipeline_id}: {summary}"
+        return summary
+
     all_targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
     if not all_targets:
         typer.secho(
@@ -2825,7 +2841,8 @@ def _interactive_single_profile_all_matched_benchmark(
                         ),
                     )
             except Exception as exc:  # noqa: BLE001
-                variant_errors.append(f"{variant_slug}={exc}")
+                formatted_error = _friendly_single_profile_failure_reason(exc)
+                variant_errors.append(f"{variant_slug}={formatted_error}")
                 if single_profile_dashboard is not None:
                     single_profile_dashboard.complete_config(
                         source_index=source_index,
@@ -2837,7 +2854,7 @@ def _interactive_single_profile_all_matched_benchmark(
                         task_message=(
                             f"Failed {format_task_counter('', variant_index, max(1, runs_per_target), noun='variant')} "
                             f"({variant_slug}) | book {index}/{max(1, total_targets)}: "
-                            f"{target.source_file_name} ({exc})"
+                            f"{target.source_file_name} ({formatted_error})"
                         ),
                     )
 
@@ -28862,6 +28879,25 @@ def _prune_benchmark_outputs(
             typer.secho(f"  - {path} ({reason})", fg=typer.colors.YELLOW)
 
 
+def _benchmark_selective_retry_manifest_summary(
+    run_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(run_config, dict):
+        return {}
+    summary_fields = (
+        "selective_retry_attempted",
+        "selective_retry_pass2_attempts",
+        "selective_retry_pass2_recovered",
+        "selective_retry_pass3_attempts",
+        "selective_retry_pass3_recovered",
+    )
+    return {
+        field: run_config[field]
+        for field in summary_fields
+        if field in run_config
+    }
+
+
 @app.command("labelstudio-benchmark")
 def labelstudio_benchmark(
     action: Annotated[str, typer.Argument(
@@ -29352,6 +29388,21 @@ def labelstudio_benchmark(
             "deterministically."
         ),
     )] = True,
+    codex_farm_benchmark_selective_retry_enabled: Annotated[bool, typer.Option(
+        "--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry",
+        help=(
+            "Benchmark-only retry for missing Codex Farm pass2/pass3 bundle files "
+            "after recoverable partial-output runs."
+        ),
+    )] = True,
+    codex_farm_benchmark_selective_retry_max_attempts: Annotated[int, typer.Option(
+        "--codex-farm-benchmark-selective-retry-max-attempts",
+        min=1,
+        help=(
+            "Maximum benchmark-only retry attempts for missing Codex Farm pass2/"
+            "pass3 bundle files."
+        ),
+    )] = 1,
     codex_farm_knowledge_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-knowledge-context-blocks",
         min=0,
@@ -29562,6 +29613,13 @@ def labelstudio_benchmark(
         codex_farm_pass1_pattern_hints_enabled
     )
     selected_codex_farm_pass3_skip_pass2_ok = bool(codex_farm_pass3_skip_pass2_ok)
+    selected_codex_farm_benchmark_selective_retry_enabled = bool(
+        codex_farm_benchmark_selective_retry_enabled
+    )
+    selected_codex_farm_benchmark_selective_retry_max_attempts = max(
+        1,
+        int(codex_farm_benchmark_selective_retry_max_attempts),
+    )
     selected_codex_farm_model = (
         str(codex_farm_model or "").strip() or None
     )
@@ -29780,6 +29838,12 @@ def labelstudio_benchmark(
             codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
             codex_farm_context_blocks=codex_farm_context_blocks,
             codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+            codex_farm_benchmark_selective_retry_enabled=(
+                selected_codex_farm_benchmark_selective_retry_enabled
+            ),
+            codex_farm_benchmark_selective_retry_max_attempts=(
+                selected_codex_farm_benchmark_selective_retry_max_attempts
+            ),
             codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
             codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
             codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -29815,6 +29879,12 @@ def labelstudio_benchmark(
                     selected_codex_farm_reasoning_effort
                     if selected_codex_farm_reasoning_effort is not None
                     else None
+                ),
+                "codex_farm_benchmark_selective_retry_enabled": (
+                    selected_codex_farm_benchmark_selective_retry_enabled
+                ),
+                "codex_farm_benchmark_selective_retry_max_attempts": (
+                    selected_codex_farm_benchmark_selective_retry_max_attempts
                 ),
             },
             benchmark_codex_execution,
@@ -29948,6 +30018,12 @@ def labelstudio_benchmark(
                 codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
                 codex_farm_context_blocks=codex_farm_context_blocks,
                 codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
+                codex_farm_benchmark_selective_retry_enabled=(
+                    selected_codex_farm_benchmark_selective_retry_enabled
+                ),
+                codex_farm_benchmark_selective_retry_max_attempts=(
+                    selected_codex_farm_benchmark_selective_retry_max_attempts
+                ),
                 codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -30082,6 +30158,12 @@ def labelstudio_benchmark(
                                 codex_farm_context_blocks=codex_farm_context_blocks,
                                 codex_farm_pass3_skip_pass2_ok=(
                                     selected_codex_farm_pass3_skip_pass2_ok
+                                ),
+                                codex_farm_benchmark_selective_retry_enabled=(
+                                    selected_codex_farm_benchmark_selective_retry_enabled
+                                ),
+                                codex_farm_benchmark_selective_retry_max_attempts=(
+                                    selected_codex_farm_benchmark_selective_retry_max_attempts
                                 ),
                                 codex_farm_knowledge_context_blocks=(
                                     codex_farm_knowledge_context_blocks
@@ -30503,6 +30585,12 @@ def labelstudio_benchmark(
             ),
             "codex_farm_context_blocks": codex_farm_context_blocks,
             "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
+            "codex_farm_benchmark_selective_retry_enabled": (
+                selected_codex_farm_benchmark_selective_retry_enabled
+            ),
+            "codex_farm_benchmark_selective_retry_max_attempts": (
+                selected_codex_farm_benchmark_selective_retry_max_attempts
+            ),
             "codex_farm_knowledge_context_blocks": (
                 codex_farm_knowledge_context_blocks
             ),
@@ -30529,6 +30617,9 @@ def labelstudio_benchmark(
             )
         if pred_context.run_config is not None:
             predict_only_run_config["prediction_run_config"] = pred_context.run_config
+            predict_only_run_config.update(
+                _benchmark_selective_retry_manifest_summary(pred_context.run_config)
+            )
         if pred_context.run_config_hash:
             predict_only_run_config["prediction_run_config_hash"] = (
                 pred_context.run_config_hash
@@ -31210,6 +31301,12 @@ def labelstudio_benchmark(
         ),
         "codex_farm_context_blocks": codex_farm_context_blocks,
         "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
+        "codex_farm_benchmark_selective_retry_enabled": (
+            selected_codex_farm_benchmark_selective_retry_enabled
+        ),
+        "codex_farm_benchmark_selective_retry_max_attempts": (
+            selected_codex_farm_benchmark_selective_retry_max_attempts
+        ),
         "codex_farm_knowledge_context_blocks": (
             codex_farm_knowledge_context_blocks
         ),
@@ -31236,6 +31333,9 @@ def labelstudio_benchmark(
         )
     if pred_context.run_config is not None:
         benchmark_run_config["prediction_run_config"] = pred_context.run_config
+        benchmark_run_config.update(
+            _benchmark_selective_retry_manifest_summary(pred_context.run_config)
+        )
     if pred_context.run_config_hash:
         benchmark_run_config["prediction_run_config_hash"] = pred_context.run_config_hash
     if pred_context.run_config_summary:

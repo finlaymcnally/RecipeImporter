@@ -71,9 +71,13 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - benchmark prediction generation also accepts pass4 knowledge knobs: `--codex-farm-pipeline-pass4-knowledge <pipeline_id>` and `--codex-farm-knowledge-context-blocks <int>`
+- benchmark prediction generation also accepts benchmark-only selective retry knobs for Codex Farm recipe passes:
+  - `--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry`
+  - `--codex-farm-benchmark-selective-retry-max-attempts <int>`
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
+- when `codex_farm_recipe_mode=benchmark`, pass2/pass3 partial-output runs that were already accepted by the runner can now retry only the missing bundle files; successful original outputs stay untouched, retry artifacts live under `raw/llm/<workbook_slug>/pass2_schemaorg/retry_attempt_XX` or `pass3_final/retry_attempt_XX`, detailed truth lives in `raw/llm/<workbook_slug>/llm_manifest.json`, and benchmark/prediction-run `run_manifest.json` keeps only concise retry counts.
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)
@@ -152,6 +156,7 @@ Interactive `single_offline` now writes into one session root:
   - `.../single-profile-benchmark/upload_bundle_v1/upload_bundle_payload.jsonl`
   - this group bundle uses a high-level-only mode with a target size budget of about 30MB and automatically reduces per-book sampled detail as selected-book count increases.
   - high-level group bundles are curated first-pass packets: raw `full_prompt_log.jsonl` and similar full-context trace artifacts stay out of the group payload and are expected to come back later through follow-up packets.
+  - group and per-book `upload_bundle_v1` index/overview now surface pass4 knowledge harvest explicitly (`analysis.pass4_knowledge`, `navigation.row_locators.pass4_by_run`); group bundles keep lightweight pass4 evidence such as `prompt_type_samples_from_full_prompt_log.md` and `pass4_knowledge_manifest.json`, while raw `prompt_task4_pass4_knowledge.txt` stays follow-up-only when size pressure applies.
   - interactive multi-book single-profile runs auto-upload only this top-level group bundle to Oracle; per-book bundles are kept for manual inspection and can be uploaded later with `cookimport bench oracle-upload <path>`.
   - `cookimport bench oracle-upload --mode dry-run` stays useful for existing large bundles: when Oracle's inline dry-run rejects the payload file for size, recipeimport falls back to a local preview instead of failing the no-rerun validation path.
   - the group-bundle index now records `analysis.group_high_level.final_bundle_bytes`, `serialized_size_capped`, and `omitted_artifacts` against the actual three written files, not just a source-artifact estimate.
@@ -1885,6 +1890,7 @@ Current benchmark contracts reinforced:
   - empty-book failures on some targets aligned with pre-fix live-display collision behavior,
   - DinnerFor2 codex-vs-vanilla divergence in that run was mostly label-distribution drift (not evaluator crash),
   - pass2 partial failures can still allow run completion when partial outputs exist.
+  - current benchmark-mode runner policy also soft-recovers small mixed timeout/content-filter partial exits when coverage stays high, so missing recipes are dropped from comparison instead of invalidating the whole book run.
 
 Anti-loop reminders:
 - If per-book exit code 1 appears with empty variant folders, check live status collision/fallback behavior before parser/scorer changes.

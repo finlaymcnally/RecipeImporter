@@ -67,6 +67,8 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "codex_farm_pipeline_pass2",
         "codex_farm_pipeline_pass3",
         "codex_farm_pass3_skip_pass2_ok",
+        "codex_farm_benchmark_selective_retry_enabled",
+        "codex_farm_benchmark_selective_retry_max_attempts",
         "codex_farm_pipeline_pass4_knowledge",
         "codex_farm_pipeline_pass5_tags",
         "codex_farm_context_blocks",

@@ -43,3 +43,5 @@ def test_benchmark_help_exposes_knowledge_codex_flags() -> None:
     assert "--llm-knowledge-pipeline" in result.stdout
     assert "--codex-farm-pipeline-pass4-knowledge" in result.stdout
     assert "--codex-farm-knowledge-context-blocks" in result.stdout
+    assert "--codex-farm-benchmark-selective-retry" in result.stdout
+    assert "--codex-farm-benchmark-selective-retry-max-attempts" in result.stdout

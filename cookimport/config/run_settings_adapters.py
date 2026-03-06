@@ -217,6 +217,12 @@ def build_benchmark_call_kwargs_from_run_settings(
             settings.codex_farm_pipeline_pass4_knowledge
         ),
         "codex_farm_pass3_skip_pass2_ok": settings.codex_farm_pass3_skip_pass2_ok,
+        "codex_farm_benchmark_selective_retry_enabled": (
+            settings.codex_farm_benchmark_selective_retry_enabled
+        ),
+        "codex_farm_benchmark_selective_retry_max_attempts": (
+            settings.codex_farm_benchmark_selective_retry_max_attempts
+        ),
         "codex_farm_context_blocks": settings.codex_farm_context_blocks,
         "codex_farm_knowledge_context_blocks": (
             settings.codex_farm_knowledge_context_blocks

@@ -670,7 +670,7 @@ def test_run_with_progress_status_clears_codex_worker_state_for_new_phase(
     monkeypatch.setattr(cli.console, "status", capture)
 
     def _run(update_progress):
-        update_progress("codex-farm recipe.final.v1 task 19/19 | running 0")
+        update_progress("codex-farm recipe.final.compact.v1 task 19/19 | running 0")
         update_progress("Running canonical line-role pipeline...")
         return {"ok": True}
 
@@ -720,7 +720,7 @@ def test_run_with_progress_status_hides_zero_active_workers_row(
     monkeypatch.setattr(cli.console, "status", capture)
 
     def _run(update_progress):
-        update_progress("codex-farm recipe.final.v1 task 4/4 | running 0")
+        update_progress("codex-farm recipe.final.compact.v1 task 4/4 | running 0")
         return {"ok": True}
 
     result = cli._run_with_progress_status(
@@ -827,7 +827,7 @@ def test_run_with_progress_status_clamps_live_box_width_to_terminal(
 
     def _run(update_progress):
         update_progress(
-            "codex-farm recipe.final.v1 task 4/19 | running 8 | "
+            "codex-farm recipe.final.compact.v1 task 4/19 | running 8 | "
             f"active [{long_task}]"
         )
         return {"ok": True}
@@ -955,12 +955,12 @@ def test_run_with_progress_status_preserves_eta_when_live_line_is_truncated(
 
     def _run(update_progress):
         update_progress(
-            "codex-farm recipe.final.v1 task 1/4 | running 3 | "
+            "codex-farm recipe.final.compact.v1 task 1/4 | running 3 | "
             f"active [{long_task}]"
         )
         time.sleep(0.55)
         update_progress(
-            "codex-farm recipe.final.v1 task 2/4 | running 3 | "
+            "codex-farm recipe.final.compact.v1 task 2/4 | running 3 | "
             f"active [{long_task}]"
         )
         return {"ok": True}
@@ -1019,7 +1019,7 @@ def test_run_with_progress_status_humanizes_codex_stage_in_live_panel(
 
     def _run(update_progress):
         update_progress(
-            "codex-farm recipe.schemaorg.v1 task 2/9 | running 2 | "
+            "codex-farm recipe.schemaorg.compact.v1 task 2/9 | running 2 | "
             "active [r0002.json, r0007.json]"
         )
         return {"ok": True}
@@ -1123,7 +1123,7 @@ def test_all_method_dashboard_preserves_long_task_message() -> None:
     tail_token = "single-profile-live-task-tail-token-visible"
     long_task = (
         "Running variant 2/2 (codexfarm) | book 1/1: DinnerFor2CUTDOWN.epub | "
-        "codex-farm recipe.final.v1 stage detail "
+        "codex-farm recipe.final.compact.v1 stage detail "
         + ("x" * 220)
         + tail_token
     )
@@ -1205,7 +1205,7 @@ def test_single_profile_dashboard_renders_book_columns_worker_rows_and_eta(
     dashboard.ingest_progress(
         source_index=0,
         message=(
-            "codex-farm recipe.schemaorg.v1 task 1/4 | running 2 | "
+            "codex-farm recipe.schemaorg.compact.v1 task 1/4 | running 2 | "
             "active [r0001.json, r0002.json]"
         ),
     )
@@ -1213,7 +1213,7 @@ def test_single_profile_dashboard_renders_book_columns_worker_rows_and_eta(
     dashboard.ingest_progress(
         source_index=0,
         message=(
-            "codex-farm recipe.schemaorg.v1 task 2/4 | running 2 | "
+            "codex-farm recipe.schemaorg.compact.v1 task 2/4 | running 2 | "
             "active [r0003.json, r0004.json]"
         ),
     )
