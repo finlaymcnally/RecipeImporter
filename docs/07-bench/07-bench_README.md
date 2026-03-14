@@ -1497,7 +1497,7 @@ Where this behavior is implemented:
 - `cookimport/cli.py` for orchestration + compare path
 - `cookimport/config/run_settings*` for mode propagation
 - `cookimport/llm/codex_farm_orchestrator.py` + `codex_farm_runner.py` for invocation details
-- `tests/labelstudio/test_labelstudio_benchmark_helpers.py` for mode-specific semantics and failure behavior
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py` and `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` for mode-specific semantics and failure behavior
 
 ### 2026-03-02_11.57.58 compare strictness inference and warnings
 
@@ -1930,7 +1930,8 @@ Current benchmark contracts reinforced:
   - explicit codex-auth-constrained telemetry caveat handling.
 
 Regression anchors from merged tasks:
-- `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
 - `tests/parsing/test_canonical_line_roles.py`

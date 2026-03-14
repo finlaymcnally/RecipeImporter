@@ -2435,6 +2435,11 @@ Durable decisions and findings:
 - Missing prompt-sample thinking traces are usually upstream trace-classification failures, not recipeimport exporter bugs. If `.trace.json` has zero reasoning events, fix CodexFarm capture first.
 - The ProFixes and token-reduction plans had to be rewritten against real repo seams (`RunSettings`, codex decision, labelstudio ingest, CLI helpers, existing line-role guardrails) rather than inventing a second config/orchestrator stack.
 
+Source task files folded into this cluster:
+- `docs/tasks/ProFixes.md`
+- `docs/tasks/Profeedback.md`
+- `docs/tasks/execplan_token_reduction.md`
+
 Open risks retained:
 - `build_run_settings(...)` was a historically dangerous bypass because constructor/helper defaults can drift from `RunSettings()` even when the base model is safe.
 - Review pass found two runtime traps worth keeping visible:
@@ -2669,6 +2674,7 @@ Anti-loop note:
 ### 2026-03-06_18.10.20 and 2026-03-06_18.36.28 compact shipped pack and compact pass4 bundle shape
 
 Merged source notes:
+- `docs/tasks/2026-03-06_18.27.58-pass4-knowledge-compact-pack.md`
 - `docs/understandings/2026-03-06_18.10.20-llm-pack-compact-pass2-pass3-only.md`
 - `docs/understandings/2026-03-06_18.36.28-pass4-compact-bundle-shape.md`
 

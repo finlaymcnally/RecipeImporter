@@ -9,7 +9,7 @@ Update Agents.md files (at any level) only when ABSOLUTELY NEEDED ONLY. Agents.m
 
 When you build stuff, leave a small relevant note in the folder explaining how it works. very short. if there is already documentation present, update as needed, very short.
 
-Start: run docs list (docs:list script, or bin/docs-list here if present; ignore if not installed); open docs before coding.
+Start: run docs list (`npm run docs:list`, or `bin/docs-list` here if present; ignore if not installed); open docs before coding.
 Follow links until domain makes sense; honor Read when hints.
 Keep notes short; update docs when behavior/API changes (no ship w/o docs).
 Add read_when hints on cross-cutting docs.

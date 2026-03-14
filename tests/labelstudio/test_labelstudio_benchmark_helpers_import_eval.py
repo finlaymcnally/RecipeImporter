@@ -1,0 +1,548 @@
+from __future__ import annotations
+
+import tests.labelstudio.benchmark_helper_support as _support
+
+# Reuse shared imports/helpers from the benchmark helper support module.
+globals().update({
+    name: value
+    for name, value in _support.__dict__.items()
+    if not name.startswith("test_")
+    and not (name.startswith("__") and name.endswith("__"))
+})
+def test_labelstudio_ingest_defaults_use_compact_codex_farm_pass_pipelines() -> None:
+    generate_signature = inspect.signature(generate_pred_run_artifacts)
+    import_signature = inspect.signature(run_labelstudio_import)
+
+    for signature in (generate_signature, import_signature):
+        assert signature.parameters["codex_farm_pipeline_pass2"].default == (
+            "recipe.schemaorg.compact.v1"
+        )
+        assert signature.parameters["codex_farm_pipeline_pass3"].default == (
+            "recipe.final.compact.v1"
+        )
+
+def test_labelstudio_import_prints_processing_time(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **_kwargs: {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 1,
+            "tasks_uploaded": 1,
+            "run_root": tmp_path / "out",
+        },
+    )
+    ticks = iter([100.0, 165.0])
+    monkeypatch.setattr(cli.time, "monotonic", lambda: next(ticks))
+    secho_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: secho_messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        prelabel=False,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
+    )
+
+    assert "Processing time: 1m 5s" in secho_messages
+
+def test_labelstudio_import_prints_prelabel_failure_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **_kwargs: {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 9,
+            "tasks_uploaded": 9,
+            "run_root": tmp_path / "out",
+            "prelabel_report_path": str(tmp_path / "prelabel_report.json"),
+            "prelabel_inline_annotations_fallback": False,
+            "prelabel": {
+                "task_count": 9,
+                "success_count": 1,
+                "failure_count": 8,
+                "allow_partial": True,
+                "errors_path": str(tmp_path / "prelabel_errors.jsonl"),
+                "token_usage_enabled": False,
+            },
+        },
+    )
+    secho_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: secho_messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        allow_codex=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        segment_blocks=40,
+        segment_focus_blocks=40,
+        prelabel=True,
+        prelabel_allow_partial=True,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
+    )
+
+    assert any("PRELABEL ERRORS: 8/9 tasks failed (1 succeeded)." in line for line in secho_messages)
+    assert any("Upload continued because allow-partial mode is enabled." in line for line in secho_messages)
+    assert any("For fail-fast behavior, use --no-prelabel-allow-partial." in line for line in secho_messages)
+    assert any("Prelabel errors: " in line for line in secho_messages)
+
+def test_labelstudio_import_prints_prelabel_token_usage_with_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(cli, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key"))
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **_kwargs: {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 4,
+            "tasks_uploaded": 4,
+            "run_root": tmp_path / "out",
+            "prelabel_report_path": str(tmp_path / "prelabel_report.json"),
+            "prelabel_inline_annotations_fallback": False,
+            "prelabel": {
+                "task_count": 4,
+                "success_count": 4,
+                "failure_count": 0,
+                "allow_partial": False,
+                "token_usage_enabled": True,
+                "token_usage": {
+                    "input_tokens": 111,
+                    "cached_input_tokens": 22,
+                    "output_tokens": 33,
+                    "reasoning_tokens": 44,
+                    "calls_with_usage": 4,
+                },
+            },
+        },
+    )
+    secho_messages: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: secho_messages.append(str(message)),
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        allow_codex=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        segment_blocks=40,
+        segment_focus_blocks=40,
+        prelabel=True,
+        prelabel_allow_partial=False,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
+    )
+
+    assert any(
+        (
+            "Prelabel token usage: input=111 cached_input=22 output=33 "
+            "reasoning=44 calls_with_usage=4"
+        )
+        in line
+        for line in secho_messages
+    )
+
+def test_labelstudio_import_routes_freeform_focus_and_target_options(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "_resolve_labelstudio_settings",
+        lambda *_: ("http://example", "api-key"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_run_labelstudio_import_with_status",
+        lambda **kwargs: kwargs["run_import"](lambda _message: None),
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_run_labelstudio_import(**kwargs):
+        captured.update(kwargs)
+        return {
+            "project_name": "book",
+            "project_id": 1,
+            "tasks_total": 1,
+            "tasks_uploaded": 1,
+            "run_root": tmp_path / "out",
+        }
+
+    monkeypatch.setattr(cli, "run_labelstudio_import", _fake_run_labelstudio_import)
+    monkeypatch.setattr(cli.typer, "secho", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.typer, "echo", lambda *_args, **_kwargs: None)
+
+    cli.labelstudio_import(
+        path=source,
+        allow_labelstudio_write=True,
+        label_studio_url="http://example",
+        label_studio_api_key="api-key",
+        segment_blocks=40,
+        segment_overlap=5,
+        segment_focus_blocks=28,
+        target_task_count=55,
+        prelabel=False,
+        prelabel_upload_as="annotations",
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
+        llm_recipe_pipeline="off",
+        codex_farm_failure_mode="fail",
+        codex_farm_pipeline_pass1="recipe.chunking.v1",
+        codex_farm_pipeline_pass2="recipe.schemaorg.compact.v1",
+        codex_farm_pipeline_pass3="recipe.final.compact.v1",
+    )
+
+    assert captured["segment_blocks"] == 40
+    assert captured["segment_overlap"] == 5
+    assert captured["segment_focus_blocks"] == 28
+    assert captured["target_task_count"] == 55
+    assert captured["prelabel_timeout_seconds"] == cli.DEFAULT_PRELABEL_TIMEOUT_SECONDS
+    assert captured["codex_farm_pass1_pattern_hints_enabled"] is False
+    assert captured["codex_farm_pass3_skip_pass2_ok"] is True
+
+def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> None:
+    older = tmp_path / "2026-01-01-000000" / "labelstudio" / "book" / "exports"
+    newer = tmp_path / "2026-01-02-000000" / "labelstudio" / "book" / "exports"
+    older.mkdir(parents=True, exist_ok=True)
+    newer.mkdir(parents=True, exist_ok=True)
+    older_path = older / "freeform_span_labels.jsonl"
+    newer_path = newer / "freeform_span_labels.jsonl"
+    older_path.write_text("{}\n", encoding="utf-8")
+    newer_path.write_text("{}\n", encoding="utf-8")
+
+    discovered = cli._discover_freeform_gold_exports(tmp_path)
+    assert discovered[0] == newer_path
+    assert discovered[1] == older_path
+
+def test_discover_freeform_gold_exports_includes_golden_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_root = tmp_path / "output"
+    golden_root = tmp_path / "golden"
+    exports = golden_root / "sample" / "freeform" / "2026-02-10_20:36:41" / "labelstudio" / "book" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    golden_path = exports / "freeform_span_labels.jsonl"
+    golden_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+
+    discovered = cli._discover_freeform_gold_exports(output_root)
+    assert golden_path in discovered
+
+def test_display_gold_export_path_relative_to_golden_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_root = tmp_path / "output"
+    golden_root = tmp_path / "golden"
+    path = golden_root / "sample" / "freeform" / "exports" / "freeform_span_labels.jsonl"
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+
+    display = cli._display_gold_export_path(path, output_root)
+    assert display == "sample/freeform/exports/freeform_span_labels.jsonl"
+
+def test_load_gold_recipe_headers_from_summary_prefers_recipe_counts(tmp_path: Path) -> None:
+    exports = tmp_path / "run" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (exports / "summary.json").write_text(
+        json.dumps(
+            {
+                "recipe_counts": {"recipe_headers": 9},
+                "counts": {"recipe_headers": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cli._load_gold_recipe_headers_from_summary(gold_path) == 9
+
+def test_load_gold_recipe_headers_from_summary_falls_back_to_counts(tmp_path: Path) -> None:
+    exports = tmp_path / "run" / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (exports / "summary.json").write_text(
+        json.dumps({"counts": {"recipe_headers": 4}}),
+        encoding="utf-8",
+    )
+
+    assert cli._load_gold_recipe_headers_from_summary(gold_path) == 4
+
+def test_discover_prediction_runs_orders_newest_first(tmp_path: Path) -> None:
+    older = tmp_path / "2026-01-01-000000" / "labelstudio" / "book-a"
+    newer = tmp_path / "2026-01-02-000000" / "labelstudio" / "book-b"
+    older.mkdir(parents=True, exist_ok=True)
+    newer.mkdir(parents=True, exist_ok=True)
+    older_marker = older / "label_studio_tasks.jsonl"
+    newer_marker = newer / "label_studio_tasks.jsonl"
+    older_marker.write_text("{}\n", encoding="utf-8")
+    newer_marker.write_text("{}\n", encoding="utf-8")
+
+    discovered = cli._discover_prediction_runs(tmp_path)
+    assert discovered[0] == newer
+    assert discovered[1] == older
+
+def test_infer_source_file_from_manifest_path(tmp_path: Path) -> None:
+    source = tmp_path / "data" / "input" / "book.epub"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("x", encoding="utf-8")
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (run_root / "manifest.json").write_text(
+        json.dumps({"source_file": str(source)}), encoding="utf-8"
+    )
+
+    inferred = cli._infer_source_file_from_freeform_gold(gold_path)
+    assert inferred == source
+
+def test_infer_source_file_from_gold_row_uses_default_input(
+    tmp_path: Path, monkeypatch
+) -> None:
+    input_root = tmp_path / "data" / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    source = input_root / "book.epub"
+    source.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(cli, "DEFAULT_INPUT", input_root)
+
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text(
+        json.dumps({"source_file": "book.epub", "label": "RECIPE_NOTES"}) + "\n",
+        encoding="utf-8",
+    )
+
+    inferred = cli._infer_source_file_from_freeform_gold(gold_path)
+    assert inferred == source
+
+def test_load_source_hint_from_gold_export_falls_back_to_segment_manifest(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("\n", encoding="utf-8")
+    segment_manifest = exports / "freeform_segment_manifest.jsonl"
+    segment_manifest.write_text(
+        json.dumps({"segment_id": "s1", "source_file": "book.epub"}) + "\n",
+        encoding="utf-8",
+    )
+
+    source_hint = cli._load_source_hint_from_gold_export(gold_path)
+    assert source_hint == "book.epub"
+
+def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
+    scope = cli._infer_scope_from_project_payload(
+        {"label_config": "<View><Label value='RECIPE_VARIANT'/></View>"}
+    )
+    assert scope == "freeform-spans"
+
+def test_infer_scope_from_project_payload_keeps_old_freeform_detection() -> None:
+    scope = cli._infer_scope_from_project_payload(
+        {"label_config": "<View><Label value='VARIANT'/></View>"}
+    )
+    assert scope == "freeform-spans"
+
+def test_labelstudio_eval_direct_call_uses_real_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    gold_spans = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    output_dir = tmp_path / "eval"
+
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "# report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_eval(*_args, overlap_threshold: float, force_source_match: bool, **_kwargs):
+        captured["overlap_threshold"] = overlap_threshold
+        captured["force_source_match"] = force_source_match
+        return {"report": {}, "missed_gold": [], "false_positive_preds": []}
+
+    monkeypatch.setattr(cli, "evaluate_predicted_vs_freeform", fake_eval)
+
+    cli.labelstudio_eval(
+        pred_run=pred_run,
+        gold_spans=gold_spans,
+        output_dir=output_dir,
+    )
+
+    assert captured["overlap_threshold"] == 0.5
+    assert isinstance(captured["overlap_threshold"], float)
+    assert captured["force_source_match"] is False
+    assert isinstance(captured["force_source_match"], bool)
+
+def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
+    (pred_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "recipe_count": 14,
+                "source_file": str(tmp_path / "input" / "book.epub"),
+                "processed_report_path": str(
+                    tmp_path
+                    / "output"
+                    / "2026-02-16_15.00.00"
+                    / "book.excel_import_report.json"
+                ),
+                "llm_codex_farm": {
+                    "process_runs": {
+                        "pass1": {
+                            "process_payload": {
+                                "telemetry": {
+                                    "rows": [
+                                        {
+                                            "tokens_input": 11,
+                                            "tokens_cached_input": 2,
+                                            "tokens_output": 3,
+                                            "tokens_reasoning": 1,
+                                            "tokens_total": 14,
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    gold_spans = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    output_dir = tmp_path / "eval"
+
+    monkeypatch.setattr(cli, "load_predicted_labeled_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "load_gold_freeform_ranges", lambda *_: [])
+    monkeypatch.setattr(cli, "format_freeform_eval_report_md", lambda *_: "# report")
+    monkeypatch.setattr(
+        cli,
+        "evaluate_predicted_vs_freeform",
+        lambda *_args, **_kwargs: {
+            "report": {},
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+
+    captured_csv: dict[str, object] = {}
+    captured_dashboard: dict[str, object] = {}
+
+    def _capture_append(*args, **kwargs):
+        captured_csv.update(kwargs)
+        csv_path = Path(args[1])
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_path.write_text(
+            "run_timestamp,run_dir,file_name,run_category\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        _capture_append,
+    )
+    monkeypatch.setattr(cli, "stats_dashboard", lambda **kwargs: captured_dashboard.update(kwargs))
+
+    cli.labelstudio_eval(
+        pred_run=pred_run,
+        gold_spans=gold_spans,
+        output_dir=output_dir,
+    )
+
+    assert captured_csv["recipes"] == 14
+    assert captured_csv["source_file"] == str(tmp_path / "input" / "book.epub")
+    assert captured_csv["tokens_input"] == 11
+    assert captured_csv["tokens_cached_input"] == 2
+    assert captured_csv["tokens_output"] == 3
+    assert captured_csv["tokens_reasoning"] == 1
+    assert captured_csv["tokens_total"] == 14
+    assert captured_dashboard["output_root"] == tmp_path / "output"
+    assert captured_dashboard["out_dir"] == tmp_path / ".history" / "dashboard"
+
+def test_labelstudio_commands_default_output_roots() -> None:
+    import_param = inspect.signature(cli.labelstudio_import).parameters["output_dir"]
+    export_param = inspect.signature(cli.labelstudio_export).parameters["output_dir"]
+    benchmark_param = inspect.signature(cli.labelstudio_benchmark).parameters["output_dir"]
+    eval_overlap_param = inspect.signature(cli.labelstudio_eval).parameters["overlap_threshold"]
+    eval_force_match_param = inspect.signature(cli.labelstudio_eval).parameters["force_source_match"]
+
+    assert getattr(import_param.default, "default", None) == cli.DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO
+    assert getattr(export_param.default, "default", None) == cli.DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO
+    assert benchmark_param.default == cli.DEFAULT_GOLDEN_BENCHMARK
+    assert eval_overlap_param.default == 0.5
+    assert eval_force_match_param.default is False

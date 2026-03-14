@@ -55,7 +55,12 @@ pytest tests/analytics/test_stats_dashboard.py
 pytest tests/analytics/test_stats_dashboard_slow.py
 
 # Label Studio benchmark-helper split
-pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_export_selection.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py

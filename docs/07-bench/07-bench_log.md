@@ -6395,6 +6395,7 @@ Anti-loop note:
 
 Source:
 - `docs/understandings/2026-03-06_01.13.31-group-upload-bundle-size-seams.md`
+- merged task: `docs/tasks/2026-03-06_01.13.31-shrink-group-upload-bundles-to-30mb.md`
 
 Problem captured:
 - The March 6 multi-book high-level bundle blew past its intended size budget because high-level selection still treated raw prompt dumps as required and had no final serialized-size clamp.
@@ -6615,6 +6616,9 @@ Anti-loop note:
 ### 2026-03-06_14.22.23, 2026-03-06_18.40.53, 2026-03-13_21.42.17, and 2026-03-13_21.53.28 pass4 benchmark wiring evolution
 
 Merged source notes:
+- `docs/tasks/2026-03-06_14.32.00-benchmark-knowledge-pass-enablement.md`
+- `docs/tasks/2026-03-06_18.35.42-pass4-benchmark-scoring.md`
+- `docs/tasks/2026-03-13_21.47.00-pass4-outside-span-binary-classifier.md`
 - `docs/understandings/2026-03-06_14.22.23-benchmark-vs-stage-knowledge-pass-wiring.md`
 - `docs/understandings/2026-03-06_18.40.53-pass4-canonical-benchmark-surface.md`
 - `docs/understandings/2026-03-13_21.42.17-pass4-knowledge-benchmark-seam.md`

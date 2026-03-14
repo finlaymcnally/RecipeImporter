@@ -54,8 +54,8 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
 - `tests/fixtures/generate_scanned_pdf.py` (kept, manual utility script):
   - `Generated scanned PDF: ...`
 - Ellipses in status-message assertions were reviewed and kept intentionally because they validate product output contracts (not test-runner decoration), e.g.:
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
   - `tests/labelstudio/test_labelstudio_ingest_parallel.py`
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py`
   - `tests/bench/test_bench_progress.py`
   - `tests/bench/test_progress_messages.py`
   - `tests/ingestion/test_epub_importer.py`

@@ -4,7 +4,7 @@ This folder contains project documentation. Check folder-specific AGENTS.md file
 
 ## Docs workflow
 
-- Run `npm run docs:list` (or `npx tsx docs/docs-list.ts`) to see summaries and Read when hints.
+- Run `npm run docs:list` or `./bin/docs-list` to see summaries and Read when hints. `docs:list` is an npm script name, not a shell command.
 - Read any doc whose Read when matches your task before coding.
 - Keep docs current with behavior/API changes; add read_when hints on cross-cutting docs.
 

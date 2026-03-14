@@ -458,7 +458,6 @@ PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
 BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
 BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
-BENCHMARK_EXECUTION_MODE_PIPELINED = "pipelined"
 COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
 COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
     "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS"
@@ -10364,6 +10363,14 @@ class BenchmarkPredictionBundle:
 
 
 @dataclass(frozen=True)
+class BenchmarkPredictionStageResult:
+    prediction_bundle: BenchmarkPredictionBundle
+    prediction_records: list[PredictionRecord]
+    codexfarm_prompt_response_log_path: Path | None
+    single_offline_split_cache_metadata: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
 class AllMethodTarget:
     gold_spans_path: Path
     source_file: Path
@@ -13246,6 +13253,220 @@ def _build_prediction_bundle_from_import_result(
         stage_predictions_path=stage_predictions_path,
         extracted_archive_path=extracted_archive_path,
         prediction_phase_seconds=max(0.0, prediction_phase_seconds),
+    )
+
+
+def _run_offline_benchmark_prediction_stage(
+    *,
+    prediction_generation_kwargs: dict[str, Any],
+    eval_output_dir: Path,
+    predictions_out_path: Path | None,
+    suppress_spinner: bool = True,
+    external_progress_callback: Callable[[str], None] | None = None,
+) -> BenchmarkPredictionStageResult:
+    selected_source = Path(prediction_generation_kwargs["path"]).expanduser()
+    selected_epub_extractor = str(
+        prediction_generation_kwargs.get("epub_extractor") or "unstructured"
+    ).strip().lower() or "unstructured"
+    selected_html_parser_version = str(
+        prediction_generation_kwargs.get(
+            "epub_unstructured_html_parser_version"
+        )
+        or "v1"
+    ).strip().lower() or "v1"
+    selected_skip_headers_footers = bool(
+        prediction_generation_kwargs.get("epub_unstructured_skip_headers_footers", True)
+    )
+    selected_preprocess_mode = str(
+        prediction_generation_kwargs.get("epub_unstructured_preprocess_mode")
+        or "semantic_v1"
+    ).strip().lower() or "semantic_v1"
+    write_markdown = bool(prediction_generation_kwargs.get("write_markdown"))
+    write_label_studio_tasks = bool(
+        prediction_generation_kwargs.get("write_label_studio_tasks")
+    )
+    should_upload_predictions = not bool(
+        prediction_generation_kwargs.get("auto_project_name_on_scope_mismatch")
+    ) and not bool(prediction_generation_kwargs.get("allow_labelstudio_write"))
+    line_role_pipeline = str(
+        prediction_generation_kwargs.get("line_role_pipeline") or "off"
+    ).strip().lower()
+
+    with _temporary_epub_extractor(selected_epub_extractor):
+        with _temporary_epub_unstructured_options(
+            html_parser_version=selected_html_parser_version,
+            skip_headers_footers=selected_skip_headers_footers,
+            preprocess_mode=selected_preprocess_mode,
+        ):
+            prediction_phase_started = time.monotonic()
+            if suppress_spinner:
+                if external_progress_callback is not None:
+                    external_progress_callback(
+                        f"Generating prediction tasks for {selected_source.name}..."
+                    )
+                import_result = generate_pred_run_artifacts(**prediction_generation_kwargs)
+            else:
+                def _run_with_status(
+                    update_progress: Callable[[str], None],
+                ) -> dict[str, Any]:
+                    if external_progress_callback is None:
+                        return generate_pred_run_artifacts(**prediction_generation_kwargs)
+
+                    def _combined_progress(message: str) -> None:
+                        update_progress(message)
+                        external_progress_callback(message)
+
+                    generation_kwargs = dict(prediction_generation_kwargs)
+                    generation_kwargs["progress_callback"] = _combined_progress
+                    return generate_pred_run_artifacts(**generation_kwargs)
+
+                import_result = _run_with_progress_status(
+                    initial_status=(
+                        f"Generating prediction tasks for {selected_source.name}..."
+                    ),
+                    progress_prefix=f"Benchmark import ({selected_source.name})",
+                    run=_run_with_status,
+                    telemetry_path=(
+                        eval_output_dir / "processing_timeseries_prediction.jsonl"
+                    ),
+                )
+            prediction_phase_seconds = max(
+                0.0, time.monotonic() - prediction_phase_started
+            )
+
+    prediction_bundle = _build_prediction_bundle_from_import_result(
+        import_result=import_result,
+        eval_output_dir=eval_output_dir,
+        prediction_phase_seconds=prediction_phase_seconds,
+        prefer_line_role_projection=(line_role_pipeline != "off"),
+    )
+    prediction_records = list(
+        predict_stage(
+            bundle=prediction_bundle,
+            selected_source=selected_source,
+        )
+    )
+    if predictions_out_path is not None:
+        write_prediction_records(predictions_out_path, prediction_records)
+
+    pred_run = prediction_bundle.pred_run
+    pred_context = prediction_bundle.pred_context
+    prediction_timing = _normalize_timing_payload(import_result.get("timing"))
+    prediction_seconds = _report_optional_metric(
+        prediction_timing.get("prediction_seconds")
+    )
+    if prediction_seconds is None:
+        prediction_seconds = _report_optional_metric(
+            prediction_timing.get("total_seconds")
+        )
+    if prediction_seconds is None:
+        prediction_seconds = prediction_phase_seconds
+    prediction_seconds = max(0.0, float(prediction_seconds))
+    benchmark_timing = _timing_with_updates(
+        prediction_timing,
+        prediction_seconds=prediction_seconds,
+        evaluation_seconds=0.0,
+        total_seconds=max(
+            prediction_seconds,
+            max(0.0, time.monotonic() - prediction_phase_started),
+        ),
+    )
+
+    prediction_stage_run_config: dict[str, Any] = {
+        "prediction_record_output": (
+            str(predictions_out_path) if predictions_out_path is not None else None
+        ),
+        "upload": should_upload_predictions,
+        "write_markdown": write_markdown,
+        "write_label_studio_tasks": write_label_studio_tasks,
+    }
+    single_offline_split_cache_metadata = import_result.get(
+        "single_offline_split_cache"
+    )
+    if isinstance(single_offline_split_cache_metadata, dict):
+        prediction_stage_run_config["single_offline_split_cache"] = dict(
+            single_offline_split_cache_metadata
+        )
+    if pred_context.run_config is not None:
+        prediction_stage_run_config["prediction_run_config"] = pred_context.run_config
+        prediction_stage_run_config.update(
+            _benchmark_selective_retry_manifest_summary(pred_context.run_config)
+        )
+    if pred_context.run_config_hash:
+        prediction_stage_run_config["prediction_run_config_hash"] = (
+            pred_context.run_config_hash
+        )
+    if pred_context.run_config_summary:
+        prediction_stage_run_config["prediction_run_config_summary"] = (
+            pred_context.run_config_summary
+        )
+
+    prediction_stage_artifacts: dict[str, Any] = {
+        "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
+        "stage_block_predictions_json": _path_for_manifest(
+            eval_output_dir,
+            prediction_bundle.stage_predictions_path,
+        ),
+        "extracted_archive_json": _path_for_manifest(
+            eval_output_dir,
+            prediction_bundle.extracted_archive_path,
+        ),
+        "timing": benchmark_timing,
+    }
+    prediction_timeseries_path = eval_output_dir / "processing_timeseries_prediction.jsonl"
+    if prediction_timeseries_path.exists():
+        prediction_stage_artifacts["processing_timeseries_prediction_jsonl"] = (
+            _path_for_manifest(eval_output_dir, prediction_timeseries_path)
+        )
+    if predictions_out_path is not None:
+        prediction_stage_artifacts["prediction_record_output_jsonl"] = _path_for_manifest(
+            eval_output_dir,
+            predictions_out_path,
+        )
+    processed_report_path = import_result.get("processed_report_path")
+    if processed_report_path:
+        prediction_stage_artifacts["processed_report_json"] = _path_for_manifest(
+            eval_output_dir,
+            processed_report_path,
+        )
+    processed_run_root_raw = import_result.get("processed_run_root")
+    processed_run_root = (
+        Path(str(processed_run_root_raw)).expanduser()
+        if str(processed_run_root_raw or "").strip()
+        else None
+    )
+    if processed_run_root is not None:
+        prediction_stage_artifacts["processed_output_run_dir"] = _path_for_manifest(
+            eval_output_dir,
+            processed_run_root,
+        )
+
+    _write_eval_run_manifest(
+        run_root=eval_output_dir,
+        run_kind="labelstudio_benchmark_prediction_stage",
+        source_path=str(selected_source),
+        source_hash=pred_context.source_hash,
+        importer_name=None,
+        run_config=prediction_stage_run_config,
+        artifacts=prediction_stage_artifacts,
+        notes=(
+            "Offline benchmark prediction-stage artifacts for all-method reuse. "
+            "No evaluation was run by this helper."
+        ),
+    )
+    codexfarm_prompt_response_log_path = _build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+    )
+    return BenchmarkPredictionStageResult(
+        prediction_bundle=prediction_bundle,
+        prediction_records=prediction_records,
+        codexfarm_prompt_response_log_path=codexfarm_prompt_response_log_path,
+        single_offline_split_cache_metadata=(
+            dict(single_offline_split_cache_metadata)
+            if isinstance(single_offline_split_cache_metadata, dict)
+            else None
+        ),
     )
 
 
@@ -16704,19 +16925,216 @@ def _run_all_method_prediction_once(
                         )
                         benchmark_kwargs.update(
                             {
-                                "gold_spans": gold_spans_path,
                                 "source_file": source_file,
-                                "predictions_out": prediction_record_path,
-                                "overlap_threshold": overlap_threshold,
-                                "force_source_match": force_source_match,
-                                "alignment_cache_dir": alignment_cache_dir,
-                                "skip_evaluation_internal": True,
                                 "workers": effective_workers,
                                 "pdf_split_workers": effective_pdf_split_workers,
                                 "epub_split_workers": effective_epub_split_workers,
                             }
                         )
-                        labelstudio_benchmark(**benchmark_kwargs)
+                        prediction_generation_kwargs = {
+                            "path": benchmark_kwargs["source_file"],
+                            "output_dir": benchmark_kwargs["output_dir"],
+                            "pipeline": benchmark_kwargs.get("pipeline", "auto"),
+                            "segment_blocks": 40,
+                            "segment_overlap": 5,
+                            "limit": None,
+                            "sample": None,
+                            "workers": benchmark_kwargs["workers"],
+                            "pdf_split_workers": benchmark_kwargs["pdf_split_workers"],
+                            "epub_split_workers": benchmark_kwargs["epub_split_workers"],
+                            "pdf_pages_per_job": benchmark_kwargs["pdf_pages_per_job"],
+                            "epub_spine_items_per_job": benchmark_kwargs[
+                                "epub_spine_items_per_job"
+                            ],
+                            "epub_extractor": benchmark_kwargs["epub_extractor"],
+                            "epub_unstructured_html_parser_version": benchmark_kwargs[
+                                "epub_unstructured_html_parser_version"
+                            ],
+                            "epub_unstructured_skip_headers_footers": benchmark_kwargs[
+                                "epub_unstructured_skip_headers_footers"
+                            ],
+                            "epub_unstructured_preprocess_mode": benchmark_kwargs[
+                                "epub_unstructured_preprocess_mode"
+                            ],
+                            "ocr_device": benchmark_kwargs["ocr_device"],
+                            "pdf_ocr_policy": benchmark_kwargs["pdf_ocr_policy"],
+                            "ocr_batch_size": benchmark_kwargs["ocr_batch_size"],
+                            "pdf_column_gap_ratio": benchmark_kwargs[
+                                "pdf_column_gap_ratio"
+                            ],
+                            "warm_models": benchmark_kwargs["warm_models"],
+                            "section_detector_backend": benchmark_kwargs[
+                                "section_detector_backend"
+                            ],
+                            "multi_recipe_splitter": benchmark_kwargs[
+                                "multi_recipe_splitter"
+                            ],
+                            "multi_recipe_trace": benchmark_kwargs["multi_recipe_trace"],
+                            "multi_recipe_min_ingredient_lines": benchmark_kwargs[
+                                "multi_recipe_min_ingredient_lines"
+                            ],
+                            "multi_recipe_min_instruction_lines": benchmark_kwargs[
+                                "multi_recipe_min_instruction_lines"
+                            ],
+                            "multi_recipe_for_the_guardrail": benchmark_kwargs[
+                                "multi_recipe_for_the_guardrail"
+                            ],
+                            "instruction_step_segmentation_policy": benchmark_kwargs[
+                                "instruction_step_segmentation_policy"
+                            ],
+                            "instruction_step_segmenter": benchmark_kwargs[
+                                "instruction_step_segmenter"
+                            ],
+                            "web_schema_extractor": benchmark_kwargs[
+                                "web_schema_extractor"
+                            ],
+                            "web_schema_normalizer": benchmark_kwargs[
+                                "web_schema_normalizer"
+                            ],
+                            "web_html_text_extractor": benchmark_kwargs[
+                                "web_html_text_extractor"
+                            ],
+                            "web_schema_policy": benchmark_kwargs["web_schema_policy"],
+                            "web_schema_min_confidence": benchmark_kwargs[
+                                "web_schema_min_confidence"
+                            ],
+                            "web_schema_min_ingredients": benchmark_kwargs[
+                                "web_schema_min_ingredients"
+                            ],
+                            "web_schema_min_instruction_steps": benchmark_kwargs[
+                                "web_schema_min_instruction_steps"
+                            ],
+                            "ingredient_text_fix_backend": benchmark_kwargs[
+                                "ingredient_text_fix_backend"
+                            ],
+                            "ingredient_pre_normalize_mode": benchmark_kwargs[
+                                "ingredient_pre_normalize_mode"
+                            ],
+                            "ingredient_packaging_mode": benchmark_kwargs[
+                                "ingredient_packaging_mode"
+                            ],
+                            "ingredient_parser_backend": benchmark_kwargs[
+                                "ingredient_parser_backend"
+                            ],
+                            "ingredient_unit_canonicalizer": benchmark_kwargs[
+                                "ingredient_unit_canonicalizer"
+                            ],
+                            "ingredient_missing_unit_policy": benchmark_kwargs[
+                                "ingredient_missing_unit_policy"
+                            ],
+                            "p6_time_backend": benchmark_kwargs["p6_time_backend"],
+                            "p6_time_total_strategy": benchmark_kwargs[
+                                "p6_time_total_strategy"
+                            ],
+                            "p6_temperature_backend": benchmark_kwargs[
+                                "p6_temperature_backend"
+                            ],
+                            "p6_temperature_unit_backend": benchmark_kwargs[
+                                "p6_temperature_unit_backend"
+                            ],
+                            "p6_ovenlike_mode": benchmark_kwargs["p6_ovenlike_mode"],
+                            "p6_yield_mode": benchmark_kwargs["p6_yield_mode"],
+                            "p6_emit_metadata_debug": benchmark_kwargs[
+                                "p6_emit_metadata_debug"
+                            ],
+                            "recipe_scorer_backend": benchmark_kwargs[
+                                "recipe_scorer_backend"
+                            ],
+                            "recipe_score_gold_min": benchmark_kwargs[
+                                "recipe_score_gold_min"
+                            ],
+                            "recipe_score_silver_min": benchmark_kwargs[
+                                "recipe_score_silver_min"
+                            ],
+                            "recipe_score_bronze_min": benchmark_kwargs[
+                                "recipe_score_bronze_min"
+                            ],
+                            "recipe_score_min_ingredient_lines": benchmark_kwargs[
+                                "recipe_score_min_ingredient_lines"
+                            ],
+                            "recipe_score_min_instruction_lines": benchmark_kwargs[
+                                "recipe_score_min_instruction_lines"
+                            ],
+                            "llm_recipe_pipeline": benchmark_kwargs[
+                                "llm_recipe_pipeline"
+                            ],
+                            "llm_knowledge_pipeline": benchmark_kwargs[
+                                "llm_knowledge_pipeline"
+                            ],
+                            "atomic_block_splitter": benchmark_kwargs[
+                                "atomic_block_splitter"
+                            ],
+                            "line_role_pipeline": benchmark_kwargs["line_role_pipeline"],
+                            "line_role_guardrail_mode": benchmark_kwargs[
+                                "line_role_guardrail_mode"
+                            ],
+                            "codex_farm_cmd": benchmark_kwargs["codex_farm_cmd"],
+                            "codex_farm_model": benchmark_kwargs.get("codex_farm_model"),
+                            "codex_farm_reasoning_effort": benchmark_kwargs.get(
+                                "codex_farm_reasoning_effort"
+                            ),
+                            "codex_farm_root": benchmark_kwargs.get("codex_farm_root"),
+                            "codex_farm_workspace_root": benchmark_kwargs.get(
+                                "codex_farm_workspace_root"
+                            ),
+                            "codex_farm_pass1_pattern_hints_enabled": benchmark_kwargs[
+                                "codex_farm_pass1_pattern_hints_enabled"
+                            ],
+                            "codex_farm_pipeline_pass1": benchmark_kwargs[
+                                "codex_farm_pipeline_pass1"
+                            ],
+                            "codex_farm_pipeline_pass2": benchmark_kwargs[
+                                "codex_farm_pipeline_pass2"
+                            ],
+                            "codex_farm_pipeline_pass3": benchmark_kwargs[
+                                "codex_farm_pipeline_pass3"
+                            ],
+                            "codex_farm_pipeline_pass4_knowledge": benchmark_kwargs[
+                                "codex_farm_pipeline_pass4_knowledge"
+                            ],
+                            "codex_farm_context_blocks": benchmark_kwargs[
+                                "codex_farm_context_blocks"
+                            ],
+                            "codex_farm_pass3_skip_pass2_ok": benchmark_kwargs[
+                                "codex_farm_pass3_skip_pass2_ok"
+                            ],
+                            "codex_farm_benchmark_selective_retry_enabled": benchmark_kwargs[
+                                "codex_farm_benchmark_selective_retry_enabled"
+                            ],
+                            "codex_farm_benchmark_selective_retry_max_attempts": benchmark_kwargs[
+                                "codex_farm_benchmark_selective_retry_max_attempts"
+                            ],
+                            "codex_farm_knowledge_context_blocks": benchmark_kwargs[
+                                "codex_farm_knowledge_context_blocks"
+                            ],
+                            "codex_farm_recipe_mode": benchmark_kwargs[
+                                "codex_farm_recipe_mode"
+                            ],
+                            "codex_farm_failure_mode": benchmark_kwargs[
+                                "codex_farm_failure_mode"
+                            ],
+                            "allow_codex": benchmark_kwargs["allow_codex"],
+                            "codex_execution_policy": benchmark_kwargs[
+                                "codex_execution_policy"
+                            ],
+                            "processed_output_root": benchmark_kwargs[
+                                "processed_output_dir"
+                            ],
+                            "write_markdown": benchmark_kwargs["write_markdown"],
+                            "write_label_studio_tasks": benchmark_kwargs[
+                                "write_label_studio_tasks"
+                            ],
+                            "scheduler_event_callback": _scheduler_event_callback,
+                            "progress_callback": benchmark_progress_callback,
+                            "run_manifest_kind": "bench_pred_run",
+                        }
+                        _run_offline_benchmark_prediction_stage(
+                            prediction_generation_kwargs=prediction_generation_kwargs,
+                            eval_output_dir=eval_output_dir,
+                            predictions_out_path=prediction_record_path,
+                            suppress_spinner=True,
+                            external_progress_callback=benchmark_progress_callback,
+                        )
         except Exception as exc:  # noqa: BLE001
             return str(exc)
         return None
@@ -29033,10 +29451,6 @@ def labelstudio_benchmark(
             "When set, skips prediction generation and runs evaluate-only."
         ),
     )] = None,
-    skip_evaluation_internal: Annotated[bool, typer.Option(
-        "--skip-evaluation-internal",
-        hidden=True,
-    )] = False,
     baseline: Annotated[Path | None, typer.Option(
         "--baseline",
         help=(
@@ -29737,7 +30151,6 @@ def labelstudio_benchmark(
     selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
         sequence_matcher
     )
-    selected_execution_mode = BENCHMARK_EXECUTION_MODE_PIPELINED
     selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
         single_offline_split_cache_mode
     )
@@ -29759,8 +30172,6 @@ def labelstudio_benchmark(
     )
     if predictions_in_path is not None and predictions_out_path is not None:
         _fail("Cannot combine --predictions-in and --predictions-out in one run.")
-    if skip_evaluation_internal and predictions_in_path is not None:
-        _fail("Internal skip-evaluation mode cannot be combined with --predictions-in.")
 
     prediction_record_input: list[PredictionRecord] = []
     prediction_record_source: Path | None = None
@@ -29775,7 +30186,6 @@ def labelstudio_benchmark(
 
     should_generate_predictions = predictions_in_path is None
     should_upload_predictions = should_generate_predictions and not no_upload
-    should_run_evaluation = not bool(skip_evaluation_internal)
     if not should_generate_predictions:
         selected_single_offline_split_cache_mode = "off"
         selected_single_offline_split_cache_dir = None
@@ -29910,8 +30320,6 @@ def labelstudio_benchmark(
         benchmark_plan_run_config = apply_codex_execution_policy_metadata(
             {
                 "eval_mode": selected_eval_mode,
-                "execution_mode": selected_execution_mode,
-                "predict_only": True,
                 "upload": False,
                 "write_markdown": bool(write_markdown),
                 "write_label_studio_tasks": bool(write_label_studio_tasks),
@@ -30427,27 +30835,18 @@ def labelstudio_benchmark(
                             ),
                         }
 
-                    if should_run_evaluation:
-                        pipelined_result = run_pipelined(
-                            run_prediction_bundle=_run_prediction_stage_bundle,
-                            prewarm_evaluation_inputs=_prewarm_evaluation_inputs,
-                            selected_source=selected_source,
-                            eval_output_dir=eval_output_dir,
-                        )
-                        prediction_bundle = pipelined_result.prediction_bundle
-                        prediction_records_output = pipelined_result.prediction_records
-                        prewarmed_canonical_paths = (
-                            pipelined_result.prewarmed_canonical_paths
-                        )
-                        pipelined_replay_bundle = pipelined_result.replay_bundle
-                    else:
-                        prediction_bundle = _run_prediction_stage_bundle()
-                        prediction_records_output = list(
-                            predict_stage(
-                                bundle=prediction_bundle,
-                                selected_source=selected_source,
-                            )
-                        )
+                    pipelined_result = run_pipelined(
+                        run_prediction_bundle=_run_prediction_stage_bundle,
+                        prewarm_evaluation_inputs=_prewarm_evaluation_inputs,
+                        selected_source=selected_source,
+                        eval_output_dir=eval_output_dir,
+                    )
+                    prediction_bundle = pipelined_result.prediction_bundle
+                    prediction_records_output = pipelined_result.prediction_records
+                    prewarmed_canonical_paths = (
+                        pipelined_result.prewarmed_canonical_paths
+                    )
+                    pipelined_replay_bundle = pipelined_result.replay_bundle
         else:
             if predictions_in_path is None:
                 _fail("Prediction record input is required.")
@@ -30527,234 +30926,6 @@ def labelstudio_benchmark(
                 (single_offline_split_cache_metadata or {}).get("conversion_seconds")
             ),
         }
-
-    if not should_run_evaluation:
-        prediction_timing = _normalize_timing_payload(import_result.get("timing"))
-        prediction_seconds = _report_optional_metric(
-            prediction_timing.get("prediction_seconds")
-        )
-        if prediction_seconds is None:
-            prediction_seconds = _report_optional_metric(
-                prediction_timing.get("total_seconds")
-            )
-        if prediction_seconds is None:
-            prediction_seconds = prediction_phase_seconds
-        prediction_seconds = max(0.0, float(prediction_seconds))
-        benchmark_timing = _timing_with_updates(
-            prediction_timing,
-            prediction_seconds=prediction_seconds,
-            evaluation_seconds=0.0,
-            total_seconds=max(
-                prediction_seconds,
-                max(0.0, time.monotonic() - benchmark_started),
-            ),
-        )
-        predict_only_run_config: dict[str, Any] = apply_codex_execution_policy_metadata(
-            {
-                "eval_mode": selected_eval_mode,
-                "gold_adaptation_mode": selected_gold_adaptation_mode,
-                "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
-                "gold_adaptation_max_ambiguous": selected_gold_adaptation_max_ambiguous,
-                "sequence_matcher": selected_sequence_matcher,
-                "execution_mode": selected_execution_mode,
-                "predict_only": True,
-                "prediction_record_output": (
-                    str(predictions_out_path) if predictions_out_path is not None else None
-                ),
-                "upload": should_upload_predictions,
-                "write_markdown": bool(write_markdown),
-                "write_label_studio_tasks": bool(write_label_studio_tasks),
-                "epub_extractor": selected_epub_extractor,
-                "epub_unstructured_html_parser_version": selected_html_parser_version,
-                "epub_unstructured_skip_headers_footers": selected_skip_headers_footers,
-                "epub_unstructured_preprocess_mode": selected_preprocess_mode,
-                "ocr_device": selected_ocr_device,
-                "pdf_ocr_policy": selected_pdf_ocr_policy,
-                "ocr_batch_size": ocr_batch_size,
-                "pdf_column_gap_ratio": selected_pdf_column_gap_ratio,
-                "section_detector_backend": selected_section_detector_backend,
-                "multi_recipe_splitter": selected_multi_recipe_splitter,
-                "multi_recipe_trace": selected_multi_recipe_trace,
-                "multi_recipe_min_ingredient_lines": selected_multi_recipe_min_ingredient_lines,
-                "multi_recipe_min_instruction_lines": selected_multi_recipe_min_instruction_lines,
-                "multi_recipe_for_the_guardrail": selected_multi_recipe_for_the_guardrail,
-                "instruction_step_segmentation_policy": (
-                    selected_instruction_step_segmentation_policy
-                ),
-                "instruction_step_segmenter": selected_instruction_step_segmenter,
-                "web_schema_extractor": selected_web_schema_extractor,
-                "web_schema_normalizer": selected_web_schema_normalizer,
-                "web_html_text_extractor": selected_web_html_text_extractor,
-                "web_schema_policy": selected_web_schema_policy,
-                "web_schema_min_confidence": selected_web_schema_min_confidence,
-                "web_schema_min_ingredients": selected_web_schema_min_ingredients,
-                "web_schema_min_instruction_steps": selected_web_schema_min_instruction_steps,
-                "ingredient_text_fix_backend": selected_ingredient_text_fix_backend,
-                "ingredient_pre_normalize_mode": selected_ingredient_pre_normalize_mode,
-                "ingredient_packaging_mode": selected_ingredient_packaging_mode,
-                "ingredient_parser_backend": selected_ingredient_parser_backend,
-                "ingredient_unit_canonicalizer": selected_ingredient_unit_canonicalizer,
-                "ingredient_missing_unit_policy": selected_ingredient_missing_unit_policy,
-                "p6_time_backend": selected_p6_time_backend,
-                "p6_time_total_strategy": selected_p6_time_total_strategy,
-                "p6_temperature_backend": selected_p6_temperature_backend,
-                "p6_temperature_unit_backend": selected_p6_temperature_unit_backend,
-                "p6_ovenlike_mode": selected_p6_ovenlike_mode,
-                "p6_yield_mode": selected_p6_yield_mode,
-                "p6_emit_metadata_debug": selected_p6_emit_metadata_debug,
-                "recipe_scorer_backend": selected_recipe_scorer_backend,
-                "recipe_score_gold_min": selected_recipe_score_gold_min,
-                "recipe_score_silver_min": selected_recipe_score_silver_min,
-                "recipe_score_bronze_min": selected_recipe_score_bronze_min,
-                "recipe_score_min_ingredient_lines": selected_recipe_score_min_ingredient_lines,
-                "recipe_score_min_instruction_lines": selected_recipe_score_min_instruction_lines,
-                "workers": workers,
-                "pdf_split_workers": pdf_split_workers,
-                "epub_split_workers": epub_split_workers,
-                "pdf_pages_per_job": pdf_pages_per_job,
-                "epub_spine_items_per_job": epub_spine_items_per_job,
-                "warm_models": warm_models,
-                "llm_recipe_pipeline": selected_llm_recipe_pipeline,
-                "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
-                "atomic_block_splitter": selected_atomic_block_splitter,
-                "line_role_pipeline": selected_line_role_pipeline,
-                "line_role_guardrail_mode": selected_line_role_guardrail_mode,
-                "line_role_gated": bool(line_role_gated),
-                "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
-                "codex_farm_cmd": codex_farm_cmd,
-                "codex_farm_pass1_pattern_hints_enabled": (
-                    selected_codex_farm_pass1_pattern_hints_enabled
-                ),
-                "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
-                "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
-                "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
-                "codex_farm_pipeline_pass4_knowledge": (
-                    selected_codex_farm_pipeline_pass4_knowledge
-                ),
-                "codex_farm_context_blocks": codex_farm_context_blocks,
-                "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
-                "codex_farm_benchmark_selective_retry_enabled": (
-                    selected_codex_farm_benchmark_selective_retry_enabled
-                ),
-                "codex_farm_benchmark_selective_retry_max_attempts": (
-                    selected_codex_farm_benchmark_selective_retry_max_attempts
-                ),
-                "codex_farm_knowledge_context_blocks": (
-                    codex_farm_knowledge_context_blocks
-                ),
-                "codex_farm_failure_mode": selected_codex_farm_failure_mode,
-                "stage_block_predictions_path": str(stage_predictions_path),
-            },
-            benchmark_codex_execution,
-        )
-        if single_offline_split_cache_run_config is not None:
-            predict_only_run_config["single_offline_split_cache"] = (
-                single_offline_split_cache_run_config
-            )
-        if codex_farm_root is not None:
-            predict_only_run_config["codex_farm_root"] = str(codex_farm_root)
-        if selected_codex_farm_model is not None:
-            predict_only_run_config["codex_farm_model"] = selected_codex_farm_model
-        if selected_codex_farm_reasoning_effort is not None:
-            predict_only_run_config["codex_farm_reasoning_effort"] = (
-                selected_codex_farm_reasoning_effort
-            )
-        if codex_farm_workspace_root is not None:
-            predict_only_run_config["codex_farm_workspace_root"] = str(
-                codex_farm_workspace_root
-            )
-        if pred_context.run_config is not None:
-            predict_only_run_config["prediction_run_config"] = pred_context.run_config
-            predict_only_run_config.update(
-                _benchmark_selective_retry_manifest_summary(pred_context.run_config)
-            )
-        if pred_context.run_config_hash:
-            predict_only_run_config["prediction_run_config_hash"] = (
-                pred_context.run_config_hash
-            )
-        if pred_context.run_config_summary:
-            predict_only_run_config["prediction_run_config_summary"] = (
-                pred_context.run_config_summary
-            )
-
-        predict_only_artifacts: dict[str, Any] = {
-            "pred_run_dir": _path_for_manifest(eval_output_dir, pred_run),
-            "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
-            "stage_block_predictions_json": _path_for_manifest(
-                eval_output_dir,
-                stage_predictions_path,
-            ),
-            "timing": benchmark_timing,
-        }
-        prediction_timeseries_path = (
-            eval_output_dir / "processing_timeseries_prediction.jsonl"
-        )
-        if prediction_timeseries_path.exists():
-            predict_only_artifacts["processing_timeseries_prediction_jsonl"] = (
-                _path_for_manifest(eval_output_dir, prediction_timeseries_path)
-            )
-        if predictions_out_path is not None:
-            predict_only_artifacts["prediction_record_output_jsonl"] = _path_for_manifest(
-                eval_output_dir,
-                predictions_out_path,
-            )
-        processed_report_path = import_result.get("processed_report_path")
-        if processed_report_path:
-            predict_only_artifacts["processed_report_json"] = _path_for_manifest(
-                eval_output_dir,
-                processed_report_path,
-            )
-        processed_run_root_raw = import_result.get("processed_run_root")
-        processed_run_root = (
-            Path(str(processed_run_root_raw)).expanduser()
-            if str(processed_run_root_raw or "").strip()
-            else None
-        )
-        if processed_run_root is not None:
-            predict_only_artifacts["processed_output_run_dir"] = _path_for_manifest(
-                eval_output_dir,
-                processed_run_root,
-            )
-
-        _write_eval_run_manifest(
-            run_root=eval_output_dir,
-            run_kind="labelstudio_benchmark",
-            source_path=str(selected_source),
-            source_hash=pred_context.source_hash,
-            importer_name=None,
-            run_config=predict_only_run_config,
-            artifacts=predict_only_artifacts,
-            notes=(
-                "Prediction stage complete; evaluation skipped for internal "
-                "prediction-record generation."
-            ),
-        )
-        if not suppress_summary:
-            typer.secho(
-                "Prediction stage complete; evaluation skipped.",
-                fg=typer.colors.CYAN,
-            )
-            typer.secho(f"Manifest: {eval_output_dir / 'run_manifest.json'}", fg=typer.colors.CYAN)
-            prediction_timeseries_path = (
-                eval_output_dir / "processing_timeseries_prediction.jsonl"
-            )
-            if prediction_timeseries_path.exists():
-                typer.secho(
-                    f"Processing telemetry: {prediction_timeseries_path}",
-                    fg=typer.colors.BRIGHT_BLACK,
-                )
-            if predictions_out_path is not None:
-                typer.secho(
-                    f"Prediction record: {predictions_out_path}",
-                    fg=typer.colors.BRIGHT_BLACK,
-                )
-        _prune_benchmark_outputs(
-            eval_output_dir=eval_output_dir,
-            processed_run_root=processed_run_root,
-            suppress_summary=suppress_summary,
-            suppress_output_prune=suppress_output_prune,
-        )
-        return
 
     prediction_load_seconds: float | None = None
     gold_load_seconds: float | None = None
@@ -31274,8 +31445,6 @@ def labelstudio_benchmark(
         "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
         "gold_adaptation_max_ambiguous": selected_gold_adaptation_max_ambiguous,
         "sequence_matcher": selected_sequence_matcher,
-        "execution_mode": selected_execution_mode,
-        "predict_only": False,
         "prediction_record_input": (
             str(predictions_in_path) if predictions_in_path is not None else None
         ),

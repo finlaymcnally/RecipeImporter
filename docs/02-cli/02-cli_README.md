@@ -1638,7 +1638,7 @@ What it is now:
 - Shared `ProgressDashboardCore` lives in `cookimport/core/progress_dashboard.py` and owns the canonical progress snapshot fields (overall counters, current label, queue rows, task line, worker lines).
 - CLI callback flow is wrapped by `ProgressCallbackAdapter` in `cookimport/cli.py` so `_run_with_progress_status(...)` keeps ETA/rate sampling, dedupe, live/plain transport switching, and timeseries behavior while rendering from the shared model.
 - Stage flow now uses `_StageProgressAdapter` and passes worker/backend resolution messages through the same snapshot model, so live and plain modes stay visually consistent.
-- New/updated test anchors: `tests/core/test_progress_dashboard.py`, `tests/cli/test_stage_progress_dashboard.py`, `tests/labelstudio/test_labelstudio_benchmark_helpers.py` for callback/dashboard parity.
+- New/updated test anchors: `tests/core/test_progress_dashboard.py`, `tests/cli/test_stage_progress_dashboard.py`, `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py`, and `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py` for callback/dashboard parity.
 
 Known tradeoffs/limitations to remember:
 - Stage/all-method adapters are adapter-boundary sensitive; parser or timing regressions usually come from adapter payload shape changes before core rendering.

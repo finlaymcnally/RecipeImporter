@@ -967,7 +967,8 @@ Current parsing contracts reinforced:
 Regression anchors from merged tasks:
 - `tests/parsing/test_canonical_line_roles.py`
 - `tests/labelstudio/test_labelstudio_ingest_parallel.py`
-- `tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
 
 ## 2026-03-06 merged understandings digest (line-role telemetry second-pass mismatch)

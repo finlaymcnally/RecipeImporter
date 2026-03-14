@@ -64,7 +64,8 @@ Regression anchors:
 - `tests/analytics/test_benchmark_csv_backfill_cli.py`
 - `tests/analytics/test_compare_control_engine.py`
 - `tests/analytics/test_compare_control_cli.py`
-- `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (dashboard refresh/CSV wiring in benchmark flows)
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py` (benchmark CSV append wiring)
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` (dashboard refresh wiring in offline benchmark flows)
 - `tests/bench/test_bench.py` (bench command helper and artifact contracts)
 
 ## 3) Artifact contracts

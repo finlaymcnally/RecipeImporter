@@ -6,7 +6,9 @@ read_when:
 
 # Docs list script
 
-The docs list script (`docs/docs-list.ts`) prints a summary of every markdown file under `docs/`, skipping hidden entries plus `archive/` and `research/`. Run it with `npm run docs:list` or `npx tsx docs/docs-list.ts`.
+The docs list script (`docs/docs-list.ts`) prints a summary of every markdown file under `docs/`, skipping hidden entries plus `archive/` and `research/`. Run it with `npm run docs:list` or `./bin/docs-list`.
+
+Do not run `docs:list` directly in the shell. In this repo `docs:list` is an npm script name declared in `package.json`, not a standalone executable on `PATH`.
 
 It now also enforces a plans-folder policy: any non-`.md` file under `docs/plans/` causes `docs:list` to exit non-zero and print the violating paths.
 

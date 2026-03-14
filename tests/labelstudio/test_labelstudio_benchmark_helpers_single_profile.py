@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import tests.labelstudio.test_labelstudio_benchmark_helpers as _base
+import tests.labelstudio.benchmark_helper_cases as _base
 
 # Reuse shared imports/helpers from the base benchmark helpers module.
 globals().update({

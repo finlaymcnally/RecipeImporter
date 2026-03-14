@@ -51,7 +51,12 @@ Active layout exceptions and support assets:
   - `tests/analytics/test_stats_dashboard.py` (fast renderer/schema/collector coverage),
   - `tests/analytics/test_stats_dashboard_slow.py` (browser pixel-overflow rerender harness).
 - Label Studio benchmark-helper coverage is split into:
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers.py` (general interactive/export/discovery flows),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py` (import/eval/discovery/default contracts),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` (interactive settings/menu/offline routing),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py` (prediction-run prompt/log/manifest helper contracts),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` (single-offline orchestration and routing),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py` (single-offline comparison/starter-pack/runtime helpers),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_export_selection.py` (interactive export/project-selection flows),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py` (benchmark eval/payload contracts),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py` (progress/status/dashboard rendering contracts),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py` (all-method scheduler internals),
@@ -111,7 +116,12 @@ Common run patterns:
 - `. .venv/bin/activate && pytest tests/ingestion/test_pdf_importer_ocr_slow.py`
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard.py`
 - `. .venv/bin/activate && pytest tests/analytics/test_stats_dashboard_slow.py`
-- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_export_selection.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
