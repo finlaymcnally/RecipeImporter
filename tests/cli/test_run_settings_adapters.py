@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
+import cookimport.cli as cli
 from cookimport.config.codex_decision import bucket1_fixed_behavior
 from cookimport.config.prediction_identity import (
     build_all_method_prediction_identity_payload,
@@ -205,6 +207,30 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         == fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
     )
     assert kwargs["codex_farm_knowledge_context_blocks"] == 21
+
+
+def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -> None:
+    settings = RunSettings(
+        llm_tags_pipeline="codex-farm-tags-v1",
+        tag_catalog_json="/tmp/tags.json",
+        codex_farm_pipeline_pass5_tags="recipe.tags.custom.v9",
+    )
+
+    kwargs = build_benchmark_call_kwargs_from_run_settings(
+        settings,
+        output_dir=Path("/tmp/output"),
+        eval_output_dir=Path("/tmp/eval"),
+        processed_output_dir=Path("/tmp/processed"),
+        eval_mode="canonical-text",
+        no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    signature_params = set(inspect.signature(cli.labelstudio_benchmark).parameters)
+    extra_kwargs = sorted(set(kwargs) - signature_params)
+
+    assert extra_kwargs == []
 
 
 def test_prediction_identity_excludes_runtime_only_settings() -> None:
