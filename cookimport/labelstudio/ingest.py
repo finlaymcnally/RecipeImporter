@@ -1718,7 +1718,7 @@ def generate_pred_run_artifacts(
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
-    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
+    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_benchmark_selective_retry_enabled: bool = True,
@@ -2586,6 +2586,7 @@ def generate_pred_run_artifacts(
     if run_settings.line_role_pipeline.value != "off":
         _notify("Running canonical line-role pipeline...")
         if line_role_candidates:
+            knowledge_snippets_path = _resolve_knowledge_snippets_path(llm_report)
             line_role_predictions = label_atomic_lines(
                 line_role_candidates,
                 run_settings,
@@ -2601,6 +2602,7 @@ def generate_pred_run_artifacts(
                 source_hash=file_hash,
                 workbook_slug=path.stem,
                 predictions=line_role_predictions,
+                knowledge_snippets_path=knowledge_snippets_path,
             )
             if processed_output_root is not None:
                 line_role_spans = project_line_roles_to_freeform_spans(
@@ -3760,7 +3762,7 @@ def run_labelstudio_import(
     codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
     codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
-    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
+    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_knowledge_context_blocks: int = 12,

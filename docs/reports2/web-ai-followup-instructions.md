@@ -90,6 +90,7 @@ When present, these are the highest-value things to reason from before asking fo
 - `analysis.low_confidence_changed_lines_packet`
 - `analysis.call_inventory_runtime`
 - `analysis.line_role_confidence_or_candidates`
+- `analysis.pass4_knowledge`
 - `analysis.group_high_level`, `analysis.book_scorecard`, `analysis.ablation_summary`, `analysis.outside_span_by_book`, `analysis.runtime_by_book` for multi-book sessions
 
 If you need to jump into raw artifacts, use the payload rows referenced by:
@@ -102,6 +103,7 @@ If you need to jump into raw artifacts, use the payload rows referenced by:
 - `targeted_prompt_cases.md`
 - `label_policy_adjudication_notes.md`
 - `starter_pack_v1/01_recipe_triage.packet.jsonl`
+- `navigation.row_locators.pass4_by_run` when the question is specifically about knowledge-harvest/pass4 artifacts
 
 ## Follow-Up Tooling You Can Ask The User To Run
 
@@ -135,12 +137,15 @@ Input knobs:
 - `--include-case-id <case_id>` repeated
 - `--include-recipe-id <recipe_id>` repeated
 - `--include-line-range <source_key:start-end>` repeated
+- `--include-pass4-source-key <book_slug>` repeated
+- `--include-pass4-output-subdir <book_slug/variant>` repeated
 
 Output:
 
 - a selector manifest with schema `cf.selector_manifest.v1`
 
 Use this when you know which cases or ranges you want, or when you want the top regressions/wins chosen deterministically.
+For pass4-specific asks, prefer `--stage pass4` plus either `--include-pass4-source-key` or `--include-pass4-output-subdir`.
 
 ### `cf-debug export-cases`
 
@@ -180,6 +185,16 @@ Output:
 
 Use this when you suspect prompt provenance gaps, broken prompt joins, or missing prompt-side evidence for a regression.
 
+### `cf-debug audit-pass4-knowledge`
+
+Purpose: inspect run-level pass4 knowledge-harvest evidence, bundle row locators, and local artifact presence for selected pass4 runs.
+
+Output:
+
+- `pass4_knowledge_audit.jsonl`
+
+Use this when the question is specifically about pass4 prompts, manifests, snippet-writing status, or whether the knowledge-harvest pass ran and produced usable evidence.
+
 ### `cf-debug export-page-context`
 
 Purpose: emit local page or nearby-line context around the selected cases or ranges.
@@ -211,6 +226,7 @@ Output directory contents:
 - `case_export/`
 - `line_role_audit.jsonl`
 - `prompt_link_audit.jsonl`
+- `pass4_knowledge_audit.jsonl`
 - `page_context.jsonl`
 - `uncertainty.jsonl`
 - optionally `README.md`
@@ -257,11 +273,13 @@ Prefer these selector strategies, in order:
 1. `include_case_ids` when the bundle already exposes a stable case ID such as `regression_c6`, `win_c10`, or `outside_span_window_628_657`
 2. `include_recipe_ids` when the issue is recipe-scoped but case IDs are not stable enough
 3. `include_line_ranges` when the problem is a specific span or contamination window
-4. `top_neg`, `top_pos`, or `outside_span` when you want deterministic triage picks without choosing exact IDs yourself
+4. `include_pass4_output_subdirs` or `include_pass4_source_keys` when the issue is specifically a pass4 knowledge-harvest run
+5. `top_neg`, `top_pos`, or `outside_span` when you want deterministic triage picks without choosing exact IDs yourself
 
 Prefer these output combinations:
 
 - Root-cause on a single regression: `case_export`, `line_role_audit`, `prompt_link_audit`
+- Pass4 knowledge question: `case_export`, `pass4_knowledge_audit`
 - Suspected layout or span contamination: `page_context`, `uncertainty`
 - Full small packet for a handful of cases: `pack`
 - Several separate questions in one round-trip: `build-followup`
@@ -291,7 +309,7 @@ Instead, ask for:
 1. Read `topline` and `self_check`.
 2. Check `run_diagnostics` to see whether prompt and trace artifacts exist.
 3. Read the triage packet and regression casebook.
-4. Decide whether the problem looks like line-role, prompt linkage, page/layout contamination, or general stack attribution.
+4. Decide whether the problem looks like line-role, prompt linkage, pass4 knowledge harvest, page/layout contamination, or general stack attribution.
 5. Ask for the smallest follow-up artifact that can prove or falsify that hypothesis.
 
 If the bundle already contains a row locator for the needed artifact, cite that row instead of asking for new material.
@@ -304,7 +322,7 @@ If the bundle already contains a row locator for the needed artifact, cite that 
   "bundle_dir": "data/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/upload_bundle_v1",
   "bundle_sha256": "<copy from request-template output>",
   "request_id": "followup_request_01",
-  "request_summary": "Answer two targeted follow-up asks from the web AI.",
+  "request_summary": "Answer three targeted follow-up asks from the web AI.",
   "requester_context": {
     "already_has_upload_bundle_v1": true,
     "prefer_new_local_artifacts_over_bundle_repeats": true,
@@ -337,11 +355,28 @@ If the bundle already contains a row locator for the needed artifact, cite that 
         "stage_filters": ["line_role"],
         "include_case_ids": ["outside_span_window_628_657"],
         "include_recipe_ids": [],
-        "include_line_ranges": []
+        "include_line_ranges": [],
+        "include_pass4_source_keys": [],
+        "include_pass4_output_subdirs": []
+      }
+    },
+    {
+      "ask_id": "ask_pass4_saltfat",
+      "question": "Show the pass4 knowledge-harvest evidence for Salt Fat Acid Heat.",
+      "outputs": ["case_export", "pass4_knowledge_audit"],
+      "selectors": {
+        "top_neg": 0,
+        "top_pos": 0,
+        "outside_span": 0,
+        "stage_filters": ["pass4"],
+        "include_case_ids": [],
+        "include_recipe_ids": [],
+        "include_line_ranges": [],
+        "include_pass4_source_keys": ["02_saltfatacidheatcutdown"],
+        "include_pass4_output_subdirs": []
       }
     }
   ]
 }
 ```
-
 

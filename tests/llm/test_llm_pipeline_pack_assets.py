@@ -28,9 +28,9 @@ EXPECTED_PIPELINES = {
         "schema_path": "schemas/recipe.final.v1.output.schema.json",
         "required_keys": {"bundle_version", "recipe_id"},
     },
-    "recipe.knowledge.v1": {
-        "pipeline_file": "recipe.knowledge.v1.json",
-        "prompt_path": "prompts/recipe.knowledge.v1.prompt.md",
+    "recipe.knowledge.compact.v1": {
+        "pipeline_file": "recipe.knowledge.compact.v1.json",
+        "prompt_path": "prompts/recipe.knowledge.compact.v1.prompt.md",
         "schema_path": "schemas/recipe.knowledge.v1.output.schema.json",
         "required_keys": {"bundle_version", "chunk_id"},
     },

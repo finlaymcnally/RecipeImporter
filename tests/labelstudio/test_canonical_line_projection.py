@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from cookimport.labelstudio.canonical_line_projection import (
     project_line_roles_to_freeform_spans,
     write_line_role_projection_artifacts,
@@ -84,3 +86,66 @@ def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) ->
     assert artifacts["guardrail_changed_rows_path"].name == "guardrail_changed_rows.jsonl"
     assert artifacts["do_no_harm_diagnostics_path"].name == "do_no_harm_diagnostics.json"
     assert artifacts["do_no_harm_changed_rows_path"].name == "do_no_harm_changed_rows.jsonl"
+
+
+def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -> None:
+    snippets_path = tmp_path / "snippets.jsonl"
+    snippets_path.write_text(
+        json.dumps(
+            {
+                "snippet_id": "s0",
+                "provenance": {"block_indices": [1]},
+                "evidence": [{"block_index": 1, "quote": "Useful kitchen note"}],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    artifacts = write_line_role_projection_artifacts(
+        run_root=tmp_path,
+        source_file="book.epub",
+        source_hash="hash",
+        workbook_slug="book",
+        predictions=[
+            CanonicalLineRolePrediction(
+                recipe_id=None,
+                block_id="b0",
+                block_index=0,
+                atomic_index=0,
+                text="Recipe title",
+                within_recipe_span=False,
+                label="RECIPE_TITLE",
+                confidence=0.99,
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+            CanonicalLineRolePrediction(
+                recipe_id=None,
+                block_id="b1",
+                block_index=1,
+                atomic_index=1,
+                text="Useful kitchen note",
+                within_recipe_span=False,
+                label="OTHER",
+                confidence=0.99,
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+        ],
+        knowledge_snippets_path=snippets_path,
+    )
+
+    stage_payload = json.loads(
+        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+    )
+    assert stage_payload["block_labels"]["1"] == "KNOWLEDGE"
+    assert any("Pass4 knowledge evidence merged" in note for note in stage_payload["notes"])
+
+    projected_rows = [
+        json.loads(line)
+        for line in artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert projected_rows[1]["label"] == "KNOWLEDGE"

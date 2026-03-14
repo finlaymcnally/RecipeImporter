@@ -242,7 +242,7 @@ def _write_pass4_knowledge_artifacts(
                 "knowledge": {
                     "enabled": True,
                     "pipeline": "codex-farm-knowledge-v1",
-                    "pipeline_id": "recipe.knowledge.v1",
+                    "pipeline_id": "recipe.knowledge.compact.v1",
                     "counts": {
                         "jobs_written": pass4_call_count,
                         "outputs_parsed": pass4_call_count,
@@ -270,7 +270,7 @@ def _write_pass4_knowledge_artifacts(
         / workbook_slug
         / "pass4_knowledge_manifest.json",
         {
-            "pipeline_id": "recipe.knowledge.v1",
+            "pipeline_id": "recipe.knowledge.compact.v1",
             "counts": {
                 "jobs_written": pass4_call_count,
                 "outputs_parsed": pass4_call_count,
@@ -313,10 +313,10 @@ def _write_prediction_run_pass4_stage_outputs(
                 "knowledge": {
                     "enabled": True,
                     "pipeline": "codex-farm-knowledge-v1",
-                    "pipeline_id": "recipe.knowledge.v1",
+                    "pipeline_id": "recipe.knowledge.compact.v1",
                     "process_run": {
                         "run_id": "run-pass4-reconstruct",
-                        "pipeline_id": "recipe.knowledge.v1",
+                        "pipeline_id": "recipe.knowledge.compact.v1",
                     },
                 }
             }
@@ -2412,7 +2412,7 @@ def test_reconstruct_full_prompt_log_includes_pass4_rows(
     assert len(rows) == 1
     row = rows[0]
     assert row["pass"] == "pass4"
-    assert row["pipeline_id"] == "recipe.knowledge.v1"
+    assert row["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert row["process_run_id"] == "run-pass4-reconstruct"
     assert row["recipe_id"] == "knowledge:c0"
     assert row["parsed_response"] == {

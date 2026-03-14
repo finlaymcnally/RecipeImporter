@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -14,6 +15,19 @@ from cookimport.staging.draft_v1 import (
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
+_WHITESPACE_RE = re.compile(r"\s+")
+_MATCH_CHAR_MAP = str.maketrans(
+    {
+        "’": "'",
+        "‘": "'",
+        "“": '"',
+        "”": '"',
+        "–": "-",
+        "—": "-",
+        "−": "-",
+        "…": "...",
+    }
+)
 
 
 class FreeformSpanPrediction(BaseModel):
@@ -65,6 +79,7 @@ def build_line_role_stage_prediction_payload(
     source_file: str,
     source_hash: str,
     workbook_slug: str,
+    notes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     block_labels = {int(row.line_index): str(row.label) for row in spans}
     label_blocks: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
@@ -84,8 +99,123 @@ def build_line_role_stage_prediction_payload(
         "notes": [
             "Projected from canonical line-role predictions.",
             "block_index in this artifact is canonical line_index over atomic spans.",
+            *[str(note).strip() for note in (notes or []) if str(note).strip()],
         ],
     }
+
+
+def _normalize_match_text(text: str) -> str:
+    normalized = str(text or "").translate(_MATCH_CHAR_MAP).lower()
+    normalized = _WHITESPACE_RE.sub(" ", normalized)
+    return normalized.strip()
+
+
+def _load_pass4_knowledge_evidence(
+    snippets_path: Path | None,
+) -> tuple[dict[int, set[str]], set[int]]:
+    if snippets_path is None or not snippets_path.exists() or not snippets_path.is_file():
+        return {}, set()
+
+    quotes_by_block: dict[int, set[str]] = {}
+    provenance_blocks: set[int] = set()
+    for line in snippets_path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        provenance = payload.get("provenance")
+        if isinstance(provenance, dict):
+            raw_indices = provenance.get("block_indices")
+            if isinstance(raw_indices, list):
+                for value in raw_indices:
+                    try:
+                        provenance_blocks.add(int(value))
+                    except (TypeError, ValueError):
+                        continue
+
+        evidence_rows = payload.get("evidence")
+        if not isinstance(evidence_rows, list):
+            continue
+        for evidence in evidence_rows:
+            if not isinstance(evidence, dict):
+                continue
+            try:
+                block_index = int(evidence.get("block_index"))
+            except (TypeError, ValueError):
+                continue
+            provenance_blocks.add(block_index)
+            quote = _normalize_match_text(str(evidence.get("quote") or ""))
+            if not quote:
+                continue
+            quotes_by_block.setdefault(block_index, set()).add(quote)
+
+    return quotes_by_block, provenance_blocks
+
+
+def _quote_matches_span(*, quote: str, span_text: str) -> bool:
+    normalized_quote = _normalize_match_text(quote)
+    normalized_span = _normalize_match_text(span_text)
+    if not normalized_quote or not normalized_span:
+        return False
+    return normalized_quote in normalized_span or normalized_span in normalized_quote
+
+
+def _merge_pass4_knowledge_into_spans(
+    spans: Sequence[FreeformSpanPrediction],
+    *,
+    knowledge_snippets_path: Path | None,
+) -> tuple[list[FreeformSpanPrediction], list[str]]:
+    quotes_by_block, provenance_blocks = _load_pass4_knowledge_evidence(knowledge_snippets_path)
+    if not provenance_blocks:
+        if knowledge_snippets_path is not None and knowledge_snippets_path.exists():
+            return list(spans), [
+                "Pass4 knowledge snippets were present but did not yield usable evidence."
+            ]
+        return list(spans), []
+
+    spans_by_block: dict[int, list[FreeformSpanPrediction]] = {}
+    for span in spans:
+        spans_by_block.setdefault(int(span.block_index), []).append(span)
+
+    selected_line_indices: set[int] = set()
+    for block_index in sorted(provenance_blocks):
+        block_spans = [
+            span for span in spans_by_block.get(block_index, []) if not bool(span.within_recipe_span)
+        ]
+        if not block_spans:
+            continue
+        block_quotes = quotes_by_block.get(block_index, set())
+        quote_matches = {
+            int(span.line_index)
+            for span in block_spans
+            if any(_quote_matches_span(quote=quote, span_text=span.text) for quote in block_quotes)
+        }
+        if quote_matches:
+            selected_line_indices.update(quote_matches)
+            continue
+        selected_line_indices.update(int(span.line_index) for span in block_spans)
+
+    merged_spans: list[FreeformSpanPrediction] = []
+    upgraded_count = 0
+    for span in spans:
+        if int(span.line_index) in selected_line_indices and str(span.label) == "OTHER":
+            merged_spans.append(span.model_copy(update={"label": "KNOWLEDGE"}))
+            upgraded_count += 1
+            continue
+        merged_spans.append(span)
+
+    notes = ["Pass4 knowledge evidence merged into canonical line-role projection."]
+    if upgraded_count:
+        notes.append(f"Pass4 upgraded {upgraded_count} projected OTHER spans to KNOWLEDGE.")
+    else:
+        notes.append("Pass4 knowledge evidence did not change projected labels.")
+    return merged_spans, notes
 
 
 def build_line_role_extracted_archive_payload(
@@ -127,11 +257,16 @@ def write_line_role_projection_artifacts(
     source_hash: str,
     workbook_slug: str,
     predictions: Sequence[CanonicalLineRolePrediction],
+    knowledge_snippets_path: Path | None = None,
 ) -> dict[str, Path]:
     pipeline_dir = run_root / "line-role-pipeline"
     pipeline_dir.mkdir(parents=True, exist_ok=True)
 
     spans = project_line_roles_to_freeform_spans(predictions)
+    spans, merge_notes = _merge_pass4_knowledge_into_spans(
+        spans,
+        knowledge_snippets_path=knowledge_snippets_path,
+    )
     line_role_predictions_path = pipeline_dir / "line_role_predictions.jsonl"
     line_role_predictions_path.write_text(
         "".join(
@@ -155,6 +290,7 @@ def write_line_role_projection_artifacts(
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
+        notes=merge_notes,
     )
     stage_path = pipeline_dir / "stage_block_predictions.json"
     stage_path.write_text(

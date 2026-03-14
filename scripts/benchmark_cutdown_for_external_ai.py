@@ -267,7 +267,7 @@ PASS_PIPELINE_MAP = {
     "pass1": "recipe.chunking.v1",
     "pass2": "recipe.schemaorg.compact.v1",
     "pass3": "recipe.final.compact.v1",
-    "pass4": "recipe.knowledge.v1",
+    "pass4": "recipe.knowledge.compact.v1",
 }
 _UPLOAD_BUNDLE_YIELD_LINE_RE = re.compile(
     r"\b(yield|serves?|servings?|makes?)\b",

@@ -1143,7 +1143,7 @@ class RunSettings(BaseModel):
         ),
     )
     codex_farm_pipeline_pass4_knowledge: str = Field(
-        default="recipe.knowledge.v1",
+        default="recipe.knowledge.compact.v1",
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Pass4 Knowledge Pipeline",
@@ -1634,7 +1634,7 @@ def build_run_settings(
     codex_farm_pass3_skip_pass2_ok: bool = True,
     codex_farm_benchmark_selective_retry_enabled: bool = True,
     codex_farm_benchmark_selective_retry_max_attempts: int = 1,
-    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.v1",
+    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
     codex_farm_pipeline_pass5_tags: str = "recipe.tags.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 12,
@@ -1784,7 +1784,7 @@ def build_run_settings(
             ),
             "codex_farm_pipeline_pass4_knowledge": (
                 str(codex_farm_pipeline_pass4_knowledge).strip()
-                or "recipe.knowledge.v1"
+                or "recipe.knowledge.compact.v1"
             ),
             "codex_farm_pipeline_pass5_tags": (
                 str(codex_farm_pipeline_pass5_tags).strip() or "recipe.tags.v1"

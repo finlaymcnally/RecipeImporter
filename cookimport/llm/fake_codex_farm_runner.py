@@ -114,7 +114,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "ingredient_step_mapping": "{}",
             "warnings": [],
         }
-    if pipeline_id == "recipe.knowledge.v1":
+    if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:
         chunk = payload.get("chunk") or {}
         chunk_id = chunk.get("chunk_id")
         chunk_blocks = chunk.get("blocks") or []

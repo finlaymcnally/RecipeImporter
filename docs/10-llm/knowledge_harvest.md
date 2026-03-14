@@ -2,7 +2,7 @@
 summary: "How to run the optional codex-farm pass4 knowledge harvesting workflow and where its artifacts live."
 read_when:
   - "When enabling or debugging pass4 knowledge harvesting outputs"
-  - "When editing the recipe.knowledge.v1 codex-farm pipeline prompt/schema assets"
+  - "When editing the compact pass4 codex-farm pipeline prompt/schema assets"
 ---
 
 # Pass 4: Knowledge Harvesting (codex-farm)
@@ -20,10 +20,10 @@ From repo root:
 
 Optional knobs:
 
-- `--codex-farm-pipeline-pass4-knowledge recipe.knowledge.v1`
+- `--codex-farm-pipeline-pass4-knowledge recipe.knowledge.compact.v1`
 - `--codex-farm-knowledge-context-blocks 12`
 - `--codex-farm-root <pack_root>` and `--codex-farm-workspace-root <dir>`
-- `--table-extraction on` (recommended for table-heavy books; pass4 bundles then include `chunk.blocks[*].table_hint`)
+- `--table-extraction on` (recommended for table-heavy books; compact pass4 bundles then include `chunk.blocks[*].table_hint`)
 
 Chunking note:
 - pass4 inputs now come from a post-highlight adjacent-chunk consolidation step, so run-to-run chunk counts may decrease when same-topic knowledge blocks are contiguous.
@@ -49,10 +49,10 @@ Run-level index (if any knowledge artifacts were written):
 
 Local default pack files:
 
-- `llm_pipelines/pipelines/recipe.knowledge.v1.json`
-- `llm_pipelines/prompts/recipe.knowledge.v1.prompt.md`
+- `llm_pipelines/pipelines/recipe.knowledge.compact.v1.json`
+- `llm_pipelines/prompts/recipe.knowledge.compact.v1.prompt.md`
 - `llm_pipelines/schemas/recipe.knowledge.v1.output.schema.json`
 
 `table_hint` contract note:
-- When table extraction is enabled, pass4 input can include `chunk.blocks[*].table_hint` (`table_id`, `caption`, `markdown`, `row_index_in_table`) to help structural interpretation.
+- When table extraction is enabled, compact pass4 input can include `chunk.blocks[*].table_hint` (`table_id`, `caption`, `row_index_in_table`) to help structural interpretation.
 - Evidence still must quote verbatim from `chunk.blocks[*].text`.

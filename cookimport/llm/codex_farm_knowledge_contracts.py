@@ -31,6 +31,14 @@ class KnowledgeTableHintV1(BaseModel):
     row_index_in_table: int | None = None
 
 
+class KnowledgeCompactTableHintV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table_id: str
+    caption: str | None = None
+    row_index_in_table: int | None = None
+
+
 class KnowledgeBlockV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -49,6 +57,33 @@ class KnowledgeBlockV1(BaseModel):
         return int(value)
 
 
+class KnowledgeCompactChunkBlockV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    block_index: int
+    text: str
+    heading_level: int | None = None
+    table_hint: KnowledgeCompactTableHintV1 | None = None
+
+    @field_validator("block_index", mode="before")
+    @classmethod
+    def _coerce_block_index(cls, value: Any) -> Any:
+        return int(value)
+
+
+class KnowledgeCompactContextBlockV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    block_index: int
+    text: str
+    heading_level: int | None = None
+
+    @field_validator("block_index", mode="before")
+    @classmethod
+    def _coerce_block_index(cls, value: Any) -> Any:
+        return int(value)
+
+
 class KnowledgeChunkPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -58,11 +93,27 @@ class KnowledgeChunkPayloadV1(BaseModel):
     blocks: list[KnowledgeBlockV1] = Field(default_factory=list)
 
 
+class KnowledgeCompactChunkPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str
+    block_start_index: int
+    block_end_index: int
+    blocks: list[KnowledgeCompactChunkBlockV1] = Field(default_factory=list)
+
+
 class KnowledgeContextPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     blocks_before: list[KnowledgeBlockV1] = Field(default_factory=list)
     blocks_after: list[KnowledgeBlockV1] = Field(default_factory=list)
+
+
+class KnowledgeCompactContextPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocks_before: list[KnowledgeCompactContextBlockV1] = Field(default_factory=list)
+    blocks_after: list[KnowledgeCompactContextBlockV1] = Field(default_factory=list)
 
 
 class KnowledgeHeuristicsPayloadV1(BaseModel):
@@ -78,6 +129,22 @@ class KnowledgeGuardrailsPayloadV1(BaseModel):
 
     recipe_spans: list[SpanV1] = Field(default_factory=list)
     must_use_evidence: bool = True
+
+
+class KnowledgeCompactGuardrailsPayloadV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    context_recipe_block_indices: list[int] = Field(default_factory=list)
+    must_use_evidence: bool = True
+
+    @field_validator("context_recipe_block_indices", mode="before")
+    @classmethod
+    def _coerce_context_recipe_block_indices(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [int(item) for item in value]
+        return value
 
 
 class KnowledgeJobSourceV1(BaseModel):
@@ -97,3 +164,15 @@ class Pass4KnowledgeJobInputV1(BaseModel):
     context: KnowledgeContextPayloadV1
     heuristics: KnowledgeHeuristicsPayloadV1
     guardrails: KnowledgeGuardrailsPayloadV1
+
+
+class Pass4KnowledgeCompactJobInputV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    job_version: Literal["recipe.knowledge.job.v1"] = _JOB_VERSION
+    source: KnowledgeJobSourceV1
+    chunk: KnowledgeCompactChunkPayloadV1
+    context: KnowledgeCompactContextPayloadV1
+    heuristics: KnowledgeHeuristicsPayloadV1
+    guardrails: KnowledgeCompactGuardrailsPayloadV1

@@ -20,6 +20,7 @@ CASE_EXPORT_INDEX_SCHEMA_VERSION = "cf.case_export_index.v1"
 CASE_EXPORT_ROW_SCHEMA_VERSION = "cf.case_export.v1"
 LINE_ROLE_AUDIT_SCHEMA_VERSION = "cf.line_role_audit.v1"
 PROMPT_LINK_AUDIT_SCHEMA_VERSION = "cf.prompt_link_audit.v1"
+PASS4_KNOWLEDGE_AUDIT_SCHEMA_VERSION = "cf.pass4_knowledge_audit.v1"
 PAGE_CONTEXT_SCHEMA_VERSION = "cf.page_context.v1"
 UNCERTAINTY_SCHEMA_VERSION = "cf.uncertainty.v1"
 PACK_SCHEMA_VERSION = "cf.followup_pack.v1"
@@ -164,6 +165,25 @@ def _selector_id_for_recipe(source_key: str, recipe_id: str) -> str:
 
 def _selector_id_for_line_range(source_key: str, start: int, end: int) -> str:
     return f"line_range:{source_key}:{start}:{end}"
+
+
+def _selector_id_for_pass4_run(output_subdir: str) -> str:
+    return f"pass4_run:{output_subdir}"
+
+
+def _slug_token(value: str) -> str:
+    token = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower())
+    return token.strip("_") or "unknown"
+
+
+def _pass4_case_id(source_key: str, output_subdir: str) -> str:
+    variant = Path(output_subdir).name
+    return f"pass4_{_slug_token(source_key)}_{_slug_token(variant)}"
+
+
+def _source_key_from_output_subdir(output_subdir: str) -> str:
+    parts = Path(str(output_subdir or "")).parts
+    return parts[0] if parts else ""
 
 
 def _load_legacy_followup_cases(bundle_dir: Path) -> dict[str, dict[str, Any]]:
@@ -372,6 +392,25 @@ class RunContext:
                 resolved[label] = str(matches[0])
         return resolved
 
+    def pass4_artifact_paths(self) -> dict[str, str]:
+        resolved: dict[str, str] = {}
+        prompts_dir = self.run_dir / "prompts"
+        for label, path in (
+            ("prompt_samples_md", prompts_dir / "prompt_type_samples_from_full_prompt_log.md"),
+            ("prompt_task4_txt", prompts_dir / "prompt_task4_pass4_knowledge.txt"),
+            (
+                "prompt_budget_summary_json",
+                self.run_dir / "prediction-run" / "prompt_budget_summary.json",
+            ),
+        ):
+            if path.is_file():
+                resolved[label] = str(path)
+        if self.raw_llm_dir is not None:
+            manifest_path = self.raw_llm_dir / "pass4_knowledge_manifest.json"
+            if manifest_path.is_file():
+                resolved["pass4_manifest_json"] = str(manifest_path)
+        return resolved
+
 
 class FollowupBundleContext:
     def __init__(self, *, repo_root: Path, bundle_dir: Path) -> None:
@@ -424,6 +463,7 @@ class FollowupBundleContext:
         self._triage_rows = self._load_triage_rows()
         self._per_recipe_rows = self._load_per_recipe_rows()
         self._stage_rows = self._load_stage_rows()
+        self._pass4_rows = self._load_pass4_rows()
 
     @property
     def generated_at(self) -> str:
@@ -493,6 +533,29 @@ class FollowupBundleContext:
 
     def legacy_case(self, case_id: str) -> dict[str, Any] | None:
         return self.legacy_followup_cases.get(case_id)
+
+    def run_for_output_subdir(self, output_subdir: str) -> RunContext | None:
+        for run in self.runs:
+            if run.output_subdir == output_subdir:
+                return run
+        return None
+
+    def pass4_row_for_output_subdir(self, output_subdir: str) -> dict[str, Any] | None:
+        return self._pass4_rows.get(output_subdir)
+
+    def pass4_row_for_source(self, source_key: str) -> dict[str, Any] | None:
+        run = self.codex_run_for_source(source_key)
+        if run is None:
+            return None
+        return self.pass4_row_for_output_subdir(run.output_subdir)
+
+    def pass4_locators_for_run(self, run: RunContext) -> dict[str, dict[str, Any]]:
+        locators: dict[str, dict[str, Any]] = {}
+        for label, raw_path in run.pass4_artifact_paths().items():
+            locator = self.payload_locator_for_file(Path(raw_path))
+            if locator is not None:
+                locators[label] = locator
+        return locators
 
     def _load_changed_lines(self) -> list[dict[str, Any]]:
         artifact = self.payload_by_path.get(CHANGED_LINES_PAYLOAD_PATH)
@@ -600,6 +663,30 @@ class FollowupBundleContext:
             if not source_key or not recipe_id:
                 continue
             normalized[(source_key, recipe_id)] = row
+        return normalized
+
+    def _load_pass4_rows(self) -> dict[str, dict[str, Any]]:
+        analysis = self.index.get("analysis")
+        if not isinstance(analysis, dict):
+            return {}
+        payload = analysis.get("pass4_knowledge")
+        if not isinstance(payload, dict):
+            return {}
+        rows = payload.get("rows")
+        if not isinstance(rows, list):
+            return {}
+        normalized: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            output_subdir = str(row.get("output_subdir") or "").strip()
+            if not output_subdir:
+                continue
+            normalized[output_subdir] = {
+                **row,
+                "source_key": str(row.get("source_key") or "").strip(),
+                "book_slug": _source_key_from_output_subdir(output_subdir),
+            }
         return normalized
 
 
@@ -711,9 +798,11 @@ def build_selector_manifest(
     include_case_ids: list[str],
     include_recipe_ids: list[str],
     include_line_ranges: list[str],
+    include_pass4_source_keys: list[str],
+    include_pass4_output_subdirs: list[str],
 ) -> dict[str, Any]:
     stages = [stage.strip().lower() for stage in stage_filters or [] if stage.strip()]
-    unsupported = [stage for stage in stages if stage not in {"line_role"}]
+    unsupported = [stage for stage in stages if stage not in {"line_role", "pass4"}]
     if unsupported:
         raise ValueError(
             f"Unsupported stage filter(s): {', '.join(sorted(set(unsupported)))}"
@@ -762,6 +851,31 @@ def build_selector_manifest(
                 per_recipe_row=row,
                 triage_row=triage_row,
             ),
+        }
+        selectors[selector["selector_id"]] = selector
+
+    def add_pass4_selector(
+        run: RunContext,
+        pass4_row: dict[str, Any] | None,
+        *,
+        reason: str,
+        reason_rank: int,
+    ) -> None:
+        summary = dict(pass4_row or {})
+        book_slug = _source_key_from_output_subdir(run.output_subdir)
+        selector = {
+            "selector_id": _selector_id_for_pass4_run(run.output_subdir),
+            "case_id": _pass4_case_id(book_slug, run.output_subdir),
+            "kind": "pass4_run",
+            "source_key": run.source_key,
+            "book_slug": book_slug,
+            "book": run.source_file,
+            "output_subdir": run.output_subdir,
+            "run_id": run.run_id,
+            "reason": reason,
+            "reason_rank": reason_rank,
+            "enabled": bool(summary.get("enabled")),
+            "payload_locators": list(context.pass4_locators_for_run(run).values()),
         }
         selectors[selector["selector_id"]] = selector
 
@@ -836,6 +950,43 @@ def build_selector_manifest(
         }
         selectors[selector["selector_id"]] = selector
 
+    for source_key in include_pass4_source_keys:
+        source_text = source_key.strip()
+        if not source_text:
+            continue
+        run = context.codex_run_for_source(source_text)
+        if run is None:
+            matching_runs = [
+                candidate
+                for candidate in context.runs
+                if candidate.codex_enabled
+                and _source_key_from_output_subdir(candidate.output_subdir) == source_text
+            ]
+            if len(matching_runs) == 1:
+                run = matching_runs[0]
+        if run is None:
+            raise ValueError(f"Could not resolve pass4 source_key: {source_text}")
+        add_pass4_selector(
+            run,
+            context.pass4_row_for_output_subdir(run.output_subdir),
+            reason="explicit_pass4_source_key",
+            reason_rank=0,
+        )
+
+    for output_subdir in include_pass4_output_subdirs:
+        output_text = output_subdir.strip()
+        if not output_text:
+            continue
+        run = context.run_for_output_subdir(output_text)
+        if run is None:
+            raise ValueError(f"Could not resolve pass4 output_subdir: {output_text}")
+        add_pass4_selector(
+            run,
+            context.pass4_row_for_output_subdir(run.output_subdir),
+            reason="explicit_pass4_output_subdir",
+            reason_rank=0,
+        )
+
     for case_id in include_case_ids:
         case_text = case_id.strip()
         if not case_text:
@@ -900,6 +1051,21 @@ def build_selector_manifest(
                     selectors[selector["selector_id"]] = selector
                     matched = True
         if not matched:
+            for run in context.runs:
+                if _pass4_case_id(
+                    _source_key_from_output_subdir(run.output_subdir),
+                    run.output_subdir,
+                ) != case_text:
+                    continue
+                add_pass4_selector(
+                    run,
+                    context.pass4_row_for_output_subdir(run.output_subdir),
+                    reason="explicit_case_id",
+                    reason_rank=0,
+                )
+                matched = True
+                break
+        if not matched:
             raise ValueError(f"Could not resolve case_id: {case_text}")
 
     ordered_selectors = sorted(
@@ -935,6 +1101,8 @@ def write_selector_manifest(
     include_case_ids: list[str],
     include_recipe_ids: list[str],
     include_line_ranges: list[str],
+    include_pass4_source_keys: list[str],
+    include_pass4_output_subdirs: list[str],
 ) -> dict[str, Any]:
     context = load_followup_bundle_context(bundle_dir)
     manifest = build_selector_manifest(
@@ -947,6 +1115,8 @@ def write_selector_manifest(
         include_case_ids=include_case_ids,
         include_recipe_ids=include_recipe_ids,
         include_line_ranges=include_line_ranges,
+        include_pass4_source_keys=include_pass4_source_keys,
+        include_pass4_output_subdirs=include_pass4_output_subdirs,
     )
     _write_json(out_path, manifest)
     return manifest
@@ -958,6 +1128,67 @@ def write_followup_request_template(
     out_path: Path,
 ) -> dict[str, Any]:
     context = load_followup_bundle_context(bundle_dir)
+    asks: list[dict[str, Any]] = [
+        {
+            "ask_id": "ask_001",
+            "question": "Why does regression_c6 look wrong? Show provenance and nearby context.",
+            "outputs": [
+                "case_export",
+                "line_role_audit",
+                "prompt_link_audit",
+                "page_context",
+                "uncertainty",
+            ],
+            "selectors": {
+                "top_neg": 0,
+                "top_pos": 0,
+                "outside_span": 0,
+                "stage_filters": ["line_role"],
+                "include_case_ids": ["regression_c6"],
+                "include_recipe_ids": [],
+                "include_line_ranges": [],
+                "include_pass4_source_keys": [],
+                "include_pass4_output_subdirs": [],
+            },
+            "notes": (
+                "Use case IDs, recipe IDs, or explicit line ranges that the requester "
+                "can trace back to upload_bundle_v1."
+            ),
+        }
+    ]
+    first_pass4_row = next(
+        (
+            row
+            for row in context._pass4_rows.values()
+            if bool(row.get("enabled")) and str(row.get("output_subdir") or "").strip()
+        ),
+        None,
+    )
+    if first_pass4_row is not None:
+        asks.append(
+            {
+                "ask_id": "ask_002_pass4",
+                "question": "Show the pass4 knowledge harvest evidence for this run.",
+                "outputs": ["case_export", "pass4_knowledge_audit"],
+                "selectors": {
+                    "top_neg": 0,
+                    "top_pos": 0,
+                    "outside_span": 0,
+                    "stage_filters": ["pass4"],
+                    "include_case_ids": [],
+                    "include_recipe_ids": [],
+                    "include_line_ranges": [],
+                    "include_pass4_source_keys": [],
+                    "include_pass4_output_subdirs": [
+                        str(first_pass4_row.get("output_subdir") or "").strip()
+                    ],
+                },
+                "notes": (
+                    "Use this when the requester wants pass4 prompt/manifests and run-level "
+                    "knowledge-harvest status instead of line-role evidence."
+                ),
+            }
+        )
     template = {
         "schema_version": FOLLOWUP_REQUEST_SCHEMA_VERSION,
         "bundle_dir": str(context.bundle_dir),
@@ -973,32 +1204,7 @@ def write_followup_request_template(
             "duplicate_bundle_payloads_only_when_needed_for_context": True,
         },
         "default_stage_filters": ["line_role"],
-        "asks": [
-            {
-                "ask_id": "ask_001",
-                "question": "Why does regression_c6 look wrong? Show provenance and nearby context.",
-                "outputs": [
-                    "case_export",
-                    "line_role_audit",
-                    "prompt_link_audit",
-                    "page_context",
-                    "uncertainty",
-                ],
-                "selectors": {
-                    "top_neg": 0,
-                    "top_pos": 0,
-                    "outside_span": 0,
-                    "stage_filters": ["line_role"],
-                    "include_case_ids": ["regression_c6"],
-                    "include_recipe_ids": [],
-                    "include_line_ranges": [],
-                },
-                "notes": (
-                    "Use case IDs, recipe IDs, or explicit line ranges that the requester "
-                    "can trace back to upload_bundle_v1."
-                ),
-            }
-        ],
+        "asks": asks,
     }
     _write_json(out_path, template)
     return template
@@ -1044,6 +1250,7 @@ def _normalize_requested_outputs(value: Any) -> list[str]:
                     "case_export",
                     "line_role_audit",
                     "prompt_link_audit",
+                    "pass4_knowledge_audit",
                     "page_context",
                     "uncertainty",
                 ]
@@ -1054,6 +1261,7 @@ def _normalize_requested_outputs(value: Any) -> list[str]:
         "case_export",
         "line_role_audit",
         "prompt_link_audit",
+        "pass4_knowledge_audit",
         "page_context",
         "uncertainty",
     }
@@ -1087,6 +1295,10 @@ def _normalize_followup_selector_config(
         "include_case_ids": _coerce_str_list(selectors.get("include_case_ids")),
         "include_recipe_ids": _coerce_str_list(selectors.get("include_recipe_ids")),
         "include_line_ranges": _coerce_str_list(selectors.get("include_line_ranges")),
+        "include_pass4_source_keys": _coerce_str_list(selectors.get("include_pass4_source_keys")),
+        "include_pass4_output_subdirs": _coerce_str_list(
+            selectors.get("include_pass4_output_subdirs")
+        ),
     }
 
 
@@ -1160,6 +1372,8 @@ def write_followup_request_packet(
             include_case_ids=selector_config["include_case_ids"],
             include_recipe_ids=selector_config["include_recipe_ids"],
             include_line_ranges=selector_config["include_line_ranges"],
+            include_pass4_source_keys=selector_config["include_pass4_source_keys"],
+            include_pass4_output_subdirs=selector_config["include_pass4_output_subdirs"],
         )
 
         ask_dir = out_dir / "asks" / ask_id
@@ -1185,6 +1399,13 @@ def write_followup_request_packet(
                 out_path=ask_dir / "prompt_link_audit.jsonl",
             )
             files["prompt_link_audit_jsonl"] = "prompt_link_audit.jsonl"
+        if "pass4_knowledge_audit" in requested_outputs:
+            write_pass4_knowledge_audit(
+                bundle_dir=bundle_dir,
+                selectors_path=selectors_path,
+                out_path=ask_dir / "pass4_knowledge_audit.jsonl",
+            )
+            files["pass4_knowledge_audit_jsonl"] = "pass4_knowledge_audit.jsonl"
         if "page_context" in requested_outputs:
             write_page_context(
                 bundle_dir=bundle_dir,
@@ -1322,6 +1543,8 @@ def _line_role_rows_for_selector(
 ) -> list[dict[str, Any]]:
     kind = str(selector.get("kind") or "")
     source_key = str(selector.get("source_key") or "")
+    if kind == "pass4_run":
+        return []
     if kind == "recipe":
         recipe_id = str(selector.get("recipe_id") or "")
         return context.changed_lines_for_recipe(source_key, recipe_id)
@@ -1513,6 +1736,100 @@ def write_prompt_link_audit(
     return rows
 
 
+def _pass4_audit_row(
+    *,
+    context: FollowupBundleContext,
+    selector: dict[str, Any],
+) -> dict[str, Any] | None:
+    output_subdir = str(selector.get("output_subdir") or "").strip()
+    run = context.run_for_output_subdir(output_subdir)
+    if run is None:
+        return None
+    summary = dict(context.pass4_row_for_output_subdir(output_subdir) or {})
+    local_files: dict[str, dict[str, Any]] = {}
+    payload_locators = context.pass4_locators_for_run(run)
+    issues: list[str] = []
+    status = "not_applicable"
+    enabled = bool(summary.get("enabled"))
+    if enabled:
+        status = "ok"
+    for kind, raw_path in sorted(run.pass4_artifact_paths().items()):
+        path = Path(raw_path)
+        if not path.is_file():
+            continue
+        local_files[kind] = _file_manifest_row(context.repo_root, path, kind=kind)
+    expected_status_by_kind = {
+        "prompt_samples_md": str(summary.get("prompt_samples_status") or "").strip().lower(),
+        "prompt_task4_txt": str(summary.get("prompt_task4_status") or "").strip().lower(),
+        "prompt_budget_summary_json": str(summary.get("prompt_budget_summary_status") or "").strip().lower(),
+        "pass4_manifest_json": str(summary.get("pass4_manifest_status") or "").strip().lower(),
+    }
+    for kind, expected_status in expected_status_by_kind.items():
+        if expected_status == "written" and kind not in local_files:
+            issues.append(f"{kind}_missing_locally")
+    if enabled and not payload_locators:
+        issues.append("no_pass4_bundle_locators")
+    if enabled and issues:
+        status = "incomplete"
+    return {
+        "schema_version": PASS4_KNOWLEDGE_AUDIT_SCHEMA_VERSION,
+        "selector_id": str(selector.get("selector_id") or ""),
+        "case_id": str(selector.get("case_id") or ""),
+        "kind": "pass4_run",
+        "source_key": run.source_key,
+        "book_slug": _source_key_from_output_subdir(run.output_subdir),
+        "book": run.source_file,
+        "output_subdir": run.output_subdir,
+        "run_id": run.run_id,
+        "enabled": enabled,
+        "pipeline": summary.get("pipeline"),
+        "pipeline_id": summary.get("pipeline_id"),
+        "llm_knowledge_pipeline": summary.get("llm_knowledge_pipeline"),
+        "jobs_written": summary.get("jobs_written"),
+        "outputs_parsed": summary.get("outputs_parsed"),
+        "snippets_written": summary.get("snippets_written"),
+        "pass4_call_count": summary.get("pass4_call_count"),
+        "pass4_token_total": summary.get("pass4_token_total"),
+        "prompt_samples_status": summary.get("prompt_samples_status"),
+        "prompt_task4_status": summary.get("prompt_task4_status"),
+        "prompt_budget_summary_status": summary.get("prompt_budget_summary_status"),
+        "pass4_manifest_status": summary.get("pass4_manifest_status"),
+        "payload_locators": payload_locators,
+        "local_artifacts": local_files,
+        "issues": sorted(set(issues)),
+        "status": status,
+    }
+
+
+def _build_pass4_knowledge_audit_rows(
+    *,
+    context: FollowupBundleContext,
+    selectors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for selector in selectors:
+        if str(selector.get("kind") or "") != "pass4_run":
+            continue
+        row = _pass4_audit_row(context=context, selector=selector)
+        if row is not None:
+            rows.append(row)
+    rows.sort(key=lambda row: (str(row.get("selector_id") or ""), str(row.get("output_subdir") or "")))
+    return rows
+
+
+def write_pass4_knowledge_audit(
+    *,
+    bundle_dir: Path,
+    selectors_path: Path,
+    out_path: Path,
+) -> list[dict[str, Any]]:
+    context = load_followup_bundle_context(bundle_dir)
+    selectors = _load_selectors(selectors_path)
+    rows = _build_pass4_knowledge_audit_rows(context=context, selectors=selectors)
+    _write_jsonl(out_path, rows)
+    return rows
+
+
 def _build_page_context_rows(
     *,
     context: FollowupBundleContext,
@@ -1641,6 +1958,10 @@ def write_case_export(
         source_key = str(selector.get("source_key") or "")
         codex_run = context.codex_run_for_source(source_key)
         baseline_run = context.baseline_run_for_source(source_key)
+        selector_kind = str(selector.get("kind") or "")
+        if selector_kind == "pass4_run":
+            output_subdir = str(selector.get("output_subdir") or "").strip()
+            codex_run = context.run_for_output_subdir(output_subdir)
         selected_rows = _line_role_rows_for_selector(context, selector)
         line_indices = [int(row.get("line_index") or 0) for row in selected_rows]
         recipe_id = str(selector.get("recipe_id") or "")
@@ -1648,9 +1969,15 @@ def write_case_export(
         triage_row = context.triage_row(source_key, recipe_id) if recipe_id else None
         stage_row = context.stage_row(source_key, recipe_id) if recipe_id else None
         recipe_artifacts = codex_run.recipe_artifact_paths(recipe_id) if codex_run and recipe_id else {}
+        pass4_row = (
+            context.pass4_row_for_output_subdir(str(selector.get("output_subdir") or ""))
+            if selector_kind == "pass4_run"
+            else None
+        )
+        pass4_artifacts = codex_run.pass4_artifact_paths() if codex_run and selector_kind == "pass4_run" else {}
         manifest_rows, compact_file_rows = _referenced_file_rows(
             repo_root=context.repo_root,
-            file_paths=recipe_artifacts,
+            file_paths=recipe_artifacts if selector_kind != "pass4_run" else pass4_artifacts,
         )
         for row in manifest_rows:
             key = (str(row.get("path") or ""), str(row.get("kind") or ""))
@@ -1699,6 +2026,7 @@ def write_case_export(
                 "case_id": str(selector.get("case_id") or ""),
                 "kind": str(selector.get("kind") or ""),
                 "source_key": source_key,
+                "book_slug": str(selector.get("book_slug") or ""),
                 "book": codex_run.source_file if codex_run else None,
                 "recipe_id": recipe_id or None,
                 "metrics": {
@@ -1718,12 +2046,16 @@ def write_case_export(
                 "stage_comparison": stage_row,
                 "line_level_changed_rows": selected_rows,
                 "raw_block_window": _read_json(Path(recipe_artifacts["pass1_input"])).get("blocks_candidate")
-                if "pass1_input" in recipe_artifacts
+                if selector_kind != "pass4_run" and "pass1_input" in recipe_artifacts
                 else [],
                 "pass_summaries": {
                     key: _read_json(Path(path)) if Path(path).is_file() else None
                     for key, path in sorted(recipe_artifacts.items())
-                },
+                }
+                if selector_kind != "pass4_run"
+                else {},
+                "pass4_knowledge_summary": pass4_row,
+                "pass4_artifacts": compact_file_rows if selector_kind == "pass4_run" else [],
                 "context_window": window,
                 "referenced_files": compact_file_rows,
                 "row_locators": list(selector.get("payload_locators") or [])
@@ -1778,6 +2110,11 @@ def write_followup_pack(
         selectors_path=selectors_path,
         out_path=out_dir / "prompt_link_audit.jsonl",
     )
+    pass4_rows = write_pass4_knowledge_audit(
+        bundle_dir=bundle_dir,
+        selectors_path=selectors_path,
+        out_path=out_dir / "pass4_knowledge_audit.jsonl",
+    )
     page_rows = write_page_context(
         bundle_dir=bundle_dir,
         selectors_path=selectors_path,
@@ -1801,6 +2138,7 @@ def write_followup_pack(
         "selector_count": len(selectors),
         "line_role_audit_rows": len(line_role_rows),
         "prompt_link_audit_rows": len(prompt_rows),
+        "pass4_knowledge_audit_rows": len(pass4_rows),
         "page_context_rows": len(page_rows),
         "uncertainty_rows": len(uncertainty_rows),
         "files": {
@@ -1808,6 +2146,7 @@ def write_followup_pack(
             "case_export_dir": "case_export",
             "line_role_audit_jsonl": "line_role_audit.jsonl",
             "prompt_link_audit_jsonl": "prompt_link_audit.jsonl",
+            "pass4_knowledge_audit_jsonl": "pass4_knowledge_audit.jsonl",
             "page_context_jsonl": "page_context.jsonl",
             "uncertainty_jsonl": "uncertainty.jsonl",
         },
@@ -1822,6 +2161,7 @@ def write_followup_pack(
             f"- selector_count: `{len(selectors)}`",
             f"- line_role_audit_rows: `{len(line_role_rows)}`",
             f"- prompt_link_audit_rows: `{len(prompt_rows)}`",
+            f"- pass4_knowledge_audit_rows: `{len(pass4_rows)}`",
             f"- uncertainty_rows: `{len(uncertainty_rows)}`",
             "",
             "Files are JSON/JSONL-first so the pack can be regenerated without hand-written prose.",

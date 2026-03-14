@@ -1,7 +1,7 @@
 {
-  "pipeline_id": "recipe.knowledge.v1",
-  "description": "Extract reusable cooking knowledge snippets from non-recipe cookbook text.",
-  "prompt_template_path": "prompts/recipe.knowledge.v1.prompt.md",
+  "pipeline_id": "recipe.knowledge.compact.v1",
+  "description": "Extract reusable cooking knowledge snippets from non-recipe cookbook text using compact pass4 input bundles.",
+  "prompt_template_path": "prompts/recipe.knowledge.compact.v1.prompt.md",
   "output_schema_path": "schemas/recipe.knowledge.v1.output.schema.json",
   "input_glob_default": "**/*.json",
   "output_ext": ".json",

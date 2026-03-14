@@ -1296,7 +1296,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     (run_dir / "pass4_knowledge_manifest.json").write_text(
         json.dumps(
             {
-                "pipeline_id": "recipe.knowledge.v1",
+                "pipeline_id": "recipe.knowledge.compact.v1",
                 "paths": {
                     "pass4_in_dir": str(pass4_in),
                     "pass4_out_dir": str(pass4_out),
@@ -3557,7 +3557,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
 
 
 

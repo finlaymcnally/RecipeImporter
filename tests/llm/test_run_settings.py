@@ -110,6 +110,7 @@ def test_run_settings_defaults_use_compact_codex_farm_pass_pipelines() -> None:
 
     assert settings.codex_farm_pipeline_pass2 == "recipe.schemaorg.compact.v1"
     assert settings.codex_farm_pipeline_pass3 == "recipe.final.compact.v1"
+    assert settings.codex_farm_pipeline_pass4_knowledge == "recipe.knowledge.compact.v1"
 
 
 def test_build_run_settings_defaults_match_safe_run_settings_defaults() -> None:

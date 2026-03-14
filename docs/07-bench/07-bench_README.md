@@ -18,6 +18,7 @@ Benchmarking in this repo covers three paths:
 - `cookimport bench ...` (offline speed/quality/eval workflows)
 - `cookimport labelstudio-benchmark` (single-run benchmark primitive also reused by interactive benchmark flows)
 - `cf-debug ...` (deterministic follow-up tooling for the post-triage loop where an external/web AI already has `upload_bundle_v1`, asks for more evidence, and you answer with a new `followup_dataN/` packet built from richer local run artifacts plus row-locator references back into the base bundle)
+  - `cf-debug` now has a dedicated pass4 follow-up seam: selectors can target pass4 runs explicitly, `audit-pass4-knowledge` emits run-level knowledge-harvest status/artifact evidence, and `pack` / `build-followup` can include `pass4_knowledge_audit.jsonl` alongside the existing line-role outputs.
 
 Current scoring surfaces:
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels.
@@ -171,6 +172,7 @@ Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-bl
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. The worker summary row now includes a remaining-work counter (`active tasks (..., N left)`) derived from the same `task X/Y` counter so operators can always see total tasks left even when the top status line is width-truncated. Spinner output uses a larger `bouncingBar` indicator and a wider blue ASCII panel (bordered block); long status/task rows wrap across panel lines instead of being hard-clamped to one truncated row.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
+When pass4 `knowledge/<workbook_slug>/snippets.jsonl` is present, the line-role projection writer merges that evidence into the preferred canonical-text stage artifact before scoring, so pass4 can contribute `KNOWLEDGE` matches on the scored surface instead of only the legacy stage artifact.
 Offline `labelstudio-benchmark` prediction generation now forwards pass4 knowledge settings into the shared `RunSettings` path, so `--llm-knowledge-pipeline codex-farm-knowledge-v1` can emit `raw/llm/<workbook_slug>/pass4_knowledge_manifest.json` plus `knowledge/<workbook_slug>/snippets.jsonl` under the prediction-run root.
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
@@ -209,6 +211,7 @@ Generated roots:
 - `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
 - Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, `line-role-pipeline/extracted_archive.json`, `line-role-pipeline/guardrail_report.json`, and `line-role-pipeline/guardrail_changed_rows.jsonl`.
+  - when pass4 snippets are available, `line-role-pipeline/freeform_span_predictions.jsonl` and `line-role-pipeline/stage_block_predictions.json` include the merged pass4 `KNOWLEDGE` upgrades that canonical-text scoring consumes.
 - CodexFarm recipe prediction runs additionally emit `raw/llm/<workbook_slug>/guardrail_report.json` and `raw/llm/<workbook_slug>/guardrail_rows.jsonl`; those paths are also linked from `llm_manifest.json` and the prediction-run manifest when present.
 
 ## 2026-03-06 merged understandings digest (follow-up/debug/reuse seams)
@@ -2050,8 +2053,9 @@ Current benchmark contracts reinforced:
 - `upload_bundle_v1` is still the base reviewer handoff, but the practical unit for follow-up requests is `upload_bundle_v1` plus the benchmark session-root/per-run artifact families it was derived from.
 - `cf-debug` / `cookimport.bench.followup_bundle` are the intended narrow follow-up seam:
   - `request-template` writes a `cf.followup_request.v1` manifest,
-  - selectors come from case IDs, recipe IDs, line ranges, stage filters, or deterministic top-N picks,
-  - `pack` and `build-followup` emit additive packets instead of rebuilding the base bundle.
+  - selectors come from case IDs, recipe IDs, line ranges, pass4 run selectors (`--include-pass4-source-key` or `--include-pass4-output-subdir`), stage filters, or deterministic top-N picks,
+  - `pack` and `build-followup` emit additive packets instead of rebuilding the base bundle,
+  - pass4-specific asks should use `pass4_knowledge_audit` rather than overloading `prompt_link_audit`, because pass4 is a run-level knowledge-harvest surface instead of an atomic-line prompt-link surface.
 - Web/remote reviewers should trust `upload_bundle_index.json.navigation.row_locators` first, especially derived `_upload_bundle_derived/...` payload rows, and ask for new follow-up outputs only when those locators are not enough.
 - High-level multi-book group bundles are intentionally curated and size-capped:
   - exact `analysis.group_high_level.final_bundle_bytes` has to be measured from the three emitted files and then synced back into payload/index/overview metadata,

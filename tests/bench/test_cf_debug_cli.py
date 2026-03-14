@@ -15,6 +15,11 @@ SAMPLE_BUNDLE = (
     REPO_ROOT
     / "data/golden/benchmark-vs-golden/2026-03-04_20.33.53/single-profile-benchmark/upload_bundle_v1"
 )
+PASS4_SAMPLE_BUNDLE = (
+    REPO_ROOT
+    / "data/golden/benchmark-vs-golden/2026-03-06_15.22.11/single-profile-benchmark/upload_bundle_v1"
+)
+PASS4_SOURCE_KEY = "02_saltfatacidheatcutdown"
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -261,3 +266,223 @@ def test_build_followup_writes_iterative_followup_packet(tmp_path: Path) -> None
 
     selectors_payload = _read_json(ask2_dir / "selectors.json")
     assert selectors_payload["selectors"][0]["case_id"] == "outside_span_window_628_657"
+
+
+def test_request_template_includes_pass4_example_when_bundle_has_pass4(tmp_path: Path) -> None:
+    out_path = tmp_path / "followup_request_pass4.json"
+    result = runner.invoke(
+        app,
+        [
+            "request-template",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = _read_json(out_path)
+    pass4_asks = [
+        ask
+        for ask in payload["asks"]
+        if "pass4_knowledge_audit" in ask.get("outputs", [])
+    ]
+    assert pass4_asks
+    assert pass4_asks[0]["selectors"]["stage_filters"] == ["pass4"]
+    assert pass4_asks[0]["selectors"]["include_pass4_output_subdirs"] == [
+        f"{PASS4_SOURCE_KEY}/codexfarm"
+    ]
+
+
+def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
+    out_path = tmp_path / "pass4_selectors.json"
+    result = runner.invoke(
+        app,
+        [
+            "select-cases",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--stage",
+            "pass4",
+            "--include-pass4-source-key",
+            PASS4_SOURCE_KEY,
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = _read_json(out_path)
+    selectors = payload["selectors"]
+    assert len(selectors) == 1
+    row = selectors[0]
+    assert row["kind"] == "pass4_run"
+    assert row["book_slug"] == PASS4_SOURCE_KEY
+    assert row["output_subdir"] == f"{PASS4_SOURCE_KEY}/codexfarm"
+    assert row["case_id"].startswith("pass4_")
+    assert row["payload_locators"]
+
+
+def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:
+    selectors_path = tmp_path / "pass4_selectors.json"
+    select_result = runner.invoke(
+        app,
+        [
+            "select-cases",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--stage",
+            "pass4",
+            "--include-pass4-source-key",
+            PASS4_SOURCE_KEY,
+            "--out",
+            str(selectors_path),
+        ],
+    )
+    assert select_result.exit_code == 0
+
+    out_path = tmp_path / "pass4_knowledge_audit.jsonl"
+    result = runner.invoke(
+        app,
+        [
+            "audit-pass4-knowledge",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--selectors",
+            str(selectors_path),
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    rows = _read_jsonl(out_path)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["schema_version"] == "cf.pass4_knowledge_audit.v1"
+    assert row["book_slug"] == PASS4_SOURCE_KEY
+    assert row["status"] == "ok"
+    assert row["enabled"] is True
+    assert row["outputs_parsed"] > 0
+    assert "prompt_task4_txt" in row["local_artifacts"]
+    assert "pass4_manifest_json" in row["payload_locators"]
+
+
+def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> None:
+    selectors_path = tmp_path / "pass4_selectors.json"
+    select_result = runner.invoke(
+        app,
+        [
+            "select-cases",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--stage",
+            "pass4",
+            "--include-pass4-source-key",
+            PASS4_SOURCE_KEY,
+            "--out",
+            str(selectors_path),
+        ],
+    )
+    assert select_result.exit_code == 0
+
+    pack_dir = tmp_path / "pass4_pack"
+    pack_result = runner.invoke(
+        app,
+        [
+            "pack",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--selectors",
+            str(selectors_path),
+            "--out",
+            str(pack_dir),
+        ],
+    )
+    assert pack_result.exit_code == 0
+
+    pack_index = _read_json(pack_dir / "index.json")
+    assert pack_index["pass4_knowledge_audit_rows"] == 1
+    assert (pack_dir / "pass4_knowledge_audit.jsonl").is_file()
+
+    case_rows = _read_jsonl(pack_dir / "case_export" / "case_export.jsonl")
+    assert len(case_rows) == 1
+    case_row = case_rows[0]
+    assert case_row["kind"] == "pass4_run"
+    assert case_row["pass4_knowledge_summary"]["enabled"] is True
+    assert any(
+        "prompt_task4_pass4_knowledge.txt" in row["path"]
+        for row in case_row["pass4_artifacts"]
+    )
+
+
+def test_build_followup_writes_pass4_followup_packet(tmp_path: Path) -> None:
+    template_path = tmp_path / "pass4_template.json"
+    template_result = runner.invoke(
+        app,
+        [
+            "request-template",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--out",
+            str(template_path),
+        ],
+    )
+    assert template_result.exit_code == 0
+    template_payload = _read_json(template_path)
+
+    request_path = tmp_path / "pass4_followup_request.json"
+    request_payload = {
+        "schema_version": "cf.followup_request.v1",
+        "bundle_dir": str(PASS4_SAMPLE_BUNDLE),
+        "bundle_sha256": template_payload["bundle_sha256"],
+        "request_id": "followup_pass4_request",
+        "request_summary": "Answer one pass4 knowledge follow-up ask.",
+        "requester_context": {
+            "already_has_upload_bundle_v1": True,
+            "prefer_new_local_artifacts_over_bundle_repeats": True,
+            "duplicate_bundle_payloads_only_when_needed_for_context": True,
+        },
+        "default_stage_filters": ["pass4"],
+        "asks": [
+            {
+                "ask_id": "ask_pass4_saltfat",
+                "question": "Show the pass4 knowledge evidence for Salt Fat Acid Heat.",
+                "outputs": ["case_export", "pass4_knowledge_audit"],
+                "selectors": {
+                    "include_case_ids": [],
+                    "include_recipe_ids": [],
+                    "include_line_ranges": [],
+                    "include_pass4_source_keys": [PASS4_SOURCE_KEY],
+                    "include_pass4_output_subdirs": [],
+                    "top_neg": 0,
+                    "top_pos": 0,
+                    "outside_span": 0,
+                    "stage_filters": ["pass4"],
+                },
+            }
+        ],
+    }
+    request_path.write_text(json.dumps(request_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    out_dir = tmp_path / "followup_pass4"
+    result = runner.invoke(
+        app,
+        [
+            "build-followup",
+            "--bundle",
+            str(PASS4_SAMPLE_BUNDLE),
+            "--request",
+            str(request_path),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0
+
+    ask_dir = out_dir / "asks" / "ask_pass4_saltfat"
+    ask_index = _read_json(ask_dir / "index.json")
+    assert ask_index["requested_outputs"] == ["case_export", "pass4_knowledge_audit"]
+    assert (ask_dir / "case_export" / "case_export.jsonl").is_file()
+    assert (ask_dir / "pass4_knowledge_audit.jsonl").is_file()

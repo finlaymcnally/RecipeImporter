@@ -27,6 +27,7 @@ Stage execution paths:
 - `cookimport/cli.py` (`run_stage_tagging_pass` trigger for pass5 after stage writes)
 - `cookimport/staging/writer.py` (stage block predictions writer receives pass4 snippet path)
 - `cookimport/staging/stage_block_predictions.py` (uses knowledge snippets for stage evidence labeling)
+- `cookimport/labelstudio/canonical_line_projection.py` (merges pass4 snippet evidence into line-role benchmark projection artifacts for canonical-text scoring)
 
 Recipe codex-farm pass modules:
 
@@ -92,7 +93,7 @@ Report/model plumbing:
 - Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
 - `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
-- When CodexFarm recipe parsing is enabled, default pass pipeline ids now point at the compact prompt assets: `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1`.
+- When CodexFarm recipe parsing and knowledge harvest are enabled, default pass pipeline ids now point at the compact prompt assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`.
 - Canonical line-role prompt construction now defaults to `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` when the env var is unset; set it back to `legacy` for rollback or A/B checks.
 - `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
 - Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint require explicit `--allow-codex` approval only in execute mode when their resolved run settings enable a Codex-backed surface.
@@ -379,7 +380,7 @@ Merged source notes:
 
 Current-contract additions:
 - Stage-relevant LLM runtime remains centered on pass4 knowledge and pass5 tags; recipe pass1/2/3 is available for stage/pred-run use via run settings.
-- Prediction-run generation currently wires recipe-pass settings only; pass4/pass5 execution remains stage-only.
+- Prediction-run generation still executes pass4/pass5 only through the shared stage/prediction pipeline, but canonical-text benchmark artifacts now consume pass4 snippets when line-role projection artifacts are written.
 - LLM docs should keep runtime-adjacent module coverage explicit (prediction wrappers, pass4 helper contracts/writer paths, pass5 provider/validation layer, stage evidence/report consumers).
 - Legacy modules (`client.py`, `prompts.py`, `repair.py`) remain non-primary runtime paths and should stay labeled accordingly.
 

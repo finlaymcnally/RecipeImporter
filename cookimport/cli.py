@@ -12006,7 +12006,7 @@ def _build_codex_farm_prompt_response_log(
         "pass1": "recipe.chunking.v1",
         "pass2": "recipe.schemaorg.compact.v1",
         "pass3": "recipe.final.compact.v1",
-        "pass4": "recipe.knowledge.v1",
+        "pass4": "recipe.knowledge.compact.v1",
         "pass5": "recipe.tags.v1",
     }
     pass_sort_order: dict[str, int] = {
@@ -25045,7 +25045,7 @@ def stage(
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     ),
     codex_farm_pipeline_pass4_knowledge: str = typer.Option(
-        "recipe.knowledge.v1",
+        "recipe.knowledge.compact.v1",
         "--codex-farm-pipeline-pass4-knowledge",
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     ),
@@ -29375,7 +29375,7 @@ def labelstudio_benchmark(
     codex_farm_pipeline_pass4_knowledge: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass4-knowledge",
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
-    )] = "recipe.knowledge.v1",
+    )] = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: Annotated[int, typer.Option(
         "--codex-farm-context-blocks",
         min=0,

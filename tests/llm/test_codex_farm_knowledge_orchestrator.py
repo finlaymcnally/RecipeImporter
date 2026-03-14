@@ -22,7 +22,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
-            "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.v1",
+            "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.compact.v1",
             "codex_farm_knowledge_context_blocks": 1,
             "codex_farm_failure_mode": "fail",
         }
@@ -72,7 +72,7 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.llm_report["enabled"] is True
     assert "output_schema_path" in apply_result.llm_report
     assert "process_run" in apply_result.llm_report
-    assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.v1"
+    assert apply_result.llm_report["process_run"]["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert "telemetry_report" in apply_result.llm_report["process_run"]
     assert "autotune_report" in apply_result.llm_report["process_run"]
     assert apply_result.manifest_path.exists()

@@ -9,6 +9,12 @@ from cookimport.core.models import ChunkLane, KnowledgeChunk, ParsingOverrides
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
 
 from .codex_farm_knowledge_contracts import (
+    KnowledgeCompactChunkBlockV1,
+    KnowledgeCompactChunkPayloadV1,
+    KnowledgeCompactContextBlockV1,
+    KnowledgeCompactContextPayloadV1,
+    KnowledgeCompactGuardrailsPayloadV1,
+    KnowledgeCompactTableHintV1,
     KnowledgeBlockV1,
     KnowledgeContextPayloadV1,
     KnowledgeGuardrailsPayloadV1,
@@ -16,10 +22,14 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeJobSourceV1,
     KnowledgeChunkPayloadV1,
     KnowledgeTableHintV1,
+    Pass4KnowledgeCompactJobInputV1,
     Pass4KnowledgeJobInputV1,
     SpanV1,
 )
 from .non_recipe_spans import Span
+
+LEGACY_PASS4_JOB_FORMAT = "legacy"
+COMPACT_PASS4_JOB_FORMAT = "compact_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +49,7 @@ def build_pass4_knowledge_jobs(
     out_dir: Path,
     context_blocks: int = 12,
     overrides: ParsingOverrides | None = None,
+    job_format: str = COMPACT_PASS4_JOB_FORMAT,
 ) -> KnowledgeJobBuildReport:
     """Write pass4 knowledge job bundles to out_dir and return a build report.
 
@@ -81,8 +92,13 @@ def build_pass4_knowledge_jobs(
                 table_hints_by_index=table_hints_by_index,
                 recipe_spans_payload=recipe_spans_payload,
                 context_blocks=context_blocks,
+                job_format=job_format,
             )
-            _write_json(payload.model_dump(mode="json", by_alias=True), out_dir / f"{chunk_id}.json")
+            payload_kwargs: dict[str, Any] = {"mode": "json", "by_alias": True}
+            if job_format == COMPACT_PASS4_JOB_FORMAT:
+                payload_kwargs["exclude_defaults"] = True
+                payload_kwargs["exclude_none"] = True
+            _write_json(payload.model_dump(**payload_kwargs), out_dir / f"{chunk_id}.json")
             chunk_ids.append(chunk_id)
             chunk_lane_by_id[chunk_id] = (
                 str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else None
@@ -179,13 +195,86 @@ def _build_job_payload(
     table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
     recipe_spans_payload: list[SpanV1],
     context_blocks: int,
-) -> Pass4KnowledgeJobInputV1:
+    job_format: str,
+) -> Pass4KnowledgeJobInputV1 | Pass4KnowledgeCompactJobInputV1:
     if not chunk.block_ids:
         raise ValueError(f"Chunk {chunk_id} has no block_ids; cannot build job bundle.")
 
     absolute_indices = _absolute_indices_for_chunk(chunk, sequence=sequence)
     block_start_index = absolute_indices[0]
     block_end_index = absolute_indices[-1] + 1
+
+    before_indices = range(max(0, block_start_index - context_blocks), block_start_index)
+    after_indices = range(block_end_index, block_end_index + max(0, int(context_blocks)))
+    context_recipe_block_indices = sorted(
+        idx
+        for idx in [*before_indices, *after_indices]
+        if _index_in_recipe_spans(idx, recipe_spans_payload)
+    )
+
+    suggested_lane: str | None
+    if isinstance(chunk.lane, ChunkLane):
+        suggested_lane = chunk.lane.value
+    else:
+        suggested_lane = str(chunk.lane) if chunk.lane is not None else None
+
+    suggested_highlights = [
+        str(highlight.text).strip()
+        for highlight in (chunk.highlights or [])
+        if str(highlight.text).strip()
+    ][:12]
+
+    suggested_skip_reason: str | None = None
+    if suggested_lane in {ChunkLane.NOISE.value, ChunkLane.NARRATIVE.value}:
+        suggested_skip_reason = f"lane={suggested_lane}"
+
+    if job_format == COMPACT_PASS4_JOB_FORMAT:
+        chunk_blocks_payload = [
+            _to_knowledge_compact_chunk_block(
+                full_blocks_by_index.get(idx) or {},
+                fallback_index=idx,
+                table_hint=table_hints_by_index.get(idx),
+            )
+            for idx in absolute_indices
+        ]
+        blocks_before = [
+            _to_knowledge_compact_context_block(
+                full_blocks_by_index[idx],
+                fallback_index=idx,
+            )
+            for idx in before_indices
+            if idx in full_blocks_by_index
+        ]
+        blocks_after = [
+            _to_knowledge_compact_context_block(
+                full_blocks_by_index[idx],
+                fallback_index=idx,
+            )
+            for idx in after_indices
+            if idx in full_blocks_by_index
+        ]
+        return Pass4KnowledgeCompactJobInputV1(
+            source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
+            chunk=KnowledgeCompactChunkPayloadV1(
+                chunk_id=chunk_id,
+                block_start_index=int(block_start_index),
+                block_end_index=int(block_end_index),
+                blocks=chunk_blocks_payload,
+            ),
+            context=KnowledgeCompactContextPayloadV1(
+                blocks_before=blocks_before,
+                blocks_after=blocks_after,
+            ),
+            heuristics=KnowledgeHeuristicsPayloadV1(
+                suggested_lane=suggested_lane,
+                suggested_highlights=suggested_highlights[:6],
+                suggested_skip_reason=suggested_skip_reason,
+            ),
+            guardrails=KnowledgeCompactGuardrailsPayloadV1(
+                context_recipe_block_indices=context_recipe_block_indices,
+                must_use_evidence=True,
+            ),
+        )
 
     blocks_payload = [
         _to_knowledge_block(
@@ -195,9 +284,6 @@ def _build_job_payload(
         )
         for idx in absolute_indices
     ]
-
-    before_indices = range(max(0, block_start_index - context_blocks), block_start_index)
-    after_indices = range(block_end_index, block_end_index + max(0, int(context_blocks)))
     blocks_before = [
         _to_knowledge_block(
             full_blocks_by_index[idx],
@@ -216,23 +302,6 @@ def _build_job_payload(
         for idx in after_indices
         if idx in full_blocks_by_index
     ]
-
-    suggested_lane: str | None
-    if isinstance(chunk.lane, ChunkLane):
-        suggested_lane = chunk.lane.value
-    else:
-        suggested_lane = str(chunk.lane) if chunk.lane is not None else None
-
-    suggested_highlights = [
-        str(highlight.text).strip()
-        for highlight in (chunk.highlights or [])
-        if str(highlight.text).strip()
-    ][:12]
-
-    suggested_skip_reason: str | None = None
-    if suggested_lane in {ChunkLane.NOISE.value, ChunkLane.NARRATIVE.value}:
-        suggested_skip_reason = f"lane={suggested_lane}"
-
     return Pass4KnowledgeJobInputV1(
         source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
         chunk=KnowledgeChunkPayloadV1(
@@ -280,6 +349,10 @@ def _absolute_indices_for_chunk(
     return indices
 
 
+def _index_in_recipe_spans(index: int, recipe_spans_payload: Sequence[SpanV1]) -> bool:
+    return any(int(span.start) <= index < int(span.end) for span in recipe_spans_payload)
+
+
 def _to_knowledge_block(
     block: Mapping[str, Any],
     *,
@@ -299,9 +372,7 @@ def _to_knowledge_block(
     spine_index = _coerce_int(block.get("spine_index"))
     if spine_index is None:
         spine_index = _coerce_int(features.get("spine_index"))
-    heading_level = _coerce_int(block.get("heading_level"))
-    if heading_level is None:
-        heading_level = _coerce_int(features.get("heading_level"))
+    heading_level = _resolve_heading_level(block)
     return KnowledgeBlockV1(
         block_index=index,
         block_id=str(block_id).strip(),
@@ -312,6 +383,55 @@ def _to_knowledge_block(
         features_subset=_features_subset(features),
         table_hint=table_hint,
     )
+
+
+def _to_knowledge_compact_chunk_block(
+    block: Mapping[str, Any],
+    *,
+    fallback_index: int,
+    table_hint: KnowledgeTableHintV1 | None = None,
+) -> KnowledgeCompactChunkBlockV1:
+    index = _coerce_int(block.get("index"))
+    if index is None:
+        index = int(fallback_index)
+    compact_table_hint: KnowledgeCompactTableHintV1 | None = None
+    if table_hint is not None:
+        compact_table_hint = KnowledgeCompactTableHintV1(
+            table_id=table_hint.table_id,
+            caption=table_hint.caption,
+            row_index_in_table=table_hint.row_index_in_table,
+        )
+    return KnowledgeCompactChunkBlockV1(
+        block_index=index,
+        text=str(block.get("text") or ""),
+        heading_level=_resolve_heading_level(block),
+        table_hint=compact_table_hint,
+    )
+
+
+def _to_knowledge_compact_context_block(
+    block: Mapping[str, Any],
+    *,
+    fallback_index: int,
+) -> KnowledgeCompactContextBlockV1:
+    index = _coerce_int(block.get("index"))
+    if index is None:
+        index = int(fallback_index)
+    return KnowledgeCompactContextBlockV1(
+        block_index=index,
+        text=str(block.get("text") or ""),
+        heading_level=_resolve_heading_level(block),
+    )
+
+
+def _resolve_heading_level(block: Mapping[str, Any]) -> int | None:
+    features = block.get("features")
+    if not isinstance(features, Mapping):
+        features = {}
+    heading_level = _coerce_int(block.get("heading_level"))
+    if heading_level is None:
+        heading_level = _coerce_int(features.get("heading_level"))
+    return heading_level
 
 
 def _features_subset(features: Mapping[str, Any]) -> dict[str, Any]:

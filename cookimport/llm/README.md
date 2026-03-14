@@ -19,6 +19,6 @@ Canonical line-role fallback support now lives in `canonical_line_role_prompt.py
 
 Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which merges codex-farm pass telemetry plus line-role telemetry into one repo-owned per-pass budget artifact.
 
-Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1` and `recipe.final.compact.v1`), and those compact ids are now the default pass2/pass3 selections when CodexFarm recipe parsing is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
+Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`), and those compact ids are now the default pass2/pass3/pass4 selections when CodexFarm recipe parsing or knowledge harvest is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 
 Default behavior remains deterministic unless `llm_recipe_pipeline=codex-farm-3pass-v1` is explicitly enabled.

@@ -29,7 +29,8 @@ Behavior differences:
 - `cf-debug` is a non-interactive follow-up/debugging CLI for existing benchmark `upload_bundle_v1/` directories. Its high-level iterative workflow is:
   - `request-template`: create a manifest you can fill with the web AI's asks.
   - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
-  - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
+  - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-pass4-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
+  - pass4 follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-pass4-source-key` or `--include-pass4-output-subdir`, and `audit-pass4-knowledge` / `pack` / `build-followup` can emit `pass4_knowledge_audit.jsonl` plus pass4 artifact references.
 - `import` / `C3import`:
   - no args: runs `stage(path=data/input)` immediately (non-interactive)
   - one positive integer arg: treated as `--limit` and runs `stage(path=data/input, limit=N)`

@@ -15,6 +15,10 @@ from cookimport.bench.eval_stage_blocks import (
     load_gold_block_labels,
     load_stage_block_labels,
 )
+from cookimport.labelstudio.canonical_line_projection import (
+    write_line_role_projection_artifacts,
+)
+from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -272,6 +276,140 @@ def test_evaluate_canonical_text_includes_howto_section_totals(tmp_path: Path) -
     assert report["per_label"]["HOWTO_SECTION"]["pred_total"] == 1
     assert report["per_label"]["HOWTO_SECTION"]["tp"] == 1
     assert report["confusion"]["HOWTO_SECTION"]["HOWTO_SECTION"] == 1
+
+
+def test_evaluate_canonical_text_scores_pass4_knowledge_in_line_role_projection(
+    tmp_path: Path,
+) -> None:
+    canonical_text = "Recipe Title\nUseful kitchen note\n1 cup stock"
+    canonical_lines = canonical_eval._build_canonical_lines(canonical_text)
+
+    gold_export_root = tmp_path / "gold"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    (gold_export_root / "canonical_text.txt").write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(
+        gold_export_root / "canonical_span_labels.jsonl",
+        [
+            {
+                "span_id": "s0",
+                "label": "RECIPE_TITLE",
+                "start_char": canonical_lines[0]["start_char"],
+                "end_char": canonical_lines[0]["end_char"],
+            },
+            {
+                "span_id": "s1",
+                "label": "KNOWLEDGE",
+                "start_char": canonical_lines[1]["start_char"],
+                "end_char": canonical_lines[1]["end_char"],
+            },
+            {
+                "span_id": "s2",
+                "label": "INGREDIENT_LINE",
+                "start_char": canonical_lines[2]["start_char"],
+                "end_char": canonical_lines[2]["end_char"],
+            },
+        ],
+    )
+    (gold_export_root / "canonical_manifest.json").write_text(
+        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    predictions = [
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="b0",
+            block_index=0,
+            atomic_index=0,
+            text="Recipe Title",
+            within_recipe_span=False,
+            label="RECIPE_TITLE",
+            confidence=0.99,
+            decided_by="rule",
+            reason_tags=["test"],
+        ),
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="b1",
+            block_index=1,
+            atomic_index=1,
+            text="Useful kitchen note",
+            within_recipe_span=False,
+            label="OTHER",
+            confidence=0.99,
+            decided_by="rule",
+            reason_tags=["test"],
+        ),
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="b2",
+            block_index=2,
+            atomic_index=2,
+            text="1 cup stock",
+            within_recipe_span=True,
+            label="INGREDIENT_LINE",
+            confidence=0.99,
+            decided_by="rule",
+            reason_tags=["test"],
+        ),
+    ]
+
+    baseline_artifacts = write_line_role_projection_artifacts(
+        run_root=tmp_path / "baseline",
+        source_file="book.epub",
+        source_hash="hash-123",
+        workbook_slug="book",
+        predictions=predictions,
+    )
+    baseline_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=baseline_artifacts["stage_block_predictions_path"],
+        extracted_blocks_json=baseline_artifacts["extracted_archive_path"],
+        out_dir=tmp_path / "baseline-eval",
+        canonical_paths={
+            "canonical_text_path": gold_export_root / "canonical_text.txt",
+            "canonical_span_labels_path": gold_export_root / "canonical_span_labels.jsonl",
+            "canonical_manifest_path": gold_export_root / "canonical_manifest.json",
+        },
+    )
+    assert baseline_result["report"]["overall_line_accuracy"] == pytest.approx(2 / 3)
+    assert baseline_result["report"]["per_label"]["KNOWLEDGE"]["tp"] == 0
+
+    snippets_path = tmp_path / "knowledge-snippets.jsonl"
+    snippets_path.write_text(
+        json.dumps(
+            {
+                "snippet_id": "k0",
+                "provenance": {"block_indices": [1]},
+                "evidence": [{"block_index": 1, "quote": "Useful kitchen note"}],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    merged_artifacts = write_line_role_projection_artifacts(
+        run_root=tmp_path / "merged",
+        source_file="book.epub",
+        source_hash="hash-123",
+        workbook_slug="book",
+        predictions=predictions,
+        knowledge_snippets_path=snippets_path,
+    )
+    merged_result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=merged_artifacts["stage_block_predictions_path"],
+        extracted_blocks_json=merged_artifacts["extracted_archive_path"],
+        out_dir=tmp_path / "merged-eval",
+        canonical_paths={
+            "canonical_text_path": gold_export_root / "canonical_text.txt",
+            "canonical_span_labels_path": gold_export_root / "canonical_span_labels.jsonl",
+            "canonical_manifest_path": gold_export_root / "canonical_manifest.json",
+        },
+    )
+
+    assert merged_result["report"]["overall_line_accuracy"] == pytest.approx(1.0)
+    assert merged_result["report"]["per_label"]["KNOWLEDGE"]["tp"] == 1
 
 
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:

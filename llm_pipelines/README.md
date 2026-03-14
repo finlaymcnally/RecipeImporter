@@ -16,7 +16,7 @@ Editable pipeline specs:
 - `pipelines/recipe.chunking.v1.json`
 - `pipelines/recipe.schemaorg.compact.v1.json`
 - `pipelines/recipe.final.compact.v1.json`
-- `pipelines/recipe.knowledge.v1.json` (optional pass4 knowledge harvest)
+- `pipelines/recipe.knowledge.compact.v1.json` (optional pass4 knowledge harvest)
 - `pipelines/recipe.tags.v1.json` (optional pass5 tag suggestions)
 
 Editable prompt text:
@@ -24,7 +24,7 @@ Editable prompt text:
 - `prompts/recipe.chunking.v1.prompt.md`
 - `prompts/recipe.schemaorg.compact.v1.prompt.md`
 - `prompts/recipe.final.compact.v1.prompt.md`
-- `prompts/recipe.knowledge.v1.prompt.md`
+- `prompts/recipe.knowledge.compact.v1.prompt.md`
 - `prompts/recipe.tags.v1.prompt.md`
 
 Output schemas:
@@ -35,7 +35,7 @@ Output schemas:
 - `schemas/recipe.knowledge.v1.output.schema.json`
 - `schemas/recipe.tags.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/`. The shipped pack keeps only the compact pass2/pass3 assets: `recipe.schemaorg.compact.v1` and `recipe.final.compact.v1`. Those compact pipeline ids still reuse the existing pass2/pass3 output schemas while sending smaller input payloads.
+To tune pass behavior, edit prompt text files in `prompts/`. The shipped pack keeps only the compact pass2/pass3/pass4 assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`. Those compact pipeline ids still reuse the existing pass2/pass3/pass4 output schemas while sending smaller input payloads.
 
 Prompt input contract:
 - `prompt_input_mode` is set to `"inline"` for recipe pipelines.
@@ -44,7 +44,7 @@ Prompt input contract:
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
-- Recipe codex-farm passes (`recipe.chunking.v1`, `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, `recipe.knowledge.v1`, `recipe.tags.v1`) default to `codex_timeout_seconds: 600`.
+- Recipe codex-farm passes (`recipe.chunking.v1`, `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, `recipe.knowledge.compact.v1`, `recipe.tags.v1`) default to `codex_timeout_seconds: 600`.
 
 ## Label Studio freeform AI templates
 

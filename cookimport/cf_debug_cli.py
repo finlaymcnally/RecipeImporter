@@ -12,6 +12,7 @@ from cookimport.bench.followup_bundle import (
     write_followup_request_template,
     write_line_role_audit,
     write_page_context,
+    write_pass4_knowledge_audit,
     write_prompt_link_audit,
     write_selector_manifest,
     write_uncertainty_export,
@@ -45,6 +46,8 @@ def _select_cases_command_text(
     include_case_id: list[str],
     include_recipe_id: list[str],
     include_line_range: list[str],
+    include_pass4_source_key: list[str],
+    include_pass4_output_subdir: list[str],
 ) -> str:
     parts = [
         "cf-debug",
@@ -68,6 +71,10 @@ def _select_cases_command_text(
         parts.extend(["--include-recipe-id", value])
     for value in include_line_range:
         parts.extend(["--include-line-range", value])
+    for value in include_pass4_source_key:
+        parts.extend(["--include-pass4-source-key", value])
+    for value in include_pass4_output_subdir:
+        parts.extend(["--include-pass4-output-subdir", value])
     return " ".join(parts)
 
 
@@ -82,11 +89,18 @@ def select_cases(
     include_case_id: list[str] | None = typer.Option(None, "--include-case-id"),
     include_recipe_id: list[str] | None = typer.Option(None, "--include-recipe-id"),
     include_line_range: list[str] | None = typer.Option(None, "--include-line-range"),
+    include_pass4_source_key: list[str] | None = typer.Option(None, "--include-pass4-source-key"),
+    include_pass4_output_subdir: list[str] | None = typer.Option(
+        None,
+        "--include-pass4-output-subdir",
+    ),
 ) -> None:
     stage_values = stage or []
     include_case_values = include_case_id or []
     include_recipe_values = include_recipe_id or []
     include_line_range_values = include_line_range or []
+    include_pass4_source_values = include_pass4_source_key or []
+    include_pass4_output_values = include_pass4_output_subdir or []
     write_selector_manifest(
         bundle_dir=bundle,
         out_path=out,
@@ -100,6 +114,8 @@ def select_cases(
             include_case_id=include_case_values,
             include_recipe_id=include_recipe_values,
             include_line_range=include_line_range_values,
+            include_pass4_source_key=include_pass4_source_values,
+            include_pass4_output_subdir=include_pass4_output_values,
         ),
         stage_filters=stage_values,
         top_neg=top_neg,
@@ -108,6 +124,8 @@ def select_cases(
         include_case_ids=include_case_values,
         include_recipe_ids=include_recipe_values,
         include_line_ranges=include_line_range_values,
+        include_pass4_source_keys=include_pass4_source_values,
+        include_pass4_output_subdirs=include_pass4_output_values,
     )
     typer.echo(str(out))
 
@@ -157,6 +175,16 @@ def audit_prompt_links(
     out: Path = typer.Option(..., "--out"),
 ) -> None:
     write_prompt_link_audit(bundle_dir=bundle, selectors_path=selectors, out_path=out)
+    typer.echo(str(out))
+
+
+@app.command("audit-pass4-knowledge")
+def audit_pass4_knowledge(
+    bundle: Path = typer.Option(..., "--bundle", exists=True, file_okay=False, dir_okay=True),
+    selectors: Path = typer.Option(..., "--selectors", exists=True, file_okay=True, dir_okay=False),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    write_pass4_knowledge_audit(bundle_dir=bundle, selectors_path=selectors, out_path=out)
     typer.echo(str(out))
 
 
