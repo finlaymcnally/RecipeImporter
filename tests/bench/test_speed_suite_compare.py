@@ -37,7 +37,7 @@ def test_compare_speed_runs_detects_regression_with_dual_thresholds(
                 },
                 {
                     "target_id": "alpha",
-                    "scenario": "benchmark_canonical_legacy",
+                    "scenario": "benchmark_canonical_pipelined",
                     "median_total_seconds": 20.0,
                 },
             ],
@@ -55,7 +55,7 @@ def test_compare_speed_runs_detects_regression_with_dual_thresholds(
                 },
                 {
                     "target_id": "alpha",
-                    "scenario": "benchmark_canonical_legacy",
+                    "scenario": "benchmark_canonical_pipelined",
                     "median_total_seconds": 18.0,
                 },
             ],
@@ -75,7 +75,7 @@ def test_compare_speed_runs_detects_regression_with_dual_thresholds(
         for row in comparison["rows"]
     }
     assert rows[("alpha", "stage_import")]["status"] == "regression"
-    assert rows[("alpha", "benchmark_canonical_legacy")]["status"] == "improved"
+    assert rows[("alpha", "benchmark_canonical_pipelined")]["status"] == "improved"
     report = format_speed_compare_report(comparison)
     assert "Verdict: FAIL" in report
     assert "alpha | stage_import" in report

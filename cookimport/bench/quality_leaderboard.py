@@ -171,10 +171,14 @@ def _extract_line_role_artifacts(
     flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
     slice_path = line_role_dir / "slice_metrics.json"
     knowledge_path = line_role_dir / "knowledge_budget.json"
+    pass4_merge_report_path = line_role_dir / "pass4_merge_report.json"
+    pass4_merge_changed_rows_path = line_role_dir / "pass4_merge_changed_rows.jsonl"
+    pass4_merge_summary_path = line_role_dir / "pass4_merge_summary.json"
     gates_path = line_role_dir / "regression_gates.json"
 
     slice_payload = _load_json_object_or_none(slice_path) or {}
     knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
+    pass4_merge_summary_payload = _load_json_object_or_none(pass4_merge_summary_path) or {}
     gates_payload = _load_json_object_or_none(gates_path) or {}
 
     gates_verdict = str(
@@ -223,12 +227,24 @@ def _extract_line_role_artifacts(
         "knowledge_budget_json": _relative_to_root(knowledge_path, run_root)
         if knowledge_path.exists()
         else None,
+        "pass4_merge_report_json": _relative_to_root(pass4_merge_report_path, run_root)
+        if pass4_merge_report_path.exists()
+        else None,
+        "pass4_merge_changed_rows_jsonl": _relative_to_root(
+            pass4_merge_changed_rows_path, run_root
+        )
+        if pass4_merge_changed_rows_path.exists()
+        else None,
+        "pass4_merge_summary_json": _relative_to_root(pass4_merge_summary_path, run_root)
+        if pass4_merge_summary_path.exists()
+        else None,
         "regression_gates_json": _relative_to_root(gates_path, run_root)
         if gates_path.exists()
         else None,
         "regression_gates_verdict": gates_verdict or None,
         "slice_metrics_summary": slice_summary,
         "knowledge_budget_summary": knowledge_summary,
+        "pass4_merge_summary": pass4_merge_summary_payload,
     }
 
 

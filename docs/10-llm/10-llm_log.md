@@ -2609,3 +2609,98 @@ Durable findings:
 
 Anti-loop note:
 - If compact prompts appear only half-enabled, inspect defaults in all three control surfaces before changing prompt assets or runtime telemetry.
+
+## 2026-03-06 to 2026-03-13 migrated understanding ledger (compact pack, pass4 bundle shape, and benchmark failure forensics)
+
+### 2026-03-06_13.58.48 compact recipe-pass defaults surface audit
+
+Source:
+- `docs/understandings/2026-03-06_13.58.48-compact-pipeline-defaults-surface-audit.md`
+
+Problem captured:
+- Main config surfaces had already moved to compact recipe pass ids, but a couple of helper signatures in Label Studio prediction generation still defaulted pass2 / pass3 to legacy ids.
+
+Durable findings:
+- Compact recipe-pass defaults have to stay aligned in:
+  - `RunSettings`,
+  - CLI defaults,
+  - helper signatures used by prediction generation.
+- If manifests disagree with expectation, trust the pipeline ids written into the run artifacts before assuming prompt-pack drift.
+
+Anti-loop note:
+- “Compact is not really on” is usually a default-surface drift problem, not a prompt-asset bug.
+
+### 2026-03-06_14.58.51 codex-farm precheck can fail before pass1 starts
+
+Source:
+- `docs/understandings/2026-03-06_14.58.51-codexfarm-process-precheck-can-fail-before-pass1.md`
+
+Problem captured:
+- Some benchmark failures looked like empty pass1 output or generic `subprocess_exit=1` errors even though the configured recipe-pass pipelines had not started yet.
+
+Durable findings:
+- A CodexFarm login / usage precheck can fail before any pass1 output is written.
+- The artifact signature is:
+  - prepared `pass1_chunking/in/*.json`,
+  - empty `pass1_chunking/out/`,
+  - no `run_id`,
+  - condensed failure text only after `stderr_summary` handling.
+- Requested per-run model / effort overrides are downstream of that precheck and therefore do not guarantee protection from a bad global Codex CLI state.
+
+Anti-loop note:
+- Empty pass1 output with populated pass1 input is a precheck / auth / quota clue first, not a pass1 prompt clue.
+
+### 2026-03-06_17.01.28 compact prompt artifact truth in benchmark outputs
+
+Source:
+- `docs/understandings/2026-03-06_17.01.28-compact-pass3-benchmark-prompt-artifacts.md`
+
+Problem captured:
+- Benchmark prompt sample files looked longer or more legacy-shaped than expected, which made compact-pass adoption look suspect.
+
+Durable findings:
+- `run_manifest.json`, `prediction-run/manifest.json`, and `full_prompt_log.jsonl` are the authoritative proof of which pipeline ids actually ran.
+- `prompt_task3_pass3_final.txt` is a convenience input/output dump, not the literal rendered prompt text.
+- Deterministic pass3 skipping can make live pass3 call counts much smaller than the number of recipe rows in a run; that is normal when pass2-ok deterministic promotion is active.
+
+Anti-loop note:
+- When prompt samples and manifests disagree, believe `full_prompt_log.jsonl` and `pipeline_id`, not the sampled filename.
+
+### 2026-03-06_18.10.20 and 2026-03-06_18.36.28 compact shipped pack and compact pass4 bundle shape
+
+Merged source notes:
+- `docs/understandings/2026-03-06_18.10.20-llm-pack-compact-pass2-pass3-only.md`
+- `docs/understandings/2026-03-06_18.36.28-pass4-compact-bundle-shape.md`
+
+Problem captured:
+- Prompt-pack cleanup and bundle-shape changes were easy to conflate, and older notes could make the shipped pack look more legacy than the actual `llm_pipelines/` tree.
+
+Durable findings:
+- Legacy recipe pass2 / pass3 prompt and pipeline files were retired from the shipped pack once compact replacements became the intended default.
+- Compact pass4 size reduction came primarily from the serialized bundle contract:
+  - trim chunk / context block fields,
+  - drop full-book recipe span guardrails,
+  - replace them with nearby context recipe block indices.
+- Runtime compatibility remains explicit: non-compact / custom pass4 ids still use the legacy bundle shape.
+
+Anti-loop note:
+- If a run still looks “large,” inspect the serialized pass4 bundle JSON before editing prompt wrapper prose.
+
+### 2026-03-13_21.45.42 pass2/pass3 benchmark prompt vs input failures
+
+Source:
+- `docs/understandings/2026-03-13_21.45.42-pass2-pass3-benchmark-prompt-vs-input-failures.md`
+
+Problem captured:
+- March 6 benchmark artifacts looked worse than the compact prompt templates alone would suggest, which made prompt wording the tempting but incomplete explanation.
+
+Durable findings:
+- Most final drafts in the sampled run came from deterministic promotion after pass2, not live pass3 LLM calls.
+- The largest quality failures were upstream input / contract issues:
+  - overlap midpoint clamping split one raw recipe span into ingredient-only and instruction-only halves,
+  - `field_evidence` JSON-string encoding rejected otherwise plausible pass2 output,
+  - one pass2 `extracted_*` corruption (`jalape\u0014no`) propagated into pass3.
+- Pass3 quality judgments should therefore be made only after checking pass2 input completeness and pass1 overlap handling.
+
+Anti-loop note:
+- If a compact prompt “looks fine” but outputs still look broken, inspect pass1 span clamps and pass2 contract failures before rewriting the prompt.

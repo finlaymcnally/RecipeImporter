@@ -300,9 +300,22 @@ def _write_prediction_run_pass4_stage_outputs(
     _write_json(
         llm_run_dir / "pass4_knowledge" / "out" / "r0000.json",
         {
+            "bundle_version": "1",
             "chunk_id": chunk_id,
+            "is_useful": True,
+            "block_decisions": [
+                {"block_index": 1, "category": "knowledge"},
+                {"block_index": 2, "category": "other"},
+            ],
             "snippets": [
-                {"topic": "browning", "evidence": "Roast until deeply browned."},
+                {
+                    "title": "Browning",
+                    "body": "Roast until deeply browned.",
+                    "tags": ["fixture"],
+                    "evidence": [
+                        {"block_index": 1, "quote": "Roast until deeply browned."}
+                    ],
+                },
             ],
         },
     )
@@ -2416,9 +2429,22 @@ def test_reconstruct_full_prompt_log_includes_pass4_rows(
     assert row["process_run_id"] == "run-pass4-reconstruct"
     assert row["recipe_id"] == "knowledge:c0"
     assert row["parsed_response"] == {
+        "bundle_version": "1",
         "chunk_id": "knowledge:c0",
+        "is_useful": True,
+        "block_decisions": [
+            {"block_index": 1, "category": "knowledge"},
+            {"block_index": 2, "category": "other"},
+        ],
         "snippets": [
-            {"topic": "browning", "evidence": "Roast until deeply browned."},
+            {
+                "title": "Browning",
+                "body": "Roast until deeply browned.",
+                "tags": ["fixture"],
+                "evidence": [
+                    {"block_index": 1, "quote": "Roast until deeply browned."}
+                ],
+            },
         ],
     }
 

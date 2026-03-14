@@ -192,7 +192,7 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     assert benchmark_calls[0]["gold_spans"] == gold_a
     assert benchmark_calls[0]["source_file"] == source_a
     assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
-    assert benchmark_calls[0]["execution_mode"] == cli.BENCHMARK_EXECUTION_MODE_LEGACY
+    assert benchmark_calls[0]["execution_mode"] == cli.BENCHMARK_EXECUTION_MODE_PIPELINED
     assert benchmark_calls[0]["no_upload"] is True
     assert benchmark_calls[0]["eval_output_dir"] == (
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a"

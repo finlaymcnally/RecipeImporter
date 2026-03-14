@@ -78,10 +78,9 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         source_file: Path,
         gold_spans_path: Path,
         sample_dir: Path,
-        execution_mode: str,
         run_settings: RunSettings,
     ) -> dict[str, object]:
-        _ = (source_file, gold_spans_path, sample_dir, execution_mode, run_settings)
+        _ = (source_file, gold_spans_path, sample_dir, run_settings)
         total = next(benchmark_total_values)
         return {
             "total_seconds": total,
@@ -105,7 +104,7 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         tmp_path / "runs",
         scenarios=[
             SpeedScenario.STAGE_IMPORT,
-            SpeedScenario.BENCHMARK_CANONICAL_LEGACY,
+            SpeedScenario.BENCHMARK_CANONICAL_PIPELINED,
         ],
         warmups=1,
         repeats=2,
@@ -129,7 +128,7 @@ def test_run_speed_suite_writes_artifacts_and_excludes_warmups(
         for row in summary["summary_rows"]
     }
     stage_row = rows[("alpha", "stage_import")]
-    bench_row = rows[("alpha", "benchmark_canonical_legacy")]
+    bench_row = rows[("alpha", "benchmark_canonical_pipelined")]
 
     # Warmup values (100, 200) are excluded; medians come from repeat-only values.
     assert stage_row["median_total_seconds"] == pytest.approx(11.0)
@@ -404,10 +403,9 @@ def test_run_speed_suite_parallel_task_dispatch(
         source_file: Path,
         gold_spans_path: Path,
         sample_dir: Path,
-        execution_mode: str,
         run_settings: RunSettings,
     ) -> dict[str, object]:
-        _ = (source_file, gold_spans_path, sample_dir, execution_mode, run_settings)
+        _ = (source_file, gold_spans_path, sample_dir, run_settings)
         benchmark_started.set()
         stage_started.wait(timeout=0.6)
         time.sleep(0.05)
@@ -428,7 +426,7 @@ def test_run_speed_suite_parallel_task_dispatch(
         tmp_path / "runs",
         scenarios=[
             SpeedScenario.STAGE_IMPORT,
-            SpeedScenario.BENCHMARK_CANONICAL_LEGACY,
+            SpeedScenario.BENCHMARK_CANONICAL_PIPELINED,
         ],
         warmups=0,
         repeats=1,
@@ -486,10 +484,9 @@ def test_run_speed_suite_resume_reuses_completed_task_snapshots(
         source_file: Path,
         gold_spans_path: Path,
         sample_dir: Path,
-        execution_mode: str,
         run_settings: RunSettings,
     ) -> dict[str, object]:
-        _ = (source_file, gold_spans_path, sample_dir, execution_mode, run_settings)
+        _ = (source_file, gold_spans_path, sample_dir, run_settings)
         call_counts["benchmark"] += 1
         if should_fail_benchmark["value"]:
             raise RuntimeError("boom")
@@ -511,7 +508,7 @@ def test_run_speed_suite_resume_reuses_completed_task_snapshots(
             runs_root,
             scenarios=[
                 SpeedScenario.STAGE_IMPORT,
-                SpeedScenario.BENCHMARK_CANONICAL_LEGACY,
+                SpeedScenario.BENCHMARK_CANONICAL_PIPELINED,
             ],
             warmups=0,
             repeats=1,
@@ -531,7 +528,7 @@ def test_run_speed_suite_resume_reuses_completed_task_snapshots(
         runs_root,
         scenarios=[
             SpeedScenario.STAGE_IMPORT,
-            SpeedScenario.BENCHMARK_CANONICAL_LEGACY,
+            SpeedScenario.BENCHMARK_CANONICAL_PIPELINED,
         ],
         warmups=0,
         repeats=1,
@@ -552,4 +549,4 @@ def test_run_speed_suite_resume_reuses_completed_task_snapshots(
         for row in summary["summary_rows"]
     }
     assert rows[("alpha", "stage_import")]["median_total_seconds"] == pytest.approx(10.0)
-    assert rows[("alpha", "benchmark_canonical_legacy")]["median_total_seconds"] == pytest.approx(20.0)
+    assert rows[("alpha", "benchmark_canonical_pipelined")]["median_total_seconds"] == pytest.approx(20.0)

@@ -884,7 +884,7 @@ Behavior note:
   - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
 - Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
-- Execution mode is configurable via `--execution-mode legacy|pipelined|predict-only` (default `legacy`).
+- Benchmark execution is fixed to `pipelined`.
 - Codex execution policy is configurable via `--codex-execution-policy execute|plan` (default `execute`).
   - `plan` is offline-only, writes a zero-token Codex preview artifact, and exits before extraction/eval/upload.
 - Single-offline split-cache controls:
@@ -924,7 +924,6 @@ Options:
 - `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
-- `--execution-mode TEXT` (default `legacy`): `legacy|pipelined|predict-only`.
 - `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` requires `--no-upload` and writes a zero-token Codex preview artifact instead of running extraction/eval/upload.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
 - `--single-offline-split-cache-mode TEXT` (default `off`): `off|auto` split-cache mode for offline benchmark prediction generation.
@@ -1017,7 +1016,7 @@ Options:
 
 - `--suite PATH` (required): path to speed suite JSON (typically from `bench speed-discover`).
 - `--out-dir PATH` (default `data/golden/bench/speed/runs`): output root for timestamped speed runs.
-- `--scenarios TEXT` (default `stage_import,benchmark_canonical_legacy`): comma-separated scenario list from `stage_import|benchmark_canonical_legacy|benchmark_canonical_pipelined|benchmark_all_method_multi_source`.
+- `--scenarios TEXT` (default `stage_import,benchmark_canonical_pipelined`): comma-separated scenario list from `stage_import|benchmark_canonical_pipelined|benchmark_all_method_multi_source`.
 - `--warmups INTEGER>=0` (default `1`): warmup samples per target+scenario (excluded from medians).
 - `--repeats INTEGER>=1` (default `2`): measured samples per target+scenario.
 - `--max-targets INTEGER>=1`: optional cap on number of targets from the suite.
@@ -1829,3 +1828,22 @@ Current CLI contracts reinforced:
 - `_update_progress_common` must clear stale codex worker/task state on non-codex, non-worker phase messages so later phase rows do not leak `active workers: 0` noise.
 - Canonical line-role phase ETA visibility depends on receiving `task X/Y` callback strings; ingest/parsing callback plumbing should preserve that shape.
 - Shared ETA helper responsiveness uses a recency blend (`0.5 * latest_step + 0.5 * weighted_recent_average`) so throughput shifts show up quickly without removing smoothing.
+
+## 2026-03-06 merged understandings digest (chooser source-of-truth and follow-up caveats)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-06_14.22.47-top-tier-contract-vs-benchmark-normalization.md`
+- `docs/understandings/2026-03-06_14.47.31-top-tier-codex-profile-source-of-truth.md`
+- `docs/understandings/2026-03-06_19.07.00-benchmark-menu-codex-effort-validation-gap.md`
+- `docs/understandings/2026-03-06_20.30.00-followup-cli-pass4-gap.md`
+- `docs/understandings/2026-03-06_21.20.00-followup-attribution-and-line-role-join-caveats.md`
+
+Current CLI contracts reinforced:
+- Interactive top-tier defaults live in `cookimport/config/codex_decision.py::apply_top_tier_profile_contract(...)`. Menu code chooses and harmonizes a profile, but it is not the source of truth for the actual default field set.
+- The shared chooser should build reasoning-effort choices from discovered model metadata (`supported_reasoning_efforts`) rather than a static global list. If a model / effort mismatch reappears, fix `build_codex_farm_reasoning_effort_choices(...)` and its chooser callers instead of patching one benchmark menu wrapper.
+- `cf-debug` pass4 review is intentionally a run-level workflow:
+  - select pass4 runs explicitly,
+  - use `audit-pass4-knowledge`,
+  - treat `pass4_knowledge_audit.jsonl` as the dedicated follow-up surface.
+  Do not overload pass4 review into `prompt_link_audit`, which is still a recipe / atomic-line seam.
+- `cf-debug line_role_audit` and `page_context` remain index-join tools and can misjoin canonical changed-line indexes to atomic line-role indexes. For structural title / header regressions, the safer truth source is often the later stage path (`apply_line_role_spans_to_recipes`, stage-block title labeling) rather than the follow-up packet’s numeric line-index join.

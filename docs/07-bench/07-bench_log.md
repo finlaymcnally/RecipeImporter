@@ -6573,3 +6573,171 @@ Durable findings:
 
 Anti-loop note:
 - When a historical benchmark root shows surprising legacy settings, check which settings the benchmark contract actually normalizes before treating the root as proof that today’s defaults are wrong.
+
+## 2026-03-06 to 2026-03-13 migrated understanding ledger (benchmark normalization, pass4, and execution semantics)
+
+### 2026-03-06_13.50.15 and 2026-03-06_14.19.41 QualitySuite normalized baseline and deterministic-only contract
+
+Merged source notes:
+- `docs/understandings/2026-03-06_13.50.15-qualitysuite-baseline-normalization-vs-resolved-metadata.md`
+- `docs/understandings/2026-03-06_14.19.41-qualitysuite-deterministic-only-codexfarm-disabled.md`
+
+Problem captured:
+- QualitySuite metadata and reuse identity could drift from the actual benchmark baseline contract, and Codex-enabled settings could still sneak into supposedly deterministic quality runs through saved config or experiment patches.
+
+Durable decisions:
+- Normalize every QualitySuite baseline through the benchmark contract before expansion or hashing.
+- Persist both truths:
+  - `run_settings` = normalized executable baseline,
+  - `requested_run_settings` = original pre-normalization request.
+- Keep `bench quality-run` deterministic-only end-to-end:
+  - reject `--include-codex-farm` and Codex CLI overrides,
+  - reject requested settings that enable recipe / knowledge / tags Codex surfaces.
+- Narrow reuse identity to prediction-shaped settings so runtime-only worker / cmd differences do not destroy safe reuse.
+
+Anti-loop note:
+- If a future QualitySuite artifact looks “wrong,” first compare `requested_run_settings` to `run_settings`; do not assume the runner executed the raw saved profile.
+
+### 2026-03-06_14.22.23, 2026-03-06_18.40.53, 2026-03-13_21.42.17, and 2026-03-13_21.53.28 pass4 benchmark wiring evolution
+
+Merged source notes:
+- `docs/understandings/2026-03-06_14.22.23-benchmark-vs-stage-knowledge-pass-wiring.md`
+- `docs/understandings/2026-03-06_18.40.53-pass4-canonical-benchmark-surface.md`
+- `docs/understandings/2026-03-13_21.42.17-pass4-knowledge-benchmark-seam.md`
+- `docs/understandings/2026-03-13_21.53.28-prompt-budget-pass4-gap.md`
+- `docs/understandings/2026-03-13_22.10.00-pass4-merge-proof-artifacts.md`
+
+Problem captured:
+- Early benchmark paths lagged stage pass4 support, then later benchmark runs started producing real pass4 artifacts without consistently surfacing them in prompt-budget summaries or high-level upload bundles.
+
+Durable decisions:
+- Single-run offline benchmark prediction generation now forwards `llm_knowledge_pipeline` into the shared `RunSettings` path.
+- Canonical-text scoring keeps one preferred surface:
+  - line-role projection remains authoritative for structure,
+  - pass4 upgrades projected `OTHER` rows to `KNOWLEDGE` on that same surface when snippet evidence matches.
+- `prediction-run/prompt_budget_summary.json` is the compact pass-count/token surface and now needs to include pass4 from `llm_codex_farm.knowledge.process_run`.
+- Pass4 proof needs dedicated benchmark-side artifacts, not only manifests:
+  - prediction-run line-role diagnostics can write `pass4_merge_report.json` and `pass4_merge_changed_rows.jsonl`,
+  - benchmark eval-side diagnostics can copy those files and derive `pass4_merge_summary.json` against joined-line / gold data.
+- Upload bundles should surface pass4 explicitly through `analysis.pass4_knowledge`, `navigation.row_locators.pass4_by_run`, and lightweight pass4 prompt / manifest artifacts, instead of assuming reviewers will discover pass4 indirectly.
+
+Anti-loop note:
+- If pass4 manifests show real `done=` counts but benchmark lift stays flat, the first suspect is the narrow projection / upgrade seam, not “pass4 never ran.”
+
+### 2026-03-06_16.11.52 and 2026-03-06_16.24.50 DinnerFor2 partial pass2 failure and benchmark-mode mixed-timeout recovery
+
+Merged source notes:
+- `docs/understandings/2026-03-06_16.11.52-single-profile-dinnerfor2-pass2-content-filter-failure.md`
+- `docs/understandings/2026-03-06_16.24.50-benchmark-partial-pass2-timeout-soft-recovery.md`
+
+Problem captured:
+- March 6 `DinnerFor2CUTDOWN` lost only a couple of pass2 outputs, but the mixed `nonzero_exit_no_payload` + `timeout` failure shape caused the whole codex benchmark variant to fail before the orchestrator could salvage surviving recipes.
+
+Durable decisions:
+- Keep runner-level partial-output recovery for `nonzero_exit_no_payload` exits.
+- In benchmark mode only, also allow recovery when the failure mix stays within `nonzero_exit_no_payload` + `timeout` and output coverage remains high:
+  - at least 80% expected bundles written,
+  - at most 3 bundles missing.
+- Preserve the orchestrator contract that missing pass2 outputs become recipe-level errors while surviving recipes continue through pass3 and eval.
+
+Anti-loop note:
+- Multi-book benchmark “3/4 succeeded” with one empty codex book folder is not necessarily a scheduler bug; inspect pass2 `in/` vs `out/` counts and failure categories first.
+
+### 2026-03-06_16.48.07, 2026-03-06_16.57.36, 2026-03-06_17.14.42, and 2026-03-06_19.25.00 benchmark selective retry shipped seam
+
+Merged source notes:
+- `docs/understandings/2026-03-06_16.48.07-benchmark-selective-retry-resume-seams.md`
+- `docs/understandings/2026-03-06_16.57.36-benchmark-selective-retry-insertion-points.md`
+- `docs/understandings/2026-03-06_17.14.42-benchmark-selective-retry-shipped-contract.md`
+- `docs/understandings/2026-03-06_19.25.00-benchmark-selective-retry-review-gaps.md`
+
+Problem captured:
+- Benchmark users needed salvage/retry at the pass boundary, not whole-book reruns, but review evidence needed to stay honest about what was truly tested.
+
+Durable decisions:
+- Retry only missing bundle files for the failed current pass.
+- Hook retry inside `run_codex_farm_recipe_pipeline(...)` immediately after pass2 / pass3 runner return and before missing-bundle validation marks recipe rows as errors.
+- Keep original successful outputs untouched and write retry attempts under `retry_attempt_XX/`.
+- Store detailed truth in `raw/llm/<workbook_slug>/llm_manifest.json`; mirror only concise counts into benchmark / prediction-run `run_manifest.json`.
+
+Review caveat preserved:
+- The shared helper and manifest plumbing support both pass2 and pass3.
+- The shipped regression proof is still strongest for pass2; pass3 coverage is implied by shared code paths more than directly demonstrated by dedicated tests.
+
+Anti-loop note:
+- If a reviewer says “the plan claimed pass3 retry coverage,” check the test corpus before arguing from shared helper symmetry.
+
+### 2026-03-06_16.52.59, 2026-03-06_16.59.46, and 2026-03-06_17.05.21 March 6 quality interpretation
+
+Merged source notes:
+- `docs/understandings/2026-03-06_16.52.59-benchmark-run-15.22.11-quality-vs-priors.md`
+- `docs/understandings/2026-03-06_16.59.46-why-run-15.22.11-codex-lift-was-small.md`
+- `docs/understandings/2026-03-06_17.05.21-codex-lift-collapse-factor-split.md`
+
+Problem captured:
+- The March 6 single-profile session looked like a broad Codex quality collapse, but that compressed several different causes into one misleading story.
+
+Durable findings:
+- DinnerFor2 removed one of the strongest historical Codex wins by failing before codex evaluation completed.
+- The stronger deterministic baseline was the larger story:
+  - deterministic line-role,
+  - shared parser / splitter stack,
+  - newer EPUB preprocessing defaults.
+- `atomic-v1` alone was not the main boost killer; older ablations showed mixed or negative impact when isolated.
+- The new knowledge pass added noticeable cost in this slice while producing little benchmark lift on `KNOWLEDGE`.
+
+Anti-loop note:
+- If a future run “looks worse than expected,” split the blame into paired-run validity, deterministic baseline strength, recipe-pass health, and outside-span distribution before rewriting prompts.
+
+### 2026-03-06_18.02.20 and 2026-03-06_20.05.00 pass4 prompt reconstruction and upload-bundle surfacing
+
+Merged source notes:
+- `docs/understandings/2026-03-06_18.02.20-benchmark-cutdown-pass4-reconstruction-gap.md`
+- `docs/understandings/2026-03-06_20.05.00-upload-bundle-pass4-surfacing-gap.md`
+
+Problem captured:
+- Pass4 prompt evidence could disappear in two different ways:
+  - reconstruction from existing run artifacts stopped at pass3,
+  - high-level multi-book bundles omitted pass4-specific prompt / manifest surfaces even when per-book runs had them.
+
+Durable decisions:
+- Treat fresh-run prompt builders and cutdown reconstruction as separate seams; both must know about pass4.
+- For reconstructed prompt logs, use pass4 `process_run` metadata from `prediction-run/manifest.json -> llm_codex_farm.knowledge.process_run`.
+- High-level bundles should keep lightweight pass4 evidence and obvious index pointers, while heavier raw prompt dumps remain follow-up-only artifacts.
+
+Anti-loop note:
+- “Pass4 is missing from the bundle” is often a surfacing bug, not a missing-artifact bug in the per-book benchmark root.
+
+### 2026-03-06_18.07.27 why pass4 knowledge did not move the March 6 benchmark much
+
+Merged source note:
+- `docs/understandings/2026-03-06_18.07.27-why-pass4-knowledge-did-not-move-benchmark.md`
+
+Problem captured:
+- March 6 benchmark roots showed large pass4 snippet sets and real codex work, yet same-run `KNOWLEDGE` metrics barely moved.
+
+Durable findings:
+- The preferred canonical-text surface was the line-role projection artifact.
+- Before pass4 projection merge, that artifact ignored snippet evidence entirely.
+- Even after projection merge, stage-block labeling still uses a narrow `OTHER -> KNOWLEDGE` upgrade path and suppresses `KNOWLEDGE` when recipe-local labels already win.
+
+Anti-loop note:
+- Large snippet counts do not imply large score movement; inspect the scored surface and the upgrade rules before concluding benchmark math is broken.
+
+### 2026-03-13_21.47.12 and 2026-03-13_21.56.22 execution-mode and run-root semantics
+
+Merged source notes:
+- `docs/understandings/2026-03-13_21.47.12-benchmark-execution-mode-semantics.md`
+- `docs/understandings/2026-03-13_21.56.22-benchmark-run-root-pair-semantics.md`
+
+Problem captured:
+- Relative-path and manifest reading made it too easy to misread benchmark `execution_mode` as a CodexFarm pass mode and sibling timestamp roots as intrinsic paired-run behavior.
+
+Durable decisions:
+- `execution_mode` is only the benchmark runner orchestration mode: `legacy`, `pipelined`, `predict-only`.
+- `predict-only` still writes prediction artifacts but intentionally skips evaluation.
+- Direct benchmark calls create one timestamped root unless explicitly pointed elsewhere.
+- Interactive `single-profile-benchmark` nests child runs under its one session root by passing explicit `eval_output_dir` paths to child benchmark calls.
+
+Anti-loop note:
+- When you see two nearby benchmark timestamps, prove whether there were two invocations before inventing a “paired roots” filesystem rule.

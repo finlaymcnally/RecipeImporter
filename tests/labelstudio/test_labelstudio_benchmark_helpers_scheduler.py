@@ -1692,7 +1692,7 @@ def test_run_all_method_benchmark_dedupes_eval_by_signature(
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -1775,7 +1775,7 @@ def test_run_all_method_benchmark_reuses_signature_cache_across_runs(
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -1874,7 +1874,7 @@ def test_run_all_method_benchmark_resource_guard_caps_split_workers(
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             captured_workers.append(
                 (
                     int(kwargs.get("workers") or 0),
@@ -2478,7 +2478,6 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
         processed_output_dir=processed_output_root / config_dir_name,
         eval_output_dir=root_output_dir / config_dir_name,
         eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-        execution_mode=cli.BENCHMARK_EXECUTION_MODE_PREDICT_ONLY,
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,
@@ -2492,6 +2491,7 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
             "overlap_threshold": 0.5,
             "force_source_match": False,
             "alignment_cache_dir": None,
+            "skip_evaluation_internal": True,
         }
     )
 
@@ -2544,7 +2544,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         assert isinstance(alignment_cache_dir, Path)
         captured_alignment_cache_dirs.append(alignment_cache_dir)
         extractor = str(kwargs.get("epub_extractor") or "")
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -2642,7 +2642,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
             extractor = str(kwargs.get("epub_extractor") or "")
             eval_output_dir = kwargs["eval_output_dir"]
             assert isinstance(eval_output_dir, Path)
-            if str(kwargs.get("execution_mode") or "") == "predict-only":
+            if bool(kwargs.get("skip_evaluation_internal")):
                 assert cli._BENCHMARK_SPLIT_PHASE_SLOTS.get() == 2
                 assert cli._BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
                 time.sleep(delays[extractor])
@@ -2730,7 +2730,7 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
         extractor = str(kwargs.get("epub_extractor") or "")
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             if extractor == "unstructured":
                 time.sleep(1.2)
             else:
@@ -2815,10 +2815,10 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
 
     def fake_labelstudio_benchmark(**kwargs):
         extractor = str(kwargs.get("epub_extractor") or "")
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             call_counts[extractor] = call_counts.get(extractor, 0) + 1
         if (
-            str(kwargs.get("execution_mode") or "") == "predict-only"
+            bool(kwargs.get("skip_evaluation_internal"))
             and extractor == "beautifulsoup"
             and call_counts[extractor] == 1
         ):
@@ -2826,7 +2826,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
 
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -2911,7 +2911,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     def fake_labelstudio_benchmark(**kwargs):
         callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             if callback is not None:
                 callback({"event": "prep_started"})
                 time.sleep(phase_profile["prep"])
@@ -3023,7 +3023,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
     def fake_labelstudio_benchmark(**kwargs):
         callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             if callback is not None:
                 callback({"event": "prep_started"})
                 time.sleep(0.01)
@@ -3144,7 +3144,7 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
     def fake_labelstudio_benchmark(**kwargs):
         nonlocal call_count
         extractor = str(kwargs.get("epub_extractor") or "")
-        if str(kwargs.get("execution_mode") or "") == "predict-only":
+        if bool(kwargs.get("skip_evaluation_internal")):
             call_count += 1
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,

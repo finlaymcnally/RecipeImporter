@@ -9,6 +9,8 @@ read_when:
 
 Pass 4 is an **optional** codex-farm pipeline that extracts **general cooking knowledge** (tips, techniques, definitions, substitutions, do/don’t guidance) from the **non-recipe text** in a block-first cookbook source (EPUB/PDF/text extractors that emit `full_text` blocks and `nonRecipeBlocks`).
 
+Pass4 now also emits a per-block binary classification over `chunk.blocks`: each block is labeled `knowledge` or `other`. Downstream canonical scoring uses that artifact as the primary outside-span `KNOWLEDGE` versus `OTHER` signal; snippets remain as the user-facing summary output.
+
 It is **off by default** and does nothing unless explicitly enabled.
 
 ## How to run
@@ -39,6 +41,7 @@ Per staged workbook (`<workbook_slug>`):
   - `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge_manifest.json`
 - User-facing artifacts:
   - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
+  - `data/output/<ts>/knowledge/<workbook_slug>/block_classifications.jsonl`
   - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 
 Run-level index (if any knowledge artifacts were written):

@@ -215,7 +215,7 @@ Behavioral constraints:
 - write operations are gated (`--allow-labelstudio-write` required in non-interactive commands)
 - prediction-run generation (`generate_pred_run_artifacts`) is first-class offline behavior and does not require Label Studio credentials
 - benchmark command (`labelstudio-benchmark`) is prediction-first by default; in CLI mode it uploads by default unless `--no-upload`
-- benchmark can run evaluate-only with `--predictions-in`, or prediction-only with `--execution-mode predict-only`
+- benchmark can run evaluate-only with `--predictions-in`
 - benchmark co-locates prediction run under eval output as `prediction-run/`
 
 ## Scripts Folder Note

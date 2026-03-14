@@ -465,6 +465,7 @@ Gates include:
 - `TIME_LINE` is only used for primary time metadata; non-primary `TIME_LINE` predictions are sanitized to `INSTRUCTION_LINE` (or `OTHER` outside recipe spans).
 - Inside recipe spans, `KNOWLEDGE` is restricted and sanitized out unless prose + neighbor context supports it.
 - Outside recipe spans, prose now defaults to `OTHER`; `KNOWLEDGE` is used only when explicit knowledge cues are present.
+- When pass4 knowledge harvest is enabled, its block-classification artifact can further arbitrate outside-span `KNOWLEDGE` versus `OTHER` after line-role projection; this seam is binary only and does not override recipe-structural labels.
 - Outside recipe spans, `HOWTO_SECTION` is hard-denied in the v1 safety policy.
 - Outside recipe spans, `RECIPE_TITLE`/`RECIPE_VARIANT` now require compact-heading shape plus neighboring (±2 lines) structural evidence; otherwise they are downgraded to `OTHER`/`KNOWLEDGE`.
 - Outside recipe spans, `INSTRUCTION_LINE`/`INGREDIENT_LINE` now require local recipe evidence (±2 lines) and are downgraded when evidence is missing.

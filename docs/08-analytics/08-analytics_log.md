@@ -3148,3 +3148,23 @@ Durable findings:
 
 Anti-loop note:
 - If `--serve` looks stale only in one browser, inspect localStorage-vs-served-state precedence before touching CSV collection or HTML generation.
+
+## 2026-03-06 migrated understanding ledger (trend-tail overlay fix)
+
+### 2026-03-06_16.58.18 dashboard trend tail window flattening
+
+Source:
+- `docs/understandings/2026-03-06_16.58.18-dashboard-trend-tail-window-flattening.md`
+
+Problem captured:
+- Dashed rolling trend overlays in `Previous Runs` could go artificially horizontal at the chart tail even while the newest scatter points were still moving.
+
+Durable findings:
+- The old rolling-window helper shifted edge windows backward to preserve a full fixed-size slice, which caused multiple tail points to reuse the exact same final window.
+- Current intended behavior is centered-window when possible, but shrink the window at the series edges instead of reusing one final full slice.
+
+Regression anchor:
+- `tests/analytics/test_stats_dashboard.py::test_benchmark_trend_overlay_recomputes_tail_windows`
+
+Anti-loop note:
+- If the tail flattens again, inspect edge-window math in the trend builder before changing chart rendering or data collection.

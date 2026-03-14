@@ -122,7 +122,6 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         output_dir=Path("/tmp/output"),
         eval_output_dir=Path("/tmp/eval"),
         eval_mode="canonical-text",
-        execution_mode="legacy",
         no_upload=True,
         write_markdown=True,
         write_label_studio_tasks=False,
@@ -154,6 +153,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert kwargs["atomic_block_splitter"] == "atomic-v1"
     assert kwargs["line_role_pipeline"] == "deterministic-v1"
+    assert kwargs["execution_mode"] == "pipelined"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"

@@ -1433,7 +1433,7 @@ def test_build_prediction_bundle_prefers_line_role_projection_for_canonical_mode
     assert line_role_bundle.extracted_archive_path == line_role_extracted_archive_path
 
 
-def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
+def test_labelstudio_benchmark_writes_pipelined_execution_mode_manifest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -1517,48 +1517,28 @@ def test_labelstudio_benchmark_legacy_and_pipelined_modes_match_report_payload(
         lambda *_args, **_kwargs: None,
     )
 
-    legacy_eval_root = tmp_path / "eval-legacy"
-    pipelined_eval_root = tmp_path / "eval-pipelined"
+    eval_root = tmp_path / "eval-pipelined"
     cli.labelstudio_benchmark(
         gold_spans=gold_spans,
         source_file=source_file,
         output_dir=tmp_path / "golden",
         processed_output_dir=tmp_path / "output",
-        eval_output_dir=legacy_eval_root,
+        eval_output_dir=eval_root,
         no_upload=True,
-        execution_mode="legacy",
-    )
-    cli.labelstudio_benchmark(
-        gold_spans=gold_spans,
-        source_file=source_file,
-        output_dir=tmp_path / "golden",
-        processed_output_dir=tmp_path / "output",
-        eval_output_dir=pipelined_eval_root,
-        no_upload=True,
-        execution_mode="pipelined",
     )
 
-    legacy_report = json.loads(
-        (legacy_eval_root / "eval_report.json").read_text(encoding="utf-8")
+    report = json.loads(
+        (eval_root / "eval_report.json").read_text(encoding="utf-8")
     )
-    pipelined_report = json.loads(
-        (pipelined_eval_root / "eval_report.json").read_text(encoding="utf-8")
-    )
-    legacy_report.pop("timing", None)
-    pipelined_report.pop("timing", None)
-    assert legacy_report == pipelined_report
+    assert report["report"]["overall_block_accuracy"] == pytest.approx(1.0)
 
-    legacy_manifest = json.loads(
-        (legacy_eval_root / "run_manifest.json").read_text(encoding="utf-8")
+    run_manifest = json.loads(
+        (eval_root / "run_manifest.json").read_text(encoding="utf-8")
     )
-    pipelined_manifest = json.loads(
-        (pipelined_eval_root / "run_manifest.json").read_text(encoding="utf-8")
-    )
-    assert legacy_manifest["run_config"]["execution_mode"] == "legacy"
-    assert pipelined_manifest["run_config"]["execution_mode"] == "pipelined"
+    assert run_manifest["run_config"]["execution_mode"] == "pipelined"
 
 
-def test_labelstudio_benchmark_predict_only_mode_skips_evaluation(
+def test_labelstudio_benchmark_internal_skip_evaluation_writes_prediction_artifacts_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1613,24 +1593,30 @@ def test_labelstudio_benchmark_predict_only_mode_skips_evaluation(
         cli,
         "evaluate_stage_blocks",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("predict-only mode must not run stage-block evaluation.")
+            AssertionError(
+                "internal skip-evaluation mode must not run stage-block evaluation."
+            )
         ),
     )
     monkeypatch.setattr(
         cli,
         "evaluate_canonical_text",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("predict-only mode must not run canonical evaluation.")
+            AssertionError(
+                "internal skip-evaluation mode must not run canonical evaluation."
+            )
         ),
     )
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("predict-only mode must not append benchmark CSV.")
+            AssertionError(
+                "internal skip-evaluation mode must not append benchmark CSV."
+            )
         ),
     )
 
-    eval_root = tmp_path / "eval-predict-only"
+    eval_root = tmp_path / "eval-skip-evaluation"
     predictions_out = tmp_path / "prediction-records.jsonl"
     cli.labelstudio_benchmark(
         gold_spans=gold_spans,
@@ -1639,13 +1625,13 @@ def test_labelstudio_benchmark_predict_only_mode_skips_evaluation(
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        execution_mode="predict-only",
+        skip_evaluation_internal=True,
         predictions_out=predictions_out,
     )
 
     assert not (eval_root / "eval_report.json").exists()
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
-    assert run_manifest["run_config"]["execution_mode"] == "predict-only"
+    assert run_manifest["run_config"]["execution_mode"] == "pipelined"
     assert run_manifest["run_config"]["predict_only"] is True
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
     records = list(read_prediction_records(predictions_out))
@@ -1772,7 +1758,6 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        execution_mode="pipelined",
         eval_mode="canonical-text",
     )
 
@@ -1925,7 +1910,6 @@ def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_fi
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        execution_mode="pipelined",
     )
 
     assert consumer_saw_first_record.is_set()
@@ -2032,7 +2016,6 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
             processed_output_dir=tmp_path / "output",
             eval_output_dir=tmp_path / "eval-pipelined-error",
             no_upload=True,
-            execution_mode="pipelined",
         )
 
 

@@ -841,6 +841,16 @@ Known bad / anti-loop reminders carried forward:
 - `cookimport/analytics/dashboard_render.py` is still a large string-template renderer. When UI behavior changes, start from the builder/helper seams already present rather than cloning benchmark-trend logic again.
 - If dashboard and compare/control disagree on labels, fix the shared semantics layer first; do not patch only emitted JS copy.
 
+## 2026-03-06 merged understanding digest (trend tail overlays)
+
+Merged source note:
+- `docs/understandings/2026-03-06_16.58.18-dashboard-trend-tail-window-flattening.md`
+
+Current analytics contract reinforced:
+- Rolling trend overlays in `Previous Runs` should shrink their window at the series edges instead of reusing the same last full slice for multiple tail points. The last few timestamps therefore remain responsive to real data changes instead of flattening horizontally.
+- Regression anchor:
+  - `tests/analytics/test_stats_dashboard.py::test_benchmark_trend_overlay_recomputes_tail_windows`
+
 ## 2026-03-06 merged understandings digest (derived metrics, dashboard state, and benchmark classification edge cases)
 
 Merged source notes (timestamp order):

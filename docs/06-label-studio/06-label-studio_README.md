@@ -211,14 +211,11 @@ values are inferred from prediction-run metadata.
 - offline path (`--no-upload`)
 - eval-only from prediction records (`--predictions-in`)
 - prediction-record output (`--predictions-out`)
-- prediction-only artifact generation (`--execution-mode predict-only`)
 - line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
 
 Execution modes:
 
-- `legacy` (default)
-- `pipelined`
-- `predict-only`
+- `pipelined` (fixed)
 
 ### 5.4 Codex plan/approval boundary notes
 

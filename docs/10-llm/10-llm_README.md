@@ -280,6 +280,10 @@ Current LLM contracts reinforced:
   - pass2 duplicate evidence payloads,
   - pass3 duplicated structured content rather than already-removed raw block windows.
   - pipeline-id-based compaction for pass2/pass3 and a line-role prompt-format selector are the intended rollout seams; new global prompt-mode settings are unnecessary.
+- Benchmark/projection proof artifacts for pass4 now live under `prediction-run/line-role-pipeline/`:
+  - `pass4_merge_report.json`
+  - `pass4_merge_changed_rows.jsonl`
+  Canonical benchmark eval runs copy these into their own `line-role-pipeline/` dir and add `pass4_merge_summary.json` so you can see whether pass4 changed any scored labels and whether those changes matched gold.
 - Separate Codex-backed surface reminder:
   - `labelstudio-import --prelabel` is not the same surface as recipe/line-role run-settings pipelines and needs its own approval/metadata review whenever Codex decision policy changes.
 - Prompt-sample thinking traces are only as good as upstream trace capture. If trace files exist but `reasoning_event_count` is zero, recipeimport should report the absence rather than fabricate excerpts.
@@ -875,3 +879,41 @@ Known bad / anti-loop reminders carried forward:
 - `labelstudio-import --prelabel` remains a distinct Codex surface and needs policy review whenever plan/approval behavior changes.
 - If plan mode looks too shallow to be useful, check where the early return happens relative to deterministic archive preparation before adding another planning artifact.
 - If compact prompts regress inconsistently across recipe and line-role paths, inspect the three default-control surfaces together instead of changing only one flag.
+
+## 2026-03-13 merged understandings digest (compact pack reality and benchmark triage)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-06_13.58.48-compact-pipeline-defaults-surface-audit.md`
+- `docs/understandings/2026-03-06_14.58.51-codexfarm-process-precheck-can-fail-before-pass1.md`
+- `docs/understandings/2026-03-06_17.01.28-compact-pass3-benchmark-prompt-artifacts.md`
+- `docs/understandings/2026-03-06_18.10.20-llm-pack-compact-pass2-pass3-only.md`
+- `docs/understandings/2026-03-06_18.36.28-pass4-compact-bundle-shape.md`
+- `docs/understandings/2026-03-13_21.45.42-pass2-pass3-benchmark-prompt-vs-input-failures.md`
+
+Current LLM contracts reinforced:
+- Compact defaults need to stay aligned across every recipe-pass control surface:
+  - `RunSettings` defaults,
+  - CLI option defaults,
+  - helper signatures used by Label Studio prediction generation.
+  The pipeline ids written into manifests are the ground truth when an older prompt dump filename or stale note suggests otherwise.
+- The local shipped `llm_pipelines/` tree is compact-first now:
+  - `recipe.chunking.v1`
+  - `recipe.schemaorg.compact.v1`
+  - `recipe.final.compact.v1`
+  - `recipe.knowledge.compact.v1`
+  - `recipe.tags.v1`
+  Output schemas still reuse the existing `recipe.*.v1.output.schema.json` files, so pack cleanup did not imply new output-schema IDs.
+- Literal prompt truth lives in `prompts/full_prompt_log.jsonl` plus manifest `pipeline_id` fields. Files like `prompt_task3_pass3_final.txt` are convenience input/output dumps, not reliable proof of the rendered prompt template.
+- Compact pass4 token reduction comes from bundle shape, not only prompt wrapper text:
+  - chunk blocks and context blocks keep only essential fields,
+  - full-book recipe-span guardrails are replaced by nearby `context_recipe_block_indices`,
+  - explicit non-compact / custom pass4 pipeline ids still use the legacy bundle shape.
+- Benchmark triage shortcut:
+  - if `pass1_chunking/in/` is populated,
+  - `pass1_chunking/out/` is empty,
+  - and the runner error lacks a `run_id`,
+  the likely problem is CodexFarm login / auth / quota precheck failure before pass1 work starts. Use `stderr_summary` and CodexFarm precheck flags before editing prompt assets.
+- The March 6 pass2/pass3 benchmark artifacts reinforced that the biggest current weak spots are input / contract seams more than long prompt wording:
+  - brittle `field_evidence` JSON-string encoding,
+  - overlap-clamped pass1 spans that can split one recipe into ingredient-only vs instruction-only halves,
+  - isolated pass2 `extracted_*` character corruption that then propagates into pass3.

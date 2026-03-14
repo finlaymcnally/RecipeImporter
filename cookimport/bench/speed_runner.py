@@ -34,7 +34,6 @@ from cookimport.runs import RunManifest, RunSource, write_run_manifest
 
 class SpeedScenario(str, Enum):
     STAGE_IMPORT = "stage_import"
-    BENCHMARK_CANONICAL_LEGACY = "benchmark_canonical_legacy"
     BENCHMARK_CANONICAL_PIPELINED = "benchmark_canonical_pipelined"
     BENCHMARK_ALL_METHOD_MULTI_SOURCE = "benchmark_all_method_multi_source"
 
@@ -291,18 +290,6 @@ def run_speed_suite(
                 run_settings=run_settings,
                 require_process_workers=bool(require_process_workers),
             )
-        elif task.scenario == SpeedScenario.BENCHMARK_CANONICAL_LEGACY:
-            if target_source is None or target_gold is None:
-                raise ValueError(
-                    "benchmark_canonical_legacy scenario requires a concrete target."
-                )
-            metrics = _run_benchmark_sample(
-                source_file=target_source,
-                gold_spans_path=target_gold,
-                sample_dir=sample_dir,
-                execution_mode="legacy",
-                run_settings=run_settings,
-            )
         elif task.scenario == SpeedScenario.BENCHMARK_CANONICAL_PIPELINED:
             if target_source is None or target_gold is None:
                 raise ValueError(
@@ -312,7 +299,6 @@ def run_speed_suite(
                 source_file=target_source,
                 gold_spans_path=target_gold,
                 sample_dir=sample_dir,
-                execution_mode="pipelined",
                 run_settings=run_settings,
             )
         elif task.scenario == SpeedScenario.BENCHMARK_ALL_METHOD_MULTI_SOURCE:
@@ -810,7 +796,6 @@ def _run_benchmark_sample(
     source_file: Path,
     gold_spans_path: Path,
     sample_dir: Path,
-    execution_mode: str,
     run_settings: RunSettings,
 ) -> dict[str, Any]:
     import cookimport.cli as cli
@@ -827,7 +812,6 @@ def _run_benchmark_sample(
         processed_output_dir=processed_output_dir,
         eval_output_dir=eval_output_dir,
         eval_mode="canonical-text",
-        execution_mode=execution_mode,
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,

@@ -1608,3 +1608,60 @@ Durable outcomes:
 
 Anti-loop reminder:
 - If ETA feels stale again, check blend math and step-sample updates before widening callback frequency.
+
+## 2026-03-06 migrated understanding ledger (top-tier source, chooser validation, and pass4 follow-up)
+
+### 2026-03-06_14.22.47 and 2026-03-06_14.47.31 top-tier contract source-of-truth
+
+Merged source notes:
+- `docs/understandings/2026-03-06_14.22.47-top-tier-contract-vs-benchmark-normalization.md`
+- `docs/understandings/2026-03-06_14.47.31-top-tier-codex-profile-source-of-truth.md`
+
+Problem captured:
+- Interactive top-tier behavior was easy to “fix” in menu code even though the actual defaults and benchmark harmonization lived deeper in the shared Codex decision layer.
+
+Durable findings:
+- `apply_top_tier_profile_contract(...)` in `cookimport/config/codex_decision.py` is the authoritative source for CodexFarm top-tier defaults.
+- Shared chooser flows load or build a `RunSettings` payload, then harmonize it through that contract.
+- The benchmark-normalization path and the interactive top-tier chooser therefore need to stay aligned through the same shared patch set, not through duplicated menu-local overrides.
+
+Anti-loop note:
+- If interactive top-tier and benchmark normalization drift, audit `codex_decision.py` first and only then adjust UI docs/tests.
+
+### 2026-03-06_19.07.00 benchmark menu codex-effort validation boundary
+
+Source:
+- `docs/understandings/2026-03-06_19.07.00-benchmark-menu-codex-effort-validation-gap.md`
+
+Problem captured:
+- A fixed effort-choice list could offer unsupported model / reasoning-effort pairs if chooser code stopped honoring discovered `supported_reasoning_efforts`.
+
+Durable findings:
+- The real validation seam belongs in the shared chooser path, not in one benchmark menu wrapper.
+- Current intended behavior is:
+  - discover models,
+  - derive supported effort choices from model metadata,
+  - rebuild `RunSettings` through validated parsing.
+
+Anti-loop note:
+- If a bad model / effort pair shows up again, inspect `build_codex_farm_reasoning_effort_choices(...)` and chooser wiring before touching benchmark command flags.
+
+### 2026-03-06_20.30.00 and 2026-03-06_21.20.00 pass4 follow-up seam and line-index join caveats
+
+Merged source notes:
+- `docs/understandings/2026-03-06_20.30.00-followup-cli-pass4-gap.md`
+- `docs/understandings/2026-03-06_21.20.00-followup-attribution-and-line-role-join-caveats.md`
+
+Problem captured:
+- Follow-up tooling originally centered on line-role and recipe-pass evidence, while pass4 needed a run-level seam. At the same time, some line-role follow-up views were using direct index joins that could misalign canonical changed-line rows with atomic line-role rows.
+
+Durable findings:
+- Pass4 review needs dedicated selector/output shapes instead of being forced through line-role prompt-link audit semantics.
+- Current `cf-debug` direction is:
+  - pass4 selectors at the run level,
+  - dedicated pass4 audit output,
+  - pass4 artifact locators preserved separately from recipe pass1 / pass2 / pass3 artifacts.
+- For structural title / header regressions, stage / draft title-labeling code paths are often more trustworthy than follow-up packet line-index joins.
+
+Anti-loop note:
+- If a follow-up packet shows the “wrong text,” suspect canonical-vs-atomic join mismatch before blaming the model or the benchmark scorer.

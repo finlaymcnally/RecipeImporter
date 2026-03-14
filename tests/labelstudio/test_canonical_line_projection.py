@@ -142,6 +142,26 @@ def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -
     assert stage_payload["block_labels"]["1"] == "KNOWLEDGE"
     assert any("Pass4 block classifications merged" in note for note in stage_payload["notes"])
 
+    merge_report = json.loads(
+        artifacts["pass4_merge_report_path"].read_text(encoding="utf-8")
+    )
+    assert merge_report["merge_mode"] == "block_classifications"
+    assert merge_report["selected_line_count"] == 1
+    assert merge_report["upgraded_other_to_knowledge_count"] == 1
+
+    changed_rows = [
+        json.loads(line)
+        for line in artifacts["pass4_merge_changed_rows_path"].read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    assert len(changed_rows) == 1
+    assert changed_rows[0]["line_index"] == 1
+    assert changed_rows[0]["old_label"] == "OTHER"
+    assert changed_rows[0]["new_label"] == "KNOWLEDGE"
+    assert changed_rows[0]["selection_reason"] == "block_classification_knowledge"
+
     projected_rows = [
         json.loads(line)
         for line in artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()

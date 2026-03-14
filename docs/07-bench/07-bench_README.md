@@ -185,11 +185,16 @@ When `--line-role-pipeline != off`, eval runs also write diagnostics under `line
   - baseline source is paired history eval rows when available (same source, canonical mode, `line_role_pipeline=off`, preferring matching `llm_recipe_pipeline`); fallback remains inferred baseline from `decided_by` metadata when no paired baseline exists.
 - `slice_metrics.json`
 - `knowledge_budget.json`
+- `pass4_merge_summary.json`
+  - written when prediction-run pass4 merge artifacts are present; summarizes how many pass4-driven label changes reached benchmark scoring and how many matched gold.
 - `prompt_eval_alignment.md`
 - stable sampled cutdowns (`wrong_label_lines.sample.jsonl`, `correct_label_lines.sample.jsonl`, `aligned_prediction_blocks.sample.jsonl`, `line_role_flips_vs_baseline.sample.jsonl`)
 - prediction-run side also writes guardrail diagnostics:
   - `guardrail_report.json`
   - `guardrail_changed_rows.jsonl`
+  - pass4 merge proof artifacts when pass4 merge inputs were available:
+    - `pass4_merge_report.json`
+    - `pass4_merge_changed_rows.jsonl`
 - CodexFarm recipe runs additionally emit raw LLM guardrail diagnostics under `raw/llm/<workbook_slug>/`:
   - `guardrail_report.json`
   - `guardrail_rows.jsonl`
@@ -2089,3 +2094,52 @@ Known bad / anti-loop reminders carried forward:
 - If a single-profile dashboard/per-label view shows empty baseline or delta cells, check whether the run root is a non-paired `full_stack` path before assuming analytics lost the row.
 - If a group upload bundle suddenly grows again, inspect high-level required-artifact selection and final serialized-size accounting before shrinking the byte target constant.
 - If an interactive codex benchmark prints a vanilla-looking status line, inspect variant planning and nested-summary suppression together; those two seams caused the earlier confusion.
+
+## 2026-03-13 merged understandings digest (normalization, pass4 reality, and run semantics)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-06_13.50.15-qualitysuite-baseline-normalization-vs-resolved-metadata.md`
+- `docs/understandings/2026-03-06_14.19.41-qualitysuite-deterministic-only-codexfarm-disabled.md`
+- `docs/understandings/2026-03-06_14.22.23-benchmark-vs-stage-knowledge-pass-wiring.md`
+- `docs/understandings/2026-03-06_16.11.52-single-profile-dinnerfor2-pass2-content-filter-failure.md`
+- `docs/understandings/2026-03-06_16.24.50-benchmark-partial-pass2-timeout-soft-recovery.md`
+- `docs/understandings/2026-03-06_16.48.07-benchmark-selective-retry-resume-seams.md`
+- `docs/understandings/2026-03-06_16.52.59-benchmark-run-15.22.11-quality-vs-priors.md`
+- `docs/understandings/2026-03-06_16.57.36-benchmark-selective-retry-insertion-points.md`
+- `docs/understandings/2026-03-06_16.59.46-why-run-15.22.11-codex-lift-was-small.md`
+- `docs/understandings/2026-03-06_17.05.21-codex-lift-collapse-factor-split.md`
+- `docs/understandings/2026-03-06_17.14.42-benchmark-selective-retry-shipped-contract.md`
+- `docs/understandings/2026-03-06_18.02.20-benchmark-cutdown-pass4-reconstruction-gap.md`
+- `docs/understandings/2026-03-06_18.07.27-why-pass4-knowledge-did-not-move-benchmark.md`
+- `docs/understandings/2026-03-06_18.40.53-pass4-canonical-benchmark-surface.md`
+- `docs/understandings/2026-03-06_19.25.00-benchmark-selective-retry-review-gaps.md`
+- `docs/understandings/2026-03-06_20.05.00-upload-bundle-pass4-surfacing-gap.md`
+- `docs/understandings/2026-03-13_21.42.17-pass4-knowledge-benchmark-seam.md`
+- `docs/understandings/2026-03-13_21.47.12-benchmark-execution-mode-semantics.md`
+- `docs/understandings/2026-03-13_21.53.28-prompt-budget-pass4-gap.md`
+- `docs/understandings/2026-03-13_21.56.22-benchmark-run-root-pair-semantics.md`
+- `docs/understandings/2026-03-13_22.10.00-pass4-merge-proof-artifacts.md`
+
+Current benchmark contracts reinforced:
+- QualitySuite baseline expansion is benchmark-contract-normalized first. `run_settings` in suite artifacts is the normalized executable baseline/candidate seed, while `requested_run_settings` preserves the pre-normalization request. Deterministic-only enforcement applies both to CLI flags and to loaded settings / experiment patches.
+- `labelstudio-benchmark` `execution_mode` is orchestration-only and has exactly three stored values: `legacy`, `pipelined`, and `predict-only`. It is not a CodexFarm pipeline selector and not the per-recipe `pass3_execution_mode` stored in `llm_manifest.json`.
+- Run-root semantics are simple once you separate direct runs from interactive session wrappers:
+  - a direct `labelstudio-benchmark` call writes one timestamped eval root unless `--eval-output-dir` overrides it,
+  - interactive `single-profile-benchmark` creates one session root and nests per-book / per-variant outputs underneath it,
+  - nearby sibling timestamps under `data/golden/benchmark-vs-golden/` are separate invocations, not an automatic paired-root contract.
+- Pass4 benchmark support evolved in layers and the current state is easy to misread from older artifacts:
+  - early March notes correctly observed that stage runs already had pass4 while benchmark paths did not yet forward it,
+  - current offline prediction generation does forward `llm_knowledge_pipeline`,
+  - `prediction-run/prompt_budget_summary.json` now includes `by_pass.pass4` from `llm_codex_farm.knowledge.process_run`,
+  - group and per-book `upload_bundle_v1` artifacts surface pass4 explicitly through `analysis.pass4_knowledge` and `navigation.row_locators.pass4_by_run`,
+  - benchmark line-role diagnostics now also include pass4 proof artifacts (`pass4_merge_report.json`, `pass4_merge_changed_rows.jsonl`, and eval-side `pass4_merge_summary.json`) so a run can distinguish “no inputs,” “inputs but zero scored changes,” and “inputs that changed scored labels.”
+- Pass4 still has a narrow scored seam in canonical-text benchmarks: it upgrades projected outside-span `OTHER` rows to `KNOWLEDGE` on the preferred line-role projection surface. It is not a full non-recipe relabeler, so real pass4 artifacts and token totals can coexist with nearly flat outside-span quality.
+- March 6 is the reference case for interpreting “small Codex lift” without inventing the wrong cause:
+  - DinnerFor2 lost the Codex eval entirely after a partial pass2 failure,
+  - deterministic line-role plus the newer shared parser / splitter stack collapsed much of the old Codex advantage,
+  - `atomic-v1` alone was not the main lift-collapser,
+  - pass4 added noticeable runtime / token cost in that slice while contributing little measurable benchmark lift.
+- Benchmark partial-output recovery now has two distinct layers:
+  - runner-level high-coverage recovery for mixed `nonzero_exit_no_payload` + `timeout` exits,
+  - pass-boundary selective retry for only the missing pass2 / pass3 bundle files.
+  Current review evidence proves pass2 retry coverage directly; pass3 support exists in the shared retry plumbing and manifest summaries, but that path still needs equally explicit tests if it becomes high-risk again.

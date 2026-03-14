@@ -3015,10 +3015,14 @@ def _summarize_line_role_artifacts(
         flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
         slice_path = line_role_dir / "slice_metrics.json"
         knowledge_path = line_role_dir / "knowledge_budget.json"
+        pass4_merge_report_path = line_role_dir / "pass4_merge_report.json"
+        pass4_merge_changed_rows_path = line_role_dir / "pass4_merge_changed_rows.jsonl"
+        pass4_merge_summary_path = line_role_dir / "pass4_merge_summary.json"
         gates_path = line_role_dir / "regression_gates.json"
 
         slice_payload = _load_json_object_or_none(slice_path) or {}
         knowledge_payload = _load_json_object_or_none(knowledge_path) or {}
+        pass4_merge_summary_payload = _load_json_object_or_none(pass4_merge_summary_path) or {}
         gates_payload = _load_json_object_or_none(gates_path) or {}
 
         gates_verdict = str(
@@ -3051,6 +3055,17 @@ def _summarize_line_role_artifacts(
                 "line_role_flips_vs_baseline_jsonl": _rel(flips_path) if flips_path.exists() else None,
                 "slice_metrics_json": _rel(slice_path) if slice_path.exists() else None,
                 "knowledge_budget_json": _rel(knowledge_path) if knowledge_path.exists() else None,
+                "pass4_merge_report_json": (
+                    _rel(pass4_merge_report_path) if pass4_merge_report_path.exists() else None
+                ),
+                "pass4_merge_changed_rows_jsonl": (
+                    _rel(pass4_merge_changed_rows_path)
+                    if pass4_merge_changed_rows_path.exists()
+                    else None
+                ),
+                "pass4_merge_summary_json": (
+                    _rel(pass4_merge_summary_path) if pass4_merge_summary_path.exists() else None
+                ),
                 "regression_gates_json": _rel(gates_path) if gates_path.exists() else None,
                 "regression_gates_verdict": gates_verdict or None,
                 "slice_metrics_summary": slices_summary,
@@ -3068,6 +3083,7 @@ def _summarize_line_role_artifacts(
                 }
                 if knowledge_payload
                 else {},
+                "pass4_merge_summary": pass4_merge_summary_payload,
             }
         )
 
