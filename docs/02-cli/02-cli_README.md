@@ -1814,7 +1814,7 @@ Current CLI contracts reinforced:
 Regression anchors from merged tasks:
 - `tests/cli/test_c3imp_interactive_menu.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
-- `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_multi_source.py`
 - `tests/llm/test_run_settings.py`
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
 

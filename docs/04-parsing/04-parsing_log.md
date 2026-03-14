@@ -506,7 +506,7 @@ Details preserved:
 
 ## Findings
 
-- Benchmark runtime execution already forwarded `p6_*` selectors into prediction generation, but benchmark manifest dictionaries (`predict_only_run_config`, `benchmark_run_config`) initially omitted them.
+- Benchmark runtime execution already forwarded `p6_*` selectors into prediction generation, but the benchmark prediction/eval manifest dictionaries initially omitted them.
 - `labelstudio_benchmark` passed `p6_*` kwargs into `run_labelstudio_import(...)`, but ingest signatures had not yet been extended, causing a latent runtime mismatch on upload-enabled paths.
 - `bench/pred_run.py` forwarded only a subset of parsing knobs and initially dropped `p6_*` selectors from helper-driven offline prediction runs.
 - Oven-like classification used a broad negative-hint window; distant `internal` text could suppress nearby preheat/bake temperatures, making `max_oven_temp_f` unexpectedly null.

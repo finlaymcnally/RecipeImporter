@@ -19,6 +19,7 @@ def build_pass2_transport_selection(
     recipe_id: str,
     bundle_name: str,
     pass1_status: str,
+    source_hash: str | None = None,
     start_block_index: int | None,
     end_block_index: int | None,
     excluded_block_ids: Sequence[str],
@@ -86,10 +87,34 @@ def build_pass2_transport_selection(
         mismatch_reasons.append("missing_effective_indices_in_payload")
     if unexpected_payload_indices:
         mismatch_reasons.append("unexpected_payload_indices")
-
     requested_span_count = 0
     if start is not None and end is not None:
         requested_span_count = max(0, (end - start) + 1)
+    source_row_count = len(included_blocks)
+    verification_reason_codes: list[str] = []
+    if start is None or end is None:
+        verification_reason_codes.append("transport_missing_pass1_span_bounds")
+    if source_row_count != len(effective_indices):
+        verification_reason_codes.append("transport_missing_source_blocks_within_span")
+    if payload_indices != effective_indices:
+        verification_reason_codes.append("transport_payload_index_mismatch")
+    if payload_block_ids != effective_block_ids:
+        verification_reason_codes.append("transport_payload_block_id_mismatch")
+    if len(payload_indices) != len(effective_indices):
+        verification_reason_codes.append("transport_payload_row_count_mismatch")
+    if missing_effective_indices:
+        verification_reason_codes.append("transport_payload_missing_effective_indices")
+    if unexpected_payload_indices:
+        verification_reason_codes.append("transport_unexpected_payload_indices")
+
+    verification = {
+        "status": "mismatch" if verification_reason_codes else "ok",
+        "reason_codes": verification_reason_codes,
+        "source_hash": str(source_hash or "").strip() or None,
+        "source_row_count": source_row_count,
+        "effective_row_count": len(effective_indices),
+        "payload_row_count": len(payload_indices),
+    }
     coverage_ratio = 1.0
     if effective_indices:
         coverage_ratio = len(payload_indices) / len(effective_indices)
@@ -116,6 +141,7 @@ def build_pass2_transport_selection(
         "effective_to_payload_coverage_ratio": round(float(coverage_ratio), 6),
         "mismatch": bool(mismatch_reasons),
         "mismatch_reasons": mismatch_reasons,
+        "verification": verification,
     }
 
     return Pass2TransportSelection(

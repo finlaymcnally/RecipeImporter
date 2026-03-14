@@ -1196,8 +1196,8 @@ def test_orchestrator_repairs_placeholder_only_pass3_steps_from_pass2_instructio
                     "@type": "Recipe",
                     "name": "Toast",
                 },
-                "extracted_ingredients": ["1 slice bread"],
-                "extracted_instructions": ["Toast the bread."],
+                "extracted_ingredients": ["1 slice bread", "1 tbsp butter"],
+                "extracted_instructions": ["Toast the bread.", "Butter the toast."],
                 "field_evidence": {},
                 "warnings": [],
             },
@@ -1365,6 +1365,112 @@ def test_orchestrator_coerces_pass2_like_pass3_draft_shape_to_draft_v1(
     assert final_draft["schema_v"] == 1
     assert final_draft["recipe"]["title"] == "Toast"
     assert final_draft["steps"][0]["instruction"] == "Toast the bread."
+
+
+def test_orchestrator_marks_placeholder_title_as_structural_failure(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack")
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Untitled Recipe",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            }
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass2"] == "degraded"
+    assert recipe_row["pass3"] == "fallback"
+    assert recipe_row["structural_status"] == "failed"
+    assert "placeholder_title" in recipe_row["structural_reason_codes"]
+
+
+def test_orchestrator_rejects_empty_mapping_without_reason(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=False)
+    result = _build_conversion_result(source)
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {"instruction": "Toast the bread.", "ingredient_lines": []},
+                        {"instruction": "Butter the toast.", "ingredient_lines": []},
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass3"] == "fallback"
+    assert recipe_row["structural_status"] == "failed"
+    assert "empty_mapping_without_reason" in recipe_row["structural_reason_codes"]
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
@@ -2323,8 +2429,6 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
     assert retry_payload["recovered_bundle_count"] == 0
     assert retry_payload["unrecovered_bundle_count"] == 1
     assert len(retry_payload["attempts"]) == 1
-
-
 
 
 

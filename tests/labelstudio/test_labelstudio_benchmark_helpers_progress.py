@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import tests.labelstudio.benchmark_helper_cases as _base
+import tests.labelstudio.benchmark_helper_support as _base
 
-# Reuse shared imports/helpers from the base benchmark helpers module.
+# Reuse shared imports/helpers from the benchmark helper support module.
 globals().update({
     name: value
     for name, value in _base.__dict__.items()
@@ -1052,7 +1052,7 @@ def test_all_method_dashboard_current_config_tracks_active_parallel_configs() ->
     variants = [
         cli.AllMethodVariant(
             slug="extractor_unstructured",
-            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            run_settings=_benchmark_test_run_settings(),
             dimensions={"epub_extractor": "unstructured"},
         )
         for _ in range(3)
@@ -1108,7 +1108,7 @@ def test_all_method_dashboard_preserves_long_task_message() -> None:
     variants = [
         cli.AllMethodVariant(
             slug="extractor_unstructured",
-            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            run_settings=_benchmark_test_run_settings(),
             dimensions={"epub_extractor": "unstructured"},
         )
     ]
@@ -1150,7 +1150,7 @@ def test_all_method_dashboard_renders_multiple_running_sources() -> None:
     variants = [
         cli.AllMethodVariant(
             slug="extractor_unstructured",
-            run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+            run_settings=_benchmark_test_run_settings(),
             dimensions={"epub_extractor": "unstructured"},
         )
     ]

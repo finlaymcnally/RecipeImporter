@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import tests.labelstudio.benchmark_helper_cases as _base
+import tests.labelstudio.benchmark_helper_support as _base
 
-# Reuse shared imports/helpers from the base benchmark helpers module.
+# Reuse shared imports/helpers from the benchmark helper support module.
 globals().update({
     name: value
     for name, value in _base.__dict__.items()
@@ -192,7 +192,6 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     assert benchmark_calls[0]["gold_spans"] == gold_a
     assert benchmark_calls[0]["source_file"] == source_a
     assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
-    assert benchmark_calls[0]["execution_mode"] == cli.BENCHMARK_EXECUTION_MODE_PIPELINED
     assert benchmark_calls[0]["no_upload"] is True
     assert benchmark_calls[0]["eval_output_dir"] == (
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a"
@@ -540,7 +539,7 @@ def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bu
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_10.00.00"
     processed_output_root = tmp_path / "processed"
-    selected_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    selected_settings = _benchmark_test_run_settings()
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", lambda **_kwargs: None)
     upload_bundle_calls: list[dict[str, object]] = []

@@ -794,7 +794,7 @@ Current-contract additions from this audit:
   - benchmark call kwargs,
   - ingest signatures + `build_run_settings(...)`,
   - pred-run helper forwarding,
-  - manifest `predict_only_run_config` and `benchmark_run_config`.
+  - benchmark prediction-stage and eval run manifests.
 - `max_oven_temp_f` extraction is intentionally context-sensitive:
   - broad positive oven context is allowed,
   - negative hints are applied in a local window near the matched temperature,

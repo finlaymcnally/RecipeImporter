@@ -13,7 +13,7 @@ def test_plan_all_method_source_jobs_tail_pair_interleaves_heavy_and_light(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
         run_settings=base_settings,
@@ -90,7 +90,7 @@ def test_plan_all_method_source_jobs_shards_heavy_sources(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = [
         cli.AllMethodVariant(
             slug=f"extractor_{index:02d}",
@@ -152,7 +152,7 @@ def test_plan_all_method_global_work_items_tail_pair_interleaves_sharded_sources
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     heavy_variants = [
         cli.AllMethodVariant(
             slug=f"heavy_{index:02d}",

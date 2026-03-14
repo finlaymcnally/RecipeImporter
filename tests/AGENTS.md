@@ -67,6 +67,8 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
 - Keep tests modular:
   - Every new `tests/**/test_*.py` file must be placed in the correct domain folder.
   - Every new `tests/**/test_*.py` file must be added to `tests/conftest.py` marker mapping.
+  - For the Label Studio benchmark-helper area, keep shared imports/helper writers in `tests/labelstudio/benchmark_helper_support.py`; do not make one `test_*.py` file serve as the shared helper source for other test files.
+  - If a benchmark-helper file starts becoming mixed-purpose or hard to target, split it by behavior before it turns into another mega test module.
   - Mark costly files in `_SLOW_FILES`.
   - Keep at least a few fast sanity tests in `_SMOKE_FILES`.
 - Keep output minimal:

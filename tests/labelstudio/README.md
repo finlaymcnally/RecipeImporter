@@ -1,4 +1,4 @@
 # Label Studio Tests
 
-`benchmark_helper_cases.py` keeps shared benchmark-helper case bodies and fixtures.
-Use the focused `test_labelstudio_benchmark_helpers_*.py` entrypoints for targeted runs instead of a single giant module.
+`benchmark_helper_support.py` keeps shared benchmark-helper imports and helper writers.
+Use the focused `test_labelstudio_benchmark_helpers_*.py` files for targeted runs instead of giant mixed modules.

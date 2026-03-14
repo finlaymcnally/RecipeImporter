@@ -50,6 +50,7 @@ class FakeCodexFarmRunner:
             telemetry_report=None,
             autotune_report=None,
             telemetry=None,
+            runtime_mode_audit=None,
         )
 
 

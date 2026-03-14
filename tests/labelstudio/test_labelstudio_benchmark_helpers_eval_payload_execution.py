@@ -870,7 +870,7 @@ def test_build_prediction_bundle_prefers_line_role_projection_for_canonical_mode
     assert line_role_bundle.stage_predictions_path == line_role_stage_predictions_path
     assert line_role_bundle.extracted_archive_path == line_role_extracted_archive_path
 
-def test_labelstudio_benchmark_writes_pipelined_execution_mode_manifest(
+def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -972,9 +972,9 @@ def test_labelstudio_benchmark_writes_pipelined_execution_mode_manifest(
     run_manifest = json.loads(
         (eval_root / "run_manifest.json").read_text(encoding="utf-8")
     )
-    assert run_manifest["run_config"]["execution_mode"] == "pipelined"
+    assert "execution_mode" not in run_manifest["run_config"]
 
-def test_labelstudio_benchmark_internal_skip_evaluation_writes_prediction_artifacts_only(
+def test_run_offline_benchmark_prediction_stage_writes_prediction_artifacts_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1054,21 +1054,104 @@ def test_labelstudio_benchmark_internal_skip_evaluation_writes_prediction_artifa
 
     eval_root = tmp_path / "eval-skip-evaluation"
     predictions_out = tmp_path / "prediction-records.jsonl"
-    cli.labelstudio_benchmark(
-        gold_spans=gold_spans,
-        source_file=source_file,
-        output_dir=tmp_path / "golden",
-        processed_output_dir=tmp_path / "output",
+    result = cli._run_offline_benchmark_prediction_stage(
+        prediction_generation_kwargs={
+            "path": source_file,
+            "output_dir": tmp_path / "golden",
+            "processed_output_root": tmp_path / "output",
+            "pipeline": "auto",
+            "segment_blocks": 40,
+            "segment_overlap": 5,
+            "limit": None,
+            "sample": None,
+            "workers": 1,
+            "pdf_split_workers": 1,
+            "epub_split_workers": 1,
+            "pdf_pages_per_job": 50,
+            "epub_spine_items_per_job": 10,
+            "epub_extractor": "unstructured",
+            "epub_unstructured_html_parser_version": "v1",
+            "epub_unstructured_skip_headers_footers": True,
+            "epub_unstructured_preprocess_mode": "semantic_v1",
+            "ocr_device": "auto",
+            "pdf_ocr_policy": "auto",
+            "ocr_batch_size": 1,
+            "pdf_column_gap_ratio": 0.12,
+            "warm_models": False,
+            "section_detector_backend": "legacy",
+            "multi_recipe_splitter": "legacy",
+            "multi_recipe_trace": False,
+            "multi_recipe_min_ingredient_lines": 1,
+            "multi_recipe_min_instruction_lines": 1,
+            "multi_recipe_for_the_guardrail": True,
+            "instruction_step_segmentation_policy": "auto",
+            "instruction_step_segmenter": "heuristic_v1",
+            "web_schema_extractor": "builtin_jsonld",
+            "web_schema_normalizer": "simple",
+            "web_html_text_extractor": "bs4",
+            "web_schema_policy": "prefer_schema",
+            "web_schema_min_confidence": 0.75,
+            "web_schema_min_ingredients": 2,
+            "web_schema_min_instruction_steps": 1,
+            "ingredient_text_fix_backend": "none",
+            "ingredient_pre_normalize_mode": "legacy",
+            "ingredient_packaging_mode": "off",
+            "ingredient_parser_backend": "ingredient_parser_nlp",
+            "ingredient_unit_canonicalizer": "legacy",
+            "ingredient_missing_unit_policy": "null",
+            "p6_time_backend": "regex_v1",
+            "p6_time_total_strategy": "sum_all_v1",
+            "p6_temperature_backend": "regex_v1",
+            "p6_temperature_unit_backend": "builtin_v1",
+            "p6_ovenlike_mode": "keywords_v1",
+            "p6_yield_mode": "legacy_v1",
+            "p6_emit_metadata_debug": False,
+            "recipe_scorer_backend": "heuristic_v1",
+            "recipe_score_gold_min": 0.75,
+            "recipe_score_silver_min": 0.55,
+            "recipe_score_bronze_min": 0.35,
+            "recipe_score_min_ingredient_lines": 1,
+            "recipe_score_min_instruction_lines": 1,
+            "llm_recipe_pipeline": "off",
+            "llm_knowledge_pipeline": "off",
+            "atomic_block_splitter": "off",
+            "line_role_pipeline": "off",
+            "line_role_guardrail_mode": "disabled",
+            "codex_farm_cmd": None,
+            "codex_farm_model": None,
+            "codex_farm_reasoning_effort": None,
+            "codex_farm_root": None,
+            "codex_farm_workspace_root": None,
+            "codex_farm_pass1_pattern_hints_enabled": False,
+            "codex_farm_pipeline_pass1": None,
+            "codex_farm_pipeline_pass2": None,
+            "codex_farm_pipeline_pass3": None,
+            "codex_farm_pipeline_pass4_knowledge": None,
+            "codex_farm_context_blocks": 0,
+            "codex_farm_pass3_skip_pass2_ok": True,
+            "codex_farm_benchmark_selective_retry_enabled": False,
+            "codex_farm_benchmark_selective_retry_max_attempts": 1,
+            "codex_farm_knowledge_context_blocks": 0,
+            "codex_farm_recipe_mode": "extract",
+            "codex_farm_failure_mode": "fail_closed",
+            "allow_codex": False,
+            "codex_execution_policy": "execute",
+            "write_markdown": True,
+            "write_label_studio_tasks": False,
+            "scheduler_event_callback": None,
+            "progress_callback": None,
+            "run_manifest_kind": "bench_pred_run",
+        },
         eval_output_dir=eval_root,
-        no_upload=True,
-        skip_evaluation_internal=True,
-        predictions_out=predictions_out,
+        predictions_out_path=predictions_out,
     )
 
     assert not (eval_root / "eval_report.json").exists()
+    assert result.prediction_records
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
-    assert run_manifest["run_config"]["execution_mode"] == "pipelined"
-    assert run_manifest["run_config"]["predict_only"] is True
+    assert run_manifest["run_kind"] == "labelstudio_benchmark_prediction_stage"
+    assert "execution_mode" not in run_manifest["run_config"]
+    assert "predict_only" not in run_manifest["run_config"]
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
     records = list(read_prediction_records(predictions_out))
     assert len(records) == 1

@@ -131,7 +131,6 @@ def build_benchmark_call_kwargs_from_run_settings(
         "output_dir": output_dir,
         "eval_output_dir": eval_output_dir,
         "eval_mode": eval_mode,
-        "execution_mode": "pipelined",
         "sequence_matcher": selected_sequence_matcher,
         "no_upload": bool(no_upload),
         "write_markdown": bool(write_markdown),

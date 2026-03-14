@@ -57,9 +57,17 @@ Active layout exceptions and support assets:
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` (single-offline orchestration and routing),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py` (single-offline comparison/starter-pack/runtime helpers),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_export_selection.py` (interactive export/project-selection flows),
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py` (benchmark eval/payload contracts),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_compare.py` (benchmark compare payload acceptance),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_execution.py` (benchmark prediction/eval artifact wiring),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_pipelined.py` (pipelined prediction/eval streaming behavior),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_artifacts.py` (prune/extractor validation behavior),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py` (progress/status/dashboard rendering contracts),
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py` (all-method scheduler internals),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_targets.py` (all-method target discovery and variant construction),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_planning.py` (scheduler limits/planning/runtime math),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_global_queue.py` (global-queue execution and eval scheduling),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_prediction_reuse.py` (prediction reuse and adapter-forwarding behavior),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_run_reports.py` (all-method run reporting/timeouts/retries),
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_multi_source.py` (multi-source batching and interactive all-method routing),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py` (single-profile matched-book flows).
 - Label Studio prelabel coverage is split into:
   - `tests/labelstudio/test_labelstudio_prelabel.py` (block/span labeling + prompt template contracts),
@@ -122,9 +130,17 @@ Common run patterns:
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_artifacts.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_export_selection.py`
-- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_compare.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_execution.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_pipelined.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_artifacts.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py`
-- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_targets.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_planning.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_global_queue.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_prediction_reuse.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_run_reports.py`
+- `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_multi_source.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_prelabel.py`
 - `. .venv/bin/activate && pytest tests/labelstudio/test_labelstudio_prelabel_codex_cli.py`

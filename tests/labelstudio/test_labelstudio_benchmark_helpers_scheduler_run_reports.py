@@ -10,11 +10,17 @@ globals().update({
     and not (name.startswith("__") and name.endswith("__"))
 })
 
+
+@pytest.fixture(autouse=True)
+def _benchmark_codex_execution_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_benchmark_call_kwargs_codex_policy(monkeypatch)
+
+
 def test_run_all_method_benchmark_writes_ranked_summary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     markdown_settings = cli.RunSettings.from_dict(
         {
             **base_settings.to_run_config_dict(),
@@ -54,7 +60,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         assert isinstance(alignment_cache_dir, Path)
         captured_alignment_cache_dirs.append(alignment_cache_dir)
         extractor = str(kwargs.get("epub_extractor") or "")
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -70,6 +76,21 @@ def test_run_all_method_benchmark_writes_ranked_summary(
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
 
     processed_root = tmp_path / "processed-output"
     report_md_path = cli._run_all_method_benchmark(
@@ -107,7 +128,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     base_payload = base_settings.to_run_config_dict()
     extractors = ("unstructured", "beautifulsoup", "markdown", "markitdown")
     variants = [
@@ -151,7 +172,7 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
             extractor = str(kwargs.get("epub_extractor") or "")
             eval_output_dir = kwargs["eval_output_dir"]
             assert isinstance(eval_output_dir, Path)
-            if bool(kwargs.get("skip_evaluation_internal")):
+            if bool(kwargs.get("prediction_stage_only")):
                 assert cli._BENCHMARK_SPLIT_PHASE_SLOTS.get() == 2
                 assert cli._BENCHMARK_SPLIT_PHASE_GATE_DIR.get()
                 time.sleep(delays[extractor])
@@ -171,6 +192,21 @@ def test_run_all_method_benchmark_parallel_queue_respects_inflight_and_rank_orde
                 active_count -= 1
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
     monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
@@ -209,7 +245,7 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     base_payload = base_settings.to_run_config_dict()
     variants = [
         cli.AllMethodVariant(
@@ -238,7 +274,7 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
         extractor = str(kwargs.get("epub_extractor") or "")
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             if extractor == "unstructured":
                 time.sleep(1.2)
             else:
@@ -256,6 +292,21 @@ def test_run_all_method_benchmark_marks_timeout_and_finishes_report(
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
     monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
@@ -285,7 +336,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     base_payload = base_settings.to_run_config_dict()
     variants = [
         cli.AllMethodVariant(
@@ -322,10 +373,10 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
 
     def fake_labelstudio_benchmark(**kwargs):
         extractor = str(kwargs.get("epub_extractor") or "")
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             call_counts[extractor] = call_counts.get(extractor, 0) + 1
         if (
-            bool(kwargs.get("skip_evaluation_internal"))
+            bool(kwargs.get("prediction_stage_only"))
             and extractor == "beautifulsoup"
             and call_counts[extractor] == 1
         ):
@@ -333,7 +384,7 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
 
         eval_output_dir = kwargs["eval_output_dir"]
         assert isinstance(eval_output_dir, Path)
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
                 source_file=source_file,
@@ -351,6 +402,21 @@ def test_run_all_method_benchmark_retries_only_failed_configs(
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
     monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
@@ -382,7 +448,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     base_payload = base_settings.to_run_config_dict()
     variants = [
         cli.AllMethodVariant(
@@ -417,7 +483,7 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
     def fake_labelstudio_benchmark(**kwargs):
         callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             if callback is not None:
                 callback({"event": "prep_started"})
                 time.sleep(phase_profile["prep"])
@@ -455,6 +521,21 @@ def test_run_all_method_benchmark_smart_scheduler_improves_heavy_slot_utilizatio
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
     monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     fixed_report = cli._run_all_method_benchmark(
@@ -511,7 +592,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = [
         cli.AllMethodVariant(
             slug=f"config_{index:02d}",
@@ -528,7 +609,7 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
     def fake_labelstudio_benchmark(**kwargs):
         callback = cli._BENCHMARK_SCHEDULER_EVENT_CALLBACK.get()
         extractor = str(kwargs.get("epub_extractor") or "unstructured")
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             if callback is not None:
                 callback({"event": "prep_started"})
                 time.sleep(0.01)
@@ -558,6 +639,21 @@ def test_run_all_method_benchmark_writes_scheduler_timeseries(
         )
 
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
     monkeypatch.setattr(cli, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     report_md_path = cli._run_all_method_benchmark(
@@ -612,7 +708,7 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     base_payload = base_settings.to_run_config_dict()
     variants = [
         cli.AllMethodVariant(
@@ -648,7 +744,7 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
     def fake_labelstudio_benchmark(**kwargs):
         nonlocal call_count
         extractor = str(kwargs.get("epub_extractor") or "")
-        if bool(kwargs.get("skip_evaluation_internal")):
+        if bool(kwargs.get("prediction_stage_only")):
             call_count += 1
             _write_fake_all_method_prediction_phase_artifacts(
                 kwargs=kwargs,
@@ -665,6 +761,21 @@ def test_run_all_method_benchmark_falls_back_to_thread_executor_when_process_wor
 
     messages: list[str] = []
     monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    monkeypatch.setattr(
+        cli,
+        "_run_offline_benchmark_prediction_stage",
+        lambda **kwargs: _dispatch_fake_prediction_stage_via_legacy_benchmark_double(
+            fake_labelstudio_benchmark=fake_labelstudio_benchmark,
+            prediction_generation_kwargs=kwargs["prediction_generation_kwargs"],
+            eval_output_dir=kwargs["eval_output_dir"],
+            predictions_out_path=kwargs["predictions_out_path"],
+            source_file=source_file,
+            extractor=str(
+                kwargs["prediction_generation_kwargs"].get("epub_extractor")
+                or "unstructured"
+            ),
+        ),
+    )
     monkeypatch.setattr(
         cli.typer,
         "secho",

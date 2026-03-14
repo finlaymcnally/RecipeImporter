@@ -491,7 +491,7 @@ Details preserved:
 
 Key flow now:
 
-- Phase A runs each config with `execution_mode=predict-only` and writes `prediction-records.jsonl`.
+- Phase A runs each config through the benchmark prediction-stage helper and writes `prediction-records.jsonl`.
 - Phase B computes `eval_signature` from prediction payload + gold fingerprints + evaluator settings.
 - One representative config per signature runs evaluate-only (`predictions_in=...`), then duplicates reuse that result.
 
@@ -652,7 +652,7 @@ Details preserved:
     - `tests/bench/test_speed_suite_compare.py`
     - `tests/bench/test_bench.py -k "speed_discover or speed_run or speed_compare"`
     - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "tail_pair or shard or planner or source_parallelism or multi_source_parallel_cap_and_ordering"`
-    - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "all_method or predict_only or predictions_in"`
+    - `tests/labelstudio/test_labelstudio_benchmark_helpers.py -k "all_method or prediction or predictions_in"`
     - `tests/bench/test_prediction_records.py tests/bench/test_canonical_alignment_cache.py`
 
 ### 2026-02-27_21.00.53 priority plans vs per label metric shape
@@ -6760,15 +6760,13 @@ Anti-loop note:
 ### 2026-03-13_21.47.12 and 2026-03-13_21.56.22 execution-mode and run-root semantics
 
 Merged source notes:
-- `docs/understandings/2026-03-13_21.47.12-benchmark-execution-mode-semantics.md`
 - `docs/understandings/2026-03-13_21.56.22-benchmark-run-root-pair-semantics.md`
 
 Problem captured:
-- Relative-path and manifest reading made it too easy to misread benchmark `execution_mode` as a CodexFarm pass mode and sibling timestamp roots as intrinsic paired-run behavior.
+- Relative-path and manifest reading made it too easy to misread benchmark runner metadata as a CodexFarm pass mode and sibling timestamp roots as intrinsic paired-run behavior.
 
 Durable decisions:
-- `execution_mode` is only the benchmark runner orchestration mode: `legacy`, `pipelined`, `predict-only`.
-- `predict-only` still writes prediction artifacts but intentionally skips evaluation.
+- The benchmark command should describe one predict-plus-evaluate runtime path, while separate private helpers may still materialize prediction artifacts for reuse.
 - Direct benchmark calls create one timestamped root unless explicitly pointed elsewhere.
 - Prediction-generation scratch should resolve from the same `eval_output_dir`, keeping `prediction-run/` co-located under that eval root instead of spilling extra sibling timestamp folders under `data/golden/benchmark-vs-golden/`.
 - Interactive `single-profile-benchmark` nests child runs under its one session root by passing explicit `eval_output_dir` paths to child benchmark calls.

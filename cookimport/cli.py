@@ -13285,9 +13285,7 @@ def _run_offline_benchmark_prediction_stage(
     write_label_studio_tasks = bool(
         prediction_generation_kwargs.get("write_label_studio_tasks")
     )
-    should_upload_predictions = not bool(
-        prediction_generation_kwargs.get("auto_project_name_on_scope_mismatch")
-    ) and not bool(prediction_generation_kwargs.get("allow_labelstudio_write"))
+    should_upload_predictions = False
     line_role_pipeline = str(
         prediction_generation_kwargs.get("line_role_pipeline") or "off"
     ).strip().lower()

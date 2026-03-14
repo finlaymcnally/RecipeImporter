@@ -8,6 +8,7 @@ def test_build_pass2_transport_selection_uses_inclusive_end_and_exclusions() -> 
         recipe_id="urn:recipe:test:toast",
         bundle_name="toast__r000.json",
         pass1_status="ok",
+        source_hash="hash123",
         start_block_index=10,
         end_block_index=12,
         excluded_block_ids=["b11"],
@@ -22,6 +23,14 @@ def test_build_pass2_transport_selection_uses_inclusive_end_and_exclusions() -> 
     assert [int(row["index"]) for row in selection.included_blocks] == [10, 12]
     assert selection.audit["end_index_semantics"] == "inclusive"
     assert selection.audit["mismatch"] is False
+    assert selection.audit["verification"] == {
+        "effective_row_count": 2,
+        "payload_row_count": 2,
+        "reason_codes": [],
+        "source_hash": "hash123",
+        "source_row_count": 2,
+        "status": "ok",
+    }
 
 
 def test_build_pass2_transport_selection_reports_missing_effective_indices() -> None:
@@ -29,6 +38,7 @@ def test_build_pass2_transport_selection_reports_missing_effective_indices() -> 
         recipe_id="urn:recipe:test:toast",
         bundle_name="toast__r000.json",
         pass1_status="ok",
+        source_hash="hash123",
         start_block_index=1,
         end_block_index=3,
         excluded_block_ids=[],
@@ -42,6 +52,10 @@ def test_build_pass2_transport_selection_reports_missing_effective_indices() -> 
     assert "missing_effective_indices_in_payload" in selection.audit["mismatch_reasons"]
     assert selection.audit["missing_effective_indices"] == [2]
     assert selection.audit["payload_indices"] == [1, 3]
+    assert selection.audit["verification"]["status"] == "mismatch"
+    assert "transport_missing_source_blocks_within_span" in selection.audit["verification"][
+        "reason_codes"
+    ]
 
 
 def test_build_pass2_transport_selection_requires_pass1_bounds() -> None:
@@ -49,6 +63,7 @@ def test_build_pass2_transport_selection_requires_pass1_bounds() -> None:
         recipe_id="urn:recipe:test:toast",
         bundle_name="toast__r000.json",
         pass1_status="error",
+        source_hash="hash123",
         start_block_index=None,
         end_block_index=None,
         excluded_block_ids=[],
@@ -58,3 +73,6 @@ def test_build_pass2_transport_selection_requires_pass1_bounds() -> None:
     assert selection.audit["mismatch"] is True
     assert "missing_pass1_span_bounds" in selection.audit["mismatch_reasons"]
     assert selection.effective_indices == []
+    assert selection.audit["verification"]["reason_codes"] == [
+        "transport_missing_pass1_span_bounds"
+    ]

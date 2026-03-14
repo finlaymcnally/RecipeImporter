@@ -9,10 +9,17 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+
+@pytest.fixture(autouse=True)
+def _benchmark_codex_execution_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_benchmark_call_kwargs_codex_policy(monkeypatch)
+
+
 def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_failures(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
         run_settings=base_settings,
@@ -120,7 +127,7 @@ def test_run_all_method_benchmark_multi_source_writes_combined_summary_with_fail
 def test_run_all_method_benchmark_multi_source_forwards_dashboard_snapshots_without_rewrap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
         run_settings=base_settings,
@@ -199,7 +206,7 @@ def test_run_all_method_benchmark_multi_source_forwards_dashboard_snapshots_with
 def test_run_all_method_benchmark_multi_source_rerenders_partial_dashboard_snapshots(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
         run_settings=base_settings,
@@ -299,7 +306,7 @@ def test_run_all_method_benchmark_multi_source_rerenders_partial_dashboard_snaps
 def test_run_all_method_benchmark_multi_source_parallel_cap_and_ordering(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
         run_settings=base_settings,
@@ -440,7 +447,7 @@ def test_run_all_method_benchmark_multi_source_shards_source_and_reuses_cache_ov
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = [
         cli.AllMethodVariant(
             slug=f"extractor_{index:02d}",
@@ -553,7 +560,7 @@ def test_run_all_method_benchmark_multi_source_shards_source_and_reuses_cache_ov
 def test_run_all_method_benchmark_multi_source_batches_dashboard_refresh_when_parallel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
         run_settings=base_settings,
@@ -680,7 +687,7 @@ def test_run_all_method_benchmark_multi_source_defaults_to_global_scheduler_scop
             [
                 cli.AllMethodVariant(
                     slug="extractor_unstructured",
-                    run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+                    run_settings=_benchmark_test_run_settings(),
                     dimensions={"epub_extractor": "unstructured"},
                 )
             ],
@@ -739,7 +746,7 @@ def test_run_all_method_benchmark_multi_source_dispatches_legacy_scheduler_scope
             [
                 cli.AllMethodVariant(
                     slug="extractor_unstructured",
-                    run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+                    run_settings=_benchmark_test_run_settings(),
                     dimensions={"epub_extractor": "unstructured"},
                 )
             ],
@@ -808,7 +815,7 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
         lambda **_kwargs: [
             cli.AllMethodVariant(
                 slug="extractor_unstructured",
-                run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+                run_settings=_benchmark_test_run_settings(),
                 dimensions={"epub_extractor": "unstructured"},
             )
         ],
@@ -845,7 +852,7 @@ def test_interactive_all_method_benchmark_uses_timestamped_output_root(
     )
 
     cli._interactive_all_method_benchmark(
-        selected_benchmark_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        selected_benchmark_settings=_benchmark_test_run_settings(),
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
     )
@@ -902,7 +909,7 @@ def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_sour
 
     variant = cli.AllMethodVariant(
         slug="extractor_unstructured",
-        run_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        run_settings=_benchmark_test_run_settings(),
         dimensions={"epub_extractor": "unstructured"},
     )
 
@@ -943,7 +950,7 @@ def test_interactive_all_method_benchmark_all_matched_scope_routes_to_multi_sour
     )
 
     cli._interactive_all_method_benchmark(
-        selected_benchmark_settings=cli.RunSettings.from_dict({}, warn_context="test"),
+        selected_benchmark_settings=_benchmark_test_run_settings(),
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
     )

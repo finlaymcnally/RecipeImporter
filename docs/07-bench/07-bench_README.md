@@ -2124,7 +2124,7 @@ Merged source notes (timestamp order):
 
 Current benchmark contracts reinforced:
 - QualitySuite baseline expansion is benchmark-contract-normalized first. `run_settings` in suite artifacts is the normalized executable baseline/candidate seed, while `requested_run_settings` preserves the pre-normalization request. Deterministic-only enforcement applies both to CLI flags and to loaded settings / experiment patches.
-- `labelstudio-benchmark` `execution_mode` is orchestration-only and now always stores `pipelined`. It is not a CodexFarm pipeline selector and not the per-recipe `pass3_execution_mode` stored in `llm_manifest.json`.
+- `labelstudio-benchmark` now has one predict-plus-evaluate runtime path. That benchmark-level runtime choice is not a CodexFarm pipeline selector and not the per-recipe `pass3_execution_mode` stored in `llm_manifest.json`.
 - Run-root semantics are simple once you separate direct runs from interactive session wrappers:
   - a direct `labelstudio-benchmark` call writes one timestamped eval root unless `--eval-output-dir` overrides it,
   - prediction-generation scratch stays co-located under that resolved eval root as `<eval_output_dir>/prediction-run`,

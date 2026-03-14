@@ -81,7 +81,7 @@ def test_resolve_all_method_targets_returns_matched_and_unmatched(
     assert unmatched[1].source_hint == "unknown.epub"
 
 def test_build_all_method_variants_epub_expected_count() -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
         source_file=Path("book.epub"),
@@ -97,7 +97,7 @@ def test_build_all_method_variants_epub_includes_markdown_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", "1")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
         source_file=Path("book.epub"),
@@ -110,7 +110,7 @@ def test_build_all_method_variants_epub_includes_markdown_when_enabled(
     assert any("extractor_markitdown" in variant.slug for variant in variants)
 
 def test_build_all_method_variants_non_epub_single_variant() -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
         source_file=Path("book.pdf"),
@@ -135,7 +135,7 @@ def test_build_all_method_variants_include_multi_recipe_dimension_when_non_legac
     assert "__multi_recipe_rules_v1" in variants[0].slug
 
 def test_build_all_method_variants_html_webschema_policy_matrix() -> None:
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
         source_file=Path("page.html"),
@@ -154,7 +154,7 @@ def test_build_all_method_variants_non_schema_json_single_variant(
 ) -> None:
     source = tmp_path / "payload.json"
     source.write_text('{"kind":"not-a-recipe"}', encoding="utf-8")
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
 
     variants = cli._build_all_method_variants(
         base_settings=base_settings,
@@ -181,7 +181,7 @@ def test_build_all_method_variants_schema_json_webschema_policy_matrix(
         ),
         encoding="utf-8",
     )
-    base_settings = cli.RunSettings.from_dict({}, warn_context="test")
+    base_settings = _benchmark_test_run_settings()
 
     variants = cli._build_all_method_variants(
         base_settings=base_settings,

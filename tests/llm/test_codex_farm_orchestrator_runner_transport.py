@@ -125,6 +125,13 @@ def test_subprocess_runner_passes_root_and_workspace_flags(
     assert run_result.autotune_report["schema_version"] == 1
     assert run_result.telemetry is not None
     assert run_result.telemetry.get("row_count") == 0
+    assert run_result.runtime_mode_audit == {
+        "mode": "structured_output_non_agentic",
+        "output_schema_enforced": True,
+        "reason_codes": [],
+        "status": "ok",
+        "tool_affordances_requested": False,
+    }
 
     command = calls[0]
     assert isinstance(command, list)

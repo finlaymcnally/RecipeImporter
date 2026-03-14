@@ -25,6 +25,9 @@ from .codex_farm_contracts import (
     Pass3FinalDraftCompactInput,
     Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
+    StructuralAuditResult,
+    classify_pass2_structural_audit,
+    classify_pass3_structural_audit,
     load_contract_json,
 )
 from .codex_farm_ids import bundle_filename, ensure_recipe_id, sanitize_for_filename
@@ -165,6 +168,8 @@ class _RecipeState:
     pass3_execution_mode: str | None = None
     pass3_routing_reason: str | None = None
     pass3_utility_signal: dict[str, Any] | None = None
+    structural_status: str = "ok"
+    structural_reason_codes: list[str] = field(default_factory=list)
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -531,6 +536,9 @@ def run_codex_farm_recipe_pipeline(
                 "transport_audits": 0,
                 "transport_mismatches": 0,
                 "evidence_normalization_logs": 0,
+                "structural_degraded": 0,
+                "structural_failed": 0,
+                "runtime_mode_violations": 0,
                 "pass3_fallback": 0,
                 "pass3_execution_mode_llm": 0,
                 "pass3_execution_mode_deterministic": 0,
@@ -564,6 +572,7 @@ def run_codex_farm_recipe_pipeline(
             "recipes": {},
             "transport": {"audits": {}, "mismatches": []},
             "evidence_normalization": {"recipes": {}},
+            "runtime_mode": {"violations": {}},
             "recipe_guardrails": {
                 "report": recipe_guardrail_report,
                 "rows": recipe_guardrail_rows,
@@ -592,6 +601,7 @@ def run_codex_farm_recipe_pipeline(
                 "codex_farm_recipe_mode": run_settings.codex_farm_recipe_mode.value,
                 "pass1_pattern_hints_enabled": pass1_pattern_hints_enabled,
                 "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
+                "runtime_mode": {"violations": {}},
                 "evidence_normalization": {"recipes_logged": 0},
                 "recipe_guardrail_report_path": str(recipe_guardrail_report_path),
                 "recipe_guardrail_rows_path": str(recipe_guardrail_rows_path),
@@ -725,6 +735,7 @@ def run_codex_farm_recipe_pipeline(
             recipe_id=state.recipe_id,
             bundle_name=state.bundle_name,
             pass1_status=state.pass1_status,
+            source_hash=source_hash,
             start_block_index=state.start_block_index,
             end_block_index=state.end_block_index,
             excluded_block_ids=sorted(state.excluded_block_ids),
@@ -742,6 +753,16 @@ def run_codex_farm_recipe_pipeline(
             transport_audit_dir / recipe_artifact_name,
         )
         if transport_audit["mismatch"]:
+            _merge_structural_audit(
+                state=state,
+                audit=StructuralAuditResult(
+                    status="failed",
+                    severity="hard",
+                    reason_codes=list(
+                        transport_audit.get("verification", {}).get("reason_codes") or []
+                    ),
+                ),
+            )
             state.pass2_status = "error"
             state.pass2_promotion_policy = "pass2_error"
             if run_settings.codex_farm_failure_mode.value == "fallback":
@@ -861,24 +882,24 @@ def run_codex_farm_recipe_pipeline(
         )
         state.warnings.extend(list(output.warnings))
         state.warnings.extend(guard_warnings)
-        pass2_degradation_reasons = _pass2_degradation_reasons(
+        structural_audit = classify_pass2_structural_audit(
             output=output,
             guard_warnings=guard_warnings,
+            transport_verification=transport_audits.get(state.recipe_id, {}).get("verification"),
         )
-        state.pass2_degradation_reasons = pass2_degradation_reasons
-        if pass2_degradation_reasons:
+        _merge_structural_audit(state=state, audit=structural_audit)
+        state.pass2_degradation_reasons = list(structural_audit.reason_codes)
+        if state.pass2_degradation_reasons:
             state.pass2_status = "degraded"
-            state.pass2_degradation_severity = _pass2_degradation_severity(
-                pass2_degradation_reasons
-            )
+            state.pass2_degradation_severity = structural_audit.severity
             state.warnings.extend(
-                f"pass2 degraded: {reason}" for reason in pass2_degradation_reasons
+                f"pass2 degraded: {reason}" for reason in state.pass2_degradation_reasons
             )
             if state.pass2_degradation_severity == "hard":
                 state.pass2_promotion_policy = "hard_fallback"
                 state.pass3_status = "fallback"
                 state.pass3_fallback_reason = (
-                    "pass2 degraded: " + "; ".join(pass2_degradation_reasons)
+                    "pass2 degraded: " + "; ".join(state.pass2_degradation_reasons)
                 )
                 state.pass3_execution_mode = "deterministic"
                 state.pass3_routing_reason = "pass2_hard_degradation_forced_fallback"
@@ -1036,11 +1057,16 @@ def run_codex_farm_recipe_pipeline(
                     pass3_warnings.append(
                         "pass3 placeholder-only steps repaired from pass2 extracted instructions."
                     )
-                low_quality_reasons = _pass3_low_quality_reasons(
+                structural_audit = classify_pass3_structural_audit(
                     draft_payload=draft_payload,
                     pass2_output=state.pass2_output,
                     ingredient_step_mapping=output.ingredient_step_mapping,
-                    pass2_degradation_reasons=state.pass2_degradation_reasons,
+                    ingredient_step_mapping_reason=output.ingredient_step_mapping_reason,
+                    pass2_reason_codes=state.pass2_degradation_reasons,
+                )
+                _merge_structural_audit(state=state, audit=structural_audit)
+                low_quality_reasons = _render_structural_reason_messages(
+                    structural_audit.reason_codes
                 )
                 if low_quality_reasons:
                     pass3_error = (
@@ -1179,6 +1205,7 @@ def run_codex_farm_recipe_pipeline(
             "mismatch_recipes": llm_manifest["counts"].get("transport_mismatches", 0),
             "mismatch_recipe_ids": list(llm_manifest.get("transport", {}).get("mismatches", [])),
         },
+        "runtime_mode": dict(llm_manifest.get("runtime_mode", {})),
         "evidence_normalization": {
             "recipes_logged": llm_manifest["counts"].get("evidence_normalization_logs", 0),
         },
@@ -1527,6 +1554,8 @@ def _build_llm_manifest(
             )
         if state.pass1_eligibility_reasons:
             row["eligibility_reasons"] = list(state.pass1_eligibility_reasons)
+        row["structural_status"] = state.structural_status
+        row["structural_reason_codes"] = list(state.structural_reason_codes)
         recipe_rows[state.recipe_id] = row
         if state.errors:
             failures.append({"recipe_id": state.recipe_id, "errors": list(state.errors)})
@@ -1635,6 +1664,28 @@ def _build_llm_manifest(
         "transport_audits": len(transport_audits),
         "transport_mismatches": len(mismatch_recipe_ids),
         "evidence_normalization_logs": len(evidence_normalizations),
+        "structural_degraded": sum(
+            1 for state in states if state.structural_status == "degraded"
+        ),
+        "structural_failed": sum(
+            1 for state in states if state.structural_status == "failed"
+        ),
+        "runtime_mode_violations": sum(
+            1
+            for payload in process_runs.values()
+            if isinstance(payload, dict)
+            and isinstance(payload.get("runtime_mode_audit"), dict)
+            and str(payload["runtime_mode_audit"].get("status") or "").strip().lower()
+            not in {"", "ok"}
+        ),
+    }
+    runtime_mode_violations = {
+        pass_name: dict(payload.get("runtime_mode_audit"))
+        for pass_name, payload in process_runs.items()
+        if isinstance(payload, dict)
+        and isinstance(payload.get("runtime_mode_audit"), dict)
+        and str(payload["runtime_mode_audit"].get("status") or "").strip().lower()
+        not in {"", "ok"}
     }
     return {
         "enabled": True,
@@ -1678,6 +1729,9 @@ def _build_llm_manifest(
             "audits": dict(transport_audits),
         },
         "evidence_normalization": {"recipes": dict(evidence_normalizations)},
+        "runtime_mode": {
+            "violations": runtime_mode_violations,
+        },
         "recipe_guardrails": {
             "report": dict(recipe_guardrail_report),
             "rows": list(recipe_guardrail_rows),
@@ -1698,6 +1752,23 @@ def _write_json(payload: Any, path: Path) -> None:
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+_STRUCTURAL_STATUS_PRECEDENCE = {"ok": 0, "degraded": 1, "failed": 2}
+
+
+def _merge_structural_audit(
+    *,
+    state: _RecipeState,
+    audit: StructuralAuditResult,
+) -> None:
+    for reason_code in audit.reason_codes:
+        if reason_code not in state.structural_reason_codes:
+            state.structural_reason_codes.append(reason_code)
+    current_rank = _STRUCTURAL_STATUS_PRECEDENCE.get(state.structural_status, 0)
+    new_rank = _STRUCTURAL_STATUS_PRECEDENCE.get(audit.status, 0)
+    if new_rank > current_rank:
+        state.structural_status = audit.status
 
 
 def _build_pass2_input_legacy(
@@ -2686,6 +2757,23 @@ _PASS2_DEGRADING_WARNING_BUCKETS = {
 _PASS2_SOFT_DEGRADATION_REASONS = {
     "warning_bucket:page_or_layout_artifact",
 }
+_STRUCTURAL_REASON_MESSAGES = {
+    "empty_mapping_without_reason": "ingredient_step_mapping empty without a declared reason.",
+    "extractive_text_not_in_transport_span": (
+        "pass2 extractive text does not match the transported source span."
+    ),
+    "missing_instructions": "pass2 missing instruction evidence.",
+    "missing_steps": "draft_v1 has no non-empty step instructions.",
+    "placeholder_instructions_only": "pass2 instructions are placeholder-only.",
+    "placeholder_steps_only": "draft_v1 step instructions are placeholder-only.",
+    "placeholder_title": "recipe title is still a placeholder.",
+    "step_matches_schema_description": (
+        "step instruction matches schema description/headnote text."
+    ),
+    "upstream_missing_instruction_evidence": (
+        "pass2 degraded due to missing instruction evidence."
+    ),
+}
 
 
 def _normalized_nonempty_texts(values: list[str]) -> list[str]:
@@ -2695,6 +2783,16 @@ def _normalized_nonempty_texts(values: list[str]) -> list[str]:
         if normalized:
             result.append(normalized)
     return result
+
+
+def _render_structural_reason_messages(reason_codes: list[str]) -> list[str]:
+    messages: list[str] = []
+    for reason_code in reason_codes:
+        rendered = str(reason_code or "").strip()
+        if not rendered:
+            continue
+        messages.append(_STRUCTURAL_REASON_MESSAGES.get(rendered, rendered.replace("_", " ")))
+    return messages
 
 
 def _is_placeholder_instruction(value: str) -> bool:

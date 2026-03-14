@@ -10,6 +10,8 @@ from cookimport.llm.codex_farm_contracts import (
     Pass3FinalDraftCompactInput,
     Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
+    classify_pass2_structural_audit,
+    classify_pass3_structural_audit,
 )
 
 
@@ -240,3 +242,65 @@ def test_pass3_contract_repairs_truncated_draft_json_string() -> None:
     )
     assert output.draft_v1["recipe"]["title"] == "T"
     assert output.draft_v1["steps"] == [{"instruction": "Step 1", "ingredient_lines": []}]
+
+
+def test_pass2_structural_audit_flags_placeholder_title_and_extractive_mismatch() -> None:
+    output = Pass2SchemaOrgOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "schemaorg_recipe": {"@type": "Recipe", "name": "Untitled Recipe"},
+            "extracted_ingredients": ["1 slice bread"],
+            "extracted_instructions": ["Toast the bread."],
+            "field_evidence": {},
+            "warnings": [],
+        }
+    )
+
+    audit = classify_pass2_structural_audit(
+        output=output,
+        guard_warnings=[
+            "pass2 instruction[0] not found in canonical_text: 'Toast the bread.'"
+        ],
+        transport_verification={"status": "ok", "reason_codes": []},
+    )
+
+    assert audit.status == "failed"
+    assert audit.severity == "hard"
+    assert audit.reason_codes == [
+        "placeholder_title",
+        "extractive_text_not_in_transport_span",
+    ]
+
+
+def test_pass3_structural_audit_flags_empty_mapping_without_reason() -> None:
+    pass2_output = Pass2SchemaOrgOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "schemaorg_recipe": {"@type": "Recipe", "name": "Toast"},
+            "extracted_ingredients": ["1 slice bread", "1 tbsp butter"],
+            "extracted_instructions": ["Toast the bread.", "Butter the toast."],
+            "field_evidence": {},
+            "warnings": [],
+        }
+    )
+
+    audit = classify_pass3_structural_audit(
+        draft_payload={
+            "schema_v": 1,
+            "recipe": {"title": "Toast"},
+            "steps": [
+                {"instruction": "Toast the bread.", "ingredient_lines": []},
+                {"instruction": "Butter the toast.", "ingredient_lines": []},
+            ],
+        },
+        pass2_output=pass2_output,
+        ingredient_step_mapping={},
+        ingredient_step_mapping_reason=None,
+        pass2_reason_codes=[],
+    )
+
+    assert audit.status == "failed"
+    assert audit.severity == "hard"
+    assert audit.reason_codes == ["empty_mapping_without_reason"]

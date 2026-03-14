@@ -20,6 +20,12 @@ _CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"
 _CODEX_FARM_RECIPE_MODE_BENCHMARK = "benchmark"
 _BENCHMARK_RECOVERABLE_PARTIAL_MAX_MISSING_OUTPUTS = 3
 _BENCHMARK_RECOVERABLE_PARTIAL_MIN_SUCCESS_RATIO = 0.8
+_RUNTIME_AGENTIC_FLAG_PREFIXES = (
+    "--approval",
+    "--sandbox",
+    "--tool",
+    "--mcp",
+)
 
 
 class CodexFarmRunnerError(RuntimeError):
@@ -39,6 +45,7 @@ class CodexFarmPipelineRunResult:
     telemetry_report: dict[str, Any] | None = None
     autotune_report: dict[str, Any] | None = None
     telemetry: dict[str, Any] | None = None
+    runtime_mode_audit: dict[str, Any] | None = None
 
     def to_manifest_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +62,11 @@ class CodexFarmPipelineRunResult:
                 dict(self.autotune_report) if self.autotune_report is not None else None
             ),
             "telemetry": dict(self.telemetry) if self.telemetry is not None else None,
+            "runtime_mode_audit": (
+                dict(self.runtime_mode_audit)
+                if self.runtime_mode_audit is not None
+                else None
+            ),
         }
 
 
@@ -582,6 +594,29 @@ def _coerce_bool(value: Any) -> bool:
 
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _build_runtime_mode_audit(
+    *,
+    command: Sequence[str],
+    output_schema_path: str | None,
+) -> dict[str, Any]:
+    tool_affordances_requested = any(
+        any(token == prefix or token.startswith(f"{prefix}=") for prefix in _RUNTIME_AGENTIC_FLAG_PREFIXES)
+        for token in command
+    )
+    reason_codes: list[str] = []
+    if not str(output_schema_path or "").strip():
+        reason_codes.append("runtime_output_schema_missing")
+    if tool_affordances_requested:
+        reason_codes.append("runtime_agentic_flag_present")
+    return {
+        "mode": "structured_output_non_agentic",
+        "status": "ok" if not reason_codes else "invalid",
+        "output_schema_enforced": bool(str(output_schema_path or "").strip()),
+        "tool_affordances_requested": tool_affordances_requested,
+        "reason_codes": reason_codes,
+    }
 
 
 def _parse_json_list(value: Any) -> list[Any]:
@@ -1529,15 +1564,21 @@ class SubprocessCodexFarmRunner:
                 pipeline_id=pipeline_id,
                 env=env,
             )
+        output_schema_path = _extract_output_schema_path(process_payload)
+        runtime_mode_audit = _build_runtime_mode_audit(
+            command=command,
+            output_schema_path=output_schema_path,
+        )
 
         return CodexFarmPipelineRunResult(
             pipeline_id=pipeline_id,
             run_id=run_id,
             subprocess_exit_code=completed.returncode,
             process_exit_code=payload_exit_code,
-            output_schema_path=_extract_output_schema_path(process_payload),
+            output_schema_path=output_schema_path,
             process_payload=process_payload_dict,
             telemetry_report=telemetry_report_payload,
             autotune_report=autotune_report_payload,
             telemetry=telemetry_payload,
+            runtime_mode_audit=runtime_mode_audit,
         )
