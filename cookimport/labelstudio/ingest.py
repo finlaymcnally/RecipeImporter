@@ -1110,6 +1110,7 @@ def _write_processed_outputs(
     schemaorg_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     draft_overrides_by_recipe_id: dict[str, dict[str, Any]] | None = None,
     llm_codex_farm: dict[str, Any] | None = None,
+    knowledge_block_classifications_path: Path | None = None,
     knowledge_snippets_path: Path | None = None,
     write_markdown: bool = True,
 ) -> Path:
@@ -1225,6 +1226,7 @@ def _write_processed_outputs(
         run_root=run_root,
         workbook_slug=workbook_name,
         source_file=str(path),
+        knowledge_block_classifications_path=knowledge_block_classifications_path,
         knowledge_snippets_path=knowledge_snippets_path,
         output_stats=output_stats,
     )
@@ -1249,6 +1251,29 @@ def _resolve_knowledge_snippets_path(llm_report: dict[str, Any] | None) -> Path 
         return None
     try:
         candidate = Path(str(snippets_path))
+    except Exception:
+        return None
+    if not candidate.exists() or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _resolve_knowledge_block_classifications_path(
+    llm_report: dict[str, Any] | None,
+) -> Path | None:
+    if not isinstance(llm_report, dict):
+        return None
+    knowledge_payload = llm_report.get("knowledge")
+    if not isinstance(knowledge_payload, dict):
+        return None
+    paths_payload = knowledge_payload.get("paths")
+    if not isinstance(paths_payload, dict):
+        return None
+    raw_path = paths_payload.get("block_classifications_path")
+    if not raw_path:
+        return None
+    try:
+        candidate = Path(str(raw_path))
     except Exception:
         return None
     if not candidate.exists() or not candidate.is_file():
@@ -2586,6 +2611,9 @@ def generate_pred_run_artifacts(
     if run_settings.line_role_pipeline.value != "off":
         _notify("Running canonical line-role pipeline...")
         if line_role_candidates:
+            knowledge_block_classifications_path = (
+                _resolve_knowledge_block_classifications_path(llm_report)
+            )
             knowledge_snippets_path = _resolve_knowledge_snippets_path(llm_report)
             line_role_predictions = label_atomic_lines(
                 line_role_candidates,
@@ -2602,6 +2630,7 @@ def generate_pred_run_artifacts(
                 source_hash=file_hash,
                 workbook_slug=path.stem,
                 predictions=line_role_predictions,
+                knowledge_block_classifications_path=knowledge_block_classifications_path,
                 knowledge_snippets_path=knowledge_snippets_path,
             )
             if processed_output_root is not None:
@@ -2637,6 +2666,9 @@ def generate_pred_run_artifacts(
     if processed_output_root is not None:
         _notify("Writing processed cookbook outputs...")
         processed_output_started = time.monotonic()
+        knowledge_block_classifications_path = _resolve_knowledge_block_classifications_path(
+            llm_report
+        )
         knowledge_snippets_path = _resolve_knowledge_snippets_path(llm_report)
         processed_run_root = _write_processed_outputs(
             result=result,
@@ -2650,6 +2682,7 @@ def generate_pred_run_artifacts(
             schemaorg_overrides_by_recipe_id=llm_schema_overrides,
             draft_overrides_by_recipe_id=llm_draft_overrides,
             llm_codex_farm=llm_report,
+            knowledge_block_classifications_path=knowledge_block_classifications_path,
             knowledge_snippets_path=knowledge_snippets_path,
             write_markdown=write_markdown,
         )

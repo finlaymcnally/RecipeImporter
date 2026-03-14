@@ -33,6 +33,16 @@ def build_prediction_run_prompt_budget_summary(
                 )
                 if pass_summary is not None:
                     by_pass[pass_name] = pass_summary
+        knowledge_payload = llm_payload.get("knowledge")
+        if isinstance(knowledge_payload, Mapping):
+            process_run = knowledge_payload.get("process_run")
+            if isinstance(process_run, Mapping):
+                pass4_summary = _build_codex_farm_pass_summary(
+                    pass_name="pass4",
+                    pass_payload=process_run,
+                )
+                if pass4_summary is not None:
+                    by_pass["pass4"] = pass4_summary
 
     line_role_summary = _build_line_role_pass_summary(
         pred_manifest=pred_manifest,

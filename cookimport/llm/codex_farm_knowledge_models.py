@@ -60,15 +60,43 @@ class KnowledgeSnippetV1(BaseModel):
         return value
 
 
+class KnowledgeBlockDecisionV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    block_index: int
+    category: Literal["knowledge", "other"]
+
+    @field_validator("block_index", mode="before")
+    @classmethod
+    def _coerce_block_index(cls, value: object) -> object:
+        return int(value)
+
+
 class Pass4KnowledgeOutputV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bundle_version: Literal["1"] = _BUNDLE_VERSION
     chunk_id: str
     is_useful: bool
+    block_decisions: list[KnowledgeBlockDecisionV1] = Field(default_factory=list)
     snippets: list[KnowledgeSnippetV1] = Field(default_factory=list)
 
     @field_validator("chunk_id", mode="before")
     @classmethod
     def _normalize_chunk_id(cls, value: object) -> object:
         return str(value).strip()
+
+    @field_validator("block_decisions")
+    @classmethod
+    def _require_unique_block_indices(
+        cls, value: list[KnowledgeBlockDecisionV1]
+    ) -> list[KnowledgeBlockDecisionV1]:
+        seen: set[int] = set()
+        for decision in value:
+            if decision.block_index in seen:
+                raise ValueError(
+                    "block_decisions must not repeat block_index "
+                    f"{decision.block_index}."
+                )
+            seen.add(decision.block_index)
+        return value

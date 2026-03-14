@@ -17,6 +17,9 @@ def test_write_knowledge_artifacts_writes_jsonl_and_md(tmp_path: Path) -> None:
                 "bundle_version": "1",
                 "chunk_id": "book.c0000.nr",
                 "is_useful": True,
+                "block_decisions": [
+                    {"block_index": 4, "category": "knowledge"},
+                ],
                 "snippets": [
                     {
                         "title": "Prevent curdling",
@@ -41,9 +44,13 @@ def test_write_knowledge_artifacts_writes_jsonl_and_md(tmp_path: Path) -> None:
     )
 
     assert report.snippets_written == 1
+    assert report.block_classifications_written == 1
     assert report.snippets_path.exists()
+    assert report.block_classifications_path.exists()
     assert report.preview_path.exists()
 
+    classifications = report.block_classifications_path.read_text(encoding="utf-8")
+    assert '"category": "knowledge"' in classifications
     jsonl = report.snippets_path.read_text(encoding="utf-8")
     assert "book.c0000.nr.s00" in jsonl
     md = report.preview_path.read_text(encoding="utf-8")
@@ -60,6 +67,9 @@ def test_write_knowledge_artifacts_fails_on_missing_block_index(tmp_path: Path) 
                 "bundle_version": "1",
                 "chunk_id": "book.c0000.nr",
                 "is_useful": True,
+                "block_decisions": [
+                    {"block_index": 999, "category": "knowledge"},
+                ],
                 "snippets": [
                     {
                         "title": None,

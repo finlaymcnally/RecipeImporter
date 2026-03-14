@@ -89,13 +89,12 @@ def test_projection_artifacts_include_do_no_harm_paths_when_present(tmp_path) ->
 
 
 def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -> None:
-    snippets_path = tmp_path / "snippets.jsonl"
-    snippets_path.write_text(
+    block_classifications_path = tmp_path / "block_classifications.jsonl"
+    block_classifications_path.write_text(
         json.dumps(
             {
-                "snippet_id": "s0",
-                "provenance": {"block_indices": [1]},
-                "evidence": [{"block_index": 1, "quote": "Useful kitchen note"}],
+                "block_index": 1,
+                "category": "knowledge",
             },
             sort_keys=True,
         )
@@ -134,14 +133,14 @@ def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -
                 reason_tags=["test"],
             ),
         ],
-        knowledge_snippets_path=snippets_path,
+        knowledge_block_classifications_path=block_classifications_path,
     )
 
     stage_payload = json.loads(
         artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
     )
     assert stage_payload["block_labels"]["1"] == "KNOWLEDGE"
-    assert any("Pass4 knowledge evidence merged" in note for note in stage_payload["notes"])
+    assert any("Pass4 block classifications merged" in note for note in stage_payload["notes"])
 
     projected_rows = [
         json.loads(line)
@@ -149,3 +148,60 @@ def test_projection_artifacts_merge_pass4_knowledge_into_other_spans(tmp_path) -
         if line.strip()
     ]
     assert projected_rows[1]["label"] == "KNOWLEDGE"
+
+
+def test_projection_artifacts_downgrade_pass4_other_classifications(tmp_path) -> None:
+    block_classifications_path = tmp_path / "block_classifications.jsonl"
+    block_classifications_path.write_text(
+        json.dumps(
+            {
+                "block_index": 1,
+                "category": "other",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    artifacts = write_line_role_projection_artifacts(
+        run_root=tmp_path,
+        source_file="book.epub",
+        source_hash="hash",
+        workbook_slug="book",
+        predictions=[
+            CanonicalLineRolePrediction(
+                recipe_id=None,
+                block_id="b1",
+                block_index=1,
+                atomic_index=1,
+                text="Kitchen memoir prose",
+                within_recipe_span=False,
+                label="KNOWLEDGE",
+                confidence=0.99,
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+            CanonicalLineRolePrediction(
+                recipe_id="recipe:0",
+                block_id="b2",
+                block_index=2,
+                atomic_index=2,
+                text="1 cup stock",
+                within_recipe_span=True,
+                label="INGREDIENT_LINE",
+                confidence=0.99,
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+        ],
+        knowledge_block_classifications_path=block_classifications_path,
+    )
+
+    projected_rows = [
+        json.loads(line)
+        for line in artifacts["projected_spans_path"].read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert projected_rows[0]["label"] == "OTHER"
+    assert projected_rows[1]["label"] == "INGREDIENT_LINE"

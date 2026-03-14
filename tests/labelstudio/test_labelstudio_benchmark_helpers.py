@@ -3280,7 +3280,22 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                         }
                     }
                 },
-            }
+            },
+            "knowledge": {
+                "process_run": {
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 4,
+                            "duration_total_ms": 4200,
+                            "tokens_input": 300,
+                            "tokens_cached_input": 25,
+                            "tokens_output": 60,
+                            "tokens_reasoning": 0,
+                            "tokens_total": 360,
+                        }
+                    }
+                }
+            },
         },
     }
 
@@ -3290,9 +3305,11 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     written = json.loads(summary_path.read_text(encoding="utf-8"))
     assert written["by_pass"]["pass1"]["call_count"] == 2
     assert written["by_pass"]["pass2"]["tokens_total"] == 104
+    assert written["by_pass"]["pass4"]["call_count"] == 4
+    assert written["by_pass"]["pass4"]["tokens_total"] == 360
     assert written["by_pass"]["line_role"]["call_count"] == 2
     assert written["by_pass"]["line_role"]["attempt_count"] == 3
-    assert written["totals"]["tokens_total"] == 291
+    assert written["totals"]["tokens_total"] == 651
 
 
 def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_comparison(
@@ -3557,9 +3574,6 @@ def test_interactive_main_menu_does_not_offer_inspect(
         cli._interactive_mode()
 
     assert "inspect" not in captured_values
-
-
-
 
 
 

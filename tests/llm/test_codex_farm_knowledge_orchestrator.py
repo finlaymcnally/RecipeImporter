@@ -78,7 +78,9 @@ def test_knowledge_orchestrator_writes_manifest_and_artifacts(tmp_path: Path) ->
     assert apply_result.manifest_path.exists()
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"]["jobs_written"] > 0
+    assert manifest["counts"]["block_classifications_written"] > 0
 
     knowledge_dir = run_root / "knowledge" / "book"
+    assert (knowledge_dir / "block_classifications.jsonl").exists()
     assert (knowledge_dir / "snippets.jsonl").exists()
     assert (knowledge_dir / "knowledge.md").exists()

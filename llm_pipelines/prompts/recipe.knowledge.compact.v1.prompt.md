@@ -18,6 +18,13 @@ Usefulness rules:
 - If no reusable knowledge exists, set `is_useful` to false and return `snippets` as `[]`.
 - If reusable knowledge exists, set `is_useful` to true and return 1-10 concise snippets.
 
+Block classification rules:
+- Return one `block_decisions` item for every `chunk.blocks[*]`.
+- Use category `knowledge` only for reusable cooking guidance, technique, definition, substitution, or durable factual reference.
+- Use category `other` for narrative, scene-setting, memoir, blurbs, front matter, decorative headings, or non-reusable prose.
+- `block_decisions[*].block_index` must match the block's `chunk.blocks[*].block_index`.
+- Preserve chunk block order in `block_decisions`.
+
 Snippet rules:
 - Each snippet must be self-contained and reusable outside this book
 - `title` may be null when no concise title is clear

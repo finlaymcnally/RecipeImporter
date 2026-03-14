@@ -24554,6 +24554,9 @@ def _merge_split_jobs(
                 workbook_slug=workbook_slug,
                 source_file=str(file_path),
                 archive_blocks=merged_full_blocks,
+                knowledge_block_classifications_path=(
+                    out / "knowledge" / workbook_slug / "block_classifications.jsonl"
+                ),
                 knowledge_snippets_path=out / "knowledge" / workbook_slug / "snippets.jsonl",
                 output_stats=output_stats,
             )

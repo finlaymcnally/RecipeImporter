@@ -453,6 +453,12 @@ def stage_one_file(
                     run_root=out,
                     workbook_slug=workbook_slug,
                     source_file=str(file_path),
+                    knowledge_block_classifications_path=(
+                        out
+                        / "knowledge"
+                        / workbook_slug
+                        / "block_classifications.jsonl"
+                    ),
                     knowledge_snippets_path=(
                         out / "knowledge" / workbook_slug / "snippets.jsonl"
                     ),

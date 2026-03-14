@@ -85,6 +85,7 @@ def build_stage_block_predictions(
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: Iterable[dict[str, Any]] | None = None,
+    knowledge_block_classifications_path: Path | None = None,
     knowledge_snippets_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic per-block label manifest from staged outputs."""
@@ -102,8 +103,17 @@ def build_stage_block_predictions(
             notes=notes,
         )
 
-    knowledge_indices = _load_knowledge_indices(knowledge_snippets_path)
-    if not knowledge_indices:
+    knowledge_categories = _load_knowledge_categories(knowledge_block_classifications_path)
+    knowledge_indices = {
+        block_index
+        for block_index, category in knowledge_categories.items()
+        if category == "knowledge"
+    }
+    if knowledge_categories:
+        notes.append("KNOWLEDGE labels were derived from pass4 block classifications.")
+    elif not knowledge_indices:
+        knowledge_indices = _load_knowledge_indices(knowledge_snippets_path)
+    if not knowledge_indices and not knowledge_categories:
         knowledge_indices = _load_chunk_lane_knowledge_indices(conversion_result)
         if knowledge_indices:
             notes.append(
@@ -876,6 +886,38 @@ def _load_knowledge_indices(snippets_path: Path | None) -> set[int]:
                 continue
             indices.add(coerced)
     return indices
+
+
+def _load_knowledge_categories(
+    block_classifications_path: Path | None,
+) -> dict[int, str]:
+    if (
+        block_classifications_path is None
+        or not block_classifications_path.exists()
+        or not block_classifications_path.is_file()
+    ):
+        return {}
+
+    categories: dict[int, str] = {}
+    for line in block_classifications_path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        try:
+            block_index = int(payload.get("block_index"))
+        except (TypeError, ValueError):
+            continue
+        category = str(payload.get("category") or "").strip().lower()
+        if category not in {"knowledge", "other"}:
+            continue
+        categories[block_index] = category
+    return categories
 
 
 def _load_chunk_lane_knowledge_indices(

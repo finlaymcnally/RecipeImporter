@@ -1191,6 +1191,7 @@ def write_stage_block_predictions(
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: list[dict[str, Any]] | None = None,
+    knowledge_block_classifications_path: Path | None = None,
     knowledge_snippets_path: Path | None = None,
     output_stats: OutputStats | None = None,
 ) -> Path:
@@ -1201,6 +1202,7 @@ def write_stage_block_predictions(
         source_file=source_file,
         source_hash=source_hash,
         archive_blocks=archive_blocks,
+        knowledge_block_classifications_path=knowledge_block_classifications_path,
         knowledge_snippets_path=knowledge_snippets_path,
     )
     out_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"

@@ -126,6 +126,14 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             "bundle_version": "1",
             "chunk_id": chunk_id,
             "is_useful": True,
+            "block_decisions": [
+                {
+                    "block_index": int(block.get("block_index", 0)),
+                    "category": "knowledge",
+                }
+                for block in chunk_blocks
+                if isinstance(block, dict)
+            ],
             "snippets": [
                 {
                     "title": None,

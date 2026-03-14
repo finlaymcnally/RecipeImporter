@@ -276,6 +276,7 @@ Current LLM contracts reinforced:
   - `prediction-run/line-role-pipeline/extracted_archive.json`
 - Prompt-budget reduction work should target:
   - unified prompt-budget summary artifacts across recipe passes plus line-role,
+  - `prediction-run/prompt_budget_summary.json` now also includes pass4 knowledge when `llm_codex_farm.knowledge.process_run` is present,
   - pass2 duplicate evidence payloads,
   - pass3 duplicated structured content rather than already-removed raw block windows.
   - pipeline-id-based compaction for pass2/pass3 and a line-role prompt-format selector are the intended rollout seams; new global prompt-mode settings are unnecessary.

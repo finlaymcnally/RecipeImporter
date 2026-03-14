@@ -71,6 +71,17 @@ def _build_result(
 
 def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Path) -> None:
     result = _build_result()
+    block_classifications_path = tmp_path / "block_classifications.jsonl"
+    block_classifications_path.write_text(
+        json.dumps(
+            {
+                "block_index": 8,
+                "category": "knowledge",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     snippets_path = tmp_path / "snippets.jsonl"
     snippets_path.write_text(
         json.dumps(
@@ -86,6 +97,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
     payload = build_stage_block_predictions(
         result,
         "simple",
+        knowledge_block_classifications_path=block_classifications_path,
         knowledge_snippets_path=snippets_path,
     )
 
@@ -116,6 +128,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         and set(conflict.get("labels", [])) == {"INSTRUCTION_LINE", "RECIPE_VARIANT"}
         for conflict in conflicts
     )
+    assert "KNOWLEDGE labels were derived from pass4 block classifications." in payload["notes"]
 
 
 def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> None:
@@ -136,6 +149,23 @@ def test_build_stage_block_predictions_falls_back_to_chunk_lane_knowledge() -> N
 
     assert payload["block_labels"]["8"] == "KNOWLEDGE"
     assert 8 in payload["label_blocks"]["KNOWLEDGE"]
+
+
+def test_build_stage_block_predictions_ignores_pass4_other_blocks(tmp_path: Path) -> None:
+    result = _build_result()
+    block_classifications_path = tmp_path / "block_classifications.jsonl"
+    block_classifications_path.write_text(
+        json.dumps({"block_index": 8, "category": "other"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        knowledge_block_classifications_path=block_classifications_path,
+    )
+
+    assert payload["block_labels"]["8"] == "OTHER"
 
 
 def test_build_stage_block_predictions_marks_notes_from_description_only() -> None:

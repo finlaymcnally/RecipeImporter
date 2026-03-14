@@ -17,6 +17,10 @@ def test_read_pass4_outputs_parses_known_good_fixture(tmp_path: Path) -> None:
                 "bundle_version": "1",
                 "chunk_id": "book.c0000.nr",
                 "is_useful": True,
+                "block_decisions": [
+                    {"block_index": 4, "category": "knowledge"},
+                    {"block_index": 5, "category": "other"},
+                ],
                 "snippets": [
                     {
                         "title": "Prevent curdling",
@@ -32,6 +36,7 @@ def test_read_pass4_outputs_parses_known_good_fixture(tmp_path: Path) -> None:
 
     outputs = read_pass4_knowledge_outputs(out_dir)
     assert set(outputs) == {"book.c0000.nr"}
+    assert outputs["book.c0000.nr"].block_decisions[0].category == "knowledge"
     assert outputs["book.c0000.nr"].snippets[0].evidence[0].block_index == 4
 
 
@@ -45,6 +50,7 @@ def test_read_pass4_outputs_rejects_missing_evidence_with_filename_context(tmp_p
                 "bundle_version": "1",
                 "chunk_id": "book.c0001.nr",
                 "is_useful": True,
+                "block_decisions": [],
                 "snippets": [
                     {
                         "title": None,
