@@ -610,7 +610,7 @@ Current-contract additions:
 - Ingestion output-contract docs must include `sections/`, optional `tables/`, `.bench/<workbook>/stage_block_predictions.json`, and `processing_timeseries.jsonl` in addition to draft/tip/chunk/raw/report artifacts.
 - EPUB extractor policy lock is enforced at multiple layers (command normalization, run-settings coercion, and interactive/UI choice surfaces), not just one parser branch.
 - Temporary unlock path for markdown extractors remains `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
-- `epub_extractor=auto` is retired runtime behavior; only compatibility migration remains in settings normalization.
+- `epub_extractor=auto` is not part of the current live contract. Old configs using removed extractor aliases should be updated or discarded rather than relying on migration.
 
 Known bad loop:
 - Do not diagnose extractor behavior from one command path only; verify normalization in CLI + Label Studio ingest + `RunSettings.from_dict(...)` together.

@@ -281,6 +281,75 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
     assert run_manifest["run_config"]["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
 
 
+def test_labelstudio_benchmark_requires_benchmark_codex_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    failures: list[str] = []
+
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr(cli, "_is_agent_execution_environment", lambda: False)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.labelstudio_benchmark(
+            gold_spans=gold_spans,
+            source_file=source_file,
+            output_dir=tmp_path / "golden",
+            processed_output_dir=tmp_path / "processed",
+            eval_output_dir=tmp_path / "eval",
+            no_upload=True,
+            llm_recipe_pipeline="codex-farm-3pass-v1",
+            allow_codex=True,
+        )
+
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert "--benchmark-codex-confirmation" in failures[0]
+
+
+def test_labelstudio_benchmark_live_codex_blocked_in_agent_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("epub", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    failures: list[str] = []
+
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr(cli, "_is_agent_execution_environment", lambda: True)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.labelstudio_benchmark(
+            gold_spans=gold_spans,
+            source_file=source_file,
+            output_dir=tmp_path / "golden",
+            processed_output_dir=tmp_path / "processed",
+            eval_output_dir=tmp_path / "eval",
+            no_upload=True,
+            llm_recipe_pipeline="codex-farm-3pass-v1",
+            allow_codex=True,
+            benchmark_codex_confirmation=cli.BENCH_CODEX_FARM_CONFIRMATION_TOKEN,
+        )
+
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert "blocked in agent-run environments" in failures[0]
+
+
 def test_import_entrypoint_forwards_allow_codex_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

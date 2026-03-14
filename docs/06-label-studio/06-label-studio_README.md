@@ -237,7 +237,7 @@ Execution modes:
 Codex preview mode:
 
 - `--codex-execution-policy execute|plan` is available on `labelstudio-benchmark`.
-- `execute` keeps the existing explicit-approval behavior (`--allow-codex` still required when Codex-backed surfaces are enabled).
+- `execute` now has a stricter live-benchmark gate: `--allow-codex` is still required when Codex-backed surfaces are enabled, `labelstudio-benchmark` also requires `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`, and agent-run environments are blocked from the live path.
 - `plan` is offline-only (`--no-upload`), skips live Codex/eval/upload, and writes a prediction-run `codex_execution_plan.json` plus benchmark/pred-run manifests so a later execute-mode rerun can be inspected before spending tokens.
 - plan mode still performs deterministic extraction so the preview includes concrete pending line-role and recipe-pass work instead of only the requested Codex surfaces.
 - `labelstudio-import` also accepts `--codex-execution-policy execute|plan`; its `plan` mode writes the same pred-run plan artifact and exits before task upload or prelabel execution.

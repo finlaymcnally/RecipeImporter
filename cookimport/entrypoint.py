@@ -3,7 +3,11 @@ from __future__ import annotations
 import sys
 
 from cookimport.cli import DEFAULT_INPUT, DEFAULT_OUTPUT, _fail, _load_settings, app, stage
-from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import (
+    RUN_SETTING_CONTRACT_FULL,
+    RunSettings,
+    project_run_config_payload,
+)
 from cookimport.config.run_settings_adapters import (
     build_stage_call_kwargs_from_run_settings,
 )
@@ -30,7 +34,7 @@ def main() -> None:
     args = filtered_args
     settings = _load_settings()
     run_settings = RunSettings.from_dict(
-        settings,
+        project_run_config_payload(settings, contract=RUN_SETTING_CONTRACT_FULL),
         warn_context="import entrypoint global settings",
     )
     common_args = build_stage_call_kwargs_from_run_settings(

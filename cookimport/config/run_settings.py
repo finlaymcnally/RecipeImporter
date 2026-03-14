@@ -21,9 +21,6 @@ from cookimport.epub_extractor_names import (
 )
 
 logger = logging.getLogger(__name__)
-
-_UNKNOWN_KEY_WARNINGS: set[tuple[str, ...]] = set()
-_RETIRED_KEY_WARNINGS: set[tuple[str, ...]] = set()
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
 RUN_SETTING_SURFACE_PUBLIC = "public"
 RUN_SETTING_SURFACE_INTERNAL = "internal"
@@ -79,63 +76,6 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "ocr_device",
     "ocr_batch_size",
 )
-_RETIRED_RUN_SETTING_KEYS: dict[str, str] = {
-    "table_extraction": (
-        "deterministic table extraction is always enabled and the legacy off/on "
-        "setting no longer changes behavior"
-    ),
-    "section_detector_backend": (
-        "section detection now uses the fixed product behavior contract "
-        "(shared_v1)"
-    ),
-    "instruction_step_segmentation_policy": (
-        "instruction-step fallback segmentation policy is now fixed product "
-        "behavior (always)"
-    ),
-    "instruction_step_segmenter": (
-        "instruction-step fallback segmenter is now fixed product behavior "
-        "(heuristic_v1)"
-    ),
-    "benchmark_sequence_matcher": (
-        "canonical-text benchmark evaluation now uses the fixed dmp matcher"
-    ),
-    "multi_recipe_trace": (
-        "multi-recipe trace is no longer a normal run setting and now defaults "
-        "to off"
-    ),
-    "p6_emit_metadata_debug": (
-        "Priority 6 debug sidecar emission is no longer a normal run setting "
-        "and now defaults to off"
-    ),
-    "codex_farm_pass1_pattern_hints_enabled": (
-        "Codex Farm pass1 pattern-hint routing is now fixed product behavior "
-        "(disabled)"
-    ),
-    "codex_farm_pipeline_pass1": (
-        "Codex Farm pass1 pipeline id is now fixed product behavior"
-    ),
-    "codex_farm_pipeline_pass2": (
-        "Codex Farm pass2 pipeline id is now fixed product behavior"
-    ),
-    "codex_farm_pipeline_pass3": (
-        "Codex Farm pass3 pipeline id is now fixed product behavior"
-    ),
-    "codex_farm_pass3_skip_pass2_ok": (
-        "Codex Farm pass3 routing policy is now fixed product behavior"
-    ),
-    "codex_farm_benchmark_selective_retry_enabled": (
-        "benchmark selective retry enablement is now fixed product behavior"
-    ),
-    "codex_farm_benchmark_selective_retry_max_attempts": (
-        "benchmark selective retry attempts are now fixed product behavior"
-    ),
-    "codex_farm_pipeline_pass4_knowledge": (
-        "Codex Farm pass4 knowledge pipeline id is now fixed product behavior"
-    ),
-    "codex_farm_pipeline_pass5_tags": (
-        "Codex Farm pass5 tags pipeline id is now fixed product behavior"
-    ),
-}
 _SUMMARY_ORDER = (
     "epub_extractor",
     "epub_unstructured_html_parser_version",
@@ -1267,81 +1207,23 @@ class RunSettings(BaseModel):
         if payload is None:
             return cls()
         data = dict(payload)
-        retired = tuple(sorted(key for key in data if key in _RETIRED_RUN_SETTING_KEYS))
-        if retired and retired not in _RETIRED_KEY_WARNINGS:
-            detail = "; ".join(
-                f"{key}: {_RETIRED_RUN_SETTING_KEYS[key]}"
-                for key in retired
-            )
-            logger.warning(
-                "Ignoring retired %s keys: %s (%s).",
-                warn_context,
-                ", ".join(retired),
-                detail,
-            )
-            _RETIRED_KEY_WARNINGS.add(retired)
-        for key in retired:
-            data.pop(key, None)
         unknown = tuple(sorted(set(data) - set(cls.model_fields)))
-        if unknown and unknown not in _UNKNOWN_KEY_WARNINGS:
-            logger.warning(
-                "Ignoring unknown %s keys: %s",
-                warn_context,
-                ", ".join(unknown),
+        if unknown:
+            raise ValueError(
+                f"Unknown {warn_context} keys: {', '.join(unknown)}"
             )
-            _UNKNOWN_KEY_WARNINGS.add(unknown)
         llm_recipe_pipeline_raw = data.get("llm_recipe_pipeline")
         if llm_recipe_pipeline_raw is not None:
             if isinstance(llm_recipe_pipeline_raw, Enum):
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
             else:
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
-            if normalized_recipe_pipeline in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
-                pass
-            else:
-                logger.warning(
-                    "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
-                    "correction only supports: %s. Ignoring value %r.",
-                    warn_context,
-                    ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES),
-                    llm_recipe_pipeline_raw,
+            if normalized_recipe_pipeline not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
+                raise ValueError(
+                    "Invalid llm_recipe_pipeline in "
+                    f"{warn_context}. Expected one of: "
+                    + ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
                 )
-                data["llm_recipe_pipeline"] = LlmRecipePipeline.off.value
-        epub_extractor_raw = data.get("epub_extractor")
-        if epub_extractor_raw is not None:
-            if isinstance(epub_extractor_raw, Enum):
-                normalized_epub_extractor = normalize_epub_extractor_name(
-                    str(epub_extractor_raw.value).strip().lower()
-                )
-            else:
-                normalized_epub_extractor = normalize_epub_extractor_name(
-                    str(epub_extractor_raw).strip().lower()
-                )
-            if normalized_epub_extractor == "auto":
-                logger.warning(
-                    "Forcing epub_extractor=unstructured in %s because auto extractor mode "
-                    "was removed. Ignoring value %r.",
-                    warn_context,
-                    epub_extractor_raw,
-                )
-                data["epub_extractor"] = EpubExtractor.unstructured.value
-            elif normalized_epub_extractor == "legacy":
-                logger.warning(
-                    "Migrating epub_extractor=legacy to beautifulsoup in %s.",
-                    warn_context,
-                )
-                data["epub_extractor"] = EpubExtractor.beautifulsoup.value
-            elif is_policy_locked_epub_extractor_name(normalized_epub_extractor):
-                logger.warning(
-                    "Forcing epub_extractor=unstructured in %s because %r is policy-locked off. "
-                    "Set %s=1 to temporarily re-enable markdown extractors.",
-                    warn_context,
-                    normalized_epub_extractor,
-                    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
-                )
-                data["epub_extractor"] = EpubExtractor.unstructured.value
-            elif normalized_epub_extractor == "beautifulsoup":
-                data["epub_extractor"] = EpubExtractor.beautifulsoup.value
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:
@@ -1624,10 +1506,6 @@ def ordinary_operator_run_setting_names() -> tuple[str, ...]:
     return tuple(
         name for name in public_run_setting_names() if name not in benchmark_lab_names
     )
-
-
-def retired_legacy_run_setting_names() -> tuple[str, ...]:
-    return tuple(sorted(_RETIRED_RUN_SETTING_KEYS))
 
 
 def _normalize_run_setting_contract(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from cookimport.config.run_settings import (
     BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
     RunSettings,
@@ -9,7 +11,6 @@ from cookimport.config.run_settings import (
     internal_run_setting_names,
     ordinary_operator_run_setting_names,
     public_run_setting_names,
-    retired_legacy_run_setting_names,
     run_settings_ui_specs,
     summarize_run_config_payload,
 )
@@ -84,12 +85,9 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
     )
 
 
-def test_run_settings_schema_evolution_ignores_unknown_keys() -> None:
-    settings = RunSettings.from_dict({"workers": 3, "unknown_new_field": "x"})
-
-    assert settings.workers == 3
-    assert settings.pdf_split_workers == 7
-    assert "unknown_new_field" not in settings.to_run_config_dict()
+def test_run_settings_rejects_unknown_keys() -> None:
+    with pytest.raises(ValueError, match="Unknown run settings keys: unknown_new_field"):
+        RunSettings.from_dict({"workers": 3, "unknown_new_field": "x"})
 
 
 def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
@@ -187,11 +185,6 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert "multi_recipe_splitter" not in by_name
     assert "p6_time_backend" not in by_name
     assert "ocr_device" not in by_name
-    assert "section_detector_backend" in retired_legacy_run_setting_names()
-    assert "instruction_step_segmentation_policy" in retired_legacy_run_setting_names()
-    assert "instruction_step_segmenter" in retired_legacy_run_setting_names()
-
-
 def test_bucket2_run_settings_are_internal_only() -> None:
     public_names = set(public_run_setting_names())
     internal_names = set(internal_run_setting_names())
@@ -327,15 +320,12 @@ def test_operator_and_benchmark_lab_projections_split_public_surface() -> None:
     assert "multi_recipe_splitter=" not in product_summary
 
 
-def test_run_settings_accepts_retired_table_extraction_key_without_reserializing_it() -> None:
-    settings = RunSettings.from_dict(
-        {"table_extraction": "off", "workers": 3},
-        warn_context="test retired setting",
-    )
-
-    assert settings.workers == 3
-    assert "table_extraction" in retired_legacy_run_setting_names()
-    assert "table_extraction" not in settings.to_run_config_dict()
+def test_run_settings_rejects_stale_removed_setting_keys() -> None:
+    with pytest.raises(ValueError, match="Unknown test retired setting keys: table_extraction"):
+        RunSettings.from_dict(
+            {"table_extraction": "off", "workers": 3},
+            warn_context="test retired setting",
+        )
 
 
 def test_run_settings_ui_specs_include_recipe_codex_farm_without_env_gate() -> None:
@@ -371,16 +361,14 @@ def test_compute_effective_workers_promotes_unstructured_epub_splits() -> None:
     assert effective == 12
 
 
-def test_run_settings_migrates_auto_extractor_to_unstructured() -> None:
-    settings = RunSettings.from_dict({"epub_extractor": "auto"}, warn_context="test")
+def test_run_settings_rejects_removed_auto_extractor() -> None:
+    with pytest.raises(Exception):
+        RunSettings.from_dict({"epub_extractor": "auto"}, warn_context="test")
 
-    assert settings.epub_extractor.value == "unstructured"
 
-
-def test_run_settings_migrates_legacy_extractor_to_beautifulsoup() -> None:
-    settings = RunSettings.from_dict({"epub_extractor": "legacy"}, warn_context="test")
-
-    assert settings.epub_extractor.value == "beautifulsoup"
+def test_run_settings_rejects_removed_legacy_extractor() -> None:
+    with pytest.raises(Exception):
+        RunSettings.from_dict({"epub_extractor": "legacy"}, warn_context="test")
 
 
 def test_run_settings_forces_markdown_extractors_off_by_default() -> None:

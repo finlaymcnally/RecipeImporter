@@ -17,7 +17,9 @@ from cookimport.config.last_run_store import (
 from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
+    RUN_SETTING_CONTRACT_FULL,
     RunSettings,
+    project_run_config_payload,
 )
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
 
@@ -79,7 +81,7 @@ def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
 
 
 def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
-    payload = global_defaults.to_run_config_dict()
+    payload = global_defaults.model_dump(mode="json", exclude_none=True)
     payload = apply_top_tier_profile_contract(payload, "codexfarm")
     return RunSettings.from_dict(
         payload,
@@ -88,7 +90,7 @@ def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
 
 
 def _default_vanilla_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
-    payload = global_defaults.to_run_config_dict()
+    payload = global_defaults.model_dump(mode="json", exclude_none=True)
     payload = apply_top_tier_profile_contract(payload, "vanilla")
     return RunSettings.from_dict(
         payload,
@@ -102,7 +104,10 @@ def _harmonize_top_tier_pipeline_settings(
     profile: TopTierProfileKind,
     warn_context: str,
 ) -> RunSettings:
-    payload = settings.to_run_config_dict()
+    payload = project_run_config_payload(
+        settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
     payload = apply_top_tier_profile_contract(payload, profile)
     return RunSettings.from_dict(payload, warn_context=warn_context)
 
@@ -354,7 +359,10 @@ def _choose_codex_ai_settings(
     reasoning_effort_override = (
         None if effort_choice == "__default__" else str(effort_choice)
     )
-    patched_payload = selected_settings.to_run_config_dict()
+    patched_payload = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
     patched_payload["codex_farm_model"] = model_override
     patched_payload["codex_farm_reasoning_effort"] = reasoning_effort_override
     return RunSettings.from_dict(
@@ -413,7 +421,10 @@ def choose_run_settings(
     if selected_recipe_pipeline != selected_settings.llm_recipe_pipeline.value:
         selected_settings = RunSettings.from_dict(
             {
-                **selected_settings.to_run_config_dict(),
+                **project_run_config_payload(
+                    selected_settings.to_run_config_dict(),
+                    contract=RUN_SETTING_CONTRACT_FULL,
+                ),
                 "llm_recipe_pipeline": selected_recipe_pipeline,
             },
             warn_context="interactive recipe pipeline selection override",

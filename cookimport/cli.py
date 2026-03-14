@@ -35,7 +35,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from itertools import product
 from pathlib import Path
-from typing import Iterable, Iterator, Dict, Any, Annotated, Callable, TypeVar, cast
+from typing import Iterable, Iterator, Dict, Any, Annotated, Callable, Mapping, TypeVar, cast
 
 import questionary
 import typer
@@ -72,11 +72,11 @@ from cookimport.config.last_run_store import (
 )
 from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
+    RUN_SETTING_CONTRACT_FULL,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
     project_run_config_payload,
-    retired_legacy_run_setting_names,
     summarize_run_config_payload,
 )
 from cookimport.config.run_settings_adapters import (
@@ -1011,8 +1011,6 @@ def _load_settings() -> Dict[str, Any]:
         return defaults
     if isinstance(loaded, dict):
         merged = {**defaults, **loaded}
-        for retired_key in retired_legacy_run_setting_names():
-            merged.pop(retired_key, None)
         if ALL_METHOD_WING_BACKLOG_SETTING_KEY not in loaded:
             merged[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
                 merged,
@@ -1025,35 +1023,6 @@ def _load_settings() -> Dict[str, Any]:
                 key=ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
                 fallback=ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
             )
-        raw_extractor = normalize_epub_extractor_name(
-            merged.get("epub_extractor", "unstructured")
-        )
-        normalized_extractor = _coerce_configured_epub_extractor(raw_extractor)
-        if raw_extractor != normalized_extractor:
-            if raw_extractor == "legacy":
-                logger.warning(
-                    "Migrating epub_extractor=legacy to beautifulsoup in cookimport.json."
-                )
-            elif raw_extractor == "auto":
-                logger.warning(
-                    "Forcing epub_extractor=unstructured in cookimport.json because auto "
-                    "extractor mode was removed. Ignoring value %r.",
-                    raw_extractor,
-                )
-            elif is_policy_locked_epub_extractor_name(raw_extractor):
-                logger.warning(
-                    "Forcing epub_extractor=unstructured in cookimport.json because "
-                    "markdown extractors are policy-locked off. Set %s=1 to "
-                    "temporarily re-enable markdown extractors.",
-                    EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
-                )
-            else:
-                logger.warning(
-                    "Forcing epub_extractor=unstructured in cookimport.json because "
-                    "stored value %r is not supported.",
-                    raw_extractor,
-                )
-        merged["epub_extractor"] = normalized_extractor
         merged[ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY] = (
             _normalize_all_method_scheduler_scope(
                 merged.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
@@ -1061,6 +1030,13 @@ def _load_settings() -> Dict[str, Any]:
         )
         return merged
     return defaults
+
+
+def _run_settings_payload_from_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
+    return project_run_config_payload(
+        settings,
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
 
 
 def _save_settings(settings: Dict[str, Any]) -> None:
@@ -7236,7 +7212,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             typer.echo()
 
             global_run_settings = RunSettings.from_dict(
-                settings,
+                _run_settings_payload_from_settings(settings),
                 warn_context="interactive global settings",
             )
             selected_run_settings = choose_run_settings(
@@ -8976,8 +8952,7 @@ def _plain_progress_override_requested() -> bool | None:
     return None
 
 
-def _should_default_plain_progress_for_agent() -> bool:
-    # Agent PTY polling tends to duplicate spinner frames into noisy logs.
+def _is_agent_execution_environment() -> bool:
     if _read_status_env_flag("CODEX_CI") in _STATUS_ENV_TRUE_VALUES:
         return True
     for key in _STATUS_AGENT_HINT_ENV_KEYS:
@@ -8986,6 +8961,49 @@ def _should_default_plain_progress_for_agent() -> bool:
         if str(os.getenv(key, "") or "").strip():
             return True
     return False
+
+
+def _should_default_plain_progress_for_agent() -> bool:
+    # Agent PTY polling tends to duplicate spinner frames into noisy logs.
+    return _is_agent_execution_environment()
+
+
+def _enforce_live_labelstudio_benchmark_codex_guardrails(
+    *,
+    codex_execution_policy: str,
+    any_codex_enabled: bool,
+    benchmark_codex_confirmation: str | None,
+) -> None:
+    if codex_execution_policy != "execute" or not any_codex_enabled:
+        return
+    if _is_agent_execution_environment():
+        _fail(
+            "labelstudio-benchmark with live Codex-backed surfaces is blocked in "
+            "agent-run environments. Use --codex-execution-policy plan for a zero-token "
+            "preview, or have a human run the live benchmark manually outside the agent "
+            "environment."
+        )
+    if (
+        str(benchmark_codex_confirmation or "").strip()
+        != BENCH_CODEX_FARM_CONFIRMATION_TOKEN
+    ):
+        _fail(
+            "labelstudio-benchmark with live Codex-backed surfaces requires explicit "
+            "positive user confirmation. Re-run with --benchmark-codex-confirmation "
+            f"{BENCH_CODEX_FARM_CONFIRMATION_TOKEN} only after the user has explicitly "
+            "approved this benchmark."
+        )
+
+
+def _enforce_live_bench_speed_codex_guardrails(*, include_codex_farm: bool) -> None:
+    if not include_codex_farm:
+        return
+    if _is_agent_execution_environment():
+        _fail(
+            "bench speed-run with --include-codex-farm is blocked in agent-run "
+            "environments. Have a human run the live Codex benchmark manually outside "
+            "the agent environment after explicit user approval."
+        )
 
 
 def _normalize_live_status_slots(value: Any) -> int:
@@ -24511,7 +24529,10 @@ def _merge_split_jobs(
             return
 
     ordered_jobs = sorted(job_results, key=_job_range_start)
-    run_settings = RunSettings.from_dict(run_config, warn_context="split merge run config")
+    run_settings = RunSettings.from_dict(
+        project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
+        warn_context="split merge run config",
+    )
     has_explicit_run_config = run_config is not None
     llm_enabled = (
         has_explicit_run_config and run_settings.llm_recipe_pipeline.value != "off"
@@ -29650,6 +29671,14 @@ def labelstudio_benchmark(
             "knowledge, or tags surfaces."
         ),
     )] = False,
+    benchmark_codex_confirmation: str | None = typer.Option(
+        None,
+        "--benchmark-codex-confirmation",
+        help=(
+            "Required for live Codex-backed benchmark runs. Set to "
+            "I_HAVE_EXPLICIT_USER_CONFIRMATION only after explicit positive user approval."
+        ),
+    ),
     codex_execution_policy: Annotated[str, typer.Option(
         "--codex-execution-policy",
         help=(
@@ -30020,6 +30049,9 @@ def labelstudio_benchmark(
     selected_codex_execution_policy = normalize_codex_execution_policy_mode(
         codex_execution_policy
     )
+    benchmark_codex_confirmation = _unwrap_typer_option_default(
+        benchmark_codex_confirmation
+    )
     benchmark_codex_execution = resolve_codex_execution_policy(
         "labelstudio_benchmark",
         {
@@ -30040,6 +30072,11 @@ def labelstudio_benchmark(
             "Re-run with --allow-codex only after explicit positive user approval."
         )
     _print_codex_decision(benchmark_codex_execution)
+    _enforce_live_labelstudio_benchmark_codex_guardrails(
+        codex_execution_policy=selected_codex_execution_policy,
+        any_codex_enabled=benchmark_codex_execution.surface.any_codex_enabled,
+        benchmark_codex_confirmation=benchmark_codex_confirmation,
+    )
     selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
         gold_adaptation_mode
     )
@@ -31951,6 +31988,9 @@ def bench_speed_run(
         include_codex_farm=include_codex_farm,
         confirmation=speedsuite_codex_farm_confirmation,
     )
+    _enforce_live_bench_speed_codex_guardrails(
+        include_codex_farm=include_codex_farm,
+    )
 
     try:
         loaded_suite = load_speed_suite(suite)
@@ -31994,7 +32034,7 @@ def bench_speed_run(
         run_settings_payload = dict(loaded_payload)
         run_settings_context = "bench speed-run settings file"
     else:
-        run_settings_payload = _load_settings()
+        run_settings_payload = _run_settings_payload_from_settings(_load_settings())
         run_settings_context = "bench speed-run global settings"
 
     if codex_farm_model is not None:
@@ -33178,7 +33218,10 @@ def bench_quality_leaderboard(
     if isinstance(winner_settings_payload, dict):
         try:
             winner_settings = RunSettings.from_dict(
-                winner_settings_payload,
+                project_run_config_payload(
+                    winner_settings_payload,
+                    contract=RUN_SETTING_CONTRACT_FULL,
+                ),
                 warn_context="quality-leaderboard winner profile",
             )
             save_qualitysuite_winner_run_settings(Path(DEFAULT_OUTPUT), winner_settings)

@@ -11,7 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import (
+    RUN_SETTING_CONTRACT_FULL,
+    RunSettings,
+    project_run_config_payload,
+)
 
 
 _MULTI_SOURCE_REPORT_JSON = "all_method_benchmark_multi_source_report.json"
@@ -667,7 +671,10 @@ def build_quality_leaderboard(
                             }
                         )
                         run_settings = RunSettings.from_dict(
-                            run_settings_payload,
+                            project_run_config_payload(
+                                run_settings_payload,
+                                contract=RUN_SETTING_CONTRACT_FULL,
+                            ),
                             warn_context="quality-leaderboard winner",
                         )
                         return run_settings.to_run_config_dict()
@@ -685,7 +692,13 @@ def build_quality_leaderboard(
             if cleaned_key not in RunSettings.model_fields:
                 continue
             merged[cleaned_key] = value
-        run_settings = RunSettings.from_dict(merged, warn_context="quality-leaderboard winner")
+        run_settings = RunSettings.from_dict(
+            project_run_config_payload(
+                merged,
+                contract=RUN_SETTING_CONTRACT_FULL,
+            ),
+            warn_context="quality-leaderboard winner",
+        )
         return run_settings.to_run_config_dict()
 
     payload = {

@@ -24,9 +24,11 @@ from cookimport.epub_extractor_names import (
 from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
+    RUN_SETTING_CONTRACT_FULL,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    project_run_config_payload,
     summarize_run_config_payload,
 )
 from cookimport.config.codex_decision import (
@@ -1434,7 +1436,10 @@ def _parallel_convert_worker(
         kwargs["end_spine"] = end_spine
 
     run_settings = RunSettings.from_dict(
-        run_config,
+        project_run_config_payload(
+            run_config,
+            contract=RUN_SETTING_CONTRACT_FULL,
+        ),
         warn_context="labelstudio split run config",
     )
     kwargs["run_settings"] = run_settings

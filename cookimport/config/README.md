@@ -9,6 +9,6 @@ Detailed run-settings contracts live in `cookimport/config/CONVENTIONS.md`.
 - `run_settings_adapters.py` is the single mapping layer from `RunSettings` to concrete `stage(...)` and `labelstudio_benchmark(...)` kwargs used by interactive flows, speed suite, and import entrypoints.
   - It intentionally merges operator, benchmark-lab, internal, and fixed-behavior slices instead of treating the full schema as one flat public contract.
 - `prediction_identity.py` narrows stage-specific reuse identities so prediction caches ignore runtime-only knobs but still miss when output-shaping settings change.
-- `last_run_store.py` persists quality-suite winner settings under canonical `history_root_for_output(<output_dir>)/qualitysuite_winner_run_settings.json` (repo-local default: `.history/...`), with legacy read fallback for `<output_dir>/.history/...` and prior `<output_dir parent>/.history/...` locations.
-  - Winner files now keep the raw saved payload plus a smaller operator summary for faster review.
+- `last_run_store.py` persists quality-suite winner settings under canonical `history_root_for_output(<output_dir>)/qualitysuite_winner_run_settings.json`.
+  - Winner files are disposable cache for the current contract: loads read the canonical file shape only, and stale payloads are ignored instead of being migrated.
 - To add a new run knob: add one field on `RunSettings` with `ui_*` metadata, wire it into pipeline execution where needed, and keep tests in `tests/llm/test_run_settings.py` passing.

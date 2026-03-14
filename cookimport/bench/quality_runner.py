@@ -33,7 +33,11 @@ from cookimport.config.codex_decision import (
     codex_execution_policy_metadata,
     resolve_codex_execution_policy,
 )
-from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import (
+    RUN_SETTING_CONTRACT_FULL,
+    RunSettings,
+    project_run_config_payload,
+)
 from cookimport.core.progress_messages import format_task_counter
 from cookimport.paths import REPO_ROOT
 
@@ -637,7 +641,10 @@ def _run_experiment_worker_request(request_path: Path) -> int:
         else {}
     )
     run_settings = RunSettings.from_dict(
-        run_settings_payload,
+        project_run_config_payload(
+            run_settings_payload,
+            contract=RUN_SETTING_CONTRACT_FULL,
+        ),
         warn_context="quality experiment worker run settings",
     )
     suite_targets_raw = payload.get("suite_targets")
@@ -1740,7 +1747,10 @@ def _resolve_experiments(
         requested_run_settings_payload = requested_run_settings.to_run_config_dict()
         run_settings_payload = dict(requested_run_settings_payload)
         run_settings = RunSettings.from_dict(
-            run_settings_payload,
+            project_run_config_payload(
+                run_settings_payload,
+                contract=RUN_SETTING_CONTRACT_FULL,
+            ),
             warn_context=f"quality-run experiment {experiment.id} benchmark baseline",
         )
         runtime_payload = dict(all_method_runtime_base)

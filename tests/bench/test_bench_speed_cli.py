@@ -149,7 +149,7 @@ def test_bench_speed_run_wires_runner(
     assert captured["run_settings"].benchmark_sequence_matcher == "dmp"
 
 
-def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
+def test_bench_speed_run_rejects_stale_run_settings_file_keys(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -191,8 +191,6 @@ def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
     (run_root / "report.md").write_text("", encoding="utf-8")
     (run_root / "summary.json").write_text("{}", encoding="utf-8")
 
-    captured: dict[str, object] = {}
-
     monkeypatch.setattr(
         "cookimport.bench.speed_suite.load_speed_suite",
         lambda _suite_path: loaded_suite,
@@ -211,59 +209,17 @@ def test_bench_speed_run_loads_run_settings_file_and_applies_matcher_override(
     )
     monkeypatch.setattr("typer.secho", lambda *_args, **_kwargs: None)
 
-    def _fake_run_speed_suite(
-        suite,
-        out_dir,
-        *,
-        scenarios,
-        warmups,
-        repeats,
-        max_targets,
-        max_parallel_tasks,
-        require_process_workers,
-        resume_run_dir,
-        run_settings,
-        include_codex_farm_requested,
-        codex_farm_confirmed,
-        progress_callback,
-    ):
-        _ = (
-            suite,
-            out_dir,
-            scenarios,
-            warmups,
-            repeats,
-            max_targets,
-            max_parallel_tasks,
-            require_process_workers,
-            resume_run_dir,
-            include_codex_farm_requested,
-            codex_farm_confirmed,
-            progress_callback,
+    with pytest.raises(ValueError, match="benchmark_sequence_matcher"):
+        cli.bench_speed_run(
+            suite=suite_path,
+            out_dir=tmp_path / "runs",
+            scenarios="stage_import",
+            warmups=1,
+            repeats=2,
+            max_targets=1,
+            run_settings_file=run_settings_file,
+            sequence_matcher="dmp",
         )
-        captured["run_settings"] = run_settings
-        return run_root
-
-    monkeypatch.setattr(
-        "cookimport.bench.speed_runner.run_speed_suite",
-        _fake_run_speed_suite,
-    )
-
-    cli.bench_speed_run(
-        suite=suite_path,
-        out_dir=tmp_path / "runs",
-        scenarios="stage_import",
-        warmups=1,
-        repeats=2,
-        max_targets=1,
-        run_settings_file=run_settings_file,
-        sequence_matcher="dmp",
-    )
-
-    run_settings = captured["run_settings"]
-    assert isinstance(run_settings, cli.RunSettings)
-    assert run_settings.workers == 3
-    assert run_settings.benchmark_sequence_matcher == "dmp"
 
 
 def test_bench_speed_run_forwards_parallel_and_resume_options(
@@ -504,6 +460,10 @@ def test_bench_speed_run_passes_codex_farm_confirmation_to_runner(
         "cookimport.cli._resolve_all_method_codex_choice",
         lambda _include: (True, None),
     )
+    monkeypatch.setattr(
+        "cookimport.cli._is_agent_execution_environment",
+        lambda: False,
+    )
 
     def _fake_run_speed_suite(
         _suite,
@@ -543,6 +503,35 @@ def test_bench_speed_run_passes_codex_farm_confirmation_to_runner(
     assert captured["max_parallel_tasks"] is None
     assert captured["require_process_workers"] is False
     assert captured["resume_run_dir"] is None
+
+
+def test_bench_speed_run_blocks_codex_farm_in_agent_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    failures: list[str] = []
+
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr("cookimport.cli._is_agent_execution_environment", lambda: True)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.bench_speed_run(
+            suite=tmp_path / "suite.json",
+            out_dir=tmp_path / "runs",
+            scenarios="stage_import",
+            warmups=1,
+            repeats=1,
+            include_codex_farm=True,
+            speedsuite_codex_farm_confirmation=cli.SPEED_RUN_CODEX_FARM_CONFIRMATION_TOKEN,
+        )
+
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert "blocked in agent-run environments" in failures[0]
 
 
 def test_bench_speed_compare_fail_on_regression_exits(
@@ -632,4 +621,3 @@ def test_bench_speed_compare_forwards_allow_settings_mismatch(
     )
 
     assert captured["allow_settings_mismatch"] is True
-

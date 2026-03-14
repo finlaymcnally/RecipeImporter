@@ -213,7 +213,7 @@ def test_prompt_text_escape_returns_none() -> None:
     assert result["value"] is None
 
 
-def test_load_settings_ignores_retired_sequence_matcher(
+def test_load_settings_preserves_stale_sequence_matcher_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -225,13 +225,11 @@ def test_load_settings_ignores_retired_sequence_matcher(
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
     settings = cli._load_settings()
 
-    assert "benchmark_sequence_matcher" not in settings
+    assert settings["benchmark_sequence_matcher"] == "fallback"
 
-
-def test_load_settings_migrates_legacy_epub_extractor(
+def test_run_settings_payload_filter_rejects_removed_legacy_epub_extractor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
     config_path.write_text(
@@ -239,21 +237,18 @@ def test_load_settings_migrates_legacy_epub_extractor(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    settings = cli._load_settings()
 
-    with caplog.at_level("WARNING", logger="cookimport.cli"):
-        settings = cli._load_settings()
-
-    assert settings["epub_extractor"] == "beautifulsoup"
-    assert (
-        "Migrating epub_extractor=legacy to beautifulsoup in cookimport.json."
-        in caplog.text
-    )
+    with pytest.raises(Exception):
+        cli.RunSettings.from_dict(
+            cli._run_settings_payload_from_settings(settings),
+            warn_context="test filtered cookimport.json",
+        )
 
 
-def test_load_settings_migrates_auto_epub_extractor_to_unstructured(
+def test_run_settings_payload_filter_rejects_removed_auto_epub_extractor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
     config_path.write_text(
@@ -261,16 +256,13 @@ def test_load_settings_migrates_auto_epub_extractor_to_unstructured(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+    settings = cli._load_settings()
 
-    with caplog.at_level("WARNING", logger="cookimport.cli"):
-        settings = cli._load_settings()
-
-    assert settings["epub_extractor"] == "unstructured"
-    assert (
-        "Forcing epub_extractor=unstructured in cookimport.json because auto "
-        "extractor mode was removed."
-        in caplog.text
-    )
+    with pytest.raises(Exception):
+        cli.RunSettings.from_dict(
+            cli._run_settings_payload_from_settings(settings),
+            warn_context="test filtered cookimport.json",
+        )
 
 
 def test_choose_run_settings_uses_saved_qualitysuite_winner(
@@ -322,8 +314,6 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_preprocess_mode": "none",
             "epub_unstructured_skip_headers_footers": False,
-            "codex_farm_pass1_pattern_hints_enabled": True,
-            "codex_farm_pass3_skip_pass2_ok": False,
             "llm_recipe_pipeline": "off",
             "line_role_pipeline": "off",
             "atomic_block_splitter": "off",
@@ -361,30 +351,24 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
     tmp_path,
 ) -> None:
     global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
-    stale_winner_settings = cli.RunSettings.from_dict(
+    saved_winner_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
             "line_role_pipeline": "off",
             "atomic_block_splitter": "off",
-            "codex_farm_pass1_pattern_hints_enabled": True,
-            "codex_farm_pass3_skip_pass2_ok": False,
             "epub_extractor": "beautifulsoup",
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_preprocess_mode": "br_split_v1",
             "epub_unstructured_skip_headers_footers": False,
-            "section_detector_backend": "legacy",
             "multi_recipe_splitter": "legacy",
-            "instruction_step_segmentation_policy": "auto",
             "pdf_ocr_policy": "auto",
-            "codex_farm_pipeline_pass2": "recipe.schemaorg.v1",
-            "codex_farm_pipeline_pass3": "recipe.final.v1",
         },
-        warn_context="test stale qualitysuite winner settings",
+        warn_context="test saved qualitysuite winner settings",
     )
     monkeypatch.setattr(
         run_settings_flow,
         "load_qualitysuite_winner_run_settings",
-        lambda *_args, **_kwargs: stale_winner_settings,
+        lambda *_args, **_kwargs: saved_winner_settings,
     )
 
     selected = run_settings_flow.choose_run_settings(
@@ -399,7 +383,7 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
 
     assert selected is not None
     expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
-        stale_winner_settings,
+        saved_winner_settings,
         profile="codexfarm",
         warn_context="test expected harmonized winner settings",
     )
@@ -407,17 +391,63 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
     assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
 
 
+def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    winner_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+            "atomic_block_splitter": "atomic-v1",
+            "codex_farm_model": "gpt-5.3-codex",
+        },
+        warn_context="test qualitysuite winner settings",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: winner_settings,
+    )
+
+    def _menu_select(message: str, **_kwargs):
+        if message == "Recipe pipeline for this run:":
+            return "codex-farm-2stage-repair-v1"
+        if message == "Codex Farm model override:":
+            return "__pipeline_default__"
+        if message == "Codex Farm reasoning effort override:":
+            return "__default__"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    with caplog.at_level("WARNING", logger="cookimport.config.run_settings"):
+        selected = run_settings_flow.choose_run_settings(
+            global_defaults=global_defaults,
+            output_dir=tmp_path,
+            menu_select=_menu_select,
+            back_action=object(),
+            prompt_recipe_pipeline_menu=True,
+            prompt_codex_ai_settings=True,
+        )
+
+    assert selected is not None
+    assert (
+        "Ignoring unknown interactive top-tier pipeline harmonization keys"
+        not in caplog.text
+    )
+    assert "Ignoring unknown interactive codex ai settings keys" not in caplog.text
+    assert (
+        "Ignoring unknown interactive recipe pipeline selection override keys"
+        not in caplog.text
+    )
+
+
 def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    global_defaults = cli.RunSettings.from_dict(
-        {
-            "codex_farm_pass1_pattern_hints_enabled": True,
-            "codex_farm_pass3_skip_pass2_ok": False,
-        },
-        warn_context="test global defaults",
-    )
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
     winner_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
@@ -714,10 +744,52 @@ def test_qualitysuite_winner_run_settings_roundtrip(tmp_path) -> None:
 
     assert loaded is not None
     assert loaded.to_run_config_dict() == winner_settings.to_run_config_dict()
-    assert payload["operator_run_settings"] == winner_settings.to_operator_run_config_dict()
-    assert "epub_extractor=unstructured" in payload["operator_run_settings_summary"]
-    assert "epub_unstructured_html_parser_version" not in payload["operator_run_settings_summary"]
-    assert "epub_unstructured_html_parser_version=v2" in payload["product_run_settings_summary"]
+    assert payload["schema_version"] == 2
+    assert payload["run_settings"] == winner_settings.model_dump(mode="json", exclude_none=True)
+    assert "epub_extractor=unstructured" in payload["run_settings_summary"]
+    assert "epub_unstructured_html_parser_version=v2" in payload["run_settings_summary"]
+
+
+def test_load_qualitysuite_winner_run_settings_ignores_stale_payload(
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    output_dir = tmp_path / "output"
+    winner_path = history_root_for_output(output_dir) / "qualitysuite_winner_run_settings.json"
+    winner_path.parent.mkdir(parents=True, exist_ok=True)
+    winner_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "saved_at": "2026-03-01T11:03:46",
+                "run_settings": {
+                    "benchmark_sequence_matcher": "dmp",
+                    "codex_farm_pipeline_pass1": "recipe.chunking.v1",
+                    "codex_farm_pipeline_pass2": "recipe.schemaorg.v1",
+                    "codex_farm_pipeline_pass3": "recipe.final.v1",
+                    "instruction_step_segmentation_policy": "auto",
+                    "instruction_step_segmenter": "heuristic_v1",
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "multi_recipe_splitter": "legacy",
+                    "section_detector_backend": "legacy",
+                    "table_extraction": "off",
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("WARNING", logger="cookimport.config.run_settings"):
+        loaded = load_qualitysuite_winner_run_settings(output_dir)
+
+    assert loaded is None
+
+    with caplog.at_level("WARNING", logger="cookimport.config.last_run_store"):
+        loaded = load_qualitysuite_winner_run_settings(output_dir)
+
+    assert loaded is None
+    assert "Ignoring stale qualitysuite winner settings file" in caplog.text
 
 
 def test_interactive_import_passes_knowledge_pipeline_settings(
@@ -730,8 +802,6 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
         {
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
             "llm_tags_pipeline": "codex-farm-tags-v1",
-            "codex_farm_pipeline_pass4_knowledge": "recipe.knowledge.custom.v9",
-            "codex_farm_pipeline_pass5_tags": "recipe.tags.custom.v3",
             "codex_farm_knowledge_context_blocks": 37,
             "tag_catalog_json": "data/tagging/custom_catalog.json",
         },

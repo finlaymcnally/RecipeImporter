@@ -60,6 +60,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
 - `--llm-knowledge-pipeline off|codex-farm-knowledge-v1`
 - `--codex-execution-policy execute|plan`
+- live Codex-backed `labelstudio-benchmark` runs now require both `--allow-codex` and `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; agent-run environments are hard-blocked from executing that live path and must use `--codex-execution-policy plan` instead
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - benchmark prediction generation accepts `--codex-farm-knowledge-context-blocks <int>` as a benchmark-lab override; the pass4 knowledge pipeline id itself stays fixed Bucket 1 behavior and only persists in raw compatibility payloads.
 - benchmark contract helpers keep pass4 knowledge off in baseline variants and enable `codex-farm-knowledge-v1` only for Codex variants; manifests should record the resolved value after contract normalization

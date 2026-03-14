@@ -18,18 +18,6 @@ _QUALITYSUITE_WINNER_STORE_FILENAME = "qualitysuite_winner_run_settings.json"
 def _qualitysuite_winner_store_path(output_dir: Path) -> Path:
     return history_root_for_output(output_dir) / _QUALITYSUITE_WINNER_STORE_FILENAME
 
-
-def _legacy_qualitysuite_winner_store_path(output_dir: Path) -> Path:
-    return output_dir / ".history" / _QUALITYSUITE_WINNER_STORE_FILENAME
-
-
-def _legacy_qualitysuite_winner_store_paths(output_dir: Path) -> tuple[Path, ...]:
-    return (
-        _legacy_qualitysuite_winner_store_path(output_dir),
-        output_dir.parent / ".history" / _QUALITYSUITE_WINNER_STORE_FILENAME,
-    )
-
-
 def _load_run_settings_file(path: Path, *, warn_context: str) -> RunSettings | None:
     if not path.is_file():
         return None
@@ -44,21 +32,27 @@ def _load_run_settings_file(path: Path, *, warn_context: str) -> RunSettings | N
         return None
 
     data = payload.get("run_settings")
-    if isinstance(data, dict):
-        return RunSettings.from_dict(data, warn_context=f"{warn_context} settings")
-    return RunSettings.from_dict(payload, warn_context=f"{warn_context} settings")
+    if not isinstance(data, dict):
+        logger.warning("Ignoring invalid %s settings payload in %s", warn_context, path)
+        return None
+    try:
+        return RunSettings.from_dict(
+            data,
+            warn_context=f"{warn_context} settings",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ignoring stale %s settings file %s: %s", warn_context, path, exc)
+        return None
 
 
 def _write_run_settings_file(path: Path, settings: RunSettings) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "saved_at": dt.datetime.now().isoformat(timespec="seconds"),
         "run_settings": settings.model_dump(mode="json", exclude_none=True),
-        "operator_run_settings": settings.to_operator_run_config_dict(),
-        "operator_run_settings_summary": settings.summary(contract="operator"),
-        "product_run_settings_summary": settings.summary(contract="product"),
+        "run_settings_summary": settings.summary(contract="product"),
     }
     tmp_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -70,12 +64,7 @@ def _write_run_settings_file(path: Path, settings: RunSettings) -> None:
 def load_qualitysuite_winner_run_settings(output_dir: Path) -> RunSettings | None:
     path = _qualitysuite_winner_store_path(output_dir)
     if not path.is_file():
-        for legacy in _legacy_qualitysuite_winner_store_paths(output_dir):
-            if legacy.is_file():
-                path = legacy
-                break
-        else:
-            return None
+        return None
     return _load_run_settings_file(path, warn_context="qualitysuite winner")
 
 

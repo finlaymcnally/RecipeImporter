@@ -14,7 +14,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import (
+    RUN_SETTING_CONTRACT_FULL,
+    RunSettings,
+    project_run_config_payload,
+)
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.core.slug import slugify_name
 from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
@@ -260,7 +264,10 @@ def stage_one_file(
     try:
         start_total = dt.datetime.now()
         workbook_slug = slugify_name(file_path.stem)
-        run_settings = RunSettings.from_dict(run_config, warn_context="stage run config")
+        run_settings = RunSettings.from_dict(
+            project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
+            warn_context="stage run config",
+        )
         
         intermediate_dir = out / "intermediate drafts" / workbook_slug
         final_dir = out / "final drafts" / workbook_slug
@@ -543,7 +550,10 @@ def stage_pdf_job(
 
     try:
         start_total = dt.datetime.now()
-        run_settings = RunSettings.from_dict(run_config, warn_context="stage run config")
+        run_settings = RunSettings.from_dict(
+            project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
+            warn_context="stage run config",
+        )
         _report_progress("Starting job...")
         _report_progress("Parsing recipes...")
         result, file_stats, _ = _run_import(
@@ -643,7 +653,10 @@ def stage_epub_job(
 
     try:
         start_total = dt.datetime.now()
-        run_settings = RunSettings.from_dict(run_config, warn_context="stage run config")
+        run_settings = RunSettings.from_dict(
+            project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
+            warn_context="stage run config",
+        )
         _report_progress("Starting job...")
         _report_progress("Parsing recipes...")
         with _temporary_epub_extractor(epub_extractor):

@@ -1819,7 +1819,6 @@ Current CLI/contracts reinforced:
 - Operator-facing run settings are no longer “every non-hidden `RunSettings` field.” The repo now has an explicit public/internal/retired split in `cookimport/config/run_settings.py`, and docs/help/UI should default to the public surface helpers:
   - `public_run_setting_names()`
   - `internal_run_setting_names()`
-  - `retired_legacy_run_setting_names()`
   - `RunSettings.to_public_run_config_dict()`
   - `summarize_run_config_payload(...)`
 - `run_settings_ui_specs()` is now a public-surface view by default, so interactive menus and human summaries stay aligned with real operator choices instead of every persistence/debug seam.
