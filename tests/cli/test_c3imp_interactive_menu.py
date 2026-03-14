@@ -18,6 +18,7 @@ from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import CodexReasoningEffort
+from cookimport.paths import history_root_for_output
 from cookimport import entrypoint
 
 
@@ -704,9 +705,19 @@ def test_qualitysuite_winner_run_settings_roundtrip(tmp_path) -> None:
 
     save_qualitysuite_winner_run_settings(output_dir, winner_settings)
     loaded = load_qualitysuite_winner_run_settings(output_dir)
+    payload = json.loads(
+        (
+            history_root_for_output(output_dir)
+            / "qualitysuite_winner_run_settings.json"
+        ).read_text(encoding="utf-8")
+    )
 
     assert loaded is not None
     assert loaded.to_run_config_dict() == winner_settings.to_run_config_dict()
+    assert payload["operator_run_settings"] == winner_settings.to_operator_run_config_dict()
+    assert "epub_extractor=unstructured" in payload["operator_run_settings_summary"]
+    assert "epub_unstructured_html_parser_version" not in payload["operator_run_settings_summary"]
+    assert "epub_unstructured_html_parser_version=v2" in payload["product_run_settings_summary"]
 
 
 def test_interactive_import_passes_knowledge_pipeline_settings(

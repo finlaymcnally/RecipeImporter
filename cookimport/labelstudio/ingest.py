@@ -1979,7 +1979,13 @@ def generate_pred_run_artifacts(
             ensure_ascii=True,
         ).encode("utf-8")
     ).hexdigest()
-    run_config_summary = summarize_run_config_payload(run_config)
+    summary_contract = "product"
+    if run_manifest_kind == "labelstudio_import":
+        summary_contract = "operator"
+    run_config_summary = summarize_run_config_payload(
+        run_config,
+        contract=summary_contract,
+    )
     run_mapping: MappingConfig | None = None
     if path.suffix.lower() == ".pdf":
         run_mapping = MappingConfig(
@@ -2628,7 +2634,10 @@ def generate_pred_run_artifacts(
             ensure_ascii=True,
         ).encode("utf-8")
     ).hexdigest()
-    run_config_summary = summarize_run_config_payload(run_config)
+    run_config_summary = summarize_run_config_payload(
+        run_config,
+        contract=summary_contract,
+    )
 
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None

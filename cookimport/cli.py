@@ -25087,16 +25087,19 @@ def stage(
     epub_unstructured_html_parser_version: str = typer.Option(
         "v1",
         "--epub-unstructured-html-parser-version",
+        hidden=True,
         help="Unstructured HTML parser version for EPUB extraction: v1 or v2.",
     ),
     epub_unstructured_skip_headers_footers: bool = typer.Option(
         True,
         "--epub-unstructured-skip-headers-footers/--no-epub-unstructured-skip-headers-footers",
+        hidden=True,
         help="Enable Unstructured skip_headers_and_footers for EPUB HTML partitioning.",
     ),
     epub_unstructured_preprocess_mode: str = typer.Option(
         "semantic_v1",
         "--epub-unstructured-preprocess-mode",
+        hidden=True,
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     ),
     section_detector_backend: str = typer.Option(
@@ -25160,11 +25163,13 @@ def stage(
     web_schema_normalizer: str = typer.Option(
         "simple",
         "--web-schema-normalizer",
+        hidden=True,
         help="Schema normalization mode: simple or pyld.",
     ),
     web_html_text_extractor: str = typer.Option(
         "bs4",
         "--web-html-text-extractor",
+        hidden=True,
         help=(
             "Fallback HTML text extractor when schema is absent/disabled: "
             "bs4, trafilatura, readability_lxml, justext, boilerpy3, ensemble_v1."
@@ -25180,18 +25185,21 @@ def stage(
         "--web-schema-min-confidence",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum schema confidence required before schema candidates are accepted.",
     ),
     web_schema_min_ingredients: int = typer.Option(
         2,
         "--web-schema-min-ingredients",
         min=0,
+        hidden=True,
         help="Minimum ingredient lines used in schema confidence scoring.",
     ),
     web_schema_min_instruction_steps: int = typer.Option(
         1,
         "--web-schema-min-instruction-steps",
         min=0,
+        hidden=True,
         help="Minimum instruction steps used in schema confidence scoring.",
     ),
     ingredient_text_fix_backend: str = typer.Option(
@@ -25898,7 +25906,7 @@ def stage(
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _render_run_config_summary(payload: dict[str, Any]) -> str:
-        return summarize_run_config_payload(payload)
+        return summarize_run_config_payload(payload, contract="operator")
 
     def _run_config_for_file(file_path: Path) -> dict[str, Any]:
         if file_path.suffix.lower() != ".epub":

@@ -146,6 +146,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     )
 
     assert kwargs["multi_recipe_splitter"] == "rules_v1"
+    assert kwargs["sequence_matcher"] == fixed_bucket1_behavior.benchmark_sequence_matcher
     assert kwargs["multi_recipe_trace"] is fixed_bucket1_behavior.multi_recipe_trace
     assert kwargs["multi_recipe_min_ingredient_lines"] == 2
     assert kwargs["multi_recipe_min_instruction_lines"] == 2

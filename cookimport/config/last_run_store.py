@@ -56,6 +56,9 @@ def _write_run_settings_file(path: Path, settings: RunSettings) -> None:
         "schema_version": 1,
         "saved_at": dt.datetime.now().isoformat(timespec="seconds"),
         "run_settings": settings.model_dump(mode="json", exclude_none=True),
+        "operator_run_settings": settings.to_operator_run_config_dict(),
+        "operator_run_settings_summary": settings.summary(contract="operator"),
+        "product_run_settings_summary": settings.summary(contract="product"),
     }
     tmp_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",

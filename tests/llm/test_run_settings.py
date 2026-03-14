@@ -3,9 +3,11 @@ from __future__ import annotations
 from cookimport.config.run_settings import (
     BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
     RunSettings,
+    benchmark_lab_run_setting_names,
     build_run_settings,
     compute_effective_workers,
     internal_run_setting_names,
+    ordinary_operator_run_setting_names,
     public_run_setting_names,
     retired_legacy_run_setting_names,
     run_settings_ui_specs,
@@ -198,6 +200,30 @@ def test_bucket2_run_settings_are_internal_only() -> None:
     assert set(BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES).issubset(internal_names)
 
 
+def test_run_settings_contract_helpers_split_public_surface() -> None:
+    public_names = set(public_run_setting_names())
+    operator_names = set(ordinary_operator_run_setting_names())
+    benchmark_lab_names = set(benchmark_lab_run_setting_names())
+
+    assert operator_names
+    assert benchmark_lab_names
+    assert operator_names.isdisjoint(benchmark_lab_names)
+    assert operator_names | benchmark_lab_names == public_names
+    assert {
+        "atomic_block_splitter",
+        "line_role_pipeline",
+        "codex_farm_model",
+        "codex_farm_reasoning_effort",
+    }.issubset(benchmark_lab_names)
+    assert {
+        "workers",
+        "epub_extractor",
+        "pdf_ocr_policy",
+        "llm_recipe_pipeline",
+        "codex_farm_cmd",
+    }.issubset(operator_names)
+
+
 def test_run_settings_ui_specs_include_internal_bucket2_fields_when_requested(
     monkeypatch,
 ) -> None:
@@ -258,6 +284,47 @@ def test_bucket2_public_projection_and_summary_omit_internal_fields() -> None:
     internal_summary = summarize_run_config_payload(full_payload, include_internal=True)
     assert "multi_recipe_splitter=rules_v1" in internal_summary
     assert "ocr_device=auto" in internal_summary
+
+
+def test_operator_and_benchmark_lab_projections_split_public_surface() -> None:
+    payload = {
+        "workers": 3,
+        "epub_extractor": "beautifulsoup",
+        "llm_recipe_pipeline": "codex-farm-3pass-v1",
+        "atomic_block_splitter": "atomic-v1",
+        "line_role_pipeline": "deterministic-v1",
+        "codex_farm_model": "gpt-5.3-codex-spark",
+        "multi_recipe_splitter": "rules_v1",
+    }
+
+    settings = RunSettings.from_dict(payload, warn_context="contract projection")
+
+    operator_payload = settings.to_operator_run_config_dict()
+    benchmark_lab_payload = settings.to_benchmark_lab_run_config_dict()
+
+    assert operator_payload["workers"] == 3
+    assert operator_payload["epub_extractor"] == "beautifulsoup"
+    assert "atomic_block_splitter" not in operator_payload
+    assert "line_role_pipeline" not in operator_payload
+    assert "codex_farm_model" not in operator_payload
+    assert "multi_recipe_splitter" not in operator_payload
+
+    assert benchmark_lab_payload["atomic_block_splitter"] == "atomic-v1"
+    assert benchmark_lab_payload["line_role_pipeline"] == "deterministic-v1"
+    assert benchmark_lab_payload["codex_farm_model"] == "gpt-5.3-codex-spark"
+    assert "workers" not in benchmark_lab_payload
+    assert "multi_recipe_splitter" not in benchmark_lab_payload
+
+    operator_summary = settings.summary(contract="operator")
+    assert "workers=3" in operator_summary
+    assert "epub_extractor=beautifulsoup" in operator_summary
+    assert "atomic_block_splitter=" not in operator_summary
+    assert "codex_farm_model=" not in operator_summary
+
+    product_summary = settings.summary(contract="product")
+    assert "atomic_block_splitter=atomic-v1" in product_summary
+    assert "codex_farm_model=gpt-5.3-codex-spark" in product_summary
+    assert "multi_recipe_splitter=" not in product_summary
 
 
 def test_run_settings_accepts_retired_table_extraction_key_without_reserializing_it() -> None:

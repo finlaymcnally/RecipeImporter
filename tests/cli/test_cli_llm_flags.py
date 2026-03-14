@@ -24,6 +24,14 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--ocr-batch-size" not in result.stdout
     assert "--pdf-column-gap-ratio" not in result.stdout
     assert "--multi-recipe-splitter" not in result.stdout
+    assert "--epub-unstructured-html-parser-version" not in result.stdout
+    assert "--epub-unstructured-skip-headers-footers" not in result.stdout
+    assert "--epub-unstructured-preprocess-mode" not in result.stdout
+    assert "--web-schema-normalizer" not in result.stdout
+    assert "--web-html-text-extractor" not in result.stdout
+    assert "--web-schema-min-confidence" not in result.stdout
+    assert "--web-schema-min-ingredients" not in result.stdout
+    assert "--web-schema-min-instruction-steps" not in result.stdout
     assert "--ingredient-text-fix-backend" not in result.stdout
     assert "--recipe-scorer-backend" not in result.stdout
     assert "--codex-farm-pipeline-pass1" not in result.stdout

@@ -45,6 +45,7 @@ Current scoring surfaces:
 ### 2.2 `cookimport labelstudio-benchmark` benchmark controls
 
 Most benchmark behavior is shared with this command. Active benchmark-specific controls include:
+- benchmark runs now sit on top of the same split as the rest of the product: ordinary operator choices still exist, benchmark-lab overrides are explicit, and raw/internal payloads remain for `run_settings_patch`/artifact compatibility.
 - action positional: `run` (default) or `compare`
 - `--eval-mode stage-blocks|canonical-text`
 - `--gold-adaptation-mode off|auto|force` (stage-blocks only; default `auto`)
@@ -60,13 +61,14 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--llm-knowledge-pipeline off|codex-farm-knowledge-v1`
 - `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
-- benchmark prediction generation also accepts pass4 knowledge knobs: `--codex-farm-pipeline-pass4-knowledge <pipeline_id>` and `--codex-farm-knowledge-context-blocks <int>`
+- benchmark prediction generation accepts `--codex-farm-knowledge-context-blocks <int>` as a benchmark-lab override; the pass4 knowledge pipeline id itself stays fixed Bucket 1 behavior and only persists in raw compatibility payloads.
 - benchmark contract helpers keep pass4 knowledge off in baseline variants and enable `codex-farm-knowledge-v1` only for Codex variants; manifests should record the resolved value after contract normalization
 - benchmark prediction generation still uses the fixed Bucket 1 selective-retry policy internally; it is no longer a normal help-surface option.
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
 - Internal-only benchmark settings payloads and QualitySuite `run_settings_patch` values still accept Bucket 2 parser/OCR/scoring knobs such as `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `pdf_column_gap_ratio`, `line_role_guardrail_mode`, `ocr_device`, `ocr_batch_size`, and `codex_farm_failure_mode`, but those no longer appear in ordinary `labelstudio-benchmark --help`.
+- The benchmark-lab public layer is narrower than the raw schema: EPUB parser tuning, web fallback tuning, `atomic_block_splitter`, `line_role_pipeline`, `codex_farm_recipe_mode`, and Codex model/effort overrides stay benchmark-visible, while internal and retired keys remain artifact-only.
 - when `codex_farm_recipe_mode=benchmark`, pass2/pass3 partial-output runs that were already accepted by the runner can now retry only the missing bundle files; successful original outputs stay untouched, retry artifacts live under `raw/llm/<workbook_slug>/pass2_schemaorg/retry_attempt_XX` or `pass3_final/retry_attempt_XX`, detailed truth lives in `raw/llm/<workbook_slug>/llm_manifest.json`, and benchmark/prediction-run `run_manifest.json` keeps concise retry counts while the benchmark root also preserves a direct `llm_manifest_json` artifact link.
 - CodexFarm benchmark prediction roots now surface structural/invariant diagnostics directly in `raw/llm/<workbook_slug>/llm_manifest.json`:
   - per-recipe `structural_status` + `structural_reason_codes`,
@@ -2163,7 +2165,7 @@ Current benchmark contracts reinforced:
 - Retry eligibility must stay locked to the runner’s recoverable partial-output contract, not a weaker local approximation:
   - require the same `no last agent message` evidence and benchmark coverage thresholds,
   - avoid extra orchestrator-only prefilters that drift from runner semantics.
-- Benchmark retry flags are part of the visible CLI help surface for `labelstudio-benchmark`; hiding them again would recreate the plan-vs-code drift recorded in March 13 review notes.
+- Benchmark retry behavior is fixed Bucket 1 product behavior now. Do not reintroduce retry flags to ordinary help just to debug a benchmark root; inspect `llm_manifest.json`, retry attempt folders, and the benchmark-root `run_manifest.json` links instead.
 
 Anti-loop reminder:
 - If benchmark retry behavior looks wrong, compare the runner helper contract and the benchmark-root `run_manifest.json` link trail before changing scheduler code or adding new retry flags.

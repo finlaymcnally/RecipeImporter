@@ -27,6 +27,29 @@ _RETIRED_KEY_WARNINGS: set[tuple[str, ...]] = set()
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
 RUN_SETTING_SURFACE_PUBLIC = "public"
 RUN_SETTING_SURFACE_INTERNAL = "internal"
+RUN_SETTING_CONTRACT_FULL = "full"
+RUN_SETTING_CONTRACT_PRODUCT = "product"
+RUN_SETTING_CONTRACT_OPERATOR = "operator"
+RUN_SETTING_CONTRACT_BENCHMARK_LAB = "benchmark_lab"
+RUN_SETTING_CONTRACT_INTERNAL = "internal"
+_RUN_SETTING_CONTRACT_ALIASES = {
+    "public": RUN_SETTING_CONTRACT_PRODUCT,
+}
+BENCHMARK_LAB_RUN_SETTING_NAMES = (
+    "epub_unstructured_html_parser_version",
+    "epub_unstructured_skip_headers_footers",
+    "epub_unstructured_preprocess_mode",
+    "web_schema_normalizer",
+    "web_html_text_extractor",
+    "web_schema_min_confidence",
+    "web_schema_min_ingredients",
+    "web_schema_min_instruction_steps",
+    "atomic_block_splitter",
+    "line_role_pipeline",
+    "codex_farm_recipe_mode",
+    "codex_farm_model",
+    "codex_farm_reasoning_effort",
+)
 BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "multi_recipe_splitter",
     "multi_recipe_min_ingredient_lines",
@@ -1337,15 +1360,36 @@ class RunSettings(BaseModel):
         return apply_bucket1_fixed_behavior_metadata(payload)
 
     def to_public_run_config_dict(self) -> dict[str, object]:
+        return self.to_product_run_config_dict()
+
+    def to_product_run_config_dict(self) -> dict[str, object]:
         return project_run_config_payload(
             self.to_run_config_dict(),
-            include_internal=False,
+            contract=RUN_SETTING_CONTRACT_PRODUCT,
         )
 
-    def summary(self, *, include_internal: bool = False) -> str:
+    def to_operator_run_config_dict(self) -> dict[str, object]:
+        return project_run_config_payload(
+            self.to_run_config_dict(),
+            contract=RUN_SETTING_CONTRACT_OPERATOR,
+        )
+
+    def to_benchmark_lab_run_config_dict(self) -> dict[str, object]:
+        return project_run_config_payload(
+            self.to_run_config_dict(),
+            contract=RUN_SETTING_CONTRACT_BENCHMARK_LAB,
+        )
+
+    def summary(
+        self,
+        *,
+        include_internal: bool = False,
+        contract: str | None = None,
+    ) -> str:
         return summarize_run_config_payload(
             self.to_run_config_dict(),
             include_internal=include_internal,
+            contract=contract,
         )
 
     def stable_hash(self) -> str:
@@ -1564,22 +1608,83 @@ def internal_run_setting_names() -> tuple[str, ...]:
     )
 
 
+def product_run_setting_names() -> tuple[str, ...]:
+    return public_run_setting_names()
+
+
+def benchmark_lab_run_setting_names() -> tuple[str, ...]:
+    public_names = set(public_run_setting_names())
+    return tuple(
+        name for name in BENCHMARK_LAB_RUN_SETTING_NAMES if name in public_names
+    )
+
+
+def ordinary_operator_run_setting_names() -> tuple[str, ...]:
+    benchmark_lab_names = set(benchmark_lab_run_setting_names())
+    return tuple(
+        name for name in public_run_setting_names() if name not in benchmark_lab_names
+    )
+
+
 def retired_legacy_run_setting_names() -> tuple[str, ...]:
     return tuple(sorted(_RETIRED_RUN_SETTING_KEYS))
+
+
+def _normalize_run_setting_contract(
+    *,
+    include_internal: bool | None,
+    contract: str | None,
+) -> str:
+    if contract is None:
+        return (
+            RUN_SETTING_CONTRACT_FULL
+            if include_internal
+            else RUN_SETTING_CONTRACT_PRODUCT
+        )
+    normalized = str(contract).strip().lower()
+    normalized = _RUN_SETTING_CONTRACT_ALIASES.get(normalized, normalized)
+    allowed = {
+        RUN_SETTING_CONTRACT_FULL,
+        RUN_SETTING_CONTRACT_PRODUCT,
+        RUN_SETTING_CONTRACT_OPERATOR,
+        RUN_SETTING_CONTRACT_BENCHMARK_LAB,
+        RUN_SETTING_CONTRACT_INTERNAL,
+    }
+    if normalized not in allowed:
+        allowed_list = ", ".join(sorted(allowed))
+        raise ValueError(
+            f"Unknown run-setting contract {contract!r}. Expected one of: {allowed_list}."
+        )
+    return normalized
+
+
+def _run_setting_names_for_contract(contract: str) -> tuple[str, ...]:
+    if contract == RUN_SETTING_CONTRACT_FULL:
+        return tuple(RunSettings.model_fields)
+    if contract == RUN_SETTING_CONTRACT_PRODUCT:
+        return product_run_setting_names()
+    if contract == RUN_SETTING_CONTRACT_OPERATOR:
+        return ordinary_operator_run_setting_names()
+    if contract == RUN_SETTING_CONTRACT_BENCHMARK_LAB:
+        return benchmark_lab_run_setting_names()
+    if contract == RUN_SETTING_CONTRACT_INTERNAL:
+        return internal_run_setting_names()
+    raise ValueError(f"Unhandled run-setting contract: {contract}")
 
 
 def project_run_config_payload(
     payload: Mapping[str, Any] | None,
     *,
-    include_internal: bool = True,
+    include_internal: bool | None = True,
+    contract: str | None = None,
 ) -> dict[str, Any]:
     if payload is None:
         return {}
-    allowed_names = (
-        set(RunSettings.model_fields)
-        if include_internal
-        else set(public_run_setting_names())
+    normalized_contract = _normalize_run_setting_contract(
+        include_internal=include_internal,
+        contract=contract,
     )
+    allowed_names = set(_run_setting_names_for_contract(normalized_contract))
     return {
         name: payload[name]
         for name in RunSettings.model_fields
@@ -1591,13 +1696,17 @@ def summarize_run_config_payload(
     payload: Mapping[str, Any] | None,
     *,
     include_internal: bool = False,
+    contract: str | None = None,
 ) -> str:
-    projected = project_run_config_payload(payload, include_internal=include_internal)
+    projected = project_run_config_payload(
+        payload,
+        include_internal=include_internal,
+        contract=contract,
+    )
     ordered_names = [
         name
         for name in _SUMMARY_ORDER
         if name in projected
-        and (include_internal or run_setting_surface(name) == RUN_SETTING_SURFACE_PUBLIC)
     ]
     remaining_names = [name for name in projected if name not in ordered_names]
     parts: list[str] = []

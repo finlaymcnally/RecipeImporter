@@ -148,6 +148,10 @@ Resolved profile families:
 
 Config keys and defaults:
 
+The post-Bucket-2 product contract now has two public layers:
+- ordinary operator settings: the day-to-day knobs surfaced most directly by `stage`/interactive flows (`workers`, split sizing, `epub_extractor`, `pdf_ocr_policy`, Codex enablement/path/context knobs, and tag-catalog wiring),
+- benchmark-lab settings: still-public persistence fields used for EPUB parser tuning, some web fallback tuning, and benchmark-only line-role/Codex override work, but no longer treated as the normal stage help story.
+
 - `workers` (default `7`)
 - `pdf_split_workers` (default `7`)
 - `epub_split_workers` (default `7`)
@@ -165,16 +169,16 @@ Config keys and defaults:
 - `all_method_wing_backlog_target` (default follows split slots)
 - `all_method_smart_scheduler` (default `true`)
 - `epub_extractor` (default `unstructured`)
-- `epub_unstructured_html_parser_version` (default `v1`)
-- `epub_unstructured_skip_headers_footers` (default `true`)
-- `epub_unstructured_preprocess_mode` (default `semantic_v1`)
+- benchmark-lab: `epub_unstructured_html_parser_version` (default `v1`)
+- benchmark-lab: `epub_unstructured_skip_headers_footers` (default `true`)
+- benchmark-lab: `epub_unstructured_preprocess_mode` (default `semantic_v1`)
 - `web_schema_extractor` (default `builtin_jsonld`)
-- `web_schema_normalizer` (default `simple`)
-- `web_html_text_extractor` (default `bs4`)
+- benchmark-lab: `web_schema_normalizer` (default `simple`)
+- benchmark-lab: `web_html_text_extractor` (default `bs4`)
 - `web_schema_policy` (default `prefer_schema`)
-- `web_schema_min_confidence` (default `0.75`)
-- `web_schema_min_ingredients` (default `2`)
-- `web_schema_min_instruction_steps` (default `1`)
+- benchmark-lab: `web_schema_min_confidence` (default `0.75`)
+- benchmark-lab: `web_schema_min_ingredients` (default `2`)
+- benchmark-lab: `web_schema_min_instruction_steps` (default `1`)
 - `pdf_ocr_policy` (default `auto`)
 - `output_dir` (default `data/output`)
 - `label_studio_url` (default unset; populated after first interactive Label Studio prompt)
@@ -194,6 +198,8 @@ Config keys and defaults:
 - `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
 
 Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, `codex_farm_pass1_pattern_hints_enabled`, `codex_farm_pipeline_pass1/2/3/4_knowledge/5_tags`, `codex_farm_pass3_skip_pass2_ok`, and `codex_farm_benchmark_selective_retry_*`. `table_extraction` is retired entirely; new runs always extract tables.
+
+Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for compatibility and reproducibility.
 
 What each setting affects:
 
