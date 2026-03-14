@@ -26,14 +26,10 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "epub_unstructured_html_parser_version",
         "epub_unstructured_skip_headers_footers",
         "epub_unstructured_preprocess_mode",
-        "section_detector_backend",
         "multi_recipe_splitter",
-        "multi_recipe_trace",
         "multi_recipe_min_ingredient_lines",
         "multi_recipe_min_instruction_lines",
         "multi_recipe_for_the_guardrail",
-        "instruction_step_segmentation_policy",
-        "instruction_step_segmenter",
         "web_schema_extractor",
         "web_schema_normalizer",
         "web_html_text_extractor",
@@ -53,7 +49,6 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "p6_temperature_unit_backend",
         "p6_ovenlike_mode",
         "p6_yield_mode",
-        "p6_emit_metadata_debug",
         "pdf_ocr_policy",
         "pdf_column_gap_ratio",
         "llm_recipe_pipeline",
@@ -63,20 +58,12 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "llm_tags_pipeline",
         "codex_farm_recipe_mode",
         "codex_farm_cmd",
-        "codex_farm_pass1_pattern_hints_enabled",
-        "codex_farm_pipeline_pass1",
-        "codex_farm_pipeline_pass2",
-        "codex_farm_pipeline_pass3",
-        "codex_farm_pass3_skip_pass2_ok",
-        "codex_farm_benchmark_selective_retry_enabled",
-        "codex_farm_benchmark_selective_retry_max_attempts",
-        "codex_farm_pipeline_pass4_knowledge",
-        "codex_farm_pipeline_pass5_tags",
         "codex_farm_context_blocks",
         "codex_farm_knowledge_context_blocks",
         "tag_catalog_json",
         "codex_farm_failure_mode",
     )
+    assert "bucket1_fixed_behavior_version" in run_config
     for field_name in representative_fields:
         assert run_config[field_name] == _serialized(getattr(settings, field_name))
 
@@ -104,6 +91,12 @@ def test_run_settings_accepts_recipe_codex_farm_pipeline() -> None:
     settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-3pass-v1"})
 
     assert settings.llm_recipe_pipeline.value == "codex-farm-3pass-v1"
+
+
+def test_run_settings_accepts_merged_recipe_codex_farm_pipeline() -> None:
+    settings = RunSettings.from_dict({"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"})
+
+    assert settings.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
 
 
 def test_run_settings_defaults_use_compact_codex_farm_pass_pipelines() -> None:
@@ -154,7 +147,11 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     expected = set(public_run_setting_names())
     assert by_name == expected
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
-    assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
+    assert llm_recipe_spec.choices == (
+        "off",
+        "codex-farm-3pass-v1",
+        "codex-farm-2stage-repair-v1",
+    )
     atomic_block_splitter_spec = next(
         spec for spec in specs if spec.name == "atomic_block_splitter"
     )
@@ -175,20 +172,8 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
     epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")
     assert epub_extractor_spec.choices == ("unstructured", "beautifulsoup")
-    section_backend_spec = next(
-        spec for spec in specs if spec.name == "section_detector_backend"
-    )
-    assert section_backend_spec.choices == ("legacy", "shared_v1")
     multi_recipe_spec = next(spec for spec in specs if spec.name == "multi_recipe_splitter")
     assert multi_recipe_spec.choices == ("legacy", "off", "rules_v1")
-    segmentation_policy_spec = next(
-        spec for spec in specs if spec.name == "instruction_step_segmentation_policy"
-    )
-    assert segmentation_policy_spec.choices == ("off", "auto", "always")
-    segmenter_spec = next(
-        spec for spec in specs if spec.name == "instruction_step_segmenter"
-    )
-    assert segmenter_spec.choices == ("heuristic_v1", "pysbd_v1")
     web_policy_spec = next(spec for spec in specs if spec.name == "web_schema_policy")
     assert web_policy_spec.choices == (
         "prefer_schema",
@@ -211,6 +196,9 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     )
     p6_yield_mode_spec = next(spec for spec in specs if spec.name == "p6_yield_mode")
     assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
+    assert "section_detector_backend" in retired_legacy_run_setting_names()
+    assert "instruction_step_segmentation_policy" in retired_legacy_run_setting_names()
+    assert "instruction_step_segmenter" in retired_legacy_run_setting_names()
 
 
 def test_run_settings_accepts_retired_table_extraction_key_without_reserializing_it() -> None:
@@ -228,7 +216,11 @@ def test_run_settings_ui_specs_include_recipe_codex_farm_without_env_gate() -> N
     specs = run_settings_ui_specs()
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
 
-    assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
+    assert llm_recipe_spec.choices == (
+        "off",
+        "codex-farm-3pass-v1",
+        "codex-farm-2stage-repair-v1",
+    )
 
 
 def test_compute_effective_workers_does_not_promote_markitdown_epub_splits() -> None:

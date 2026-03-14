@@ -1032,3 +1032,56 @@ Durable conclusion:
 
 Anti-loop note:
 - If `label` is outside `candidate_labels`, do not blame export/cutdown code first; verify whether the raw line-role prediction row was already invalid before export.
+
+## 2026-03-13 migrated understanding ledger (table knowledge status + Food Lab EPUB recovery)
+
+### 2026-03-13_22.36.37 data-table knowledge status
+
+Source:
+- `docs/understandings/2026-03-13_22.36.37-data-table-knowledge-status.md`
+
+Problem captured:
+- The old `docs/plans/old/data-table-knowledge.md` plan was still easy to treat as “maybe never shipped,” even though most of its behavior already existed in code/tests/docs.
+
+Durable finding:
+- The main table-knowledge path is implemented:
+  - `tables.py` detects and annotates tables,
+  - stage/prediction flows write `tables/` artifacts,
+  - chunking forces detected tables into the knowledge lane,
+  - pass4 bundles carry compact `table_hint` data.
+
+Preserved caveat:
+- The remaining gap at audit time was a strong in-repo positive end-to-end example with non-empty detected tables, not missing core code paths.
+
+### 2026-03-13_22.40.48 and 2026-03-13_22.44.17 Food Lab benchmark expectation and fix direction
+
+Merged sources:
+- `docs/understandings/2026-03-13_22.40.48-thefoodlab-benchmark-table-expectation.md`
+- `docs/understandings/2026-03-13_22.44.17-epub-table-flattening-fix-directions.md`
+
+Problem captured:
+- Historical Food Lab benchmark roots looked like a missing-table bug, but two different issues were being conflated:
+  - saved runs had table extraction off,
+  - the EPUB extractor had already flattened conversion tables into long text blobs.
+
+Durable findings:
+- Rerunning with extraction enabled is necessary before judging table behavior from those roots.
+- Downstream detector heuristics are the fallback, not the primary repair path; once rows/cells are flattened into one line, `tables.py` loses the reliable cues it was designed to use.
+
+### 2026-03-13_23.02.22 EPUB table structure and reference-title gating
+
+Source:
+- `docs/understandings/2026-03-13_23.02.22-epub-table-structure-and-reference-gating.md`
+
+Problem captured:
+- Row preservation alone still missed some Food Lab conversion charts because recipe-likeness scoring kept them in recipe-candidate flow instead of `nonRecipeBlocks`.
+
+Durable decisions:
+- Use `metadata.text_as_html` table structure when Unstructured provides it.
+- Keep the narrow reference-title penalty so obvious conversion/reference pages are demoted out of recipe-candidate flow.
+- Treat the combined rerun roots as the proof-of-shape examples:
+  - `data/output/2026-03-13_22.59.32`
+  - `data/output/2026-03-13_23.01.23`
+
+Anti-loop note:
+- If a table fix only touches `tables.py`, it is probably incomplete; the extractor and recipe-likeness gate are part of the same failure chain.

@@ -86,7 +86,7 @@ Per workbook (slugified file stem):
 - `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
-- `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (optional Priority 6 parser/yield diagnostics; only when `p6_emit_metadata_debug=true`)
+- `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
 - `tags/<workbook_slug>/r{index}.tags.json` (if pass5 tags pipeline is enabled)
 - `tags/<workbook_slug>/tagging_report.json` (if pass5 tags pipeline is enabled)
 - `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
@@ -130,7 +130,7 @@ Stage-block label resolution contract:
 ## Intermediate JSON-LD Section Behavior
 
 - `cookimport/staging/jsonld.py` now removes detected instruction section headers from literal step text.
-- `cookimport/staging/jsonld.py`, `cookimport/staging/draft_v1.py`, and `write_section_outputs(...)` now consume the same effective instruction segmentation settings (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) so step boundaries stay aligned across outputs.
+- `cookimport/staging/jsonld.py`, `cookimport/staging/draft_v1.py`, and `write_section_outputs(...)` now consume the same fixed Bucket 1 fallback segmentation behavior so step boundaries stay aligned across outputs.
 - When multiple instruction sections are detected, `recipeInstructions` is emitted as `HowToSection` objects with `itemListElement` `HowToStep` entries.
 - Ingredient section groupings are emitted in custom metadata:
   - `recipeimport:ingredientSections` with `name`, `key`, and grouped `recipeIngredient` lines.
@@ -190,7 +190,7 @@ Current enforced behavior:
 - For unresolved units, `input_unit_id` is always set to `null` (raw unit text retained in `raw_unit_text`).
 - For unresolved non-linked ingredients, `ingredient_id` must be non-empty string; fallback uses `raw_ingredient_text`, then `raw_text`, then sentinel `__missing_ingredient__`.
 - Ingredient parsing now consumes run-config parser knobs (`ingredient_*` settings), so missing-unit policy/backend/packaging options selected for stage/prediction imports directly affect final draft ingredient lines.
-- Instruction fallback segmentation now consumes run-config knobs (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) before section extraction and variant splitting.
+- Instruction fallback segmentation now consumes the fixed Bucket 1 segmentation contract before section extraction and variant splitting.
 - Priority 6 parser/yield options now consume run-config `p6_*` knobs (time strategy/backend, temperature extraction/unit conversion, oven-like mode, yield mode).
 
 Code pointer:
@@ -209,7 +209,7 @@ Code pointer:
 - Step temperatures now preserve `temperature_items` arrays when available (legacy `temperature`/`temperature_unit` fields remain for compatibility).
 - Recipe-level `max_oven_temp_f` is emitted from oven-like step temperature metadata when available.
 - Yield fields (`yield_units`, `yield_phrase`, `yield_unit_name`, `yield_detail`) now come from centralized deterministic yield extraction (`legacy_v1` passthrough or `scored_v1`).
-- When `p6_emit_metadata_debug=true`, draft conversion emits `_p6_debug` internally and writer strips it from final `r{index}.json` while writing `.bench/<workbook_slug>/p6_metadata_debug.jsonl`.
+- When internal Priority 6 debug is enabled, draft conversion emits `_p6_debug` internally and writer strips it from final `r{index}.json` while writing `.bench/<workbook_slug>/p6_metadata_debug.jsonl`.
 - Blank recipe titles are normalized to `Untitled Recipe`.
 - Blank `source` values are normalized to `null` to satisfy staging schema min-length rules.
 - `apply_line_role_spans_to_recipes(...)` now keeps an already-credible `recipe.name` unless projected `RECIPE_TITLE` / `RECIPE_VARIANT` spans also have nearby ingredient/instruction/yield/time structure, preventing late section-header overwrite from canonical line-role projections.
@@ -495,3 +495,16 @@ Current staging/processed-output risks reinforced:
 - Draft normalization remains inconsistent in some runs (`name`/`ingredients`/`instructions` missing while `recipe.title` + `steps` are populated), so write-path normalization checks remain required.
 - Gold-vs-run parser/preprocess setting mismatches (`v1/br_split_v1` vs `v2/semantic_v1`) can create benchmark comparability drift and should be treated as first-class provenance checks.
 - Narrative-heavy books can generate over-broad tip/topic artifacts; keep deterministic filtering and warning-driven triage in place.
+
+## 2026-03-13 merged understandings digest (title-promotion and line-role ownership boundary)
+
+Merged source note:
+- `docs/understandings/2026-03-13_23.07.29-staging-title-and-line-role-ownership-boundary.md`
+
+Current staging boundary clarified:
+- `cookimport/staging/stage_block_predictions.py` owns deterministic benchmark/stage evidence labels. It can stop false `RECIPE_TITLE` and `RECIPE_VARIANT` promotion in stage artifacts, but it is not the final owner of `recipe.name`.
+- Late recipe-name overwrite happens in `cookimport/staging/draft_v1.py` inside `apply_line_role_spans_to_recipes(...)`. That is the staging seam that decides whether projected line-role spans are allowed to replace the existing title.
+- Syntax-heavy label ownership is enforced earlier in `cookimport/parsing/canonical_line_roles.py`, after deterministic and Codex predictions are sanitized. That parser-side veto layer is where strong `TIME_LINE`, `YIELD_LINE`, `RECIPE_NOTES`, `HOWTO_SECTION`, and ingredient-line disagreements should be resolved.
+
+Anti-loop reminder:
+- If a bad title reaches final drafts, check `draft_v1.py` and canonical ownership vetoes before assuming the stage-block evidence builder is the whole bug.

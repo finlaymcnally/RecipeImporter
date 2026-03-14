@@ -117,20 +117,14 @@ def build_benchmark_call_kwargs_from_run_settings(
     no_upload: bool,
     write_markdown: bool,
     write_label_studio_tasks: bool,
-    sequence_matcher_override: str | None = None,
     processed_output_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Map canonical RunSettings to kwargs accepted by cli.labelstudio_benchmark(...)."""
-    selected_sequence_matcher = (
-        str(sequence_matcher_override).strip().lower()
-        if sequence_matcher_override is not None
-        else settings.benchmark_sequence_matcher
-    )
     payload: dict[str, Any] = {
         "output_dir": output_dir,
         "eval_output_dir": eval_output_dir,
         "eval_mode": eval_mode,
-        "sequence_matcher": selected_sequence_matcher,
+        "sequence_matcher": settings.benchmark_sequence_matcher,
         "no_upload": bool(no_upload),
         "write_markdown": bool(write_markdown),
         "write_label_studio_tasks": bool(write_label_studio_tasks),

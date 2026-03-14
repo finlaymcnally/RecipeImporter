@@ -991,3 +991,33 @@ Current parsing contracts reinforced:
 
 Anti-loop reminder:
 - When `joined_line_table.jsonl` and `line_role_predictions.jsonl` disagree, separate exporter matching errors from already-invalid source prediction rows before changing analytics or cutdown tooling.
+
+## 2026-03-13 merged understandings digest (table extraction status + EPUB table recovery path)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_22.36.37-data-table-knowledge-status.md`
+- `docs/understandings/2026-03-13_22.40.48-thefoodlab-benchmark-table-expectation.md`
+- `docs/understandings/2026-03-13_22.44.17-epub-table-flattening-fix-directions.md`
+- `docs/understandings/2026-03-13_23.02.22-epub-table-structure-and-reference-gating.md`
+
+Current parsing contracts reinforced:
+- The old data-table knowledge plan is effectively shipped in the active codebase:
+  - deterministic detection and annotation in `cookimport/parsing/tables.py`,
+  - table-aware chunking in `cookimport/parsing/chunks.py`,
+  - table artifacts plus pass4 `table_hint` propagation through stage/prediction/LLM flows.
+- Historical “Food Lab has no tables” runs under `data/golden/benchmark-vs-golden/` were not proof of a writer failure:
+  - those saved manifests had table extraction disabled,
+  - and the extracted conversion pages were also badly flattened.
+- Best-first EPUB table recovery is upstream structure preservation, not downstream guesswork:
+  - preserve row/cell structure at extraction time,
+  - prefer `metadata.text_as_html` table rows when available,
+  - let `tables.py` trust deterministic row structure instead of reparsing flattened prose.
+- Table detection also depends on non-recipe gating, not only row preservation:
+  - Food Lab conversion charts had to stop scoring as recipe candidates,
+  - a narrow reference-title penalty was part of getting those charts into `nonRecipeBlocks`, where table detection can see them.
+- Preserving structure plus the reference-title reject produced the expected improvement in the recorded Food Lab reruns:
+  - `data/output/2026-03-13_22.59.32` wrote 3 unrelated tables,
+  - `data/output/2026-03-13_23.01.23` wrote 6 tables including the conversion/reference targets.
+
+Anti-loop reminder:
+- If EPUB tables go missing, inspect extractor structure and recipe-likeness gating before adding more salvage heuristics to `tables.py`.

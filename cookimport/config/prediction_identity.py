@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from cookimport.config.codex_decision import BUCKET1_FIXED_BEHAVIOR_VERSION
 from cookimport.config.run_settings import RunSettings
 
 ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
+    "bucket1_fixed_behavior_version",
     "epub_extractor",
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
-    "section_detector_backend",
-    "instruction_step_segmentation_policy",
-    "instruction_step_segmenter",
     "multi_recipe_splitter",
-    "multi_recipe_trace",
     "multi_recipe_min_ingredient_lines",
     "multi_recipe_min_instruction_lines",
     "multi_recipe_for_the_guardrail",
@@ -38,7 +36,6 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "p6_temperature_unit_backend",
     "p6_ovenlike_mode",
     "p6_yield_mode",
-    "p6_emit_metadata_debug",
     "recipe_scorer_backend",
     "recipe_score_gold_min",
     "recipe_score_silver_min",
@@ -53,17 +50,10 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "codex_farm_recipe_mode",
     "codex_farm_model",
     "codex_farm_reasoning_effort",
-    "codex_farm_pass1_pattern_hints_enabled",
-    "codex_farm_pipeline_pass1",
-    "codex_farm_pipeline_pass2",
-    "codex_farm_pipeline_pass3",
-    "codex_farm_pass3_skip_pass2_ok",
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
     "llm_knowledge_pipeline",
     "llm_tags_pipeline",
-    "codex_farm_pipeline_pass4_knowledge",
-    "codex_farm_pipeline_pass5_tags",
     "codex_farm_knowledge_context_blocks",
     "tag_catalog_json",
 )
@@ -77,6 +67,7 @@ def _project_run_config_fields(
     fields: tuple[str, ...],
 ) -> dict[str, Any]:
     run_config = settings.to_run_config_dict()
+    run_config["bucket1_fixed_behavior_version"] = BUCKET1_FIXED_BEHAVIOR_VERSION
     return {
         field_name: run_config[field_name]
         for field_name in fields

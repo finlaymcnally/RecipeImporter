@@ -461,7 +461,7 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     assert captured["runtime_epub_extractor"] == "beautifulsoup"
     assert captured["section_detector_backend"] == "shared_v1"
     assert captured["multi_recipe_splitter"] == "rules_v1"
-    assert captured["multi_recipe_trace"] is True
+    assert captured["multi_recipe_trace"] is False
     assert captured["multi_recipe_min_ingredient_lines"] == 2
     assert captured["multi_recipe_min_instruction_lines"] == 2
     assert captured["multi_recipe_for_the_guardrail"] is False

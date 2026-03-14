@@ -100,13 +100,14 @@ def test_stage_output_structure(tmp_path):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["importerName"] == "text"
     assert report["runConfig"]["workers"] >= 1
+    assert "bucket1_fixed_behavior_version" in report["runConfig"]
     assert report["runConfig"]["epub_extractor"] == "unstructured"
     assert report["runConfig"]["epub_unstructured_html_parser_version"] == "v1"
     assert report["runConfig"]["epub_unstructured_skip_headers_footers"] is True
     assert report["runConfig"]["epub_unstructured_preprocess_mode"] == "semantic_v1"
-    assert report["runConfig"]["section_detector_backend"] == "legacy"
+    assert "section_detector_backend" not in report["runConfig"]
     assert report["runConfig"]["multi_recipe_splitter"] == "legacy"
-    assert report["runConfig"]["multi_recipe_trace"] is False
+    assert "multi_recipe_trace" not in report["runConfig"]
     assert report["runConfig"]["multi_recipe_min_ingredient_lines"] == 1
     assert report["runConfig"]["multi_recipe_min_instruction_lines"] == 1
     assert report["runConfig"]["multi_recipe_for_the_guardrail"] is True
@@ -184,7 +185,8 @@ def test_stage_report_includes_section_detector_backend_setting(tmp_path):
     timestamp_dir = _timestamp_dir(output_dir)
     report_path = timestamp_dir / "simple_text.excel_import_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["runConfig"]["section_detector_backend"] == "shared_v1"
+    assert "section_detector_backend" not in report["runConfig"]
+    assert "bucket1_fixed_behavior_version" in report["runConfig"]
 
 
 def test_stage_report_includes_multi_recipe_splitter_settings(tmp_path):
@@ -214,7 +216,7 @@ def test_stage_report_includes_multi_recipe_splitter_settings(tmp_path):
     report_path = timestamp_dir / "simple_text.excel_import_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["runConfig"]["multi_recipe_splitter"] == "rules_v1"
-    assert report["runConfig"]["multi_recipe_trace"] is True
+    assert "multi_recipe_trace" not in report["runConfig"]
     assert report["runConfig"]["multi_recipe_min_ingredient_lines"] == 2
     assert report["runConfig"]["multi_recipe_min_instruction_lines"] == 3
     assert report["runConfig"]["multi_recipe_for_the_guardrail"] is False

@@ -31,7 +31,7 @@ Stage execution paths:
 
 Recipe codex-farm pass modules:
 
-- `cookimport/llm/codex_farm_orchestrator.py` (pass1/pass2/pass3 orchestration)
+- `cookimport/llm/codex_farm_orchestrator.py` (current `codex-farm-3pass-v1` pass1/pass2/pass3 orchestration plus the additive `codex-farm-2stage-repair-v1` pass1/merged-repair prototype)
 - `cookimport/llm/codex_farm_transport.py` (authoritative pass1->pass2 inclusive span selection + audit payload builder)
 - `cookimport/llm/codex_farm_contracts.py` (strict pass1/2/3 bundle contracts with guarded JSON-string repair for malformed object payloads)
 - `cookimport/llm/evidence_normalizer.py` (deterministic additive pass2 evidence normalization)
@@ -83,7 +83,7 @@ Report/model plumbing:
 
 ## Policy boundary (current behavior)
 
-- `llm_recipe_pipeline` supports `off` and `codex-farm-3pass-v1` without env-gate coercion.
+- `llm_recipe_pipeline` supports `off`, `codex-farm-3pass-v1`, and `codex-farm-2stage-repair-v1` without env-gate coercion.
 - `cookimport/config/codex_decision.py` now carries both surface classification and execution-policy metadata:
   - command decisions still enforce explicit approval in execute mode,
   - prediction/benchmark plan mode writes `codex_execution_plan.json` without live Codex calls.
@@ -91,11 +91,12 @@ Report/model plumbing:
   - `plan` writes manifests plus `codex_execution_plan.json` and returns before live Codex work.
   - prediction-run plan mode is now deeper than the stage boundary preview: it still performs deterministic extraction/archive preparation so the plan artifact can enumerate concrete line-role batches and recipe CodexFarm pass work.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
-- Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
+- Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows whether global `llm_recipe_pipeline` is non-`off`, and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
-- Benchmark prediction generation now forwards `llm_knowledge_pipeline`, `codex_farm_pipeline_pass4_knowledge`, and `codex_farm_knowledge_context_blocks` into shared `RunSettings`; benchmark baseline variants keep knowledge off while benchmark Codex variants enable `codex-farm-knowledge-v1`.
+- Benchmark prediction generation now forwards `llm_knowledge_pipeline` and `codex_farm_knowledge_context_blocks` into shared `RunSettings`; retired pass-id knobs are fixed product behavior and compatibility-only on load.
 - `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
 - When CodexFarm recipe parsing and knowledge harvest are enabled, default pass pipeline ids now point at the compact prompt assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`.
+- The step4 prototype `codex-farm-2stage-repair-v1` keeps pass1 but swaps the pass2/pass3 seam for `recipe.merged-repair.compact.v1`; that stage emits one canonical recipe object, and recipeimport derives schema.org plus `RecipeDraftV1` locally while writing per-recipe audits under `raw/llm/<workbook>/merged_repair_audit/`.
 - Canonical line-role prompt construction now defaults to `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` when the env var is unset; set it back to `legacy` for rollback or A/B checks.
 - `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
 - Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint require explicit `--allow-codex` approval only in execute mode when their resolved run settings enable a Codex-backed surface.
@@ -111,7 +112,7 @@ Report/model plumbing:
 
 - Pass1 recipe chunking input contract supports optional `pattern_hints` (`cookimport/llm/codex_farm_contracts.py`).
 - Prompt contract marks `pattern_hints` as advisory only and never a replacement for block evidence (`llm_pipelines/prompts/recipe.chunking.v1.prompt.md`).
-- Runtime wiring is controlled by run settings via `codex_farm_pass1_pattern_hints_enabled` (default `false`) in `cookimport/llm/codex_farm_orchestrator.py`.
+- Runtime wiring now resolves pass1 pattern-hints policy from the fixed Bucket 1 behavior contract; the old run-settings key is compatibility-only on load.
 - This handoff is metadata-only; it does not enable AI parsing/cleaning in EPUB/PDF ingestion.
 
 ## Pass2 Transport Audit + Evidence Normalization
@@ -162,9 +163,7 @@ Report/model plumbing:
 - Pass2-ok deterministic promotion now defaults to enabled and skips pass3 only
   when the utility signal is low-risk
   (`pass3_routing_reason=pass2_ok_high_confidence_deterministic`).
-- Override control is run-settings only:
-  - `run_settings.codex_farm_pass3_skip_pass2_ok` (default `true`) controls pass2-ok
-    deterministic skip behavior.
+- Pass2-ok deterministic skip is fixed-on product behavior for normal runs; the old `codex_farm_pass3_skip_pass2_ok` key is compatibility-only on load.
 - Manifest counts now include pass2-ok routing utility counters:
   `pass3_pass2_ok_utility_rows`, `pass3_pass2_ok_skip_candidates`,
   `pass3_pass2_ok_deterministic_skips`, `pass3_pass2_ok_llm_calls`.
@@ -782,12 +781,8 @@ Merged source note:
 
 Current LLM contracts reinforced:
 - Interactive top-tier profile selection controls pipeline/splitter settings (`llm_recipe_pipeline`, `line_role_pipeline`, `atomic_block_splitter`) through `RunSettings`.
-- Built-in codex and vanilla top-tier baselines explicitly pin `codex_farm_pass1_pattern_hints_enabled=false`.
-- Built-in codex and vanilla top-tier baselines explicitly pin `codex_farm_pass3_skip_pass2_ok=true`.
-- Codex winner-run harmonization intentionally does not overwrite winner-provided `codex_farm_pass1_pattern_hints_enabled`.
-- Codex winner-run harmonization intentionally does not overwrite winner-provided `codex_farm_pass3_skip_pass2_ok`.
-- Pass3 pass2-ok skip policy is a persisted run-settings field (`codex_farm_pass3_skip_pass2_ok`) and is now profile/QualitySuite-tunable.
-- Pass1 pattern hints policy is a persisted run-settings field (`codex_farm_pass1_pattern_hints_enabled`) and is profile/QualitySuite-tunable.
+- Built-in codex and vanilla top-tier baselines share the same fixed Bucket 1 pass-policy behavior (`pattern_hints=false`, `pass2-ok skip=true`).
+- Winner harmonization now preserves active user-facing settings while retired Bucket 1 pass-policy keys load only for compatibility and do not retune new runs.
 
 Anti-loop reminder:
 - If pass3 volume changes unexpectedly while profiles stay fixed, inspect run-settings values before editing profile patches.
@@ -937,3 +932,28 @@ Current LLM contracts reinforced:
   - brittle `field_evidence` JSON-string encoding,
   - overlap-clamped pass1 spans that can split one recipe into ingredient-only vs instruction-only halves,
   - isolated pass2 `extracted_*` character corruption that then propagates into pass3.
+
+## 2026-03-13 merged understandings digest (structural audits + step3/step4 seams)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_22.54.35-codexfarm-structural-audit-boundary.md`
+- `docs/understandings/2026-03-13_23.14.04-codexfarm-step3-current-path-shipping-shape.md`
+- `docs/understandings/2026-03-13_23.23.14-step4-prototype-surface-map.md`
+
+Current LLM contracts reinforced:
+- Structural success/failure should be defined once in `cookimport/llm/codex_farm_contracts.py`, with transport/runtime checks feeding shared reason-coded audits instead of ad hoc orchestrator error strings.
+- Transport verification now needs stable row-count and source-truth detail (`source_row_count`, `effective_row_count`, `payload_row_count`, `source_hash`) so later reliability work can distinguish bad spans, dropped rows, and model mistakes without reinterpreting raw strings.
+- Older test fixtures that produce pass2 ingredients/instructions not grounded in the transported span are not “harmless shortcuts”; once structural rules hardened, those fixtures correctly stopped reaching pass3.
+- Step3/current-path repair was intentionally implemented by extending existing seams rather than inventing new output shapes:
+  - malformed pass2 auxiliary `field_evidence` is recovered in contract loading with a warning,
+  - `ingredient_step_mapping_reason` remains the authoritative pass3 empty-mapping explanation,
+  - manifest-side `pass3_mapping_status` / `pass3_mapping_reason` are derived from that existing field,
+  - overlap truncation is represented by additive degradation reasons such as `truncated_recipe_head`, `truncated_recipe_tail`, and `partial_recipe_window`.
+- Step4/new-pipeline work is broader than orchestrator branching. Any additional `llm_recipe_pipeline` must be wired through:
+  - `RunSettings` and normalization,
+  - Codex decision gating/approval logic,
+  - orchestrator pass planning and manifests,
+  - benchmark/helper expectations for LLM debug artifacts.
+
+Anti-loop reminder:
+- If a new recipe pipeline works only after patching the orchestrator, assume the implementation is incomplete until normalization, approval, and benchmark-debug surfaces are updated too.

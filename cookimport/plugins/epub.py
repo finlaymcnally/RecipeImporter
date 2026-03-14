@@ -286,7 +286,7 @@ class EpubImporter:
         # Auto-extractor probing calls _extract_docpack() directly without convert().
         # Keep defaults initialized so probe paths share the same runtime contract.
         self._overrides = None
-        self._section_detector_backend = "legacy"
+        self._section_detector_backend = "shared_v1"
         self._standalone_filter_diagnostics: dict[str, Any] = {}
 
     def detect(self, path: Path) -> float:
@@ -362,7 +362,7 @@ class EpubImporter:
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
         self._section_detector_backend = str(
-            getattr(getattr(run_settings, "section_detector_backend", None), "value", "legacy")
+            getattr(getattr(run_settings, "section_detector_backend", None), "value", "shared_v1")
         )
 
         def _notify(message: str) -> None:
@@ -953,7 +953,7 @@ class EpubImporter:
             )
         finally:
             self._overrides = None
-            self._section_detector_backend = "legacy"
+            self._section_detector_backend = "shared_v1"
             self._standalone_filter_diagnostics = {}
 
     def _extract_standalone_tips(

@@ -36,6 +36,10 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
     assert _normalize_llm_recipe_pipeline("codex-farm-3pass-v1") == "codex-farm-3pass-v1"
+    assert (
+        _normalize_llm_recipe_pipeline("codex-farm-2stage-repair-v1")
+        == "codex-farm-2stage-repair-v1"
+    )
 
 
 def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_conversion(

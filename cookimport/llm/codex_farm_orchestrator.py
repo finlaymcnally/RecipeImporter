@@ -16,6 +16,9 @@ from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 from .codex_farm_contracts import (
     BlockLite,
+    MergedCanonicalRecipe,
+    MergedRecipeRepairInput,
+    MergedRecipeRepairOutput,
     PatternHint,
     Pass1RecipeChunkingInput,
     Pass1RecipeChunkingOutput,
@@ -52,6 +55,8 @@ COMPACT_PASS2_PIPELINE_ID = "recipe.schemaorg.compact.v1"
 COMPACT_PASS3_PIPELINE_ID = "recipe.final.compact.v1"
 DEFAULT_PASS2_PIPELINE_ID = COMPACT_PASS2_PIPELINE_ID
 DEFAULT_PASS3_PIPELINE_ID = COMPACT_PASS3_PIPELINE_ID
+MERGED_REPAIR_RECIPE_PIPELINE_ID = "codex-farm-2stage-repair-v1"
+MERGED_REPAIR_STAGE_PIPELINE_ID = "recipe.merged-repair.compact.v1"
 
 # Backward-compatible exports used by tests/docs.
 PASS1_PIPELINE_ID = DEFAULT_PASS1_PIPELINE_ID
@@ -116,6 +121,7 @@ _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
     "mixed_content",
 )
 _RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION = "recipe_codex_guardrail_report.v1"
+_MERGED_REPAIR_AUDIT_SCHEMA_VERSION = "recipe_codex_merged_repair_audit.v1"
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -174,6 +180,7 @@ class _RecipeState:
     pass3_utility_signal: dict[str, Any] | None = None
     structural_status: str = "ok"
     structural_reason_codes: list[str] = field(default_factory=list)
+    merged_repair_audit: dict[str, Any] | None = None
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -511,6 +518,7 @@ def run_codex_farm_recipe_pipeline(
     pass3_out_dir = llm_raw_dir / "pass3_final" / "out"
     transport_audit_dir = llm_raw_dir / "transport_audit"
     evidence_normalization_dir = llm_raw_dir / "evidence_normalization"
+    merged_repair_audit_dir = llm_raw_dir / "merged_repair_audit"
     pass1_eligibility_diagnostics_path = (
         llm_raw_dir / "pass1_recipe_eligibility_diagnostics.json"
     )
@@ -523,6 +531,7 @@ def run_codex_farm_recipe_pipeline(
         pass3_out_dir,
         transport_audit_dir,
         evidence_normalization_dir,
+        merged_repair_audit_dir,
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -545,6 +554,7 @@ def run_codex_farm_recipe_pipeline(
     output_schema_paths: dict[str, str] = {}
     transport_audits: dict[str, dict[str, Any]] = {}
     evidence_normalizations: dict[str, dict[str, Any]] = {}
+    merged_repair_audits: dict[str, dict[str, Any]] = {}
     if not states:
         recipe_guardrail_report, recipe_guardrail_rows = _build_recipe_guardrail_report(states)
         recipe_guardrail_report_path, recipe_guardrail_rows_path = (
@@ -588,6 +598,7 @@ def run_codex_farm_recipe_pipeline(
                 "transport_audits": 0,
                 "transport_mismatches": 0,
                 "evidence_normalization_logs": 0,
+                "merged_repair_audits": 0,
                 "structural_degraded": 0,
                 "structural_failed": 0,
                 "runtime_mode_violations": 0,
@@ -615,6 +626,7 @@ def run_codex_farm_recipe_pipeline(
                 llm_manifest_path=llm_raw_dir / "llm_manifest.json",
                 transport_audit_dir=transport_audit_dir,
                 evidence_normalization_dir=evidence_normalization_dir,
+                merged_repair_audit_dir=merged_repair_audit_dir,
                 pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
                 recipe_guardrail_report_path=recipe_guardrail_report_path,
                 recipe_guardrail_rows_path=recipe_guardrail_rows_path,
@@ -655,6 +667,7 @@ def run_codex_farm_recipe_pipeline(
                 "transport": {"recipes_audited": 0, "mismatch_recipes": 0, "mismatch_recipe_ids": []},
                 "runtime_mode": {"violations": {}},
                 "evidence_normalization": {"recipes_logged": 0},
+                "merged_repair_audits": {"recipes_logged": 0},
                 "recipe_guardrail_report_path": str(recipe_guardrail_report_path),
                 "recipe_guardrail_rows_path": str(recipe_guardrail_rows_path),
                 "pass1_recipe_eligibility_diagnostics_path": str(
@@ -856,7 +869,14 @@ def run_codex_farm_recipe_pipeline(
             },
             evidence_normalization_dir / recipe_artifact_name,
         )
-        if _uses_compact_pass2_payload(pipelines["pass2"]):
+        if _uses_merged_recipe_pipeline(run_settings):
+            pass2_input = _build_merged_repair_input(
+                state=state,
+                workbook_slug=workbook_slug,
+                source_hash=source_hash,
+                included_blocks=included_blocks,
+            )
+        elif _uses_compact_pass2_payload(pipelines["pass2"]):
             pass2_input = _build_pass2_input_compact(
                 state=state,
                 workbook_slug=workbook_slug,
@@ -920,6 +940,122 @@ def run_codex_farm_recipe_pipeline(
             state.pass2_promotion_policy = "pass2_error"
             state.errors.append("missing pass2 output bundle.")
             continue
+        if _uses_merged_recipe_pipeline(run_settings):
+            try:
+                merged_output = load_contract_json(out_path, MergedRecipeRepairOutput)
+            except Exception as exc:  # noqa: BLE001
+                state.pass2_status = "error"
+                state.pass2_promotion_policy = "pass2_error"
+                state.errors.append(f"invalid merged repair output: {exc}")
+                continue
+
+            state.warnings.extend(list(merged_output.warnings))
+            derived_schemaorg_recipe = _derive_schemaorg_from_canonical_recipe(
+                merged_output.canonical_recipe
+            )
+            derived_pass2_output = Pass2SchemaOrgOutput(
+                recipe_id=state.recipe_id,
+                schemaorg_recipe=derived_schemaorg_recipe,
+                extracted_ingredients=list(merged_output.canonical_recipe.ingredients),
+                extracted_instructions=list(merged_output.canonical_recipe.steps),
+                field_evidence={},
+                warnings=list(merged_output.warnings),
+            )
+            draft_payload = _derive_draft_payload_from_canonical_recipe(
+                canonical_recipe=merged_output.canonical_recipe,
+                recipe_id=state.recipe_id,
+            )
+            structural_audit = classify_pass3_structural_audit(
+                draft_payload=draft_payload,
+                pass2_output=derived_pass2_output,
+                ingredient_step_mapping=merged_output.ingredient_step_mapping,
+                ingredient_step_mapping_reason=merged_output.ingredient_step_mapping_reason,
+                pass2_reason_codes=[],
+            )
+            _merge_structural_audit(state=state, audit=structural_audit)
+            state.pass2_output = derived_pass2_output
+            state.pass2_status = "ok"
+            state.pass2_degradation_severity = "none"
+            state.pass2_promotion_policy = "merged_repair_canonical_derivation"
+            state.pass3_execution_mode = "llm_merged_repair"
+            state.pass3_routing_reason = "merged_repair_stage"
+            (
+                state.pass3_mapping_status,
+                state.pass3_mapping_reason,
+            ) = _classify_pass3_mapping_status(
+                draft_payload=draft_payload,
+                pass2_output=derived_pass2_output,
+                ingredient_step_mapping=merged_output.ingredient_step_mapping,
+                ingredient_step_mapping_reason=merged_output.ingredient_step_mapping_reason,
+            )
+            merged_input = load_contract_json(pass2_in_dir / state.bundle_name, MergedRecipeRepairInput)
+            merged_repair_audit = _build_merged_repair_audit(
+                state=state,
+                merged_input=merged_input,
+                merged_output=merged_output,
+                derived_schemaorg_recipe=derived_schemaorg_recipe,
+                structural_audit=structural_audit,
+            )
+            state.merged_repair_audit = dict(merged_repair_audit)
+            merged_repair_audits[state.recipe_id] = dict(merged_repair_audit)
+            _write_json(
+                merged_repair_audit,
+                merged_repair_audit_dir / _recipe_artifact_filename(state.recipe_id),
+            )
+            low_quality_reasons = _render_structural_reason_messages(
+                structural_audit.reason_codes
+            )
+            if low_quality_reasons:
+                fallback_payload = _build_pass3_deterministic_fallback_payload(
+                    state=state,
+                )
+                if fallback_payload is None:
+                    state.pass3_status = "error"
+                    state.errors.append(
+                        "merged repair output rejected and deterministic fallback draft_v1 could not be generated."
+                    )
+                    continue
+                try:
+                    fallback_model = RecipeDraftV1.model_validate(fallback_payload)
+                except Exception as exc:  # noqa: BLE001
+                    state.pass3_status = "error"
+                    state.errors.append(
+                        f"merged repair fallback draft_v1 validation failed: {exc}"
+                    )
+                    continue
+                state.pass3_status = "fallback"
+                state.pass3_execution_mode = "llm_merged_repair_then_deterministic_fallback"
+                state.pass3_fallback_reason = "; ".join(low_quality_reasons)
+                state.warnings.extend(low_quality_reasons)
+                state.warnings.append(
+                    _recipe_scoped_failure_mode_note(
+                        mode=run_settings.codex_farm_failure_mode.value,
+                        reason="merged repair fallback",
+                    )
+                )
+                final_overrides[state.recipe_id] = fallback_model.model_dump(
+                    mode="json",
+                    by_alias=True,
+                    exclude_none=True,
+                )
+                continue
+            try:
+                draft_model = RecipeDraftV1.model_validate(draft_payload)
+            except Exception as exc:  # noqa: BLE001
+                state.pass3_status = "error"
+                state.errors.append(
+                    f"merged repair draft_v1 validation failed: {exc}"
+                )
+                continue
+            state.pass3_status = "ok"
+            intermediate_overrides[state.recipe_id] = dict(derived_schemaorg_recipe)
+            final_overrides[state.recipe_id] = draft_model.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude_none=True,
+            )
+            continue
+
         try:
             output = load_contract_json(out_path, Pass2SchemaOrgOutput)
         except Exception as exc:  # noqa: BLE001
@@ -978,6 +1114,11 @@ def run_codex_farm_recipe_pipeline(
     pass3_deterministic_states: list[_RecipeState] = []
     for state in states:
         if state.pass2_output is None:
+            continue
+        if state.pass3_execution_mode in {
+            "llm_merged_repair",
+            "llm_merged_repair_then_deterministic_fallback",
+        }:
             continue
         if state.pass3_status in {"error", "fallback"}:
             continue
@@ -1242,6 +1383,7 @@ def run_codex_farm_recipe_pipeline(
         llm_manifest_path=llm_manifest_path,
         transport_audit_dir=transport_audit_dir,
         evidence_normalization_dir=evidence_normalization_dir,
+        merged_repair_audit_dir=merged_repair_audit_dir,
         pipelines=pipelines,
         output_schema_paths=output_schema_paths,
         process_runs=process_runs,
@@ -1250,6 +1392,7 @@ def run_codex_farm_recipe_pipeline(
         pass3_skip_pass2_ok_enabled=pass3_skip_pass2_ok_enabled,
         transport_audits=transport_audits,
         evidence_normalizations=evidence_normalizations,
+        merged_repair_audits=merged_repair_audits,
         pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
         recipe_guardrail_report_path=recipe_guardrail_report_path,
         recipe_guardrail_rows_path=recipe_guardrail_rows_path,
@@ -1279,6 +1422,10 @@ def run_codex_farm_recipe_pipeline(
         "runtime_mode": dict(llm_manifest.get("runtime_mode", {})),
         "evidence_normalization": {
             "recipes_logged": llm_manifest["counts"].get("evidence_normalization_logs", 0),
+        },
+        "merged_repair_audits": {
+            "recipes_logged": llm_manifest["counts"].get("merged_repair_audits", 0),
+            "directory": str(merged_repair_audit_dir),
         },
         "recipe_guardrail_report_path": str(recipe_guardrail_report_path),
         "recipe_guardrail_rows_path": str(recipe_guardrail_rows_path),
@@ -1359,38 +1506,47 @@ def build_codex_farm_recipe_execution_plan(
             pattern_hints=pattern_hints,
         )
         pass1_payload = pass1_input.model_dump(mode="json", by_alias=True)
+        planned_passes = [
+            {
+                "pass": "pass1",
+                "pipeline_id": pipelines["pass1"],
+                "input_fingerprint": _codex_plan_fingerprint(pass1_payload),
+                "input_block_count": (
+                    len(pass1_payload.get("blocks_before") or [])
+                    + len(pass1_payload.get("blocks_candidate") or [])
+                    + len(pass1_payload.get("blocks_after") or [])
+                ),
+                "contingent": False,
+            },
+            {
+                "pass": "pass2",
+                "pipeline_id": pipelines["pass2"],
+                "depends_on": "pass1",
+                "heuristic_block_range": [state.heuristic_start, state.heuristic_end],
+                "contingent": True,
+                "stage_kind": (
+                    "merged_repair"
+                    if _uses_merged_recipe_pipeline(run_settings)
+                    else "schemaorg"
+                ),
+            },
+        ]
+        if not _uses_merged_recipe_pipeline(run_settings):
+            planned_passes.append(
+                {
+                    "pass": "pass3",
+                    "pipeline_id": pipelines["pass3"],
+                    "depends_on": "pass2",
+                    "heuristic_block_range": [state.heuristic_start, state.heuristic_end],
+                    "contingent": True,
+                }
+            )
         planned_tasks.append(
             {
                 "recipe_id": state.recipe_id,
                 "recipe_index": recipe_index,
                 "bundle_name": state.bundle_name,
-                "planned_passes": [
-                    {
-                        "pass": "pass1",
-                        "pipeline_id": pipelines["pass1"],
-                        "input_fingerprint": _codex_plan_fingerprint(pass1_payload),
-                        "input_block_count": (
-                            len(pass1_payload.get("blocks_before") or [])
-                            + len(pass1_payload.get("blocks_candidate") or [])
-                            + len(pass1_payload.get("blocks_after") or [])
-                        ),
-                        "contingent": False,
-                    },
-                    {
-                        "pass": "pass2",
-                        "pipeline_id": pipelines["pass2"],
-                        "depends_on": "pass1",
-                        "heuristic_block_range": [state.heuristic_start, state.heuristic_end],
-                        "contingent": True,
-                    },
-                    {
-                        "pass": "pass3",
-                        "pipeline_id": pipelines["pass3"],
-                        "depends_on": "pass2",
-                        "heuristic_block_range": [state.heuristic_start, state.heuristic_end],
-                        "contingent": True,
-                    },
-                ],
+                "planned_passes": planned_passes,
             }
         )
 
@@ -1428,6 +1584,7 @@ def _paths_payload(
     llm_manifest_path: Path,
     transport_audit_dir: Path | None = None,
     evidence_normalization_dir: Path | None = None,
+    merged_repair_audit_dir: Path | None = None,
     pass1_eligibility_diagnostics_path: Path | None = None,
     recipe_guardrail_report_path: Path | None = None,
     recipe_guardrail_rows_path: Path | None = None,
@@ -1445,6 +1602,8 @@ def _paths_payload(
         payload["transport_audit_dir"] = str(transport_audit_dir)
     if evidence_normalization_dir is not None:
         payload["evidence_normalization_dir"] = str(evidence_normalization_dir)
+    if merged_repair_audit_dir is not None:
+        payload["merged_repair_audit_dir"] = str(merged_repair_audit_dir)
     if pass1_eligibility_diagnostics_path is not None:
         payload["pass1_recipe_eligibility_diagnostics"] = str(
             pass1_eligibility_diagnostics_path
@@ -1580,6 +1739,7 @@ def _build_llm_manifest(
     llm_manifest_path: Path,
     transport_audit_dir: Path,
     evidence_normalization_dir: Path,
+    merged_repair_audit_dir: Path,
     pipelines: dict[str, str],
     output_schema_paths: dict[str, str],
     process_runs: dict[str, dict[str, Any]],
@@ -1588,6 +1748,7 @@ def _build_llm_manifest(
     pass3_skip_pass2_ok_enabled: bool,
     transport_audits: dict[str, dict[str, Any]],
     evidence_normalizations: dict[str, dict[str, Any]],
+    merged_repair_audits: dict[str, dict[str, Any]],
     pass1_eligibility_diagnostics_path: Path,
     recipe_guardrail_report_path: Path,
     recipe_guardrail_rows_path: Path,
@@ -1610,6 +1771,9 @@ def _build_llm_manifest(
         normalization_row = evidence_normalizations.get(state.recipe_id)
         if isinstance(normalization_row, dict):
             row["evidence_normalization"] = dict(normalization_row)
+        merged_repair_row = merged_repair_audits.get(state.recipe_id)
+        if isinstance(merged_repair_row, dict):
+            row["merged_repair_audit"] = dict(merged_repair_row)
         if state.pass2_degradation_reasons:
             row["pass2_degradation_reasons"] = list(state.pass2_degradation_reasons)
         if state.pass2_degradation_severity:
@@ -1698,7 +1862,13 @@ def _build_llm_manifest(
         "pass3_execution_mode_llm": sum(
             1
             for state in states
-            if state.pass3_execution_mode in {"llm", "llm_then_deterministic_fallback"}
+            if state.pass3_execution_mode
+            in {
+                "llm",
+                "llm_then_deterministic_fallback",
+                "llm_merged_repair",
+                "llm_merged_repair_then_deterministic_fallback",
+            }
         ),
         "pass3_execution_mode_deterministic": sum(
             1 for state in states if state.pass3_execution_mode == "deterministic"
@@ -1754,6 +1924,7 @@ def _build_llm_manifest(
         "transport_audits": len(transport_audits),
         "transport_mismatches": len(mismatch_recipe_ids),
         "evidence_normalization_logs": len(evidence_normalizations),
+        "merged_repair_audits": len(merged_repair_audits),
         "structural_degraded": sum(
             1 for state in states if state.structural_status == "degraded"
         ),
@@ -1805,6 +1976,7 @@ def _build_llm_manifest(
             llm_manifest_path=llm_manifest_path,
             transport_audit_dir=transport_audit_dir,
             evidence_normalization_dir=evidence_normalization_dir,
+            merged_repair_audit_dir=merged_repair_audit_dir,
             pass1_eligibility_diagnostics_path=pass1_eligibility_diagnostics_path,
             recipe_guardrail_report_path=recipe_guardrail_report_path,
             recipe_guardrail_rows_path=recipe_guardrail_rows_path,
@@ -1950,12 +2122,139 @@ def _build_pass3_input_compact(
     )
 
 
+def _uses_merged_recipe_pipeline(run_settings: RunSettings) -> bool:
+    return (
+        str(run_settings.llm_recipe_pipeline.value).strip().lower()
+        == MERGED_REPAIR_RECIPE_PIPELINE_ID
+    )
+
+
 def _uses_compact_pass2_payload(pipeline_id: str) -> bool:
     return pipeline_id == COMPACT_PASS2_PIPELINE_ID
 
 
 def _uses_compact_pass3_payload(pipeline_id: str) -> bool:
     return pipeline_id == COMPACT_PASS3_PIPELINE_ID
+
+
+def _build_merged_repair_input(
+    *,
+    state: _RecipeState,
+    workbook_slug: str,
+    source_hash: str,
+    included_blocks: list[dict[str, Any]],
+) -> MergedRecipeRepairInput:
+    draft_hint = recipe_candidate_to_draft_v1(
+        state.recipe,
+        ingredient_parser_options=RunSettings().to_run_config_dict(),
+        instruction_step_options=RunSettings().to_run_config_dict(),
+    )
+    return MergedRecipeRepairInput(
+        recipe_id=state.recipe_id,
+        workbook_slug=workbook_slug,
+        source_hash=source_hash,
+        canonical_text="\n".join(
+            str(block.get("text") or "").strip() for block in included_blocks
+        ).strip(),
+        evidence_rows=[
+            (int(block.get("index", 0)), str(block.get("text") or "").strip())
+            for block in included_blocks
+        ],
+        recipe_candidate_hint=state.recipe.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        ),
+        draft_hint=dict(draft_hint),
+        authority_notes=[
+            "authoritative_source=evidence_rows",
+            "secondary_hint=recipe_candidate_hint",
+            "secondary_hint=draft_hint",
+            "emit_one_canonical_recipe_only",
+        ],
+    )
+
+
+def _derive_schemaorg_from_canonical_recipe(
+    canonical_recipe: MergedCanonicalRecipe,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "@type": "Recipe",
+        "name": canonical_recipe.title,
+        "recipeIngredient": list(canonical_recipe.ingredients),
+        "recipeInstructions": list(canonical_recipe.steps),
+    }
+    if canonical_recipe.description:
+        payload["description"] = canonical_recipe.description
+    if canonical_recipe.recipe_yield:
+        payload["recipeYield"] = canonical_recipe.recipe_yield
+    return payload
+
+
+def _derive_draft_payload_from_canonical_recipe(
+    *,
+    canonical_recipe: MergedCanonicalRecipe,
+    recipe_id: str,
+) -> dict[str, Any]:
+    return {
+        "schema_v": 1,
+        "source": "codex_farm_merged_repair",
+        "recipe": {
+            "title": canonical_recipe.title,
+        },
+        "steps": [
+            {
+                "instruction": instruction,
+                "ingredient_lines": [],
+            }
+            for instruction in canonical_recipe.steps
+        ],
+    }
+
+
+def _build_merged_repair_audit(
+    *,
+    state: _RecipeState,
+    merged_input: MergedRecipeRepairInput,
+    merged_output: MergedRecipeRepairOutput,
+    derived_schemaorg_recipe: dict[str, Any],
+    structural_audit: StructuralAuditResult,
+) -> dict[str, Any]:
+    return {
+        "schema_version": _MERGED_REPAIR_AUDIT_SCHEMA_VERSION,
+        "recipe_id": state.recipe_id,
+        "pipeline": MERGED_REPAIR_RECIPE_PIPELINE_ID,
+        "authoritative_source_summary": {
+            "row_count": len(merged_input.evidence_rows),
+            "canonical_char_count": len(merged_input.canonical_text),
+            "authority_notes": list(merged_input.authority_notes),
+        },
+        "hint_summary": {
+            "recipe_candidate_title": str(
+                merged_input.recipe_candidate_hint.get("name") or ""
+            ).strip(),
+            "draft_hint_title": str(
+                ((merged_input.draft_hint.get("recipe") or {}).get("title") or "")
+            ).strip(),
+        },
+        "canonical_output_summary": {
+            "title": merged_output.canonical_recipe.title,
+            "ingredient_count": len(merged_output.canonical_recipe.ingredients),
+            "step_count": len(merged_output.canonical_recipe.steps),
+            "warning_count": len(merged_output.warnings),
+            "mapping_keys": sorted(
+                str(key) for key in merged_output.ingredient_step_mapping.keys()
+            ),
+            "mapping_reason": merged_output.ingredient_step_mapping_reason,
+        },
+        "derived_artifacts": {
+            "schemaorg_name": str(derived_schemaorg_recipe.get("name") or "").strip(),
+            "schemaorg_instruction_count": len(
+                list(derived_schemaorg_recipe.get("recipeInstructions") or [])
+            ),
+        },
+        "structural_audit": structural_audit.to_dict(),
+    }
 
 
 def _resolve_pipeline_root(run_settings: RunSettings) -> Path:
@@ -1987,6 +2286,14 @@ def _resolve_workspace_root(run_settings: RunSettings) -> Path | None:
 
 
 def _resolve_pipeline_ids(run_settings: RunSettings) -> dict[str, str]:
+    if _uses_merged_recipe_pipeline(run_settings):
+        return {
+            "pass1": _non_empty(
+                run_settings.codex_farm_pipeline_pass1,
+                fallback=DEFAULT_PASS1_PIPELINE_ID,
+            ),
+            "pass2": MERGED_REPAIR_STAGE_PIPELINE_ID,
+        }
     return {
         "pass1": _non_empty(
             run_settings.codex_farm_pipeline_pass1,

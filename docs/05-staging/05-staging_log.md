@@ -592,3 +592,21 @@ Durable outcomes preserved:
 Anti-loop reminders:
 - Do not treat benchmark score differences as like-for-like until run settings/provenance parity is verified.
 - When report totals look wrong, check produced artifact counts first before debugging evaluator math.
+
+## 2026-03-13 migrated understanding ledger (title-promotion boundary)
+
+### 2026-03-13_23.07.29 staging title and line-role ownership boundary
+
+Source:
+- `docs/understandings/2026-03-13_23.07.29-staging-title-and-line-role-ownership-boundary.md`
+
+Problem captured:
+- Title-promotion fixes were easy to misplace because three modules participate in what users experience as one “wrong title” bug.
+
+Durable findings:
+- `stage_block_predictions.py` only controls deterministic evidence labels used in staged/benchmark block artifacts.
+- Late overwrite of `recipe.name` from projected line-role spans happens in `draft_v1.py`.
+- Strong syntax-heavy disagreement vetoes belong in `canonical_line_roles.py`, not in the stage writer path.
+
+Anti-loop note:
+- If a section header becomes the final recipe title, trace the handoff `canonical_line_roles.py -> apply_line_role_spans_to_recipes(...)` before changing block-label heuristics.

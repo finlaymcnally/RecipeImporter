@@ -31,22 +31,25 @@ def _section_display_name(key: str, displays: dict[str, str]) -> str:
 def _resolve_instruction_step_segmentation_options(
     options: Mapping[str, Any] | None,
 ) -> tuple[str, str]:
+    from cookimport.config.codex_decision import bucket1_fixed_behavior
+
+    fixed_behavior = bucket1_fixed_behavior()
     if not isinstance(options, Mapping):
         return (
-            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
-            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+            fixed_behavior.instruction_step_segmentation_policy,
+            fixed_behavior.instruction_step_segmenter,
         )
 
     policy = str(
         options.get(
             "instruction_step_segmentation_policy",
-            DEFAULT_INSTRUCTION_STEP_SEGMENTATION_POLICY,
+            fixed_behavior.instruction_step_segmentation_policy,
         )
     ).strip().lower().replace("-", "_")
     segmenter = str(
         options.get(
             "instruction_step_segmenter",
-            DEFAULT_INSTRUCTION_STEP_SEGMENTER,
+            fixed_behavior.instruction_step_segmenter,
         )
     ).strip().lower().replace("-", "_")
     return (policy, segmenter)

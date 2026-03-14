@@ -55,8 +55,10 @@ from cookimport.cli_ui.run_settings_flow import (
 from cookimport.config.codex_decision import (
     apply_benchmark_baseline_contract,
     apply_benchmark_codex_contract_from_baseline,
+    apply_bucket1_fixed_behavior_metadata,
     apply_codex_decision_metadata,
     apply_codex_execution_policy_metadata,
+    bucket1_fixed_behavior,
     codex_surfaces_enabled,
     format_codex_command_summary,
     format_codex_execution_policy_summary,
@@ -74,6 +76,7 @@ from cookimport.config.run_settings import (
     build_run_settings,
     compute_effective_workers,
     project_run_config_payload,
+    retired_legacy_run_setting_names,
     summarize_run_config_payload,
 )
 from cookimport.config.run_settings_adapters import (
@@ -411,6 +414,7 @@ ALL_METHOD_PREDICTION_REUSE_WAIT_SECONDS = 120.0
 ALL_METHOD_PREDICTION_REUSE_POLL_SECONDS = 0.25
 ALL_METHOD_PREDICTION_REUSE_LOCK_SUFFIX = ".lock"
 ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
+    "bucket1_fixed_behavior_version",
     "epub_extractor",
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
@@ -419,9 +423,7 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "pdf_ocr_policy",
     "ocr_batch_size",
     "pdf_column_gap_ratio",
-    "section_detector_backend",
     "multi_recipe_splitter",
-    "multi_recipe_trace",
     "multi_recipe_min_ingredient_lines",
     "multi_recipe_min_instruction_lines",
     "multi_recipe_for_the_guardrail",
@@ -433,23 +435,13 @@ ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS = (
     "web_schema_min_ingredients",
     "web_schema_min_instruction_steps",
     "llm_recipe_pipeline",
-    "codex_farm_pass1_pattern_hints_enabled",
-    "codex_farm_pipeline_pass1",
-    "codex_farm_pipeline_pass2",
-    "codex_farm_pipeline_pass3",
     "codex_farm_context_blocks",
-    "codex_farm_pass3_skip_pass2_ok",
     "codex_farm_failure_mode",
 )
 SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_EXCLUDED_FIELDS = (
     "llm_recipe_pipeline",
     "codex_farm_cmd",
-    "codex_farm_pass1_pattern_hints_enabled",
-    "codex_farm_pipeline_pass1",
-    "codex_farm_pipeline_pass2",
-    "codex_farm_pipeline_pass3",
     "codex_farm_context_blocks",
-    "codex_farm_pass3_skip_pass2_ok",
     "codex_farm_failure_mode",
 )
 SINGLE_OFFLINE_SPLIT_CONVERT_INPUT_FIELDS = tuple(
@@ -992,7 +984,6 @@ def _load_settings() -> Dict[str, Any]:
         "llm_recipe_pipeline": "off",
         "line_role_pipeline": "off",
         "atomic_block_splitter": "off",
-        "benchmark_sequence_matcher": "dmp",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -1007,7 +998,6 @@ def _load_settings() -> Dict[str, Any]:
         defaults[ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = defaults[
             ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
-        return defaults
     try:
         with open(DEFAULT_CONFIG_PATH, "r") as f:
             loaded = json.load(f)
@@ -1021,6 +1011,8 @@ def _load_settings() -> Dict[str, Any]:
         return defaults
     if isinstance(loaded, dict):
         merged = {**defaults, **loaded}
+        for retired_key in retired_legacy_run_setting_names():
+            merged.pop(retired_key, None)
         if ALL_METHOD_WING_BACKLOG_SETTING_KEY not in loaded:
             merged[ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
                 merged,
@@ -1067,16 +1059,6 @@ def _load_settings() -> Dict[str, Any]:
                 merged.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
             )
         )
-        normalized_sequence_matcher = str(
-            merged.get("benchmark_sequence_matcher", "dmp") or "dmp"
-        ).strip().lower()
-        if normalized_sequence_matcher not in supported_sequence_matcher_modes():
-            supported = ", ".join(supported_sequence_matcher_modes())
-            raise ValueError(
-                "Invalid cookimport.json benchmark_sequence_matcher value "
-                f"{normalized_sequence_matcher!r}. Expected one of: {supported}."
-            )
-        merged["benchmark_sequence_matcher"] = normalized_sequence_matcher
         return merged
     return defaults
 
@@ -14371,11 +14353,6 @@ def _build_all_method_sweep_payloads(
 
     # Priority 2–6 deterministic knobs (non-LLM).
     add_one_at_a_time(
-        key="section_detector_backend",
-        values=("legacy", "shared_v1"),
-        default="legacy",
-    )
-    add_one_at_a_time(
         key="multi_recipe_splitter",
         values=("legacy", "off", "rules_v1"),
         default="legacy",
@@ -14384,17 +14361,6 @@ def _build_all_method_sweep_payloads(
         key="ingredient_missing_unit_policy",
         values=("null", "legacy_medium", "each"),
         default="null",
-    )
-    add_one_at_a_time(
-        key="instruction_step_segmentation_policy",
-        values=("off", "auto", "always"),
-        default="auto",
-    )
-    add_one_at_a_time(
-        key="instruction_step_segmenter",
-        values=("heuristic_v1", "pysbd_v1"),
-        default="heuristic_v1",
-        require=pysbd_ok,
     )
     add_one_at_a_time(
         key="p6_yield_mode",
@@ -14421,14 +14387,10 @@ def _build_all_method_sweep_payloads(
     )
 
     upgrades: dict[str, str] = {
-        "section_detector_backend": "shared_v1",
         "multi_recipe_splitter": "rules_v1",
         "ingredient_missing_unit_policy": "each",
-        "instruction_step_segmentation_policy": "always",
         "p6_yield_mode": "scored_v1",
     }
-    if pysbd_ok:
-        upgrades["instruction_step_segmenter"] = "pysbd_v1"
     if quantulum_ok:
         upgrades["p6_time_backend"] = "hybrid_regex_quantulum3_v1"
         upgrades["p6_temperature_backend"] = "hybrid_regex_quantulum3_v1"
@@ -14520,13 +14482,8 @@ def _build_all_method_variants(
 
     def base_dimensions(payload: dict[str, Any]) -> dict[str, Any]:
         return {
-            "section_detector_backend": str(payload.get("section_detector_backend", "legacy")),
             "multi_recipe_splitter": str(payload.get("multi_recipe_splitter", "legacy")),
             "ingredient_missing_unit_policy": str(payload.get("ingredient_missing_unit_policy", "null")),
-            "instruction_step_segmentation_policy": str(
-                payload.get("instruction_step_segmentation_policy", "auto")
-            ),
-            "instruction_step_segmenter": str(payload.get("instruction_step_segmenter", "heuristic_v1")),
             "p6_time_backend": str(payload.get("p6_time_backend", "regex_v1")),
             "p6_temperature_backend": str(payload.get("p6_temperature_backend", "regex_v1")),
             "p6_temperature_unit_backend": str(
@@ -16873,7 +16830,6 @@ def _run_all_method_prediction_once(
                             no_upload=True,
                             write_markdown=False,
                             write_label_studio_tasks=False,
-                            sequence_matcher_override=variant.run_settings.benchmark_sequence_matcher,
                         )
                         benchmark_kwargs["allow_codex"] = codex_surfaces_enabled(
                             variant.run_settings.to_run_config_dict()
@@ -25168,6 +25124,7 @@ def stage(
     section_detector_backend: str = typer.Option(
         "legacy",
         "--section-detector-backend",
+        hidden=True,
         help="Section detector backend: legacy or shared_v1.",
     ),
     multi_recipe_splitter: str = typer.Option(
@@ -25201,11 +25158,13 @@ def stage(
     instruction_step_segmentation_policy: str = typer.Option(
         "auto",
         "--instruction-step-segmentation-policy",
+        hidden=True,
         help="Fallback instruction-step segmentation policy: off, auto, or always.",
     ),
     instruction_step_segmenter: str = typer.Option(
         "heuristic_v1",
         "--instruction-step-segmenter",
+        hidden=True,
         help="Instruction-step fallback segmenter backend: heuristic_v1 or pysbd_v1.",
     ),
     web_schema_extractor: str = typer.Option(
@@ -25630,13 +25589,12 @@ def stage(
     selected_pdf_column_gap_ratio = _normalize_pdf_column_gap_ratio(
         pdf_column_gap_ratio
     )
-    selected_section_detector_backend = _normalize_section_detector_backend(
-        section_detector_backend
-    )
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
+    selected_section_detector_backend = fixed_bucket1_behavior.section_detector_backend
     selected_multi_recipe_splitter = _normalize_multi_recipe_splitter(
         multi_recipe_splitter
     )
-    selected_multi_recipe_trace = bool(multi_recipe_trace)
+    selected_multi_recipe_trace = fixed_bucket1_behavior.multi_recipe_trace
     selected_multi_recipe_min_ingredient_lines = max(
         0,
         int(multi_recipe_min_ingredient_lines),
@@ -25647,12 +25605,10 @@ def stage(
     )
     selected_multi_recipe_for_the_guardrail = bool(multi_recipe_for_the_guardrail)
     selected_instruction_step_segmentation_policy = (
-        _normalize_instruction_step_segmentation_policy(
-            instruction_step_segmentation_policy
-        )
+        fixed_bucket1_behavior.instruction_step_segmentation_policy
     )
-    selected_instruction_step_segmenter = _normalize_instruction_step_segmenter(
-        instruction_step_segmenter
+    selected_instruction_step_segmenter = (
+        fixed_bucket1_behavior.instruction_step_segmenter
     )
     selected_web_schema_extractor = _normalize_web_schema_extractor(
         web_schema_extractor
@@ -25703,7 +25659,7 @@ def stage(
     )
     selected_p6_ovenlike_mode = _normalize_p6_ovenlike_mode(p6_ovenlike_mode)
     selected_p6_yield_mode = _normalize_p6_yield_mode(p6_yield_mode)
-    selected_p6_emit_metadata_debug = bool(p6_emit_metadata_debug)
+    selected_p6_emit_metadata_debug = fixed_bucket1_behavior.p6_emit_metadata_debug
     selected_recipe_scorer_backend = (
         str(recipe_scorer_backend or "heuristic_v1").strip() or "heuristic_v1"
     )
@@ -25731,25 +25687,17 @@ def stage(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass1,
-        option="--codex-farm-pipeline-pass1",
+    selected_codex_farm_pass1_pattern_hints_enabled = (
+        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
     )
-    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass2,
-        option="--codex-farm-pipeline-pass2",
+    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
+    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
+    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
+    selected_codex_farm_pipeline_pass4_knowledge = (
+        fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
     )
-    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass3,
-        option="--codex-farm-pipeline-pass3",
-    )
-    selected_codex_farm_pipeline_pass4_knowledge = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass4_knowledge,
-        option="--codex-farm-pipeline-pass4-knowledge",
-    )
-    selected_codex_farm_pipeline_pass5_tags = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass5_tags,
-        option="--codex-farm-pipeline-pass5-tags",
+    selected_codex_farm_pipeline_pass5_tags = (
+        fixed_bucket1_behavior.codex_farm_pipeline_pass5_tags
     )
     selected_tag_catalog_json = Path(tag_catalog_json).expanduser()
 
@@ -25827,14 +25775,10 @@ def stage(
         ocr_batch_size=ocr_batch_size,
         pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
         warm_models=warm_models,
-        section_detector_backend=selected_section_detector_backend,
         multi_recipe_splitter=selected_multi_recipe_splitter,
-        multi_recipe_trace=selected_multi_recipe_trace,
         multi_recipe_min_ingredient_lines=selected_multi_recipe_min_ingredient_lines,
         multi_recipe_min_instruction_lines=selected_multi_recipe_min_instruction_lines,
         multi_recipe_for_the_guardrail=selected_multi_recipe_for_the_guardrail,
-        instruction_step_segmentation_policy=selected_instruction_step_segmentation_policy,
-        instruction_step_segmenter=selected_instruction_step_segmenter,
         web_schema_extractor=selected_web_schema_extractor,
         web_schema_normalizer=selected_web_schema_normalizer,
         web_html_text_extractor=selected_web_html_text_extractor,
@@ -25854,7 +25798,6 @@ def stage(
         p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
         p6_ovenlike_mode=selected_p6_ovenlike_mode,
         p6_yield_mode=selected_p6_yield_mode,
-        p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
         recipe_scorer_backend=selected_recipe_scorer_backend,
         recipe_score_gold_min=selected_recipe_score_gold_min,
         recipe_score_silver_min=selected_recipe_score_silver_min,
@@ -25867,16 +25810,7 @@ def stage(
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
-        codex_farm_pass1_pattern_hints_enabled=bool(
-            codex_farm_pass1_pattern_hints_enabled
-        ),
-        codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-        codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-        codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
-        codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
-        codex_farm_pipeline_pass5_tags=selected_codex_farm_pipeline_pass5_tags,
         codex_farm_context_blocks=codex_farm_context_blocks,
-        codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         tag_catalog_json=selected_tag_catalog_json,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -25905,9 +25839,11 @@ def stage(
         )
     _print_codex_decision(stage_codex_execution)
     effective_workers = run_settings.effective_workers or workers
-    run_config = apply_codex_execution_policy_metadata(
-        run_settings.to_run_config_dict(),
-        stage_codex_execution,
+    run_config = apply_bucket1_fixed_behavior_metadata(
+        apply_codex_execution_policy_metadata(
+            run_settings.to_run_config_dict(),
+            stage_codex_execution,
+        )
     )
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
@@ -28448,6 +28384,7 @@ def labelstudio_import(
     codex_farm_pass1_pattern_hints_enabled: bool = typer.Option(
         False,
         "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
+        hidden=True,
         help=(
             "Include deterministic pattern metadata hints in pass1 bundles "
             "for advisory boundary context."
@@ -28456,16 +28393,19 @@ def labelstudio_import(
     codex_farm_pipeline_pass1: str = typer.Option(
         "recipe.chunking.v1",
         "--codex-farm-pipeline-pass1",
+        hidden=True,
         help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
     ),
     codex_farm_pipeline_pass2: str = typer.Option(
         "recipe.schemaorg.compact.v1",
         "--codex-farm-pipeline-pass2",
+        hidden=True,
         help="Pass-2 codex-farm pipeline id (schema.org extraction).",
     ),
     codex_farm_pipeline_pass3: str = typer.Option(
         "recipe.final.compact.v1",
         "--codex-farm-pipeline-pass3",
+        hidden=True,
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     ),
     codex_farm_context_blocks: int = typer.Option(
@@ -28477,6 +28417,7 @@ def labelstudio_import(
     codex_farm_pass3_skip_pass2_ok: bool = typer.Option(
         True,
         "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
+        hidden=True,
         help=(
             "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
             "deterministically."
@@ -28554,20 +28495,18 @@ def labelstudio_import(
     if resolved_segment_focus_blocks > segment_blocks:
         _fail("--segment-focus-blocks must be <= --segment-blocks.")
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass1,
-        option="--codex-farm-pipeline-pass1",
+    selected_codex_farm_pass1_pattern_hints_enabled = (
+        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
     )
-    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass2,
-        option="--codex-farm-pipeline-pass2",
-    )
-    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass3,
-        option="--codex-farm-pipeline-pass3",
+    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
+    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
+    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
+    selected_codex_farm_pass3_skip_pass2_ok = (
+        fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
     )
     selected_codex_execution_policy = normalize_codex_execution_policy_mode(
         codex_execution_policy
@@ -28618,14 +28557,14 @@ def labelstudio_import(
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
-                codex_farm_pass1_pattern_hints_enabled=bool(
-                    codex_farm_pass1_pattern_hints_enabled
+                codex_farm_pass1_pattern_hints_enabled=(
+                    selected_codex_farm_pass1_pattern_hints_enabled
                 ),
                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
-                codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
+                codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_codex=bool(allow_codex),
                 codex_execution_policy=selected_codex_execution_policy,
@@ -28685,14 +28624,14 @@ def labelstudio_import(
                 codex_farm_cmd=codex_farm_cmd,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
-                codex_farm_pass1_pattern_hints_enabled=bool(
-                    codex_farm_pass1_pattern_hints_enabled
+                codex_farm_pass1_pattern_hints_enabled=(
+                    selected_codex_farm_pass1_pattern_hints_enabled
                 ),
                 codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
                 codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
                 codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
                 codex_farm_context_blocks=codex_farm_context_blocks,
-                codex_farm_pass3_skip_pass2_ok=bool(codex_farm_pass3_skip_pass2_ok),
+                codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
                 allow_codex=bool(allow_codex),
                 codex_execution_policy=selected_codex_execution_policy,
@@ -29359,6 +29298,7 @@ def labelstudio_benchmark(
     )] = 50,
     sequence_matcher: Annotated[str, typer.Option(
         "--sequence-matcher",
+        hidden=True,
         help=(
             "Canonical-text SequenceMatcher mode (dmp only)."
         ),
@@ -29490,6 +29430,7 @@ def labelstudio_benchmark(
     )] = "semantic_v1",
     section_detector_backend: Annotated[str, typer.Option(
         "--section-detector-backend",
+        hidden=True,
         help="Section detector backend: legacy or shared_v1.",
     )] = "legacy",
     multi_recipe_splitter: Annotated[str, typer.Option(
@@ -29517,10 +29458,12 @@ def labelstudio_benchmark(
     )] = True,
     instruction_step_segmentation_policy: Annotated[str, typer.Option(
         "--instruction-step-segmentation-policy",
+        hidden=True,
         help="Fallback instruction-step segmentation policy: off, auto, or always.",
     )] = "auto",
     instruction_step_segmenter: Annotated[str, typer.Option(
         "--instruction-step-segmenter",
+        hidden=True,
         help="Instruction-step fallback segmenter backend: heuristic_v1 or pysbd_v1.",
     )] = "heuristic_v1",
     web_schema_extractor: Annotated[str, typer.Option(
@@ -29786,6 +29729,7 @@ def labelstudio_benchmark(
     )] = True,
     codex_farm_benchmark_selective_retry_enabled: Annotated[bool, typer.Option(
         "--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry",
+        hidden=True,
         help=(
             "Benchmark-only retry for missing Codex Farm pass2/pass3 bundle files "
             "after recoverable partial-output runs."
@@ -29794,6 +29738,7 @@ def labelstudio_benchmark(
     codex_farm_benchmark_selective_retry_max_attempts: Annotated[int, typer.Option(
         "--codex-farm-benchmark-selective-retry-max-attempts",
         min=1,
+        hidden=True,
         help=(
             "Maximum benchmark-only retry attempts for missing Codex Farm pass2/"
             "pass3 bundle files."
@@ -29898,13 +29843,12 @@ def labelstudio_benchmark(
     selected_pdf_column_gap_ratio = _normalize_pdf_column_gap_ratio(
         pdf_column_gap_ratio
     )
-    selected_section_detector_backend = _normalize_section_detector_backend(
-        section_detector_backend
-    )
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
+    selected_section_detector_backend = fixed_bucket1_behavior.section_detector_backend
     selected_multi_recipe_splitter = _normalize_multi_recipe_splitter(
         multi_recipe_splitter
     )
-    selected_multi_recipe_trace = bool(multi_recipe_trace)
+    selected_multi_recipe_trace = fixed_bucket1_behavior.multi_recipe_trace
     selected_multi_recipe_min_ingredient_lines = max(
         0, int(multi_recipe_min_ingredient_lines)
     )
@@ -29915,12 +29859,10 @@ def labelstudio_benchmark(
         multi_recipe_for_the_guardrail
     )
     selected_instruction_step_segmentation_policy = (
-        _normalize_instruction_step_segmentation_policy(
-            instruction_step_segmentation_policy
-        )
+        fixed_bucket1_behavior.instruction_step_segmentation_policy
     )
-    selected_instruction_step_segmenter = _normalize_instruction_step_segmenter(
-        instruction_step_segmenter
+    selected_instruction_step_segmenter = (
+        fixed_bucket1_behavior.instruction_step_segmenter
     )
     selected_web_schema_extractor = _normalize_web_schema_extractor(
         web_schema_extractor
@@ -29971,7 +29913,7 @@ def labelstudio_benchmark(
     )
     selected_p6_ovenlike_mode = _normalize_p6_ovenlike_mode(p6_ovenlike_mode)
     selected_p6_yield_mode = _normalize_p6_yield_mode(p6_yield_mode)
-    selected_p6_emit_metadata_debug = bool(p6_emit_metadata_debug)
+    selected_p6_emit_metadata_debug = fixed_bucket1_behavior.p6_emit_metadata_debug
     selected_recipe_scorer_backend = (
         str(recipe_scorer_backend or "heuristic_v1").strip() or "heuristic_v1"
     )
@@ -30005,16 +29947,17 @@ def labelstudio_benchmark(
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pass1_pattern_hints_enabled = bool(
-        codex_farm_pass1_pattern_hints_enabled
+    selected_codex_farm_pass1_pattern_hints_enabled = (
+        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
     )
-    selected_codex_farm_pass3_skip_pass2_ok = bool(codex_farm_pass3_skip_pass2_ok)
-    selected_codex_farm_benchmark_selective_retry_enabled = bool(
-        codex_farm_benchmark_selective_retry_enabled
+    selected_codex_farm_pass3_skip_pass2_ok = (
+        fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
     )
-    selected_codex_farm_benchmark_selective_retry_max_attempts = max(
-        1,
-        int(codex_farm_benchmark_selective_retry_max_attempts),
+    selected_codex_farm_benchmark_selective_retry_enabled = (
+        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
+    )
+    selected_codex_farm_benchmark_selective_retry_max_attempts = (
+        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
     )
     selected_codex_farm_model = (
         str(codex_farm_model or "").strip() or None
@@ -30027,21 +29970,11 @@ def labelstudio_benchmark(
         )
     except ValueError as exc:
         _fail(f"--codex-farm-thinking-effort invalid: {exc}")
-    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass1,
-        option="--codex-farm-pipeline-pass1",
-    )
-    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass2,
-        option="--codex-farm-pipeline-pass2",
-    )
-    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass3,
-        option="--codex-farm-pipeline-pass3",
-    )
-    selected_codex_farm_pipeline_pass4_knowledge = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass4_knowledge,
-        option="--codex-farm-pipeline-pass4-knowledge",
+    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
+    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
+    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
+    selected_codex_farm_pipeline_pass4_knowledge = (
+        fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
     )
     selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
     if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
@@ -30082,9 +30015,7 @@ def labelstudio_benchmark(
         0,
         int(gold_adaptation_max_ambiguous),
     )
-    selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
-        sequence_matcher
-    )
+    selected_sequence_matcher = fixed_bucket1_behavior.benchmark_sequence_matcher
     selected_single_offline_split_cache_mode = _normalize_single_offline_split_cache_mode(
         single_offline_split_cache_mode
     )
@@ -30251,8 +30182,9 @@ def labelstudio_benchmark(
             run_manifest_kind="bench_pred_run",
         )
         plan_pred_run = Path(plan_prediction_result["run_root"])
-        benchmark_plan_run_config = apply_codex_execution_policy_metadata(
-            {
+        benchmark_plan_run_config = apply_bucket1_fixed_behavior_metadata(
+            apply_codex_execution_policy_metadata(
+                {
                 "eval_mode": selected_eval_mode,
                 "upload": False,
                 "write_markdown": bool(write_markdown),
@@ -30270,14 +30202,9 @@ def labelstudio_benchmark(
                     if selected_codex_farm_reasoning_effort is not None
                     else None
                 ),
-                "codex_farm_benchmark_selective_retry_enabled": (
-                    selected_codex_farm_benchmark_selective_retry_enabled
-                ),
-                "codex_farm_benchmark_selective_retry_max_attempts": (
-                    selected_codex_farm_benchmark_selective_retry_max_attempts
-                ),
-            },
-            benchmark_codex_execution,
+                },
+                benchmark_codex_execution,
+            )
         )
         if plan_prediction_result.get("run_config") is not None:
             benchmark_plan_run_config["prediction_run_config"] = plan_prediction_result[
@@ -30355,14 +30282,10 @@ def labelstudio_benchmark(
                 ocr_batch_size=ocr_batch_size,
                 pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
                 warm_models=warm_models,
-                section_detector_backend=selected_section_detector_backend,
                 multi_recipe_splitter=selected_multi_recipe_splitter,
-                multi_recipe_trace=selected_multi_recipe_trace,
                 multi_recipe_min_ingredient_lines=selected_multi_recipe_min_ingredient_lines,
                 multi_recipe_min_instruction_lines=selected_multi_recipe_min_instruction_lines,
                 multi_recipe_for_the_guardrail=selected_multi_recipe_for_the_guardrail,
-                instruction_step_segmentation_policy=selected_instruction_step_segmentation_policy,
-                instruction_step_segmenter=selected_instruction_step_segmenter,
                 web_schema_extractor=selected_web_schema_extractor,
                 web_schema_normalizer=selected_web_schema_normalizer,
                 web_html_text_extractor=selected_web_html_text_extractor,
@@ -30382,7 +30305,6 @@ def labelstudio_benchmark(
                 p6_temperature_unit_backend=selected_p6_temperature_unit_backend,
                 p6_ovenlike_mode=selected_p6_ovenlike_mode,
                 p6_yield_mode=selected_p6_yield_mode,
-                p6_emit_metadata_debug=selected_p6_emit_metadata_debug,
                 recipe_scorer_backend=selected_recipe_scorer_backend,
                 recipe_score_gold_min=selected_recipe_score_gold_min,
                 recipe_score_silver_min=selected_recipe_score_silver_min,
@@ -30399,21 +30321,7 @@ def labelstudio_benchmark(
                 codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
                 codex_farm_root=codex_farm_root,
                 codex_farm_workspace_root=codex_farm_workspace_root,
-                codex_farm_pass1_pattern_hints_enabled=(
-                    selected_codex_farm_pass1_pattern_hints_enabled
-                ),
-                codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-                codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-                codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
-                codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
                 codex_farm_context_blocks=codex_farm_context_blocks,
-                codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
-                codex_farm_benchmark_selective_retry_enabled=(
-                    selected_codex_farm_benchmark_selective_retry_enabled
-                ),
-                codex_farm_benchmark_selective_retry_max_attempts=(
-                    selected_codex_farm_benchmark_selective_retry_max_attempts
-                ),
                 codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -31372,8 +31280,9 @@ def labelstudio_benchmark(
                 line_role_gate_md_path,
             )
 
-    benchmark_run_config: dict[str, Any] = apply_codex_execution_policy_metadata(
-        {
+    benchmark_run_config: dict[str, Any] = apply_bucket1_fixed_behavior_metadata(
+        apply_codex_execution_policy_metadata(
+            {
         "eval_mode": selected_eval_mode,
         "gold_adaptation_mode": selected_gold_adaptation_mode,
         "gold_adaptation_min_coverage": selected_gold_adaptation_min_coverage,
@@ -31398,16 +31307,10 @@ def labelstudio_benchmark(
         "pdf_ocr_policy": selected_pdf_ocr_policy,
         "ocr_batch_size": ocr_batch_size,
         "pdf_column_gap_ratio": selected_pdf_column_gap_ratio,
-        "section_detector_backend": selected_section_detector_backend,
         "multi_recipe_splitter": selected_multi_recipe_splitter,
-        "multi_recipe_trace": selected_multi_recipe_trace,
         "multi_recipe_min_ingredient_lines": selected_multi_recipe_min_ingredient_lines,
         "multi_recipe_min_instruction_lines": selected_multi_recipe_min_instruction_lines,
         "multi_recipe_for_the_guardrail": selected_multi_recipe_for_the_guardrail,
-        "instruction_step_segmentation_policy": (
-            selected_instruction_step_segmentation_policy
-        ),
-        "instruction_step_segmenter": selected_instruction_step_segmenter,
         "web_schema_extractor": selected_web_schema_extractor,
         "web_schema_normalizer": selected_web_schema_normalizer,
         "web_html_text_extractor": selected_web_html_text_extractor,
@@ -31427,7 +31330,6 @@ def labelstudio_benchmark(
         "p6_temperature_unit_backend": selected_p6_temperature_unit_backend,
         "p6_ovenlike_mode": selected_p6_ovenlike_mode,
         "p6_yield_mode": selected_p6_yield_mode,
-        "p6_emit_metadata_debug": selected_p6_emit_metadata_debug,
         "recipe_scorer_backend": selected_recipe_scorer_backend,
         "recipe_score_gold_min": selected_recipe_score_gold_min,
         "recipe_score_silver_min": selected_recipe_score_silver_min,
@@ -31448,30 +31350,15 @@ def labelstudio_benchmark(
         "line_role_gated": bool(line_role_gated),
         "codex_farm_recipe_mode": selected_codex_farm_recipe_mode,
         "codex_farm_cmd": codex_farm_cmd,
-        "codex_farm_pass1_pattern_hints_enabled": (
-            selected_codex_farm_pass1_pattern_hints_enabled
-        ),
-        "codex_farm_pipeline_pass1": selected_codex_farm_pipeline_pass1,
-        "codex_farm_pipeline_pass2": selected_codex_farm_pipeline_pass2,
-        "codex_farm_pipeline_pass3": selected_codex_farm_pipeline_pass3,
-        "codex_farm_pipeline_pass4_knowledge": (
-            selected_codex_farm_pipeline_pass4_knowledge
-        ),
         "codex_farm_context_blocks": codex_farm_context_blocks,
-        "codex_farm_pass3_skip_pass2_ok": selected_codex_farm_pass3_skip_pass2_ok,
-        "codex_farm_benchmark_selective_retry_enabled": (
-            selected_codex_farm_benchmark_selective_retry_enabled
-        ),
-        "codex_farm_benchmark_selective_retry_max_attempts": (
-            selected_codex_farm_benchmark_selective_retry_max_attempts
-        ),
         "codex_farm_knowledge_context_blocks": (
             codex_farm_knowledge_context_blocks
         ),
         "codex_farm_failure_mode": selected_codex_farm_failure_mode,
         "stage_block_predictions_path": str(stage_predictions_path),
-        },
-        benchmark_codex_execution,
+            },
+            benchmark_codex_execution,
+        )
     )
     if single_offline_split_cache_run_config is not None:
         benchmark_run_config["single_offline_split_cache"] = (
@@ -31957,6 +31844,7 @@ def bench_speed_run(
     sequence_matcher: str | None = typer.Option(
         None,
         "--sequence-matcher",
+        hidden=True,
         help=(
             "Optional override for benchmark SequenceMatcher mode "
             "(dmp only). "
@@ -32073,11 +31961,6 @@ def bench_speed_run(
         run_settings_payload = _load_settings()
         run_settings_context = "bench speed-run global settings"
 
-    if sequence_matcher is not None:
-        selected_sequence_matcher = _normalize_benchmark_sequence_matcher_mode(
-            sequence_matcher
-        )
-        run_settings_payload["benchmark_sequence_matcher"] = selected_sequence_matcher
     if codex_farm_model is not None:
         run_settings_payload["codex_farm_model"] = str(codex_farm_model).strip() or None
     if codex_farm_reasoning_effort is not None:

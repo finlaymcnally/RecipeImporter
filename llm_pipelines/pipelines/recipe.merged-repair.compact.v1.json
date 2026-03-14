@@ -1,0 +1,15 @@
+{
+  "pipeline_id": "recipe.merged-repair.compact.v1",
+  "description": "Assemble one canonical recipe object directly from authoritative source rows plus deterministic hints, then let recipeimport derive downstream shapes deterministically.",
+  "prompt_template_path": "prompts/recipe.merged-repair.compact.v1.prompt.md",
+  "output_schema_path": "schemas/recipe.merged-repair.v1.output.schema.json",
+  "input_glob_default": "**/*.json",
+  "output_ext": ".json",
+  "prompt_input_mode": "inline",
+  "codex_model": "gpt-5.3-codex-spark",
+  "codex_sandbox": "read-only",
+  "codex_ask_for_approval": "never",
+  "codex_web_search": "disabled",
+  "codex_timeout_seconds": 600,
+  "codex_cd_mode": "asset_root"
+}

@@ -342,3 +342,47 @@ Durable findings:
 
 Anti-loop note:
 - When deciding whether a new helper belongs in `scripts/`, require a direct recipeimport workflow owner. If it only makes sense for some unrelated local stack, it does not belong here.
+
+## 2026-03-13 migrated understanding ledger (docs IA routing + reliability plan split)
+
+### 2026-03-13_22.35.00 docs task home mapping
+
+Source:
+- `docs/understandings/2026-03-13_22.35.00-docs-task-home-mapping.md`
+
+Problem captured:
+- Cross-cutting task notes around benchmark runtime, Codex contracts, and line-role rules were easy to file into the wrong section, which made later consolidation noisy and encouraged duplicate history.
+
+Durable decisions:
+- Keep benchmark/session-root/runtime-contract notes under `docs/07-bench/`.
+- Keep Codex/pass4/pass5 contract and policy notes under `docs/10-llm/`.
+- Keep deterministic label semantics and parser-side guardrails under `docs/04-parsing/`.
+
+Anti-loop note:
+- When retiring a cross-domain task file, decide the dominant runtime owner first and merge into that section’s README plus log before deleting the source note.
+
+### 2026-03-13_22.23.03 and 2026-03-13_22.29.41 CodexFarm unified-plan coverage and split
+
+Merged sources:
+- `docs/understandings/2026-03-13_22.23.03-unified-reliability-plan-coverage.md`
+- `docs/understandings/2026-03-13_22.29.41-codexfarm-execplan-split.md`
+
+Problem captured:
+- The March 13 unified CodexFarm reliability plan was useful, but it flattened some sharper report conclusions and mixed four workstreams with very different overlap/risk profiles.
+
+Durable findings:
+- The unified plan preserved the common diagnosis well:
+  - title/boundary guardrails,
+  - pass1/pass2 transport and overlap repair,
+  - stricter structural-success rules,
+  - non-agentic structured execution,
+  - benchmark-gated merged-stage evaluation.
+- What it under-emphasized was explicit line-role ownership and deterministic-vs-Codex arbitration for syntax-heavy labels such as `TIME_LINE` and `RECIPE_NOTES`, plus monotonic fallback as a first-class design rule.
+- The split into step1/step2/step3/step4 is not cosmetic. It is the repo’s conflict-management strategy for March 13 reliability work:
+  - step1 defines observability and invariant names,
+  - step2 owns staging/title and ownership policy,
+  - step3 owns current-path repair,
+  - step4 owns the prototype architecture experiment.
+
+Anti-loop note:
+- If reliability work starts looping, check whether the problem is really architectural scheduling conflict between these four lanes before debating prompt text or small helper behavior.

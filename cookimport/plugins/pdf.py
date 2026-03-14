@@ -129,7 +129,7 @@ class PdfImporter:
     name = "pdf"
 
     def __init__(self) -> None:
-        self._section_detector_backend = "legacy"
+        self._section_detector_backend = "shared_v1"
         self._overrides = None
         self._pdf_column_gap_ratio = _PDF_COLUMN_GAP_RATIO_DEFAULT
 
@@ -227,7 +227,7 @@ class PdfImporter:
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
         self._section_detector_backend = str(
-            getattr(getattr(run_settings, "section_detector_backend", None), "value", "legacy")
+            getattr(getattr(run_settings, "section_detector_backend", None), "value", "shared_v1")
         )
         self._pdf_column_gap_ratio = self._resolve_pdf_column_gap_ratio(run_settings)
         ocr_used = False
@@ -758,7 +758,7 @@ class PdfImporter:
             )
         finally:
             self._overrides = None
-            self._section_detector_backend = "legacy"
+            self._section_detector_backend = "shared_v1"
             self._pdf_column_gap_ratio = _PDF_COLUMN_GAP_RATIO_DEFAULT
 
     def _extract_standalone_tips(

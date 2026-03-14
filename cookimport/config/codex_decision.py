@@ -20,23 +20,93 @@ LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
 TAGS_CODEX_PIPELINE = "codex-farm-tags-v1"
 PRELABEL_CODEX_PROVIDER = "codex-cli"
+BUCKET1_FIXED_BEHAVIOR_VERSION = "bucket1-fixed-v1"
+SECTION_DETECTOR_SHARED_V1 = "shared_v1"
+INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
+INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1 = "heuristic_v1"
+BENCHMARK_SEQUENCE_MATCHER_DMP = "dmp"
+CODEX_FARM_PASS1_PIPELINE = "recipe.chunking.v1"
 COMPACT_PASS2_PIPELINE = "recipe.schemaorg.compact.v1"
 COMPACT_PASS3_PIPELINE = "recipe.final.compact.v1"
+COMPACT_PASS4_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
+PASS5_TAGS_PIPELINE = "recipe.tags.v1"
+
+
+@dataclass(frozen=True)
+class Bucket1FixedBehavior:
+    version: str = BUCKET1_FIXED_BEHAVIOR_VERSION
+    section_detector_backend: str = SECTION_DETECTOR_SHARED_V1
+    instruction_step_segmentation_policy: str = INSTRUCTION_STEP_SEGMENTATION_ALWAYS
+    instruction_step_segmenter: str = INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1
+    benchmark_sequence_matcher: str = BENCHMARK_SEQUENCE_MATCHER_DMP
+    multi_recipe_trace: bool = False
+    p6_emit_metadata_debug: bool = False
+    codex_farm_pass1_pattern_hints_enabled: bool = False
+    codex_farm_pipeline_pass1: str = CODEX_FARM_PASS1_PIPELINE
+    codex_farm_pipeline_pass2: str = COMPACT_PASS2_PIPELINE
+    codex_farm_pipeline_pass3: str = COMPACT_PASS3_PIPELINE
+    codex_farm_pipeline_pass4_knowledge: str = COMPACT_PASS4_KNOWLEDGE_PIPELINE
+    codex_farm_pipeline_pass5_tags: str = PASS5_TAGS_PIPELINE
+    codex_farm_pass3_skip_pass2_ok: bool = True
+    codex_farm_benchmark_selective_retry_enabled: bool = True
+    codex_farm_benchmark_selective_retry_max_attempts: int = 1
+
+    def legacy_key_patch(self) -> dict[str, Any]:
+        return {
+            "section_detector_backend": self.section_detector_backend,
+            "instruction_step_segmentation_policy": (
+                self.instruction_step_segmentation_policy
+            ),
+            "instruction_step_segmenter": self.instruction_step_segmenter,
+            "benchmark_sequence_matcher": self.benchmark_sequence_matcher,
+            "multi_recipe_trace": self.multi_recipe_trace,
+            "p6_emit_metadata_debug": self.p6_emit_metadata_debug,
+            "codex_farm_pass1_pattern_hints_enabled": (
+                self.codex_farm_pass1_pattern_hints_enabled
+            ),
+            "codex_farm_pipeline_pass1": self.codex_farm_pipeline_pass1,
+            "codex_farm_pipeline_pass2": self.codex_farm_pipeline_pass2,
+            "codex_farm_pipeline_pass3": self.codex_farm_pipeline_pass3,
+            "codex_farm_pipeline_pass4_knowledge": (
+                self.codex_farm_pipeline_pass4_knowledge
+            ),
+            "codex_farm_pipeline_pass5_tags": self.codex_farm_pipeline_pass5_tags,
+            "codex_farm_pass3_skip_pass2_ok": self.codex_farm_pass3_skip_pass2_ok,
+            "codex_farm_benchmark_selective_retry_enabled": (
+                self.codex_farm_benchmark_selective_retry_enabled
+            ),
+            "codex_farm_benchmark_selective_retry_max_attempts": (
+                self.codex_farm_benchmark_selective_retry_max_attempts
+            ),
+        }
+
+    def manifest_metadata(self) -> dict[str, Any]:
+        return {
+            "bucket1_fixed_behavior_version": self.version,
+        }
+
+
+_BUCKET1_FIXED_BEHAVIOR = Bucket1FixedBehavior()
+
+
+def bucket1_fixed_behavior() -> Bucket1FixedBehavior:
+    return _BUCKET1_FIXED_BEHAVIOR
+
+
+def apply_bucket1_fixed_behavior_metadata(
+    payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = dict(payload or {})
+    normalized.update(bucket1_fixed_behavior().manifest_metadata())
+    return normalized
 
 _TOP_TIER_PARSER_STACK_PATCH: dict[str, Any] = {
     "epub_extractor": "unstructured",
     "epub_unstructured_html_parser_version": "v1",
     "epub_unstructured_preprocess_mode": "semantic_v1",
     "epub_unstructured_skip_headers_footers": True,
-    "section_detector_backend": "shared_v1",
     "multi_recipe_splitter": "rules_v1",
-    "instruction_step_segmentation_policy": "always",
-    "instruction_step_segmenter": "heuristic_v1",
     "pdf_ocr_policy": "off",
-    "codex_farm_pass1_pattern_hints_enabled": False,
-    "codex_farm_pass3_skip_pass2_ok": True,
-    "codex_farm_pipeline_pass2": COMPACT_PASS2_PIPELINE,
-    "codex_farm_pipeline_pass3": COMPACT_PASS3_PIPELINE,
 }
 _TOP_TIER_CODEXFARM_PATCH: dict[str, Any] = {
     **_TOP_TIER_PARSER_STACK_PATCH,
@@ -59,10 +129,6 @@ _BENCHMARK_CODEXFARM_PATCH: dict[str, Any] = {
     "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE,
     "line_role_pipeline": LINE_ROLE_CODEX_PIPELINE,
     "atomic_block_splitter": "atomic-v1",
-    "codex_farm_pass1_pattern_hints_enabled": False,
-    "codex_farm_pass3_skip_pass2_ok": True,
-    "codex_farm_pipeline_pass2": COMPACT_PASS2_PIPELINE,
-    "codex_farm_pipeline_pass3": COMPACT_PASS3_PIPELINE,
 }
 
 

@@ -27,12 +27,17 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--codex-farm-pipeline-pass5-tags" not in result.stdout
     assert "--table-extraction" not in result.stdout
     assert "codex-farm-3pass-v1" in result.stdout
+    assert "codex-farm-2stage-repair-v1" in result.stdout
 
 
 def test_stage_accepts_recipe_codex_farm_pipeline_enablement() -> None:
     assert (
         _normalize_llm_recipe_pipeline("codex-farm-3pass-v1")
         == "codex-farm-3pass-v1"
+    )
+    assert (
+        _normalize_llm_recipe_pipeline("codex-farm-2stage-repair-v1")
+        == "codex-farm-2stage-repair-v1"
     )
 
 

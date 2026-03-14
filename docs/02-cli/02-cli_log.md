@@ -1665,3 +1665,73 @@ Durable findings:
 
 Anti-loop note:
 - If a follow-up packet shows the “wrong text,” suspect canonical-vs-atomic join mismatch before blaming the model or the benchmark scorer.
+
+## 2026-03-13 migrated understanding ledger (docs-list entrypoint + run-settings surface cleanup)
+
+### 2026-03-13_22.29.27 docs list invocation confusion
+
+Source:
+- `docs/understandings/2026-03-13_22.29.27-docs-list-invocation-confusion.md`
+
+Problem captured:
+- Agent-facing instructions were easy to misread as “run `docs:list` in the shell,” even though that name was only an npm script alias and not a standalone command path.
+
+Durable decision:
+- Keep onboarding/docs phrased as `npm run docs:list` or `./bin/docs-list`.
+
+Anti-loop note:
+- If an agent reports that the docs list command is missing, check whether they tried the bare npm script name before changing repo tooling.
+
+### 2026-03-13_22.48.50 and 2026-03-13_23.09.32 run-settings surface audit to public/internal/retired split
+
+Merged sources:
+- `docs/understandings/2026-03-13_22.48.50-run-settings-surface-audit.md`
+- `docs/understandings/2026-03-13_23.09.32-run-settings-public-surface-contract.md`
+
+Problem captured:
+- The raw `RunSettings` schema had grown into a much larger visible surface than the actual product/operator surface, which encouraged config drift, noisy manifests, and “configuration theater.”
+
+Historical audit findings preserved:
+- At audit time, `RunSettings` exposed 78 fields total, with 75 visible and only 3 hidden.
+- That raw count overstated the real product surface because:
+  - interactive flows already collapsed many decisions into top-tier profile families,
+  - benchmark flows normalized settings through baseline/variant contracts,
+  - several fields were effectively single-choice implementation seams, debug flags, or compatibility leftovers.
+
+Shipped contract outcome:
+- `cookimport/config/run_settings.py` now records field-level surface metadata plus retired-key compatibility handling.
+- Public helpers and summaries default to the curated public surface.
+- Internal-only controls remain persistable for benchmarking/debugging without advertising them as normal operator choices.
+- `table_extraction` left the live schema entirely and is now compatibility-loaded as a retired key.
+
+Anti-loop note:
+- If someone wants to “just make one more internal knob visible,” require a concrete repeated operator use case first; do not use CLI help as an archaeology dump of implementation seams.
+
+### 2026-03-13_23.26.13, 2026-03-13_23.26.22, and 2026-03-13_23.27.36 remaining run-settings leak points after first cleanup tranche
+
+Merged sources:
+- `docs/understandings/2026-03-13_23.26.13-bucket1-hardcode-remaining-surface-map.md`
+- `docs/understandings/2026-03-13_23.26.22-run-settings-bucket2-remaining-surface-map.md`
+- `docs/understandings/2026-03-13_23.27.36-run-settings-leak-points.md`
+
+Problem captured:
+- The first March 13 run-settings cleanup removed `table_extraction` and introduced public/internal metadata, but a large amount of the old surface still leaked through direct CLI flags, helper signatures, docs, summaries, and prediction-identity wiring.
+
+Durable findings:
+- Bucket 1 is incomplete:
+  - several “should really be fixed behavior” settings are still live CLI/config/runtime inputs,
+  - `benchmark_sequence_matcher` is especially split because it is internal in `RunSettings` while benchmark CLI/docs still expose the concept directly.
+- Bucket 2 is also incomplete:
+  - all 27 settings from that audit bucket were still public at the time of the late-night follow-up notes,
+  - cleanup requires touching more than `run_settings.py` because Typer signatures, analytics summary code, helper APIs, and adapters all leak the same fields.
+- Reproducibility constraints that should not be forgotten:
+  - old payloads still need to load through `RunSettings.from_dict(...)`,
+  - benchmark settings files and `run_settings_patch` paths still depend on broad persistence,
+  - prediction identity and QualitySuite dimension logic still rely on some of these fields even if operators should stop seeing them.
+- The right architecture direction is layered, not destructive:
+  - keep `RunSettings` as the persistence/compatibility schema,
+  - add a much smaller explicit operator-facing contract on top of it,
+  - let `codex_decision.py` and benchmark contracts own frozen winner/default behavior instead of scattering more defaults through CLI code.
+
+Anti-loop note:
+- If a setting disappears from one menu but still shows up in `stage --help`, analytics summaries, or helper signatures, the cleanup is not done yet; treat that as contract leakage, not as a docs-only issue.

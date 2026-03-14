@@ -584,8 +584,9 @@ def test_interactive_single_offline_codex_failure_returns_unsuccessful_without_c
     )
 
     assert completed is False
-    assert len(benchmark_calls) == 1
-    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
+    assert len(benchmark_calls) == 2
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
+    assert benchmark_calls[1]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
     assert not (
         benchmark_eval_output
         / "single-offline-benchmark"

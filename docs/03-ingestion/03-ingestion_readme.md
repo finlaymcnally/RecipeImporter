@@ -96,7 +96,7 @@ OCR:
 - Creates run output directory using timestamp format `%Y-%m-%d_%H.%M.%S`.
 - Builds `base_mapping` once and always passes it to workers.
 - Builds `RunSettings` and `runConfig` (workers/split knobs, EPUB extractor + unstructured knobs, OCR, table extraction, section + multi-recipe backends, LLM settings, mapping/overrides paths, and markdown sidecar setting).
-- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values and accepts `llm_recipe_pipeline=codex-farm-3pass-v1` without env gating.
+- `RunSettings.from_dict(...)` validates recipe codex-farm parsing values and accepts both `llm_recipe_pipeline=codex-farm-3pass-v1` and `llm_recipe_pipeline=codex-farm-2stage-repair-v1` without env gating.
 - Plans jobs with `_plan_jobs(...)`.
 - Executes with process-first worker fanout and fallback order `ProcessPoolExecutor -> subprocess-backed workers -> ThreadPoolExecutor -> serial`.
 - Writes run heartbeat telemetry to `<run_out>/processing_timeseries.jsonl` while stage is active.
@@ -661,7 +661,7 @@ Merged task files (creation order in `docs/tasks`):
 
 Current ingestion contracts added/confirmed by those task files:
 - Priority 1 (recipe-likeness gating) is implemented as additive scoring metadata plus deterministic gate actions across importer families. Rejected candidates must still preserve useful non-recipe/tip/topic/chunk content, and report/debug artifacts (`recipeLikeness` summary + `recipe_scoring_debug.jsonl`) are now part of expected diagnostics.
-- Priority 2 (shared section detection) is implemented with `section_detector_backend=legacy|shared_v1` and `legacy` default. Shared behavior must preserve `For the X` component headers as standalone section markers.
+- Priority 2 shared section detection is now fixed product behavior (`shared_v1`) for new runs. Older payloads may still carry `section_detector_backend`, but it is compatibility-only.
 - Priority 3 (shared multi-recipe splitting) is implemented with `multi_recipe_splitter=legacy|off|rules_v1` and optional trace output. `rules_v1` coverage thresholds must use signal lines (including section-header signals), not content-only counts.
 - Priority 7 (webschema importer) is implemented as a dedicated deterministic schema-first importer for local `.html/.htm/.jsonld/.json` sources with conservative `.json` guardrails so RecipeSage exports are not stolen.
 
@@ -684,7 +684,7 @@ Current ingestion-side contract reinforced by this task:
 - Suppressed text is never dropped silently; it remains in `non_recipe_blocks` with traceable pattern metadata.
 - Raw diagnostics artifact is required for debugging drift: `pattern_diagnostics.json`.
 - Warning keys (`pattern_toc_like_cluster_detected`, `pattern_duplicate_title_flow_detected`, `pattern_overlap_duplicate_candidates_resolved`) are part of expected report/debug output.
-- Optional Codex Farm pass1 `pattern_hints` handoff remains metadata-only and default-off (`codex_farm_pass1_pattern_hints_enabled=false`); this does not enable AI parsing/cleanup during ingestion.
+- Optional Codex Farm pass1 `pattern_hints` handoff remains metadata-only and fixed-off for product runs; older payloads may still carry the retired key for compatibility loading.
 
 ## 2026-03-04 docs/understandings consolidation (shared line-role inflight defaults)
 

@@ -2732,3 +2732,48 @@ Durable findings:
 
 Anti-loop note:
 - If a compact prompt “looks fine” but outputs still look broken, inspect pass1 span clamps and pass2 contract failures before rewriting the prompt.
+
+## 2026-03-13 migrated understanding ledger (structural success boundary + step3/step4 shape)
+
+### 2026-03-13_22.54.35 CodexFarm structural audit boundary
+
+Source:
+- `docs/understandings/2026-03-13_22.54.35-codexfarm-structural-audit-boundary.md`
+
+Problem captured:
+- Structural invariants were easiest to break when transport checks, runtime-mode checks, and recipe success/failure classification each invented their own local strings or fixture assumptions.
+
+Durable findings:
+- Keep the shared structural-success definition in `codex_farm_contracts.py`.
+- Feed that contract from named transport/runtime audits rather than per-call orchestrator text.
+- Treat unrealistic pass2 fixtures that contradict the transported source span as invalid tests, not acceptable shortcuts.
+
+### 2026-03-13_23.14.04 current step3 shipping shape
+
+Source:
+- `docs/understandings/2026-03-13_23.14.04-codexfarm-step3-current-path-shipping-shape.md`
+
+Problem captured:
+- Step3 could easily have turned into new model fields and orchestrator-only repair code when the existing contract/model seams were already close to sufficient.
+
+Durable decisions:
+- Recover malformed pass2 auxiliaries in contract loading, not in the orchestrator.
+- Reuse `ingredient_step_mapping_reason` instead of inventing a new pass3 output field.
+- Represent overlap damage as additive degradation reasons and route `partial_recipe_window` rows away from live pass3.
+
+Anti-loop note:
+- If step3 work starts growing new parallel status fields, check whether the existing manifest and contract seams already expose the needed truth first.
+
+### 2026-03-13_23.23.14 step4 prototype surface map
+
+Source:
+- `docs/understandings/2026-03-13_23.23.14-step4-prototype-surface-map.md`
+
+Problem captured:
+- It was tempting to think a new merged recipe pipeline could be added only inside `cookimport/llm/codex_farm_orchestrator.py`, even though the repo hard-coded `codex-farm-3pass-v1` assumptions in several earlier layers.
+
+Durable finding:
+- Any new recipe pipeline id has to survive normalization, Codex decision gating, orchestrator planning, and benchmark/debug artifact expectations. Missing any one of those surfaces creates confusing “accepted here, ignored there” behavior.
+
+Anti-loop note:
+- If a prototype pipeline appears in manifests but not in benchmark/debug behavior, audit the non-orchestrator surfaces before changing prompt packs again.

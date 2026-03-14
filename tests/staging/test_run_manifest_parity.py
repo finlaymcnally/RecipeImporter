@@ -142,6 +142,7 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
     stage_cfg = stage_manifest["run_config"]
     pred_cfg = pred_manifest["run_config"]
     parity_keys = {
+        "bucket1_fixed_behavior_version",
         "workers",
         "pdf_split_workers",
         "epub_split_workers",
@@ -151,7 +152,6 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "epub_unstructured_html_parser_version",
         "epub_unstructured_skip_headers_footers",
         "epub_unstructured_preprocess_mode",
-        "section_detector_backend",
         "ingredient_text_fix_backend",
         "ingredient_pre_normalize_mode",
         "ingredient_packaging_mode",
@@ -165,14 +165,7 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "llm_knowledge_pipeline",
         "llm_tags_pipeline",
         "codex_farm_cmd",
-        "codex_farm_pass1_pattern_hints_enabled",
-        "codex_farm_pipeline_pass1",
-        "codex_farm_pipeline_pass2",
-        "codex_farm_pipeline_pass3",
-        "codex_farm_pipeline_pass4_knowledge",
-        "codex_farm_pipeline_pass5_tags",
         "codex_farm_context_blocks",
-        "codex_farm_pass3_skip_pass2_ok",
         "codex_farm_knowledge_context_blocks",
         "tag_catalog_json",
         "codex_farm_failure_mode",

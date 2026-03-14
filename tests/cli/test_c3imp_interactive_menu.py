@@ -212,7 +212,7 @@ def test_prompt_text_escape_returns_none() -> None:
     assert result["value"] is None
 
 
-def test_load_settings_errors_on_legacy_sequence_matcher(
+def test_load_settings_ignores_retired_sequence_matcher(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -222,8 +222,9 @@ def test_load_settings_errors_on_legacy_sequence_matcher(
         encoding="utf-8",
     )
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
-    with pytest.raises(ValueError, match="benchmark_sequence_matcher"):
-        cli._load_settings()
+    settings = cli._load_settings()
+
+    assert "benchmark_sequence_matcher" not in settings
 
 
 def test_load_settings_migrates_legacy_epub_extractor(
@@ -712,8 +713,8 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     assert captured["path"] == selected_file
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
-    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
-    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.custom.v3"
+    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.compact.v1"
+    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
     assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 
@@ -766,8 +767,8 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
-    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
-    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.custom.v3"
+    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.compact.v1"
+    assert captured["codex_farm_pipeline_pass5_tags"] == "recipe.tags.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
     assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 

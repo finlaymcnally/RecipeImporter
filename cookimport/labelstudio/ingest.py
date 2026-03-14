@@ -30,7 +30,9 @@ from cookimport.config.run_settings import (
     summarize_run_config_payload,
 )
 from cookimport.config.codex_decision import (
+    apply_bucket1_fixed_behavior_metadata,
     apply_codex_execution_policy_metadata,
+    bucket1_fixed_behavior,
     resolve_codex_execution_policy,
     write_codex_execution_plan,
 )
@@ -1847,35 +1849,30 @@ def generate_pred_run_artifacts(
             "Invalid llm_knowledge_pipeline. Expected one of: off, "
             "codex-farm-knowledge-v1."
         )
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(
         codex_farm_failure_mode
     )
-    selected_codex_farm_pass1_pattern_hints_enabled = _coerce_bool(
-        codex_farm_pass1_pattern_hints_enabled,
-        default=False,
+    selected_codex_farm_pass1_pattern_hints_enabled = (
+        fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
     )
-    selected_codex_farm_pass3_skip_pass2_ok = _coerce_bool(
-        codex_farm_pass3_skip_pass2_ok,
-        default=True,
+    selected_codex_farm_pass3_skip_pass2_ok = (
+        fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
     )
     selected_codex_farm_recipe_mode = _normalize_codex_farm_recipe_mode(
         codex_farm_recipe_mode
     )
-    selected_codex_farm_pipeline_pass1 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass1,
-        field_name="codex_farm_pipeline_pass1",
+    selected_codex_farm_pipeline_pass1 = fixed_bucket1_behavior.codex_farm_pipeline_pass1
+    selected_codex_farm_pipeline_pass2 = fixed_bucket1_behavior.codex_farm_pipeline_pass2
+    selected_codex_farm_pipeline_pass3 = fixed_bucket1_behavior.codex_farm_pipeline_pass3
+    selected_codex_farm_pipeline_pass4_knowledge = (
+        fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
     )
-    selected_codex_farm_pipeline_pass2 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass2,
-        field_name="codex_farm_pipeline_pass2",
+    selected_codex_farm_benchmark_selective_retry_enabled = (
+        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
     )
-    selected_codex_farm_pipeline_pass3 = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass3,
-        field_name="codex_farm_pipeline_pass3",
-    )
-    selected_codex_farm_pipeline_pass4_knowledge = _normalize_codex_farm_pipeline_id(
-        codex_farm_pipeline_pass4_knowledge,
-        field_name="codex_farm_pipeline_pass4_knowledge",
+    selected_codex_farm_benchmark_selective_retry_max_attempts = (
+        fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
     )
     selected_codex_farm_knowledge_context_blocks = max(
         0,
@@ -1896,14 +1893,10 @@ def generate_pred_run_artifacts(
         ocr_batch_size=ocr_batch_size,
         pdf_column_gap_ratio=pdf_column_gap_ratio,
         warm_models=warm_models,
-        section_detector_backend=section_detector_backend,
         multi_recipe_splitter=multi_recipe_splitter,
-        multi_recipe_trace=multi_recipe_trace,
         multi_recipe_min_ingredient_lines=multi_recipe_min_ingredient_lines,
         multi_recipe_min_instruction_lines=multi_recipe_min_instruction_lines,
         multi_recipe_for_the_guardrail=multi_recipe_for_the_guardrail,
-        instruction_step_segmentation_policy=instruction_step_segmentation_policy,
-        instruction_step_segmenter=instruction_step_segmenter,
         web_schema_extractor=web_schema_extractor,
         web_schema_normalizer=web_schema_normalizer,
         web_html_text_extractor=web_html_text_extractor,
@@ -1923,7 +1916,6 @@ def generate_pred_run_artifacts(
         p6_temperature_unit_backend=p6_temperature_unit_backend,
         p6_ovenlike_mode=p6_ovenlike_mode,
         p6_yield_mode=p6_yield_mode,
-        p6_emit_metadata_debug=p6_emit_metadata_debug,
         recipe_scorer_backend=recipe_scorer_backend,
         recipe_score_gold_min=recipe_score_gold_min,
         recipe_score_silver_min=recipe_score_silver_min,
@@ -1940,21 +1932,7 @@ def generate_pred_run_artifacts(
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
-        codex_farm_pass1_pattern_hints_enabled=(
-            selected_codex_farm_pass1_pattern_hints_enabled
-        ),
-        codex_farm_pipeline_pass1=selected_codex_farm_pipeline_pass1,
-        codex_farm_pipeline_pass2=selected_codex_farm_pipeline_pass2,
-        codex_farm_pipeline_pass3=selected_codex_farm_pipeline_pass3,
-        codex_farm_pipeline_pass4_knowledge=selected_codex_farm_pipeline_pass4_knowledge,
         codex_farm_context_blocks=codex_farm_context_blocks,
-        codex_farm_pass3_skip_pass2_ok=selected_codex_farm_pass3_skip_pass2_ok,
-        codex_farm_benchmark_selective_retry_enabled=(
-            codex_farm_benchmark_selective_retry_enabled
-        ),
-        codex_farm_benchmark_selective_retry_max_attempts=(
-            codex_farm_benchmark_selective_retry_max_attempts
-        ),
         codex_farm_knowledge_context_blocks=selected_codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
@@ -1984,7 +1962,9 @@ def generate_pred_run_artifacts(
             "surfaces are enabled."
         )
     worker_run_config = run_settings.to_run_config_dict()
-    run_config = apply_codex_execution_policy_metadata(worker_run_config, codex_execution)
+    run_config = apply_bucket1_fixed_behavior_metadata(
+        apply_codex_execution_policy_metadata(worker_run_config, codex_execution)
+    )
     run_config["prelabel_enabled"] = bool(prelabel)
     run_config["prelabel_provider"] = prelabel_provider if prelabel else None
     run_config["epub_extractor_requested"] = selected_epub_extractor

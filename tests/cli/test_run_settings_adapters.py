@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cookimport.config.codex_decision import bucket1_fixed_behavior
 from cookimport.config.prediction_identity import (
     build_all_method_prediction_identity_payload,
     build_line_role_cache_identity_payload,
@@ -14,6 +15,7 @@ from cookimport.config.run_settings_adapters import (
 
 
 def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
     settings = RunSettings(
         multi_recipe_splitter="rules_v1",
         multi_recipe_trace=True,
@@ -52,12 +54,18 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     )
 
     assert kwargs["multi_recipe_splitter"] == "rules_v1"
-    assert kwargs["multi_recipe_trace"] is True
+    assert kwargs["multi_recipe_trace"] is fixed_bucket1_behavior.multi_recipe_trace
     assert kwargs["multi_recipe_min_ingredient_lines"] == 2
     assert kwargs["multi_recipe_min_instruction_lines"] == 3
     assert kwargs["multi_recipe_for_the_guardrail"] is False
-    assert kwargs["instruction_step_segmentation_policy"] == "always"
-    assert kwargs["instruction_step_segmenter"] == "heuristic_v1"
+    assert (
+        kwargs["instruction_step_segmentation_policy"]
+        == fixed_bucket1_behavior.instruction_step_segmentation_policy
+    )
+    assert (
+        kwargs["instruction_step_segmenter"]
+        == fixed_bucket1_behavior.instruction_step_segmenter
+    )
     assert kwargs["web_schema_extractor"] == "extruct"
     assert kwargs["web_schema_normalizer"] == "pyld"
     assert kwargs["web_html_text_extractor"] == "justext"
@@ -71,14 +79,24 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_temperature_unit_backend"] == "pint_v1"
     assert kwargs["p6_ovenlike_mode"] == "off"
     assert kwargs["p6_yield_mode"] == "scored_v1"
-    assert kwargs["p6_emit_metadata_debug"] is True
+    assert (
+        kwargs["p6_emit_metadata_debug"]
+        is fixed_bucket1_behavior.p6_emit_metadata_debug
+    )
     assert kwargs["pdf_ocr_policy"] == "always"
     assert kwargs["pdf_column_gap_ratio"] == 0.2
-    assert kwargs["codex_farm_pass1_pattern_hints_enabled"] is True
-    assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False
+    assert (
+        kwargs["codex_farm_pass1_pattern_hints_enabled"]
+        is fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
+    )
+    assert (
+        kwargs["codex_farm_pass3_skip_pass2_ok"]
+        is fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
+    )
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
     settings = RunSettings(
         multi_recipe_splitter="rules_v1",
         multi_recipe_trace=True,
@@ -128,12 +146,18 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     )
 
     assert kwargs["multi_recipe_splitter"] == "rules_v1"
-    assert kwargs["multi_recipe_trace"] is True
+    assert kwargs["multi_recipe_trace"] is fixed_bucket1_behavior.multi_recipe_trace
     assert kwargs["multi_recipe_min_ingredient_lines"] == 2
     assert kwargs["multi_recipe_min_instruction_lines"] == 2
     assert kwargs["multi_recipe_for_the_guardrail"] is True
-    assert kwargs["instruction_step_segmentation_policy"] == "off"
-    assert kwargs["instruction_step_segmenter"] == "pysbd_v1"
+    assert (
+        kwargs["instruction_step_segmentation_policy"]
+        == fixed_bucket1_behavior.instruction_step_segmentation_policy
+    )
+    assert (
+        kwargs["instruction_step_segmenter"]
+        == fixed_bucket1_behavior.instruction_step_segmenter
+    )
     assert kwargs["web_schema_extractor"] == "recipe_scrapers"
     assert kwargs["web_schema_normalizer"] == "simple"
     assert kwargs["web_html_text_extractor"] == "boilerpy3"
@@ -147,7 +171,10 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["p6_temperature_unit_backend"] == "builtin_v1"
     assert kwargs["p6_ovenlike_mode"] == "keywords_v1"
     assert kwargs["p6_yield_mode"] == "legacy_v1"
-    assert kwargs["p6_emit_metadata_debug"] is False
+    assert (
+        kwargs["p6_emit_metadata_debug"]
+        is fixed_bucket1_behavior.p6_emit_metadata_debug
+    )
     assert kwargs["pdf_ocr_policy"] == "off"
     assert kwargs["pdf_column_gap_ratio"] == 0.09
     assert kwargs["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
@@ -156,11 +183,26 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
     assert kwargs["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert kwargs["codex_farm_reasoning_effort"] == "low"
-    assert kwargs["codex_farm_pass1_pattern_hints_enabled"] is True
-    assert kwargs["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
-    assert kwargs["codex_farm_pass3_skip_pass2_ok"] is False
-    assert kwargs["codex_farm_benchmark_selective_retry_enabled"] is False
-    assert kwargs["codex_farm_benchmark_selective_retry_max_attempts"] == 3
+    assert (
+        kwargs["codex_farm_pass1_pattern_hints_enabled"]
+        is fixed_bucket1_behavior.codex_farm_pass1_pattern_hints_enabled
+    )
+    assert (
+        kwargs["codex_farm_pipeline_pass4_knowledge"]
+        == fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+    )
+    assert (
+        kwargs["codex_farm_pass3_skip_pass2_ok"]
+        is fixed_bucket1_behavior.codex_farm_pass3_skip_pass2_ok
+    )
+    assert (
+        kwargs["codex_farm_benchmark_selective_retry_enabled"]
+        is fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
+    )
+    assert (
+        kwargs["codex_farm_benchmark_selective_retry_max_attempts"]
+        == fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
+    )
     assert kwargs["codex_farm_knowledge_context_blocks"] == 21
 
 

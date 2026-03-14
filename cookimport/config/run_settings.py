@@ -32,17 +32,64 @@ _RETIRED_RUN_SETTING_KEYS: dict[str, str] = {
         "deterministic table extraction is always enabled and the legacy off/on "
         "setting no longer changes behavior"
     ),
+    "section_detector_backend": (
+        "section detection now uses the fixed product behavior contract "
+        "(shared_v1)"
+    ),
+    "instruction_step_segmentation_policy": (
+        "instruction-step fallback segmentation policy is now fixed product "
+        "behavior (always)"
+    ),
+    "instruction_step_segmenter": (
+        "instruction-step fallback segmenter is now fixed product behavior "
+        "(heuristic_v1)"
+    ),
+    "benchmark_sequence_matcher": (
+        "canonical-text benchmark evaluation now uses the fixed dmp matcher"
+    ),
+    "multi_recipe_trace": (
+        "multi-recipe trace is no longer a normal run setting and now defaults "
+        "to off"
+    ),
+    "p6_emit_metadata_debug": (
+        "Priority 6 debug sidecar emission is no longer a normal run setting "
+        "and now defaults to off"
+    ),
+    "codex_farm_pass1_pattern_hints_enabled": (
+        "Codex Farm pass1 pattern-hint routing is now fixed product behavior "
+        "(disabled)"
+    ),
+    "codex_farm_pipeline_pass1": (
+        "Codex Farm pass1 pipeline id is now fixed product behavior"
+    ),
+    "codex_farm_pipeline_pass2": (
+        "Codex Farm pass2 pipeline id is now fixed product behavior"
+    ),
+    "codex_farm_pipeline_pass3": (
+        "Codex Farm pass3 pipeline id is now fixed product behavior"
+    ),
+    "codex_farm_pass3_skip_pass2_ok": (
+        "Codex Farm pass3 routing policy is now fixed product behavior"
+    ),
+    "codex_farm_benchmark_selective_retry_enabled": (
+        "benchmark selective retry enablement is now fixed product behavior"
+    ),
+    "codex_farm_benchmark_selective_retry_max_attempts": (
+        "benchmark selective retry attempts are now fixed product behavior"
+    ),
+    "codex_farm_pipeline_pass4_knowledge": (
+        "Codex Farm pass4 knowledge pipeline id is now fixed product behavior"
+    ),
+    "codex_farm_pipeline_pass5_tags": (
+        "Codex Farm pass5 tags pipeline id is now fixed product behavior"
+    ),
 }
 _SUMMARY_ORDER = (
     "epub_extractor",
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
-    "section_detector_backend",
-    "instruction_step_segmentation_policy",
-    "instruction_step_segmenter",
     "multi_recipe_splitter",
-    "multi_recipe_trace",
     "multi_recipe_min_ingredient_lines",
     "multi_recipe_min_instruction_lines",
     "multi_recipe_for_the_guardrail",
@@ -65,8 +112,6 @@ _SUMMARY_ORDER = (
     "p6_temperature_unit_backend",
     "p6_ovenlike_mode",
     "p6_yield_mode",
-    "p6_emit_metadata_debug",
-    "benchmark_sequence_matcher",
     "recipe_scorer_backend",
     "recipe_score_gold_min",
     "recipe_score_silver_min",
@@ -94,15 +139,6 @@ _SUMMARY_ORDER = (
     "codex_farm_cmd",
     "codex_farm_model",
     "codex_farm_reasoning_effort",
-    "codex_farm_pass1_pattern_hints_enabled",
-    "codex_farm_pipeline_pass1",
-    "codex_farm_pipeline_pass2",
-    "codex_farm_pipeline_pass3",
-    "codex_farm_pass3_skip_pass2_ok",
-    "codex_farm_benchmark_selective_retry_enabled",
-    "codex_farm_benchmark_selective_retry_max_attempts",
-    "codex_farm_pipeline_pass4_knowledge",
-    "codex_farm_pipeline_pass5_tags",
     "codex_farm_context_blocks",
     "codex_farm_knowledge_context_blocks",
     "codex_farm_failure_mode",
@@ -331,6 +367,12 @@ class CodexReasoningEffort(str, Enum):
     xhigh = "xhigh"
 
 
+def _bucket1_fixed_behavior():
+    from cookimport.config.codex_decision import bucket1_fixed_behavior
+
+    return bucket1_fixed_behavior()
+
+
 def _ui_meta(
     *,
     group: str,
@@ -473,19 +515,6 @@ class RunSettings(BaseModel):
             description="EPUB HTML preprocessing mode before Unstructured partitioning.",
         ),
     )
-    section_detector_backend: SectionDetectorBackend = Field(
-        default=SectionDetectorBackend.legacy,
-        json_schema_extra=_ui_meta(
-            group="Extraction",
-            label="Section Detector Backend",
-            order=66,
-            description=(
-                "Section detector backend used by importers and section-aware staging "
-                "contracts. legacy keeps current behavior; shared_v1 enables shared "
-                "deterministic detection."
-            ),
-        ),
-    )
     multi_recipe_splitter: MultiRecipeSplitter = Field(
         default=MultiRecipeSplitter.legacy,
         json_schema_extra=_ui_meta(
@@ -496,16 +525,6 @@ class RunSettings(BaseModel):
                 "Candidate splitter backend for merged multi-recipe spans. "
                 "legacy keeps importer-local behavior; rules_v1 uses shared deterministic splitting."
             ),
-        ),
-    )
-    multi_recipe_trace: bool = Field(
-        default=False,
-        json_schema_extra=_ui_meta(
-            group="Extraction",
-            label="Multi-recipe Trace",
-            order=68,
-            description="Write shared splitter trace artifacts when multi-recipe splitting runs.",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     multi_recipe_min_ingredient_lines: int = Field(
@@ -629,28 +648,6 @@ class RunSettings(BaseModel):
             step=1,
             minimum=0,
             maximum=100,
-        ),
-    )
-    instruction_step_segmentation_policy: InstructionStepSegmentationPolicy = Field(
-        default=InstructionStepSegmentationPolicy.auto,
-        json_schema_extra=_ui_meta(
-            group="Parsing",
-            label="Instruction Segmentation Policy",
-            order=65,
-            description=(
-                "Fallback instruction-step segmentation policy: off, auto, or always."
-            ),
-        ),
-    )
-    instruction_step_segmenter: InstructionStepSegmenter = Field(
-        default=InstructionStepSegmenter.heuristic_v1,
-        json_schema_extra=_ui_meta(
-            group="Parsing",
-            label="Instruction Segmenter",
-            order=66,
-            description=(
-                "Deterministic fallback segmenter backend: heuristic_v1 or pysbd_v1."
-            ),
         ),
     )
     ingredient_text_fix_backend: IngredientTextFixBackend = Field(
@@ -785,28 +782,6 @@ class RunSettings(BaseModel):
             label="P6 Yield Mode",
             order=78,
             description="Priority 6 yield parser mode (legacy_v1 passthrough or scored_v1).",
-        ),
-    )
-    p6_emit_metadata_debug: bool = Field(
-        default=False,
-        json_schema_extra=_ui_meta(
-            group="Parsing",
-            label="P6 Emit Metadata Debug",
-            order=79,
-            description="Write optional Priority 6 debug metadata sidecar artifacts.",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    benchmark_sequence_matcher: str = Field(
-        default="dmp",
-        json_schema_extra=_ui_meta(
-            group="Benchmark",
-            label="Sequence Matcher",
-            order=73,
-            description=(
-                "Canonical-text matcher mode for benchmark/eval runs (dmp only)."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_scorer_backend: str = Field(
@@ -1073,110 +1048,6 @@ class RunSettings(BaseModel):
             ),
         ),
     )
-    codex_farm_pass1_pattern_hints_enabled: bool = Field(
-        default=False,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass1 Pattern Hints",
-            order=136,
-            description=(
-                "Include deterministic pattern metadata hints in pass1 bundles "
-                "for advisory recipe-boundary context."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_pipeline_pass1: str = Field(
-        default="recipe.chunking.v1",
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass1 Pipeline",
-            order=136,
-            description="codex-farm pipeline id used for recipe boundary refinement (pass1).",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_pipeline_pass2: str = Field(
-        default="recipe.schemaorg.compact.v1",
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass2 Pipeline",
-            order=137,
-            description="codex-farm pipeline id used for schema.org extraction (pass2).",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_pipeline_pass3: str = Field(
-        default="recipe.final.compact.v1",
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass3 Pipeline",
-            order=138,
-            description="codex-farm pipeline id used for final draft generation (pass3).",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_pass3_skip_pass2_ok: bool = Field(
-        default=True,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass3 Skip Pass2-OK",
-            order=138,
-            description=(
-                "When true, skip pass3 LLM calls for low-risk pass2-ok rows and use "
-                "deterministic promotion."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_benchmark_selective_retry_enabled: bool = Field(
-        default=True,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Benchmark Selective Retry",
-            order=139,
-            description=(
-                "Benchmark-only retry for missing Codex Farm pass2/pass3 bundle files "
-                "after recoverable partial-output runs."
-            ),
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_benchmark_selective_retry_max_attempts: int = Field(
-        default=1,
-        ge=1,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Benchmark Retry Attempts",
-            order=140,
-            description=(
-                "Maximum benchmark-only retry attempts for missing Codex Farm pass2/"
-                "pass3 bundle files."
-            ),
-            minimum=1,
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_pipeline_pass4_knowledge: str = Field(
-        default="recipe.knowledge.compact.v1",
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass4 Knowledge Pipeline",
-            order=141,
-            description="codex-farm pipeline id used for knowledge harvesting (pass4).",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
-    codex_farm_pipeline_pass5_tags: str = Field(
-        default="recipe.tags.v1",
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Codex Farm Pass5 Tags Pipeline",
-            order=142,
-            description="codex-farm pipeline id used for tag suggestions (pass5).",
-            surface=RUN_SETTING_SURFACE_INTERNAL,
-        ),
-    )
     codex_farm_context_blocks: int = Field(
         default=30,
         ge=0,
@@ -1266,18 +1137,6 @@ class RunSettings(BaseModel):
                 return EpubExtractor.unstructured.value
             return normalized
         return value
-
-    @field_validator("benchmark_sequence_matcher", mode="before")
-    @classmethod
-    def _normalize_benchmark_sequence_matcher(cls, value: Any) -> str:
-        normalized = str(value or "dmp").strip().lower()
-        supported = supported_sequence_matcher_modes()
-        if normalized not in supported:
-            raise ValueError(
-                "Invalid benchmark sequence matcher mode "
-                f"{value!r}. Supported: {', '.join(supported)}."
-            )
-        return normalized
 
     @field_validator("codex_farm_model", mode="before")
     @classmethod
@@ -1407,6 +1266,10 @@ class RunSettings(BaseModel):
         return cls.model_validate(data)
 
     def to_run_config_dict(self) -> dict[str, object]:
+        from cookimport.config.codex_decision import (
+            apply_bucket1_fixed_behavior_metadata,
+        )
+
         payload = self.model_dump(mode="json", exclude_none=True)
         if (
             payload.get("llm_recipe_pipeline") == LlmRecipePipeline.off.value
@@ -1415,7 +1278,7 @@ class RunSettings(BaseModel):
         ):
             payload.pop("codex_farm_model", None)
             payload.pop("codex_farm_reasoning_effort", None)
-        return payload
+        return apply_bucket1_fixed_behavior_metadata(payload)
 
     def to_public_run_config_dict(self) -> dict[str, object]:
         return project_run_config_payload(
@@ -1440,6 +1303,74 @@ class RunSettings(BaseModel):
 
     def short_hash(self, length: int = 12) -> str:
         return self.stable_hash()[:length]
+
+    @property
+    def section_detector_backend(self) -> SectionDetectorBackend:
+        return SectionDetectorBackend(
+            _bucket1_fixed_behavior().section_detector_backend
+        )
+
+    @property
+    def instruction_step_segmentation_policy(
+        self,
+    ) -> InstructionStepSegmentationPolicy:
+        return InstructionStepSegmentationPolicy(
+            _bucket1_fixed_behavior().instruction_step_segmentation_policy
+        )
+
+    @property
+    def instruction_step_segmenter(self) -> InstructionStepSegmenter:
+        return InstructionStepSegmenter(
+            _bucket1_fixed_behavior().instruction_step_segmenter
+        )
+
+    @property
+    def benchmark_sequence_matcher(self) -> str:
+        return _bucket1_fixed_behavior().benchmark_sequence_matcher
+
+    @property
+    def multi_recipe_trace(self) -> bool:
+        return _bucket1_fixed_behavior().multi_recipe_trace
+
+    @property
+    def p6_emit_metadata_debug(self) -> bool:
+        return _bucket1_fixed_behavior().p6_emit_metadata_debug
+
+    @property
+    def codex_farm_pass1_pattern_hints_enabled(self) -> bool:
+        return _bucket1_fixed_behavior().codex_farm_pass1_pattern_hints_enabled
+
+    @property
+    def codex_farm_pipeline_pass1(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_pass1
+
+    @property
+    def codex_farm_pipeline_pass2(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_pass2
+
+    @property
+    def codex_farm_pipeline_pass3(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_pass3
+
+    @property
+    def codex_farm_pass3_skip_pass2_ok(self) -> bool:
+        return _bucket1_fixed_behavior().codex_farm_pass3_skip_pass2_ok
+
+    @property
+    def codex_farm_benchmark_selective_retry_enabled(self) -> bool:
+        return _bucket1_fixed_behavior().codex_farm_benchmark_selective_retry_enabled
+
+    @property
+    def codex_farm_benchmark_selective_retry_max_attempts(self) -> int:
+        return _bucket1_fixed_behavior().codex_farm_benchmark_selective_retry_max_attempts
+
+    @property
+    def codex_farm_pipeline_pass4_knowledge(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_pass4_knowledge
+
+    @property
+    def codex_farm_pipeline_pass5_tags(self) -> str:
+        return _bucket1_fixed_behavior().codex_farm_pipeline_pass5_tags
 
 
 @dataclass(frozen=True)
@@ -1507,10 +1438,7 @@ def run_settings_ui_specs(*, include_internal: bool = False) -> list[RunSettingU
         if value_kind == "enum" and isinstance(annotation, type) and issubclass(annotation, Enum):
             choices = tuple(str(member.value) for member in annotation)
             if field_name == "llm_recipe_pipeline":
-                choices = (
-                    LlmRecipePipeline.off.value,
-                    LlmRecipePipeline.codex_farm_3pass_v1.value,
-                )
+                choices = tuple(str(member.value) for member in LlmRecipePipeline)
             elif field_name == "epub_extractor":
                 choices = epub_extractor_enabled_choices()
             if allows_none:
@@ -1520,10 +1448,6 @@ def run_settings_ui_specs(*, include_internal: bool = False) -> list[RunSettingU
                     else "default"
                 )
                 choices = (none_label, *choices)
-        elif field_name == "benchmark_sequence_matcher":
-            value_kind = "enum"
-            choices = tuple(str(mode) for mode in supported_sequence_matcher_modes())
-
         specs.append(
             RunSettingUiSpec(
                 name=field_name,
@@ -1676,11 +1600,7 @@ def build_run_settings(
     ocr_batch_size: int,
     pdf_column_gap_ratio: float = 0.12,
     warm_models: bool,
-    section_detector_backend: (
-        str | SectionDetectorBackend
-    ) = SectionDetectorBackend.legacy,
     multi_recipe_splitter: str | MultiRecipeSplitter = MultiRecipeSplitter.legacy,
-    multi_recipe_trace: bool = False,
     multi_recipe_min_ingredient_lines: int = 1,
     multi_recipe_min_instruction_lines: int = 1,
     multi_recipe_for_the_guardrail: bool = True,
@@ -1691,12 +1611,6 @@ def build_run_settings(
     web_schema_min_confidence: float = 0.75,
     web_schema_min_ingredients: int = 2,
     web_schema_min_instruction_steps: int = 1,
-    instruction_step_segmentation_policy: (
-        str | InstructionStepSegmentationPolicy
-    ) = InstructionStepSegmentationPolicy.auto,
-    instruction_step_segmenter: (
-        str | InstructionStepSegmenter
-    ) = InstructionStepSegmenter.heuristic_v1,
     ingredient_text_fix_backend: (
         str | IngredientTextFixBackend
     ) = IngredientTextFixBackend.none,
@@ -1727,8 +1641,6 @@ def build_run_settings(
     ) = P6TemperatureUnitBackend.builtin_v1,
     p6_ovenlike_mode: str | P6OvenlikeMode = P6OvenlikeMode.keywords_v1,
     p6_yield_mode: str | P6YieldMode = P6YieldMode.legacy_v1,
-    p6_emit_metadata_debug: bool = False,
-    benchmark_sequence_matcher: str = "dmp",
     recipe_scorer_backend: str = "heuristic_v1",
     recipe_score_gold_min: float = 0.75,
     recipe_score_silver_min: float = 0.55,
@@ -1749,15 +1661,6 @@ def build_run_settings(
     codex_farm_reasoning_effort: str | CodexReasoningEffort | None = None,
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
-    codex_farm_pass1_pattern_hints_enabled: bool = False,
-    codex_farm_pipeline_pass1: str = "recipe.chunking.v1",
-    codex_farm_pipeline_pass2: str = "recipe.schemaorg.compact.v1",
-    codex_farm_pipeline_pass3: str = "recipe.final.compact.v1",
-    codex_farm_pass3_skip_pass2_ok: bool = True,
-    codex_farm_benchmark_selective_retry_enabled: bool = True,
-    codex_farm_benchmark_selective_retry_max_attempts: int = 1,
-    codex_farm_pipeline_pass4_knowledge: str = "recipe.knowledge.compact.v1",
-    codex_farm_pipeline_pass5_tags: str = "recipe.tags.v1",
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 12,
     tag_catalog_json: Path | str = "data/tagging/tag_catalog.json",
@@ -1799,9 +1702,7 @@ def build_run_settings(
             "ocr_batch_size": ocr_batch_size,
             "pdf_column_gap_ratio": float(pdf_column_gap_ratio),
             "warm_models": bool(warm_models),
-            "section_detector_backend": _normalized_value(section_detector_backend),
             "multi_recipe_splitter": _normalized_value(multi_recipe_splitter),
-            "multi_recipe_trace": bool(multi_recipe_trace),
             "multi_recipe_min_ingredient_lines": int(multi_recipe_min_ingredient_lines),
             "multi_recipe_min_instruction_lines": int(multi_recipe_min_instruction_lines),
             "multi_recipe_for_the_guardrail": bool(multi_recipe_for_the_guardrail),
@@ -1812,12 +1713,6 @@ def build_run_settings(
             "web_schema_min_confidence": float(web_schema_min_confidence),
             "web_schema_min_ingredients": int(web_schema_min_ingredients),
             "web_schema_min_instruction_steps": int(web_schema_min_instruction_steps),
-            "instruction_step_segmentation_policy": _normalized_value(
-                instruction_step_segmentation_policy
-            ),
-            "instruction_step_segmenter": _normalized_value(
-                instruction_step_segmenter
-            ),
             "ingredient_text_fix_backend": _normalized_value(
                 ingredient_text_fix_backend
             ),
@@ -1844,10 +1739,6 @@ def build_run_settings(
             ),
             "p6_ovenlike_mode": _normalized_value(p6_ovenlike_mode),
             "p6_yield_mode": _normalized_value(p6_yield_mode),
-            "p6_emit_metadata_debug": bool(p6_emit_metadata_debug),
-            "benchmark_sequence_matcher": str(benchmark_sequence_matcher or "dmp")
-            .strip()
-            .lower(),
             "recipe_scorer_backend": str(recipe_scorer_backend or "heuristic_v1").strip()
             or "heuristic_v1",
             "recipe_score_gold_min": float(recipe_score_gold_min),
@@ -1881,34 +1772,6 @@ def build_run_settings(
                 str(codex_farm_workspace_root)
                 if codex_farm_workspace_root is not None
                 else None
-            ),
-            "codex_farm_pass1_pattern_hints_enabled": bool(
-                codex_farm_pass1_pattern_hints_enabled
-            ),
-            "codex_farm_pipeline_pass1": (
-                str(codex_farm_pipeline_pass1).strip() or "recipe.chunking.v1"
-            ),
-            "codex_farm_pipeline_pass2": (
-                str(codex_farm_pipeline_pass2).strip()
-                or "recipe.schemaorg.compact.v1"
-            ),
-            "codex_farm_pipeline_pass3": (
-                str(codex_farm_pipeline_pass3).strip()
-                or "recipe.final.compact.v1"
-            ),
-            "codex_farm_pass3_skip_pass2_ok": bool(codex_farm_pass3_skip_pass2_ok),
-            "codex_farm_benchmark_selective_retry_enabled": bool(
-                codex_farm_benchmark_selective_retry_enabled
-            ),
-            "codex_farm_benchmark_selective_retry_max_attempts": int(
-                codex_farm_benchmark_selective_retry_max_attempts
-            ),
-            "codex_farm_pipeline_pass4_knowledge": (
-                str(codex_farm_pipeline_pass4_knowledge).strip()
-                or "recipe.knowledge.compact.v1"
-            ),
-            "codex_farm_pipeline_pass5_tags": (
-                str(codex_farm_pipeline_pass5_tags).strip() or "recipe.tags.v1"
             ),
             "codex_farm_context_blocks": int(codex_farm_context_blocks),
             "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),

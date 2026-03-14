@@ -6784,3 +6784,48 @@ Problem captured:
 
 Durable decision:
 - Benchmark-local prediction scratch now derives from `eval_output_dir` and keeps the canonical co-location contract at `<eval_output_dir>/prediction-run`.
+
+## 2026-03-13 migrated understanding ledger (helper breakup, prediction reuse boundary, and retry review closure)
+
+### 2026-03-13_22.17.18, 2026-03-13_22.23.51, and 2026-03-13_22.28.28 benchmark-helper test decomposition and prediction-reuse boundary
+
+Merged sources:
+- `docs/understandings/2026-03-13_22.17.18-labelstudio-benchmark-helper-test-modularization.md`
+- `docs/understandings/2026-03-13_22.23.51-benchmark-prediction-reuse-helper-boundary.md`
+- `docs/understandings/2026-03-13_22.28.28-benchmark-helper-scheduler-eval-grouping.md`
+
+Problem captured:
+- Benchmark helper coverage and all-method reuse logic were still carrying giant mixed files and a hidden benchmark no-eval seam that blurred what “benchmark” was supposed to mean.
+
+Durable decisions:
+- Keep shared helper state in `tests/labelstudio/benchmark_helper_support.py`.
+- Group scheduler/eval tests by execution phase instead of one mega file.
+- Keep offline prediction-stage reuse behind a dedicated helper rather than a hidden branch in `labelstudio_benchmark(...)`.
+
+Anti-loop note:
+- If a future refactor wants to reintroduce one big helper file or one hidden “benchmark but not really benchmark” branch, that is a regression in maintainability, not simplification.
+
+### 2026-03-13_22.50.16, 2026-03-13_23.01.16, and 2026-03-13_23.09.26 benchmark selective retry review and sync
+
+Merged sources:
+- `docs/understandings/2026-03-13_22.50.16-benchmark-selective-retry-review.md`
+- `docs/understandings/2026-03-13_23.01.16-benchmark-selective-retry-contract-sync.md`
+- `docs/understandings/2026-03-13_23.09.26-benchmark-selective-retry-plan-vs-code-review.md`
+
+Problem captured:
+- The original shipped selective-retry path mostly matched the OG plan, but March 13 review found real drift:
+  - orchestrator gating was weaker than the runner’s recoverable partial-output contract,
+  - benchmark-root manifests lacked the direct `llm_manifest_json` breadcrumb,
+  - CLI help visibility and orchestrator prefilters were not perfectly aligned with the plan.
+
+Durable outcomes:
+- Orchestrator retry gating now delegates to the same runner helper semantics, using serialized `error_summary` plus coverage thresholds.
+- Benchmark-root `run_manifest.json` once again carries the direct `llm_manifest_json` link.
+- Benchmark retry flags are visible in CLI help.
+- Focused tests were refreshed around positive high-coverage retry, missing-summary rejection, and low-coverage rejection.
+
+Preserved review context:
+- March 13 review was valuable because it caught genuine plan-vs-code mismatches even after the feature had been marked complete.
+
+Anti-loop note:
+- If someone claims “selective retry already shipped, so review drift can be ignored,” point them at this sequence first; the March 13 fixes came directly from that review.

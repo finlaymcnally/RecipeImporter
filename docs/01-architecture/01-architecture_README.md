@@ -440,3 +440,26 @@ Merged source note:
 
 Architecture-level docs hygiene contract:
 - When consolidating large task/understanding batches, preserve timestamp order and keep explicit domain mapping so cross-domain decisions remain traceable.
+
+## 2026-03-13 merged understandings digest (docs IA + reliability plan decomposition)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_22.23.03-unified-reliability-plan-coverage.md`
+- `docs/understandings/2026-03-13_22.29.41-codexfarm-execplan-split.md`
+- `docs/understandings/2026-03-13_22.35.00-docs-task-home-mapping.md`
+
+Architecture-level contracts reinforced:
+- Cross-domain docs routing should stay stable:
+  - `docs/07-bench/` is the durable home for benchmark orchestration, session-root layout, upload/follow-up artifacts, and other benchmark-facing runtime contracts.
+  - `docs/10-llm/` is the durable home for Codex execution policy, recipe/pass4/pass5 contracts, compact-pack behavior, and pipeline-selection rules.
+  - `docs/04-parsing/` is the durable home for deterministic canonical line-role semantics and other parser-side label/guardrail rules.
+- The March 13 unified CodexFarm reliability diagnosis was broader than transport repair alone. It also included explicit label ownership, disagreement-driven review, monotonic fallback, and syntax-heavy deterministic ownership; if later summaries flatten those ideas, recover the sharper policy guidance from the split plans and logs.
+- The unified reliability plan is now intentionally decomposed into four workstreams that map to the current `docs/plans/` files:
+  - `2026-03-13_22.29.37-step1.md`: observability, invariants, and runtime-mode checks.
+  - `2026-03-13_22.29.38-step2.md`: staging/title guardrails and line-role ownership.
+  - `2026-03-13_22.29.39-step3.md`: current 3-pass repair work.
+  - `2026-03-13_22.29.40-step4.md`: merged-stage prototype.
+- Safe same-repo parallelism remains limited:
+  - let step1 define reason codes and invariant names first or keep it tightly coordinated,
+  - step2 and step3 can run in parallel once those names settle,
+  - step4 overlaps the most with shared orchestrator/contract surfaces and is the highest-conflict lane.

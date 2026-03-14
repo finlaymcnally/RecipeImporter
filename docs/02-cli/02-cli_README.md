@@ -133,15 +133,12 @@ Resolved profile families:
     `epub_unstructured_html_parser_version=v1`,
     `epub_unstructured_preprocess_mode=semantic_v1`,
     `epub_unstructured_skip_headers_footers=true`,
-    `section_detector_backend=shared_v1`,
     `multi_recipe_splitter=rules_v1`,
-    `instruction_step_segmentation_policy=always`,
-    `instruction_step_segmenter=heuristic_v1`,
     `pdf_ocr_policy=off`,
-    `codex_farm_pass1_pattern_hints_enabled=false`,
-    `codex_farm_pass3_skip_pass2_ok=true`,
-    `codex_farm_pipeline_pass2=recipe.schemaorg.compact.v1`,
-    `codex_farm_pipeline_pass3=recipe.final.compact.v1`.
+    plus fixed Bucket 1 parser behavior recorded as
+    `bucket1_fixed_behavior_version=bucket1-fixed-v1`
+    (shared section detection, always-on heuristic fallback segmentation,
+    compact codex pass ids, pattern hints off, pass2-ok skip on).
 - `Vanilla automatic top-tier`:
   - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`),
   - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
@@ -171,13 +168,10 @@ Config keys and defaults:
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `true`)
 - `epub_unstructured_preprocess_mode` (default `semantic_v1`)
-- `section_detector_backend` (default `legacy`)
 - `multi_recipe_splitter` (default `legacy`)
 - `multi_recipe_min_ingredient_lines` (default `1`)
 - `multi_recipe_min_instruction_lines` (default `1`)
 - `multi_recipe_for_the_guardrail` (default `true`)
-- `instruction_step_segmentation_policy` (default `auto`)
-- `instruction_step_segmenter` (default `heuristic_v1`)
 - `web_schema_extractor` (default `builtin_jsonld`)
 - `web_schema_normalizer` (default `simple`)
 - `web_html_text_extractor` (default `bs4`)
@@ -242,10 +236,8 @@ What each setting affects:
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
 - Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only for compatibility loading.
-- `section_detector_backend`: section detector selection (`legacy|shared_v1`) used by stage and benchmark prediction generation for Text/Excel/EPUB/PDF importer section extraction.
 - `multi_recipe_splitter`, `multi_recipe_min_*`, `multi_recipe_for_the_guardrail`: shared deterministic multi-recipe split controls used by Text/EPUB/PDF importer conversion in stage and benchmark prediction generation.
-- `multi_recipe_trace`: internal-only trace toggle that older payloads may still carry.
-- `instruction_step_segmentation_policy`, `instruction_step_segmenter`: deterministic fallback instruction-step segmentation controls shared by stage and benchmark prediction generation (`off|auto|always`, `heuristic_v1|pysbd_v1`).
+- Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry compatibility-only keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`: ingredient parser normalization/backend/unit-policy controls used by stage and benchmark prediction-generation imports.
 - `p6_time_backend`, `p6_time_total_strategy`, `p6_temperature_backend`, `p6_temperature_unit_backend`, `p6_ovenlike_mode`, `p6_yield_mode`: Priority 6 deterministic instruction/yield controls for stage and benchmark prediction generation.
@@ -256,7 +248,7 @@ What each setting affects:
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
-- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-farm-3pass-v1`).
+- `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off`, `codex-farm-3pass-v1`, or `codex-farm-2stage-repair-v1`).
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
 - `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
 - `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
@@ -909,7 +901,7 @@ Options:
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
-- `--sequence-matcher TEXT` (default `dmp`): canonical-text matcher mode (`dmp` only).
+- Canonical-text benchmark matching is fixed to `dmp`; `--sequence-matcher` is no longer part of the normal help surface.
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--codex-execution-policy TEXT` (default `execute`): `execute|plan`; `plan` requires `--no-upload` and writes a zero-token Codex preview artifact instead of running extraction/eval/upload.
@@ -1010,7 +1002,7 @@ Options:
 - `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when stage/all-method internals cannot use process workers.
 - `--resume-run-dir PATH`: resume an existing speed run directory and skip tasks with completed sample snapshots.
 - `--run-settings-file PATH`: optional JSON payload in `RunSettings` shape for deterministic speed-run settings.
-- `--sequence-matcher TEXT`: optional canonical-text matcher override for benchmark scenarios (when omitted, uses `benchmark_sequence_matcher` from effective run settings).
+- Canonical-text benchmark matching is fixed to `dmp` for normal runs; older saved payloads may still contain `benchmark_sequence_matcher` but it is compatibility-only.
 - `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method scenarios.
 - `--speedsuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `--codex-farm-model TEXT`: optional Codex Farm model override (blank keeps pipeline defaults).
@@ -1253,7 +1245,7 @@ Precedence notes:
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run; markdown extractors still require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
 - For all-method markdown extractors: `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` gates optional markdown variants.
 - For all-method codex variants: `--include-codex-farm` controls inclusion; `bench speed-run` requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `bench quality-run` requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `COOKIMPORT_ALLOW_CODEX_FARM` remains legacy no-op.
-- For benchmark sequence matcher: `--sequence-matcher` wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation; the old interactive/global setting is now internal-only.
+- Benchmark sequence matcher is now fixed product behavior (`dmp`) rather than a user setting; manifests record `bucket1_fixed_behavior_version` instead of treating matcher choice as a normal knob.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
 
@@ -1437,6 +1429,7 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 
 ### 2026-02-27_20.38.15 load settings sequence matcher coercion
 - Source: `docs/understandings/2026-02-27_20.38.15-load-settings-sequence-matcher-coercion.md`
+- Update: new runs ignore retired `benchmark_sequence_matcher` payload values and carry `bucket1_fixed_behavior_version` instead.
 - Summary: "Legacy cookimport.json matcher values are now rejected at load time; benchmark sequence matcher must be dmp."
 
 ### 2026-02-28_00.50.18 bench run/sweep removal surface map
@@ -1833,3 +1826,58 @@ Current CLI contracts reinforced:
   - treat `pass4_knowledge_audit.jsonl` as the dedicated follow-up surface.
   Do not overload pass4 review into `prompt_link_audit`, which is still a recipe / atomic-line seam.
 - `cf-debug line_role_audit` and `page_context` remain index-join tools and can misjoin canonical changed-line indexes to atomic line-role indexes. For structural title / header regressions, the safer truth source is often the later stage path (`apply_line_role_spans_to_recipes`, stage-block title labeling) rather than the follow-up packet’s numeric line-index join.
+
+## 2026-03-13 merged understandings digest (docs-list entrypoint + run-settings public surface)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_22.29.27-docs-list-invocation-confusion.md`
+- `docs/understandings/2026-03-13_22.48.50-run-settings-surface-audit.md`
+- `docs/understandings/2026-03-13_23.09.32-run-settings-public-surface-contract.md`
+
+Current CLI/contracts reinforced:
+- The docs-list entrypoint should be treated as:
+  - `npm run docs:list`, or
+  - `./bin/docs-list`
+  and never as bare `docs:list` in the shell.
+- Operator-facing run settings are no longer “every non-hidden `RunSettings` field.” The repo now has an explicit public/internal/retired split in `cookimport/config/run_settings.py`, and docs/help/UI should default to the public surface helpers:
+  - `public_run_setting_names()`
+  - `internal_run_setting_names()`
+  - `retired_legacy_run_setting_names()`
+  - `RunSettings.to_public_run_config_dict()`
+  - `summarize_run_config_payload(...)`
+- `run_settings_ui_specs()` is now a public-surface view by default, so interactive menus and human summaries stay aligned with real operator choices instead of every persistence/debug seam.
+- Historical audit context that still matters:
+  - the raw schema had grown to a very large surface,
+  - top-tier profile normalization and benchmark contract patches were already proving that many of those fields were not genuine day-to-day choices,
+  - shrinking the visible surface is intentional product cleanup, not accidental capability loss.
+- `table_extraction` is retired from the live operator surface:
+  - compatibility loading still accepts old payloads that contain it,
+  - the key is dropped with a retirement warning,
+  - stage and prediction-generation flows now always extract/write table artifacts.
+
+Anti-loop reminder:
+- If CLI help, docs, manifests, and UI disagree on which settings are “real,” debug the public/internal surface metadata first rather than re-expanding the visible config set.
+
+## 2026-03-13 merged understandings digest (remaining run-settings leak points)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_23.26.13-bucket1-hardcode-remaining-surface-map.md`
+- `docs/understandings/2026-03-13_23.26.22-run-settings-bucket2-remaining-surface-map.md`
+- `docs/understandings/2026-03-13_23.27.36-run-settings-leak-points.md`
+
+Current CLI/contracts reinforced:
+- The first surface cleanup landed, but the operator surface is still larger than intended:
+  - current `RunSettings` metadata counts are still far above the target product surface,
+  - hidden/internal metadata alone does not fix CLI/help/docs leakage.
+- Bucket 1 is only partially finished:
+  - `table_extraction` is retired correctly,
+  - Bucket 1 leak cleanup is complete: those parser/debug/matcher concepts now resolve from fixed product behavior plus compatibility-only loading for old payloads.
+- Bucket 2 remains mostly a visibility problem:
+  - many lab/tuning settings are still marked public,
+  - some of the same knobs still appear in handwritten Typer signatures, interactive edit surfaces, analytics summaries, and ingest helper APIs even when they should be ordinary-internal.
+- The durable next-step shape is small-operator-contract over large-persistence-schema:
+  - keep `RunSettings` broad enough to load old payloads and preserve benchmark identity,
+  - drive normal CLI/help/docs/manifests from a deliberately smaller operator list plus top-tier profile contracts in `cookimport/config/codex_decision.py`.
+
+Anti-loop reminder:
+- A setting is not truly “internalized” just because `run_settings_ui_specs()` hides it. Check Typer options, helper signatures, docs, summaries, and identity logic before declaring the cleanup done.

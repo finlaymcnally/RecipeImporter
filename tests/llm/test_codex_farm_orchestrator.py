@@ -24,6 +24,8 @@ from cookimport.llm.codex_farm_orchestrator import (
     COMPACT_PASS3_PIPELINE_ID,
     LEGACY_PASS2_PIPELINE_ID,
     LEGACY_PASS3_PIPELINE_ID,
+    MERGED_REPAIR_RECIPE_PIPELINE_ID,
+    MERGED_REPAIR_STAGE_PIPELINE_ID,
     PASS1_PIPELINE_ID,
     PASS2_PIPELINE_ID,
     PASS3_PIPELINE_ID,
@@ -31,6 +33,7 @@ from cookimport.llm.codex_farm_orchestrator import (
     _build_pass3_input_legacy,
     _build_transport_audit,
     _RecipeState,
+    build_codex_farm_recipe_execution_plan,
     run_codex_farm_recipe_pipeline,
 )
 from cookimport.llm.codex_farm_contracts import Pass2SchemaOrgOutput
@@ -188,6 +191,7 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
 def _build_run_settings(
     pack_root: Path,
     *,
+    llm_recipe_pipeline: str = "codex-farm-3pass-v1",
     failure_mode: str = "fail",
     pass3_skip_pass2_ok: bool = True,
     pass1_pattern_hints_enabled: bool = False,
@@ -201,7 +205,7 @@ def _build_run_settings(
         (pack_root / name).mkdir(parents=True, exist_ok=True)
     return RunSettings.model_validate(
         {
-            "llm_recipe_pipeline": "codex-farm-3pass-v1",
+            "llm_recipe_pipeline": llm_recipe_pipeline,
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(pack_root),
             "codex_farm_context_blocks": 3,
@@ -306,6 +310,101 @@ def test_orchestrator_writes_compact_pass2_payload_and_reduces_bundle_size(
     legacy_bytes = len(json.dumps(legacy_payload, sort_keys=True).encode("utf-8"))
     compact_bytes = len(json.dumps(compact_payload, sort_keys=True).encode("utf-8"))
     assert compact_bytes < legacy_bytes * 0.65
+
+
+def test_orchestrator_runs_merged_repair_pipeline_and_writes_audit(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "Toast"},
+        {"index": 2, "text": "1 slice bread"},
+        {"index": 3, "text": "1 tablespoon butter"},
+        {"index": 4, "text": "Toast the bread until golden."},
+        {"index": 5, "text": "Spread with butter and serve hot."},
+    ]
+    result.recipes[0].provenance["location"]["end_block"] = 5
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            MERGED_REPAIR_STAGE_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "canonical_recipe": json.dumps(
+                    {
+                        "title": "Toast",
+                        "ingredients": [
+                            "1 slice bread",
+                            "1 tablespoon butter",
+                        ],
+                        "steps": [
+                            "Toast the bread until golden.",
+                            "Spread with butter and serve hot.",
+                        ],
+                        "description": "A quick toast recipe.",
+                    },
+                    sort_keys=True,
+                ),
+                "ingredient_step_mapping": "{}",
+                "ingredient_step_mapping_reason": "unclear_alignment",
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=_build_run_settings(
+            tmp_path / "merged-pack",
+            llm_recipe_pipeline=MERGED_REPAIR_RECIPE_PIPELINE_ID,
+        ),
+        run_root=tmp_path / "merged-run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, MERGED_REPAIR_STAGE_PIPELINE_ID]
+    assert apply_result.intermediate_overrides_by_recipe_id["urn:recipe:test:toast"]["name"] == "Toast"
+    assert apply_result.final_overrides_by_recipe_id["urn:recipe:test:toast"]["recipe"]["title"] == "Toast"
+
+    manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
+    recipe_row = manifest["recipes"]["urn:recipe:test:toast"]
+    assert manifest["pipeline"] == MERGED_REPAIR_RECIPE_PIPELINE_ID
+    assert manifest["pipelines"]["pass2"] == MERGED_REPAIR_STAGE_PIPELINE_ID
+    assert manifest["counts"]["merged_repair_audits"] == 1
+    assert recipe_row["pass3_execution_mode"] == "llm_merged_repair"
+    assert recipe_row["pass3_routing_reason"] == "merged_repair_stage"
+    assert recipe_row["pass3_mapping_status"] == "unclear"
+
+    audit_path = apply_result.llm_raw_dir / "merged_repair_audit" / "urn_recipe_test_toast.json"
+    audit_payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit_payload["schema_version"] == "recipe_codex_merged_repair_audit.v1"
+    assert audit_payload["canonical_output_summary"]["step_count"] == 2
+
+
+def test_execution_plan_for_merged_repair_pipeline_has_two_passes(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+
+    plan = build_codex_farm_recipe_execution_plan(
+        conversion_result=result,
+        run_settings=_build_run_settings(
+            tmp_path / "merged-pack-plan",
+            llm_recipe_pipeline=MERGED_REPAIR_RECIPE_PIPELINE_ID,
+        ),
+        workbook_slug="book",
+    )
+
+    planned_passes = plan["planned_tasks"][0]["planned_passes"]
+    assert [row["pass"] for row in planned_passes] == ["pass1", "pass2"]
+    assert planned_passes[1]["pipeline_id"] == MERGED_REPAIR_STAGE_PIPELINE_ID
+    assert planned_passes[1]["stage_kind"] == "merged_repair"
 
 
 def test_orchestrator_writes_compact_pass3_payload_and_drops_duplicate_schema_lists(

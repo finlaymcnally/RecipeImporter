@@ -36,6 +36,32 @@ def test_stage_requires_allow_codex(
     assert "--allow-codex" in failures[0]
 
 
+def test_stage_requires_allow_codex_for_merged_recipe_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.txt"
+    source_file.write_text("recipe", encoding="utf-8")
+    failures: list[str] = []
+
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        cli.stage(
+            path=source_file,
+            out=tmp_path / "output",
+            llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+        )
+
+    assert excinfo.value.exit_code == 1
+    assert failures
+    assert "--allow-codex" in failures[0]
+
+
 def test_stage_plan_mode_allows_codex_without_allow_codex(
     tmp_path: Path,
 ) -> None:

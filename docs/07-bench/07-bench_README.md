@@ -31,7 +31,7 @@ Current scoring surfaces:
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
 - `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`). Supports bounded task-level fanout via `--max-parallel-tasks` (auto mode when omitted: `min(total_tasks, cpu_count, 4)`) and crash-safe resume via `--resume-run-dir`. Use `--require-process-workers` to fail fast when stage/all-method internals cannot establish process workers.
 - Codex Farm permutations (recipe pass) can be included in all-method grids for `bench speed-run`. QualitySuite/`bench quality-run` is deterministic-only and rejects Codex Farm recipe/knowledge/tags enablement in requested settings.
-- Codex Farm routing levers are still run-settings knobs (`codex_farm_pass3_skip_pass2_ok`, default `true`; `codex_farm_pass1_pattern_hints_enabled`, default `false`), but QualitySuite no longer accepts Codex Farm-enabled requested settings.
+- Bucket 1 Codex Farm pass-policy knobs are now fixed product behavior for normal runs; QualitySuite remains deterministic-only and does not treat them as experiment levers.
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is already present in CSV rows, and `bench gc` does not mutate `performance_history.csv`.
@@ -53,17 +53,13 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--predictions-out <jsonl>` / `--predictions-in <jsonl>`
 - `--baseline <run_or_report_path>` / `--candidate <run_or_report_path>` (compare action)
 - `--compare-out <dir>` / `--fail-on-regression`
-- `--sequence-matcher dmp`
+- canonical-text matcher is fixed to `dmp` for normal runs
 - `--pdf-ocr-policy off|auto|always`
 - `--pdf-column-gap-ratio <float>`
-- `--section-detector-backend legacy|shared_v1`
 - `--multi-recipe-splitter legacy|off|rules_v1`
-- `--multi-recipe-trace/--no-multi-recipe-trace`
 - `--multi-recipe-min-ingredient-lines <int>`
 - `--multi-recipe-min-instruction-lines <int>`
 - `--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail`
-- `--instruction-step-segmentation-policy off|auto|always`
-- `--instruction-step-segmenter heuristic_v1|pysbd_v1`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
 - `--llm-knowledge-pipeline off|codex-farm-knowledge-v1`
@@ -72,10 +68,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - benchmark prediction generation also accepts pass4 knowledge knobs: `--codex-farm-pipeline-pass4-knowledge <pipeline_id>` and `--codex-farm-knowledge-context-blocks <int>`
 - benchmark contract helpers keep pass4 knowledge off in baseline variants and enable `codex-farm-knowledge-v1` only for Codex variants; manifests should record the resolved value after contract normalization
-- benchmark prediction generation also accepts benchmark-only selective retry knobs for Codex Farm recipe passes:
-  - `--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry`
-  - `--codex-farm-benchmark-selective-retry-max-attempts <int>`
-  - these knobs are part of the visible `labelstudio-benchmark --help` surface, unlike the hidden pass-pipeline override flags
+- benchmark prediction generation still uses the fixed Bucket 1 selective-retry policy internally; it is no longer a normal help-surface option.
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
@@ -118,7 +111,7 @@ Interactive `single_offline` now writes into one session root:
 - paired single-offline variant normalization now enforces:
   - `vanilla`: the vanilla top-tier profile (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`)
   - `codexfarm`: the codexfarm top-tier profile (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
-  - both variants pin the same current top-tier parsing stack: `epub_extractor=unstructured`, `epub_unstructured_html_parser_version=v1`, `epub_unstructured_preprocess_mode=semantic_v1`, `epub_unstructured_skip_headers_footers=true`, `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`, and compact codex pass ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`).
+  - both variants pin the same current top-tier parsing stack: `epub_extractor=unstructured`, `epub_unstructured_html_parser_version=v1`, `epub_unstructured_preprocess_mode=semantic_v1`, `epub_unstructured_skip_headers_footers=true`, `multi_recipe_splitter=rules_v1`, `pdf_ocr_policy=off`, and fixed Bucket 1 behavior recorded as `bucket1_fixed_behavior_version=bucket1-fixed-v1`.
   - Analytics treat the `vanilla` label as valid only when both recipe AI and line-role AI are off; a row with `llm_recipe_pipeline=off` but line-role AI still on is a hybrid run, not vanilla.
 - non-paired single-offline runs now keep a profile slug such as `line_role_only`, `recipe_only`, or `full_stack` instead of being forced into `vanilla`.
 - prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
@@ -455,8 +448,7 @@ Matcher selector:
   - `cookimport/bench/dmp_sequence_matcher.py`
 
 CLI overrides:
-- `labelstudio-benchmark --sequence-matcher ...`
-- `bench speed-run --sequence-matcher ...` (optional override; default comes from effective run settings payload)
+- Canonical-text matcher is fixed to `dmp`; older payloads may still contain `benchmark_sequence_matcher`, but new runs do not expose matcher selection as a normal control.
 
 Canonical cache:
 - All-method benchmark runs share canonical alignment cache per source-group by default under:
@@ -529,11 +521,9 @@ Operational interpretation:
   - `evaluation_representative_config_dir`
   - `prediction_result_source` (`executed`, `reused_in_run`, `reused_cross_run`)
 - Interactive all-method benchmark can auto-sweep deterministic Priority 2–6 knobs (default on in the wizard):
-  - `section_detector_backend`
-  - `multi_recipe_splitter`
-  - `ingredient_missing_unit_policy`
-  - `instruction_step_segmentation_policy` / `instruction_step_segmenter`
-  - `p6_*` time/temp/yield knobs
+- `multi_recipe_splitter`
+- `ingredient_missing_unit_policy`
+- `p6_*` time/temp/yield knobs
 - When sweeps are enabled, all-method row dimensions include these keys and a `deterministic_sweep` tag for non-baseline configs.
 - For webschema-capable sources (`.html`, `.htm`, `.jsonld`, and schema-like `.json`), all-method expands `web_schema_policy` variants (`prefer_schema`, `schema_only`, `heuristic_only`) and keeps other webschema knobs from base run settings.
 - Scheduler telemetry now includes adaptive admission fields for throughput diagnostics:
@@ -616,7 +606,7 @@ If older artifacts mention those paths, treat them as historical only.
 
 CLI and settings entrypoints:
 - `cookimport/cli.py`: `labelstudio-benchmark` runtime, `bench` subcommands, and all-method orchestration wiring.
-- `cookimport/config/run_settings.py`: validates and exposes `benchmark_sequence_matcher` options used by run configs/UI.
+- `cookimport/config/run_settings.py`: validates active benchmark run settings and compatibility-loads retired Bucket 1 keys while recording `bucket1_fixed_behavior_version`.
 - `cookimport/config/run_settings_adapters.py`: shared `RunSettings` -> runtime kwargs adapters for stage and benchmark calls used by interactive + speed/quality flows.
 - `cookimport/analytics/perf_report.py`: benchmark history CSV append helpers used by benchmark command flows.
 - `cookimport/runs.py`: shared run-manifest model/writer used by speed/quality outputs.
@@ -2154,3 +2144,34 @@ Current benchmark contracts reinforced:
   - runner-level high-coverage recovery for mixed `nonzero_exit_no_payload` + `timeout` exits,
   - pass-boundary selective retry for only the missing pass2 / pass3 bundle files.
   Current review evidence proves pass2 retry coverage directly; pass3 support exists in the shared retry plumbing and manifest summaries, but that path still needs equally explicit tests if it becomes high-risk again.
+
+## 2026-03-13 merged understandings digest (single-root contract, helper boundaries, and selective retry sync)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_22.11.04-benchmark-single-root-output-contract.md`
+- `docs/understandings/2026-03-13_22.17.18-labelstudio-benchmark-helper-test-modularization.md`
+- `docs/understandings/2026-03-13_22.23.51-benchmark-prediction-reuse-helper-boundary.md`
+- `docs/understandings/2026-03-13_22.28.28-benchmark-helper-scheduler-eval-grouping.md`
+- `docs/understandings/2026-03-13_22.50.16-benchmark-selective-retry-review.md`
+- `docs/understandings/2026-03-13_23.01.16-benchmark-selective-retry-contract-sync.md`
+- `docs/understandings/2026-03-13_23.09.26-benchmark-selective-retry-plan-vs-code-review.md`
+
+Current benchmark contracts reinforced:
+- One benchmark invocation should resolve one eval root and keep prediction-generation scratch under that same root as `<eval_output_dir>/prediction-run`. Extra sibling timestamp roots are historical artifacts from older wiring or separate invocations, not the current contract.
+- All-method prediction reuse should stay outside the full benchmark command semantics:
+  - `labelstudio_benchmark(...)` means full pipelined benchmark behavior,
+  - a narrower private helper owns prediction-stage-only artifact generation for reuse.
+- Label Studio benchmark-helper tests are now intentionally split by behavior, with shared support state in `tests/labelstudio/benchmark_helper_support.py`. Do not rebuild giant mixed benchmark helper files.
+- Selective retry is benchmark-only and pass2/pass3-only:
+  - rerun only missing bundle files,
+  - keep successful original outputs untouched,
+  - write attempts under `retry_attempt_XX/`,
+  - store detailed truth in `raw/llm/<workbook_slug>/llm_manifest.json`,
+  - mirror concise counts plus a direct `llm_manifest_json` link into the benchmark-root `run_manifest.json`.
+- Retry eligibility must stay locked to the runner’s recoverable partial-output contract, not a weaker local approximation:
+  - require the same `no last agent message` evidence and benchmark coverage thresholds,
+  - avoid extra orchestrator-only prefilters that drift from runner semantics.
+- Benchmark retry flags are part of the visible CLI help surface for `labelstudio-benchmark`; hiding them again would recreate the plan-vs-code drift recorded in March 13 review notes.
+
+Anti-loop reminder:
+- If benchmark retry behavior looks wrong, compare the runner helper contract and the benchmark-root `run_manifest.json` link trail before changing scheduler code or adding new retry flags.
