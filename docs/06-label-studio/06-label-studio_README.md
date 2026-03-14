@@ -212,6 +212,7 @@ values are inferred from prediction-run metadata.
 - eval-only from prediction records (`--predictions-in`)
 - prediction-record output (`--predictions-out`)
 - line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
+- benchmark prediction-generation scratch stays inside the resolved `eval_output_dir`, then is co-located under `prediction-run/`, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
 
 Execution modes:
 

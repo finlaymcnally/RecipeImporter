@@ -217,6 +217,7 @@ Behavioral constraints:
 - benchmark command (`labelstudio-benchmark`) is prediction-first by default; in CLI mode it uploads by default unless `--no-upload`
 - benchmark can run evaluate-only with `--predictions-in`
 - benchmark co-locates prediction run under eval output as `prediction-run/`
+- benchmark prediction-generation scratch is rooted under the resolved benchmark eval directory so one benchmark session does not create extra sibling timestamp roots under `data/golden/benchmark-vs-golden`
 
 ## Scripts Folder Note
 

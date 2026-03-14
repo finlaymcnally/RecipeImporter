@@ -787,7 +787,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     assert captured["auto_project_name_on_scope_mismatch"] is True
 
 
-def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
+def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -933,7 +933,13 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
 
     monkeypatch.setattr(cli, "generate_pred_run_artifacts", fake_generate_pred_run_artifacts)
 
-    eval_root = tmp_path / "2026-03-03_10.20.00"
+    eval_root = (
+        tmp_path
+        / "2026-03-03_10.20.00"
+        / "single-profile-benchmark"
+        / "01_book"
+        / "vanilla"
+    )
     cli.labelstudio_benchmark(
         gold_spans=gold_spans,
         source_file=source_file,
@@ -954,6 +960,7 @@ def test_labelstudio_benchmark_no_upload_uses_offline_pred_run(
     )
 
     assert captured_generate["path"] == source_file
+    assert captured_generate["output_dir"] == eval_root
     assert captured_generate["run_manifest_kind"] == "bench_pred_run"
     assert captured_generate["write_markdown"] is False
     assert captured_generate["write_label_studio_tasks"] is False
@@ -1530,7 +1537,7 @@ def test_labelstudio_benchmark_writes_pipelined_execution_mode_manifest(
     report = json.loads(
         (eval_root / "eval_report.json").read_text(encoding="utf-8")
     )
-    assert report["report"]["overall_block_accuracy"] == pytest.approx(1.0)
+    assert report["overall_block_accuracy"] == pytest.approx(1.0)
 
     run_manifest = json.loads(
         (eval_root / "run_manifest.json").read_text(encoding="utf-8")
@@ -2129,6 +2136,14 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
 
     monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_eval_canonical_text)
     monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        cli,
+        "ensure_canonical_gold_artifacts",
+        lambda *, export_root: {
+            "canonical_text_path": export_root / "canonical_text.txt",
+            "canonical_span_labels_path": export_root / "canonical_span_labels.jsonl",
+        },
+    )
 
     captured_csv: dict[str, object] = {}
 
@@ -2268,6 +2283,14 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
 
     monkeypatch.setattr(cli, "evaluate_canonical_text", _fake_eval_canonical_text)
     monkeypatch.setattr(cli, "format_canonical_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        cli,
+        "ensure_canonical_gold_artifacts",
+        lambda *, export_root: {
+            "canonical_text_path": export_root / "canonical_text.txt",
+            "canonical_span_labels_path": export_root / "canonical_span_labels.jsonl",
+        },
+    )
 
     captured_csv: dict[str, object] = {}
 

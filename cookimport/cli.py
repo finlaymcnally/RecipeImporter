@@ -29809,10 +29809,13 @@ def labelstudio_benchmark(
         timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
         eval_output_dir = _golden_benchmark_root() / timestamp
     eval_output_dir.mkdir(parents=True, exist_ok=True)
+    # Keep benchmark prediction scratch inside the resolved eval root so one
+    # benchmark session does not spill sibling timestamp folders.
+    benchmark_prediction_output_dir = eval_output_dir
     if benchmark_codex_execution.plan_only and benchmark_codex_execution.surface.any_codex_enabled:
         plan_prediction_result = generate_pred_run_artifacts(
             path=selected_source,
-            output_dir=output_dir,
+            output_dir=benchmark_prediction_output_dir,
             pipeline=pipeline,
             segment_blocks=40,
             segment_overlap=5,
@@ -30119,7 +30122,7 @@ def labelstudio_benchmark(
                         if no_upload:
                             return generate_pred_run_artifacts(
                                 path=selected_source,
-                                output_dir=output_dir,
+                                output_dir=benchmark_prediction_output_dir,
                                 pipeline=pipeline,
                                 segment_blocks=40,
                                 segment_overlap=5,
@@ -30241,7 +30244,7 @@ def labelstudio_benchmark(
                             )
                         return run_labelstudio_import(
                             path=selected_source,
-                            output_dir=output_dir,
+                            output_dir=benchmark_prediction_output_dir,
                             pipeline=pipeline,
                             project_name=project_name,
                             segment_blocks=40,

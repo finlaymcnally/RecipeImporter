@@ -1,3 +1,10 @@
+---
+summary: "Instructions for external web AI reviewers on how to request narrow follow-up data from an upload_bundle_v1 benchmark handoff."
+read_when:
+  - When preparing or answering web-AI follow-up requests against benchmark upload bundles
+  - When explaining how upload_bundle_v1 row locators map back to richer local follow-up artifacts
+---
+
 # Web AI Instructions For Benchmark Follow-Up Requests
 
 This note is for a web AI that is reviewing a benchmark handoff rooted at `upload_bundle_v1` and wants to ask for narrower, better-targeted local follow-up data.
@@ -379,4 +386,3 @@ If the bundle already contains a row locator for the needed artifact, cite that 
   ]
 }
 ```
-

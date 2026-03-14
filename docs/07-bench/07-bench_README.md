@@ -29,7 +29,7 @@ Current scoring surfaces:
 ### 2.1 `cookimport bench`
 
 - `bench speed-discover`: build deterministic speed suite from pulled gold exports.
-- `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_legacy`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`). Supports bounded task-level fanout via `--max-parallel-tasks` (auto mode when omitted: `min(total_tasks, cpu_count, 4)`) and crash-safe resume via `--resume-run-dir`. Use `--require-process-workers` to fail fast when stage/all-method internals cannot establish process workers.
+- `bench speed-run`: run timing scenarios (`stage_import`, `benchmark_canonical_pipelined`, `benchmark_all_method_multi_source`). Supports bounded task-level fanout via `--max-parallel-tasks` (auto mode when omitted: `min(total_tasks, cpu_count, 4)`) and crash-safe resume via `--resume-run-dir`. Use `--require-process-workers` to fail fast when stage/all-method internals cannot establish process workers.
 - Codex Farm permutations (recipe pass) can be included in all-method grids for `bench speed-run`. QualitySuite/`bench quality-run` is deterministic-only and rejects Codex Farm recipe/knowledge/tags enablement in requested settings.
 - Codex Farm routing levers are still run-settings knobs (`codex_farm_pass3_skip_pass2_ok`, default `true`; `codex_farm_pass1_pattern_hints_enabled`, default `false`), but QualitySuite no longer accepts Codex Farm-enabled requested settings.
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
@@ -50,7 +50,6 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--gold-adaptation-mode off|auto|force` (stage-blocks only; default `auto`)
 - `--gold-adaptation-min-coverage <float>` (stage-blocks only; default `0.7`)
 - `--gold-adaptation-max-ambiguous <int>` (stage-blocks only; default `50`)
-- `--execution-mode legacy|pipelined|predict-only`
 - `--predictions-out <jsonl>` / `--predictions-in <jsonl>`
 - `--baseline <run_or_report_path>` / `--candidate <run_or_report_path>` (compare action)
 - `--compare-out <dir>` / `--fail-on-regression`
@@ -72,6 +71,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - benchmark prediction generation also accepts pass4 knowledge knobs: `--codex-farm-pipeline-pass4-knowledge <pipeline_id>` and `--codex-farm-knowledge-context-blocks <int>`
+- benchmark contract helpers keep pass4 knowledge off in baseline variants and enable `codex-farm-knowledge-v1` only for Codex variants; manifests should record the resolved value after contract normalization
 - benchmark prediction generation also accepts benchmark-only selective retry knobs for Codex Farm recipe passes:
   - `--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry`
   - `--codex-farm-benchmark-selective-retry-max-attempts <int>`
@@ -172,7 +172,7 @@ Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-bl
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. The worker summary row now includes a remaining-work counter (`active tasks (..., N left)`) derived from the same `task X/Y` counter so operators can always see total tasks left even when the top status line is width-truncated. Spinner output uses a larger `bouncingBar` indicator and a wider blue ASCII panel (bordered block); long status/task rows wrap across panel lines instead of being hard-clamped to one truncated row.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
 Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
-When pass4 `knowledge/<workbook_slug>/snippets.jsonl` is present, the line-role projection writer merges that evidence into the preferred canonical-text stage artifact before scoring, so pass4 can contribute `KNOWLEDGE` matches on the scored surface instead of only the legacy stage artifact.
+When pass4 `knowledge/<workbook_slug>/block_classifications.jsonl` is present, the line-role projection writer and deterministic stage scorer use it as the primary outside-span `KNOWLEDGE` versus `OTHER` signal; `knowledge/<workbook_slug>/snippets.jsonl` remains the fallback for older roots that predate the explicit classifier artifact.
 Offline `labelstudio-benchmark` prediction generation now forwards pass4 knowledge settings into the shared `RunSettings` path, so `--llm-knowledge-pipeline codex-farm-knowledge-v1` can emit `raw/llm/<workbook_slug>/pass4_knowledge_manifest.json` plus `knowledge/<workbook_slug>/snippets.jsonl` under the prediction-run root.
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
@@ -270,6 +270,7 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_overview.md`
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_index.json`
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
+- prediction-generation scratch stays co-located at `<eval_output_dir>/prediction-run`, so nested interactive wrappers should not create extra sibling timestamp roots unless there was a separate benchmark invocation
 - `upload_bundle_index.json` includes verified topline/self-check booleans (`starter_pack_present`, `pair_count_verified`, `changed_lines_verified`, `topline_consistent`) and corrects counts from discovered run artifacts when advertised root summaries are stale or missing.
 - Existing-output upload-bundle generation (`build_upload_bundle_for_existing_output`) now derives codex diagnostic statuses from source run artifacts when per-run `need_to_know_summary.json` is absent, and persists those derived diagnostics under `_upload_bundle_derived/runs/<run_id>/...` in bundle payload rows.
 - For standalone single-run `labelstudio-benchmark` codex roots, upload-bundle call rows can still be unavailable, but `analysis.call_inventory_runtime.summary` now backfills pass-level runtime/token totals from `prediction-run/manifest.json` telemetry (`llm_codex_farm.process_runs.*.telemetry_report.summary`) and reports `runtime_source=prediction_run_manifest_telemetry`.
@@ -484,7 +485,7 @@ Active all-method behavior:
   - `split_phase_slot_mode` (`configured` or `resource_guard`)
   - `split_phase_slot_cap_by_cpu` / `split_phase_slot_cap_by_memory`
 - Runs config prediction first, computes deterministic evaluation signatures, then runs canonical evaluation once per unique signature.
-- All-method predict-only calls now source benchmark kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`; this keeps all-method run-setting forwarding in parity with single benchmark execution (including Priority 3/6/7 families).
+- All-method internal skip-evaluation prediction passes now source benchmark kwargs from `build_benchmark_call_kwargs_from_run_settings(...)`; this keeps all-method run-setting forwarding in parity with single benchmark execution (including Priority 3/6/7 families).
 - Reuses canonical evaluation results in-run (`reused_in_run`) for duplicate signatures.
 - Reuses cached evaluation results across runs (`reused_cross_run`) using:
   - `.../.cache/eval_signature_results/__global__/<eval_signature>.json` in global scope.
@@ -696,7 +697,7 @@ Current-contract additions:
 - Canonical alignment sequence matcher is now locked to `dmp`; archived matcher modes are rejected.
 - Default all-method EPUB extractor variants are `unstructured` and `beautifulsoup`; markdown variants are opt-in via `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1`.
 - If retries are stuck in canonical-eval tail, terminating active worker child PIDs (not the parent CLI PID) can let the run finalize and still write reports.
-- Dedupe hook point is orchestration-level two phase: predict-only per config, then evaluate-only by unique signature.
+- Dedupe hook point is orchestration-level two phase: prediction-only internal pass per config, then evaluate-only by unique signature.
 - Benchmark docs should keep active-feature chronology and retire removed benchmark surfaces (pipeline-task span-IoU primary path, upload-first interactive benchmark, fast canonical alignment production path).
 
 High-signal benchmark findings from `2026-02-27_17.54.41` all-method run:
@@ -717,7 +718,7 @@ This section consolidates discoveries migrated from `docs/understandings` into t
 
 ### 2026-02-27_20.07.10 all method eval signature cache and provenance
 - Source: `docs/understandings/2026-02-27_20.07.10-all-method-eval-signature-cache-and-provenance.md`
-- Summary: All-method now runs predict-only per config, then evaluates once per unique signature and reuses/materializes results.
+- Summary: All-method now runs an internal prediction-only pass per config, then evaluates once per unique signature and reuses/materializes results.
 
 ### 2026-02-27_20.09.09 recipe notes variant zero pred in canonical benchmark
 - Source: `docs/understandings/2026-02-27_20.09.09-recipe-notes-variant-zero-pred-in-canonical-benchmark.md`
@@ -866,7 +867,7 @@ This batch consolidates the late-night OGplan audit set that cross-checked runti
 
 ### 2026-02-28_00.19.46 all-method forwarding adapter parity
 - Source: `docs/understandings/2026-02-28_00.19.46-all-method-forwarding-adapter-parity.md`
-- Summary: all-method predict-only lane now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)` plus explicit all-method overrides, removing manual dual-lane drift.
+- Summary: all-method internal prediction-only lane now builds kwargs from `build_benchmark_call_kwargs_from_run_settings(...)` plus explicit all-method overrides, removing manual dual-lane drift.
 
 ### 2026-02-28_00.43.39 global scheduler deep-tests and smoke closeout
 - Source: `docs/understandings/2026-02-28_00.43.39-global-scheduler-deep-tests-and-smoke-closeout.md`
@@ -891,7 +892,7 @@ Current-contract additions from this audit pack:
   - Priority 7 webschema knobs (`web_schema_*`, `web_html_text_extractor`)
   - output toggles (`write_label_studio_tasks`, `write_markdown`)
 - Closure update:
-  - `2026-02-28_00.19.46` migrated understanding records adapter-based forwarding parity for all-method predict-only execution.
+  - `2026-02-28_00.19.46` migrated understanding records adapter-based forwarding parity for all-method internal prediction-only execution.
   - all-method-specific behavior now applies as additive overrides on top of adapter payload (paths, cache/control flags, worker caps), rather than a separately maintained kwargs list.
   - `2026-02-28_00.43.39` adds direct global-loop internals tests (`_plan_all_method_global_work_items` interleaving and `_run_all_method_benchmark_global_queue` smart eval-tail admission), and records a manual all-matched smoke run at:
     - `data/golden/benchmark-vs-golden/2026-02-28_00.42.13_manual-all-matched-global-smoke/all-method-benchmark/all_method_benchmark_multi_source_report.md`
@@ -1042,7 +1043,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
   - adaptive admission and split-slot resource-guard telemetry in both scheduler scopes (`global` + `legacy`),
   - matcher/cache regression guardrails as warning telemetry only (`matcher_guardrails`), with no scorer behavior changes,
   - prediction-reuse and split/convert-reuse counters in all-method report payloads,
-  - predict-only all-method runs skip markdown/task artifact writes (`write_markdown=False`, `write_label_studio_tasks=False`).
+  - internal prediction-only all-method runs skip markdown/task artifact writes (`write_markdown=False`, `write_label_studio_tasks=False`).
 - Baseline/candidate benchmark evidence captured in the task:
   - speed compare (`2026-02-28_02.54.07` -> `2026-02-28_09.57.10`) median total seconds `2.1447 -> 0.9532` (`-55.56%`) for `benchmark_all_method_multi_source`,
   - quality compare (`2026-02-28_02.54.03` vs `2026-02-28_09.57.37`) improved strict/practical F1 with unchanged source success rate.
@@ -2122,18 +2123,21 @@ Merged source notes (timestamp order):
 
 Current benchmark contracts reinforced:
 - QualitySuite baseline expansion is benchmark-contract-normalized first. `run_settings` in suite artifacts is the normalized executable baseline/candidate seed, while `requested_run_settings` preserves the pre-normalization request. Deterministic-only enforcement applies both to CLI flags and to loaded settings / experiment patches.
-- `labelstudio-benchmark` `execution_mode` is orchestration-only and has exactly three stored values: `legacy`, `pipelined`, and `predict-only`. It is not a CodexFarm pipeline selector and not the per-recipe `pass3_execution_mode` stored in `llm_manifest.json`.
+- `labelstudio-benchmark` `execution_mode` is orchestration-only and now always stores `pipelined`. It is not a CodexFarm pipeline selector and not the per-recipe `pass3_execution_mode` stored in `llm_manifest.json`.
 - Run-root semantics are simple once you separate direct runs from interactive session wrappers:
   - a direct `labelstudio-benchmark` call writes one timestamped eval root unless `--eval-output-dir` overrides it,
+  - prediction-generation scratch stays co-located under that resolved eval root as `<eval_output_dir>/prediction-run`,
   - interactive `single-profile-benchmark` creates one session root and nests per-book / per-variant outputs underneath it,
   - nearby sibling timestamps under `data/golden/benchmark-vs-golden/` are separate invocations, not an automatic paired-root contract.
 - Pass4 benchmark support evolved in layers and the current state is easy to misread from older artifacts:
   - early March notes correctly observed that stage runs already had pass4 while benchmark paths did not yet forward it,
   - current offline prediction generation does forward `llm_knowledge_pipeline`,
+  - benchmark baseline variants keep pass4 knowledge off while benchmark Codex variants enable `codex-farm-knowledge-v1`,
   - `prediction-run/prompt_budget_summary.json` now includes `by_pass.pass4` from `llm_codex_farm.knowledge.process_run`,
+  - `knowledge/<workbook_slug>/block_classifications.jsonl` is now the primary pass4 scoring seam for outside-span `KNOWLEDGE` versus `OTHER`, with `snippets.jsonl` preserved as fallback for older roots,
   - group and per-book `upload_bundle_v1` artifacts surface pass4 explicitly through `analysis.pass4_knowledge` and `navigation.row_locators.pass4_by_run`,
   - benchmark line-role diagnostics now also include pass4 proof artifacts (`pass4_merge_report.json`, `pass4_merge_changed_rows.jsonl`, and eval-side `pass4_merge_summary.json`) so a run can distinguish “no inputs,” “inputs but zero scored changes,” and “inputs that changed scored labels.”
-- Pass4 still has a narrow scored seam in canonical-text benchmarks: it upgrades projected outside-span `OTHER` rows to `KNOWLEDGE` on the preferred line-role projection surface. It is not a full non-recipe relabeler, so real pass4 artifacts and token totals can coexist with nearly flat outside-span quality.
+- Pass4 still has a narrow scored seam in canonical-text benchmarks: it is an outside-span `KNOWLEDGE` versus `OTHER` classifier on the preferred line-role projection surface, not a full non-recipe relabeler, so real pass4 artifacts and token totals can coexist with nearly flat outside-span quality.
 - March 6 is the reference case for interpreting “small Codex lift” without inventing the wrong cause:
   - DinnerFor2 lost the Codex eval entirely after a partial pass2 failure,
   - deterministic line-role plus the newer shared parser / splitter stack collapsed much of the old Codex advantage,

@@ -11,7 +11,7 @@ Current scoring contract:
 - Canonical-text eval supports optional disk-backed alignment reuse (`cookimport/bench/canonical_alignment_cache.py`); all-method runs share a per-source cache at `.cache/canonical_alignment`.
 - Canonical-text eval uses `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER=dmp` only; any non-`dmp` value is rejected and missing `fast-diff-match-patch` fails runtime selection.
 - Run-level prediction-stage replay uses `cookimport/bench/prediction_records.py` (`PredictionRecord` JSONL schema v1) for `labelstudio-benchmark --predictions-out/--predictions-in`.
-- `labelstudio-benchmark --execution-mode predict-only` generates prediction artifacts (and optional prediction-record JSONL) without running evaluation.
+- Public `labelstudio-benchmark` runs always use pipelined execution; all-method orchestration keeps a private skip-evaluation prediction pass for prediction-record generation/reuse.
 - `bench eval-stage` evaluates existing stage outputs against freeform gold and writes stage-block diagnostics (`eval_report.*`, `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`, boundary mismatch JSONL artifacts).
 - canonical-text eval outputs include `aligned_prediction_blocks.jsonl` so DMP alignment mappings can be audited directly.
 - line-role Milestone-5 diagnostics now live in `cutdown_export.py`, `pairwise_flips.py`, and `slice_metrics.py`; canonical line-role runs emit joined-line tables, flips, slice/knowledge metrics, and stable sampled cutdown JSONLs keyed by one `sample_id` source table.

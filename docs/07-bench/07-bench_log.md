@@ -6498,6 +6498,19 @@ Durable findings:
   - serialized `__worker_activity__ ...` payloads for non-Codex worker updates.
 - The clean seam is to swap the dashboard model in `_interactive_single_profile_all_matched_benchmark(...)` while leaving `_run_with_progress_status(...)` as the shared outer renderer.
 
+### 2026-03-06_17.30.00 single-profile book grid dashboard
+
+Source task:
+- `docs/tasks/2026-03-06_17.30.00-single-profile-book-grid-dashboard.md`
+
+Problem captured:
+- The shared single-profile multi-book dashboard still behaved like a queue list, which hid per-book progress and made worker attribution hard to follow during CodexFarm runs.
+
+Durable outcomes:
+- Multi-book single-profile progress now renders one column per selected book instead of cycling one global queue string.
+- The shared dashboard surfaces per-book state, progress, and ETA, plus one worker row per active slot across those book columns.
+- The outer live panel remains `_run_with_progress_status(...)`; inner per-book benchmark calls still suppress their own spinners/summaries and feed raw callback status into the shared dashboard model.
+
 ### 2026-03-06_18.25.00 high-level upload bundle final size accounting
 
 Source:
@@ -6515,6 +6528,7 @@ Durable findings:
   - then sync measured final bytes back into payload/index/overview metadata.
 - `prediction-run/prompt_budget_summary.json` is the preferred compact substitute for raw `full_prompt_log.jsonl` in high-level bundles.
 - When adding bytes back under budget, medium-sized context artifacts are safer than raw prompt dumps.
+- The shipped multi-book high-level target is now `30 * 1024 * 1024`, and the March 6 reference rebuild landed at `26,960,520` bytes with `serialized_size_capped=true`.
 
 ### 2026-03-06_18.50.00 March 6 benchmark regression split causes
 
@@ -6612,10 +6626,12 @@ Problem captured:
 
 Durable decisions:
 - Single-run offline benchmark prediction generation now forwards `llm_knowledge_pipeline` into the shared `RunSettings` path.
+- Benchmark baseline helpers keep `llm_knowledge_pipeline=off`, while benchmark Codex variants enable `codex-farm-knowledge-v1` and preserve pass4 pipeline/context settings in the resolved manifest config.
 - Canonical-text scoring keeps one preferred surface:
   - line-role projection remains authoritative for structure,
-  - pass4 upgrades projected `OTHER` rows to `KNOWLEDGE` on that same surface when snippet evidence matches.
-- `prediction-run/prompt_budget_summary.json` is the compact pass-count/token surface and now needs to include pass4 from `llm_codex_farm.knowledge.process_run`.
+  - pass4 arbitrates only the outside-span `KNOWLEDGE` versus `OTHER` seam on that same surface.
+- `knowledge/<workbook_slug>/block_classifications.jsonl` is now the primary pass4 artifact for that scored seam; older snippet-only roots still fall back to `snippets.jsonl`.
+- `prediction-run/prompt_budget_summary.json` is the compact pass-count/token surface and now includes pass4 from `llm_codex_farm.knowledge.process_run`.
 - Pass4 proof needs dedicated benchmark-side artifacts, not only manifests:
   - prediction-run line-role diagnostics can write `pass4_merge_report.json` and `pass4_merge_changed_rows.jsonl`,
   - benchmark eval-side diagnostics can copy those files and derive `pass4_merge_summary.json` against joined-line / gold data.
@@ -6623,6 +6639,19 @@ Durable decisions:
 
 Anti-loop note:
 - If pass4 manifests show real `done=` counts but benchmark lift stays flat, the first suspect is the narrow projection / upgrade seam, not “pass4 never ran.”
+
+### 2026-03-06_20.40.00 pass4 follow-up CLI support
+
+Source task:
+- `docs/tasks/2026-03-06_20.40.00-pass4-followup-cli.md`
+
+Problem captured:
+- Follow-up tooling was built around line-role and recipe-pass evidence, but pass4 is a run-level knowledge-harvest surface and needed explicit selectors/audits instead of being squeezed into prompt-link joins.
+
+Durable decisions:
+- `cf-debug` now exposes explicit pass4 selectors (`--include-pass4-source-key`, `--include-pass4-output-subdir`) and an `audit-pass4-knowledge` command.
+- `pack` and `build-followup` can emit `pass4_knowledge_audit.jsonl` alongside existing line-role follow-up artifacts.
+- Pass4 follow-up should stay run-level and artifact-locator-driven; do not force it through atomic-line prompt-link audits.
 
 ### 2026-03-06_16.11.52 and 2026-03-06_16.24.50 DinnerFor2 partial pass2 failure and benchmark-mode mixed-timeout recovery
 
@@ -6737,7 +6766,19 @@ Durable decisions:
 - `execution_mode` is only the benchmark runner orchestration mode: `legacy`, `pipelined`, `predict-only`.
 - `predict-only` still writes prediction artifacts but intentionally skips evaluation.
 - Direct benchmark calls create one timestamped root unless explicitly pointed elsewhere.
+- Prediction-generation scratch should resolve from the same `eval_output_dir`, keeping `prediction-run/` co-located under that eval root instead of spilling extra sibling timestamp folders under `data/golden/benchmark-vs-golden/`.
 - Interactive `single-profile-benchmark` nests child runs under its one session root by passing explicit `eval_output_dir` paths to child benchmark calls.
 
 Anti-loop note:
 - When you see two nearby benchmark timestamps, prove whether there were two invocations before inventing a “paired roots” filesystem rule.
+
+### 2026-03-13_22.08.04 benchmark single-root output
+
+Source task:
+- `docs/tasks/2026-03-13_22.08.04-benchmark-single-root.md`
+
+Problem captured:
+- Nested benchmark calls could route prediction-generation scratch to the shared benchmark root even when the benchmark already had a resolved eval root, leaving confusing sibling timestamp directories beside the real session root.
+
+Durable decision:
+- Benchmark-local prediction scratch now derives from `eval_output_dir` and keeps the canonical co-location contract at `<eval_output_dir>/prediction-run`.

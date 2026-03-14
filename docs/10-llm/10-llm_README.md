@@ -92,6 +92,7 @@ Report/model plumbing:
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
 - Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`) and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
 - Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
+- Benchmark prediction generation now forwards `llm_knowledge_pipeline`, `codex_farm_pipeline_pass4_knowledge`, and `codex_farm_knowledge_context_blocks` into shared `RunSettings`; benchmark baseline variants keep knowledge off while benchmark Codex variants enable `codex-farm-knowledge-v1`.
 - `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
 - When CodexFarm recipe parsing and knowledge harvest are enabled, default pass pipeline ids now point at the compact prompt assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`.
 - Canonical line-role prompt construction now defaults to `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` when the env var is unset; set it back to `legacy` for rollback or A/B checks.
@@ -294,9 +295,14 @@ Writes:
 
 - `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge_manifest.json`
+- `data/output/<ts>/knowledge/<workbook_slug>/block_classifications.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
+
+Current pass4 contract is dual-surface:
+- `block_classifications.jsonl` is the primary machine-readable outside-span `knowledge` vs `other` classifier consumed by canonical projection and deterministic stage labeling.
+- `snippets.jsonl` remains the reviewer-facing evidence surface and the fallback path for older roots that predate explicit block decisions.
 
 ### Pass5 tag suggestions
 

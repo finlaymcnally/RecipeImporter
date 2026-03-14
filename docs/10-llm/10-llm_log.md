@@ -2686,6 +2686,28 @@ Durable findings:
 Anti-loop note:
 - If a run still looks “large,” inspect the serialized pass4 bundle JSON before editing prompt wrapper prose.
 
+### 2026-03-06_14.32.00 and 2026-03-13_21.47.00 benchmark pass4 enablement and outside-span classifier
+
+Source tasks:
+- `docs/tasks/2026-03-06_14.32.00-benchmark-knowledge-pass-enablement.md`
+- `docs/tasks/2026-03-13_21.47.00-pass4-outside-span-binary-classifier.md`
+
+Problem captured:
+- Benchmark prediction generation originally dropped knowledge settings before `RunSettings` creation, and later snippet-only pass4 scoring was too weak to act like a real outside-span knowledge classifier.
+
+Durable findings:
+- Benchmark prediction generation now forwards `llm_knowledge_pipeline`, `codex_farm_pipeline_pass4_knowledge`, and `codex_farm_knowledge_context_blocks` into shared `RunSettings`.
+- Benchmark baseline variants keep knowledge off; benchmark Codex variants enable `codex-farm-knowledge-v1`.
+- Pass4 output remains additive rather than replacement-only:
+  - snippets stay available for reviewer evidence,
+  - output contracts can now also carry ordered block-level `knowledge` / `other` decisions.
+- The writer persists `knowledge/<workbook_slug>/block_classifications.jsonl`, and pass4 manifests expose that path/counts for downstream readers.
+- Canonical projection and deterministic stage labeling now treat `block_classifications.jsonl` as the primary outside-span `KNOWLEDGE` vs `OTHER` seam; `snippets.jsonl` remains the compatibility fallback for older roots.
+- Prompt-budget summaries now include pass4 when `llm_codex_farm.knowledge.process_run` exists, so benchmark/runtime summaries stop hiding successful pass4 work.
+
+Anti-loop note:
+- If pass4 clearly ran but benchmark `KNOWLEDGE` movement is still flat, inspect `block_classifications.jsonl` plus the pass4 merge summaries before rewriting prompt wrapper text.
+
 ### 2026-03-13_21.45.42 pass2/pass3 benchmark prompt vs input failures
 
 Source:
