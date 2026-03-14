@@ -19,7 +19,13 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--codex-farm-context-blocks" in result.stdout
     assert "--codex-farm-knowledge-context-blocks" in result.stdout
     assert "--tag-catalog-json" in result.stdout
-    assert "--codex-farm-failure-mode" in result.stdout
+    assert "--codex-farm-failure-mode" not in result.stdout
+    assert "--ocr-device" not in result.stdout
+    assert "--ocr-batch-size" not in result.stdout
+    assert "--pdf-column-gap-ratio" not in result.stdout
+    assert "--multi-recipe-splitter" not in result.stdout
+    assert "--ingredient-text-fix-backend" not in result.stdout
+    assert "--recipe-scorer-backend" not in result.stdout
     assert "--codex-farm-pipeline-pass1" not in result.stdout
     assert "--codex-farm-pipeline-pass2" not in result.stdout
     assert "--codex-farm-pipeline-pass3" not in result.stdout
@@ -47,6 +53,15 @@ def test_benchmark_help_exposes_knowledge_codex_flags() -> None:
     assert "--llm-recipe-pipeline" in result.stdout
     assert "--llm-knowledge-pipeline" in result.stdout
     assert "--codex-farm-knowledge-context-blocks" in result.stdout
+    assert "--ocr-device" not in result.stdout
+    assert "--ocr-batch-size" not in result.stdout
+    assert "--pdf-column-gap-ratio" not in result.stdout
+    assert "--multi-recipe-splitter" not in result.stdout
+    assert "--ingredient-text-fix-backend" not in result.stdout
+    assert "--p6-time-backend" not in result.stdout
+    assert "--recipe-scorer-backend" not in result.stdout
+    assert "--line-role-guardrail-mode" not in result.stdout
+    assert "--codex-farm-failure-mode" not in result.stdout
     assert "--codex-farm-pipeline-pass4-knowledge" not in result.stdout
-    assert "--codex-farm-benchmark-selective-retry" in result.stdout
-    assert "--codex-farm-benchmark-selective-retry-max-attempts" in result.stdout
+    assert "--codex-farm-benchmark-selective-retry" not in result.stdout
+    assert "--codex-farm-benchmark-selective-retry-max-attempts" not in result.stdout

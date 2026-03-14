@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from cookimport.config.run_settings import (
+    BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    internal_run_setting_names,
     public_run_setting_names,
     retired_legacy_run_setting_names,
     run_settings_ui_specs,
+    summarize_run_config_payload,
 )
 
 
@@ -146,6 +149,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     by_name = {spec.name for spec in specs}
     expected = set(public_run_setting_names())
     assert by_name == expected
+    assert set(BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES).isdisjoint(by_name)
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == (
         "off",
@@ -172,14 +176,39 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
     epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")
     assert epub_extractor_spec.choices == ("unstructured", "beautifulsoup")
-    multi_recipe_spec = next(spec for spec in specs if spec.name == "multi_recipe_splitter")
-    assert multi_recipe_spec.choices == ("legacy", "off", "rules_v1")
     web_policy_spec = next(spec for spec in specs if spec.name == "web_schema_policy")
     assert web_policy_spec.choices == (
         "prefer_schema",
         "schema_only",
         "heuristic_only",
     )
+    assert "multi_recipe_splitter" not in by_name
+    assert "p6_time_backend" not in by_name
+    assert "ocr_device" not in by_name
+    assert "section_detector_backend" in retired_legacy_run_setting_names()
+    assert "instruction_step_segmentation_policy" in retired_legacy_run_setting_names()
+    assert "instruction_step_segmenter" in retired_legacy_run_setting_names()
+
+
+def test_bucket2_run_settings_are_internal_only() -> None:
+    public_names = set(public_run_setting_names())
+    internal_names = set(internal_run_setting_names())
+
+    assert set(BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES).isdisjoint(public_names)
+    assert set(BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES).issubset(internal_names)
+
+
+def test_run_settings_ui_specs_include_internal_bucket2_fields_when_requested(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
+    specs = run_settings_ui_specs(include_internal=True)
+    by_name = {spec.name for spec in specs}
+
+    assert set(BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES).issubset(by_name)
+
+    multi_recipe_spec = next(spec for spec in specs if spec.name == "multi_recipe_splitter")
+    assert multi_recipe_spec.choices == ("legacy", "off", "rules_v1")
     p6_time_backend_spec = next(spec for spec in specs if spec.name == "p6_time_backend")
     assert p6_time_backend_spec.choices == (
         "regex_v1",
@@ -196,9 +225,39 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     )
     p6_yield_mode_spec = next(spec for spec in specs if spec.name == "p6_yield_mode")
     assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
-    assert "section_detector_backend" in retired_legacy_run_setting_names()
-    assert "instruction_step_segmentation_policy" in retired_legacy_run_setting_names()
-    assert "instruction_step_segmenter" in retired_legacy_run_setting_names()
+
+
+def test_bucket2_public_projection_and_summary_omit_internal_fields() -> None:
+    payload = {
+        "epub_extractor": "beautifulsoup",
+        "workers": 3,
+        "multi_recipe_splitter": "rules_v1",
+        "ocr_device": "auto",
+        "recipe_score_silver_min": 0.6,
+    }
+
+    settings = RunSettings.from_dict(payload, warn_context="bucket2 projection")
+
+    full_payload = settings.to_run_config_dict()
+    public_payload = settings.to_public_run_config_dict()
+
+    assert full_payload["multi_recipe_splitter"] == "rules_v1"
+    assert full_payload["ocr_device"] == "auto"
+    assert full_payload["recipe_score_silver_min"] == 0.6
+    assert "multi_recipe_splitter" not in public_payload
+    assert "ocr_device" not in public_payload
+    assert "recipe_score_silver_min" not in public_payload
+    assert public_payload["epub_extractor"] == "beautifulsoup"
+
+    summary = settings.summary()
+    assert "epub_extractor=beautifulsoup" in summary
+    assert "multi_recipe_splitter=" not in summary
+    assert "ocr_device=" not in summary
+    assert "recipe_score_silver_min=" not in summary
+
+    internal_summary = summarize_run_config_payload(full_payload, include_internal=True)
+    assert "multi_recipe_splitter=rules_v1" in internal_summary
+    assert "ocr_device=auto" in internal_summary
 
 
 def test_run_settings_accepts_retired_table_extraction_key_without_reserializing_it() -> None:

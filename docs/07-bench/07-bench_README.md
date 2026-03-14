@@ -55,15 +55,9 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--compare-out <dir>` / `--fail-on-regression`
 - canonical-text matcher is fixed to `dmp` for normal runs
 - `--pdf-ocr-policy off|auto|always`
-- `--pdf-column-gap-ratio <float>`
-- `--multi-recipe-splitter legacy|off|rules_v1`
-- `--multi-recipe-min-ingredient-lines <int>`
-- `--multi-recipe-min-instruction-lines <int>`
-- `--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail`
 - `--atomic-block-splitter off|atomic-v1`
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
 - `--llm-knowledge-pipeline off|codex-farm-knowledge-v1`
-- `--line-role-guardrail-mode off|preview|enforce`
 - `--codex-execution-policy execute|plan`
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - benchmark prediction generation also accepts pass4 knowledge knobs: `--codex-farm-pipeline-pass4-knowledge <pipeline_id>` and `--codex-farm-knowledge-context-blocks <int>`
@@ -72,6 +66,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
+- Internal-only benchmark settings payloads and QualitySuite `run_settings_patch` values still accept Bucket 2 parser/OCR/scoring knobs such as `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `pdf_column_gap_ratio`, `line_role_guardrail_mode`, `ocr_device`, `ocr_batch_size`, and `codex_farm_failure_mode`, but those no longer appear in ordinary `labelstudio-benchmark --help`.
 - when `codex_farm_recipe_mode=benchmark`, pass2/pass3 partial-output runs that were already accepted by the runner can now retry only the missing bundle files; successful original outputs stay untouched, retry artifacts live under `raw/llm/<workbook_slug>/pass2_schemaorg/retry_attempt_XX` or `pass3_final/retry_attempt_XX`, detailed truth lives in `raw/llm/<workbook_slug>/llm_manifest.json`, and benchmark/prediction-run `run_manifest.json` keeps concise retry counts while the benchmark root also preserves a direct `llm_manifest_json` artifact link.
 - CodexFarm benchmark prediction roots now surface structural/invariant diagnostics directly in `raw/llm/<workbook_slug>/llm_manifest.json`:
   - per-recipe `structural_status` + `structural_reason_codes`,
@@ -520,10 +515,7 @@ Operational interpretation:
   - `evaluation_result_source` (`executed`, `reused_in_run`, `reused_cross_run`)
   - `evaluation_representative_config_dir`
   - `prediction_result_source` (`executed`, `reused_in_run`, `reused_cross_run`)
-- Interactive all-method benchmark can auto-sweep deterministic Priority 2–6 knobs (default on in the wizard):
-- `multi_recipe_splitter`
-- `ingredient_missing_unit_policy`
-- `p6_*` time/temp/yield knobs
+- Interactive all-method benchmark can still auto-sweep internal deterministic knobs (default on in the wizard), including `multi_recipe_splitter`, `ingredient_missing_unit_policy`, and selected `p6_*` time/temp/yield knobs.
 - When sweeps are enabled, all-method row dimensions include these keys and a `deterministic_sweep` tag for non-baseline configs.
 - For webschema-capable sources (`.html`, `.htm`, `.jsonld`, and schema-like `.json`), all-method expands `web_schema_policy` variants (`prefer_schema`, `schema_only`, `heuristic_only`) and keeps other webschema knobs from base run settings.
 - Scheduler telemetry now includes adaptive admission fields for throughput diagnostics:
@@ -881,10 +873,10 @@ Current-contract additions from this audit pack:
   - all-method forwarded keys `25`,
   - missing in all-method forwarding `33`.
 - Missing-forwarding families identified by the audit included:
-  - Priority 1 recipe scoring knobs (`recipe_scorer_backend`, `recipe_score_*`)
-  - Priority 3 splitter knobs (`multi_recipe_*`)
-  - Priority 4 ingredient knobs (`ingredient_*`)
-  - Priority 6 knobs (`p6_*`)
+  - internal Priority 1 recipe scoring knobs (`recipe_scorer_backend`, `recipe_score_*`)
+  - internal Priority 3 splitter knobs (`multi_recipe_*`)
+  - internal Priority 4 ingredient knobs (`ingredient_*`)
+  - internal Priority 6 knobs (`p6_*`)
   - Priority 7 webschema knobs (`web_schema_*`, `web_html_text_extractor`)
   - output toggles (`write_label_studio_tasks`, `write_markdown`)
 - Closure update:

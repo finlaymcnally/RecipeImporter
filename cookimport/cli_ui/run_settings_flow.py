@@ -14,7 +14,11 @@ from cookimport.config.codex_decision import (
 from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
 )
-from cookimport.config.run_settings import RunSettings
+from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
+    RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
+    RunSettings,
+)
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
 
 MenuSelect = Callable[..., Any]
@@ -23,6 +27,11 @@ PromptText = Callable[..., Any]
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
 _WORKER_UTILIZATION_DEFAULT = 1.0
 _TOP_TIER_PROFILE_ENV = "COOKIMPORT_TOP_TIER_PROFILE"
+_INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
+    "off": "Vanilla / deterministic only",
+    "codex-farm-3pass-v1": "CodexFarm current 3-pass control",
+    "codex-farm-2stage-repair-v1": "CodexFarm merged 2-stage prototype",
+}
 _CODEX_REASONING_EFFORT_ORDER = (
     "none",
     "minimal",
@@ -107,16 +116,36 @@ def _normalize_top_tier_profile(value: Any) -> TopTierProfileKind | None:
     return None
 
 
-def _choose_top_tier_profile(
+def _default_codex_recipe_pipeline(global_defaults: RunSettings) -> str:
+    current_pipeline = str(global_defaults.llm_recipe_pipeline.value).strip().lower()
+    if current_pipeline in RECIPE_CODEX_FARM_EXECUTION_PIPELINES:
+        return current_pipeline
+    default_codex_settings = _default_top_tier_settings(global_defaults)
+    resolved_pipeline = str(default_codex_settings.llm_recipe_pipeline.value).strip().lower()
+    if resolved_pipeline in RECIPE_CODEX_FARM_EXECUTION_PIPELINES:
+        return resolved_pipeline
+    return RECIPE_CODEX_FARM_EXECUTION_PIPELINES[0]
+
+
+def _normalize_interactive_recipe_pipeline(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
+        return raw
+    return None
+
+
+def _choose_interactive_recipe_pipeline(
     *,
     menu_select: MenuSelect,
     back_action: Any,
     prompt_confirm: PromptConfirm | None,
     global_defaults: RunSettings,
-) -> TopTierProfileKind | None:
+) -> str | None:
     env_choice = _normalize_top_tier_profile(os.getenv(_TOP_TIER_PROFILE_ENV))
     if env_choice is not None:
-        return env_choice
+        if env_choice == "vanilla":
+            return "off"
+        return _default_codex_recipe_pipeline(global_defaults)
     default_codex_enabled = (
         global_defaults.llm_recipe_pipeline.value.strip().lower() != "off"
     )
@@ -131,28 +160,46 @@ def _choose_top_tier_profile(
         )
         if use_codex_farm is None:
             return None
-        return "codexfarm" if bool(use_codex_farm) else "vanilla"
+        return (
+            _default_codex_recipe_pipeline(global_defaults)
+            if bool(use_codex_farm)
+            else "off"
+        )
+    default_pipeline = _normalize_interactive_recipe_pipeline(
+        global_defaults.llm_recipe_pipeline.value
+    ) or "off"
     selection = menu_select(
-        "Select automatic top-tier profile:",
+        "Recipe pipeline for this run:",
         menu_help=(
-            "Choose one deterministic profile family.\n"
-            "CodexFarm profile keeps codex recipe + codex line-role + atomic splitter.\n"
-            "Vanilla profile keeps codex off and uses deterministic line-role + atomic splitter."
+            "Pick the recipe pipeline explicitly.\n"
+            "Any CodexFarm choice still uses the codex top-tier parsing, line-role, and splitter contract.\n"
+            "Vanilla keeps recipe Codex off and uses the deterministic top-tier profile."
         ),
+        default=default_pipeline,
         choices=[
             questionary.Choice(
-                "CodexFarm automatic top-tier (recommended)",
-                value="codexfarm",
+                f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['off']} (`off`)",
+                value="off",
             ),
             questionary.Choice(
-                "Vanilla automatic top-tier",
-                value="vanilla",
+                (
+                    f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['codex-farm-3pass-v1']} "
+                    "(`codex-farm-3pass-v1`)"
+                ),
+                value="codex-farm-3pass-v1",
+            ),
+            questionary.Choice(
+                (
+                    f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['codex-farm-2stage-repair-v1']} "
+                    "(`codex-farm-2stage-repair-v1`)"
+                ),
+                value="codex-farm-2stage-repair-v1",
             ),
         ],
     )
     if selection in {None, back_action}:
         return None
-    return _normalize_top_tier_profile(selection) or "codexfarm"
+    return _normalize_interactive_recipe_pipeline(selection)
 
 
 def _normalize_codex_reasoning_effort_value(value: Any) -> str | None:
@@ -325,17 +372,29 @@ def choose_run_settings(
     prompt_confirm: PromptConfirm | None = None,
     prompt_text: PromptText | None = None,
     prompt_codex_ai_settings: bool = False,
+    prompt_recipe_pipeline_menu: bool = False,
 ) -> RunSettings | None:
     """Resolve one interactive top-tier run profile family."""
 
-    selected_profile = _choose_top_tier_profile(
-        menu_select=menu_select,
-        back_action=back_action,
-        prompt_confirm=prompt_confirm,
-        global_defaults=global_defaults,
-    )
-    if selected_profile is None:
+    if prompt_recipe_pipeline_menu:
+        selected_recipe_pipeline = _choose_interactive_recipe_pipeline(
+            menu_select=menu_select,
+            back_action=back_action,
+            prompt_confirm=None,
+            global_defaults=global_defaults,
+        )
+    else:
+        selected_recipe_pipeline = _choose_interactive_recipe_pipeline(
+            menu_select=menu_select,
+            back_action=back_action,
+            prompt_confirm=prompt_confirm,
+            global_defaults=global_defaults,
+        )
+    if selected_recipe_pipeline is None:
         return None
+    selected_profile: TopTierProfileKind = (
+        "vanilla" if selected_recipe_pipeline == "off" else "codexfarm"
+    )
 
     if selected_profile == "vanilla":
         selected_settings = _default_vanilla_top_tier_settings(global_defaults)
@@ -351,7 +410,15 @@ def choose_run_settings(
         profile=selected_profile,
         warn_context="interactive top-tier pipeline harmonization",
     )
-    if selected_profile == "codexfarm" and prompt_codex_ai_settings:
+    if selected_recipe_pipeline != selected_settings.llm_recipe_pipeline.value:
+        selected_settings = RunSettings.from_dict(
+            {
+                **selected_settings.to_run_config_dict(),
+                "llm_recipe_pipeline": selected_recipe_pipeline,
+            },
+            warn_context="interactive recipe pipeline selection override",
+        )
+    if selected_recipe_pipeline != "off" and prompt_codex_ai_settings:
         selected_settings = _choose_codex_ai_settings(
             selected_settings=selected_settings,
             menu_select=menu_select,

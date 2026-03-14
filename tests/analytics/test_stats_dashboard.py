@@ -181,7 +181,7 @@ SAMPLE_REPORT_JSON = {
         "effective_workers": 10,
     },
     "runConfigHash": "abc123def456",
-    "runConfigSummary": "epub_extractor=beautifulsoup | ocr_device=auto | ocr_batch_size=1 | effective_workers=10",
+    "runConfigSummary": "epub_extractor=beautifulsoup",
 }
 
 

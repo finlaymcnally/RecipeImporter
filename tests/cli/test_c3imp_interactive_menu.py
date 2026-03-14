@@ -493,6 +493,42 @@ def test_choose_run_settings_codex_prompt_default_follows_global_pipeline(
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
 
 
+def test_choose_run_settings_recipe_pipeline_menu_can_select_merged_prototype(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-2stage-repair-v1"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda message, *_args, **_kwargs: (
+            "codex-farm-2stage-repair-v1"
+            if message == "Recipe pipeline for this run:"
+            else pytest.fail(f"unexpected menu prompt: {message}")
+        ),
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: pytest.fail(
+            "yes/no codex prompt should not run when explicit recipe pipeline menu is enabled"
+        ),
+        prompt_recipe_pipeline_menu=True,
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
+
+
 def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

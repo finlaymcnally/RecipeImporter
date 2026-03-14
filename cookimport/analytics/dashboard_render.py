@@ -22,6 +22,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+from cookimport.config.run_settings import summarize_run_config_payload
+
 from .dashboard_schema import BenchmarkRecord, DashboardData
 
 _ALL_METHOD_BENCHMARK_SEGMENT = "all-method-benchmark"
@@ -460,26 +462,7 @@ def _run_config_summary(record: BenchmarkRecord) -> str:
     if record.run_config_summary:
         return str(record.run_config_summary)
     run_config = record.run_config or {}
-    ordered_keys = (
-        "epub_extractor",
-        "epub_extractor_requested",
-        "epub_extractor_effective",
-        "ocr_device",
-        "ocr_batch_size",
-        "workers",
-        "effective_workers",
-        "pdf_split_workers",
-        "epub_split_workers",
-        "pdf_pages_per_job",
-        "epub_spine_items_per_job",
-        "warm_models",
-    )
-    parts: list[str] = []
-    for key in ordered_keys:
-        if key not in run_config:
-            continue
-        parts.append(f"{key}={run_config.get(key)}")
-    return " | ".join(parts)
+    return summarize_run_config_payload(run_config)
 
 
 def _source_label(record: BenchmarkRecord) -> str:
@@ -14472,12 +14455,7 @@ _JS = """\
     const cfg = record.run_config || {};
     const parts = [];
     if (cfg.epub_extractor != null) parts.push("epub_extractor=" + cfg.epub_extractor);
-    if (cfg.epub_extractor_requested != null) parts.push("epub_extractor_requested=" + cfg.epub_extractor_requested);
-    if (cfg.epub_extractor_effective != null) parts.push("epub_extractor_effective=" + cfg.epub_extractor_effective);
-    if (cfg.ocr_device != null) parts.push("ocr_device=" + cfg.ocr_device);
-    if (cfg.ocr_batch_size != null) parts.push("ocr_batch_size=" + cfg.ocr_batch_size);
-    if (cfg.effective_workers != null) parts.push("effective_workers=" + cfg.effective_workers);
-    else if (cfg.workers != null) parts.push("workers=" + cfg.workers);
+    if (cfg.workers != null) parts.push("workers=" + cfg.workers);
     if (cfg.llm_recipe_pipeline != null) parts.push("llm_recipe_pipeline=" + cfg.llm_recipe_pipeline);
     if (cfg.codex_farm_model != null) parts.push("codex_farm_model=" + cfg.codex_farm_model);
     if (cfg.codex_farm_reasoning_effort != null) parts.push("codex_farm_reasoning_effort=" + cfg.codex_farm_reasoning_effort);

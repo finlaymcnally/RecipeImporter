@@ -1452,14 +1452,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_unstructured_preprocess_mode",
                 ),
                 questionary.Choice(
-                    f"OCR Device: {current_settings.get('ocr_device', 'auto')} - auto/cpu/cuda/mps",
-                    value="ocr_device",
-                ),
-                questionary.Choice(
-                    f"OCR Batch Size: {current_settings.get('ocr_batch_size', 1)} - pages per OCR call",
-                    value="ocr_batch_size",
-                ),
-                questionary.Choice(
                     f"Output Folder: {current_settings.get('output_dir', str(DEFAULT_INTERACTIVE_OUTPUT))} - stage artifacts",
                     value="output_dir",
                 ),
@@ -1803,26 +1795,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             )
             if val and val != BACK_ACTION:
                 current_settings["epub_unstructured_preprocess_mode"] = val
-                _save_settings(current_settings)
-
-        elif choice == "ocr_device":
-            val = _menu_select(
-                "Select OCR Device:",
-                choices=["auto", "cpu", "cuda", "mps"],
-                default=current_settings.get("ocr_device", "auto"),
-                menu_help="Choose OCR hardware. Use auto unless you need to force a device.",
-            )
-            if val and val != BACK_ACTION:
-                current_settings["ocr_device"] = val
-                _save_settings(current_settings)
-                
-        elif choice == "ocr_batch_size":
-            val = _prompt_text(
-                "Enter OCR batch size:",
-                default=str(current_settings.get("ocr_batch_size", 1)),
-            )
-            if val and val.isdigit() and int(val) > 0:
-                current_settings["ocr_batch_size"] = int(val)
                 _save_settings(current_settings)
 
         elif choice == "output_dir":
@@ -3010,6 +2982,7 @@ def _interactive_single_offline_variants(
         codex_payload = _all_method_apply_codex_contract_from_baseline(
             baseline_payload
         )
+        codex_payload["llm_recipe_pipeline"] = current_pipeline
         return [
             (
                 "vanilla",
@@ -7274,6 +7247,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 prompt_confirm=_prompt_confirm,
                 prompt_text=_prompt_text,
                 prompt_codex_ai_settings=True,
+                prompt_recipe_pipeline_menu=True,
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -7755,6 +7729,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 prompt_confirm=_prompt_confirm,
                 prompt_text=_prompt_text,
                 prompt_codex_ai_settings=True,
+                prompt_recipe_pipeline_menu=True,
             )
             if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -25027,6 +25002,7 @@ def stage(
     ocr_device: str = typer.Option(
         "auto",
         "--ocr-device",
+        hidden=True,
         help="OCR device to use (auto, cpu, cuda, mps).",
     ),
     pdf_ocr_policy: str = typer.Option(
@@ -25038,6 +25014,7 @@ def stage(
         1,
         "--ocr-batch-size",
         min=1,
+        hidden=True,
         help="Number of pages to process per OCR model call.",
     ),
     pdf_column_gap_ratio: float = typer.Option(
@@ -25045,6 +25022,7 @@ def stage(
         "--pdf-column-gap-ratio",
         min=0.01,
         max=0.95,
+        hidden=True,
         help="Minimum horizontal gap ratio used for PDF column-boundary detection.",
     ),
     pdf_pages_per_job: int = typer.Option(
@@ -25130,6 +25108,7 @@ def stage(
     multi_recipe_splitter: str = typer.Option(
         "legacy",
         "--multi-recipe-splitter",
+        hidden=True,
         help="Shared multi-recipe splitter backend: legacy, off, or rules_v1.",
     ),
     multi_recipe_trace: bool = typer.Option(
@@ -25142,17 +25121,20 @@ def stage(
         1,
         "--multi-recipe-min-ingredient-lines",
         min=0,
+        hidden=True,
         help="Minimum ingredient-like lines required on each side of a split boundary.",
     ),
     multi_recipe_min_instruction_lines: int = typer.Option(
         1,
         "--multi-recipe-min-instruction-lines",
         min=0,
+        hidden=True,
         help="Minimum instruction-like lines required on each side of a split boundary.",
     ),
     multi_recipe_for_the_guardrail: bool = typer.Option(
         True,
         "--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail",
+        hidden=True,
         help="Prevent boundaries on component headers like 'For the sauce'.",
     ),
     instruction_step_segmentation_policy: str = typer.Option(
@@ -25215,21 +25197,25 @@ def stage(
     ingredient_text_fix_backend: str = typer.Option(
         "none",
         "--ingredient-text-fix-backend",
+        hidden=True,
         help="Ingredient text-fix backend: none or ftfy.",
     ),
     ingredient_pre_normalize_mode: str = typer.Option(
         "legacy",
         "--ingredient-pre-normalize-mode",
+        hidden=True,
         help="Ingredient pre-normalization mode: legacy or aggressive_v1.",
     ),
     ingredient_packaging_mode: str = typer.Option(
         "off",
         "--ingredient-packaging-mode",
+        hidden=True,
         help="Ingredient packaging extraction mode: off or regex_v1.",
     ),
     ingredient_parser_backend: str = typer.Option(
         "ingredient_parser_nlp",
         "--ingredient-parser-backend",
+        hidden=True,
         help=(
             "Ingredient parser backend: ingredient_parser_nlp, "
             "quantulum3_regex, or hybrid_nlp_then_quantulum3."
@@ -25238,16 +25224,19 @@ def stage(
     ingredient_unit_canonicalizer: str = typer.Option(
         "legacy",
         "--ingredient-unit-canonicalizer",
+        hidden=True,
         help="Ingredient unit canonicalizer: legacy or pint.",
     ),
     ingredient_missing_unit_policy: str = typer.Option(
         "null",
         "--ingredient-missing-unit-policy",
+        hidden=True,
         help="Policy when quantity has no unit: legacy_medium, null, or each.",
     ),
     p6_time_backend: str = typer.Option(
         "regex_v1",
         "--p6-time-backend",
+        hidden=True,
         help=(
             "Priority 6 time extraction backend: regex_v1, quantulum3_v1, "
             "or hybrid_regex_quantulum3_v1."
@@ -25256,11 +25245,13 @@ def stage(
     p6_time_total_strategy: str = typer.Option(
         "sum_all_v1",
         "--p6-time-total-strategy",
+        hidden=True,
         help="Priority 6 step-time rollup strategy: sum_all_v1, max_v1, or selective_sum_v1.",
     ),
     p6_temperature_backend: str = typer.Option(
         "regex_v1",
         "--p6-temperature-backend",
+        hidden=True,
         help=(
             "Priority 6 temperature extraction backend: regex_v1, quantulum3_v1, "
             "or hybrid_regex_quantulum3_v1."
@@ -25269,16 +25260,19 @@ def stage(
     p6_temperature_unit_backend: str = typer.Option(
         "builtin_v1",
         "--p6-temperature-unit-backend",
+        hidden=True,
         help="Priority 6 temperature-unit conversion backend: builtin_v1 or pint_v1.",
     ),
     p6_ovenlike_mode: str = typer.Option(
         "keywords_v1",
         "--p6-ovenlike-mode",
+        hidden=True,
         help="Priority 6 oven-like temperature classifier mode: keywords_v1 or off.",
     ),
     p6_yield_mode: str = typer.Option(
         "legacy_v1",
         "--p6-yield-mode",
+        hidden=True,
         help="Priority 6 yield parser mode: legacy_v1 or scored_v1.",
     ),
     p6_emit_metadata_debug: bool = typer.Option(
@@ -25290,6 +25284,7 @@ def stage(
     recipe_scorer_backend: str = typer.Option(
         "heuristic_v1",
         "--recipe-scorer-backend",
+        hidden=True,
         help="Recipe-likeness scorer backend (default: heuristic_v1).",
     ),
     recipe_score_gold_min: float = typer.Option(
@@ -25297,6 +25292,7 @@ def stage(
         "--recipe-score-gold-min",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum recipe-likeness score for gold tier.",
     ),
     recipe_score_silver_min: float = typer.Option(
@@ -25304,6 +25300,7 @@ def stage(
         "--recipe-score-silver-min",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum recipe-likeness score for silver tier.",
     ),
     recipe_score_bronze_min: float = typer.Option(
@@ -25311,18 +25308,21 @@ def stage(
         "--recipe-score-bronze-min",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum recipe-likeness score for bronze tier (below is reject).",
     ),
     recipe_score_min_ingredient_lines: int = typer.Option(
         1,
         "--recipe-score-min-ingredient-lines",
         min=0,
+        hidden=True,
         help="Soft minimum ingredient lines used by scoring/gating.",
     ),
     recipe_score_min_instruction_lines: int = typer.Option(
         1,
         "--recipe-score-min-instruction-lines",
         min=0,
+        hidden=True,
         help="Soft minimum instruction lines used by scoring/gating.",
     ),
     llm_recipe_pipeline: str = typer.Option(
@@ -25445,6 +25445,7 @@ def stage(
     codex_farm_failure_mode: str = typer.Option(
         "fail",
         "--codex-farm-failure-mode",
+        hidden=True,
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
     ),
 ) -> Path:
@@ -29386,6 +29387,7 @@ def labelstudio_benchmark(
     epub_spine_items_per_job: Annotated[int, typer.Option("--epub-spine-items-per-job", min=1, help="Target spine items per EPUB split job.")] = 10,
     ocr_device: Annotated[str, typer.Option(
         "--ocr-device",
+        hidden=True,
         help="OCR device to use (auto, cpu, cuda, mps).",
     )] = "auto",
     pdf_ocr_policy: Annotated[str, typer.Option(
@@ -29395,12 +29397,14 @@ def labelstudio_benchmark(
     ocr_batch_size: Annotated[int, typer.Option(
         "--ocr-batch-size",
         min=1,
+        hidden=True,
         help="Number of pages to process per OCR model call.",
     )] = 1,
     pdf_column_gap_ratio: Annotated[float, typer.Option(
         "--pdf-column-gap-ratio",
         min=0.01,
         max=0.95,
+        hidden=True,
         help="Minimum horizontal gap ratio used for PDF column-boundary detection.",
     )] = 0.12,
     warm_models: Annotated[bool, typer.Option(
@@ -29435,6 +29439,7 @@ def labelstudio_benchmark(
     )] = "legacy",
     multi_recipe_splitter: Annotated[str, typer.Option(
         "--multi-recipe-splitter",
+        hidden=True,
         help="Shared multi-recipe splitter backend: legacy, off, or rules_v1.",
     )] = "legacy",
     multi_recipe_trace: Annotated[bool, typer.Option(
@@ -29445,15 +29450,18 @@ def labelstudio_benchmark(
     multi_recipe_min_ingredient_lines: Annotated[int, typer.Option(
         "--multi-recipe-min-ingredient-lines",
         min=0,
+        hidden=True,
         help="Minimum ingredient-like lines required on each side of a split boundary.",
     )] = 1,
     multi_recipe_min_instruction_lines: Annotated[int, typer.Option(
         "--multi-recipe-min-instruction-lines",
         min=0,
+        hidden=True,
         help="Minimum instruction-like lines required on each side of a split boundary.",
     )] = 1,
     multi_recipe_for_the_guardrail: Annotated[bool, typer.Option(
         "--multi-recipe-for-the-guardrail/--no-multi-recipe-for-the-guardrail",
+        hidden=True,
         help="Prevent boundaries on component headers like 'For the sauce'.",
     )] = True,
     instruction_step_segmentation_policy: Annotated[str, typer.Option(
@@ -29506,18 +29514,22 @@ def labelstudio_benchmark(
     )] = 1,
     ingredient_text_fix_backend: Annotated[str, typer.Option(
         "--ingredient-text-fix-backend",
+        hidden=True,
         help="Ingredient text-fix backend: none or ftfy.",
     )] = "none",
     ingredient_pre_normalize_mode: Annotated[str, typer.Option(
         "--ingredient-pre-normalize-mode",
+        hidden=True,
         help="Ingredient pre-normalization mode: legacy or aggressive_v1.",
     )] = "legacy",
     ingredient_packaging_mode: Annotated[str, typer.Option(
         "--ingredient-packaging-mode",
+        hidden=True,
         help="Ingredient packaging extraction mode: off or regex_v1.",
     )] = "off",
     ingredient_parser_backend: Annotated[str, typer.Option(
         "--ingredient-parser-backend",
+        hidden=True,
         help=(
             "Ingredient parser backend: ingredient_parser_nlp, quantulum3_regex, "
             "or hybrid_nlp_then_quantulum3."
@@ -29525,14 +29537,17 @@ def labelstudio_benchmark(
     )] = "ingredient_parser_nlp",
     ingredient_unit_canonicalizer: Annotated[str, typer.Option(
         "--ingredient-unit-canonicalizer",
+        hidden=True,
         help="Ingredient unit canonicalizer: legacy or pint.",
     )] = "legacy",
     ingredient_missing_unit_policy: Annotated[str, typer.Option(
         "--ingredient-missing-unit-policy",
+        hidden=True,
         help="Policy when quantity has no unit: legacy_medium, null, or each.",
     )] = "null",
     p6_time_backend: Annotated[str, typer.Option(
         "--p6-time-backend",
+        hidden=True,
         help=(
             "Priority 6 time extraction backend: regex_v1, quantulum3_v1, "
             "or hybrid_regex_quantulum3_v1."
@@ -29540,10 +29555,12 @@ def labelstudio_benchmark(
     )] = "regex_v1",
     p6_time_total_strategy: Annotated[str, typer.Option(
         "--p6-time-total-strategy",
+        hidden=True,
         help="Priority 6 step-time rollup strategy: sum_all_v1, max_v1, or selective_sum_v1.",
     )] = "sum_all_v1",
     p6_temperature_backend: Annotated[str, typer.Option(
         "--p6-temperature-backend",
+        hidden=True,
         help=(
             "Priority 6 temperature extraction backend: regex_v1, quantulum3_v1, "
             "or hybrid_regex_quantulum3_v1."
@@ -29551,14 +29568,17 @@ def labelstudio_benchmark(
     )] = "regex_v1",
     p6_temperature_unit_backend: Annotated[str, typer.Option(
         "--p6-temperature-unit-backend",
+        hidden=True,
         help="Priority 6 temperature-unit conversion backend: builtin_v1 or pint_v1.",
     )] = "builtin_v1",
     p6_ovenlike_mode: Annotated[str, typer.Option(
         "--p6-ovenlike-mode",
+        hidden=True,
         help="Priority 6 oven-like temperature classifier mode: keywords_v1 or off.",
     )] = "keywords_v1",
     p6_yield_mode: Annotated[str, typer.Option(
         "--p6-yield-mode",
+        hidden=True,
         help="Priority 6 yield parser mode: legacy_v1 or scored_v1.",
     )] = "legacy_v1",
     p6_emit_metadata_debug: Annotated[bool, typer.Option(
@@ -29568,34 +29588,40 @@ def labelstudio_benchmark(
     )] = False,
     recipe_scorer_backend: Annotated[str, typer.Option(
         "--recipe-scorer-backend",
+        hidden=True,
         help="Recipe-likeness scorer backend (default: heuristic_v1).",
     )] = "heuristic_v1",
     recipe_score_gold_min: Annotated[float, typer.Option(
         "--recipe-score-gold-min",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum recipe-likeness score for gold tier.",
     )] = 0.75,
     recipe_score_silver_min: Annotated[float, typer.Option(
         "--recipe-score-silver-min",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum recipe-likeness score for silver tier.",
     )] = 0.55,
     recipe_score_bronze_min: Annotated[float, typer.Option(
         "--recipe-score-bronze-min",
         min=0.0,
         max=1.0,
+        hidden=True,
         help="Minimum recipe-likeness score for bronze tier (below is reject).",
     )] = 0.35,
     recipe_score_min_ingredient_lines: Annotated[int, typer.Option(
         "--recipe-score-min-ingredient-lines",
         min=0,
+        hidden=True,
         help="Soft minimum ingredient lines used by scoring/gating.",
     )] = 1,
     recipe_score_min_instruction_lines: Annotated[int, typer.Option(
         "--recipe-score-min-instruction-lines",
         min=0,
+        hidden=True,
         help="Soft minimum instruction lines used by scoring/gating.",
     )] = 1,
     llm_recipe_pipeline: Annotated[str, typer.Option(
@@ -29639,6 +29665,7 @@ def labelstudio_benchmark(
     )] = "off",
     line_role_guardrail_mode: Annotated[str, typer.Option(
         "--line-role-guardrail-mode",
+        hidden=True,
         help="Line-role guardrail mode for codex-line-role-v1: off, preview, or enforce.",
     )] = "enforce",
     line_role_gated: Annotated[bool, typer.Option(
@@ -29751,6 +29778,7 @@ def labelstudio_benchmark(
     )] = 12,
     codex_farm_failure_mode: Annotated[str, typer.Option(
         "--codex-farm-failure-mode",
+        hidden=True,
         help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
     )] = "fail",
     single_offline_split_cache_mode: Annotated[str, typer.Option(

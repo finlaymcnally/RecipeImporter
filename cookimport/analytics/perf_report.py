@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from cookimport.paths import history_csv_for_output
+from cookimport.config.run_settings import summarize_run_config_payload
 
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
 _LEGACY_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
@@ -2149,38 +2150,7 @@ def _stable_hash_for_run_config(run_config: dict[str, Any]) -> str:
 
 
 def _summary_for_run_config(run_config: dict[str, Any]) -> str:
-    ordered_keys = (
-        "epub_extractor",
-        "epub_extractor_requested",
-        "epub_extractor_effective",
-        "ocr_device",
-        "ocr_batch_size",
-        "workers",
-        "effective_workers",
-        "pdf_split_workers",
-        "epub_split_workers",
-        "pdf_pages_per_job",
-        "epub_spine_items_per_job",
-        "warm_models",
-        "llm_recipe_pipeline",
-        "codex_farm_model",
-        "codex_farm_reasoning_effort",
-        "codex_model",
-        "codex_reasoning_effort",
-        "model",
-        "model_reasoning_effort",
-    )
-    parts: list[str] = []
-    for key in ordered_keys:
-        if key not in run_config:
-            continue
-        value = run_config.get(key)
-        if isinstance(value, bool):
-            rendered = "true" if value else "false"
-        else:
-            rendered = str(value)
-        parts.append(f"{key}={rendered}")
-    return " | ".join(parts)
+    return summarize_run_config_payload(run_config)
 
 
 def _ensure_csv_schema(csv_path: Path) -> None:

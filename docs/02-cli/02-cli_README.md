@@ -113,10 +113,11 @@ Menu numbering and shortcuts:
 `Settings` edits global defaults in `cookimport.json`.
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
-- `Use Codex Farm recipe pipeline for this run?`
-  - default is inferred from global `llm_recipe_pipeline` (`codex-farm-3pass-v1` => `Yes`, otherwise `No`),
-  - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can force either profile and bypass the prompt.
-- when codex is selected, chooser then asks:
+- `Recipe pipeline for this run?`
+  - choices are `off`, `codex-farm-3pass-v1`, and `codex-farm-2stage-repair-v1`,
+  - default is inferred from global `llm_recipe_pipeline`,
+  - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
+- when a codex pipeline is selected, chooser then asks:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
 
@@ -124,8 +125,7 @@ Resolved profile families:
 - `CodexFarm automatic top-tier`:
   - use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
   - otherwise use built-in codex top-tier baseline,
-  - harmonize saved or built-in settings to the current codex top-tier contract:
-    `llm_recipe_pipeline=codex-farm-3pass-v1`,
+  - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-farm-3pass-v1` control or `codex-farm-2stage-repair-v1` prototype):
     `llm_knowledge_pipeline=codex-farm-knowledge-v1`,
     `line_role_pipeline=codex-line-role-v1`,
     `atomic_block_splitter=atomic-v1`,
@@ -168,10 +168,6 @@ Config keys and defaults:
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `true`)
 - `epub_unstructured_preprocess_mode` (default `semantic_v1`)
-- `multi_recipe_splitter` (default `legacy`)
-- `multi_recipe_min_ingredient_lines` (default `1`)
-- `multi_recipe_min_instruction_lines` (default `1`)
-- `multi_recipe_for_the_guardrail` (default `true`)
 - `web_schema_extractor` (default `builtin_jsonld`)
 - `web_schema_normalizer` (default `simple`)
 - `web_html_text_extractor` (default `bs4`)
@@ -179,28 +175,7 @@ Config keys and defaults:
 - `web_schema_min_confidence` (default `0.75`)
 - `web_schema_min_ingredients` (default `2`)
 - `web_schema_min_instruction_steps` (default `1`)
-- `ingredient_text_fix_backend` (default `none`)
-- `ingredient_pre_normalize_mode` (default `legacy`)
-- `ingredient_packaging_mode` (default `off`)
-- `ingredient_parser_backend` (default `ingredient_parser_nlp`)
-- `ingredient_unit_canonicalizer` (default `legacy`)
-- `ingredient_missing_unit_policy` (default `null`)
-- `p6_time_backend` (default `regex_v1`)
-- `p6_time_total_strategy` (default `sum_all_v1`)
-- `p6_temperature_backend` (default `regex_v1`)
-- `p6_temperature_unit_backend` (default `builtin_v1`)
-- `p6_ovenlike_mode` (default `keywords_v1`)
-- `p6_yield_mode` (default `legacy_v1`)
-- `recipe_scorer_backend` (default `heuristic_v1`)
-- `recipe_score_gold_min` (default `0.75`)
-- `recipe_score_silver_min` (default `0.55`)
-- `recipe_score_bronze_min` (default `0.35`)
-- `recipe_score_min_ingredient_lines` (default `1`)
-- `recipe_score_min_instruction_lines` (default `1`)
-- `ocr_device` (default `auto`)
 - `pdf_ocr_policy` (default `auto`)
-- `ocr_batch_size` (default `1`)
-- `pdf_column_gap_ratio` (default `0.12`)
 - `output_dir` (default `data/output`)
 - `label_studio_url` (default unset; populated after first interactive Label Studio prompt)
 - `label_studio_api_key` (default unset; populated after first interactive Label Studio prompt)
@@ -217,9 +192,8 @@ Config keys and defaults:
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_knowledge_context_blocks` (default `12`)
 - `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
-- `codex_farm_failure_mode` (default `fail`)
 
-Internal-only compatibility keys still load from saved payloads but are no longer part of the ordinary operator surface: `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, `codex_farm_pass1_pattern_hints_enabled`, `codex_farm_pipeline_pass1/2/3/4_knowledge/5_tags`, `codex_farm_pass3_skip_pass2_ok`, `codex_farm_benchmark_selective_retry_enabled`, and `codex_farm_benchmark_selective_retry_max_attempts`. `table_extraction` is retired entirely; new runs always extract tables.
+Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, `codex_farm_pass1_pattern_hints_enabled`, `codex_farm_pipeline_pass1/2/3/4_knowledge/5_tags`, `codex_farm_pass3_skip_pass2_ok`, and `codex_farm_benchmark_selective_retry_*`. `table_extraction` is retired entirely; new runs always extract tables.
 
 What each setting affects:
 
@@ -236,15 +210,11 @@ What each setting affects:
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
 - Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only for compatibility loading.
-- `multi_recipe_splitter`, `multi_recipe_min_*`, `multi_recipe_for_the_guardrail`: shared deterministic multi-recipe split controls used by Text/EPUB/PDF importer conversion in stage and benchmark prediction generation.
 - Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry compatibility-only keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
-- `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`: ingredient parser normalization/backend/unit-policy controls used by stage and benchmark prediction-generation imports.
-- `p6_time_backend`, `p6_time_total_strategy`, `p6_temperature_backend`, `p6_temperature_unit_backend`, `p6_ovenlike_mode`, `p6_yield_mode`: Priority 6 deterministic instruction/yield controls for stage and benchmark prediction generation.
 - `p6_emit_metadata_debug`: internal-only debug toggle for optional Priority 6 sidecar artifacts.
-- `recipe_scorer_backend`, `recipe_score_*`: deterministic recipe-likeness scoring and tier gating thresholds/minimum line hints used by all importer families.
-- `ocr_device`, `pdf_ocr_policy`, `ocr_batch_size`: OCR path/policy for PDFs.
-- `pdf_column_gap_ratio`: PDF column-boundary sensitivity (`page_width * ratio` threshold).
+- Internal-only parser/OCR/scoring payload keys remain accepted for engineering experiments and benchmark reproducibility: `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `line_role_guardrail_mode`, and `codex_farm_failure_mode`.
+- `pdf_ocr_policy`: public OCR policy for PDFs.
 - `output_dir`: interactive `stage` target output root.
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
@@ -252,7 +222,7 @@ What each setting affects:
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-farm-knowledge-v1`) used by `stage` only.
 - `llm_tags_pipeline`: optional tags pass (`off` or `codex-farm-tags-v1`) used by `stage` only.
 - `tag_catalog_json`: required catalog snapshot path when `llm_tags_pipeline` is enabled.
-- `codex_farm_*`: codex-farm command/root/workspace/pipeline-id/context/failure behavior used by `stage`.
+- `codex_farm_*`: codex-farm command/root/workspace/context behavior used by `stage`; pipeline-id/failure internals remain loadable from explicit settings payloads but are hidden from ordinary help/UI.
 
 Developer note:
 - Per-run setting definitions live in `cookimport/config/run_settings.py`. Interactive top-tier chooser logic lives in `cookimport/cli_ui/run_settings_flow.py`; keep import and benchmark aligned there.
@@ -359,9 +329,9 @@ Interactive benchmark now has a mode submenu before execution:
 2. Single offline path:
    - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
-   - when run settings resolve to `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants under one timestamp session:
+   - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
-     - `single-offline-benchmark/<source_slug>/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`),
+     - `single-offline-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1`),
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-offline-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
@@ -396,9 +366,9 @@ Interactive benchmark now has a mode submenu before execution:
    - prints matched/skipped counts and asks final proceed confirmation (`Proceed with N benchmark runs across N matched golden sets?` or `... across N selected matched books?`, default `No`),
    - normalizes variants from the selected run settings:
      - when `llm_recipe_pipeline=off`, runs one `vanilla` variant per selected book under `single-profile-benchmark/<index_source_slug>/`,
-     - when `llm_recipe_pipeline=codex-farm-3pass-v1`, runs paired variants per selected book:
+     - when `llm_recipe_pipeline` is non-`off`, runs paired variants per selected book:
        - `single-profile-benchmark/<index_source_slug>/vanilla` first (`llm_recipe_pipeline=off`, deterministic-only),
-       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`),
+       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-v1` and `atomic_block_splitter=atomic-v1`),
    - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
    - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
@@ -540,7 +510,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`.
 - `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-farm-knowledge-v1`.
 - `--llm-tags-pipeline TEXT` (default `off`): `off|codex-farm-tags-v1`.
 - `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
@@ -797,7 +767,7 @@ Options:
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
 - `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
@@ -952,7 +922,7 @@ Options:
 - `--web-schema-min-confidence FLOAT` (default `0.75`): minimum schema confidence before schema candidate acceptance.
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
-- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1`.
+- `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`.
 - `--codex-farm-recipe-mode TEXT` (default `extract`): `extract|benchmark`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
@@ -1486,7 +1456,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - Source task: `docs/tasks/2026-02-28_03.52.06-interactive-codex-farm-per-run-prompt.md`
 - `choose_run_settings(...)` is the shared codex hook for interactive import and benchmark flows.
 - Prompt sequence for codex-enabled runs is:
-  1. `Use Codex Farm recipe pipeline for this run?` (default `Yes`)
+  1. `Recipe pipeline for this run?` (`off`, `codex-farm-3pass-v1`, or `codex-farm-2stage-repair-v1`)
   2. optional model override
   3. optional reasoning effort override
 - `None`/cancel from these prompts cancels run setup cleanly.
@@ -1512,8 +1482,8 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 ### 2026-02-28_04.09.18 c3imp codex-farm interactive prompt paths
 - Source: `docs/understandings/2026-02-28_04.09.18-c3imp-codex-farm-interactive-prompt-paths.md`
 - Both interactive import and interactive benchmark flows call the same chooser entrypoint: `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py`.
-- Chooser prompt `Use Codex Farm recipe pipeline for this run?` defaults to `Yes`.
-- Model and reasoning override prompts appear only when the resolved run settings keep `llm_recipe_pipeline=codex-farm-3pass-v1`.
+- Recipe-pipeline chooser defaults to the saved global `llm_recipe_pipeline`.
+- Model and reasoning override prompts appear only when the resolved run settings keep any non-`off` `llm_recipe_pipeline`.
 - `single_offline_all_matched` has no separate Codex include prompt; it inherits chooser output.
 
 ### 2026-02-28_04.15.12 codex-farm run-settings model picker surface
@@ -1522,7 +1492,7 @@ The items below were merged from `docs/understandings` in timestamp order and fo
 - `None`/`BACK_ACTION` from model or reasoning prompts cancels setup for both interactive import and benchmark paths.
 
 Anti-loop note:
-- If Codex enable prompts appear but model/reasoning prompts do not, confirm the resolved chooser payload still has `llm_recipe_pipeline=codex-farm-3pass-v1` before editing benchmark-mode menus.
+- If a codex recipe pipeline is selected but model/reasoning prompts do not appear, confirm the resolved chooser payload still has a non-`off` `llm_recipe_pipeline` before editing benchmark-mode menus.
 
 ## 2026-02-28 merged understandings (joblib SemLock startup warning guard)
 
@@ -1693,7 +1663,8 @@ Merged source notes (timestamp order):
 
 Current CLI contracts reinforced by this batch:
 - Interactive run-settings resolution is deterministic and top-tier-first; avoid reintroducing broad profile pickers that can silently reuse stale low-quality profiles.
-- Codex-vs-vanilla intent is captured by the top-level `Use Codex Farm recipe pipeline for this run?` prompt (with env override support), and codex-enabled runs immediately collect model/effort overrides in the same chooser flow.
+- Interactive import/benchmark setup now captures recipe intent with an explicit `Recipe pipeline for this run?` menu (`off`, `codex-farm-3pass-v1`, `codex-farm-2stage-repair-v1`); `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force the broader family when needed.
+- Any non-`off` recipe pipeline choice immediately collects model/effort overrides in the same chooser flow.
 - `llm_recipe_pipeline` must not be treated as an implicit proxy for `line_role_pipeline` / `atomic_block_splitter`; harmonization must explicitly set all three knobs together.
 - Saved quality-suite winner settings can remain stale in history files, so post-resolution harmonization is required even when winner settings are loaded.
 
@@ -1707,10 +1678,10 @@ Merged source note:
 - `2026-03-04_01.20.00-interactive-two-top-tier-profiles-codex-vs-vanilla.md`
 
 Current CLI contract reinforced:
-- Interactive run-settings selection stays compact and deterministic while preserving codex-vs-vanilla intent through a single codex on/off prompt that maps to two automatic profile families:
-  - CodexFarm automatic top-tier.
-  - Vanilla automatic top-tier.
-- This keeps the old wide profile picker removed while restoring an explicit apples-to-apples baseline path.
+- Interactive run-settings selection stays compact and deterministic while preserving the vanilla-vs-codex family boundary through an explicit recipe-pipeline menu:
+  - `off` maps to Vanilla automatic top-tier.
+  - any non-`off` recipe pipeline maps to CodexFarm automatic top-tier, then reapplies the chosen recipe pipeline.
+- This keeps the old wide profile picker removed while still allowing apples-to-apples baseline vs codex comparisons.
 
 Anti-loop reminder:
 - Avoid adding back broad manual profile menus to solve codex-vs-vanilla choice; keep that choice in the two-profile automatic selector.
@@ -1743,7 +1714,7 @@ Merged source notes (timestamp order):
 - `docs/understandings/2026-03-04_06.55.46-interactive-codex-effort-model-copy-validation-gap.md`
 
 Current CLI contracts reinforced:
-- Interactive import/benchmark setup uses codex intent prompt (`Use Codex Farm recipe pipeline for this run?`) to resolve codex-vs-vanilla top-tier profile families.
+- Interactive import/benchmark setup uses `Recipe pipeline for this run?` to resolve vanilla vs codex top-tier families while preserving the exact selected recipe pipeline for codex runs.
 - Legacy run-settings persistence/editor/dead branches remain retired; runtime chooser is two-profile focused and deterministic.
 - Codex-enabled setup must collect AI settings during chooser flow:
   - model override selection is menu-only,
@@ -1768,7 +1739,7 @@ Merged source task files (timestamp order):
 - `docs/tasks/2026-03-04_06.55.38-interactive-codex-effort-enum-warning.md`
 
 Current CLI contracts reinforced:
-- Interactive setup captures codex intent with `Use Codex Farm recipe pipeline for this run?` and resolves deterministic top-tier profiles behind that prompt.
+- Interactive setup captures recipe intent with `Recipe pipeline for this run?` and resolves deterministic top-tier profiles behind that menu.
 - Codex-enabled chooser flows must collect codex AI settings in-sequence (model + reasoning effort), with cancel/back returning `None` for clean abort.
 - Codex model selection in shared chooser is menu-only (discovered models + deterministic fallback, no freeform text branch).
 - Reasoning effort updates must pass through validated `RunSettings` reconstruction so enum typing remains stable.

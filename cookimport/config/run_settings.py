@@ -27,6 +27,35 @@ _RETIRED_KEY_WARNINGS: set[tuple[str, ...]] = set()
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
 RUN_SETTING_SURFACE_PUBLIC = "public"
 RUN_SETTING_SURFACE_INTERNAL = "internal"
+BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
+    "multi_recipe_splitter",
+    "multi_recipe_min_ingredient_lines",
+    "multi_recipe_min_instruction_lines",
+    "multi_recipe_for_the_guardrail",
+    "ingredient_text_fix_backend",
+    "ingredient_pre_normalize_mode",
+    "ingredient_packaging_mode",
+    "ingredient_parser_backend",
+    "ingredient_unit_canonicalizer",
+    "ingredient_missing_unit_policy",
+    "p6_time_backend",
+    "p6_time_total_strategy",
+    "p6_temperature_backend",
+    "p6_temperature_unit_backend",
+    "p6_ovenlike_mode",
+    "p6_yield_mode",
+    "recipe_scorer_backend",
+    "recipe_score_gold_min",
+    "recipe_score_silver_min",
+    "recipe_score_bronze_min",
+    "recipe_score_min_ingredient_lines",
+    "recipe_score_min_instruction_lines",
+    "pdf_column_gap_ratio",
+    "line_role_guardrail_mode",
+    "codex_farm_failure_mode",
+    "ocr_device",
+    "ocr_batch_size",
+)
 _RETIRED_RUN_SETTING_KEYS: dict[str, str] = {
     "table_extraction": (
         "deterministic table extraction is always enabled and the legacy off/on "
@@ -525,6 +554,7 @@ class RunSettings(BaseModel):
                 "Candidate splitter backend for merged multi-recipe spans. "
                 "legacy keeps importer-local behavior; rules_v1 uses shared deterministic splitting."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     multi_recipe_min_ingredient_lines: int = Field(
@@ -539,6 +569,7 @@ class RunSettings(BaseModel):
             step=1,
             minimum=0,
             maximum=100,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     multi_recipe_min_instruction_lines: int = Field(
@@ -553,6 +584,7 @@ class RunSettings(BaseModel):
             step=1,
             minimum=0,
             maximum=100,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     multi_recipe_for_the_guardrail: bool = Field(
@@ -565,6 +597,7 @@ class RunSettings(BaseModel):
                 "Prevent boundaries on component subsection headers "
                 "(for example 'For the sauce')."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     web_schema_extractor: WebSchemaExtractor = Field(
@@ -660,6 +693,7 @@ class RunSettings(BaseModel):
                 "Optional text cleanup backend before ingredient parsing "
                 "(none or ftfy)."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     ingredient_pre_normalize_mode: IngredientPreNormalizeMode = Field(
@@ -672,6 +706,7 @@ class RunSettings(BaseModel):
                 "Ingredient pre-parse normalization mode "
                 "(legacy or aggressive_v1)."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     ingredient_packaging_mode: IngredientPackagingMode = Field(
@@ -684,6 +719,7 @@ class RunSettings(BaseModel):
                 "Packaging extraction mode for patterns like "
                 "'1 (14-ounce) can tomatoes'."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     ingredient_parser_backend: IngredientParserBackend = Field(
@@ -696,6 +732,7 @@ class RunSettings(BaseModel):
                 "Ingredient parser backend: ingredient_parser_nlp, "
                 "quantulum3_regex, or hybrid_nlp_then_quantulum3."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     ingredient_unit_canonicalizer: IngredientUnitCanonicalizer = Field(
@@ -707,6 +744,7 @@ class RunSettings(BaseModel):
             description=(
                 "Unit canonicalization mode (legacy or pint) applied after parsing."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     ingredient_missing_unit_policy: IngredientMissingUnitPolicy = Field(
@@ -719,6 +757,7 @@ class RunSettings(BaseModel):
                 "Policy when quantity exists but unit is missing: "
                 "legacy_medium, null, or each."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     p6_time_backend: P6TimeBackend = Field(
@@ -731,6 +770,7 @@ class RunSettings(BaseModel):
                 "Priority 6 instruction-time extractor backend "
                 "(regex_v1, quantulum3_v1, hybrid_regex_quantulum3_v1)."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     p6_time_total_strategy: P6TimeTotalStrategy = Field(
@@ -743,6 +783,7 @@ class RunSettings(BaseModel):
                 "Priority 6 step time rollup strategy "
                 "(sum_all_v1, max_v1, selective_sum_v1)."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     p6_temperature_backend: P6TemperatureBackend = Field(
@@ -755,6 +796,7 @@ class RunSettings(BaseModel):
                 "Priority 6 temperature extractor backend "
                 "(regex_v1, quantulum3_v1, hybrid_regex_quantulum3_v1)."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     p6_temperature_unit_backend: P6TemperatureUnitBackend = Field(
@@ -764,6 +806,7 @@ class RunSettings(BaseModel):
             label="P6 Temperature Unit Backend",
             order=76,
             description="Priority 6 temperature unit conversion backend (builtin_v1 or pint_v1).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     p6_ovenlike_mode: P6OvenlikeMode = Field(
@@ -773,6 +816,7 @@ class RunSettings(BaseModel):
             label="P6 Ovenlike Mode",
             order=77,
             description="Priority 6 oven-like temperature classifier mode (keywords_v1 or off).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     p6_yield_mode: P6YieldMode = Field(
@@ -782,6 +826,7 @@ class RunSettings(BaseModel):
             label="P6 Yield Mode",
             order=78,
             description="Priority 6 yield parser mode (legacy_v1 passthrough or scored_v1).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_scorer_backend: str = Field(
@@ -791,6 +836,7 @@ class RunSettings(BaseModel):
             label="Recipe Scorer Backend",
             order=74,
             description="Recipe-likeness scorer backend. Default and supported backend is heuristic_v1.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_score_gold_min: float = Field(
@@ -802,6 +848,7 @@ class RunSettings(BaseModel):
             label="Recipe Score Gold Min",
             order=75,
             description="Minimum recipe-likeness score for gold tier.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_score_silver_min: float = Field(
@@ -813,6 +860,7 @@ class RunSettings(BaseModel):
             label="Recipe Score Silver Min",
             order=76,
             description="Minimum recipe-likeness score for silver tier.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_score_bronze_min: float = Field(
@@ -824,6 +872,7 @@ class RunSettings(BaseModel):
             label="Recipe Score Bronze Min",
             order=77,
             description="Minimum recipe-likeness score for bronze tier (below is reject).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_score_min_ingredient_lines: int = Field(
@@ -838,6 +887,7 @@ class RunSettings(BaseModel):
             step=1,
             minimum=0,
             maximum=100,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_score_min_instruction_lines: int = Field(
@@ -852,6 +902,7 @@ class RunSettings(BaseModel):
             step=1,
             minimum=0,
             maximum=100,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     ocr_device: OcrDevice = Field(
@@ -861,6 +912,7 @@ class RunSettings(BaseModel):
             label="OCR Device",
             order=80,
             description="OCR device selection for PDF processing.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     pdf_ocr_policy: PdfOcrPolicy = Field(
@@ -887,6 +939,7 @@ class RunSettings(BaseModel):
             step=1,
             minimum=1,
             maximum=256,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     pdf_column_gap_ratio: float = Field(
@@ -901,6 +954,7 @@ class RunSettings(BaseModel):
                 "Minimum horizontal gap ratio used for PDF column-boundary detection. "
                 "Higher values reduce multi-column splits."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     warm_models: bool = Field(
@@ -958,6 +1012,7 @@ class RunSettings(BaseModel):
                 "reports would-be downgrades without mutating predictions, and "
                 "enforce applies the accepted downgrades."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     llm_knowledge_pipeline: LlmKnowledgePipeline = Field(
@@ -1094,6 +1149,7 @@ class RunSettings(BaseModel):
             label="Codex Farm Failure Mode",
             order=150,
             description="Fail the run on codex-farm setup errors or fallback to deterministic outputs.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     # Derived from workload shape; not directly edited in the run settings UI.
