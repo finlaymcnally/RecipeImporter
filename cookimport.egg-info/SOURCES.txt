@@ -126,6 +126,7 @@ cookimport/parsing/epub_extractors.py
 cookimport/parsing/epub_health.py
 cookimport/parsing/epub_html_normalize.py
 cookimport/parsing/epub_postprocess.py
+cookimport/parsing/epub_table_rows.py
 cookimport/parsing/html_schema_extract.py
 cookimport/parsing/html_text_extract.py
 cookimport/parsing/ingredients.py

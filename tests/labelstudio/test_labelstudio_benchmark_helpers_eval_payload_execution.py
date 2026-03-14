@@ -337,9 +337,12 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     )
 
     captured_generate: dict[str, object] = {}
+    llm_manifest_path = prediction_run / "raw" / "llm" / "book" / "llm_manifest.json"
 
     def fake_generate_pred_run_artifacts(**kwargs):
         captured_generate.update(kwargs)
+        llm_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        llm_manifest_path.write_text("{}", encoding="utf-8")
         (prediction_run / "manifest.json").write_text(
             json.dumps(
                 {
@@ -354,6 +357,19 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
                     },
                     "run_config_hash": "hash-1",
                     "run_config_summary": "selective retry summary",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        (prediction_run / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_kind": "bench_pred_run",
+                    "artifacts": {
+                        "llm_manifest_json": str(llm_manifest_path),
+                    },
                 },
                 indent=2,
                 sort_keys=True,
@@ -436,6 +452,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
         run_manifest["run_config"]["prediction_run_config"]["selective_retry_attempted"]
         is True
     )
+    assert run_manifest["artifacts"]["llm_manifest_json"] == str(llm_manifest_path)
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
     upload_bundle_dir = eval_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME

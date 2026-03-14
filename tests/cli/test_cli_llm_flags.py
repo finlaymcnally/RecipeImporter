@@ -16,16 +16,16 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--codex-farm-cmd" in result.stdout
     assert "--codex-farm-root" in result.stdout
     assert "--codex-farm-workspace-root" in result.stdout
-    assert "--codex-farm-pipeline-pass1" in result.stdout
-    assert "--codex-farm-pipeline-pass2" in result.stdout
-    assert "--codex-farm-pipeline-pass3" in result.stdout
-    assert "--codex-farm-pipeline-pass4-knowledge" in result.stdout
-    assert "--codex-farm-pipeline-pass5-tags" in result.stdout
     assert "--codex-farm-context-blocks" in result.stdout
     assert "--codex-farm-knowledge-context-blocks" in result.stdout
     assert "--tag-catalog-json" in result.stdout
     assert "--codex-farm-failure-mode" in result.stdout
-    assert "--table-extraction" in result.stdout
+    assert "--codex-farm-pipeline-pass1" not in result.stdout
+    assert "--codex-farm-pipeline-pass2" not in result.stdout
+    assert "--codex-farm-pipeline-pass3" not in result.stdout
+    assert "--codex-farm-pipeline-pass4-knowledge" not in result.stdout
+    assert "--codex-farm-pipeline-pass5-tags" not in result.stdout
+    assert "--table-extraction" not in result.stdout
     assert "codex-farm-3pass-v1" in result.stdout
 
 
@@ -41,7 +41,7 @@ def test_benchmark_help_exposes_knowledge_codex_flags() -> None:
     assert result.exit_code == 0
     assert "--llm-recipe-pipeline" in result.stdout
     assert "--llm-knowledge-pipeline" in result.stdout
-    assert "--codex-farm-pipeline-pass4-knowledge" in result.stdout
     assert "--codex-farm-knowledge-context-blocks" in result.stdout
+    assert "--codex-farm-pipeline-pass4-knowledge" not in result.stdout
     assert "--codex-farm-benchmark-selective-retry" in result.stdout
     assert "--codex-farm-benchmark-selective-retry-max-attempts" in result.stdout

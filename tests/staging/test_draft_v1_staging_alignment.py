@@ -4,7 +4,11 @@ import json
 
 from cookimport.core.models import RecipeCandidate
 from cookimport.core.models import ConversionReport, ConversionResult
-from cookimport.staging.draft_v1 import _sanitize_staging_line, recipe_candidate_to_draft_v1
+from cookimport.staging.draft_v1 import (
+    _sanitize_staging_line,
+    apply_line_role_spans_to_recipes,
+    recipe_candidate_to_draft_v1,
+)
 from cookimport.staging.writer import write_draft_outputs
 
 
@@ -247,3 +251,82 @@ def test_write_draft_outputs_preserves_existing_override_aliases(tmp_path) -> No
     assert payload["name"] == "Pinned Name"
     assert payload["ingredients"] == ["pinned ingredient"]
     assert payload["instructions"] == ["Pinned instruction"]
+
+
+def test_apply_line_role_spans_to_recipes_keeps_credible_name_when_title_lacks_boundary_evidence() -> None:
+    recipe = RecipeCandidate(
+        name="Chicken Soup",
+        ingredients=["1 cup stock"],
+        instructions=["Heat stock."],
+    )
+    result = ConversionResult(recipes=[recipe], report=ConversionReport())
+
+    apply_line_role_spans_to_recipes(
+        conversion_result=result,
+        spans=[
+            {
+                "recipe_index": 0,
+                "line_index": 0,
+                "within_recipe_span": True,
+                "label": "RECIPE_TITLE",
+                "text": "SAUCES",
+            },
+            {
+                "recipe_index": 0,
+                "line_index": 1,
+                "within_recipe_span": True,
+                "label": "OTHER",
+                "text": (
+                    "I learned this in a restaurant kitchen, and this paragraph is "
+                    "narrative framing rather than recipe-local structure."
+                ),
+            },
+        ],
+    )
+
+    assert recipe.name == "Chicken Soup"
+
+
+def test_apply_line_role_spans_to_recipes_promotes_boundary_supported_title() -> None:
+    recipe = RecipeCandidate(
+        name="Untitled Recipe",
+        ingredients=[],
+        instructions=[],
+    )
+    result = ConversionResult(recipes=[recipe], report=ConversionReport())
+
+    apply_line_role_spans_to_recipes(
+        conversion_result=result,
+        spans=[
+            {
+                "recipe_index": 0,
+                "line_index": 0,
+                "within_recipe_span": True,
+                "label": "RECIPE_TITLE",
+                "text": "PAN-SEARED SALMON",
+            },
+            {
+                "recipe_index": 0,
+                "line_index": 1,
+                "within_recipe_span": True,
+                "label": "YIELD_LINE",
+                "text": "Serves 4",
+            },
+            {
+                "recipe_index": 0,
+                "line_index": 2,
+                "within_recipe_span": True,
+                "label": "INGREDIENT_LINE",
+                "text": "2 salmon fillets",
+            },
+            {
+                "recipe_index": 0,
+                "line_index": 3,
+                "within_recipe_span": True,
+                "label": "INSTRUCTION_LINE",
+                "text": "Heat oil in a skillet.",
+            },
+        ],
+    )
+
+    assert recipe.name == "PAN-SEARED SALMON"

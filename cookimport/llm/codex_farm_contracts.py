@@ -7,12 +7,13 @@ from pathlib import Path
 import re
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _BUNDLE_VERSION: Literal["1"] = "1"
 _NULL_HEX_PAIR_RE = re.compile(r"\x00([0-9a-fA-F]{2})")
 _TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 _CONTROL_CHAR_TRANSLATION = str.maketrans({chr(index): " " for index in range(32)})
+_WHITESPACE_RE = re.compile(r"\s+")
 _PASS2_EXTRACTIVE_MISMATCH_RE = re.compile(
     r"pass2 (?:ingredient|instruction)\[\d+\] not found in canonical_text",
     re.IGNORECASE,
@@ -55,6 +56,19 @@ def _normalize_json_text(raw: str) -> str:
     )
     normalized = normalized.translate(_CONTROL_CHAR_TRANSLATION)
     normalized = _TRAILING_COMMA_RE.sub(r"\1", normalized)
+    return normalized.strip()
+
+
+def _sanitize_text_fragment(raw: Any) -> str:
+    rendered = str(raw or "")
+    if not rendered:
+        return ""
+    normalized = _NULL_HEX_PAIR_RE.sub(
+        lambda match: chr(int(match.group(1), 16)),
+        rendered,
+    )
+    normalized = normalized.translate(_CONTROL_CHAR_TRANSLATION)
+    normalized = _WHITESPACE_RE.sub(" ", normalized)
     return normalized.strip()
 
 
@@ -150,6 +164,19 @@ def _coerce_json_object_field(value: Any, field_name: str) -> dict[str, Any]:
     raise ValueError(f"{field_name} must be a JSON object or JSON object string")
 
 
+def _sanitize_text_list_field(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be an array of strings")
+    rows: list[str] = []
+    for item in value:
+        cleaned = _sanitize_text_fragment(item)
+        if cleaned:
+            rows.append(cleaned)
+    return rows
+
+
 class BlockLite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -233,15 +260,40 @@ class Pass2SchemaOrgOutput(BaseModel):
     field_evidence: dict[str, Any]
     warnings: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _recover_auxiliary_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        payload["extracted_ingredients"] = _sanitize_text_list_field(
+            payload.get("extracted_ingredients"),
+            "extracted_ingredients",
+        )
+        payload["extracted_instructions"] = _sanitize_text_list_field(
+            payload.get("extracted_instructions"),
+            "extracted_instructions",
+        )
+        warnings = _string_list(payload.get("warnings"))
+        try:
+            payload["field_evidence"] = _coerce_json_object_field(
+                payload.get("field_evidence"),
+                "field_evidence",
+            )
+        except ValueError:
+            payload["field_evidence"] = {}
+            warning = (
+                "pass2 recovered malformed field_evidence; replaced with empty object."
+            )
+            if warning not in warnings:
+                warnings.append(warning)
+        payload["warnings"] = warnings
+        return payload
+
     @field_validator("schemaorg_recipe", mode="before")
     @classmethod
     def _coerce_schemaorg_recipe(cls, value: Any) -> dict[str, Any]:
         return _coerce_json_object_field(value, "schemaorg_recipe")
-
-    @field_validator("field_evidence", mode="before")
-    @classmethod
-    def _coerce_field_evidence(cls, value: Any) -> dict[str, Any]:
-        return _coerce_json_object_field(value, "field_evidence")
 
 
 class Pass3FinalDraftInput(BaseModel):
@@ -292,6 +344,78 @@ class Pass3FinalDraftOutput(BaseModel):
     @classmethod
     def _coerce_draft_v1(cls, value: Any) -> dict[str, Any]:
         return _coerce_json_object_field(value, "draft_v1")
+
+    @field_validator("ingredient_step_mapping", mode="before")
+    @classmethod
+    def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "ingredient_step_mapping")
+
+
+class MergedCanonicalRecipe(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    ingredients: list[str] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+    description: str | None = None
+    recipe_yield: str | None = Field(default=None, alias="recipeYield")
+
+    @field_validator("title", "description", "recipe_yield", mode="before")
+    @classmethod
+    def _normalize_text_fields(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return _sanitize_text_fragment(value)
+
+    @field_validator("ingredients", "steps", mode="before")
+    @classmethod
+    def _normalize_text_list_fields(cls, value: Any, info: Any) -> list[str]:
+        return _sanitize_text_list_field(value, info.field_name)
+
+
+class MergedRecipeRepairInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    recipe_id: str
+    workbook_slug: str
+    source_hash: str
+    canonical_text: str
+    evidence_rows: list[tuple[int, str]] = Field(default_factory=list)
+    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict)
+    draft_hint: dict[str, Any] = Field(default_factory=dict)
+    authority_notes: list[str] = Field(default_factory=list)
+
+    @field_validator("canonical_text", mode="before")
+    @classmethod
+    def _normalize_canonical_text(cls, value: Any) -> str:
+        return _sanitize_text_fragment(value)
+
+    @field_validator("recipe_candidate_hint", "draft_hint", mode="before")
+    @classmethod
+    def _coerce_hint_objects(cls, value: Any, info: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value or {}, info.field_name)
+
+    @field_validator("authority_notes", mode="before")
+    @classmethod
+    def _normalize_authority_notes(cls, value: Any) -> list[str]:
+        return _sanitize_text_list_field(value, "authority_notes")
+
+
+class MergedRecipeRepairOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle_version: Literal["1"] = _BUNDLE_VERSION
+    recipe_id: str
+    canonical_recipe: MergedCanonicalRecipe
+    ingredient_step_mapping: dict[str, Any]
+    ingredient_step_mapping_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("canonical_recipe", mode="before")
+    @classmethod
+    def _coerce_canonical_recipe(cls, value: Any) -> dict[str, Any]:
+        return _coerce_json_object_field(value, "canonical_recipe")
 
     @field_validator("ingredient_step_mapping", mode="before")
     @classmethod

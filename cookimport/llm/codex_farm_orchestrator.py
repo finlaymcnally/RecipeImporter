@@ -37,6 +37,7 @@ from .codex_farm_runner import (
     CodexFarmRunner,
     CodexFarmRunnerError,
     SubprocessCodexFarmRunner,
+    _is_recoverable_no_last_agent_message_failure,
     as_pipeline_run_result_payload,
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
@@ -149,6 +150,7 @@ class _RecipeState:
     pass1_raw_start_block_index: int | None = None
     pass1_raw_end_block_index: int | None = None
     pass1_span_loss_metrics: dict[str, Any] | None = None
+    pass1_degradation_reasons: list[str] = field(default_factory=list)
     pass1_eligibility_status: str | None = None
     pass1_eligibility_action: str | None = None
     pass1_eligibility_score: int | None = None
@@ -167,6 +169,8 @@ class _RecipeState:
     pass2_promotion_policy: str | None = None
     pass3_execution_mode: str | None = None
     pass3_routing_reason: str | None = None
+    pass3_mapping_status: str | None = None
+    pass3_mapping_reason: str | None = None
     pass3_utility_signal: dict[str, Any] | None = None
     structural_status: str = "ok"
     structural_reason_codes: list[str] = field(default_factory=list)
@@ -226,14 +230,41 @@ def _process_run_failure_category_counts(process_run: dict[str, Any] | None) -> 
     return counts
 
 
-def _selective_retry_eligible_process_run(process_run: dict[str, Any] | None) -> bool:
-    failure_counts = _process_run_failure_category_counts(process_run)
-    if not failure_counts or not _process_run_nonzero_exit(process_run):
+def _process_run_error_summary(process_run: dict[str, Any] | None) -> str | None:
+    if not isinstance(process_run, dict):
+        return None
+    value = process_run.get("error_summary")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _process_run_telemetry_payload(
+    process_run: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(process_run, dict):
+        return None
+    telemetry_payload = process_run.get("telemetry")
+    if not isinstance(telemetry_payload, dict):
+        return None
+    return telemetry_payload
+
+
+def _selective_retry_eligible_process_run(
+    process_run: dict[str, Any] | None,
+    *,
+    input_bundle_count: int,
+    output_bundle_count: int,
+) -> bool:
+    if not _process_run_nonzero_exit(process_run):
         return False
-    failure_categories = set(failure_counts)
-    return (
-        "nonzero_exit_no_payload" in failure_categories
-        and failure_categories <= _BENCHMARK_SELECTIVE_RETRY_ALLOWED_FAILURE_CATEGORIES
+    return _is_recoverable_no_last_agent_message_failure(
+        error_summary=_process_run_error_summary(process_run),
+        telemetry_payload=_process_run_telemetry_payload(process_run),
+        recipe_mode="benchmark",
+        input_bundle_count=input_bundle_count,
+        output_bundle_count=output_bundle_count,
     )
 
 
@@ -309,7 +340,14 @@ def _run_benchmark_selective_retry(
         return None
     if not run_settings.codex_farm_benchmark_selective_retry_enabled:
         return None
-    if not _selective_retry_eligible_process_run(original_process_run):
+    original_output_bundle_count = (
+        len(expected_bundle_filenames) - len(original_missing_bundle_filenames)
+    )
+    if not _selective_retry_eligible_process_run(
+        original_process_run,
+        input_bundle_count=len(expected_bundle_filenames),
+        output_bundle_count=original_output_bundle_count,
+    ):
         return None
 
     max_attempts = int(run_settings.codex_farm_benchmark_selective_retry_max_attempts)
@@ -390,7 +428,21 @@ def _run_benchmark_selective_retry(
         current_process_run = retry_process_run
         if not remaining_missing_bundle_filenames:
             break
-        if not _selective_retry_eligible_process_run(current_process_run):
+        retry_output_bundle_count = (
+            len(attempted_bundle_filenames)
+            - len(
+                [
+                    bundle_name
+                    for bundle_name in remaining_missing_bundle_filenames
+                    if bundle_name in attempted_bundle_filenames
+                ]
+            )
+        )
+        if not _selective_retry_eligible_process_run(
+            current_process_run,
+            input_bundle_count=len(attempted_bundle_filenames),
+            output_bundle_count=retry_output_bundle_count,
+        ):
             break
 
     recovered_bundle_filenames = sorted(
@@ -955,6 +1007,11 @@ def run_codex_farm_recipe_pipeline(
                 and state.pass3_routing_reason == "pass2_ok_high_confidence_deterministic"
             ):
                 state.pass2_promotion_policy = "pass2_ok_deterministic_promotion"
+            elif (
+                state.pass2_status == "ok"
+                and state.pass3_routing_reason == "pass1_partial_recipe_window"
+            ):
+                state.pass2_promotion_policy = "pass1_partial_window_deterministic_promotion"
             pass3_deterministic_states.append(state)
 
     for state in pass3_deterministic_states:
@@ -972,6 +1029,7 @@ def run_codex_farm_recipe_pipeline(
             )
             continue
         state.pass3_status = "ok"
+        state.pass3_mapping_status = "not_requested_deterministic"
         state.warnings.append(
             "pass3 skipped; deterministic promotion applied "
             f"({state.pass3_routing_reason or 'deterministic_path'})."
@@ -1064,6 +1122,15 @@ def run_codex_farm_recipe_pipeline(
                     ingredient_step_mapping_reason=output.ingredient_step_mapping_reason,
                     pass2_reason_codes=state.pass2_degradation_reasons,
                 )
+                (
+                    state.pass3_mapping_status,
+                    state.pass3_mapping_reason,
+                ) = _classify_pass3_mapping_status(
+                    draft_payload=draft_payload,
+                    pass2_output=state.pass2_output,
+                    ingredient_step_mapping=output.ingredient_step_mapping,
+                    ingredient_step_mapping_reason=output.ingredient_step_mapping_reason,
+                )
                 _merge_structural_audit(state=state, audit=structural_audit)
                 low_quality_reasons = _render_structural_reason_messages(
                     structural_audit.reason_codes
@@ -1108,6 +1175,8 @@ def run_codex_farm_recipe_pipeline(
             state.pass3_status = "fallback"
             state.pass3_execution_mode = "llm_then_deterministic_fallback"
             state.pass3_fallback_reason = pass3_error
+            if not state.pass3_mapping_status:
+                state.pass3_mapping_status = "not_requested_deterministic"
             state.warnings.extend(pass3_warnings)
             state.warnings.append(
                 _recipe_scoped_failure_mode_note(
@@ -1144,6 +1213,8 @@ def run_codex_farm_recipe_pipeline(
             continue
         if not state.pass3_execution_mode:
             state.pass3_execution_mode = "deterministic"
+        if not state.pass3_mapping_status:
+            state.pass3_mapping_status = "not_requested_deterministic"
         final_overrides[state.recipe_id] = fallback_model.model_dump(
             mode="json",
             by_alias=True,
@@ -1388,6 +1459,16 @@ def _paths_payload(
 def _build_recipe_guardrail_rows(states: list[_RecipeState]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for state in states:
+        if state.pass1_degradation_reasons:
+            rows.append(
+                {
+                    "recipe_id": state.recipe_id,
+                    "guardrail_type": "pass1_overlap_degradation",
+                    "applied": True,
+                    "decision": "degraded",
+                    "reasons": list(state.pass1_degradation_reasons),
+                }
+            )
         if state.pass1_eligibility_action in {"clamp", "drop"}:
             rows.append(
                 {
@@ -1448,6 +1529,9 @@ def _build_recipe_guardrail_report(
         "would_change_rows": len(rows),
         "summary": {
             "recipes_total": len(states),
+            "pass1_overlap_rows": sum(
+                1 for row in rows if row["guardrail_type"] == "pass1_overlap_degradation"
+            ),
             "pass1_eligibility_rows": sum(
                 1 for row in rows if row["guardrail_type"] == "pass1_eligibility"
             ),
@@ -1536,12 +1620,18 @@ def _build_llm_manifest(
             row["pass3_execution_mode"] = state.pass3_execution_mode
         if state.pass3_routing_reason:
             row["pass3_routing_reason"] = state.pass3_routing_reason
+        if state.pass3_mapping_status:
+            row["pass3_mapping_status"] = state.pass3_mapping_status
+        if state.pass3_mapping_reason:
+            row["pass3_mapping_reason"] = state.pass3_mapping_reason
         if isinstance(state.pass3_utility_signal, dict):
             row["pass3_utility_signal"] = dict(state.pass3_utility_signal)
         if state.pass3_fallback_reason:
             row["pass3_fallback_reason"] = state.pass3_fallback_reason
         if isinstance(state.pass1_span_loss_metrics, dict):
             row["pass1_span_loss_metrics"] = dict(state.pass1_span_loss_metrics)
+        if state.pass1_degradation_reasons:
+            row["pass1_degradation_reasons"] = list(state.pass1_degradation_reasons)
         if state.pass1_eligibility_status:
             row["eligibility_status"] = state.pass1_eligibility_status
         if state.pass1_eligibility_action:
@@ -2555,6 +2645,17 @@ def _apply_pass1_midpoint_clamps(states: list[_RecipeState], *, total_blocks: in
             state.warnings.append(
                 "pass1 boundaries clamped to resolve overlap while preserving pass1 evidence."
             )
+        state.pass1_degradation_reasons = _pass1_overlap_degradation_reasons(
+            raw_start_inclusive=raw_start_inclusive,
+            raw_end_inclusive=raw_end_inclusive,
+            adjusted_start_inclusive=adjusted_start_inclusive,
+            adjusted_end_inclusive=adjusted_end_inclusive,
+        )
+        if state.pass1_degradation_reasons:
+            state.warnings.append(
+                "pass1 overlap arbitration degraded span: "
+                + ", ".join(state.pass1_degradation_reasons)
+            )
         state.start_block_index = adjusted_start_inclusive
         state.end_block_index = adjusted_end_inclusive
         state.pass1_span_loss_metrics = _compute_span_loss_metrics(
@@ -2725,6 +2826,30 @@ def _compute_span_loss_metrics(
         "clamped_block_loss_ratio": round(clamped_block_loss_ratio, 6),
         "boundaries_clamped": bool(clamped_block_loss_count > 0),
     }
+
+
+def _pass1_overlap_degradation_reasons(
+    *,
+    raw_start_inclusive: int,
+    raw_end_inclusive: int,
+    adjusted_start_inclusive: int,
+    adjusted_end_inclusive: int,
+) -> list[str]:
+    reasons: list[str] = []
+    if adjusted_start_inclusive > raw_start_inclusive:
+        reasons.append("truncated_recipe_head")
+    if adjusted_end_inclusive < raw_end_inclusive:
+        reasons.append("truncated_recipe_tail")
+    raw_span_count = _inclusive_span_count(raw_start_inclusive, raw_end_inclusive)
+    adjusted_span_count = _inclusive_span_count(
+        adjusted_start_inclusive,
+        adjusted_end_inclusive,
+    )
+    lost_blocks = max(0, raw_span_count - adjusted_span_count)
+    loss_ratio = (float(lost_blocks) / float(raw_span_count)) if raw_span_count else 0.0
+    if reasons and (len(reasons) > 1 or lost_blocks >= 2 or loss_ratio >= 0.25):
+        reasons.append("partial_recipe_window")
+    return reasons
 
 
 def _inclusive_span_count(start: int | None, end: int | None) -> int:
@@ -2944,6 +3069,61 @@ def _build_pass3_utility_signal_for_pass2_ok(
     }
 
 
+def _normalize_mapping_reason_token(value: str | None) -> str:
+    rendered = str(value or "").strip().lower()
+    rendered = re.sub(r"[^a-z0-9]+", "_", rendered)
+    return rendered.strip("_")
+
+
+def _classify_pass3_mapping_status(
+    *,
+    draft_payload: dict[str, Any],
+    pass2_output: Pass2SchemaOrgOutput | None,
+    ingredient_step_mapping: dict[str, Any] | None,
+    ingredient_step_mapping_reason: str | None,
+) -> tuple[str, str | None]:
+    mapping_payload = (
+        ingredient_step_mapping if isinstance(ingredient_step_mapping, dict) else {}
+    )
+    rendered_reason = str(ingredient_step_mapping_reason or "").strip() or None
+    if mapping_payload:
+        return "mapped", rendered_reason
+    if rendered_reason:
+        normalized_reason = _normalize_mapping_reason_token(rendered_reason)
+        if any(
+            token in normalized_reason
+            for token in (
+                "not_needed",
+                "not_applicable",
+                "single_step",
+                "single_ingredient",
+                "single_action",
+                "already_ordered",
+            )
+        ):
+            return "not_needed", rendered_reason
+        return "unclear", rendered_reason
+
+    ingredient_count = (
+        sum(1 for item in pass2_output.extracted_ingredients if str(item).strip())
+        if pass2_output is not None
+        else 0
+    )
+    steps_payload = draft_payload.get("steps")
+    step_count = (
+        sum(
+            1
+            for step in steps_payload
+            if isinstance(step, dict) and str(step.get("instruction") or "").strip()
+        )
+        if isinstance(steps_payload, list)
+        else 0
+    )
+    if ingredient_count >= 2 and step_count >= 2:
+        return "missing_reason", None
+    return "not_needed_implicit", None
+
+
 def _should_run_pass3_llm(
     *,
     state: _RecipeState,
@@ -2951,6 +3131,8 @@ def _should_run_pass3_llm(
 ) -> tuple[bool, str]:
     if state.pass2_output is None:
         return False, "pass2_output_missing"
+    if "partial_recipe_window" in state.pass1_degradation_reasons:
+        return False, "pass1_partial_recipe_window"
     if state.pass2_status == "ok":
         if state.pass3_utility_signal is None:
             state.pass3_utility_signal = _build_pass3_utility_signal_for_pass2_ok(

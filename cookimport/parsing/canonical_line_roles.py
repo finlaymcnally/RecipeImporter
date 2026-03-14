@@ -162,6 +162,13 @@ _LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v2"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_PROMPT_FORMAT_ENV = "COOKIMPORT_LINE_ROLE_PROMPT_FORMAT"
+_SYNTAX_OWNED_LABELS = {
+    "TIME_LINE",
+    "YIELD_LINE",
+    "RECIPE_NOTES",
+    "HOWTO_SECTION",
+    "INGREDIENT_LINE",
+}
 
 
 class CanonicalLineRolePrediction(BaseModel):
@@ -395,16 +402,24 @@ def label_atomic_lines(
     for candidate in ordered:
         current = predictions[candidate.atomic_index]
         baseline = deterministic_baseline[candidate.atomic_index]
-        sanitized_by_index[candidate.atomic_index] = _sanitize_prediction(
-            prediction=current,
-            candidate=candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        sanitized_baseline_by_index[candidate.atomic_index] = _sanitize_prediction(
+        sanitized_baseline = _sanitize_prediction(
             prediction=baseline,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
         )
+        sanitized_current = _sanitize_prediction(
+            prediction=current,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        sanitized_current = _apply_label_ownership_arbitration(
+            prediction=sanitized_current,
+            baseline_prediction=sanitized_baseline,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        sanitized_by_index[candidate.atomic_index] = sanitized_current
+        sanitized_baseline_by_index[candidate.atomic_index] = sanitized_baseline
     if mode == "codex-line-role-v1":
         guardrail_mode = _line_role_guardrail_mode(settings)
         guardrail_diagnostics: dict[str, Any] | None = None
@@ -1727,6 +1742,111 @@ def _sanitize_prediction(
         decided_by=decided_by,
         candidate_labels=list(candidate_labels),
         reason_tags=reason_tags,
+    )
+
+
+def _prediction_with_reason_tags(
+    prediction: CanonicalLineRolePrediction,
+    *,
+    extra_reason_tags: Sequence[str],
+    decided_by: Literal["rule", "codex", "fallback"] | None = None,
+) -> CanonicalLineRolePrediction:
+    reason_tags: list[str] = []
+    seen: set[str] = set()
+    for tag in [*prediction.reason_tags, *extra_reason_tags]:
+        rendered = str(tag or "").strip()
+        if not rendered or rendered in seen:
+            continue
+        seen.add(rendered)
+        reason_tags.append(rendered)
+    return CanonicalLineRolePrediction(
+        recipe_id=prediction.recipe_id,
+        block_id=prediction.block_id,
+        block_index=prediction.block_index,
+        atomic_index=prediction.atomic_index,
+        text=prediction.text,
+        within_recipe_span=prediction.within_recipe_span,
+        label=prediction.label,
+        confidence=prediction.confidence,
+        decided_by=decided_by or prediction.decided_by,
+        candidate_labels=list(prediction.candidate_labels),
+        reason_tags=reason_tags,
+    )
+
+
+def _has_strong_syntax_label_evidence(
+    *,
+    label: str,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    if label == "TIME_LINE":
+        return _is_primary_time_line(candidate.text)
+    if label == "YIELD_LINE":
+        return _looks_strict_yield_header(candidate.text)
+    if label == "RECIPE_NOTES":
+        return (
+            _looks_note_text(candidate.text)
+            or _looks_recipe_note_prose(candidate.text)
+            or _looks_editorial_note(candidate.text)
+        )
+    if label == "HOWTO_SECTION":
+        return "howto_heading" in {str(tag) for tag in candidate.rule_tags} or _looks_subsection_heading_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+    if label == "INGREDIENT_LINE":
+        return _looks_obvious_ingredient(candidate) and not _looks_instructional_neighbor(
+            candidate
+        )
+    return False
+
+
+def _apply_label_ownership_arbitration(
+    *,
+    prediction: CanonicalLineRolePrediction,
+    baseline_prediction: CanonicalLineRolePrediction,
+    candidate: AtomicLineCandidate,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> CanonicalLineRolePrediction:
+    if prediction.decided_by != "codex" or prediction.label == baseline_prediction.label:
+        return prediction
+
+    baseline_label = str(baseline_prediction.label)
+    candidate_label = str(prediction.label)
+    if baseline_label in _SYNTAX_OWNED_LABELS and _has_strong_syntax_label_evidence(
+        label=baseline_label,
+        candidate=candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return _prediction_with_reason_tags(
+            baseline_prediction,
+            extra_reason_tags=[
+                f"ownership_veto_{baseline_label.lower()}",
+                f"ownership_rejected_{candidate_label.lower()}",
+            ],
+            decided_by="fallback",
+        )
+
+    if candidate_label in _SYNTAX_OWNED_LABELS and not _has_strong_syntax_label_evidence(
+        label=candidate_label,
+        candidate=candidate,
+        by_atomic_index=by_atomic_index,
+    ):
+        return _prediction_with_reason_tags(
+            baseline_prediction,
+            extra_reason_tags=[
+                f"ownership_veto_{candidate_label.lower()}_needs_strong_evidence",
+                f"ownership_rejected_{candidate_label.lower()}",
+            ],
+            decided_by="fallback",
+        )
+
+    return _prediction_with_reason_tags(
+        prediction,
+        extra_reason_tags=[
+            f"ownership_codex_override_{baseline_label.lower()}_to_{candidate_label.lower()}"
+        ],
     )
 
 

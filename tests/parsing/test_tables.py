@@ -57,3 +57,59 @@ def test_false_positive_guard_for_narrative_text() -> None:
 
     tables = detect_tables_from_non_recipe_blocks(non_recipe_blocks, source_hash="abc123")
     assert tables == []
+
+
+def test_detect_structured_epub_rows_without_reparsing_text() -> None:
+    non_recipe_blocks = [
+        {"index": 40, "text": "COMMON WEIGHT CONVERSIONS", "features": {"is_header_likely": True}},
+        {
+            "index": 41,
+            "text": "ounces grams",
+            "features": {
+                "epub_table_row": True,
+                "epub_table_cells": ["ounces", "grams"],
+                "epub_table_column_count": 2,
+                "epub_table_header_row": True,
+            },
+        },
+        {
+            "index": 42,
+            "text": "1 28",
+            "features": {
+                "epub_table_row": True,
+                "epub_table_cells": ["1", "28"],
+                "epub_table_column_count": 2,
+            },
+        },
+        {
+            "index": 43,
+            "text": "2 57",
+            "features": {
+                "epub_table_row": True,
+                "epub_table_cells": ["2", "57"],
+                "epub_table_column_count": 2,
+            },
+        },
+    ]
+
+    tables = detect_tables_from_non_recipe_blocks(non_recipe_blocks, source_hash="abc123")
+    assert len(tables) == 1
+    assert tables[0].caption == "COMMON WEIGHT CONVERSIONS"
+    assert tables[0].headers == ["ounces", "grams"]
+    assert tables[0].rows == [["1", "28"], ["2", "57"]]
+    assert "parse_modes=epub_structured" in tables[0].notes
+
+
+def test_salvage_flattened_reference_table_from_conversion_heading() -> None:
+    non_recipe_blocks = [
+        {"index": 50, "text": "COMMON WEIGHT CONVERSIONS", "features": {"is_header_likely": True}},
+        {"index": 51, "text": "ounces grams 1 28 2 57 3 85 4 113"},
+    ]
+
+    tables = detect_tables_from_non_recipe_blocks(non_recipe_blocks, source_hash="abc123")
+    assert len(tables) == 1
+    assert tables[0].caption == "COMMON WEIGHT CONVERSIONS"
+    assert tables[0].headers == ["ounces", "grams"]
+    assert tables[0].rows == [["1", "28"], ["2", "57"], ["3", "85"], ["4", "113"]]
+    assert "parse_modes=flattened_reference_salvage" in tables[0].notes
+    assert tables[0].row_block_indices == [51]

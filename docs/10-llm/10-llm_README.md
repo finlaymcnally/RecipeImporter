@@ -39,7 +39,7 @@ Recipe codex-farm pass modules:
 - `cookimport/llm/codex_farm_runner.py` (subprocess runner + shared error type)
   - runner now treats `no last agent message` / `nonzero_exit_no_payload` process failures as recoverable partial-output mode.
   - in benchmark mode, mixed `nonzero_exit_no_payload` + `timeout` failures are also recoverable when output coverage stays high (currently at least 80% bundles written, with at most 3 missing bundles), so downstream scoring can drop only the missing recipes instead of failing the whole book.
-  - benchmark recipe mode can now use that same recoverable partial-output contract to trigger pass-boundary selective retry: pass2/pass3 rerun only the missing bundle files, write retry evidence under `retry_attempt_XX/`, and never overwrite successful original outputs.
+  - benchmark recipe mode can now use that same runner-equivalent recoverable partial-output contract to trigger pass-boundary selective retry: pass2/pass3 rerun only the missing bundle files only when the serialized process payload still carries the same `no last agent message` evidence and benchmark coverage thresholds, write retry evidence under `retry_attempt_XX/`, and never overwrite successful original outputs.
   - outside benchmark mode, those mixed timeout failures remain hard errors.
   - hard failures that exit before `codex-farm` emits a `run_id` now carry a condensed `stderr_summary` in the raised error so benchmark/stage logs expose login-precheck/auth/quota failures instead of only `subprocess_exit=1`.
 
@@ -48,6 +48,7 @@ Canonical line-role helper modules:
 - `cookimport/llm/codex_exec.py` (shared `codex exec -` invocation helper with json-event parsing and non-interactive fallback)
 - `cookimport/llm/canonical_line_role_prompt.py` (structured prompt builder for line-role-only Codex fallback batches)
 - `llm_pipelines/prompts/canonical-line-role-v1.prompt.md` (versioned prompt template for canonical line-role fallback)
+- `cookimport/parsing/canonical_line_roles.py` now records Codex-versus-deterministic disagreement reasons in `reason_tags`, and strong deterministic `TIME_LINE`, `YIELD_LINE`, `RECIPE_NOTES`, `HOWTO_SECTION`, and ingredient calls stay baseline-first unless local evidence is strong enough to justify a Codex override.
 
 Pass4 knowledge modules:
 
@@ -121,6 +122,7 @@ Report/model plumbing:
   - `normalization_stats`
 - Pass1->pass2 transport now uses explicit inclusive end-index semantics (`start <= idx <= end`) through `codex_farm_transport.py`, and transport audits include `end_index_semantics=\"inclusive\"`.
 - Pass1 clamp behavior is overlap-focused: when recipe spans overlap, boundaries are split across the overlap window midpoint to reduce evidence loss while still preventing overlap.
+- Midpoint-clamped pass1 rows now also record per-recipe `pass1_degradation_reasons`; `partial_recipe_window` rows are treated as structurally partial and are kept on deterministic pass3 fallback/promotion paths instead of spending a live pass3 call.
 - Pass1 now applies an eligibility do-no-harm gate before pass2:
   - score `+2` ingredient-like evidence, `+2` instruction-like evidence, `+1` heading/yield context, `-2` high prose dominance, `-2` high chapter/page metadata negative evidence (chapter-intro/front-matter/mixed-content style tags).
   - action bands: `score >= 3 => proceed`, `score 1-2 => clamp to heuristic bounds`, `score <= 0 => drop before pass2`.
@@ -129,6 +131,7 @@ Report/model plumbing:
 - Authoritative pass2 evidence remains `canonical_text` + `blocks`; normalized evidence is helper-only.
 - Recipe-level pass1/pass2 handoff audits are persisted under:
   - `raw/llm/<workbook_slug>/transport_audit/*.json` (sanitized recipe-id keyed)
+  - each audit now includes `verification.status|reason_codes|source_hash|source_row_count|effective_row_count|payload_row_count` so transport failures can distinguish missing source rows from payload-shape mismatches.
 - Recipe-level evidence normalization provenance is persisted under:
   - `raw/llm/<workbook_slug>/evidence_normalization/*.json` (sanitized recipe-id keyed)
 - Transport mismatches now set recipe-level status according to failure mode:
@@ -142,9 +145,14 @@ Report/model plumbing:
   - pass3 fallback counts (when deterministic fallback replaces low-quality pass3 output),
   - `selective_retries.pass2|pass3` payloads with a resolved retry settings snapshot, attempted/recovered/unrecovered bundles, recipe ids, retry directories, and per-attempt `process_run` payloads,
   - concise retry counts (`selective_retry_attempted`, `selective_retry_pass2_attempts`, `selective_retry_pass2_recovered`, `selective_retry_pass3_attempts`, `selective_retry_pass3_recovered`) that are mirrored into prediction-run and benchmark `run_manifest.json`.
+  - benchmark root `run_manifest.json` also keeps a direct `llm_manifest_json` artifact link so reviewers can jump from the benchmark root into the detailed retry audit trail.
 - Pass2 degradation is now severity-scoped before pass3 routing:
   - hard degradation (`missing_instructions`, placeholder-only instruction evidence, or non-soft warning buckets) still fail-closes to deterministic fallback (`pass3_status=fallback`);
   - soft degradation (`warning_bucket:page_or_layout_artifact` only) stays `pass2_status=degraded` but is eligible for selective pass3 routing.
+- Structural-success rules now live in `cookimport/llm/codex_farm_contracts.py` instead of being spread across the orchestrator:
+  - per-recipe `llm_manifest.json` rows now always include `structural_status` plus `structural_reason_codes`.
+  - hard structural reasons currently include `placeholder_title`, `extractive_text_not_in_transport_span`, `empty_mapping_without_reason`, and pass3 placeholder/step-shape failures.
+  - pass3 outputs can declare `ingredient_step_mapping_reason` when an empty mapping is intentional; empty mapping without that reason is now a structural failure when the row has multiple ingredients and multiple steps.
 - Pass3 routing now records additive metadata per recipe in `llm_manifest`:
   - `pass2_degradation_severity`, `pass2_promotion_policy`,
   - `pass3_execution_mode`, `pass3_routing_reason`.
@@ -165,8 +173,14 @@ Report/model plumbing:
 - Deterministic fallback now starts from the existing `state.recipe` candidate, then applies guarded pass2 enrichments when instruction/ingredient evidence is non-empty and non-placeholder.
 - When pass3 returns placeholder-only steps but pass2 contains non-placeholder extracted instructions, orchestrator now repairs steps from pass2 evidence before low-quality rejection.
 - Pass2/Pass3 contract loaders now attempt bounded repair for malformed object strings (control-byte cleanup, null-hex artifact cleanup, bracket rebalance, and first-object extraction) before raising validation errors.
+- Pass2 contract loading now also treats malformed auxiliary `field_evidence` as recoverable: it is replaced with `{}` and a warning, while `schemaorg_recipe` remains strict.
+- Pass2 extracted ingredient/instruction arrays are sanitized on load to remove control-byte corruption while keeping ordinary Unicode text intact.
 - Pass3 draft normalization now coerces legacy `draft_v1` object shapes (for example `name`/`instructions`, schema.org-only, or pass2-like objects) into valid `RecipeDraftV1` (`schema_v`, `recipe.title`, `steps`) before final validation.
+- Per-recipe `llm_manifest.json` rows now also expose `pass3_mapping_status` plus `pass3_mapping_reason`, with the current compact pass3 prompt/schema using `ingredient_step_mapping_reason` as the source signal for empty-but-justified or empty-and-unclear mappings.
 - Recipe-pass block extraction now falls back to `full_text.lines` when `full_text.blocks` is missing/empty (common in some cached prediction payloads), synthesizing minimal block rows by line index so codexfarm can still execute pass1/pass2/pass3.
+- Subprocess-backed recipe pass manifests now also carry `process_runs.pass1|pass2|pass3.runtime_mode_audit`:
+  - expected steady-state is `mode=structured_output_non_agentic`, `output_schema_enforced=true`, `tool_affordances_requested=false`, `status=ok`.
+  - `llm_manifest.json.counts.runtime_mode_violations` and `llm_manifest.runtime_mode.violations` summarize any pass that breaks that contract.
 
 ## 2026-02-28 merged task specs (`docs/tasks` batch)
 

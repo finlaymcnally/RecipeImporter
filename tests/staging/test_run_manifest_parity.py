@@ -151,7 +151,6 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "epub_unstructured_html_parser_version",
         "epub_unstructured_skip_headers_footers",
         "epub_unstructured_preprocess_mode",
-        "table_extraction",
         "section_detector_backend",
         "ingredient_text_fix_backend",
         "ingredient_pre_normalize_mode",

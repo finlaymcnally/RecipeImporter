@@ -156,7 +156,7 @@ Split job:
   - Rebuilds merged `raw/<importer>/<source_hash>/full_text.json` from split-job `full_text` artifacts and rebases block indices
   - Code still contains a merged-result codex-farm recipe branch for `llm_recipe_pipeline != off`, but current CLI/run-settings normalization keeps this path disabled (`off`)
   - Re-partitions tips from merged `tip_candidates`
-  - Optionally extracts non-recipe tables from merged block stream when `table_extraction=on`
+  - Always extracts non-recipe tables from merged block stream before chunk generation
   - Rebuilds chunks once from merged non-recipe/topic data
   - Emits phase-by-phase main-process status updates (merge payloads, IDs, chunk build, write phases, raw merge)
   - Writes intermediate/final outputs plus sections, tips, topic candidates, optional chunks/tables, stage-block predictions, and report
@@ -201,6 +201,7 @@ From code and historical notes:
 Convergence point:
 - All importers return `ConversionResult`.
 - Importers now score each candidate with deterministic recipe-likeness (`heuristic_v1`) and map tier to gate action (`keep_full`, `keep_partial`, `reject`).
+- EPUB conversion/reference section titles such as `WEIGHT CONVERSIONS` and `COMMON TEMPERATURE CONVERSIONS` now take an explicit recipe-likeness penalty so preserved tables stay available to `nonRecipeBlocks` instead of being emitted as fake recipes.
 - Rejected candidates are preserved as `nonRecipeBlocks` so downstream tip/topic/chunk extraction keeps that source text.
 - Final recipe normalization converges in `write_draft_outputs(...)` where `recipe_candidate_to_draft_v1(...)` runs shared parsing/linking transforms.
 - Knowledge chunking happens after conversion from `non_recipe_blocks` (or topic fallback).
@@ -257,6 +258,7 @@ Block extraction:
 - Adds `spine_index` feature to blocks for deterministic merge ordering
 - Skips nav/TOC spine docs when identified via OPF `properties="nav"` or nav/toc signatures in HTML.
 - Applies shared post-extraction cleanup for `unstructured`/`beautifulsoup`/`markdown` (`cookimport/parsing/epub_postprocess.py`) before segmentation.
+- HTML-table EPUB rows are now preserved with structured cell metadata (`features.epub_table_cells`) and visible `|` delimiters in both the BeautifulSoup and unstructured paths, so downstream table extraction can recover conversion/reference charts deterministically.
 - Stage/benchmark prediction flows now require explicit extractor choices (`unstructured|beautifulsoup|markdown|markitdown`).
 - Standalone tip/topic extraction now applies deterministic pre-candidate filtering (`toc_noise`, `cross_reference_noise`, `intro_narrative`, duplicate-title carryover) and deterministic long-block sentence splitting, with raw diagnostics artifact `standalone_tip_filter_diagnostics`.
 
@@ -427,7 +429,7 @@ Behavior highlights:
 - `tips.py` mines candidate-anchored tips plus standalone-topic tips and partitions into `general` / `recipe_specific` / `not_tip`.
 - `atoms.py` splits standalone non-recipe text containers into atomic lines for standalone tip/topic analysis.
 - `chunks.py` builds `KnowledgeChunk` records from non-recipe blocks (or topic fallback), preserving table runs via `table_id`.
-- `tables.py` detects/annotates table rows in non-recipe blocks and emits `ExtractedTable` payloads.
+- `tables.py` detects/annotates table rows in non-recipe blocks and emits `ExtractedTable` payloads; it now prefers structured EPUB row metadata before falling back to text parsing.
 - `sections.py` groups ingredient and instruction lines into sectioned artifacts used by writer section outputs.
 
 Unstructured adapter traceability fields per block:

@@ -13,6 +13,10 @@ from bs4 import BeautifulSoup, FeatureNotFound, Tag
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning
+from cookimport.parsing.epub_table_rows import (
+    build_structured_epub_row_block,
+    structured_epub_row_from_tag,
+)
 from cookimport.parsing.markdown_blocks import markdown_to_blocks
 
 logger = logging.getLogger(__name__)
@@ -232,26 +236,15 @@ class BeautifulSoupEpubExtractor:
         spine_index: int,
         source_location_id: str,
     ) -> Block | None:
-        cells = [cell for cell in row.find_all(self._is_table_cell_tag, recursive=False)]
-        if not cells:
-            cells = [cell for cell in row.find_all(self._is_table_cell_tag)]
-
-        cell_text = [
-            cleaning.normalize_epub_text(cell.get_text(" ", strip=True))
-            for cell in cells
-        ]
-        cell_text = [value for value in cell_text if value]
-        if not cell_text:
+        structured_row = structured_epub_row_from_tag(row)
+        if structured_row is None:
             return None
 
-        block = Block(
-            text=" ".join(cell_text),
-            type=BlockType.TABLE,
-            html=str(row),
-            font_weight="normal",
+        block = build_structured_epub_row_block(
+            structured_row,
+            structure_source="beautifulsoup_html_tr",
         )
         block.add_feature("extraction_backend", self.name)
-        block.add_feature("epub_table_row", True)
         block.add_feature("spine_index", spine_index)
         block.add_feature("source_location_id", source_location_id)
         return block

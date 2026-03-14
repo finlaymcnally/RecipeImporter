@@ -18,6 +18,11 @@ from bs4 import BeautifulSoup, FeatureNotFound
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning
+from cookimport.parsing.epub_table_rows import (
+    build_structured_epub_row_block,
+    extract_structured_epub_rows_from_html,
+    render_structured_epub_row_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +267,17 @@ def partition_html_to_blocks(
 
         text_segments = [text]
         split_reason: str | None = None
+        structured_rows = None
+        if category == "Table":
+            table_html = metadata.get("text_as_html")
+            if isinstance(table_html, str):
+                structured_rows = extract_structured_epub_rows_from_html(table_html)
+            if structured_rows:
+                text_segments = [
+                    render_structured_epub_row_text(row.cells)
+                    for row in structured_rows
+                ]
+                split_reason = "table_html_rows"
         if category == "ListItem" and ("\n" in raw_text or "\r" in raw_text):
             split_lines = _split_list_item_lines(raw_text)
             if split_lines:
@@ -290,6 +306,7 @@ def partition_html_to_blocks(
                 text=segment_text,
                 type=block_type,
                 font_weight=font_weight,
+                html=structured_rows[split_index].html if structured_rows else None,
             )
 
             # Core traceability features
@@ -331,6 +348,12 @@ def partition_html_to_blocks(
             if category == "ListItem":
                 block.add_feature("is_list_item", True)
                 block.add_feature("list_depth_hint", int(category_depth))
+            if structured_rows:
+                table_row_block = build_structured_epub_row_block(
+                    structured_rows[split_index],
+                    structure_source="unstructured_table_html",
+                )
+                block.features.update(table_row_block.features)
 
             blocks.append(block)
 

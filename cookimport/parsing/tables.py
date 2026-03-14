@@ -10,6 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _MULTISPACE_SPLIT_RE = re.compile(r"\s{2,}")
 _MARKDOWN_DIVIDER_CELL_RE = re.compile(r"^:?-{3,}:?$")
+_REFERENCE_TABLE_CAPTION_RE = re.compile(
+    r"\b(conversion|equivalenc|temperature|doneness|weight|weights|volume|mass)\b",
+    re.IGNORECASE,
+)
+_REFERENCE_TABLE_HEADER_PREFIX_RE = re.compile(
+    r"^\s*(?P<header_a>[A-Za-z%/°.]+)\s+(?P<header_b>[A-Za-z%/°.]+)\s+(?P<body>.+)$"
+)
+_REFERENCE_VALUE_PAIR_RE = re.compile(
+    r"(?P<left>-?\d+(?:\.\d+)?(?:/\d+)?(?:\s*\([^)]{1,80}\))?)\s+"
+    r"(?P<right>-?\d+(?:\.\d+)?)"
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -55,9 +66,6 @@ def detect_tables_from_non_recipe_blocks(
         return []
 
     candidates = _find_candidate_rows(normalized_blocks)
-    if not candidates:
-        return []
-
     tables: list[ExtractedTable] = []
     index = 0
     while index < len(candidates):
@@ -85,6 +93,19 @@ def detect_tables_from_non_recipe_blocks(
 
         index = scan
 
+    occupied_block_indices = {
+        block_index
+        for table in tables
+        for block_index in table.row_block_indices
+    }
+    tables.extend(
+        _salvage_flattened_reference_tables(
+            normalized_blocks,
+            source_hash=source_hash,
+            caption_lookback=caption_lookback,
+            occupied_block_indices=occupied_block_indices,
+        )
+    )
     return tables
 
 
@@ -144,10 +165,12 @@ def extract_and_annotate_tables(
 def _find_candidate_rows(normalized_blocks: Sequence[dict[str, Any]]) -> list[_CandidateRow]:
     rows: list[_CandidateRow] = []
     for sequence_pos, block in enumerate(normalized_blocks):
-        text = str(block.get("text") or "").strip()
-        if not text:
-            continue
-        parsed = _parse_row(text)
+        parsed = _parse_structured_epub_row_block(block)
+        if parsed is None:
+            text = str(block.get("text") or "").strip()
+            if not text:
+                continue
+            parsed = _parse_row(text)
         if parsed is None:
             continue
         block_index = _coerce_int(block.get("index"))
@@ -163,6 +186,25 @@ def _find_candidate_rows(normalized_blocks: Sequence[dict[str, Any]]) -> list[_C
             )
         )
     return rows
+
+
+def _parse_structured_epub_row_block(block: Mapping[str, Any]) -> dict[str, Any] | None:
+    features = block.get("features")
+    if not isinstance(features, Mapping):
+        return None
+    if not bool(features.get("epub_table_row")):
+        return None
+    raw_cells = features.get("epub_table_cells")
+    if not isinstance(raw_cells, Sequence) or isinstance(raw_cells, (str, bytes)):
+        return None
+    cells = [_normalize_cell(cell) for cell in raw_cells]
+    if len(cells) < 2 or not any(cells):
+        return None
+    return {
+        "cells": cells,
+        "separator": False,
+        "parse_mode": "epub_structured",
+    }
 
 
 def _parse_row(text: str) -> dict[str, Any] | None:
@@ -516,6 +558,97 @@ def _score_table(*, rows: Sequence[_CandidateRow], headers: list[str] | None) ->
     if len({len(row.cells) for row in rows}) > 2:
         score -= 0.1
     return max(0.05, min(0.99, round(score, 3)))
+
+
+def _salvage_flattened_reference_tables(
+    normalized_blocks: Sequence[dict[str, Any]],
+    *,
+    source_hash: str,
+    caption_lookback: int,
+    occupied_block_indices: set[int],
+) -> list[ExtractedTable]:
+    tables: list[ExtractedTable] = []
+    for sequence_pos, block in enumerate(normalized_blocks):
+        block_index = _coerce_int(block.get("index"))
+        if block_index is None or block_index in occupied_block_indices:
+            continue
+        text = str(block.get("text") or "").strip()
+        if not text or "\n" in text:
+            continue
+        caption = _infer_caption(
+            normalized_blocks,
+            start_pos=sequence_pos,
+            lookback=caption_lookback,
+        )
+        if not caption or not _REFERENCE_TABLE_CAPTION_RE.search(caption):
+            continue
+        parsed = _parse_flattened_reference_table(text)
+        if parsed is None:
+            continue
+        markdown = _render_markdown(headers=parsed["headers"], rows=parsed["rows"])
+        row_texts = _render_row_texts(headers=parsed["headers"], rows=parsed["rows"])
+        tables.append(
+            ExtractedTable(
+                table_id=_stable_table_id(
+                    source_hash=source_hash,
+                    start=block_index,
+                    end=block_index,
+                ),
+                caption=caption,
+                start_block_index=block_index,
+                end_block_index=block_index,
+                headers=parsed["headers"],
+                rows=parsed["rows"],
+                row_block_indices=[block_index],
+                markdown=markdown,
+                row_texts=row_texts,
+                confidence=0.43,
+                notes=[
+                    "headers=salvaged_from_flattened_reference",
+                    "parse_modes=flattened_reference_salvage",
+                    "row_block_indices=single_source_block",
+                ],
+            )
+        )
+    return tables
+
+
+def _parse_flattened_reference_table(text: str) -> dict[str, list[list[str]] | list[str]] | None:
+    normalized = _WHITESPACE_RE.sub(" ", text).strip()
+    header_match = _REFERENCE_TABLE_HEADER_PREFIX_RE.match(normalized)
+    if header_match is None:
+        return None
+
+    headers = [
+        _normalize_cell(header_match.group("header_a")),
+        _normalize_cell(header_match.group("header_b")),
+    ]
+    if any(_contains_digits(header) for header in headers):
+        return None
+
+    body = header_match.group("body").strip()
+    rows: list[list[str]] = []
+    position = 0
+    while position < len(body):
+        match = _REFERENCE_VALUE_PAIR_RE.match(body, position)
+        if match is None:
+            return None
+        rows.append(
+            [
+                _normalize_cell(match.group("left")),
+                _normalize_cell(match.group("right")),
+            ]
+        )
+        position = match.end()
+        while position < len(body) and body[position].isspace():
+            position += 1
+
+    if len(rows) < 3:
+        return None
+    return {
+        "headers": headers,
+        "rows": rows,
+    }
 
 
 def _coerce_int(value: Any) -> int | None:

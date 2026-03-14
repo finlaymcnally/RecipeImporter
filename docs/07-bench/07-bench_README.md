@@ -75,10 +75,16 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - benchmark prediction generation also accepts benchmark-only selective retry knobs for Codex Farm recipe passes:
   - `--codex-farm-benchmark-selective-retry/--no-codex-farm-benchmark-selective-retry`
   - `--codex-farm-benchmark-selective-retry-max-attempts <int>`
+  - these knobs are part of the visible `labelstudio-benchmark --help` surface, unlike the hidden pass-pipeline override flags
 - `--line-role-gated/--no-line-role-gated` (Milestone 5 canonical regression gates)
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
-- when `codex_farm_recipe_mode=benchmark`, pass2/pass3 partial-output runs that were already accepted by the runner can now retry only the missing bundle files; successful original outputs stay untouched, retry artifacts live under `raw/llm/<workbook_slug>/pass2_schemaorg/retry_attempt_XX` or `pass3_final/retry_attempt_XX`, detailed truth lives in `raw/llm/<workbook_slug>/llm_manifest.json`, and benchmark/prediction-run `run_manifest.json` keeps only concise retry counts.
+- when `codex_farm_recipe_mode=benchmark`, pass2/pass3 partial-output runs that were already accepted by the runner can now retry only the missing bundle files; successful original outputs stay untouched, retry artifacts live under `raw/llm/<workbook_slug>/pass2_schemaorg/retry_attempt_XX` or `pass3_final/retry_attempt_XX`, detailed truth lives in `raw/llm/<workbook_slug>/llm_manifest.json`, and benchmark/prediction-run `run_manifest.json` keeps concise retry counts while the benchmark root also preserves a direct `llm_manifest_json` artifact link.
+- CodexFarm benchmark prediction roots now surface structural/invariant diagnostics directly in `raw/llm/<workbook_slug>/llm_manifest.json`:
+  - per-recipe `structural_status` + `structural_reason_codes`,
+  - transport `verification.*` fields inside `transport_audit/*.json`,
+  - top-level `counts.structural_degraded`, `counts.structural_failed`, and `counts.runtime_mode_violations`,
+  - top-level `runtime_mode.violations` for any pass whose subprocess invocation stopped looking like structured-output/non-agentic recipe work.
 - `--no-upload` for fully offline behavior
 - `--no-write-markdown`
 - `--no-write-labelstudio-tasks` (offline/no-upload path)

@@ -22,10 +22,12 @@ from cookimport.epub_extractor_names import (
     normalize_epub_extractor_name,
 )
 from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    summarize_run_config_payload,
 )
 from cookimport.config.codex_decision import (
     apply_codex_execution_policy_metadata,
@@ -428,9 +430,7 @@ def _normalize_epub_extractor(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized == "off":
-        return normalized
-    if normalized == "codex-farm-3pass-v1":
+    if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return normalized
     raise ValueError(
         f"Invalid llm_recipe_pipeline. {RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR}"
@@ -1124,10 +1124,7 @@ def _write_processed_outputs(
     tips_dir = run_root / "tips" / workbook_name
 
     extracted_tables: list[ExtractedTable] = []
-    table_extraction_enabled = (
-        str((run_config or {}).get("table_extraction", "off")).strip().lower() == "on"
-    )
-    if table_extraction_enabled and result.non_recipe_blocks:
+    if result.non_recipe_blocks:
         source_hash = "unknown"
         for artifact in result.raw_artifacts:
             if artifact.source_hash:
@@ -1203,15 +1200,14 @@ def _write_processed_outputs(
         output_stats=output_stats,
         write_markdown=write_markdown,
     )
-    if table_extraction_enabled:
-        write_table_outputs(
-            run_root,
-            workbook_name,
-            extracted_tables,
-            source_file=path.name,
-            output_stats=output_stats,
-            write_markdown=write_markdown,
-        )
+    write_table_outputs(
+        run_root,
+        workbook_name,
+        extracted_tables,
+        source_file=path.name,
+        output_stats=output_stats,
+        write_markdown=write_markdown,
+    )
     if result.chunks:
         chunks_dir = run_root / "chunks" / workbook_name
         write_chunk_outputs(
@@ -2003,10 +1999,7 @@ def generate_pred_run_artifacts(
             ensure_ascii=True,
         ).encode("utf-8")
     ).hexdigest()
-    run_config_summary = " | ".join(
-        f"{key}={'true' if value is True else 'false' if value is False else value}"
-        for key, value in sorted(run_config.items())
-    )
+    run_config_summary = summarize_run_config_payload(run_config)
     run_mapping: MappingConfig | None = None
     if path.suffix.lower() == ".pdf":
         run_mapping = MappingConfig(
@@ -2655,10 +2648,7 @@ def generate_pred_run_artifacts(
             ensure_ascii=True,
         ).encode("utf-8")
     ).hexdigest()
-    run_config_summary = " | ".join(
-        f"{key}={'true' if value is True else 'false' if value is False else value}"
-        for key, value in sorted(run_config.items())
-    )
+    run_config_summary = summarize_run_config_payload(run_config)
 
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None

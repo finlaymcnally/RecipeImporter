@@ -167,15 +167,12 @@ Config keys and defaults:
 - `all_method_retry_failed_configs` (default `1`; `0` disables retries)
 - `all_method_wing_backlog_target` (default follows split slots)
 - `all_method_smart_scheduler` (default `true`)
-- `benchmark_sequence_matcher` (default `dmp`; canonical-text matcher for benchmark/eval runs)
 - `epub_extractor` (default `unstructured`)
 - `epub_unstructured_html_parser_version` (default `v1`)
 - `epub_unstructured_skip_headers_footers` (default `true`)
 - `epub_unstructured_preprocess_mode` (default `semantic_v1`)
-- `table_extraction` (default `off`)
 - `section_detector_backend` (default `legacy`)
 - `multi_recipe_splitter` (default `legacy`)
-- `multi_recipe_trace` (default `false`)
 - `multi_recipe_min_ingredient_lines` (default `1`)
 - `multi_recipe_min_instruction_lines` (default `1`)
 - `multi_recipe_for_the_guardrail` (default `true`)
@@ -200,7 +197,6 @@ Config keys and defaults:
 - `p6_temperature_unit_backend` (default `builtin_v1`)
 - `p6_ovenlike_mode` (default `keywords_v1`)
 - `p6_yield_mode` (default `legacy_v1`)
-- `p6_emit_metadata_debug` (default `false`)
 - `recipe_scorer_backend` (default `heuristic_v1`)
 - `recipe_score_gold_min` (default `0.75`)
 - `recipe_score_silver_min` (default `0.55`)
@@ -224,17 +220,12 @@ Config keys and defaults:
 - `codex_farm_cmd` (default `codex-farm`)
 - `codex_farm_root` (default unset; falls back to `<repo_root>/llm_pipelines`)
 - `codex_farm_workspace_root` (default unset; pipeline `codex_cd_mode` decides Codex `--cd`)
-- `codex_farm_pipeline_pass1` (default `recipe.chunking.v1`)
-- `codex_farm_pass1_pattern_hints_enabled` (default `false`)
-- `codex_farm_pipeline_pass2` (default `recipe.schemaorg.compact.v1`)
-- `codex_farm_pipeline_pass3` (default `recipe.final.compact.v1`)
-- `codex_farm_pass3_skip_pass2_ok` (default `true`)
-- `codex_farm_pipeline_pass4_knowledge` (default `recipe.knowledge.v1`)
-- `codex_farm_pipeline_pass5_tags` (default `recipe.tags.v1`)
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_knowledge_context_blocks` (default `12`)
 - `tag_catalog_json` (default `data/tagging/tag_catalog.json`)
 - `codex_farm_failure_mode` (default `fail`)
+
+Internal-only compatibility keys still load from saved payloads but are no longer part of the ordinary operator surface: `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, `codex_farm_pass1_pattern_hints_enabled`, `codex_farm_pipeline_pass1/2/3/4_knowledge/5_tags`, `codex_farm_pass3_skip_pass2_ok`, `codex_farm_benchmark_selective_retry_enabled`, and `codex_farm_benchmark_selective_retry_max_attempts`. `table_extraction` is retired entirely; new runs always extract tables.
 
 What each setting affects:
 
@@ -246,18 +237,19 @@ What each setting affects:
 - `all_method_max_inflight_pipelines`, `all_method_max_split_phase_slots`, `all_method_max_eval_tail_pipelines`, `all_method_wing_backlog_target`, `all_method_smart_scheduler`: all-method config scheduler controls (inflight cap, split-heavy slots, evaluate-tail cap, prewarm runway, smart/fixed admission mode; in `global` scope these apply to one run-wide scheduler, while in `legacy` scope they apply per source).
 - `all_method_config_timeout_seconds`, `all_method_retry_failed_configs`: all-method safety controls (per-config timeout and failed-config retry passes).
 - all-method canonical alignment cache root is resolved per run and shared across timestamps (default under `data/golden/benchmark-vs-golden/.cache/canonical_alignment`; override via `COOKIMPORT_ALL_METHOD_ALIGNMENT_CACHE_ROOT`).
-- `benchmark_sequence_matcher`: canonical-text alignment matcher mode for benchmark/eval flows (`dmp` only; non-`dmp` values are invalid). Loading `cookimport.json` coerces unsupported legacy values back to `dmp`.
 - `epub_extractor`: runtime extractor choice via `C3IMP_EPUB_EXTRACTOR` (default-enabled choices: `unstructured`, `beautifulsoup`; `markdown`/`markitdown` are policy-locked off unless `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`).
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
-- `table_extraction`: deterministic non-recipe table detection/export (`tables.jsonl`, `tables.md`) and table-aware chunking behavior.
+- Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only for compatibility loading.
 - `section_detector_backend`: section detector selection (`legacy|shared_v1`) used by stage and benchmark prediction generation for Text/Excel/EPUB/PDF importer section extraction.
-- `multi_recipe_splitter`, `multi_recipe_trace`, `multi_recipe_min_*`, `multi_recipe_for_the_guardrail`: shared deterministic multi-recipe split controls used by Text/EPUB/PDF importer conversion in stage and benchmark prediction generation (`legacy|off|rules_v1` backend selection plus optional split trace artifact and coverage/guardrail thresholds).
+- `multi_recipe_splitter`, `multi_recipe_min_*`, `multi_recipe_for_the_guardrail`: shared deterministic multi-recipe split controls used by Text/EPUB/PDF importer conversion in stage and benchmark prediction generation.
+- `multi_recipe_trace`: internal-only trace toggle that older payloads may still carry.
 - `instruction_step_segmentation_policy`, `instruction_step_segmenter`: deterministic fallback instruction-step segmentation controls shared by stage and benchmark prediction generation (`off|auto|always`, `heuristic_v1|pysbd_v1`).
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, `ingredient_missing_unit_policy`: ingredient parser normalization/backend/unit-policy controls used by stage and benchmark prediction-generation imports.
-- `p6_time_backend`, `p6_time_total_strategy`, `p6_temperature_backend`, `p6_temperature_unit_backend`, `p6_ovenlike_mode`, `p6_yield_mode`, `p6_emit_metadata_debug`: Priority 6 deterministic instruction/yield controls for stage and benchmark prediction generation (time extraction backend and rollup strategy, temperature extraction/unit conversion backend, oven-like classifier mode, yield parser mode, and optional p6 debug sidecar emission).
+- `p6_time_backend`, `p6_time_total_strategy`, `p6_temperature_backend`, `p6_temperature_unit_backend`, `p6_ovenlike_mode`, `p6_yield_mode`: Priority 6 deterministic instruction/yield controls for stage and benchmark prediction generation.
+- `p6_emit_metadata_debug`: internal-only debug toggle for optional Priority 6 sidecar artifacts.
 - `recipe_scorer_backend`, `recipe_score_*`: deterministic recipe-likeness scoring and tier gating thresholds/minimum line hints used by all importer families.
 - `ocr_device`, `pdf_ocr_policy`, `ocr_batch_size`: OCR path/policy for PDFs.
 - `pdf_column_gap_ratio`: PDF column-boundary sensitivity (`page_width * ratio` threshold).
@@ -564,15 +556,11 @@ Options:
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
-- `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
-- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.compact.v1`): pass-2 pipeline id (schema.org extraction).
-- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.compact.v1`): pass-3 pipeline id (final draft generation).
-- `--codex-farm-pipeline-pass4-knowledge TEXT` (default `recipe.knowledge.v1`): pass-4 pipeline id (non-recipe knowledge harvesting).
-- `--codex-farm-pipeline-pass5-tags TEXT` (default `recipe.tags.v1`): pass-5 pipeline id (tag suggestions).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `12`): context blocks before/after each knowledge chunk for pass4 bundles.
 - `--tag-catalog-json PATH` (default `data/tagging/tag_catalog.json`): tag catalog snapshot path required when pass5 tags is enabled.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
+- Internal-only note: stage still accepts hidden codex-farm pipeline-id/debug overrides for experiments and old payload replay, but they are no longer advertised in `--help`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
 - explicit-choice note: stage no longer supports `--epub-extractor auto`; choose a concrete backend (`unstructured|beautifulsoup|markdown|markitdown`).
 
@@ -977,12 +965,10 @@ Options:
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
-- `--codex-farm-pipeline-pass1 TEXT` (default `recipe.chunking.v1`): pass-1 pipeline id (recipe chunking/boundary).
-- `--codex-farm-pipeline-pass2 TEXT` (default `recipe.schemaorg.compact.v1`): pass-2 pipeline id (schema.org extraction).
-- `--codex-farm-pipeline-pass3 TEXT` (default `recipe.final.compact.v1`): pass-3 pipeline id (final draft generation).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `--alignment-cache-dir PATH` (internal/hidden): optional canonical alignment cache directory override for benchmark runs.
+- Internal-only note: hidden benchmark options still exist for pipeline-id and selective-retry experiments, but normal `labelstudio-benchmark --help` no longer advertises them.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
 - explicit-choice note: prediction generation no longer supports `--epub-extractor auto`; requested/effective extractor values are the selected concrete backend.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
@@ -1267,7 +1253,7 @@ Precedence notes:
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run; markdown extractors still require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
 - For all-method markdown extractors: `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` gates optional markdown variants.
 - For all-method codex variants: `--include-codex-farm` controls inclusion; `bench speed-run` requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `bench quality-run` requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `COOKIMPORT_ALLOW_CODEX_FARM` remains legacy no-op.
-- For benchmark sequence matcher: `--sequence-matcher` (or interactive `benchmark_sequence_matcher`) wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation.
+- For benchmark sequence matcher: `--sequence-matcher` wins for that run and temporarily sets `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER` around evaluation; the old interactive/global setting is now internal-only.
 - For tag DB URL: `--db-url` wins; env var is fallback.
 
 

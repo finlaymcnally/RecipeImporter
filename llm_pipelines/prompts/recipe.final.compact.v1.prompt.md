@@ -25,8 +25,11 @@ A) `draft_v1`:
 
 B) `ingredient_step_mapping`:
 - Populate only when links are clear from provided inputs
-- If unclear, return `{}` as a JSON string
+- If links are not needed or remain unclear, return `{}` as a JSON string
 - Always return `ingredient_step_mapping` as a JSON string
+- When `ingredient_step_mapping` is `{}`, also set `ingredient_step_mapping_reason`
+- Use short machine-readable reasons such as `not_needed_single_step`, `not_needed_single_ingredient`, or `unclear_alignment`
+- When `ingredient_step_mapping` is non-empty, omit `ingredient_step_mapping_reason` or set it to `null`
 
 C) `warnings`:
 - Include factual integrity caveats only

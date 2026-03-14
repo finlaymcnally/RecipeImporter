@@ -580,6 +580,105 @@ def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeyp
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "codex"
     assert "RECIPE_TITLE" in predictions[0].candidate_labels
+    assert "ownership_codex_override_other_to_recipe_title" in predictions[0].reason_tags
+
+
+def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
+    candidate = AtomicLineCandidate(
+        recipe_id="recipe:0",
+        block_id="block:note:0",
+        block_index=0,
+        atomic_index=0,
+        text="NOTE: Keep blender cup warm.",
+        within_recipe_span=True,
+        candidate_labels=["RECIPE_NOTES", "OTHER", "KNOWLEDGE"],
+        prev_text=None,
+        next_text="Whisk in the butter.",
+        rule_tags=["note_prefix"],
+    )
+    accepted = canonical_line_roles_module._apply_label_ownership_arbitration(
+        prediction=canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="block:note:0",
+            block_index=0,
+            atomic_index=0,
+            text="NOTE: Keep blender cup warm.",
+            within_recipe_span=True,
+            label="OTHER",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["RECIPE_NOTES", "OTHER", "KNOWLEDGE"],
+            reason_tags=["codex_line_role"],
+        ),
+        baseline_prediction=canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="block:note:0",
+            block_index=0,
+            atomic_index=0,
+            text="NOTE: Keep blender cup warm.",
+            within_recipe_span=True,
+            label="RECIPE_NOTES",
+            confidence=0.91,
+            decided_by="rule",
+            candidate_labels=["RECIPE_NOTES", "OTHER", "KNOWLEDGE"],
+            reason_tags=["note_prefix"],
+        ),
+        candidate=candidate,
+        by_atomic_index={0: candidate},
+    )
+
+    assert accepted.label == "RECIPE_NOTES"
+    assert accepted.decided_by == "fallback"
+    assert "ownership_veto_recipe_notes" in accepted.reason_tags
+
+
+def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence() -> None:
+    candidate = AtomicLineCandidate(
+        recipe_id="recipe:0",
+        block_id="block:time:0",
+        block_index=0,
+        atomic_index=0,
+        text="Stir well and taste for seasoning.",
+        within_recipe_span=True,
+        candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
+        prev_text="1 cup stock",
+        next_text="Serve warm.",
+        rule_tags=["instruction_like"],
+    )
+    accepted = canonical_line_roles_module._apply_label_ownership_arbitration(
+        prediction=canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="block:time:0",
+            block_index=0,
+            atomic_index=0,
+            text="Stir well and taste for seasoning.",
+            within_recipe_span=True,
+            label="TIME_LINE",
+            confidence=0.75,
+            decided_by="codex",
+            candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
+            reason_tags=["codex_line_role"],
+        ),
+        baseline_prediction=canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id="recipe:0",
+            block_id="block:time:0",
+            block_index=0,
+            atomic_index=0,
+            text="Stir well and taste for seasoning.",
+            within_recipe_span=True,
+            label="INSTRUCTION_LINE",
+            confidence=0.95,
+            decided_by="rule",
+            candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
+            reason_tags=["instruction_like"],
+        ),
+        candidate=candidate,
+        by_atomic_index={0: candidate},
+    )
+
+    assert accepted.label == "INSTRUCTION_LINE"
+    assert accepted.decided_by == "fallback"
+    assert "ownership_veto_time_line_needs_strong_evidence" in accepted.reason_tags
 
 
 def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypatch) -> None:

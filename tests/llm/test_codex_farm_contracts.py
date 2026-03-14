@@ -107,6 +107,42 @@ def test_pass2_contract_accepts_json_string_fields() -> None:
     assert output.field_evidence == {"name": "from_text"}
 
 
+def test_pass2_contract_recovers_malformed_field_evidence_into_warning() -> None:
+    output = Pass2SchemaOrgOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "schemaorg_recipe": {"@type": "Recipe", "name": "Toast"},
+            "extracted_ingredients": ["1 slice bread"],
+            "extracted_instructions": ["Toast the bread."],
+            "field_evidence": "{bad json",
+            "warnings": [],
+        }
+    )
+
+    assert output.field_evidence == {}
+    assert output.warnings == [
+        "pass2 recovered malformed field_evidence; replaced with empty object."
+    ]
+
+
+def test_pass2_contract_sanitizes_corrupted_extractive_arrays_but_keeps_unicode() -> None:
+    output = Pass2SchemaOrgOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "schemaorg_recipe": {"@type": "Recipe", "name": "Toast"},
+            "extracted_ingredients": ["1 jalapeño\x00 pepper"],
+            "extracted_instructions": ["Stir\x00 gently."],
+            "field_evidence": "{}",
+            "warnings": [],
+        }
+    )
+
+    assert output.extracted_ingredients == ["1 jalapeño pepper"]
+    assert output.extracted_instructions == ["Stir gently."]
+
+
 def test_pass3_contract_accepts_json_string_fields() -> None:
     output = Pass3FinalDraftOutput.model_validate(
         {
@@ -119,6 +155,22 @@ def test_pass3_contract_accepts_json_string_fields() -> None:
     )
     assert output.draft_v1 == {"schema_v": 1, "recipe": {"title": "T"}, "steps": []}
     assert output.ingredient_step_mapping == {}
+
+
+def test_pass3_contract_accepts_empty_mapping_reason() -> None:
+    output = Pass3FinalDraftOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "draft_v1": "{\"schema_v\":1,\"recipe\":{\"title\":\"T\"},\"steps\":[]}",
+            "ingredient_step_mapping": "{}",
+            "ingredient_step_mapping_reason": "unclear_alignment",
+            "warnings": [],
+        }
+    )
+
+    assert output.ingredient_step_mapping == {}
+    assert output.ingredient_step_mapping_reason == "unclear_alignment"
 
 
 def test_pass3_input_accepts_json_string_schemaorg() -> None:

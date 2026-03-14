@@ -69,9 +69,12 @@ from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import (
+    RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    project_run_config_payload,
+    summarize_run_config_payload,
 )
 from cookimport.config.run_settings_adapters import (
     build_benchmark_call_kwargs_from_run_settings,
@@ -1467,14 +1470,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_unstructured_preprocess_mode",
                 ),
                 questionary.Choice(
-                    (
-                        "Benchmark Sequence Matcher: "
-                        f"{_benchmark_sequence_matcher_display_name(str(current_settings.get('benchmark_sequence_matcher', 'dmp')))} "
-                        f"- {', '.join(_benchmark_sequence_matcher_display_name(mode) for mode in _benchmark_sequence_matcher_modes())}"
-                    ),
-                    value="benchmark_sequence_matcher",
-                ),
-                questionary.Choice(
                     f"OCR Device: {current_settings.get('ocr_device', 'auto')} - auto/cpu/cuda/mps",
                     value="ocr_device",
                 ),
@@ -1826,33 +1821,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             )
             if val and val != BACK_ACTION:
                 current_settings["epub_unstructured_preprocess_mode"] = val
-                _save_settings(current_settings)
-
-        elif choice == "benchmark_sequence_matcher":
-            supported_modes = _benchmark_sequence_matcher_modes()
-            current_mode = _normalize_benchmark_sequence_matcher_mode(
-                str(current_settings.get("benchmark_sequence_matcher", "dmp"))
-            )
-            mode_choices = [
-                questionary.Choice(
-                    f"{_benchmark_sequence_matcher_display_name(mode)} ({mode})",
-                    value=mode,
-                )
-                for mode in supported_modes
-            ]
-            val = _menu_select(
-                "Select benchmark sequence matcher mode:",
-                choices=mode_choices,
-                default=current_mode,
-                menu_help=(
-                    "This controls canonical-text matcher selection for benchmark/eval runs. "
-                    "Only dmp is supported."
-                ),
-            )
-            if val and val != BACK_ACTION:
-                current_settings["benchmark_sequence_matcher"] = (
-                    _normalize_benchmark_sequence_matcher_mode(str(val))
-                )
                 _save_settings(current_settings)
 
         elif choice == "ocr_device":
@@ -3055,7 +3023,7 @@ def _interactive_single_offline_variants(
 ) -> list[tuple[str, RunSettings]]:
     run_config = selected_benchmark_settings.to_run_config_dict()
     current_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
-    if current_pipeline == "codex-farm-3pass-v1":
+    if current_pipeline != "off":
         baseline_payload = _all_method_apply_baseline_contract(run_config)
         codex_payload = _all_method_apply_codex_contract_from_baseline(
             baseline_payload
@@ -5561,7 +5529,7 @@ def _build_source_debug_artifact_status(
     normalized_pipeline = str(llm_recipe_pipeline or "").strip().lower()
     requires_llm_debug = (
         normalized_mode == CODEX_FARM_RECIPE_MODE_BENCHMARK
-        and normalized_pipeline == "codex-farm-3pass-v1"
+        and normalized_pipeline != "off"
     )
 
     if requires_llm_debug:
@@ -8095,17 +8063,6 @@ def _normalize_pdf_column_gap_ratio(value: float) -> float:
         )
     return numeric
 
-
-def _normalize_table_extraction(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"off", "on"}:
-        _fail(
-            f"Invalid table extraction mode: {value!r}. "
-            "Expected one of: off, on."
-        )
-    return normalized
-
-
 def _normalize_section_detector_backend(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
     if normalized in {"legacy", "shared_v1"}:
@@ -8347,13 +8304,13 @@ def _normalize_p6_yield_mode(value: str) -> str:
 
 def _normalize_llm_recipe_pipeline(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized == "off":
-        return normalized
-    if normalized == "codex-farm-3pass-v1":
+    if normalized in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
         return normalized
     _fail(
         f"Invalid LLM recipe pipeline: {value!r}. "
-        "Expected one of: off, codex-farm-3pass-v1."
+        "Expected one of: "
+        + ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
+        + "."
     )
     return "off"
 
@@ -24318,18 +24275,8 @@ def _build_stage_run_summary_payload(
             **durations,
         },
         "major_settings": {
-            "workers": run_config.get("workers"),
+            **project_run_config_payload(run_config, include_internal=False),
             "effective_workers": run_config.get("effective_workers"),
-            "pdf_split_workers": run_config.get("pdf_split_workers"),
-            "epub_split_workers": run_config.get("epub_split_workers"),
-            "epub_extractor": run_config.get("epub_extractor"),
-            "table_extraction": run_config.get("table_extraction"),
-            "section_detector_backend": run_config.get("section_detector_backend"),
-            "multi_recipe_splitter": run_config.get("multi_recipe_splitter"),
-            "instruction_step_segmentation_policy": run_config.get(
-                "instruction_step_segmentation_policy"
-            ),
-            "instruction_step_segmenter": run_config.get("instruction_step_segmenter"),
         },
         "codex_farm": {
             "recipe_pipeline": codex_recipe,
@@ -24338,17 +24285,8 @@ def _build_stage_run_summary_payload(
             "recipe_enabled": codex_recipe != "off",
             "knowledge_enabled": codex_knowledge != "off",
             "tags_enabled": codex_tags != "off",
-            "pass1": run_config.get("codex_farm_pipeline_pass1"),
-            "pass2": run_config.get("codex_farm_pipeline_pass2"),
-            "pass3": run_config.get("codex_farm_pipeline_pass3"),
-            "pass4_knowledge": run_config.get("codex_farm_pipeline_pass4_knowledge"),
-            "pass5_tags": run_config.get("codex_farm_pipeline_pass5_tags"),
-            "context_blocks": run_config.get("codex_farm_context_blocks"),
-            "pass1_pattern_hints_enabled": run_config.get(
-                "codex_farm_pass1_pattern_hints_enabled"
-            ),
-            "pass3_skip_pass2_ok": run_config.get("codex_farm_pass3_skip_pass2_ok"),
-            "knowledge_context_blocks": run_config.get("codex_farm_knowledge_context_blocks"),
+            "model": run_config.get("codex_farm_model"),
+            "reasoning_effort": run_config.get("codex_farm_reasoning_effort"),
         },
         "codex_decision": codex_decision,
     }
@@ -24422,7 +24360,6 @@ def _write_stage_run_summary(
                 f"- workers: {major_settings.get('workers')}",
                 f"- effective_workers: {major_settings.get('effective_workers')}",
                 f"- epub_extractor: {major_settings.get('epub_extractor')}",
-                f"- table_extraction: {major_settings.get('table_extraction')}",
                 "",
                 "## Topline metrics",
                 "- total recipes: {recipes}".format(recipes=totals.get("recipes", 0)),
@@ -24651,7 +24588,6 @@ def _merge_split_jobs(
     knowledge_enabled = (
         has_explicit_run_config and run_settings.llm_knowledge_pipeline.value != "off"
     )
-    table_extraction_enabled = run_settings.table_extraction.value == "on"
     merged_full_blocks, job_offsets, _job_block_counts = _build_split_full_blocks(
         out=out,
         workbook_slug=workbook_slug,
@@ -24679,8 +24615,7 @@ def _merge_split_jobs(
     ]
     if llm_enabled:
         phase_labels.append("Running codex-farm recipe pipeline...")
-    if table_extraction_enabled:
-        phase_labels.append("Extracting tables...")
+    phase_labels.append("Extracting tables...")
     phase_labels.append("Building chunks...")
     if knowledge_enabled:
         phase_labels.append("Running codex-farm knowledge harvest...")
@@ -24695,8 +24630,7 @@ def _merge_split_jobs(
             "Writing stage block predictions...",
         ]
     )
-    if table_extraction_enabled:
-        phase_labels.append("Writing tables...")
+    phase_labels.append("Writing tables...")
     if should_write_chunks:
         phase_labels.append("Writing chunks...")
     phase_labels.extend(
@@ -24867,12 +24801,11 @@ def _merge_split_jobs(
         mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
     )
     extracted_tables: list[ExtractedTable] = []
-    if table_extraction_enabled:
-        _report_phase("Extracting tables...")
-        extracted_tables = extract_and_annotate_tables(
-            merged_result.non_recipe_blocks,
-            source_hash=file_hash,
-        )
+    _report_phase("Extracting tables...")
+    extracted_tables = extract_and_annotate_tables(
+        merged_result.non_recipe_blocks,
+        source_hash=file_hash,
+    )
     _report_phase("Building chunks...")
     if merged_result.non_recipe_blocks:
         merged_result.chunks = chunks_from_non_recipe_blocks(
@@ -24987,17 +24920,16 @@ def _merge_split_jobs(
                 output_stats=output_stats,
                 write_markdown=write_markdown,
             )
-        if table_extraction_enabled:
-            _report_phase("Writing tables...")
-            with measure(merge_stats, "write_tables_seconds"):
-                write_table_outputs(
-                    out,
-                    workbook_slug,
-                    extracted_tables,
-                    source_file=file_path.name,
-                    output_stats=output_stats,
-                    write_markdown=write_markdown,
-                )
+        _report_phase("Writing tables...")
+        with measure(merge_stats, "write_tables_seconds"):
+            write_table_outputs(
+                out,
+                workbook_slug,
+                extracted_tables,
+                source_file=file_path.name,
+                output_stats=output_stats,
+                write_markdown=write_markdown,
+            )
 
         if should_write_chunks:
             _report_phase("Writing chunks...")
@@ -25233,11 +25165,6 @@ def stage(
         "--epub-unstructured-preprocess-mode",
         help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1, semantic_v1.",
     ),
-    table_extraction: str = typer.Option(
-        "off",
-        "--table-extraction",
-        help="Deterministic table extraction mode: off or on.",
-    ),
     section_detector_backend: str = typer.Option(
         "legacy",
         "--section-detector-backend",
@@ -25251,6 +25178,7 @@ def stage(
     multi_recipe_trace: bool = typer.Option(
         False,
         "--multi-recipe-trace/--no-multi-recipe-trace",
+        hidden=True,
         help="Write shared multi-recipe splitter trace artifacts.",
     ),
     multi_recipe_min_ingredient_lines: int = typer.Option(
@@ -25397,6 +25325,7 @@ def stage(
     p6_emit_metadata_debug: bool = typer.Option(
         False,
         "--p6-emit-metadata-debug/--no-p6-emit-metadata-debug",
+        hidden=True,
         help="Write optional Priority 6 metadata debug sidecar artifacts.",
     ),
     recipe_scorer_backend: str = typer.Option(
@@ -25442,7 +25371,7 @@ def stage(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-3pass-v1."
+            "Values: off, codex-farm-3pass-v1, or codex-farm-2stage-repair-v1."
         ),
     ),
     llm_knowledge_pipeline: str = typer.Option(
@@ -25492,6 +25421,7 @@ def stage(
     codex_farm_pass1_pattern_hints_enabled: bool = typer.Option(
         False,
         "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
+        hidden=True,
         help=(
             "Include deterministic pattern metadata hints in pass1 bundles "
             "for advisory boundary context."
@@ -25500,26 +25430,31 @@ def stage(
     codex_farm_pipeline_pass1: str = typer.Option(
         "recipe.chunking.v1",
         "--codex-farm-pipeline-pass1",
+        hidden=True,
         help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
     ),
     codex_farm_pipeline_pass2: str = typer.Option(
         "recipe.schemaorg.compact.v1",
         "--codex-farm-pipeline-pass2",
+        hidden=True,
         help="Pass-2 codex-farm pipeline id (schema.org extraction).",
     ),
     codex_farm_pipeline_pass3: str = typer.Option(
         "recipe.final.compact.v1",
         "--codex-farm-pipeline-pass3",
+        hidden=True,
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     ),
     codex_farm_pipeline_pass4_knowledge: str = typer.Option(
         "recipe.knowledge.compact.v1",
         "--codex-farm-pipeline-pass4-knowledge",
+        hidden=True,
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     ),
     codex_farm_pipeline_pass5_tags: str = typer.Option(
         "recipe.tags.v1",
         "--codex-farm-pipeline-pass5-tags",
+        hidden=True,
         help="Pass-5 codex-farm pipeline id (tag suggestions).",
     ),
     codex_farm_context_blocks: int = typer.Option(
@@ -25531,6 +25466,7 @@ def stage(
     codex_farm_pass3_skip_pass2_ok: bool = typer.Option(
         True,
         "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
+        hidden=True,
         help=(
             "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
             "deterministically."
@@ -25587,7 +25523,6 @@ def stage(
     epub_unstructured_preprocess_mode = _unwrap_typer_option_default(
         epub_unstructured_preprocess_mode
     )
-    table_extraction = _unwrap_typer_option_default(table_extraction)
     section_detector_backend = _unwrap_typer_option_default(section_detector_backend)
     multi_recipe_splitter = _unwrap_typer_option_default(multi_recipe_splitter)
     multi_recipe_trace = _unwrap_typer_option_default(multi_recipe_trace)
@@ -25695,7 +25630,6 @@ def stage(
     selected_pdf_column_gap_ratio = _normalize_pdf_column_gap_ratio(
         pdf_column_gap_ratio
     )
-    selected_table_extraction = _normalize_table_extraction(table_extraction)
     selected_section_detector_backend = _normalize_section_detector_backend(
         section_detector_backend
     )
@@ -25893,7 +25827,6 @@ def stage(
         ocr_batch_size=ocr_batch_size,
         pdf_column_gap_ratio=selected_pdf_column_gap_ratio,
         warm_models=warm_models,
-        table_extraction=selected_table_extraction,
         section_detector_backend=selected_section_detector_backend,
         multi_recipe_splitter=selected_multi_recipe_splitter,
         multi_recipe_trace=selected_multi_recipe_trace,
@@ -26028,12 +25961,7 @@ def stage(
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _render_run_config_summary(payload: dict[str, Any]) -> str:
-        parts: list[str] = []
-        for key in sorted(payload):
-            value = payload[key]
-            rendered = "true" if value is True else "false" if value is False else str(value)
-            parts.append(f"{key}={rendered}")
-        return " | ".join(parts)
+        return summarize_run_config_payload(payload)
 
     def _run_config_for_file(file_path: Path) -> dict[str, Any]:
         if file_path.suffix.lower() != ".epub":
@@ -28483,7 +28411,7 @@ def labelstudio_import(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-3pass-v1."
+            "Values: off, codex-farm-3pass-v1, or codex-farm-2stage-repair-v1."
         ),
     ),
     allow_codex: bool = typer.Option(
@@ -29570,6 +29498,7 @@ def labelstudio_benchmark(
     )] = "legacy",
     multi_recipe_trace: Annotated[bool, typer.Option(
         "--multi-recipe-trace/--no-multi-recipe-trace",
+        hidden=True,
         help="Write shared multi-recipe splitter trace artifacts.",
     )] = False,
     multi_recipe_min_ingredient_lines: Annotated[int, typer.Option(
@@ -29691,6 +29620,7 @@ def labelstudio_benchmark(
     )] = "legacy_v1",
     p6_emit_metadata_debug: Annotated[bool, typer.Option(
         "--p6-emit-metadata-debug/--no-p6-emit-metadata-debug",
+        hidden=True,
         help="Write optional Priority 6 metadata debug sidecar artifacts.",
     )] = False,
     recipe_scorer_backend: Annotated[str, typer.Option(
@@ -29729,7 +29659,7 @@ def labelstudio_benchmark(
         "--llm-recipe-pipeline",
         help=(
             "Recipe codex-farm parsing correction pipeline. "
-            "Values: off or codex-farm-3pass-v1."
+            "Values: off, codex-farm-3pass-v1, or codex-farm-2stage-repair-v1."
         ),
     )] = "off",
     llm_knowledge_pipeline: Annotated[str, typer.Option(
@@ -29815,6 +29745,7 @@ def labelstudio_benchmark(
     )] = None,
     codex_farm_pass1_pattern_hints_enabled: Annotated[bool, typer.Option(
         "--codex-farm-pass1-pattern-hints-enabled/--no-codex-farm-pass1-pattern-hints-enabled",
+        hidden=True,
         help=(
             "Include deterministic pattern metadata hints in pass1 bundles "
             "for advisory boundary context."
@@ -29822,18 +29753,22 @@ def labelstudio_benchmark(
     )] = False,
     codex_farm_pipeline_pass1: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass1",
+        hidden=True,
         help="Pass-1 codex-farm pipeline id (recipe boundary refinement).",
     )] = "recipe.chunking.v1",
     codex_farm_pipeline_pass2: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass2",
+        hidden=True,
         help="Pass-2 codex-farm pipeline id (schema.org extraction).",
     )] = "recipe.schemaorg.compact.v1",
     codex_farm_pipeline_pass3: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass3",
+        hidden=True,
         help="Pass-3 codex-farm pipeline id (final draft generation).",
     )] = "recipe.final.compact.v1",
     codex_farm_pipeline_pass4_knowledge: Annotated[str, typer.Option(
         "--codex-farm-pipeline-pass4-knowledge",
+        hidden=True,
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     )] = "recipe.knowledge.compact.v1",
     codex_farm_context_blocks: Annotated[int, typer.Option(
@@ -29843,6 +29778,7 @@ def labelstudio_benchmark(
     )] = 30,
     codex_farm_pass3_skip_pass2_ok: Annotated[bool, typer.Option(
         "--codex-farm-pass3-skip-pass2-ok/--no-codex-farm-pass3-skip-pass2-ok",
+        hidden=True,
         help=(
             "Skip pass3 LLM calls for low-risk pass2-ok rows and promote "
             "deterministically."
@@ -31709,6 +31645,14 @@ def labelstudio_benchmark(
             eval_output_dir,
             processed_run_root,
         )
+    llm_manifest_path = _find_single_offline_llm_manifest_path(pred_run)
+    if llm_manifest_path is not None:
+        benchmark_llm_manifest = _path_for_manifest(
+            eval_output_dir,
+            llm_manifest_path,
+        )
+        if benchmark_llm_manifest is not None:
+            benchmark_artifacts["llm_manifest_json"] = benchmark_llm_manifest
     for artifact_key, artifact_value in line_role_diagnostics_artifacts.items():
         if artifact_value:
             benchmark_artifacts[artifact_key] = artifact_value

@@ -307,3 +307,44 @@ def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
         "lacked block-range provenance" not in note
         for note in payload["notes"]
     )
+
+
+def test_build_stage_block_predictions_rejects_title_without_boundary_evidence() -> None:
+    recipe = RecipeCandidate(
+        name="PAN-SEARED SALMON",
+        recipeIngredient=["2 salmon fillets"],
+        recipeInstructions=["Sear the salmon."],
+        provenance={"location": {"start_block": 0, "end_block": 1}},
+    )
+    raw = RawArtifact(
+        importer="text",
+        sourceHash="abc123",
+        locationId="full_text",
+        extension="json",
+        content={
+            "blocks": [
+                {"index": 0, "text": "PAN-SEARED SALMON", "features": {"is_heading": True}},
+                {
+                    "index": 1,
+                    "text": (
+                        "I first cooked this on a rainy night, and this paragraph is memoir-like "
+                        "scene-setting prose instead of recipe structure."
+                    ),
+                },
+            ],
+            "block_count": 2,
+        },
+        metadata={"artifact_type": "extracted_blocks"},
+    )
+    result = ConversionResult(
+        recipes=[recipe],
+        report=ConversionReport(),
+        rawArtifacts=[raw],
+        workbook="narrative-title",
+        workbookPath="/tmp/narrative-title.txt",
+    )
+
+    payload = build_stage_block_predictions(result, "narrative-title")
+
+    assert payload["block_labels"]["0"] == "OTHER"
+    assert not payload["label_blocks"]["RECIPE_TITLE"]

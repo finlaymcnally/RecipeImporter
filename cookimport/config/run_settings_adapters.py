@@ -34,7 +34,6 @@ def build_stage_call_kwargs_from_run_settings(
         "epub_unstructured_preprocess_mode": (
             settings.epub_unstructured_preprocess_mode.value
         ),
-        "table_extraction": settings.table_extraction.value,
         "section_detector_backend": settings.section_detector_backend.value,
         "instruction_step_segmentation_policy": (
             settings.instruction_step_segmentation_policy.value

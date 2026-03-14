@@ -54,6 +54,7 @@ Core modules:
 - `cookimport/parsing/canonical_line_roles.py`
 - `cookimport/parsing/markdown_blocks.py`
 - `cookimport/parsing/epub_extractors.py`
+- `cookimport/parsing/epub_table_rows.py`
 - `cookimport/parsing/epub_html_normalize.py`
 - `cookimport/parsing/unstructured_adapter.py`
 - `cookimport/parsing/markitdown_adapter.py`
@@ -295,6 +296,7 @@ Recipe boundary detection directly controls which text reaches parsing/linking/t
 - `cookimport/parsing/markitdown_adapter.py` handles the `markitdown` backend conversion (`EPUB -> markdown`), then `cookimport/parsing/markdown_blocks.py` converts markdown to deterministic `Block` objects.
 - `cookimport/parsing/epub_html_normalize.py` pre-normalizes XHTML before unstructured partitioning.
 - `cookimport/parsing/unstructured_adapter.py` maps unstructured elements to deterministic blocks + diagnostics metadata.
+- `cookimport/parsing/epub_table_rows.py` preserves EPUB `<tr>` rows as structured cell arrays plus visible `|`-delimited row text so downstream table detection does not have to guess column boundaries.
 - `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` are shared guardrails after HTML-based extraction.
 - `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py` both read `run_settings.section_detector_backend` and can route field extraction through the shared detector when set to `shared_v1`.
 
@@ -522,7 +524,7 @@ Gates include:
 
 ### Table-aware behavior
 
-- When stage run setting `table_extraction=on` is enabled, table rows in `non_recipe_blocks` are tagged with `features.table_id` + `features.table_row_index`.
+- Table rows in `non_recipe_blocks` are tagged with `features.table_id` + `features.table_row_index` during normal stage/prediction runs.
 - `chunk_non_recipe_blocks` treats same-`table_id` runs as atomic for max-char splitting (it does not split in the middle of a detected table).
 - Chunks carrying `provenance.table_ids` are forced to `knowledge` lane so table facts are not dropped as noise.
 - Table chunks are never merged with non-table chunks, in either `merge_small_chunks` or adjacent-chunk consolidation.
@@ -618,7 +620,7 @@ Under a run output folder:
 - Topic candidates summary: `data/output/<timestamp>/tips/<workbook_stem>/topic_candidates.md`
 - Chunks: `data/output/<timestamp>/chunks/<workbook_stem>/c{index}.json`
 - Chunk summary: `data/output/<timestamp>/chunks/<workbook_stem>/chunks.md`
-- Tables (when `table_extraction=on`): `data/output/<timestamp>/tables/<workbook_stem>/tables.jsonl` and `tables.md`
+- Tables: `data/output/<timestamp>/tables/<workbook_stem>/tables.jsonl` and `tables.md`
 
 ## Practical Change Workflow (Recommended)
 
@@ -706,15 +708,16 @@ Anti-loop note:
 
 Durable parsing contract:
 - Deterministic table extraction lives in `cookimport/parsing/tables.py`:
-  - row detection supports pipe/tab/multispace separators,
+  - row detection supports pipe/tab/multispace separators plus structured EPUB row metadata (`features.epub_table_cells`),
   - grouped runs are annotated onto non-recipe blocks (`features.table_id`, `features.table_row_index`, `table_hint`).
+- EPUB HTML extraction preserves empty cells and row order in `cookimport/parsing/epub_table_rows.py`; both BeautifulSoup row builders and the unstructured adapter now emit `epub_table_row` blocks with `|`-delimited visible text plus `features.epub_table_cells`.
 - Chunking remains table-aware:
   - no max-char split in the middle of a single detected table,
   - chunks with `provenance.table_ids` are forced to the `knowledge` lane.
 - Pass4 receives table structure as hints only (`table_hint`) while keeping evidence text verbatim.
 
 Known caveat preserved:
-- Current fixture books may still produce empty detected table sets if extractor output flattened separators; this is expected and should not be treated as parser crash.
+- Already-collapsed reference prose may still need narrow salvage heuristics; `tables.py` now includes a low-confidence flattened-reference fallback, but broad free-text reconstruction is intentionally out of scope.
 
 ### 2026-02-25_16.39.01 adjacent same-topic chunk consolidation
 

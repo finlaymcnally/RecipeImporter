@@ -78,6 +78,29 @@ def test_recipe_gate_action_respects_tier_and_minimum_lines() -> None:
     assert recipe_gate_action(bronze, settings=settings) == "keep_partial"
 
 
+def test_score_recipe_likeness_rejects_reference_conversion_sections() -> None:
+    result = score_recipe_likeness(
+        RecipeCandidate(
+            name="WEIGHT CONVERSIONS",
+            recipeIngredient=[
+                "ounces | grams",
+                "1 | 28",
+                "2 | 57",
+                "3 | 85",
+            ],
+            recipeInstructions=["There are 28.35 grams in one ounce."],
+            description="COMMON WEIGHT CONVERSIONS",
+            provenance={"location": {"start_block": 50}},
+        ),
+        settings=RunSettings(),
+    )
+
+    assert result.tier == RecipeLikenessTier.reject
+    assert result.features["reference_section_penalty"] == pytest.approx(0.6, abs=1e-4)
+    assert "reference_section_title" in result.reasons
+    assert recipe_gate_action(result, settings=RunSettings()) == "reject"
+
+
 def test_summarize_recipe_likeness_includes_thresholds_and_stats() -> None:
     settings = RunSettings(
         recipe_score_gold_min=0.8,

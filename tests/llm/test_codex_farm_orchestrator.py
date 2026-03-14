@@ -27,10 +27,13 @@ from cookimport.llm.codex_farm_orchestrator import (
     PASS1_PIPELINE_ID,
     PASS2_PIPELINE_ID,
     PASS3_PIPELINE_ID,
+    _build_pass3_input_compact,
+    _build_pass3_input_legacy,
     _build_transport_audit,
     _RecipeState,
     run_codex_farm_recipe_pipeline,
 )
+from cookimport.llm.codex_farm_contracts import Pass2SchemaOrgOutput
 from cookimport.llm.codex_farm_runner import (
     CodexFarmPipelineRunResult,
     CodexFarmRunnerError,
@@ -82,23 +85,43 @@ def _build_conversion_result(source_path: Path) -> ConversionResult:
 
 
 def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
+    return _build_recipe_count_conversion_result(source_path, 2)
+
+
+def _build_recipe_count_conversion_result(
+    source_path: Path,
+    recipe_count: int,
+) -> ConversionResult:
+    recipes: list[RecipeCandidate] = []
+    blocks: list[dict[str, object]] = []
+    for index in range(recipe_count):
+        start_block = index * 3
+        title = f"Recipe {index + 1}"
+        ingredient = f"{index + 1} ingredient"
+        instruction = f"Cook recipe {index + 1}."
+        recipes.append(
+            RecipeCandidate(
+                name=title,
+                identifier=f"urn:recipe:test:r{index}",
+                recipeIngredient=[ingredient],
+                recipeInstructions=[instruction],
+                provenance={
+                    "location": {
+                        "start_block": start_block,
+                        "end_block": start_block + 2,
+                    }
+                },
+            )
+        )
+        blocks.extend(
+            [
+                {"index": start_block, "text": title},
+                {"index": start_block + 1, "text": ingredient},
+                {"index": start_block + 2, "text": instruction},
+            ]
+        )
     return ConversionResult(
-        recipes=[
-            RecipeCandidate(
-                name="Recipe A",
-                identifier="urn:recipe:test:r0",
-                recipeIngredient=["1 cup flour"],
-                recipeInstructions=["Mix."],
-                provenance={"location": {"start_block": 0, "end_block": 2}},
-            ),
-            RecipeCandidate(
-                name="Recipe B",
-                identifier="urn:recipe:test:r1",
-                recipeIngredient=["2 eggs"],
-                recipeInstructions=["Bake."],
-                provenance={"location": {"start_block": 3, "end_block": 5}},
-            ),
-        ],
+        recipes=recipes,
         tips=[],
         tipCandidates=[],
         topicCandidates=[],
@@ -110,15 +133,8 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
                 locationId="full_text",
                 extension="json",
                 content={
-                    "blocks": [
-                        {"index": 0, "text": "Recipe A"},
-                        {"index": 1, "text": "1 cup flour"},
-                        {"index": 2, "text": "Mix."},
-                        {"index": 3, "text": "Recipe B"},
-                        {"index": 4, "text": "2 eggs"},
-                        {"index": 5, "text": "Bake."},
-                    ],
-                    "block_count": 6,
+                    "blocks": blocks,
+                    "block_count": len(blocks),
                 },
                 metadata={"artifact_type": "extracted_blocks"},
             )
@@ -219,6 +235,7 @@ def test_orchestrator_writes_compact_pass2_payload_and_reduces_bundle_size(
         {"index": 4, "text": "Toast the bread until golden."},
         {"index": 5, "text": "Spread with butter and serve hot."},
     ]
+    result.recipes[0].provenance["location"]["end_block"] = 5
 
     runner = FakeCodexFarmRunner(
         output_builders={
@@ -294,23 +311,18 @@ def test_orchestrator_writes_compact_pass2_payload_and_reduces_bundle_size(
 def test_orchestrator_writes_compact_pass3_payload_and_drops_duplicate_schema_lists(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "book.txt"
-    source.write_text("source", encoding="utf-8")
-    result = _build_conversion_result(source)
-    result.raw_artifacts[0].content["blocks"] = [
-        {"index": 0, "text": "Preface"},
-        {"index": 1, "text": "TOAST"},
-        {"index": 2, "text": "1 slice bread"},
-        {"index": 3, "text": "1 tablespoon butter"},
-        {"index": 4, "text": "Toast the bread until golden."},
-        {"index": 5, "text": "Spread with butter and serve hot."},
-    ]
-
-    runner = FakeCodexFarmRunner(
-        output_builders={
-            PASS2_PIPELINE_ID: lambda payload: {
+    state = _RecipeState(
+        recipe=RecipeCandidate(name="Toast"),
+        recipe_id="urn:recipe:test:toast",
+        bundle_name="toast__r000.json",
+        heuristic_start=1,
+        heuristic_end=5,
+        pass1_status="ok",
+        pass2_status="ok",
+        pass2_output=Pass2SchemaOrgOutput.model_validate(
+            {
                 "bundle_version": "1",
-                "recipe_id": payload.get("recipe_id"),
+                "recipe_id": "urn:recipe:test:toast",
                 "schemaorg_recipe": {
                     "@context": "http://schema.org",
                     "@type": "Recipe",
@@ -332,67 +344,19 @@ def test_orchestrator_writes_compact_pass3_payload_and_drops_duplicate_schema_li
                 ],
                 "field_evidence": {},
                 "warnings": [],
-            },
-            LEGACY_PASS3_PIPELINE_ID: lambda payload: {
-                "bundle_version": "1",
-                "recipe_id": payload.get("recipe_id"),
-                "draft_v1": {
-                    "schema_v": 1,
-                    "recipe": {"title": "Toast"},
-                    "steps": [
-                        {"instruction": "Toast the bread until golden.", "ingredient_lines": []}
-                    ],
-                },
-                "ingredient_step_mapping": {},
-                "warnings": [],
-            },
-            COMPACT_PASS3_PIPELINE_ID: lambda payload: {
-                "bundle_version": "1",
-                "recipe_id": payload.get("recipe_id"),
-                "draft_v1": {
-                    "schema_v": 1,
-                    "recipe": {"title": "Toast"},
-                    "steps": [
-                        {"instruction": "Toast the bread until golden.", "ingredient_lines": []}
-                    ],
-                },
-                "ingredient_step_mapping": {},
-                "warnings": [],
-            },
-        }
-    )
-
-    legacy_apply = run_codex_farm_recipe_pipeline(
-        conversion_result=result.model_copy(deep=True),
-        run_settings=_build_run_settings(
-            tmp_path / "legacy-pass3-pack",
-            pass3_skip_pass2_ok=False,
-            pass3_pipeline=LEGACY_PASS3_PIPELINE_ID,
+            }
         ),
-        run_root=tmp_path / "legacy-pass3-run",
+    )
+    legacy_payload = _build_pass3_input_legacy(
+        state=state,
         workbook_slug="book",
-        runner=runner,
-    )
-    compact_apply = run_codex_farm_recipe_pipeline(
-        conversion_result=result.model_copy(deep=True),
-        run_settings=_build_run_settings(
-            tmp_path / "compact-pass3-pack",
-            pass3_skip_pass2_ok=False,
-            pass3_pipeline=COMPACT_PASS3_PIPELINE_ID,
-        ),
-        run_root=tmp_path / "compact-pass3-run",
+        source_hash="hash123",
+    ).model_dump(mode="json", by_alias=True)
+    compact_payload = _build_pass3_input_compact(
+        state=state,
         workbook_slug="book",
-        runner=runner,
-    )
-
-    legacy_input_path = next((legacy_apply.llm_raw_dir / "pass3_final" / "in").glob("*.json"))
-    compact_input_path = next((compact_apply.llm_raw_dir / "pass3_final" / "in").glob("*.json"))
-    legacy_payload = json.loads(
-        legacy_input_path.read_text(encoding="utf-8")
-    )
-    compact_payload = json.loads(
-        compact_input_path.read_text(encoding="utf-8")
-    )
+        source_hash="hash123",
+    ).model_dump(mode="json", by_alias=True)
 
     assert "schemaorg_recipe" in legacy_payload
     assert "recipeIngredient" in legacy_payload["schemaorg_recipe"]
@@ -668,6 +632,102 @@ def test_orchestrator_records_pass1_span_loss_metrics_when_midpoint_clamp_shrink
     assert first_recipe_metrics["clamped_block_loss_count"] == 1
     assert first_recipe_metrics["clamped_block_loss_ratio"] == 0.2
     assert first_recipe_metrics["boundaries_clamped"] is True
+
+
+def test_orchestrator_skips_pass3_for_partial_recipe_overlap_windows(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=False)
+    result = _build_multi_recipe_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Recipe A"},
+        {"index": 1, "text": "1 cup flour"},
+        {"index": 2, "text": "Whisk the flour with water until smooth."},
+        {"index": 3, "text": "Cook gently until the batter thickens and turns glossy."},
+        {"index": 4, "text": "Recipe B"},
+        {"index": 5, "text": "2 eggs"},
+        {"index": 6, "text": "Beat the eggs until fully combined and lightly foamy."},
+        {"index": 7, "text": "Bake until the center is set and the edges are browned."},
+    ]
+    result.recipes[0].provenance["location"] = {"start_block": 0, "end_block": 5}
+    result.recipes[1].provenance["location"] = {"start_block": 2, "end_block": 7}
+
+    def _pass1_builder(payload: dict[str, object]) -> dict[str, object]:
+        recipe_id = str(payload.get("recipe_id") or "")
+        if recipe_id.endswith("r0"):
+            start = 0
+            end = 5
+        else:
+            start = 2
+            end = 7
+        return {
+            "bundle_version": "1",
+            "recipe_id": recipe_id,
+            "is_recipe": True,
+            "start_block_index": start,
+            "end_block_index": end,
+            "title": None,
+            "reasoning_tags": ["overlap-test"],
+            "excluded_block_ids": [],
+        }
+
+    def _pass2_builder(payload: dict[str, object]) -> dict[str, object]:
+        evidence_rows = payload.get("evidence_rows") or []
+        title = str(evidence_rows[0][1] if evidence_rows else "Recipe").strip()
+        ingredient = str(evidence_rows[1][1] if len(evidence_rows) > 1 else "1 ingredient").strip()
+        instructions = [
+            str(row[1]).strip()
+            for row in evidence_rows[2:]
+            if isinstance(row, list | tuple) and len(row) > 1 and str(row[1]).strip()
+        ]
+        return {
+            "bundle_version": "1",
+            "recipe_id": payload.get("recipe_id"),
+            "schemaorg_recipe": {
+                "@context": "http://schema.org",
+                "@type": "Recipe",
+                "name": title,
+            },
+            "extracted_ingredients": [ingredient],
+            "extracted_instructions": instructions,
+            "field_evidence": {},
+            "warnings": [],
+        }
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS1_PIPELINE_ID: _pass1_builder,
+            PASS2_PIPELINE_ID: _pass2_builder,
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID]
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["recipe_guardrails"]["report"]["summary"]["pass1_overlap_rows"] == 2
+    for recipe_id in ("urn:recipe:test:r0", "urn:recipe:test:r1"):
+        recipe_row = manifest["recipes"][recipe_id]
+        assert recipe_row["pass3"] == "ok"
+        assert recipe_row["pass3_execution_mode"] == "deterministic"
+        assert recipe_row["pass3_routing_reason"] == "pass1_partial_recipe_window"
+        assert recipe_row["pass2_promotion_policy"] == (
+            "pass1_partial_window_deterministic_promotion"
+        )
+        assert recipe_row["pass3_mapping_status"] == "not_requested_deterministic"
+        assert "partial_recipe_window" in recipe_row["pass1_degradation_reasons"]
 
 
 def test_orchestrator_pass1_eligibility_gate_drops_low_evidence_spans(
@@ -1196,8 +1256,8 @@ def test_orchestrator_repairs_placeholder_only_pass3_steps_from_pass2_instructio
                     "@type": "Recipe",
                     "name": "Toast",
                 },
-                "extracted_ingredients": ["1 slice bread", "1 tbsp butter"],
-                "extracted_instructions": ["Toast the bread.", "Butter the toast."],
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread."],
                 "field_evidence": {},
                 "warnings": [],
             },
@@ -1422,6 +1482,15 @@ def test_orchestrator_rejects_empty_mapping_without_reason(
     run_root.mkdir(parents=True, exist_ok=True)
     settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=False)
     result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "Toast"},
+        {"index": 2, "text": "1 slice bread"},
+        {"index": 3, "text": "1 tbsp butter"},
+        {"index": 4, "text": "Toast the bread."},
+        {"index": 5, "text": "Butter the toast."},
+    ]
+    result.recipes[0].provenance["location"]["end_block"] = 5
 
     runner = FakeCodexFarmRunner(
         output_builders={
@@ -1433,8 +1502,8 @@ def test_orchestrator_rejects_empty_mapping_without_reason(
                     "@type": "Recipe",
                     "name": "Toast",
                 },
-                "extracted_ingredients": ["1 slice bread"],
-                "extracted_instructions": ["Toast the bread."],
+                "extracted_ingredients": ["1 slice bread", "1 tbsp butter"],
+                "extracted_instructions": ["Toast the bread.", "Butter the toast."],
                 "field_evidence": {},
                 "warnings": [],
             },
@@ -1471,6 +1540,157 @@ def test_orchestrator_rejects_empty_mapping_without_reason(
     assert recipe_row["pass3"] == "fallback"
     assert recipe_row["structural_status"] == "failed"
     assert "empty_mapping_without_reason" in recipe_row["structural_reason_codes"]
+
+
+def test_orchestrator_records_mapping_reason_for_empty_pass3_mapping(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=False)
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "Toast"},
+        {"index": 2, "text": "1 slice bread"},
+        {"index": 3, "text": "Toast the bread."},
+        {"index": 4, "text": "Serve warm."},
+    ]
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 slice bread"],
+                "extracted_instructions": ["Toast the bread.", "Serve warm."],
+                "field_evidence": {},
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {"instruction": "Toast the bread.", "ingredient_lines": []},
+                        {"instruction": "Serve warm.", "ingredient_lines": []},
+                    ],
+                },
+                "ingredient_step_mapping": {},
+                "ingredient_step_mapping_reason": "unclear_alignment",
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass3"] == "ok"
+    assert recipe_row["pass3_mapping_status"] == "unclear"
+    assert recipe_row["pass3_mapping_reason"] == "unclear_alignment"
+    assert recipe_row["structural_status"] == "ok"
+
+
+def test_orchestrator_recovers_malformed_pass2_field_evidence_without_recipe_error(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(tmp_path / "pack", pass3_skip_pass2_ok=False)
+    result = _build_conversion_result(source)
+    result.raw_artifacts[0].content["blocks"] = [
+        {"index": 0, "text": "Preface"},
+        {"index": 1, "text": "Toast"},
+        {"index": 2, "text": "1 jalapeño pepper"},
+        {"index": 3, "text": "Toast the bread until golden and crisp."},
+        {"index": 4, "text": "Serve warm with the sliced pepper on top."},
+    ]
+
+    runner = FakeCodexFarmRunner(
+        output_builders={
+            PASS2_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "schemaorg_recipe": {
+                    "@context": "http://schema.org",
+                    "@type": "Recipe",
+                    "name": "Toast",
+                },
+                "extracted_ingredients": ["1 jalapeño\x00 pepper"],
+                "extracted_instructions": [
+                    "Toast the bread until golden and crisp.",
+                    "Serve warm\x00 with the sliced pepper on top.",
+                ],
+                "field_evidence": "{bad json",
+                "warnings": [],
+            },
+            PASS3_PIPELINE_ID: lambda payload: {
+                "bundle_version": "1",
+                "recipe_id": payload.get("recipe_id"),
+                "draft_v1": {
+                    "schema_v": 1,
+                    "source": "book.txt",
+                    "recipe": {"title": "Toast"},
+                    "steps": [
+                        {
+                            "instruction": "Toast the bread until golden and crisp.",
+                            "ingredient_lines": ["1 jalapeño pepper"],
+                        },
+                        {
+                            "instruction": "Serve warm with the sliced pepper on top.",
+                            "ingredient_lines": [],
+                        },
+                    ],
+                },
+                "ingredient_step_mapping": {"0": [0], "1": [0]},
+                "warnings": [],
+            },
+        }
+    )
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = result.recipes[0].identifier
+    assert recipe_id is not None
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    recipe_row = manifest["recipes"][recipe_id]
+    assert recipe_row["pass2"] == "ok"
+    assert not any("invalid pass2 output" in error for error in recipe_row["errors"])
+    assert any(
+        "recovered malformed field_evidence" in warning for warning in recipe_row["warnings"]
+    )
 
 
 def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
@@ -1743,8 +1963,10 @@ def test_orchestrator_keeps_other_recipes_when_one_pass2_bundle_is_missing(tmp_p
             out_dir.mkdir(parents=True, exist_ok=True)
             first_input = sorted(in_dir.glob("*.json"))[0]
             payload = json.loads(first_input.read_text(encoding="utf-8"))
-            canonical_text = str(payload.get("canonical_text") or "").strip()
-            recipe_name = canonical_text.splitlines()[0].strip() if canonical_text else "Recipe"
+            evidence_rows = payload.get("evidence_rows") or []
+            recipe_name = str(evidence_rows[0][1] if evidence_rows else "Recipe").strip()
+            ingredient_line = str(evidence_rows[1][1] if len(evidence_rows) > 1 else "1 ingredient").strip()
+            step_line = str(evidence_rows[-1][1] if evidence_rows else "Mix.").strip()
             output = {
                 "bundle_version": "1",
                 "recipe_id": payload.get("recipe_id"),
@@ -1756,8 +1978,8 @@ def test_orchestrator_keeps_other_recipes_when_one_pass2_bundle_is_missing(tmp_p
                     },
                     sort_keys=True,
                 ),
-                "extracted_ingredients": ["1 test ingredient"],
-                "extracted_instructions": ["Do the test step."],
+                "extracted_ingredients": [ingredient_line],
+                "extracted_instructions": [step_line],
                 "field_evidence": "{}",
                 "warnings": [],
             }
@@ -1824,7 +2046,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
         benchmark_selective_retry_enabled=True,
         benchmark_selective_retry_max_attempts=2,
     )
-    result = _build_multi_recipe_conversion_result(source)
+    result = _build_recipe_count_conversion_result(source, 5)
 
     class RecoveringPass2Runner(FakeCodexFarmRunner):
         def __init__(self) -> None:
@@ -1860,10 +2082,19 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
             batch = [path.name for path in sorted(in_dir.glob("*.json"))]
             self.pass2_input_batches.append(batch)
             out_dir.mkdir(parents=True, exist_ok=True)
-            if self.pass2_attempt == 1:
-                first_input = sorted(in_dir.glob("*.json"))[0]
-                payload = json.loads(first_input.read_text(encoding="utf-8"))
-                (out_dir / first_input.name).write_text(
+
+            def _write_pass2_output(input_path: Path, title: str) -> None:
+                payload = json.loads(input_path.read_text(encoding="utf-8"))
+                ingredient_line = str(
+                    (
+                        payload.get("evidence_rows")
+                        or [[0, "Recipe"], [1, "1 ingredient"]]
+                    )[1][1]
+                ).strip()
+                step_line = str(
+                    (payload.get("evidence_rows") or [[0, "Mix."]])[-1][1]
+                ).strip()
+                (out_dir / input_path.name).write_text(
                     json.dumps(
                         {
                             "bundle_version": "1",
@@ -1871,10 +2102,10 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
                             "schemaorg_recipe": {
                                 "@context": "http://schema.org",
                                 "@type": "Recipe",
-                                "name": "Recovered pass2 primary",
+                                "name": title,
                             },
-                            "extracted_ingredients": ["1 test ingredient"],
-                            "extracted_instructions": ["Do the test step."],
+                            "extracted_ingredients": [ingredient_line],
+                            "extracted_instructions": [step_line],
                             "field_evidence": {},
                             "warnings": [],
                         },
@@ -1883,6 +2114,10 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
                     ),
                     encoding="utf-8",
                 )
+
+            if self.pass2_attempt == 1:
+                for index, input_path in enumerate(sorted(in_dir.glob("*.json"))[:-1], start=1):
+                    _write_pass2_output(input_path, f"Recovered pass2 primary {index}")
                 return CodexFarmPipelineRunResult(
                     pipeline_id=pipeline_id,
                     run_id="run-pass2-partial",
@@ -1897,7 +2132,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
                     telemetry_report=None,
                     autotune_report=None,
                     telemetry={
-                        "row_count": 2,
+                        "row_count": len(batch),
                         "summary": {
                             "failure_category_counts": {
                                 "nonzero_exit_no_payload": 1,
@@ -1905,29 +2140,10 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
                             }
                         },
                     },
+                    error_summary="Warning: no last agent message; partial outputs written.",
                 )
             retry_input = next(in_dir.glob("*.json"))
-            retry_payload = json.loads(retry_input.read_text(encoding="utf-8"))
-            (out_dir / retry_input.name).write_text(
-                json.dumps(
-                    {
-                        "bundle_version": "1",
-                        "recipe_id": retry_payload.get("recipe_id"),
-                        "schemaorg_recipe": {
-                            "@context": "http://schema.org",
-                            "@type": "Recipe",
-                            "name": "Recovered on retry",
-                        },
-                        "extracted_ingredients": ["1 test ingredient"],
-                        "extracted_instructions": ["Do the test step."],
-                        "field_evidence": {},
-                        "warnings": [],
-                    },
-                    indent=2,
-                    sort_keys=True,
-                ),
-                encoding="utf-8",
-            )
+            _write_pass2_output(retry_input, "Recovered on retry")
             return CodexFarmPipelineRunResult(
                 pipeline_id=pipeline_id,
                 run_id="run-pass2-retry",
@@ -1954,13 +2170,13 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
     )
 
     assert len(runner.pass2_input_batches) == 2
-    assert len(runner.pass2_input_batches[0]) == 2
+    assert len(runner.pass2_input_batches[0]) == 5
     assert len(runner.pass2_input_batches[1]) == 1
     assert runner.pass2_input_batches[1][0] in runner.pass2_input_batches[0]
     assert apply_result.llm_report["counts"]["selective_retry_pass2_attempts"] == 1
     assert apply_result.llm_report["counts"]["selective_retry_pass2_recovered"] == 1
     assert apply_result.llm_report["counts"]["pass2_errors"] == 0
-    assert apply_result.llm_report["counts"]["pass3_ok"] == 2
+    assert apply_result.llm_report["counts"]["pass3_ok"] == 5
 
     manifest = json.loads(
         (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
@@ -1993,9 +2209,452 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass2_bundle(
         benchmark_selective_retry_enabled=True,
         benchmark_selective_retry_max_attempts=1,
     )
-    result = _build_multi_recipe_conversion_result(source)
+    result = _build_recipe_count_conversion_result(source, 5)
 
     class UnrecoveredPass2Runner(FakeCodexFarmRunner):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pass2_input_batches: list[list[str]] = []
+            self.pass2_attempt = 0
+
+        def run_pipeline(  # type: ignore[override]
+            self,
+            pipeline_id: str,
+            in_dir: Path,
+            out_dir: Path,
+            env: dict[str, str],
+            *,
+            root_dir: Path | None = None,
+            workspace_root: Path | None = None,
+            model: str | None = None,
+            reasoning_effort: str | None = None,
+        ) -> CodexFarmPipelineRunResult:
+            if pipeline_id != PASS2_PIPELINE_ID:
+                return super().run_pipeline(
+                    pipeline_id,
+                    in_dir,
+                    out_dir,
+                    env,
+                    root_dir=root_dir,
+                    workspace_root=workspace_root,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                )
+            self.calls.append(pipeline_id)
+            self.pass2_attempt += 1
+            batch = [path.name for path in sorted(in_dir.glob("*.json"))]
+            self.pass2_input_batches.append(batch)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            def _write_pass2_output(input_path: Path, title: str) -> None:
+                payload = json.loads(input_path.read_text(encoding="utf-8"))
+                ingredient_line = str(
+                    (
+                        payload.get("evidence_rows")
+                        or [[0, "Recipe"], [1, "1 ingredient"]]
+                    )[1][1]
+                ).strip()
+                step_line = str(
+                    (payload.get("evidence_rows") or [[0, "Mix."]])[-1][1]
+                ).strip()
+                (out_dir / input_path.name).write_text(
+                    json.dumps(
+                        {
+                            "bundle_version": "1",
+                            "recipe_id": payload.get("recipe_id"),
+                            "schemaorg_recipe": {
+                                "@context": "http://schema.org",
+                                "@type": "Recipe",
+                                "name": title,
+                            },
+                            "extracted_ingredients": [ingredient_line],
+                            "extracted_instructions": [step_line],
+                            "field_evidence": {},
+                            "warnings": [],
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
+            if self.pass2_attempt == 1:
+                for index, input_path in enumerate(sorted(in_dir.glob("*.json"))[:-1], start=1):
+                    _write_pass2_output(input_path, f"Recovered pass2 primary {index}")
+            return CodexFarmPipelineRunResult(
+                pipeline_id=pipeline_id,
+                run_id=f"run-pass2-attempt-{self.pass2_attempt}",
+                subprocess_exit_code=1,
+                process_exit_code=1,
+                output_schema_path=None,
+                process_payload={
+                    "run_id": f"run-pass2-attempt-{self.pass2_attempt}",
+                    "status": "failed",
+                    "exit_code": 1,
+                },
+                telemetry_report=None,
+                autotune_report=None,
+                telemetry={
+                    "row_count": len(batch),
+                    "summary": {
+                        "failure_category_counts": {
+                            "nonzero_exit_no_payload": 1,
+                            "timeout": 1,
+                        }
+                    },
+                },
+                error_summary="Warning: no last agent message; partial outputs written.",
+            )
+
+    runner = UnrecoveredPass2Runner()
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert len(runner.pass2_input_batches) == 2
+    assert len(runner.pass2_input_batches[0]) == 5
+    assert len(runner.pass2_input_batches[1]) == 1
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_attempts"] == 1
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_recovered"] == 0
+    assert apply_result.llm_report["counts"]["pass2_errors"] == 1
+    assert apply_result.llm_report["counts"]["pass3_ok"] == 4
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    retry_payload = manifest["selective_retries"]["pass2"]
+    assert retry_payload["settings"]["codex_farm_recipe_mode"] == "benchmark"
+    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_enabled"] is True
+    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_max_attempts"] == 1
+    assert retry_payload["original_missing_bundle_count"] == 1
+    assert retry_payload["recovered_bundle_count"] == 0
+    assert retry_payload["unrecovered_bundle_count"] == 1
+    assert len(retry_payload["attempts"]) == 1
+    errored_rows = [
+        row for row in manifest["recipes"].values() if row.get("pass2") == "error"
+    ]
+    assert len(errored_rows) == 1
+
+
+def test_orchestrator_selective_retry_requires_no_last_agent_message_evidence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        recipe_mode="benchmark",
+        pass3_skip_pass2_ok=False,
+        benchmark_selective_retry_enabled=True,
+        benchmark_selective_retry_max_attempts=2,
+    )
+    result = _build_recipe_count_conversion_result(source, 5)
+
+    class MissingEvidenceRunner(FakeCodexFarmRunner):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pass2_input_batches: list[list[str]] = []
+            self.pass2_attempt = 0
+
+        def run_pipeline(  # type: ignore[override]
+            self,
+            pipeline_id: str,
+            in_dir: Path,
+            out_dir: Path,
+            env: dict[str, str],
+            *,
+            root_dir: Path | None = None,
+            workspace_root: Path | None = None,
+            model: str | None = None,
+            reasoning_effort: str | None = None,
+        ) -> CodexFarmPipelineRunResult:
+            if pipeline_id != PASS2_PIPELINE_ID:
+                return super().run_pipeline(
+                    pipeline_id,
+                    in_dir,
+                    out_dir,
+                    env,
+                    root_dir=root_dir,
+                    workspace_root=workspace_root,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                )
+            self.calls.append(pipeline_id)
+            self.pass2_attempt += 1
+            batch = [path.name for path in sorted(in_dir.glob("*.json"))]
+            self.pass2_input_batches.append(batch)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if self.pass2_attempt == 1:
+                for index, input_path in enumerate(sorted(in_dir.glob("*.json"))[:-1], start=1):
+                    payload = json.loads(input_path.read_text(encoding="utf-8"))
+                    (out_dir / input_path.name).write_text(
+                        json.dumps(
+                            {
+                                "bundle_version": "1",
+                                "recipe_id": payload.get("recipe_id"),
+                                "schemaorg_recipe": {
+                                    "@context": "http://schema.org",
+                                    "@type": "Recipe",
+                                    "name": f"Partial pass2 output {index}",
+                                },
+                                "extracted_ingredients": ["1 ingredient"],
+                                "extracted_instructions": ["Cook."],
+                                "field_evidence": {},
+                                "warnings": [],
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                return CodexFarmPipelineRunResult(
+                    pipeline_id=pipeline_id,
+                    run_id="run-pass2-partial-no-evidence",
+                    subprocess_exit_code=1,
+                    process_exit_code=1,
+                    output_schema_path=None,
+                    process_payload={
+                        "run_id": "run-pass2-partial-no-evidence",
+                        "status": "failed",
+                        "exit_code": 1,
+                    },
+                    telemetry_report=None,
+                    autotune_report=None,
+                    telemetry={
+                        "row_count": len(batch),
+                        "summary": {
+                            "failure_category_counts": {
+                                "nonzero_exit_no_payload": 1,
+                                "timeout": 1,
+                            }
+                        },
+                    },
+                )
+            retry_input = next(in_dir.glob("*.json"))
+            payload = json.loads(retry_input.read_text(encoding="utf-8"))
+            (out_dir / retry_input.name).write_text(
+                json.dumps(
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": payload.get("recipe_id"),
+                        "schemaorg_recipe": {
+                            "@context": "http://schema.org",
+                            "@type": "Recipe",
+                            "name": "Should never be written",
+                        },
+                        "extracted_ingredients": ["1 ingredient"],
+                        "extracted_instructions": ["Cook."],
+                        "field_evidence": {},
+                        "warnings": [],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return CodexFarmPipelineRunResult(
+                pipeline_id=pipeline_id,
+                run_id="run-pass2-retry-unexpected",
+                subprocess_exit_code=0,
+                process_exit_code=0,
+                output_schema_path=None,
+                process_payload={
+                    "run_id": "run-pass2-retry-unexpected",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+                telemetry_report=None,
+                autotune_report=None,
+                telemetry=None,
+            )
+
+    runner = MissingEvidenceRunner()
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert len(runner.pass2_input_batches) == 1
+    assert len(runner.pass2_input_batches[0]) == 5
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_attempts"] == 0
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_recovered"] == 0
+    assert apply_result.llm_report["counts"]["pass2_errors"] == 1
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["selective_retries"] == {}
+    assert not (apply_result.llm_raw_dir / "pass2_schemaorg" / "retry_attempt_01").exists()
+
+
+def test_orchestrator_selective_retry_allows_missing_failure_categories_when_message_matches(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        recipe_mode="benchmark",
+        pass3_skip_pass2_ok=False,
+        benchmark_selective_retry_enabled=True,
+        benchmark_selective_retry_max_attempts=2,
+    )
+    result = _build_recipe_count_conversion_result(source, 5)
+
+    class MissingFailureCountsRunner(FakeCodexFarmRunner):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pass2_input_batches: list[list[str]] = []
+            self.pass2_attempt = 0
+
+        def run_pipeline(  # type: ignore[override]
+            self,
+            pipeline_id: str,
+            in_dir: Path,
+            out_dir: Path,
+            env: dict[str, str],
+            *,
+            root_dir: Path | None = None,
+            workspace_root: Path | None = None,
+            model: str | None = None,
+            reasoning_effort: str | None = None,
+        ) -> CodexFarmPipelineRunResult:
+            if pipeline_id != PASS2_PIPELINE_ID:
+                return super().run_pipeline(
+                    pipeline_id,
+                    in_dir,
+                    out_dir,
+                    env,
+                    root_dir=root_dir,
+                    workspace_root=workspace_root,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                )
+            self.calls.append(pipeline_id)
+            self.pass2_attempt += 1
+            batch = [path.name for path in sorted(in_dir.glob("*.json"))]
+            self.pass2_input_batches.append(batch)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            def _write_pass2_output(input_path: Path, title: str) -> None:
+                payload = json.loads(input_path.read_text(encoding="utf-8"))
+                ingredient_line = str(
+                    (
+                        payload.get("evidence_rows")
+                        or [[0, "Recipe"], [1, "1 ingredient"]]
+                    )[1][1]
+                ).strip()
+                step_line = str(
+                    (payload.get("evidence_rows") or [[0, "Mix."]])[-1][1]
+                ).strip()
+                (out_dir / input_path.name).write_text(
+                    json.dumps(
+                        {
+                            "bundle_version": "1",
+                            "recipe_id": payload.get("recipe_id"),
+                            "schemaorg_recipe": {
+                                "@context": "http://schema.org",
+                                "@type": "Recipe",
+                                "name": title,
+                            },
+                            "extracted_ingredients": [ingredient_line],
+                            "extracted_instructions": [step_line],
+                            "field_evidence": {},
+                            "warnings": [],
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
+
+            if self.pass2_attempt == 1:
+                for index, input_path in enumerate(sorted(in_dir.glob("*.json"))[:-1], start=1):
+                    _write_pass2_output(input_path, f"Recovered pass2 primary {index}")
+                return CodexFarmPipelineRunResult(
+                    pipeline_id=pipeline_id,
+                    run_id="run-pass2-partial-no-categories",
+                    subprocess_exit_code=1,
+                    process_exit_code=1,
+                    output_schema_path=None,
+                    process_payload={
+                        "run_id": "run-pass2-partial-no-categories",
+                        "status": "failed",
+                        "exit_code": 1,
+                    },
+                    telemetry_report=None,
+                    autotune_report=None,
+                    telemetry={"row_count": len(batch)},
+                    error_summary="Warning: no last agent message; partial outputs written.",
+                )
+            retry_input = next(in_dir.glob("*.json"))
+            _write_pass2_output(retry_input, "Recovered on retry without failure counts")
+            return CodexFarmPipelineRunResult(
+                pipeline_id=pipeline_id,
+                run_id="run-pass2-retry-no-categories",
+                subprocess_exit_code=0,
+                process_exit_code=0,
+                output_schema_path=None,
+                process_payload={
+                    "run_id": "run-pass2-retry-no-categories",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+                telemetry_report=None,
+                autotune_report=None,
+                telemetry=None,
+            )
+
+    runner = MissingFailureCountsRunner()
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert len(runner.pass2_input_batches) == 2
+    assert len(runner.pass2_input_batches[0]) == 5
+    assert len(runner.pass2_input_batches[1]) == 1
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_attempts"] == 1
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_recovered"] == 1
+    assert apply_result.llm_report["counts"]["pass2_errors"] == 0
+    assert apply_result.llm_report["counts"]["pass3_ok"] == 5
+
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["selective_retries"]["pass2"]["recovered_bundle_count"] == 1
+    assert (apply_result.llm_raw_dir / "pass2_schemaorg" / "retry_attempt_01").exists()
+
+
+def test_orchestrator_selective_retry_requires_runner_coverage_thresholds(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        recipe_mode="benchmark",
+        pass3_skip_pass2_ok=False,
+        benchmark_selective_retry_enabled=True,
+        benchmark_selective_retry_max_attempts=2,
+    )
+    result = _build_multi_recipe_conversion_result(source)
+
+    class LowCoverageRunner(FakeCodexFarmRunner):
         def __init__(self) -> None:
             super().__init__()
             self.pass2_input_batches: list[list[str]] = []
@@ -2040,10 +2699,10 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass2_bundle(
                             "schemaorg_recipe": {
                                 "@context": "http://schema.org",
                                 "@type": "Recipe",
-                                "name": "Only first recipe recovered",
+                                "name": "Only one output written",
                             },
-                            "extracted_ingredients": ["1 test ingredient"],
-                            "extracted_instructions": ["Do the test step."],
+                            "extracted_ingredients": ["1 ingredient"],
+                            "extracted_instructions": ["Cook."],
                             "field_evidence": {},
                             "warnings": [],
                         },
@@ -2052,31 +2711,69 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass2_bundle(
                     ),
                     encoding="utf-8",
                 )
+                return CodexFarmPipelineRunResult(
+                    pipeline_id=pipeline_id,
+                    run_id="run-pass2-low-coverage",
+                    subprocess_exit_code=1,
+                    process_exit_code=1,
+                    output_schema_path=None,
+                    process_payload={
+                        "run_id": "run-pass2-low-coverage",
+                        "status": "failed",
+                        "exit_code": 1,
+                    },
+                    telemetry_report=None,
+                    autotune_report=None,
+                    telemetry={
+                        "row_count": len(batch),
+                        "summary": {
+                            "failure_category_counts": {
+                                "nonzero_exit_no_payload": 1,
+                                "timeout": 1,
+                            }
+                        },
+                    },
+                    error_summary="Warning: no last agent message; partial outputs written.",
+                )
+            retry_input = next(in_dir.glob("*.json"))
+            payload = json.loads(retry_input.read_text(encoding="utf-8"))
+            (out_dir / retry_input.name).write_text(
+                json.dumps(
+                    {
+                        "bundle_version": "1",
+                        "recipe_id": payload.get("recipe_id"),
+                        "schemaorg_recipe": {
+                            "@context": "http://schema.org",
+                            "@type": "Recipe",
+                            "name": "Should never be written",
+                        },
+                        "extracted_ingredients": ["1 ingredient"],
+                        "extracted_instructions": ["Cook."],
+                        "field_evidence": {},
+                        "warnings": [],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
             return CodexFarmPipelineRunResult(
                 pipeline_id=pipeline_id,
-                run_id=f"run-pass2-attempt-{self.pass2_attempt}",
-                subprocess_exit_code=1,
-                process_exit_code=1,
+                run_id="run-pass2-retry-unexpected",
+                subprocess_exit_code=0,
+                process_exit_code=0,
                 output_schema_path=None,
                 process_payload={
-                    "run_id": f"run-pass2-attempt-{self.pass2_attempt}",
-                    "status": "failed",
-                    "exit_code": 1,
+                    "run_id": "run-pass2-retry-unexpected",
+                    "status": "completed",
+                    "exit_code": 0,
                 },
                 telemetry_report=None,
                 autotune_report=None,
-                telemetry={
-                    "row_count": len(batch),
-                    "summary": {
-                        "failure_category_counts": {
-                            "nonzero_exit_no_payload": 1,
-                            "timeout": 1,
-                        }
-                    },
-                },
+                telemetry=None,
             )
 
-    runner = UnrecoveredPass2Runner()
+    runner = LowCoverageRunner()
     apply_result = run_codex_farm_recipe_pipeline(
         conversion_result=result,
         run_settings=settings,
@@ -2085,29 +2782,16 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass2_bundle(
         runner=runner,
     )
 
-    assert len(runner.pass2_input_batches) == 2
+    assert len(runner.pass2_input_batches) == 1
     assert len(runner.pass2_input_batches[0]) == 2
-    assert len(runner.pass2_input_batches[1]) == 1
-    assert apply_result.llm_report["counts"]["selective_retry_pass2_attempts"] == 1
+    assert apply_result.llm_report["counts"]["selective_retry_pass2_attempts"] == 0
     assert apply_result.llm_report["counts"]["selective_retry_pass2_recovered"] == 0
     assert apply_result.llm_report["counts"]["pass2_errors"] == 1
-    assert apply_result.llm_report["counts"]["pass3_ok"] == 1
-
     manifest = json.loads(
         (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
     )
-    retry_payload = manifest["selective_retries"]["pass2"]
-    assert retry_payload["settings"]["codex_farm_recipe_mode"] == "benchmark"
-    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_enabled"] is True
-    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_max_attempts"] == 1
-    assert retry_payload["original_missing_bundle_count"] == 1
-    assert retry_payload["recovered_bundle_count"] == 0
-    assert retry_payload["unrecovered_bundle_count"] == 1
-    assert len(retry_payload["attempts"]) == 1
-    errored_rows = [
-        row for row in manifest["recipes"].values() if row.get("pass2") == "error"
-    ]
-    assert len(errored_rows) == 1
+    assert manifest["selective_retries"] == {}
+    assert not (apply_result.llm_raw_dir / "pass2_schemaorg" / "retry_attempt_01").exists()
 
 
 def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark_mode(
@@ -2124,7 +2808,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
         benchmark_selective_retry_enabled=True,
         benchmark_selective_retry_max_attempts=2,
     )
-    result = _build_multi_recipe_conversion_result(source)
+    result = _build_recipe_count_conversion_result(source, 5)
 
     class RecoveringPass3Runner(FakeCodexFarmRunner):
         def __init__(self) -> None:
@@ -2138,8 +2822,12 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
                             "@type": "Recipe",
                             "name": str(payload.get("recipe_id") or "Recipe"),
                         },
-                        "extracted_ingredients": ["1 test ingredient"],
-                        "extracted_instructions": ["Mix ingredients and cook."],
+                        "extracted_ingredients": [
+                            str((payload.get("evidence_rows") or [[0, "Recipe"], [1, "1 ingredient"]])[1][1]).strip()
+                        ],
+                        "extracted_instructions": [
+                            str((payload.get("evidence_rows") or [[0, "Mix."]])[-1][1]).strip()
+                        ],
                         "field_evidence": {},
                         "warnings": [],
                     }
@@ -2205,8 +2893,8 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
                 )
 
             if self.pass3_attempt == 1:
-                first_input = sorted(in_dir.glob("*.json"))[0]
-                _write_pass3_output(first_input, "Recovered pass3 primary")
+                for index, input_path in enumerate(sorted(in_dir.glob("*.json"))[:-1], start=1):
+                    _write_pass3_output(input_path, f"Recovered pass3 primary {index}")
                 return CodexFarmPipelineRunResult(
                     pipeline_id=pipeline_id,
                     run_id="run-pass3-partial",
@@ -2221,7 +2909,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
                     telemetry_report=None,
                     autotune_report=None,
                     telemetry={
-                        "row_count": 2,
+                        "row_count": len(batch),
                         "summary": {
                             "failure_category_counts": {
                                 "nonzero_exit_no_payload": 1,
@@ -2229,6 +2917,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
                             }
                         },
                     },
+                    error_summary="Warning: no last agent message; partial outputs written.",
                 )
 
             retry_input = next(in_dir.glob("*.json"))
@@ -2259,13 +2948,13 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
     )
 
     assert len(runner.pass3_input_batches) == 2
-    assert len(runner.pass3_input_batches[0]) == 2
+    assert len(runner.pass3_input_batches[0]) == 5
     assert len(runner.pass3_input_batches[1]) == 1
     assert runner.pass3_input_batches[1][0] in runner.pass3_input_batches[0]
     assert apply_result.llm_report["counts"]["selective_retry_pass3_attempts"] == 1
     assert apply_result.llm_report["counts"]["selective_retry_pass3_recovered"] == 1
     assert apply_result.llm_report["counts"]["pass3_errors"] == 0
-    assert len(apply_result.final_overrides_by_recipe_id) == 2
+    assert len(apply_result.final_overrides_by_recipe_id) == 5
 
     manifest = json.loads(
         (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
@@ -2298,7 +2987,7 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
         benchmark_selective_retry_enabled=True,
         benchmark_selective_retry_max_attempts=1,
     )
-    result = _build_multi_recipe_conversion_result(source)
+    result = _build_recipe_count_conversion_result(source, 5)
 
     class UnrecoveredPass3Runner(FakeCodexFarmRunner):
         def __init__(self) -> None:
@@ -2312,8 +3001,12 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
                             "@type": "Recipe",
                             "name": str(payload.get("recipe_id") or "Recipe"),
                         },
-                        "extracted_ingredients": ["1 test ingredient"],
-                        "extracted_instructions": ["Cook until done."],
+                        "extracted_ingredients": [
+                            str((payload.get("evidence_rows") or [[0, "Recipe"], [1, "1 ingredient"]])[1][1]).strip()
+                        ],
+                        "extracted_instructions": [
+                            str((payload.get("evidence_rows") or [[0, "Mix."]])[-1][1]).strip()
+                        ],
                         "field_evidence": {},
                         "warnings": [],
                     }
@@ -2351,32 +3044,34 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
             self.pass3_input_batches.append(batch)
             out_dir.mkdir(parents=True, exist_ok=True)
             if self.pass3_attempt == 1:
-                first_input = sorted(in_dir.glob("*.json"))[0]
-                payload = json.loads(first_input.read_text(encoding="utf-8"))
-                (out_dir / first_input.name).write_text(
-                    json.dumps(
-                        {
-                            "bundle_version": "1",
-                            "recipe_id": payload.get("recipe_id"),
-                            "draft_v1": {
-                                "schema_v": 1,
-                                "source": "book.txt",
-                                "recipe": {"title": "Only first pass3 recipe recovered"},
-                                "steps": [
-                                    {
-                                        "instruction": "Cook until done.",
-                                        "ingredient_lines": ["1 test ingredient"],
-                                    }
-                                ],
+                for index, input_path in enumerate(sorted(in_dir.glob("*.json"))[:-1], start=1):
+                    payload = json.loads(input_path.read_text(encoding="utf-8"))
+                    (out_dir / input_path.name).write_text(
+                        json.dumps(
+                            {
+                                "bundle_version": "1",
+                                "recipe_id": payload.get("recipe_id"),
+                                "draft_v1": {
+                                    "schema_v": 1,
+                                    "source": "book.txt",
+                                    "recipe": {
+                                        "title": f"Recovered pass3 primary {index}"
+                                    },
+                                    "steps": [
+                                        {
+                                            "instruction": "Cook until done.",
+                                            "ingredient_lines": ["1 test ingredient"],
+                                        }
+                                    ],
+                                },
+                                "ingredient_step_mapping": {"0": [0]},
+                                "warnings": [],
                             },
-                            "ingredient_step_mapping": {"0": [0]},
-                            "warnings": [],
-                        },
-                        indent=2,
-                        sort_keys=True,
-                    ),
-                    encoding="utf-8",
-                )
+                            indent=2,
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
             return CodexFarmPipelineRunResult(
                 pipeline_id=pipeline_id,
                 run_id=f"run-pass3-attempt-{self.pass3_attempt}",
@@ -2399,6 +3094,7 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
                         }
                     },
                 },
+                error_summary="Warning: no last agent message; partial outputs written.",
             )
 
     runner = UnrecoveredPass3Runner()
@@ -2411,12 +3107,12 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
     )
 
     assert len(runner.pass3_input_batches) == 2
-    assert len(runner.pass3_input_batches[0]) == 2
+    assert len(runner.pass3_input_batches[0]) == 5
     assert len(runner.pass3_input_batches[1]) == 1
     assert apply_result.llm_report["counts"]["selective_retry_pass3_attempts"] == 1
     assert apply_result.llm_report["counts"]["selective_retry_pass3_recovered"] == 0
     assert apply_result.llm_report["counts"]["pass3_errors"] == 0
-    assert len(apply_result.final_overrides_by_recipe_id) == 2
+    assert len(apply_result.final_overrides_by_recipe_id) == 5
 
     manifest = json.loads(
         (apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8")
@@ -2429,9 +3125,3 @@ def test_orchestrator_selective_retry_reports_unrecovered_pass3_bundle(
     assert retry_payload["recovered_bundle_count"] == 0
     assert retry_payload["unrecovered_bundle_count"] == 1
     assert len(retry_payload["attempts"]) == 1
-
-
-
-
-
-

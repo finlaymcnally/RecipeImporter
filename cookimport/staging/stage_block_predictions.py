@@ -67,6 +67,11 @@ _INSTRUCTION_PREFIX_RE = re.compile(r"^\s*(?:\d+[.)]|[-*])\s+")
 _HOWTO_SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
 _HOWTO_WORD_RE = re.compile(r"[A-Za-z]+")
 _HOWTO_ALL_CAPS_RE = re.compile(r"^[A-Z0-9][A-Z0-9 &/+-]*$")
+_TITLE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
+_TITLE_PROSE_CUE_RE = re.compile(
+    r"\b(?:i|my|me|we|our|chapter|preface|introduction)\b",
+    re.IGNORECASE,
+)
 
 
 class _ArchiveBlockView:
@@ -406,6 +411,26 @@ def _label_recipe_blocks(
         for block in candidate_blocks:
             if _is_variant_text(block.text):
                 variant_indices.add(block.index)
+    block_position_by_index = {
+        block.index: position for position, block in enumerate(candidate_blocks)
+    }
+    block_by_index = {block.index: block for block in candidate_blocks}
+    variant_indices = {
+        index
+        for index in variant_indices
+        if (
+            (block := block_by_index.get(index)) is not None
+            and (
+                (position := block_position_by_index.get(index)) is not None
+                and _is_valid_title_or_variant_candidate(
+                    block,
+                    candidate_blocks=candidate_blocks,
+                    candidate_position=position,
+                    kind="variant",
+                )
+            )
+        )
+    }
     for idx in variant_indices:
         _mark_label(block_labels, idx, "RECIPE_VARIANT")
 
@@ -558,31 +583,119 @@ def _is_variant_text(text: str) -> bool:
     return bool(_VARIANT_HEADER_RE.match(stripped) or _VARIANT_PREFIX_RE.match(stripped))
 
 
+def _looks_title_boundary_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    words = _TITLE_WORD_RE.findall(stripped)
+    if len(words) >= 10 and any(ch in stripped for ch in ",.;:"):
+        return True
+    if _TITLE_PROSE_CUE_RE.search(stripped) and len(words) >= 6:
+        return True
+    return False
+
+
+def _block_has_recipe_boundary_signal(block: _ArchiveBlockView) -> bool:
+    text = (block.text or "").strip()
+    role = _block_role(block)
+    if role in {"ingredient_line", "instruction_line"}:
+        return True
+    if _YIELD_KEYWORDS_RE.search(text):
+        return True
+    if _TIME_KEYWORDS_RE.search(text) and _TIME_VALUE_RE.search(text):
+        return True
+    if _INSTRUCTION_PREFIX_RE.match(text):
+        return True
+    return False
+
+
+def _has_title_boundary_evidence(
+    *,
+    candidate_position: int,
+    candidate_blocks: list[_ArchiveBlockView],
+    kind: str,
+) -> bool:
+    upper = min(len(candidate_blocks), candidate_position + (4 if kind == "title" else 3) + 1)
+    for position in range(candidate_position + 1, upper):
+        if _block_has_recipe_boundary_signal(candidate_blocks[position]):
+            return True
+    if kind == "variant":
+        lower = max(0, candidate_position - 2)
+        for position in range(lower, candidate_position):
+            if _block_has_recipe_boundary_signal(candidate_blocks[position]):
+                return True
+    return False
+
+
+def _is_valid_title_or_variant_candidate(
+    block: _ArchiveBlockView,
+    *,
+    candidate_blocks: list[_ArchiveBlockView],
+    candidate_position: int,
+    kind: str,
+) -> bool:
+    text = (block.text or "").strip()
+    if not text or len(text) > 140:
+        return False
+    if kind == "variant" and not _is_variant_text(text):
+        return False
+    if kind == "title" and text[-1:] in {".", "!", "?"}:
+        return False
+    if kind == "title" and (
+        _YIELD_KEYWORDS_RE.search(text)
+        or (_TIME_KEYWORDS_RE.search(text) and _TIME_VALUE_RE.search(text))
+        or _INSTRUCTION_PREFIX_RE.match(text)
+        or _looks_title_boundary_prose(text)
+    ):
+        return False
+    return _has_title_boundary_evidence(
+        candidate_position=candidate_position,
+        candidate_blocks=candidate_blocks,
+        kind=kind,
+    )
+
+
 def _find_title_block_index(
     recipe: RecipeCandidate,
     candidate_blocks: list[_ArchiveBlockView],
 ) -> int | None:
     recipe_name = (recipe.name or "").strip()
-    if not recipe_name:
-        return candidate_blocks[0].index if candidate_blocks else None
-
-    target = _normalize_for_match(recipe_name)
+    target = _normalize_for_match(recipe_name) if recipe_name else ""
     if target:
-        for block in candidate_blocks[:60]:
+        for position, block in enumerate(candidate_blocks[:60]):
             if _normalize_for_match(block.text) == target:
-                return block.index
-        for block in candidate_blocks[:60]:
+                if _is_valid_title_or_variant_candidate(
+                    block,
+                    candidate_blocks=candidate_blocks,
+                    candidate_position=position,
+                    kind="title",
+                ):
+                    return block.index
+        for position, block in enumerate(candidate_blocks[:60]):
             block_norm = _normalize_for_match(block.text)
             if not block_norm:
                 continue
             if target in block_norm or block_norm in target:
-                return block.index
+                if _is_valid_title_or_variant_candidate(
+                    block,
+                    candidate_blocks=candidate_blocks,
+                    candidate_position=position,
+                    kind="title",
+                ):
+                    return block.index
 
     best: tuple[int, int] | None = None
     start_index = candidate_blocks[0].index
-    for block in candidate_blocks[:20]:
+    for position, block in enumerate(candidate_blocks[:20]):
         text = (block.text or "").strip()
         if not text or len(text) > 140:
+            continue
+        if not _is_valid_title_or_variant_candidate(
+            block,
+            candidate_blocks=candidate_blocks,
+            candidate_position=position,
+            kind="title",
+        ):
             continue
         score = 0
         features = _block_features(block)
@@ -599,7 +712,7 @@ def _find_title_block_index(
             best = (score, block.index)
     if best is not None and best[0] > 0:
         return best[1]
-    return candidate_blocks[0].index if candidate_blocks else None
+    return None
 
 
 def _find_yield_block_indices(

@@ -118,8 +118,7 @@ def _choose_top_tier_profile(
     if env_choice is not None:
         return env_choice
     default_codex_enabled = (
-        global_defaults.llm_recipe_pipeline.value.strip().lower()
-        == "codex-farm-3pass-v1"
+        global_defaults.llm_recipe_pipeline.value.strip().lower() != "off"
     )
     if prompt_confirm is not None:
         use_codex_farm = prompt_confirm(

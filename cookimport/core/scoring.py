@@ -37,6 +37,16 @@ _INSTRUCTION_LEAD_RE = re.compile(
     re.IGNORECASE,
 )
 _NOISE_SYMBOL_RE = re.compile(r"[`~^|]{2,}|[<>{}\\]{2,}|[_=*#]{6,}")
+_REFERENCE_SECTION_TITLE_RE = re.compile(
+    r"\b("
+    r"conversions?|"
+    r"equivalenc(?:y|ies)|"
+    r"doneness(?: temperatures?)?|"
+    r"weight class|"
+    r"temperature chart"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -73,6 +83,17 @@ def _setting_value(settings: RunSettings | None, key: str, fallback: Any) -> Any
 def _instruction_text(value: Any) -> str:
     text = getattr(value, "text", value)
     return str(text).strip()
+
+
+def _looks_like_reference_section_title(title: str) -> bool:
+    normalized = str(title or "").strip()
+    if not normalized or not _REFERENCE_SECTION_TITLE_RE.search(normalized):
+        return False
+    if "|" in normalized:
+        return True
+    if normalized.isupper():
+        return True
+    return normalized.upper().startswith("COMMON ")
 
 
 def _pattern_flags_from_location(location: Any) -> set[str]:
@@ -282,6 +303,7 @@ def score_recipe_likeness(
     noise_penalty = 0.0
     if symbol_noise_ratio > 0.02:
         noise_penalty = min(0.14, (symbol_noise_ratio - 0.02) * 2.5)
+    reference_section_penalty = 0.6 if _looks_like_reference_section_title(title) else 0.0
 
     short_penalty = 0.0
     long_penalty = 0.0
@@ -345,6 +367,7 @@ def score_recipe_likeness(
         - short_penalty
         - long_penalty
         - noise_penalty
+        - reference_section_penalty
         - minimum_line_penalty
         - pattern_penalty_total
     )
@@ -376,6 +399,8 @@ def score_recipe_likeness(
         reasons.append("content_too_long")
     if noise_penalty >= 0.08:
         reasons.append("high_symbol_noise")
+    if reference_section_penalty > 0:
+        reasons.append("reference_section_title")
     if toc_like_penalty > 0:
         reasons.append("pattern_toc_like_penalty")
     if duplicate_title_penalty > 0:
@@ -400,6 +425,7 @@ def score_recipe_likeness(
         "text_length_chars": text_length,
         "word_count": word_count,
         "noise_penalty": round(noise_penalty, 4),
+        "reference_section_penalty": round(reference_section_penalty, 4),
         "short_penalty": round(short_penalty, 4),
         "long_penalty": round(long_penalty, 4),
         "minimum_line_penalty": round(minimum_line_penalty, 4),

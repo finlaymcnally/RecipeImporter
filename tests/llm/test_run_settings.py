@@ -4,6 +4,8 @@ from cookimport.config.run_settings import (
     RunSettings,
     build_run_settings,
     compute_effective_workers,
+    public_run_setting_names,
+    retired_legacy_run_setting_names,
     run_settings_ui_specs,
 )
 
@@ -24,7 +26,6 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "epub_unstructured_html_parser_version",
         "epub_unstructured_skip_headers_footers",
         "epub_unstructured_preprocess_mode",
-        "table_extraction",
         "section_detector_backend",
         "multi_recipe_splitter",
         "multi_recipe_trace",
@@ -150,11 +151,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     monkeypatch.delenv("COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS", raising=False)
     specs = run_settings_ui_specs()
     by_name = {spec.name for spec in specs}
-    expected = {
-        name
-        for name, field in RunSettings.model_fields.items()
-        if not dict(field.json_schema_extra or {}).get("ui_hidden")
-    }
+    expected = set(public_run_setting_names())
     assert by_name == expected
     llm_recipe_spec = next(spec for spec in specs if spec.name == "llm_recipe_pipeline")
     assert llm_recipe_spec.choices == ("off", "codex-farm-3pass-v1")
@@ -214,6 +211,17 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     )
     p6_yield_mode_spec = next(spec for spec in specs if spec.name == "p6_yield_mode")
     assert p6_yield_mode_spec.choices == ("legacy_v1", "scored_v1")
+
+
+def test_run_settings_accepts_retired_table_extraction_key_without_reserializing_it() -> None:
+    settings = RunSettings.from_dict(
+        {"table_extraction": "off", "workers": 3},
+        warn_context="test retired setting",
+    )
+
+    assert settings.workers == 3
+    assert "table_extraction" in retired_legacy_run_setting_names()
+    assert "table_extraction" not in settings.to_run_config_dict()
 
 
 def test_run_settings_ui_specs_include_recipe_codex_farm_without_env_gate() -> None:

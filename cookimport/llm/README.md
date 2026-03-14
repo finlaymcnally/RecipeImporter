@@ -21,4 +21,6 @@ Prediction runs now also write `prediction-run/prompt_budget_summary.json`, whic
 
 Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`), and those compact ids are now the default pass2/pass3/pass4 selections when CodexFarm recipe parsing or knowledge harvest is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 
+Current pass2/pass3 hardening note: malformed pass2 `field_evidence` is recovered into `{}` with a warning, extracted ingredient/instruction arrays are control-byte sanitized, overlap-truncated pass1 rows record `pass1_degradation_reasons`, and manifest rows now expose `pass3_mapping_status` / `pass3_mapping_reason` when pass3 returns or skips ingredient-step mapping work.
+
 Default behavior remains deterministic unless `llm_recipe_pipeline=codex-farm-3pass-v1` is explicitly enabled.

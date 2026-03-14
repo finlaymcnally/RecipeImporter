@@ -81,7 +81,7 @@ Per workbook (slugified file stem):
 - `tips/<workbook_slug>/topic_candidates.md` (if any; skipped with `stage --no-write-markdown`)
 - `chunks/<workbook_slug>/c{index}.json` (if any)
 - `chunks/<workbook_slug>/chunks.md` (if any; skipped with `stage --no-write-markdown`)
-- `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (when `table_extraction=on`; `tables.md` skipped with `stage --no-write-markdown`)
+- `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
 - `knowledge/<workbook_slug>/snippets.jsonl` (if pass4 knowledge harvesting is enabled)
 - `knowledge/<workbook_slug>/knowledge.md` (if pass4 knowledge harvesting is enabled)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
@@ -119,6 +119,7 @@ Stage-block `KNOWLEDGE` label contract:
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
+- `stage_block_predictions.py` now requires nearby recipe-boundary evidence before promoting `RECIPE_TITLE` or `RECIPE_VARIANT`, so isolated headings or memoir-style prose transitions do not become recipe headers in stage evidence.
 - `stage_block_predictions.py` emits `HOWTO_SECTION` for deterministic ingredient/instruction section-header hits (`extract_ingredient_sections`, `extract_instruction_sections`) when nearby recipe-structure signals are present.
 - `RECIPE_NOTES` evidence merges schema `comment` rows with recipe-specific notes deterministically extracted from `description` (`extract_recipe_specific_notes`).
 - If ingredient/instruction exact/fuzzy matching misses, it falls back to extracted archive `block_role` hints (`ingredient_line`, `instruction_line`).
@@ -211,6 +212,7 @@ Code pointer:
 - When `p6_emit_metadata_debug=true`, draft conversion emits `_p6_debug` internally and writer strips it from final `r{index}.json` while writing `.bench/<workbook_slug>/p6_metadata_debug.jsonl`.
 - Blank recipe titles are normalized to `Untitled Recipe`.
 - Blank `source` values are normalized to `null` to satisfy staging schema min-length rules.
+- `apply_line_role_spans_to_recipes(...)` now keeps an already-credible `recipe.name` unless projected `RECIPE_TITLE` / `RECIPE_VARIANT` spans also have nearby ingredient/instruction/yield/time structure, preventing late section-header overwrite from canonical line-role projections.
 
 Code pointer:
 

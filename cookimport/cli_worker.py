@@ -320,7 +320,7 @@ def stage_one_file(
                 llm_report = dict(llm_apply.llm_report)
 
         extracted_tables: list[ExtractedTable] = []
-        if run_settings.table_extraction.value == "on" and result.non_recipe_blocks:
+        if result.non_recipe_blocks:
             _report_progress("Extracting knowledge tables...")
             extracted_tables = extract_and_annotate_tables(
                 result.non_recipe_blocks,
@@ -434,16 +434,15 @@ def stage_one_file(
                         output_stats=output_stats,
                         write_markdown=write_markdown,
                     )
-            if run_settings.table_extraction.value == "on":
-                with measure(file_stats, "write_tables_seconds"):
-                    write_table_outputs(
-                        out,
-                        workbook_slug,
-                        extracted_tables,
-                        source_file=file_path.name,
-                        output_stats=output_stats,
-                        write_markdown=write_markdown,
-                    )
+            with measure(file_stats, "write_tables_seconds"):
+                write_table_outputs(
+                    out,
+                    workbook_slug,
+                    extracted_tables,
+                    source_file=file_path.name,
+                    output_stats=output_stats,
+                    write_markdown=write_markdown,
+                )
 
             with measure(file_stats, "write_raw_seconds"):
                 write_raw_artifacts(result, out, output_stats=output_stats)

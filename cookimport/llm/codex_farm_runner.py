@@ -46,6 +46,7 @@ class CodexFarmPipelineRunResult:
     autotune_report: dict[str, Any] | None = None
     telemetry: dict[str, Any] | None = None
     runtime_mode_audit: dict[str, Any] | None = None
+    error_summary: str | None = None
 
     def to_manifest_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +68,7 @@ class CodexFarmPipelineRunResult:
                 if self.runtime_mode_audit is not None
                 else None
             ),
+            "error_summary": self.error_summary,
         }
 
 
@@ -1474,6 +1476,7 @@ class SubprocessCodexFarmRunner:
         payload_exit_code = _extract_exit_code(process_payload)
         telemetry_report_payload = _extract_telemetry_report(process_payload)
         telemetry_payload: dict[str, Any] | None = None
+        error_summary: str | None = None
         input_bundle_count = _count_json_bundle_files(in_dir)
         output_bundle_count = _count_json_bundle_files(out_dir)
         if run_id:
@@ -1484,7 +1487,6 @@ class SubprocessCodexFarmRunner:
             )
         failed = completed.returncode != 0 or (payload_exit_code not in {None, 0})
         if failed:
-            error_summary: str | None = None
             stderr_summary = _summarize_failure_stderr(completed.stderr)
             if run_id:
                 error_summary = _fetch_run_errors_summary(cmd=self.cmd, run_id=run_id, env=env)
@@ -1581,4 +1583,5 @@ class SubprocessCodexFarmRunner:
             autotune_report=autotune_report_payload,
             telemetry=telemetry_payload,
             runtime_mode_audit=runtime_mode_audit,
+            error_summary=error_summary,
         )

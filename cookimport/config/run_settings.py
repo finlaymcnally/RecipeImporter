@@ -23,13 +23,21 @@ from cookimport.epub_extractor_names import (
 logger = logging.getLogger(__name__)
 
 _UNKNOWN_KEY_WARNINGS: set[tuple[str, ...]] = set()
+_RETIRED_KEY_WARNINGS: set[tuple[str, ...]] = set()
 _UI_REQUIRED_KEYS = ("ui_group", "ui_label", "ui_order")
+RUN_SETTING_SURFACE_PUBLIC = "public"
+RUN_SETTING_SURFACE_INTERNAL = "internal"
+_RETIRED_RUN_SETTING_KEYS: dict[str, str] = {
+    "table_extraction": (
+        "deterministic table extraction is always enabled and the legacy off/on "
+        "setting no longer changes behavior"
+    ),
+}
 _SUMMARY_ORDER = (
     "epub_extractor",
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
-    "table_extraction",
     "section_detector_backend",
     "instruction_step_segmentation_policy",
     "instruction_step_segmenter",
@@ -104,13 +112,24 @@ _SUMMARY_ORDER = (
 )
 
 RECIPE_CODEX_FARM_UNLOCK_ENV = "COOKIMPORT_ALLOW_CODEX_FARM"
+RECIPE_CODEX_FARM_ALLOWED_PIPELINES = (
+    "off",
+    "codex-farm-3pass-v1",
+    "codex-farm-2stage-repair-v1",
+)
+RECIPE_CODEX_FARM_EXECUTION_PIPELINES = tuple(
+    value for value in RECIPE_CODEX_FARM_ALLOWED_PIPELINES if value != "off"
+)
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY = (
-    "Recipe codex-farm parsing correction supports 'off' and 'codex-farm-3pass-v1'."
+    "Recipe codex-farm parsing correction supports "
+    "'off', 'codex-farm-3pass-v1', and 'codex-farm-2stage-repair-v1'."
 )
 
 RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
-    f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} Expected 'off' or 'codex-farm-3pass-v1'."
+    f"{RECIPE_CODEX_FARM_PIPELINE_POLICY} Expected one of: "
+    + ", ".join(repr(value) for value in RECIPE_CODEX_FARM_ALLOWED_PIPELINES)
+    + "."
 )
 
 
@@ -143,11 +162,6 @@ class PdfOcrPolicy(str, Enum):
     auto = "auto"
     off = "off"
     always = "always"
-
-
-class TableExtraction(str, Enum):
-    off = "off"
-    on = "on"
 
 
 class SectionDetectorBackend(str, Enum):
@@ -268,6 +282,7 @@ class P6YieldMode(str, Enum):
 class LlmRecipePipeline(str, Enum):
     off = "off"
     codex_farm_3pass_v1 = "codex-farm-3pass-v1"
+    codex_farm_2stage_repair_v1 = "codex-farm-2stage-repair-v1"
 
 
 class AtomicBlockSplitter(str, Enum):
@@ -322,6 +337,7 @@ def _ui_meta(
     label: str,
     order: int,
     description: str,
+    surface: str = RUN_SETTING_SURFACE_PUBLIC,
     step: int | None = None,
     minimum: int | None = None,
     maximum: int | None = None,
@@ -331,6 +347,7 @@ def _ui_meta(
         "ui_label": label,
         "ui_order": order,
         "ui_description": description,
+        "run_setting_surface": surface,
     }
     if step is not None:
         meta["ui_step"] = step
@@ -456,18 +473,6 @@ class RunSettings(BaseModel):
             description="EPUB HTML preprocessing mode before Unstructured partitioning.",
         ),
     )
-    table_extraction: TableExtraction = Field(
-        default=TableExtraction.off,
-        json_schema_extra=_ui_meta(
-            group="Extraction",
-            label="Table Extraction",
-            order=65,
-            description=(
-                "Detect and export non-recipe tables (tables.jsonl/tables.md) and keep "
-                "table rows together during knowledge chunking."
-            ),
-        ),
-    )
     section_detector_backend: SectionDetectorBackend = Field(
         default=SectionDetectorBackend.legacy,
         json_schema_extra=_ui_meta(
@@ -500,6 +505,7 @@ class RunSettings(BaseModel):
             label="Multi-recipe Trace",
             order=68,
             description="Write shared splitter trace artifacts when multi-recipe splitting runs.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     multi_recipe_min_ingredient_lines: int = Field(
@@ -788,6 +794,7 @@ class RunSettings(BaseModel):
             label="P6 Emit Metadata Debug",
             order=79,
             description="Write optional Priority 6 debug metadata sidecar artifacts.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     benchmark_sequence_matcher: str = Field(
@@ -799,6 +806,7 @@ class RunSettings(BaseModel):
             description=(
                 "Canonical-text matcher mode for benchmark/eval runs (dmp only)."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     recipe_scorer_backend: str = Field(
@@ -1075,6 +1083,7 @@ class RunSettings(BaseModel):
                 "Include deterministic pattern metadata hints in pass1 bundles "
                 "for advisory recipe-boundary context."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_pipeline_pass1: str = Field(
@@ -1084,6 +1093,7 @@ class RunSettings(BaseModel):
             label="Codex Farm Pass1 Pipeline",
             order=136,
             description="codex-farm pipeline id used for recipe boundary refinement (pass1).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_pipeline_pass2: str = Field(
@@ -1093,6 +1103,7 @@ class RunSettings(BaseModel):
             label="Codex Farm Pass2 Pipeline",
             order=137,
             description="codex-farm pipeline id used for schema.org extraction (pass2).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_pipeline_pass3: str = Field(
@@ -1102,6 +1113,7 @@ class RunSettings(BaseModel):
             label="Codex Farm Pass3 Pipeline",
             order=138,
             description="codex-farm pipeline id used for final draft generation (pass3).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_pass3_skip_pass2_ok: bool = Field(
@@ -1114,6 +1126,7 @@ class RunSettings(BaseModel):
                 "When true, skip pass3 LLM calls for low-risk pass2-ok rows and use "
                 "deterministic promotion."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_benchmark_selective_retry_enabled: bool = Field(
@@ -1126,6 +1139,7 @@ class RunSettings(BaseModel):
                 "Benchmark-only retry for missing Codex Farm pass2/pass3 bundle files "
                 "after recoverable partial-output runs."
             ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_benchmark_selective_retry_max_attempts: int = Field(
@@ -1140,6 +1154,7 @@ class RunSettings(BaseModel):
                 "pass3 bundle files."
             ),
             minimum=1,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_pipeline_pass4_knowledge: str = Field(
@@ -1149,6 +1164,7 @@ class RunSettings(BaseModel):
             label="Codex Farm Pass4 Knowledge Pipeline",
             order=141,
             description="codex-farm pipeline id used for knowledge harvesting (pass4).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_pipeline_pass5_tags: str = Field(
@@ -1158,6 +1174,7 @@ class RunSettings(BaseModel):
             label="Codex Farm Pass5 Tags Pipeline",
             order=142,
             description="codex-farm pipeline id used for tag suggestions (pass5).",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     codex_farm_context_blocks: int = Field(
@@ -1212,10 +1229,25 @@ class RunSettings(BaseModel):
     effective_workers: int | None = Field(
         default=None,
         ge=1,
-        json_schema_extra={"ui_hidden": True},
+        json_schema_extra={
+            "ui_hidden": True,
+            "run_setting_surface": RUN_SETTING_SURFACE_INTERNAL,
+        },
     )
-    mapping_path: str | None = Field(default=None, json_schema_extra={"ui_hidden": True})
-    overrides_path: str | None = Field(default=None, json_schema_extra={"ui_hidden": True})
+    mapping_path: str | None = Field(
+        default=None,
+        json_schema_extra={
+            "ui_hidden": True,
+            "run_setting_surface": RUN_SETTING_SURFACE_INTERNAL,
+        },
+    )
+    overrides_path: str | None = Field(
+        default=None,
+        json_schema_extra={
+            "ui_hidden": True,
+            "run_setting_surface": RUN_SETTING_SURFACE_INTERNAL,
+        },
+    )
 
     @field_validator("epub_extractor", mode="before")
     @classmethod
@@ -1297,6 +1329,21 @@ class RunSettings(BaseModel):
         if payload is None:
             return cls()
         data = dict(payload)
+        retired = tuple(sorted(key for key in data if key in _RETIRED_RUN_SETTING_KEYS))
+        if retired and retired not in _RETIRED_KEY_WARNINGS:
+            detail = "; ".join(
+                f"{key}: {_RETIRED_RUN_SETTING_KEYS[key]}"
+                for key in retired
+            )
+            logger.warning(
+                "Ignoring retired %s keys: %s (%s).",
+                warn_context,
+                ", ".join(retired),
+                detail,
+            )
+            _RETIRED_KEY_WARNINGS.add(retired)
+        for key in retired:
+            data.pop(key, None)
         unknown = tuple(sorted(set(data) - set(cls.model_fields)))
         if unknown and unknown not in _UNKNOWN_KEY_WARNINGS:
             logger.warning(
@@ -1311,15 +1358,14 @@ class RunSettings(BaseModel):
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw.value).strip().lower()
             else:
                 normalized_recipe_pipeline = str(llm_recipe_pipeline_raw).strip().lower()
-            if normalized_recipe_pipeline == LlmRecipePipeline.off.value:
-                pass
-            elif normalized_recipe_pipeline == LlmRecipePipeline.codex_farm_3pass_v1.value:
+            if normalized_recipe_pipeline in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
                 pass
             else:
                 logger.warning(
                     "Forcing llm_recipe_pipeline=off in %s because recipe codex-farm parsing "
-                    "correction only supports: off, codex-farm-3pass-v1. Ignoring value %r.",
+                    "correction only supports: %s. Ignoring value %r.",
                     warn_context,
+                    ", ".join(RECIPE_CODEX_FARM_ALLOWED_PIPELINES),
                     llm_recipe_pipeline_raw,
                 )
                 data["llm_recipe_pipeline"] = LlmRecipePipeline.off.value
@@ -1371,21 +1417,17 @@ class RunSettings(BaseModel):
             payload.pop("codex_farm_reasoning_effort", None)
         return payload
 
-    def summary(self) -> str:
-        payload = self.to_run_config_dict()
-        parts: list[str] = []
-        for key in _SUMMARY_ORDER:
-            if key not in payload:
-                continue
-            value = payload[key]
-            if key.endswith("_path"):
-                value = Path(str(value)).name
-            if isinstance(value, bool):
-                rendered = "true" if value else "false"
-            else:
-                rendered = str(value)
-            parts.append(f"{key}={rendered}")
-        return " | ".join(parts)
+    def to_public_run_config_dict(self) -> dict[str, object]:
+        return project_run_config_payload(
+            self.to_run_config_dict(),
+            include_internal=False,
+        )
+
+    def summary(self, *, include_internal: bool = False) -> str:
+        return summarize_run_config_payload(
+            self.to_run_config_dict(),
+            include_internal=include_internal,
+        )
 
     def stable_hash(self) -> str:
         canonical_json = json.dumps(
@@ -1443,11 +1485,16 @@ def _value_kind_for_annotation(annotation: Any) -> Literal["enum", "bool", "int"
     return "string"
 
 
-def run_settings_ui_specs() -> list[RunSettingUiSpec]:
+def run_settings_ui_specs(*, include_internal: bool = False) -> list[RunSettingUiSpec]:
     specs: list[RunSettingUiSpec] = []
     for field_name, field in RunSettings.model_fields.items():
         extra = dict(field.json_schema_extra or {})
         if extra.get("ui_hidden"):
+            continue
+        if (
+            not include_internal
+            and run_setting_surface(field_name) != RUN_SETTING_SURFACE_PUBLIC
+        ):
             continue
         for key in _UI_REQUIRED_KEYS:
             if key not in extra:
@@ -1510,6 +1557,82 @@ def _normalized_value(value: Any) -> str:
     return str(value).strip().lower()
 
 
+def run_setting_surface(field_name: str) -> str:
+    field = RunSettings.model_fields[field_name]
+    extra = dict(field.json_schema_extra or {})
+    surface = str(
+        extra.get("run_setting_surface", RUN_SETTING_SURFACE_PUBLIC)
+    ).strip().lower()
+    if surface == RUN_SETTING_SURFACE_INTERNAL:
+        return RUN_SETTING_SURFACE_INTERNAL
+    return RUN_SETTING_SURFACE_PUBLIC
+
+
+def public_run_setting_names() -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in RunSettings.model_fields
+        if run_setting_surface(name) == RUN_SETTING_SURFACE_PUBLIC
+    )
+
+
+def internal_run_setting_names() -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in RunSettings.model_fields
+        if run_setting_surface(name) == RUN_SETTING_SURFACE_INTERNAL
+    )
+
+
+def retired_legacy_run_setting_names() -> tuple[str, ...]:
+    return tuple(sorted(_RETIRED_RUN_SETTING_KEYS))
+
+
+def project_run_config_payload(
+    payload: Mapping[str, Any] | None,
+    *,
+    include_internal: bool = True,
+) -> dict[str, Any]:
+    if payload is None:
+        return {}
+    allowed_names = (
+        set(RunSettings.model_fields)
+        if include_internal
+        else set(public_run_setting_names())
+    )
+    return {
+        name: payload[name]
+        for name in RunSettings.model_fields
+        if name in allowed_names and name in payload
+    }
+
+
+def summarize_run_config_payload(
+    payload: Mapping[str, Any] | None,
+    *,
+    include_internal: bool = False,
+) -> str:
+    projected = project_run_config_payload(payload, include_internal=include_internal)
+    ordered_names = [
+        name
+        for name in _SUMMARY_ORDER
+        if name in projected
+        and (include_internal or run_setting_surface(name) == RUN_SETTING_SURFACE_PUBLIC)
+    ]
+    remaining_names = [name for name in projected if name not in ordered_names]
+    parts: list[str] = []
+    for key in (*ordered_names, *remaining_names):
+        value = projected[key]
+        if key.endswith("_path"):
+            value = Path(str(value)).name
+        if isinstance(value, bool):
+            rendered = "true" if value else "false"
+        else:
+            rendered = str(value)
+        parts.append(f"{key}={rendered}")
+    return " | ".join(parts)
+
+
 def compute_effective_workers(
     *,
     workers: int,
@@ -1553,7 +1676,6 @@ def build_run_settings(
     ocr_batch_size: int,
     pdf_column_gap_ratio: float = 0.12,
     warm_models: bool,
-    table_extraction: str | TableExtraction = TableExtraction.off,
     section_detector_backend: (
         str | SectionDetectorBackend
     ) = SectionDetectorBackend.legacy,
@@ -1677,7 +1799,6 @@ def build_run_settings(
             "ocr_batch_size": ocr_batch_size,
             "pdf_column_gap_ratio": float(pdf_column_gap_ratio),
             "warm_models": bool(warm_models),
-            "table_extraction": _normalized_value(table_extraction),
             "section_detector_backend": _normalized_value(section_detector_backend),
             "multi_recipe_splitter": _normalized_value(multi_recipe_splitter),
             "multi_recipe_trace": bool(multi_recipe_trace),

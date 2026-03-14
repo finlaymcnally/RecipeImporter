@@ -29,6 +29,13 @@
       "description": "JSON-stringified mapping from ingredient lines to step ids (must parse as a JSON object).",
       "minLength": 2
     },
+    "ingredient_step_mapping_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Short machine-readable reason when ingredient_step_mapping is intentionally empty."
+    },
     "warnings": {
       "type": "array",
       "items": {

@@ -34,6 +34,11 @@ _MISSING_INGREDIENT_LABEL = "__missing_ingredient__"
 _UNTITLED_RECIPE_TITLE = "Untitled Recipe"
 _MAX_RECIPE_LINE_MULTIPLIER = 100.0
 _DEFAULT_SECTION_KEY = "main"
+_TITLE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
+_TITLE_PROSE_CUE_RE = re.compile(
+    r"\b(?:i|my|me|we|our|chapter|preface|introduction)\b",
+    re.IGNORECASE,
+)
 
 
 def _normalize_nonempty_text(value: Any) -> str | None:
@@ -67,21 +72,23 @@ def apply_line_role_spans_to_recipes(
         recipe = recipes[recipe_index]
         ordered = sorted(rows, key=lambda row: _coerce_span_int(row, "line_index") or 0)
 
-        title_lines = _select_line_role_span_texts(ordered, "RECIPE_TITLE")
-        variant_lines = _select_line_role_span_texts(ordered, "RECIPE_VARIANT")
         yield_lines = _select_line_role_span_texts(ordered, "YIELD_LINE")
         ingredient_lines = _select_line_role_span_texts(ordered, "INGREDIENT_LINE")
         instruction_lines = _select_line_role_span_texts(
             ordered, "HOWTO_SECTION", "INSTRUCTION_LINE"
         )
         note_lines = _select_line_role_span_texts(ordered, "RECIPE_NOTES")
+        current_name = str(getattr(recipe, "name", "") or "").strip()
+        current_name_is_credible = _looks_credible_recipe_name(current_name)
+        title_line = _select_guarded_title_span_text(ordered, "RECIPE_TITLE")
+        variant_line = _select_guarded_title_span_text(ordered, "RECIPE_VARIANT")
 
         touched = False
-        if title_lines:
-            recipe.name = title_lines[0]
+        if title_line and (not current_name_is_credible or title_line != current_name):
+            recipe.name = title_line
             touched = True
-        elif variant_lines and not str(getattr(recipe, "name", "") or "").strip():
-            recipe.name = variant_lines[0]
+        elif variant_line and not current_name_is_credible:
+            recipe.name = variant_line
             touched = True
         if yield_lines:
             recipe.recipe_yield = yield_lines[0]
@@ -131,6 +138,103 @@ def _select_line_role_span_texts(rows: list[Any], *labels: str) -> list[str]:
         seen.add(text)
         selected.append(text)
     return selected
+
+
+def _coerce_span_bool(span: Any, key: str) -> bool:
+    value = _coerce_span_value(span, key)
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _looks_title_boundary_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    words = _TITLE_WORD_RE.findall(stripped)
+    if len(words) >= 10 and any(ch in stripped for ch in ",.;:"):
+        return True
+    if _TITLE_PROSE_CUE_RE.search(stripped) and len(words) >= 6:
+        return True
+    return False
+
+
+def _looks_credible_recipe_name(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or stripped == _UNTITLED_RECIPE_TITLE:
+        return False
+    if stripped[-1:] in {".", "!", "?"}:
+        return False
+    if _SECTION_HEADER_RE.match(stripped):
+        return False
+    words = _TITLE_WORD_RE.findall(stripped)
+    if not (2 <= len(words) <= 12):
+        return False
+    if _looks_title_boundary_prose(stripped):
+        return False
+    return True
+
+
+def _span_has_recipe_boundary_signal(row: Any) -> bool:
+    if not _coerce_span_bool(row, "within_recipe_span"):
+        return False
+    label = str(_coerce_span_value(row, "label") or "").strip().upper()
+    return label in {
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "HOWTO_SECTION",
+        "YIELD_LINE",
+        "TIME_LINE",
+    }
+
+
+def _is_guarded_title_span_candidate(
+    row: Any,
+    *,
+    rows: list[Any],
+    position: int,
+    kind: str,
+) -> bool:
+    text = str(_coerce_span_value(row, "text") or "").strip()
+    if not text or not _coerce_span_bool(row, "within_recipe_span"):
+        return False
+    if kind == "variant" and not _VARIANT_PREFIX_RE.match(text):
+        return False
+    if kind == "title" and (
+        text[-1:] in {".", "!", "?"}
+        or _SECTION_HEADER_RE.match(text)
+        or _looks_title_boundary_prose(text)
+    ):
+        return False
+
+    upper = min(len(rows), position + (4 if kind == "title" else 3) + 1)
+    for check in range(position + 1, upper):
+        if _span_has_recipe_boundary_signal(rows[check]):
+            return True
+    if kind == "variant":
+        lower = max(0, position - 2)
+        for check in range(lower, position):
+            if _span_has_recipe_boundary_signal(rows[check]):
+                return True
+    return False
+
+
+def _select_guarded_title_span_text(rows: list[Any], label: str) -> str | None:
+    kind = "variant" if label == "RECIPE_VARIANT" else "title"
+    for position, row in enumerate(rows):
+        if str(_coerce_span_value(row, "label") or "").strip().upper() != label:
+            continue
+        text = str(_coerce_span_value(row, "text") or "").strip()
+        if not text:
+            continue
+        if _is_guarded_title_span_candidate(
+            row,
+            rows=rows,
+            position=position,
+            kind=kind,
+        ):
+            return text
+    return None
 
 def _to_positive_number(value: Any) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):

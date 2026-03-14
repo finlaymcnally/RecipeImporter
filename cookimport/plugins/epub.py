@@ -58,6 +58,10 @@ from cookimport.parsing.epub_extractors import (
 )
 from cookimport.parsing.epub_health import compute_epub_extraction_health
 from cookimport.parsing.epub_postprocess import postprocess_epub_blocks
+from cookimport.parsing.epub_table_rows import (
+    build_structured_epub_row_block,
+    structured_epub_row_from_tag,
+)
 from cookimport.parsing.markitdown_adapter import convert_path_to_markdown
 from cookimport.parsing.block_roles import assign_block_roles
 from cookimport.parsing.multi_recipe_splitter import (
@@ -1638,25 +1642,15 @@ class EpubImporter:
         spine_index: int | None,
         extraction_backend: str,
     ) -> Block | None:
-        cells = [cell for cell in row.find_all(self._is_table_cell_tag, recursive=False)]
-        if not cells:
-            cells = [cell for cell in row.find_all(self._is_table_cell_tag)]
-        cell_text = [
-            cleaning.normalize_epub_text(cell.get_text(" ", strip=True))
-            for cell in cells
-        ]
-        cell_text = [value for value in cell_text if value]
-        if not cell_text:
+        structured_row = structured_epub_row_from_tag(row)
+        if structured_row is None:
             return None
 
-        block = Block(
-            text=" ".join(cell_text),
-            type=BlockType.TABLE,
-            html=str(row),
-            font_weight="normal",
+        block = build_structured_epub_row_block(
+            structured_row,
+            structure_source=f"{extraction_backend}_html_tr",
         )
         block.add_feature("extraction_backend", extraction_backend)
-        block.add_feature("epub_table_row", True)
         if spine_index is not None:
             block.add_feature("spine_index", spine_index)
         return block

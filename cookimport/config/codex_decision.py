@@ -7,11 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
+from cookimport.config.run_settings import RECIPE_CODEX_FARM_EXECUTION_PIPELINES
+
 TopTierProfileKind = Literal["codexfarm", "vanilla"]
 BenchmarkVariantKind = Literal["vanilla", "codexfarm"]
 CodexExecutionPolicyMode = Literal["execute", "plan"]
 
 RECIPE_CODEX_PIPELINE = "codex-farm-3pass-v1"
+RECIPE_CODEX_PIPELINES = frozenset(RECIPE_CODEX_FARM_EXECUTION_PIPELINES)
 LINE_ROLE_CODEX_PIPELINE = "codex-line-role-v1"
 LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
@@ -150,7 +153,7 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         )
     )
 
-    recipe_codex_enabled = recipe_pipeline == RECIPE_CODEX_PIPELINE
+    recipe_codex_enabled = recipe_pipeline in RECIPE_CODEX_PIPELINES
     line_role_codex_enabled = line_role_pipeline == LINE_ROLE_CODEX_PIPELINE
     deterministic_line_role_enabled = line_role_pipeline == LINE_ROLE_DETERMINISTIC_PIPELINE
     knowledge_codex_enabled = knowledge_pipeline == KNOWLEDGE_CODEX_PIPELINE

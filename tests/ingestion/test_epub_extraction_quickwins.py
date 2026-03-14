@@ -167,9 +167,44 @@ def test_epub_pagebreak_markers_are_filtered(
     assert "1 cup flour" in block_texts
 
 
-def test_epub_table_rows_become_ingredient_like_lines_in_beautifulsoup(tmp_path: Path) -> None:
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
+def test_epub_table_rows_preserve_cells_and_delimiter(
+    tmp_path: Path,
+    extractor: str,
+) -> None:
     source = make_synthetic_epub(
-        tmp_path / "table-rows.epub",
+        tmp_path / f"table-rows-{extractor}.epub",
+        spine_documents=[
+            (
+                "chapter1.xhtml",
+                """
+                <h1>Table Ingredients</h1>
+                <table>
+                  <tr><th>Ingredient</th><th>Type</th><th>Amount</th><th>Weight</th></tr>
+                  <tr><td>Water</td><td></td><td>1 cup</td><td>8 ounces</td></tr>
+                  <tr><td>Butter</td><td></td><td>1 tbsp</td><td>0.5 ounce</td></tr>
+                </table>
+                """,
+            ),
+        ],
+    )
+
+    blocks = _extract_blocks(source, extractor=extractor)
+    rows = [block for block in blocks if block.features.get("epub_table_row")]
+    assert any(row.text == "Ingredient | Type | Amount | Weight" for row in rows)
+
+    water_row = next(row for row in rows if row.text.startswith("Water |"))
+    assert water_row.features.get("epub_table_cells") == ["Water", "", "1 cup", "8 ounces"]
+    assert water_row.features.get("epub_table_column_count") == 4
+
+
+@pytest.mark.parametrize("extractor", ["beautifulsoup", "unstructured"])
+def test_epub_table_rows_still_trigger_quantity_signals(
+    tmp_path: Path,
+    extractor: str,
+) -> None:
+    source = make_synthetic_epub(
+        tmp_path / f"table-quantity-{extractor}.epub",
         spine_documents=[
             (
                 "chapter1.xhtml",
@@ -184,10 +219,10 @@ def test_epub_table_rows_become_ingredient_like_lines_in_beautifulsoup(tmp_path:
         ],
     )
 
-    blocks = _extract_blocks(source, extractor="beautifulsoup")
+    blocks = _extract_blocks(source, extractor=extractor)
     rows = [block for block in blocks if block.features.get("epub_table_row")]
-    assert any(row.text == "1 cup sugar" for row in rows)
-    assert any(row.text == "2 tbsp oil" for row in rows)
+    assert any(row.text == "1 cup | sugar" for row in rows)
+    assert any(row.text == "2 tbsp | oil" for row in rows)
     assert any(row.features.get("starts_with_quantity") for row in rows)
 
 
