@@ -81,38 +81,45 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),
-            "schemaorg_recipe": json.dumps(
-                {
-                    "@context": "http://schema.org",
-                    "@type": "Recipe",
-                    "name": recipe_name,
-                },
-                sort_keys=True,
-            ),
+            "schemaorg_recipe": {
+                "@context": "http://schema.org",
+                "@type": "Recipe",
+                "name": recipe_name,
+                "description": None,
+                "recipeYield": None,
+                "recipeIngredient": [],
+                "recipeInstructions": [],
+                "comment": None,
+            },
             "extracted_ingredients": [],
             "extracted_instructions": [],
-            "field_evidence": "{}",
+            "field_evidence": {
+                "name": None,
+                "description": None,
+                "recipeYield": None,
+                "recipeIngredient": [],
+                "recipeInstructions": [],
+                "comment": None,
+            },
             "warnings": [],
         }
     if pipeline_id in {"recipe.final.v1", "recipe.final.compact.v1"}:
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),
-            "draft_v1": json.dumps(
-                {
-                    "schema_v": 1,
-                    "source": None,
-                    "recipe": {"title": str(payload.get("recipe_id") or "Untitled Recipe")},
-                    "steps": [
-                        {
-                            "instruction": "See original recipe for details.",
-                            "ingredient_lines": [],
-                        }
-                    ],
-                },
-                sort_keys=True,
-            ),
-            "ingredient_step_mapping": "{}",
+            "draft_v1": {
+                "schema_v": 1,
+                "source": None,
+                "recipe": {"title": str(payload.get("recipe_id") or "Untitled Recipe")},
+                "steps": [
+                    {
+                        "instruction": "See original recipe for details.",
+                        "ingredient_lines": [],
+                    }
+                ],
+            },
+            "ingredient_step_mapping": [],
+            "ingredient_step_mapping_reason": "unclear_alignment",
             "warnings": [],
         }
     if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:

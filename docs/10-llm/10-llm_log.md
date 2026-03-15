@@ -2777,3 +2777,44 @@ Durable finding:
 
 Anti-loop note:
 - If a prototype pipeline appears in manifests but not in benchmark/debug behavior, audit the non-orchestrator surfaces before changing prompt packs again.
+
+### 2026-03-14_14.21.00 Spark usage attribution
+
+Source:
+- `docs/understandings/2026-03-14_14.21.00-spark-usage-attribution.md`
+
+Problem captured:
+- Shared CodexFarm telemetry could show `gpt-5.3-codex-spark` rows from fake tests, which made it easy to accuse the recipeimport workspace of live Spark usage without checking the actual execution logs.
+
+Durable findings:
+- Shared `~/projects/shared/CodexFarm/var/codex_exec_activity.csv` rows can come from fake tests that inject a fake `codex` binary on `PATH`; those rows are estimated usage, not proof of live billing.
+- Repo-local truth for live recipeimport usage is:
+  - `var/codex_exec_activity.csv`
+  - `var/codex_farm.sqlite3`
+- The relevant March 13/14 live run window came from a real `cookimport labelstudio-benchmark run ... --allow-codex ...` session against `saltfatacidheatcutdown`.
+- Because that run set no per-run `codex_model` override, the executed model came from the pipeline JSON defaults, which at that point resolved both recipe passes to `gpt-5.3-codex-spark`.
+
+Anti-loop note:
+- Before changing model defaults or approval policy over “unexpected Spark usage,” verify whether the evidence came from shared fake-test telemetry or this repo’s local `var/` records.
+
+### 2026-03-14_14.38.08 CodexFarm pass4 versus recipe pipeline
+
+Source:
+- `docs/understandings/2026-03-14_14.38.08-codexfarm-pass4-vs-recipe-pipeline.md`
+
+Problem captured:
+- The new `codex-farm-2stage-repair-v1` option made it easy to conflate recipe-pipeline naming with the whole Codex-backed workflow and to assume pass4 knowledge had been absorbed into the merged recipe stage.
+
+Durable findings:
+- Interactive top-tier codex selection enables pass4 through `llm_knowledge_pipeline=codex-farm-knowledge-v1`, then overrides only `llm_recipe_pipeline` with the chosen recipe variant.
+- The merged prototype changes only the recipe path:
+  - keep pass1,
+  - replace recipe pass2/pass3 with the merged repair stage,
+  - leave pass4 knowledge as its own later stage when `llm_knowledge_pipeline != off`.
+- Existing pass4 artifact names remain authoritative:
+  - `pass4_knowledge/in`
+  - `pass4_knowledge/out`
+  - `pass4_knowledge_manifest.json`
+
+Anti-loop note:
+- If a menu rename or pipeline label change implies pass4 moved or vanished, inspect `llm_knowledge_pipeline` wiring before touching pass4 prompts or benchmark docs.

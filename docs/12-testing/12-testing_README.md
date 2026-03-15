@@ -51,6 +51,7 @@ Active layout exceptions and support assets:
   - `tests/analytics/test_stats_dashboard.py` (fast renderer/schema/collector coverage),
   - `tests/analytics/test_stats_dashboard_slow.py` (browser pixel-overflow rerender harness).
 - Label Studio benchmark-helper coverage is split into:
+  - `tests/labelstudio/test_labelstudio_benchmark_smoke.py` (smoke-level real interactive single-offline benchmark wiring plus the real single-offline helper, with only `labelstudio_benchmark(...)` stubbed so no CodexFarm traffic occurs),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py` (import/eval/discovery/default contracts),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` (interactive settings/menu/offline routing),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py` (prediction-run prompt/log/manifest helper contracts),
@@ -69,6 +70,7 @@ Active layout exceptions and support assets:
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_run_reports.py` (all-method run reporting/timeouts/retries),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_multi_source.py` (multi-source batching and interactive all-method routing),
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py` (single-profile matched-book flows).
+  - Shared helper state for this cluster belongs in `tests/labelstudio/benchmark_helper_support.py`; do not rebuild a giant `benchmark_helper_cases.py`-style pseudo-mega-file.
 - Label Studio prelabel coverage is split into:
   - `tests/labelstudio/test_labelstudio_prelabel.py` (block/span labeling + prompt template contracts),
   - `tests/labelstudio/test_labelstudio_prelabel_codex_cli.py` (codex CLI command/config/usage/account contracts).
@@ -108,6 +110,7 @@ Current contracts:
 - Domain markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `tagging`.
 - `slow` and `smoke` slices are controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - Smoke slice exists for quick sanity (`pytest -m smoke`).
+- Benchmark smoke now includes `tests/labelstudio/test_labelstudio_benchmark_smoke.py`, which runs the real interactive single-offline benchmark wiring while stubbing `labelstudio_benchmark(...)` itself so no token-spending CodexFarm path can execute.
 - Domain-focused runs should work with marker filters and/or domain folders.
 - Failure output should include concise pointers to relevant `docs/*_log.md` files.
 
@@ -239,6 +242,21 @@ Current testing contract reinforced:
   - `test_cli_output_structure_slow.py` for EPUB-heavy checks.
 - Slow marker assignment should stay narrow (only slow EPUB-heavy file), so `-m "cli and not slow"` remains a fast operator loop.
 
+## 2026-03-13 docs/tasks merge digest (remaining benchmark-helper mega-test breakup)
+
+Current testing contract reinforced:
+- Label Studio benchmark-helper coverage stays split by behavior instead of regrouping around one giant scheduler/eval helper file.
+- `tests/labelstudio/benchmark_helper_support.py` is intentionally a small support module. Shared writers/helpers live there, but real test bodies should stay in focused `test_labelstudio_benchmark_helpers_*` files.
+- If a benchmark-helper refactor leaves the top-level files smaller but recreates a 3k-4k line support module, that is still a maintainability regression.
+
+## 2026-03-14 merged docs/tasks digest (single-offline benchmark regression coverage)
+
+Current testing contract reinforced:
+- Single-offline benchmark regressions need two guard layers:
+  - one narrow helper-level test on `_interactive_single_offline_variants()` for persistence-metadata boundaries,
+  - one interactive CLI-path test that stays fully offline by stubbing `labelstudio_benchmark`.
+- Broader benchmark-helper suites can still catch these bugs, but they are too indirect to be the only guard for variant-planner crashes or credential-prompt regressions.
+
 Anti-loop reminder:
 - When CLI defaults evolve, prefer extending fast signature/settings assertions before adding expensive integration paths to default loops.
 
@@ -342,3 +360,22 @@ Current testing contracts reinforced:
 
 Anti-loop reminder:
 - If review logs show repeated broad raw pytest runs again, fix the wrapper signal or the warning gate before adding more policy text to individual tests.
+
+## 2026-03-14 merged understandings digest (single-offline benchmark guardrail layers)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-14_14.50.52-single-offline-test-coverage-seam.md`
+- `docs/understandings/2026-03-14_15.58.29-benchmark-smoke-boundary.md`
+
+Current testing contracts reinforced:
+- Single-offline benchmark regressions need two complementary guardrails:
+  - one narrow `_interactive_single_offline_variants()` regression test for persistence-metadata projection failures,
+  - one interactive CLI-path regression that stays offline by stubbing `labelstudio_benchmark(...)`.
+- The durable benchmark smoke boundary is broader than a unit test but narrower than a live benchmark run:
+  - run the real `_interactive_mode()` path,
+  - let it call the real `_interactive_single_offline_benchmark(...)`,
+  - stub only `labelstudio_benchmark(...)` to a local artifact writer.
+- That smoke boundary is intentionally responsible for menu routing, run-settings handoff, variant planning, output-path, and comparison-artifact sanity without ever invoking real CodexFarm work or credential prompts.
+
+Anti-loop reminder:
+- If a benchmark smoke test needs live CodexFarm work or Label Studio credentials to catch a single-offline regression, the smoke boundary has been set too wide.

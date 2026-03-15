@@ -23,9 +23,68 @@
       "minLength": 1
     },
     "schemaorg_recipe": {
-      "type": "string",
-      "description": "JSON-stringified Schema.org Recipe object (must parse as a JSON object).",
-      "minLength": 2
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "@context",
+        "@type",
+        "name",
+        "description",
+        "recipeYield",
+        "recipeIngredient",
+        "recipeInstructions",
+        "comment"
+      ],
+      "properties": {
+        "@context": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "@type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipeYield": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipeIngredient": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recipeInstructions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "extracted_ingredients": {
       "type": "array",
@@ -40,9 +99,54 @@
       }
     },
     "field_evidence": {
-      "type": "string",
-      "description": "JSON-stringified evidence map (must parse as a JSON object).",
-      "minLength": 2
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "recipeYield",
+        "recipeIngredient",
+        "recipeInstructions",
+        "comment"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipeYield": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipeIngredient": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recipeInstructions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "warnings": {
       "type": "array",

@@ -1818,6 +1818,166 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
     assert observed_codex_max_inflight == [4]
 
 
+def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_recipe_update(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+
+    initial_result = ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Toast",
+                identifier="urn:test:toast",
+                recipeIngredient=["1 slice bread"],
+                recipeInstructions=["Toast the bread."],
+                provenance={"location": {"start_block": 99, "end_block": 99}},
+            )
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path=str(source),
+    )
+    updated_result = initial_result.model_copy(deep=True)
+    updated_result.recipes[0].provenance = {
+        "location": {"start_block": 0, "end_block": 0}
+    }
+
+    class FakeImporter:
+        name = "fake"
+
+        def convert(self, _path, _mapping, progress_callback=None, **_kwargs):
+            if progress_callback is not None:
+                progress_callback("fake convert complete")
+            return initial_result.model_copy(deep=True)
+
+    observed_candidate_builds: list[tuple[int | None, int | None, bool]] = []
+    observed_line_role_spans: list[list[bool]] = []
+
+    def _fake_build_line_role_candidates_from_archive(
+        *, archive_payload, result, atomic_block_splitter
+    ):
+        del archive_payload, atomic_block_splitter
+        location = result.recipes[0].provenance.get("location", {})
+        start_block = location.get("start_block")
+        end_block = location.get("end_block")
+        within_recipe_span = start_block == 0 and end_block == 0
+        observed_candidate_builds.append(
+            (start_block, end_block, within_recipe_span)
+        )
+        return [
+            AtomicLineCandidate(
+                recipe_id="recipe:0" if within_recipe_span else None,
+                block_id="block:0",
+                block_index=0,
+                atomic_index=0,
+                text="Toast the bread.",
+                within_recipe_span=within_recipe_span,
+                candidate_labels=[
+                    "INSTRUCTION_LINE" if within_recipe_span else "OTHER"
+                ],
+            )
+        ]
+
+    def _fake_run_codex_farm_recipe_pipeline(**_kwargs):
+        return SimpleNamespace(
+            updated_conversion_result=updated_result.model_copy(deep=True),
+            intermediate_overrides_by_recipe_id={},
+            final_overrides_by_recipe_id={},
+            llm_report={"enabled": True, "pipeline": "codex-farm-2stage-repair-v1"},
+        )
+
+    def _fake_label_atomic_lines(candidates, _settings, **_kwargs):
+        observed_line_role_spans.append(
+            [bool(candidate.within_recipe_span) for candidate in candidates]
+        )
+        return [
+            CanonicalLineRolePrediction(
+                recipe_id=candidate.recipe_id,
+                block_id=candidate.block_id,
+                block_index=candidate.block_index,
+                atomic_index=candidate.atomic_index,
+                text=str(candidate.text),
+                within_recipe_span=bool(candidate.within_recipe_span),
+                label="INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER",
+                confidence=0.9,
+                decided_by="rule",
+                candidate_labels=list(candidate.candidate_labels),
+                reason_tags=["test_label"],
+            )
+            for candidate in candidates
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.registry.get_importer",
+        lambda _name: FakeImporter(),
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_extracted_archive",
+        lambda *_args, **_kwargs: [
+            ArchiveBlock(
+                index=0,
+                text="Toast the bread.",
+                location={"block_index": 0, "line_index": 0},
+                source_kind="raw",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_file_hash",
+        lambda _path: "hash-123",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
+        _fake_build_line_role_candidates_from_archive,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.run_codex_farm_recipe_pipeline",
+        _fake_run_codex_farm_recipe_pipeline,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.build_freeform_span_tasks",
+        lambda **_kwargs: [{"data": {"segment_id": "seg-1"}}],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 100,
+            "chunked_chars": 90,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest.label_atomic_lines",
+        _fake_label_atomic_lines,
+    )
+
+    generate_pred_run_artifacts(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+        line_role_pipeline="deterministic-v1",
+        allow_codex=True,
+        write_label_studio_tasks=False,
+        write_markdown=False,
+    )
+
+    assert observed_candidate_builds == [(99, 99, False), (0, 0, True)]
+    assert observed_line_role_spans == [[True]]
+
+
 def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
     monkeypatch, tmp_path: Path
 ) -> None:

@@ -1083,5 +1083,9 @@ Durable decisions:
   - `data/output/2026-03-13_22.59.32`
   - `data/output/2026-03-13_23.01.23`
 
+Verification preserved:
+- Focused pytest slice: `57 passed, 7 warnings in 4.02s`.
+- The successful Food Lab rerun wrote 6 tables, including `COMMON INGREDIENTS BY VOLUME AND MASS*`, `COMMON WEIGHT CONVERSIONS`, and `COMMON TEMPERATURE CONVERSIONS`.
+
 Anti-loop note:
 - If a table fix only touches `tables.py`, it is probably incomplete; the extractor and recipe-likeness gate are part of the same failure chain.

@@ -561,6 +561,117 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
     assert "label_studio_url" not in captured
     assert "label_studio_api_key" not in captured
 
+
+def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_helper_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured_output = tmp_path / "custom-output"
+    golden_root = tmp_path / "golden"
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-2stage-repair-v1",
+            "codex_farm_model": "gpt-5.3-codex-spark",
+            "codex_farm_reasoning_effort": "low",
+        },
+        warn_context="test interactive benchmark codex single-offline defaults",
+    )
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "_load_settings",
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **_kwargs: selected_benchmark_settings,
+    )
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
+        ),
+    )
+
+    helper_calls: list[dict[str, object]] = []
+
+    def fake_single_offline_helper(**kwargs):
+        helper_calls.append(dict(kwargs))
+        return True
+
+    monkeypatch.setattr(
+        cli,
+        "_interactive_single_offline_benchmark",
+        fake_single_offline_helper,
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert len(helper_calls) == 1
+    selected_settings = helper_calls[0]["selected_benchmark_settings"]
+    assert isinstance(selected_settings, cli.RunSettings)
+    assert selected_settings.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert str(selected_settings.codex_farm_model) == "gpt-5.3-codex-spark"
+    assert selected_settings.codex_farm_reasoning_effort is not None
+    assert selected_settings.codex_farm_reasoning_effort.value == "low"
+    assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
+    assert helper_calls[0]["processed_output_root"] == configured_output
+
+
+def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured_output = tmp_path / "custom-output"
+    golden_root = tmp_path / "golden"
+    menu_answers = iter(["labelstudio_benchmark", "single_offline", "exit"])
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test interactive benchmark toggle prompt",
+    )
+    choose_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [])
+    monkeypatch.setattr(
+        cli,
+        "_load_settings",
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
+    )
+    monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **kwargs: choose_kwargs.update(kwargs) or selected_benchmark_settings,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_interactive_single_offline_benchmark",
+        lambda **_kwargs: True,
+    )
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert choose_kwargs["prompt_recipe_pipeline_menu"] is True
+    assert choose_kwargs["prompt_codex_ai_settings"] is True
+    assert choose_kwargs["prompt_benchmark_llm_surface_toggles"] is True
+
+
 def test_interactive_generate_dashboard_runs_without_browser_prompt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

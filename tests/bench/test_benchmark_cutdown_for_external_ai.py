@@ -1916,6 +1916,9 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     config_meta = index_payload["analysis"].get("config_version_metadata")
     assert isinstance(config_meta, dict)
     assert isinstance(config_meta.get("pair_comparability"), dict)
+    recipe_pipeline_context = index_payload["analysis"].get("recipe_pipeline_context")
+    assert isinstance(recipe_pipeline_context, dict)
+    assert recipe_pipeline_context.get("stage_label_mode") == "standard_topology"
     run_settings_rows = config_meta.get("runs")
     assert isinstance(run_settings_rows, list)
     codex_settings = next(
@@ -1972,6 +1975,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(default_views, list)
     assert "analysis.triage_packet" in default_views
     assert "analysis.low_confidence_changed_lines_packet" in default_views
+    assert "analysis.recipe_pipeline_context" in default_views
     row_locators = navigation_payload.get("row_locators")
     assert isinstance(row_locators, dict)
     root_locators = row_locators.get("root_files")
@@ -2188,6 +2192,103 @@ def test_build_upload_bundle_stage_separated_comparison_scores_pass2_and_pass3(
     assert "unavailable_reason" not in pass3_stage
     assert float(pass2_stage["f1_avg"]) > 0.0
     assert float(pass3_stage["f1_avg"]) > 0.0
+
+
+def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark"
+    codex_run_id = "codexfarm"
+    baseline_run_id = "vanilla"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-2stage-repair-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    codex_run_dir = session_root / codex_run_id
+    _write_prediction_run(
+        codex_run_dir,
+        with_extracted_archive=True,
+        llm_manifest_recipes={
+            "recipe:c0": {
+                "pass1_status": "ok",
+                "pass2_status": "ok",
+                "pass3_status": "ok",
+                "pass2_promotion_policy": "merged_repair_canonical_derivation",
+                "pass3_execution_mode": "llm_merged_repair",
+                "pass3_routing_reason": "merged_repair_stage",
+            }
+        },
+    )
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    recipe_pipeline_context = index_payload["analysis"]["recipe_pipeline_context"]
+    assert recipe_pipeline_context["merged_repair_active"] is True
+    assert recipe_pipeline_context["nonstandard_topology_active"] is True
+    assert recipe_pipeline_context["stage_label_mode"] == "nonstandard_topology_with_legacy_aliases"
+    assert recipe_pipeline_context["codex_recipe_pipelines"] == [
+        "codex-farm-2stage-repair-v1"
+    ]
+    assert "standard live pass2->pass3 call sequence" in str(
+        recipe_pipeline_context["compatibility_note"]
+    )
+
+    stage_separated = index_payload["analysis"]["stage_separated_comparison"]
+    assert stage_separated["stage_display_names"]["pass2_stage"] == "legacy-family:pass2_*"
+    assert stage_separated["stage_display_names"]["pass3_stage"] == "legacy-family:pass3_*"
+    assert stage_separated["legacy_field_aliases"]["pass2_stage"] == "pass2_*"
+    assert stage_separated["legacy_field_aliases"]["pass3_stage"] == "pass3_*"
+    assert "observed recipe-stage topology" in str(stage_separated["compatibility_note"])
+    assert "merged-repair topology" in str(stage_separated["compatibility_note"])
+
+    blame_summary = index_payload["analysis"]["net_error_blame_summary"]
+    bucket_definitions = blame_summary["bucket_definitions"]
+    assert "not a separate live pass2 call" in str(bucket_definitions["pass2_extraction"])
+    assert "not a separate live pass3 call" in str(bucket_definitions["pass3_mapping"])
+
+    overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "## Recipe Pipeline Context" in overview_text
+    assert "codex-farm-2stage-repair-v1" in overview_text
+    assert "legacy-family:pass2_*" in overview_text
+    assert "legacy-family:pass3_*" in overview_text
+
+    payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    casebook = payload_rows[
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/07_casebook.md"
+    ]["content_text"]
+    assert "recipe_pipeline_id: codex-farm-2stage-repair-v1" in str(casebook)
+    assert "recipe_stage_label_mode: nonstandard_topology_with_legacy_aliases" in str(casebook)
+    assert "- legacy-family:pass2_*:" in str(casebook)
+    assert "- legacy-family:pass3_*:" in str(casebook)
 
 
 def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_prediction_manifest(

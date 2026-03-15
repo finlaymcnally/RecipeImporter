@@ -10,6 +10,7 @@ from cookimport.llm.codex_farm_contracts import (
     Pass3FinalDraftCompactInput,
     Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
+    MergedRecipeRepairOutput,
     classify_pass2_structural_audit,
     classify_pass3_structural_audit,
 )
@@ -107,6 +108,38 @@ def test_pass2_contract_accepts_json_string_fields() -> None:
     assert output.field_evidence == {"name": "from_text"}
 
 
+def test_pass2_contract_accepts_native_object_fields() -> None:
+    output = Pass2SchemaOrgOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "schemaorg_recipe": {
+                "@type": "Recipe",
+                "name": "Toast",
+                "description": None,
+                "recipeYield": None,
+                "recipeIngredient": [],
+                "recipeInstructions": [],
+                "comment": None,
+            },
+            "extracted_ingredients": [],
+            "extracted_instructions": [],
+            "field_evidence": {
+                "name": "from_text",
+                "description": None,
+                "recipeYield": None,
+                "recipeIngredient": [],
+                "recipeInstructions": [],
+                "comment": None,
+            },
+            "warnings": [],
+        }
+    )
+
+    assert output.schemaorg_recipe["name"] == "Toast"
+    assert output.field_evidence["name"] == "from_text"
+
+
 def test_pass2_contract_recovers_malformed_field_evidence_into_warning() -> None:
     output = Pass2SchemaOrgOutput.model_validate(
         {
@@ -155,6 +188,50 @@ def test_pass3_contract_accepts_json_string_fields() -> None:
     )
     assert output.draft_v1 == {"schema_v": 1, "recipe": {"title": "T"}, "steps": []}
     assert output.ingredient_step_mapping == {}
+
+
+def test_pass3_contract_accepts_native_object_fields() -> None:
+    output = Pass3FinalDraftOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "draft_v1": {
+                "schema_v": 1,
+                "source": None,
+                "recipe": {"title": "Toast"},
+                "steps": [{"instruction": "Toast the bread.", "ingredient_lines": []}],
+            },
+            "ingredient_step_mapping": {"0": [0]},
+            "ingredient_step_mapping_reason": None,
+            "warnings": [],
+        }
+    )
+
+    assert output.draft_v1["recipe"]["title"] == "Toast"
+    assert output.ingredient_step_mapping == {"0": [0]}
+
+
+def test_pass3_contract_accepts_mapping_entry_arrays() -> None:
+    output = Pass3FinalDraftOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "draft_v1": {
+                "schema_v": 1,
+                "source": None,
+                "recipe": {"title": "Toast"},
+                "steps": [{"instruction": "Toast the bread.", "ingredient_lines": []}],
+            },
+            "ingredient_step_mapping": [
+                {"ingredient_index": 0, "step_indexes": [0]},
+                {"ingredient_index": 1, "step_indexes": [0, 1]},
+            ],
+            "ingredient_step_mapping_reason": None,
+            "warnings": [],
+        }
+    )
+
+    assert output.ingredient_step_mapping == {"0": [0], "1": [0, 1]}
 
 
 def test_pass3_contract_accepts_empty_mapping_reason() -> None:
@@ -294,6 +371,51 @@ def test_pass3_contract_repairs_truncated_draft_json_string() -> None:
     )
     assert output.draft_v1["recipe"]["title"] == "T"
     assert output.draft_v1["steps"] == [{"instruction": "Step 1", "ingredient_lines": []}]
+
+
+def test_merged_repair_contract_accepts_native_object_fields() -> None:
+    output = MergedRecipeRepairOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "canonical_recipe": {
+                "title": "Toast",
+                "ingredients": ["1 slice bread"],
+                "steps": ["Toast the bread."],
+                "description": None,
+                "recipeYield": None,
+            },
+            "ingredient_step_mapping": {"0": [0]},
+            "ingredient_step_mapping_reason": None,
+            "warnings": [],
+        }
+    )
+
+    assert output.canonical_recipe.title == "Toast"
+    assert output.ingredient_step_mapping == {"0": [0]}
+
+
+def test_merged_repair_contract_accepts_mapping_entry_arrays() -> None:
+    output = MergedRecipeRepairOutput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "canonical_recipe": {
+                "title": "Toast",
+                "ingredients": ["1 slice bread"],
+                "steps": ["Toast the bread."],
+                "description": None,
+                "recipeYield": None,
+            },
+            "ingredient_step_mapping": [
+                {"ingredient_index": 0, "step_indexes": [0]},
+            ],
+            "ingredient_step_mapping_reason": None,
+            "warnings": [],
+        }
+    )
+
+    assert output.ingredient_step_mapping == {"0": [0]}
 
 
 def test_pass2_structural_audit_flags_placeholder_title_and_extractive_mismatch() -> None:

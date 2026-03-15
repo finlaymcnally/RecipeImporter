@@ -37,6 +37,8 @@ Output schemas:
 
 To tune pass behavior, edit prompt text files in `prompts/`. The shipped pack keeps only the compact pass2/pass3/pass4 assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`. Those compact pipeline ids still reuse the existing pass2/pass3/pass4 output schemas while sending smaller input payloads.
 
+Recipe pass2/pass3/merged-repair schemas now use native nested JSON objects for recipe payload fields (`schemaorg_recipe`, `field_evidence`, `draft_v1`, `canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
+
 Prompt input contract:
 - `prompt_input_mode` is set to `"inline"` for recipe pipelines.
 - Use `{{INPUT_TEXT}}` to inject the full JSON payload directly into the prompt.

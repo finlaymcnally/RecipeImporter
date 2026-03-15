@@ -1018,6 +1018,9 @@ Current parsing contracts reinforced:
 - Preserving structure plus the reference-title reject produced the expected improvement in the recorded Food Lab reruns:
   - `data/output/2026-03-13_22.59.32` wrote 3 unrelated tables,
   - `data/output/2026-03-13_23.01.23` wrote 6 tables including the conversion/reference targets.
+- Preserved verification evidence from the landing pass:
+  - focused pytest slice passed (`57 passed, 7 warnings in 4.02s`),
+  - the successful Food Lab rerun is `data/output/2026-03-13_23.01.23`.
 
 Anti-loop reminder:
 - If EPUB tables go missing, inspect extractor structure and recipe-likeness gating before adding more salvage heuristics to `tables.py`.

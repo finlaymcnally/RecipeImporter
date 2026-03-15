@@ -2383,6 +2383,7 @@ def generate_pred_run_artifacts(
     line_role_codex_max_inflight = _resolve_line_role_codex_max_inflight_override(
         split_phase_slots
     )
+    archive_payload_rows: list[dict[str, Any]] | None = None
     line_role_candidates: list[AtomicLineCandidate] = []
     if run_settings.line_role_pipeline.value != "off":
         archive_payload_rows = prepared_archive_payload(prepared_archive)
@@ -2554,6 +2555,15 @@ def generate_pred_run_artifacts(
             llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
             llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
             llm_report = dict(llm_apply.llm_report)
+            if (
+                run_settings.line_role_pipeline.value != "off"
+                and archive_payload_rows is not None
+            ):
+                line_role_candidates = _build_line_role_candidates_from_archive(
+                    archive_payload=archive_payload_rows,
+                    result=result,
+                    atomic_block_splitter=run_settings.atomic_block_splitter.value,
+                )
     if result.report is None:
         result.report = ConversionReport()
     result.report.llm_codex_farm = llm_report

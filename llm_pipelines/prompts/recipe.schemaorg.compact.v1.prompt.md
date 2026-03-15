@@ -19,8 +19,8 @@ A) `schemaorg_recipe`:
 - Do not infer missing times, yields, temperatures, tools, or quantities
 - Do not normalize units beyond trivial whitespace cleanup
 - Preserve ingredient and instruction order from source evidence
-- Serialize the object as a JSON string in the output field
-- The JSON payload must be valid and parseable by `json.loads`
+- Return `schemaorg_recipe` as a nested JSON object, not a quoted JSON string
+- Always emit the schema keys required by the output schema; use `null` or `[]` when evidence is absent
 
 B) `extracted_ingredients`:
 - Plain text ingredient lines copied from `evidence_rows`
@@ -36,8 +36,8 @@ C) `extracted_instructions`:
 D) `field_evidence`:
 - Use concise references for important extracted fields
 - Use minimal references
-- Use JSON-escaped string payload, e.g. `{}` serialized via `json.dumps(...)`
-- Use `{}` when structured evidence is unavailable
+- Return `field_evidence` as a nested JSON object, not a quoted JSON string
+- Keep references compact; use `null` or `[]` for fields without grounded evidence
 
 E) `warnings`:
 - Include factual quality concerns only

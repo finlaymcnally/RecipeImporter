@@ -1735,3 +1735,95 @@ Durable findings:
 
 Anti-loop note:
 - If a setting disappears from one menu but still shows up in `stage --help`, analytics summaries, or helper signatures, the cleanup is not done yet; treat that as contract leakage, not as a docs-only issue.
+
+### 2026-03-14_13.55.00 and 2026-03-14_14.08.00 QualitySuite winner boundary cleanup and run-settings compat-shim removal
+
+Problem captured:
+- Interactive codex profile selection could dump compatibility warnings just by loading an old QualitySuite winner cache, because raw winner payloads and persistence-only metadata were being re-parsed through normal `RunSettings` validation.
+- At the same time, `RunSettings.from_dict(...)` was still carrying stale-key and removed-value migration behavior that kept dead configuration interfaces alive longer than their value justified.
+
+Durable decisions:
+- Interactive harmonization should only revalidate real `RunSettings` model fields. Persistence metadata such as `bucket1_fixed_behavior_version` is not a live setting and should not be treated like one in the chooser.
+- QualitySuite winner files can remain archaeology-friendly, but stale winner caches are disposable. The live loader should ignore stale/invalid caches with one concise warning rather than migrating them forever.
+- `RunSettings.from_dict(...)` now represents the live schema only. Call sites that pass mixed `cookimport.json` payloads must filter to `RunSettings.model_fields` first.
+- Historical analytics and dashboard continuity is preserved by persisted `run_config_*` artifacts, not by keeping live compatibility shims for old config payloads.
+
+Same-day design correction preserved:
+- The earlier cleanup direction was “sanitize old winner payloads forward.” The final rule is stricter and simpler: project to real model fields where needed, and ignore stale winner caches instead of carrying indefinite migration code for them.
+
+Anti-loop note:
+- If interactive warning dumps return, inspect `last_run_store.py`, `run_settings_flow.py`, and payload projection boundaries before weakening `RunSettings.from_dict(...)` again.
+
+### 2026-03-13_23.57.23 Bucket 1 fixed-behavior runtime bundle
+
+Source:
+- `docs/understandings/2026-03-13_23.57.23-bucket1-fixed-behavior-runtime-bundle.md`
+
+Problem captured:
+- Bucket 1 fixed-behavior cleanup had removed some fake settings from the visible surface, but runtime still risked depending on them as if they were live `RunSettings` choices.
+
+Durable decisions:
+- Remaining fake settings were removed from live `RunSettings` fields.
+- New runs derive those values from `cookimport/config/codex_decision.py:bucket1_fixed_behavior()`.
+- New manifests and run-config payloads persist `bucket1_fixed_behavior_version` as metadata rather than pretending matcher/pass-policy seams are operator choices.
+- Compatibility remains at the runtime boundary:
+  - read-only `RunSettings` properties still expose the effective values,
+  - adapter kwargs still let downstream stage/import/benchmark/orchestrator code read the same effective behavior without restoring the old settings surface.
+- Normal CLI help for `stage`, `labelstudio-benchmark`, `labelstudio-import`, and `bench speed-run` should stay free of Bucket 1 knobs; old payload keys are retired/ignored rather than revived.
+
+Anti-loop note:
+- Do not re-add fixed-behavior fields to the live schema just because some downstream code still wants to read the effective value. Keep that compatibility at the runtime adapter/property layer.
+
+### 2026-03-14_07.34.29, 2026-03-14_07.37.14, 2026-03-14_07.39.01, and 2026-03-14_07.57.44 surface ownership, chooser seams, and post-bucket projections
+
+Sources:
+- `docs/understandings/2026-03-14_07.34.29-bucket2-surface-ownership.md`
+- `docs/understandings/2026-03-14_07.37.14-interactive-recipe-pipeline-choice-boundary.md`
+- `docs/understandings/2026-03-14_07.39.01-run-settings-plan-boundaries-after-buckets.md`
+- `docs/understandings/2026-03-14_07.57.44-run-settings-product-contract-surfaces.md`
+
+Problem captured:
+- The March 14 follow-on cleanup made it easy to confuse “hidden in `RunSettings` UI metadata” with “fully internalized,” and the interactive recipe-pipeline flow still had multiple places where selected settings could be rewritten back to defaults.
+
+Durable decisions:
+- Bucket 2 ownership is split across three surfaces:
+  - `cookimport/config/run_settings.py` surface metadata,
+  - handwritten CLI/help/interactive menu code in `cookimport/cli.py`,
+  - analytics/dashboard summary fallbacks that must reuse `summarize_run_config_payload(...)` instead of rolling their own public story.
+- Interactive recipe-pipeline choice has two seams that both have to preserve the selected value:
+  - top-tier chooser harmonization in `cookimport/cli_ui/run_settings_flow.py`,
+  - paired single-offline benchmark planning in `cookimport/cli.py:_interactive_single_offline_variants`.
+- Post-Bucket-2 run-settings cleanup is intentionally three-projection, not one “public” dump:
+  - `operator` for ordinary day-to-day summaries,
+  - `benchmark_lab` for benchmark-visible tuning/model override surfaces,
+  - `raw/full` for persistence and reproducibility artifacts.
+- March 13 plan ownership stayed split on purpose:
+  - Bucket 1 owns retired/fixed-behavior work,
+  - Bucket 2 owns internalization,
+  - the product-contract plan starts only after those buckets land and focuses on presentation/help/docs/manifests/analytics.
+- Remaining leak worth remembering:
+  - some helper signatures in `cookimport/labelstudio/ingest.py` still accept long settings-shaped argument lists for compatibility, so not every surface had yet converged onto the smaller projections.
+
+Anti-loop note:
+- If a field disappears from `run_settings_ui_specs()` but still shows up in CLI help, dashboard summaries, or paired benchmark behavior, treat that as unfinished contract cleanup, not as a documentation nit.
+
+### 2026-03-14_13.49.43 and 2026-03-14_14.08.00 interactive winner-warning dump and strict live-schema boundary
+
+Sources:
+- `docs/understandings/2026-03-14_13.49.43-interactive-pipeline-warning-dump-source.md`
+- `docs/understandings/2026-03-14_14.08.00-run-settings-compat-boundaries.md`
+
+Problem captured:
+- Interactive `Recipe pipeline for this run?` noise looked like a chooser/menu bug, and compatibility cleanup risked blurring live settings ingestion with persisted analytics/history reading.
+
+Durable decisions:
+- The warning dump came from compatibility logging while loading and re-harmonizing saved QualitySuite winner settings, not from the menu renderer itself.
+- The active fix landed in two parts:
+  - chooser-time revalidation now projects back to real model fields so `bucket1_fixed_behavior_version` does not leak into warnings,
+  - stale winner caches are treated as disposable and ignored instead of being migrated forever.
+- `RunSettings.from_dict(...)` is now the live-schema loader only.
+- Call sites that pass mixed app settings into `RunSettings.from_dict(...)` must filter to `RunSettings.model_fields` first.
+- Analytics/dashboard continuity is preserved by persisted `run_config_json`, `run_config_hash`, and `run_config_summary` artifacts, which means old charts can survive even if stale live config files stop loading.
+
+Anti-loop note:
+- If warning dumps or unknown-key tolerance pressure return, inspect mixed-payload filtering and winner-cache boundaries first. Do not weaken `RunSettings.from_dict(...)` just to keep stale caches alive.

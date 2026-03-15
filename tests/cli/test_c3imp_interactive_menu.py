@@ -560,6 +560,94 @@ def test_choose_run_settings_recipe_pipeline_menu_can_select_merged_prototype(
     assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
 
 
+def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-3pass-v1"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _menu_select(message, *_args, **_kwargs):
+        if message == "Recipe pipeline for this run:":
+            return "codex-farm-2stage-repair-v1"
+        if message == "Block labelling for this run:":
+            return "deterministic-v1"
+        if message == "Knowledge harvest for this run:":
+            return "off"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_recipe_pipeline_menu=True,
+        prompt_benchmark_llm_surface_toggles=True,
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "codex-farm-2stage-repair-v1"
+    assert selected.line_role_pipeline.value == "deterministic-v1"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
+    assert selected.llm_knowledge_pipeline.value == "off"
+
+
+def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "list_codex_farm_models",
+        lambda **_kwargs: [{"slug": "gpt-5-codex", "description": ""}],
+    )
+    seen_model_prompt = {"value": False}
+
+    def _menu_select(message, *_args, **_kwargs):
+        if message == "Recipe pipeline for this run:":
+            return "off"
+        if message == "Block labelling for this run:":
+            return "codex-line-role-v1"
+        if message == "Knowledge harvest for this run:":
+            return "off"
+        if message == "Codex Farm model override:":
+            seen_model_prompt["value"] = True
+            return "__pipeline_default__"
+        if message == "Codex Farm reasoning effort override:":
+            return "__default__"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_recipe_pipeline_menu=True,
+        prompt_codex_ai_settings=True,
+        prompt_benchmark_llm_surface_toggles=True,
+    )
+
+    assert selected is not None
+    assert seen_model_prompt["value"] is True
+    assert selected.llm_recipe_pipeline.value == "off"
+    assert selected.line_role_pipeline.value == "codex-line-role-v1"
+    assert selected.llm_knowledge_pipeline.value == "off"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
+
+
 def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

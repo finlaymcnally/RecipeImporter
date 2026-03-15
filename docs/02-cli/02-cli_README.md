@@ -117,13 +117,18 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - choices are `off`, `codex-farm-3pass-v1`, and `codex-farm-2stage-repair-v1`,
   - default is inferred from global `llm_recipe_pipeline`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
-- when a codex pipeline is selected, chooser then asks:
+- interactive benchmark setup then also asks:
+  - `Block labelling for this run?` -> `line_role_pipeline=deterministic-v1|codex-line-role-v1` (and keeps `atomic_block_splitter=atomic-v1`)
+  - `Knowledge harvest for this run?` -> `llm_knowledge_pipeline=off|codex-farm-knowledge-v1`
+- when any codex-backed surface is selected, chooser then asks:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
 
 Resolved profile families:
 - `CodexFarm automatic top-tier`:
   - use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
+  - interactive loading reuses only real `RunSettings` model fields during harmonization, so persistence metadata such as `bucket1_fixed_behavior_version` should not replay warning dumps in the chooser,
+  - stale winner caches are treated as disposable and ignored with one concise warning rather than being migrated forever,
   - otherwise use built-in codex top-tier baseline,
   - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-farm-3pass-v1` control or `codex-farm-2stage-repair-v1` prototype):
     `llm_knowledge_pipeline=codex-farm-knowledge-v1`,
@@ -334,6 +339,7 @@ Interactive benchmark now has a mode submenu before execution:
    - `Single config, all matched sets: Repeat one config for every matched golden set`
 2. Single offline path:
    - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
+   - benchmark setup can now independently choose recipe Codex, block-labelling Codex, and pass4 knowledge harvest before execution,
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
@@ -1842,18 +1848,66 @@ Merged source notes (timestamp order):
 - `docs/understandings/2026-03-13_23.27.36-run-settings-leak-points.md`
 
 Current CLI/contracts reinforced:
-- The first surface cleanup landed, but the operator surface is still larger than intended:
-  - current `RunSettings` metadata counts are still far above the target product surface,
-  - hidden/internal metadata alone does not fix CLI/help/docs leakage.
-- Bucket 1 is only partially finished:
+- These March 13 notes captured the leak points that still existed after the first cleanup tranche; the later follow-on work matters just as much as the leak map itself.
+- Bucket 1 follow-on outcome:
   - `table_extraction` is retired correctly,
-  - Bucket 1 leak cleanup is complete: those parser/debug/matcher concepts now resolve from fixed product behavior plus compatibility-only loading for old payloads.
-- Bucket 2 remains mostly a visibility problem:
-  - many lab/tuning settings are still marked public,
-  - some of the same knobs still appear in handwritten Typer signatures, interactive edit surfaces, analytics summaries, and ingest helper APIs even when they should be ordinary-internal.
-- The durable next-step shape is small-operator-contract over large-persistence-schema:
+  - parser/debug/matcher and pass-policy seams now resolve from fixed product behavior plus compatibility-only loading for old payloads,
+  - new manifests use `bucket1_fixed_behavior_version` instead of pretending those were per-run choices.
+- Bucket 2 follow-on outcome:
+  - parser/scoring/OCR lab knobs moved to the internal side of the surface split,
+  - ordinary help, interactive editing, and default summaries no longer treat those fields as day-to-day operator choices,
+  - raw payloads and benchmark identity still keep the broader persistence story where reproducibility needs it.
+- The durable architecture direction remained correct:
   - keep `RunSettings` broad enough to load old payloads and preserve benchmark identity,
-  - drive normal CLI/help/docs/manifests from a deliberately smaller operator list plus top-tier profile contracts in `cookimport/config/codex_decision.py`.
+  - drive normal CLI/help/docs/manifests from a deliberately smaller operator contract plus top-tier profile contracts in `cookimport/config/codex_decision.py`,
+  - keep benchmark-lab and internal projections explicit instead of flattening everything back into one schema-shaped story.
 
 Anti-loop reminder:
 - A setting is not truly “internalized” just because `run_settings_ui_specs()` hides it. Check Typer options, helper signatures, docs, summaries, and identity logic before declaring the cleanup done.
+
+## 2026-03-14 merged docs/tasks digest (winner-cache boundary and strict live run-settings schema)
+
+Current CLI/contracts reinforced:
+- `RunSettings.from_dict(...)` is a live-schema loader now. Mixed app/settings payloads must be filtered down to real `RunSettings.model_fields` before validation instead of relying on unknown-key tolerance as an implicit filter.
+- Interactive chooser harmonization should revalidate only model-field payloads. Persistence metadata such as `bucket1_fixed_behavior_version` belongs in raw manifests and winner files, not in menu-time warning output.
+- `qualitysuite_winner_run_settings.json` remains an archaeology-friendly cache, but stale winner payloads are not a product surface worth migrating forever. Invalid or stale caches are ignored so the chooser can fall back to the current contract cleanly.
+- Analytics/history continuity depends on persisted `run_config_json`, `run_config_hash`, and `run_config_summary` artifacts rather than on keeping long-tail live config compatibility shims alive.
+
+## 2026-03-14 merged understandings digest (fixed-behavior bundling, surface ownership, and chooser seams)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-13_23.57.23-bucket1-fixed-behavior-runtime-bundle.md`
+- `docs/understandings/2026-03-14_07.34.29-bucket2-surface-ownership.md`
+- `docs/understandings/2026-03-14_07.37.14-interactive-recipe-pipeline-choice-boundary.md`
+- `docs/understandings/2026-03-14_07.39.01-run-settings-plan-boundaries-after-buckets.md`
+- `docs/understandings/2026-03-14_07.57.44-run-settings-product-contract-surfaces.md`
+- `docs/understandings/2026-03-14_13.49.43-interactive-pipeline-warning-dump-source.md`
+- `docs/understandings/2026-03-14_14.08.00-run-settings-compat-boundaries.md`
+
+Current CLI/contracts reinforced:
+- Bucket 1 fixed behavior is now runtime-bundled product behavior, not a live operator surface:
+  - the effective values come from `cookimport/config/codex_decision.py::bucket1_fixed_behavior()`,
+  - downstream code can still read compatibility properties / adapter kwargs,
+  - new manifests persist `bucket1_fixed_behavior_version`,
+  - normal CLI help and interactive settings should not resurrect those knobs.
+- Bucket 2 internalization has three owners that all need to agree before a field is really hidden:
+  - `RunSettings` surface metadata,
+  - handwritten Typer flags and interactive settings/menu code in `cookimport/cli.py`,
+  - analytics/dashboard summary helpers that project run-config payloads for humans.
+- Interactive recipe-pipeline choice has two durable seams:
+  - the top-tier chooser harmonizes a profile first, then must preserve the operator-selected `llm_recipe_pipeline` override,
+  - paired single-offline benchmark planning later rebuilds variants from the benchmark contract and must preserve that same non-default recipe pipeline instead of snapping back to a hard-coded Codex default.
+- Post-Bucket-2 run settings should stay deliberately split into three projections:
+  - `operator` for ordinary stage/import summaries,
+  - `benchmark_lab` for benchmark-visible tuning and Codex override surfaces,
+  - `raw/full` for persistence, reproducibility, and compatibility payloads.
+- Plan ownership after the March 13 audit split is intentional:
+  - Bucket 1 owns retired/fixed-behavior cleanup,
+  - Bucket 2 owns internalization,
+  - the product-contract plan owns the smaller post-bucket presentation across CLI/help/docs/manifests/analytics.
+- QualitySuite winner warning dumps were a revalidation-boundary problem, not a menu-rendering problem:
+  - stale winner caches and persistence-only metadata should not leak back into chooser-time warnings,
+  - `RunSettings.from_dict(...)` is the live-schema loader, while analytics continuity comes from persisted `run_config_*` artifacts rather than from keeping stale live-config migrations forever.
+
+Anti-loop reminder:
+- Hiding a field in `run_settings_ui_specs()` is only the first step. If it still appears in Typer help, summaries, helper signatures, or paired benchmark variants, the surface cleanup is not finished.

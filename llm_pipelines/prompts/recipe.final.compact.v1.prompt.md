@@ -20,16 +20,18 @@ A) `draft_v1`:
 - Preserve instruction order exactly
 - Never emit generic placeholder instructions (for example: "See original recipe for details.")
 - Every emitted step instruction must come verbatim from `extracted_instructions`
-- `draft_v1` must be returned as a JSON string containing the full draft object
-- The JSON payload must be valid and parseable by `json.loads`
+- Return `draft_v1` as a nested JSON object, not a quoted JSON string
+- Always emit `schema_v`, `source`, `recipe`, and `steps`
 
 B) `ingredient_step_mapping`:
 - Populate only when links are clear from provided inputs
-- If links are not needed or remain unclear, return `{}` as a JSON string
-- Always return `ingredient_step_mapping` as a JSON string
-- When `ingredient_step_mapping` is `{}`, also set `ingredient_step_mapping_reason`
+- Return `ingredient_step_mapping` as an array of objects with `ingredient_index` and `step_indexes`, not a quoted JSON string
+- Keep entries ordered by `ingredient_index`
+- If links are not needed or remain unclear, return `[]`
+- Always include `ingredient_step_mapping_reason`
+- When `ingredient_step_mapping` is `[]`, set `ingredient_step_mapping_reason` to a short reason string
 - Use short machine-readable reasons such as `not_needed_single_step`, `not_needed_single_ingredient`, or `unclear_alignment`
-- When `ingredient_step_mapping` is non-empty, omit `ingredient_step_mapping_reason` or set it to `null`
+- When `ingredient_step_mapping` is non-empty, set `ingredient_step_mapping_reason` to `null`
 
 C) `warnings`:
 - Include factual integrity caveats only

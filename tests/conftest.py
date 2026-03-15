@@ -119,6 +119,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
         "bench",
         "cli",
     ),
+    "test_labelstudio_benchmark_smoke.py": ("labelstudio", "bench", "cli"),
     "test_labelstudio_benchmark_helpers_single_offline_artifacts.py": (
         "labelstudio",
         "bench",
@@ -221,6 +222,7 @@ _SMOKE_FILES = {
     "test_benchmark_cutdown_for_external_ai.py",
     "test_dashboard_state_server.py",
     "test_knowledge_output_ingest.py",
+    "test_labelstudio_benchmark_smoke.py",
     "test_labelstudio_import_naming.py",
     "test_llm_pipeline_pack.py",
     "test_evidence_normalizer.py",

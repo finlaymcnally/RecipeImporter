@@ -56,6 +56,7 @@ pytest tests/analytics/test_stats_dashboard_slow.py
 
 # Label Studio benchmark-helper split
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py
+pytest tests/labelstudio/test_labelstudio_benchmark_smoke.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py

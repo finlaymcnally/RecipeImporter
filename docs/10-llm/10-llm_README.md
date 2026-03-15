@@ -80,6 +80,7 @@ Report/model plumbing:
   - stderr `__codex_farm_progress__` events are translated into spinner text with `task X/Y` counters, and, when present, active task labels (for running workers) are included as an `active [...]` section.
   - when older codex-farm binaries reject `--progress-events`, runner retries once without that flag and continues with phase-only status.
   - recoverable partial-output failures (`no last agent message` / `nonzero_exit_no_payload`) now emit one short callback progress line during shared-status runs instead of logging multiline terminal warnings.
+- Prediction-run canonical line-role candidate spans are rebuilt after recipe Codex updates `ConversionResult.recipes`, so `within_recipe_span` now reflects post-LLM recipe provenance instead of stale pre-LLM ranges.
 
 ## Policy boundary (current behavior)
 
@@ -91,12 +92,14 @@ Report/model plumbing:
   - `plan` writes manifests plus `codex_execution_plan.json` and returns before live Codex work.
   - prediction-run plan mode is now deeper than the stage boundary preview: it still performs deterministic extraction/archive preparation so the plan artifact can enumerate concrete line-role batches and recipe CodexFarm pass work.
 - `RunSettings.from_dict`, CLI normalizers, and Label Studio prediction-run normalizers accept codex-farm values directly and only reject invalid enum values.
-- Interactive import/benchmark run setup asks `Use Codex Farm recipe pipeline for this run?`; default follows whether global `llm_recipe_pipeline` is non-`off`, and `COOKIMPORT_TOP_TIER_PROFILE` can force codexfarm/vanilla. When codex is selected, chooser also prompts for `codex_farm_model` and `codex_farm_reasoning_effort` overrides for that run.
-- Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile for that session.
+- Interactive import/benchmark run setup still starts from the shared top-tier resolver and recipe pipeline choice. Interactive benchmark then adds separate per-run toggles for Codex line-role block labelling (`deterministic-v1|codex-line-role-v1`) and pass4 knowledge harvest (`off|codex-farm-knowledge-v1`).
+- The interactive Codex AI settings prompt now appears whenever any benchmark Codex surface remains enabled, even if recipe Codex is off and only line-role or pass4 is using Codex.
+- Interactive benchmark now runs single-offline or single-profile matched-set modes only; codex behavior follows the selected top-tier profile plus any per-surface benchmark overrides for that session.
 - Benchmark prediction generation now forwards `llm_knowledge_pipeline` and `codex_farm_knowledge_context_blocks` into shared `RunSettings`; retired pass-id knobs are fixed product behavior and compatibility-only on load.
 - `RunSettings()` defaults and `build_run_settings(...)` helper defaults are now safe/off (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`) unless a caller explicitly opts into a Codex-backed contract.
 - When CodexFarm recipe parsing and knowledge harvest are enabled, default pass pipeline ids now point at the compact prompt assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`.
 - The step4 prototype `codex-farm-2stage-repair-v1` keeps pass1 but swaps the pass2/pass3 seam for `recipe.merged-repair.compact.v1`; that stage emits one canonical recipe object, and recipeimport derives schema.org plus `RecipeDraftV1` locally while writing per-recipe audits under `raw/llm/<workbook>/merged_repair_audit/`.
+- Selecting `codex-farm-3pass-v1` versus `codex-farm-2stage-repair-v1` changes only the recipe extraction path. Pass4 knowledge remains a separate `llm_knowledge_pipeline` surface, and the codex top-tier profile keeps it enabled unless something explicitly turns it off.
 - Canonical line-role prompt construction now defaults to `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1` when the env var is unset; set it back to `legacy` for rollback or A/B checks.
 - `cookimport/config/codex_decision.py` is now the shared Codex boundary layer. It classifies actual Codex-backed surfaces, applies the interactive top-tier and paired benchmark contracts, and persists explicit decision metadata (`codex_decision_*`, `ai_assistance_profile`, and, when relevant, `benchmark_variant`) into run-config artifacts.
 - Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint fail closed in execute mode when their resolved run settings enable a Codex-backed surface.
@@ -105,6 +108,10 @@ Report/model plumbing:
 - The low-level `COOKIMPORT_ALLOW_LLM` kill switch still blocks unapproved `codex exec` calls by default, but explicitly approved stage/import/benchmark runs now pass that approval through to the line-role Codex path so `codex-line-role-v1` is not silently disabled during a real approved run.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
+- Usage attribution boundary:
+  - shared `~/projects/shared/CodexFarm/var/codex_exec_activity.csv` can contain estimated/fake-test rows and is not proof of real usage for this repo,
+  - repo-local truth for live runs is `var/codex_exec_activity.csv` plus `var/codex_farm.sqlite3`,
+  - when no per-run model override is supplied, recipe passes fall back to the pipeline JSON defaults.
 - Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
 - `RunSettings` now also carries `line_role_guardrail_mode=off|preview|enforce` (default `enforce`) for explicit line-role post-sanitization arbitration behavior.
 - Canonical line-role allowlists now auto-offer `RECIPE_TITLE` for title-like lines, and low-confidence deterministic `RECIPE_TITLE` labels are kept on-rule instead of escalated away.
@@ -179,6 +186,7 @@ Report/model plumbing:
 - Pass3 draft normalization now coerces legacy `draft_v1` object shapes (for example `name`/`instructions`, schema.org-only, or pass2-like objects) into valid `RecipeDraftV1` (`schema_v`, `recipe.title`, `steps`) before final validation.
 - Per-recipe `llm_manifest.json` rows now also expose `pass3_mapping_status` plus `pass3_mapping_reason`, with the current compact pass3 prompt/schema using `ingredient_step_mapping_reason` as the source signal for empty-but-justified or empty-and-unclear mappings.
 - Recipe-pass block extraction now falls back to `full_text.lines` when `full_text.blocks` is missing/empty (common in some cached prediction payloads), synthesizing minimal block rows by line index so codexfarm can still execute pass1/pass2/pass3.
+- Codex structured-output schemas in `llm_pipelines/schemas/` must follow the OpenAI strict subset: every top-level key under `properties` must also appear in `required`; represent optional values with nullable types such as `["string", "null"]`; avoid arbitrary-key object maps in recipe outputs because Codex rejected the old `ingredient_step_mapping: { "<ingredient_index>": [step_indexes...] }` schema shape. Pass3 and merged-repair now emit `ingredient_step_mapping` as a strict array of `{ingredient_index, step_indexes}` objects, and recipeimport normalizes that back to the internal dictionary form after validation.
 - Subprocess-backed recipe pass manifests now also carry `process_runs.pass1|pass2|pass3.runtime_mode_audit`:
   - expected steady-state is `mode=structured_output_non_agentic`, `output_schema_enforced=true`, `tool_affordances_requested=false`, `status=ok`.
   - `llm_manifest.json.counts.runtime_mode_violations` and `llm_manifest.runtime_mode.violations` summarize any pass that breaks that contract.
@@ -588,11 +596,12 @@ Merged sources (chronological):
 Current-contract additions:
 - When codex-farm pass2 (`recipe.schemaorg.v1`) fails broadly with exit code `1`, one observed root cause is upstream Codex websocket auth failure (`403 Forbidden`) rather than local schema/prompt bugs.
 - `codex-farm run errors` may show only trailing warnings; high-fidelity failure cause is usually in run forensics bundles (`stderr_tail.txt`, `metadata.json`) for each failed task attempt.
-- Recipe pass2/pass3 schema contract is stringified nested payloads at top level (`additionalProperties: false` object with string fields):
+- Recipe pass2/pass3/merged-repair schema contract now uses native nested payload objects at top level:
   - pass2: `schemaorg_recipe`, `field_evidence`
   - pass3: `draft_v1`, `ingredient_step_mapping`
-- Contract resilience in recipeimport should continue accepting either Python objects or JSON strings and coercing to canonical JSON-string form before strict validation.
-- Prompt assets and fake runner defaults should stay aligned with the JSON-string top-level contract so stage and benchmark codex paths behave consistently.
+  - merged repair: `canonical_recipe`, `ingredient_step_mapping`
+- Contract resilience in recipeimport should continue accepting either Python objects or legacy JSON strings for those fields.
+- Prompt assets and fake runner defaults should stay aligned with the native-object contract so stage and benchmark codex paths behave consistently.
 
 Triage shortcut for recurring pass2/pass3 failures:
 1. Verify Codex Farm process payload + run_id in runner metadata.
@@ -920,7 +929,7 @@ Current LLM contracts reinforced:
   - `recipe.knowledge.compact.v1`
   - `recipe.tags.v1`
   Output schemas still reuse the existing `recipe.*.v1.output.schema.json` files, so pack cleanup did not imply new output-schema IDs.
-- Literal prompt truth lives in `prompts/full_prompt_log.jsonl` plus manifest `pipeline_id` fields. Files like `prompt_task3_pass3_final.txt` are convenience input/output dumps, not reliable proof of the rendered prompt template.
+- Literal prompt truth lives in `prompts/full_prompt_log.jsonl` plus manifest `pipeline_id` fields. Files like `prompt_task3_pass3_final.txt` or `prompt_task2_merged_repair.txt` are convenience input/output dumps, not reliable proof of the rendered prompt template; use the row-level `stage_*` metadata when a legacy pass slot is repurposed.
 - Compact pass4 token reduction comes from bundle shape, not only prompt wrapper text:
   - chunk blocks and context blocks keep only essential fields,
   - full-book recipe-span guardrails are replaced by nearby `context_recipe_block_indices`,
@@ -959,3 +968,25 @@ Current LLM contracts reinforced:
 
 Anti-loop reminder:
 - If a new recipe pipeline works only after patching the orchestrator, assume the implementation is incomplete until normalization, approval, and benchmark-debug surfaces are updated too.
+
+## 2026-03-14 merged understandings digest (recipe-vs-pass4 boundary and Spark attribution)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-14_14.21.00-spark-usage-attribution.md`
+- `docs/understandings/2026-03-14_14.38.08-codexfarm-pass4-vs-recipe-pipeline.md`
+
+Current LLM contracts reinforced:
+- Recipe pipeline selection and pass4 knowledge are separate surfaces:
+  - `llm_recipe_pipeline` chooses the recipe extraction path,
+  - `llm_knowledge_pipeline` controls pass4 knowledge harvest,
+  - the codex top-tier profile currently enables both, so switching between `codex-farm-3pass-v1` and `codex-farm-2stage-repair-v1` does not implicitly turn pass4 off.
+- Naming caution:
+  - “3-pass” versus “2-stage” is accurate for the recipe sub-pipeline only,
+  - it is not a count of the whole Codex-backed workflow once pass4 knowledge and pass5 tags are considered.
+- Spark-usage attribution must distinguish fake shared logs from real repo-local execution:
+  - fake-test rows can appear in the shared CodexFarm activity CSV with estimated Spark usage,
+  - real recipeimport billing/debug evidence lives in this repo’s local `var/` telemetry,
+  - no per-run `codex_model` override means the executed model came from the selected pipeline JSON defaults.
+
+Anti-loop reminder:
+- If “Spark usage” looks surprising, verify whether the evidence came from shared fake-test telemetry or this repo’s local `var/` telemetry before changing model defaults or approval policy.

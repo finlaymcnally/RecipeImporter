@@ -471,6 +471,101 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert "## pass5 (Tag Suggestions)" in prompt_samples
     assert "_No rows captured for this pass._" in prompt_samples
 
+
+def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merged_repair(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    run_dir = pred_run / "raw" / "llm" / "book"
+    pass1_in = run_dir / "pass1_chunking" / "in"
+    pass1_out = run_dir / "pass1_chunking" / "out"
+    pass2_in = run_dir / "pass2_schemaorg" / "in"
+    pass2_out = run_dir / "pass2_schemaorg" / "out"
+    for folder in (pass1_in, pass1_out, pass2_in, pass2_out):
+        folder.mkdir(parents=True, exist_ok=True)
+
+    (pass1_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "pass1 prompt"}),
+        encoding="utf-8",
+    )
+    (pass1_out / "r0000.json").write_text(
+        json.dumps({"result": "pass1 response"}),
+        encoding="utf-8",
+    )
+    (pass2_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "merged repair prompt"}),
+        encoding="utf-8",
+    )
+    (pass2_out / "r0000.json").write_text(
+        json.dumps({"result": "merged repair response"}),
+        encoding="utf-8",
+    )
+
+    (run_dir / "llm_manifest.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "pipeline": "codex-farm-2stage-repair-v1",
+                "process_runs": {
+                    "pass1": {
+                        "run_id": "run-pass1",
+                        "pipeline_id": "recipe.chunking.v1",
+                    },
+                    "pass2": {
+                        "run_id": "run-pass2",
+                        "pipeline_id": "recipe.merged-repair.compact.v1",
+                    },
+                },
+                "paths": {
+                    "pass1_in": str(pass1_in),
+                    "pass1_out": str(pass1_out),
+                    "pass2_in": str(pass2_in),
+                    "pass2_out": str(pass2_out),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = cli._build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+    )
+
+    assert log_path is not None and log_path.exists()
+    assert (eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt").exists()
+    merged_repair_path = eval_output_dir / "prompts" / "prompt_task2_merged_repair.txt"
+    assert merged_repair_path.exists()
+    assert not (
+        eval_output_dir / "prompts" / "prompt_task2_pass2_schemaorg.txt"
+    ).exists()
+
+    full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
+    full_prompt_rows = [
+        json.loads(line)
+        for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    merged_repair_row = next(row for row in full_prompt_rows if row.get("pass") == "pass2")
+    assert merged_repair_row["legacy_pass"] == "pass2"
+    assert merged_repair_row["stage_key"] == "merged_repair"
+    assert merged_repair_row["stage_artifact_stem"] == "merged_repair"
+    assert merged_repair_row["stage_label"] == "Merged Repair"
+    assert merged_repair_row["stage_matches_legacy"] is False
+
+    prompt_samples_path = (
+        eval_output_dir
+        / "prompts"
+        / "prompt_type_samples_from_full_prompt_log.md"
+    )
+    prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
+    assert "## merged_repair (Merged Repair)" in prompt_samples
+    assert "## pass2 (Schema.org Extraction)" not in prompt_samples
+    assert "merged repair prompt" in prompt_samples
+
 def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     output_root = tmp_path / "output"

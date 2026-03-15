@@ -33,6 +33,7 @@ Current scoring surfaces:
 - Codex Farm permutations (recipe pass) can be included in all-method grids for `bench speed-run`. QualitySuite/`bench quality-run` is deterministic-only and rejects Codex Farm recipe/knowledge/tags enablement in requested settings.
 - Bucket 1 Codex Farm pass-policy knobs are now fixed product behavior for normal runs; QualitySuite remains deterministic-only and does not treat them as experiment levers.
 - `bench speed-run` requires explicit positive confirmation when Codex Farm is requested: `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
+- Agent-run environments are hard-blocked from `bench speed-run --include-codex-farm` even when the confirmation token is present; use a human-run shell for the live path.
 - `bench speed-compare`: compare baseline/candidate speed runs with regression gates.
 - `bench gc`: benchmark artifact retention and garbage collection. Dry-run is default (`--dry-run`); use `--apply` to mutate artifacts. Policy controls include `--keep-full-runs`, `--keep-full-days`, and `--drop-speed-artifacts`. Optional: include Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` via `--include-labelstudio-benchmark`, and (when pruning those) also drop matching processed outputs under `data/output/<run_id>/` via `--prune-benchmark-processed-outputs`. Run roots are pruned only when benchmark history durability is already present in CSV rows, and `bench gc` does not mutate `performance_history.csv`.
 - `bench quality-discover`: build deterministic quality suite from pulled gold exports (curated CUTDOWN focus IDs first: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; representative fallback). Discovery metadata includes `format_counts` + `selected_format_counts`, each target carries `source_extension`, and `--formats` can filter discovery inputs by extension (for example `.pdf,.epub`). Use `--no-prefer-curated` to include all matched sources by default when `--max-targets` is omitted.
@@ -60,7 +61,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - `--line-role-pipeline off|deterministic-v1|codex-line-role-v1`
 - `--llm-knowledge-pipeline off|codex-farm-knowledge-v1`
 - `--codex-execution-policy execute|plan`
-- live Codex-backed `labelstudio-benchmark` runs now require both `--allow-codex` and `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; agent-run environments are hard-blocked from executing that live path and must use `--codex-execution-policy plan` instead
+- live Codex-backed non-interactive `labelstudio-benchmark` runs now require both `--allow-codex` and `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; agent-run environments are hard-blocked from that non-interactive live path and must use `--codex-execution-policy plan` instead. The interactive CLI menu is treated as a human-confirmed path and may launch live Codex-backed benchmark variants directly.
 - shared generic defaults are deterministic (`llm_recipe_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`); codex-enabled benchmark variants must opt in explicitly
 - benchmark prediction generation accepts `--codex-farm-knowledge-context-blocks <int>` as a benchmark-lab override; the pass4 knowledge pipeline id itself stays fixed Bucket 1 behavior and only persists in raw compatibility payloads.
 - benchmark contract helpers keep pass4 knowledge off in baseline variants and enable `codex-farm-knowledge-v1` only for Codex variants; manifests should record the resolved value after contract normalization
@@ -95,6 +96,10 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
   the default session contract can stay upload-bundle-first.
 
 Interactive benchmark flows (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`) stay offline and use canonical-text scoring.
+Their shared interactive chooser now layers per-surface Codex toggles on top of the existing top-tier profile base:
+- recipe extraction: `off|codex-farm-3pass-v1|codex-farm-2stage-repair-v1`
+- block labelling: `line_role_pipeline=deterministic-v1|codex-line-role-v1` with `atomic_block_splitter=atomic-v1`
+- pass4 knowledge harvest: `llm_knowledge_pipeline=off|codex-farm-knowledge-v1`
 `labelstudio-benchmark compare` supports:
 - all-method multi-source compare (named gates like `sea_no_regression`, `foodlab_no_regression`, `foodlab_ingredient_at_least_baseline`, `foodlab_variant_recall_nonzero`, plus debug-artifact presence gates), and
 - single-run compare from `eval_report.json` inputs (generic no-regression/debug gates).
@@ -110,15 +115,16 @@ Interactive `single_offline` now writes into one session root:
   - `vanilla`: the vanilla top-tier profile (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `llm_tags_pipeline=off`, `line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`)
   - `codexfarm`: the codexfarm top-tier profile (`llm_recipe_pipeline=codex-farm-3pass-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`)
   - both variants pin the same current top-tier parsing stack: `epub_extractor=unstructured`, `epub_unstructured_html_parser_version=v1`, `epub_unstructured_preprocess_mode=semantic_v1`, `epub_unstructured_skip_headers_footers=true`, `multi_recipe_splitter=rules_v1`, `pdf_ocr_policy=off`, and fixed Bucket 1 behavior recorded as `bucket1_fixed_behavior_version=bucket1-fixed-v1`.
+  - variant rebuilding now projects raw run-config payloads back to the full `RunSettings` field contract before validation, so persistence-only metadata like `bucket1_fixed_behavior_version` does not crash interactive single-offline setup.
   - Analytics treat the `vanilla` label as valid only when both recipe AI and line-role AI are off; a row with `llm_recipe_pipeline=off` but line-role AI still on is a hybrid run, not vanilla.
 - non-paired single-offline runs now keep a profile slug such as `line_role_only`, `recipe_only`, or `full_stack` instead of being forced into `vanilla`.
 - prediction-generation paths now inherit shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`, split-gated jobs default to `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the highest-priority override.
 - codex variant runs now include prompt-debug text artifacts under `.../codexfarm/prompts/` (legacy runs may still use `.../codexfarm/codexfarm/`):
   - `prompt_request_response_log.txt` (combined full dump),
   - `full_prompt_log.jsonl` (required one-row-per-call machine-readable log; no sampling/truncation),
-  - `prompt_type_samples_from_full_prompt_log.md` (auto-generated easy-read markdown with up to 3 literal prompt examples per pass from `full_prompt_log.jsonl`, now including thinking-trace excerpts when available),
-  - `full_prompt_log.jsonl` rows include `request_payload_source` (`telemetry_csv` when `codex_exec_activity.csv` has a matching call; fallback `reconstructed_from_prompt_template` otherwise) and `request_telemetry` with per-call runtime metadata.
-  - `prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt` (split by prompt category),
+  - `prompt_type_samples_from_full_prompt_log.md` (auto-generated easy-read markdown with up to 3 literal prompt examples per discovered prompt stage from `full_prompt_log.jsonl`, including thinking-trace excerpts when available),
+  - `full_prompt_log.jsonl` rows include `request_payload_source` (`telemetry_csv` when `codex_exec_activity.csv` has a matching call; fallback `reconstructed_from_prompt_template` otherwise), `request_telemetry`, and dynamic stage metadata such as `legacy_pass`, `stage_key`, `stage_label`, and `stage_matches_legacy`.
+  - prompt category files keep legacy names for standard pass stages (`prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt`) but switch to the observed stage label when a legacy slot runs a different pipeline (for example `prompt_task2_merged_repair.txt`),
   - `prompt_category_logs_manifest.txt` (one-path-per-line index of category files).
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
@@ -269,6 +275,7 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - `<eval_output_dir>/upload_bundle_v1/upload_bundle_payload.jsonl`
 - prediction-generation scratch stays co-located at `<eval_output_dir>/prediction-run`, so nested interactive wrappers should not create extra sibling timestamp roots unless there was a separate benchmark invocation
 - `upload_bundle_index.json` includes verified topline/self-check booleans (`starter_pack_present`, `pair_count_verified`, `changed_lines_verified`, `topline_consistent`) and corrects counts from discovered run artifacts when advertised root summaries are stale or missing.
+- upload bundles now also publish `analysis.recipe_pipeline_context`; reviewer-facing labels for downstream recipe artifacts are derived from the legacy field families themselves (`legacy-family:pass2_*`, `legacy-family:pass3_*`) instead of implying a fixed stage count, while legacy `pass2_*` / `pass3_*` field families remain compatibility aliases. When discovered recipe artifacts do not show a standard live pass2->pass3 call sequence, the bundle marks that explicitly as nonstandard topology. Current merged-repair runs surface that through `pass3_execution_mode=llm_merged_repair` and `pass3_routing_reason=merged_repair_stage`.
 - Existing-output upload-bundle generation (`build_upload_bundle_for_existing_output`) now derives codex diagnostic statuses from source run artifacts when per-run `need_to_know_summary.json` is absent, and persists those derived diagnostics under `_upload_bundle_derived/runs/<run_id>/...` in bundle payload rows.
 - For standalone single-run `labelstudio-benchmark` codex roots, upload-bundle call rows can still be unavailable, but `analysis.call_inventory_runtime.summary` now backfills pass-level runtime/token totals from `prediction-run/manifest.json` telemetry (`llm_codex_farm.process_runs.*.telemetry_report.summary`) and reports `runtime_source=prediction_run_manifest_telemetry`.
 - `analysis.call_inventory_runtime.summary` now includes explicit `pass1_token_share`, `pass2_token_share`, and `pass3_token_share` fields for direct pass-share checks in first-pass triage.
@@ -2170,3 +2177,36 @@ Current benchmark contracts reinforced:
 
 Anti-loop reminder:
 - If benchmark retry behavior looks wrong, compare the runner helper contract and the benchmark-root `run_manifest.json` link trail before changing scheduler code or adding new retry flags.
+
+## 2026-03-14 merged docs/tasks digest (benchmark adapter and single-offline metadata boundaries)
+
+Current benchmark contract reinforced:
+- `build_benchmark_call_kwargs_from_run_settings(...)` must stay aligned with the actual `labelstudio_benchmark(...)` signature. If the benchmark primitive drops a kwarg, the adapter should drop it too.
+- Stage-only tag pipeline settings such as `llm_tags_pipeline`, `tag_catalog_json`, and `codex_farm_pipeline_pass5_tags` are not benchmark kwargs. They still matter for stage/import runtime and persistence payloads, but they should not leak into benchmark prediction-generation calls.
+- Keep the signature-parity regression test on the real benchmark command boundary. That catches stale adapter kwargs earlier than waiting for an `unexpected keyword argument` failure from a real benchmark run.
+- Interactive single-offline variant planning must rebuild variants from real `RunSettings` fields, not from raw `to_run_config_dict()` payloads. Persistence metadata such as `bucket1_fixed_behavior_version` belongs in artifacts, but paired benchmark variant planning must project back to the full live field contract before calling `RunSettings.from_dict(...)`.
+
+## 2026-03-14 merged understandings digest (agent guardrails and paired-variant boundaries)
+
+Merged source notes (timestamp order):
+- `docs/understandings/2026-03-14_08.19.45-benchmark-adapter-tags-surface-boundary.md`
+- `docs/understandings/2026-03-14_14.34.30-agent-benchmark-codex-guardrail.md`
+- `docs/understandings/2026-03-14_14.43.05-single-offline-variant-metadata-boundary.md`
+- `docs/understandings/2026-03-14_16.19.56-interactive-benchmark-guardrail-boundary.md`
+
+Current benchmark contracts reinforced:
+- The benchmark adapter is intentionally narrower than `RunSettings`:
+  - benchmark helpers should forward only the live `labelstudio_benchmark(...)` surface,
+  - stage-only tag settings stay out of benchmark kwargs,
+  - signature-parity tests at the real command boundary are the preferred guardrail.
+- Live Codex benchmark execution now has a two-layer approval boundary:
+  - `labelstudio-benchmark` requires both `--allow-codex` and `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`,
+  - non-interactive agent-run environments are hard-blocked from that live path,
+  - interactive menu launches marked `_INTERACTIVE_CLI_ACTIVE` are treated as human-confirmed,
+  - `bench speed-run --include-codex-farm` remains hard-blocked in agent-run environments.
+- Interactive single-offline paired planning must round-trip through the full live `RunSettings` contract, not raw persisted payloads.
+  - persistence metadata such as `bucket1_fixed_behavior_version` belongs in artifacts only,
+  - non-default recipe pipelines such as `codex-farm-2stage-repair-v1` must survive paired planning unchanged.
+
+Anti-loop reminder:
+- If a benchmark helper fails at startup, inspect adapter/signature parity first. If a paired single-offline run fails before execution, inspect the projection boundary before relaxing `RunSettings` validation.

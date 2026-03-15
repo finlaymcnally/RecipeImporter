@@ -225,7 +225,7 @@ def _build_run_settings(
     )
 
 
-def test_orchestrator_writes_compact_pass2_payload_and_reduces_bundle_size(
+def test_orchestrator_uses_compact_pass2_payload_as_fixed_behavior(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -300,16 +300,17 @@ def test_orchestrator_writes_compact_pass2_payload_and_reduces_bundle_size(
         compact_input_path.read_text(encoding="utf-8")
     )
 
-    assert "canonical_text" in legacy_payload
-    assert "normalized_evidence_text" in legacy_payload
-    assert "evidence_rows" not in legacy_payload
+    assert "evidence_rows" in legacy_payload
+    assert "canonical_text" not in legacy_payload
+    assert "normalized_evidence_text" not in legacy_payload
     assert "evidence_rows" in compact_payload
     assert "canonical_text" not in compact_payload
     assert "normalized_evidence_text" not in compact_payload
+    assert legacy_payload["evidence_rows"][0] == [1, "TOAST"]
     assert compact_payload["evidence_rows"][0] == [1, "TOAST"]
     legacy_bytes = len(json.dumps(legacy_payload, sort_keys=True).encode("utf-8"))
     compact_bytes = len(json.dumps(compact_payload, sort_keys=True).encode("utf-8"))
-    assert compact_bytes < legacy_bytes * 0.65
+    assert compact_bytes == legacy_bytes
 
 
 def test_orchestrator_runs_merged_repair_pipeline_and_writes_audit(
@@ -333,22 +334,20 @@ def test_orchestrator_runs_merged_repair_pipeline_and_writes_audit(
             MERGED_REPAIR_STAGE_PIPELINE_ID: lambda payload: {
                 "bundle_version": "1",
                 "recipe_id": payload.get("recipe_id"),
-                "canonical_recipe": json.dumps(
-                    {
-                        "title": "Toast",
-                        "ingredients": [
-                            "1 slice bread",
-                            "1 tablespoon butter",
-                        ],
-                        "steps": [
-                            "Toast the bread until golden.",
-                            "Spread with butter and serve hot.",
-                        ],
-                        "description": "A quick toast recipe.",
-                    },
-                    sort_keys=True,
-                ),
-                "ingredient_step_mapping": "{}",
+                "canonical_recipe": {
+                    "title": "Toast",
+                    "ingredients": [
+                        "1 slice bread",
+                        "1 tablespoon butter",
+                    ],
+                    "steps": [
+                        "Toast the bread until golden.",
+                        "Spread with butter and serve hot.",
+                    ],
+                    "description": "A quick toast recipe.",
+                    "recipeYield": None,
+                },
+                "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": "unclear_alignment",
                 "warnings": [],
             },
@@ -383,6 +382,12 @@ def test_orchestrator_runs_merged_repair_pipeline_and_writes_audit(
     audit_payload = json.loads(audit_path.read_text(encoding="utf-8"))
     assert audit_payload["schema_version"] == "recipe_codex_merged_repair_audit.v1"
     assert audit_payload["canonical_output_summary"]["step_count"] == 2
+
+    raw_output_path = next((apply_result.llm_raw_dir / "pass2_schemaorg" / "out").glob("*.json"))
+    raw_output_payload = json.loads(raw_output_path.read_text(encoding="utf-8"))
+    assert isinstance(raw_output_payload["canonical_recipe"], dict)
+    assert raw_output_payload["canonical_recipe"]["title"] == "Toast"
+    assert raw_output_payload["ingredient_step_mapping"] == []
 
 
 def test_execution_plan_for_merged_repair_pipeline_has_two_passes(
@@ -470,7 +475,7 @@ def test_orchestrator_writes_compact_pass3_payload_and_drops_duplicate_schema_li
     assert compact_bytes < legacy_bytes * 0.85
 
 
-def test_orchestrator_runs_pass3_for_low_risk_pass2_ok_when_policy_disabled_in_run_settings(
+def test_orchestrator_pass3_skip_for_low_risk_pass2_ok_is_fixed_behavior(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -532,19 +537,21 @@ def test_orchestrator_runs_pass3_for_low_risk_pass2_ok_when_policy_disabled_in_r
         runner=runner,
     )
 
-    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID, PASS3_PIPELINE_ID]
+    assert runner.calls == [PASS1_PIPELINE_ID, PASS2_PIPELINE_ID]
     recipe_id = result.recipes[0].identifier
     assert recipe_id is not None
     manifest = json.loads((apply_result.llm_raw_dir / "llm_manifest.json").read_text(encoding="utf-8"))
     recipe_row = manifest["recipes"][recipe_id]
-    assert recipe_row["pass3_execution_mode"] == "llm"
-    assert recipe_row["pass3_routing_reason"] == "pass2_ok"
+    assert recipe_row["pass3"] == "ok"
+    assert recipe_row["pass3_execution_mode"] == "deterministic"
+    assert recipe_row["pass3_routing_reason"] == "pass2_ok_high_confidence_deterministic"
+    assert recipe_row["pass2_promotion_policy"] == "pass2_ok_deterministic_promotion"
     assert recipe_row["pass3_utility_signal"]["deterministic_low_risk"] is True
-    assert manifest["counts"]["pass3_inputs"] == 1
+    assert manifest["counts"]["pass3_inputs"] == 0
     assert manifest["counts"]["pass3_pass2_ok_skip_candidates"] == 1
-    assert manifest["counts"]["pass3_pass2_ok_deterministic_skips"] == 0
-    assert manifest["counts"]["pass3_pass2_ok_llm_calls"] == 1
-    assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is False
+    assert manifest["counts"]["pass3_pass2_ok_deterministic_skips"] == 1
+    assert manifest["counts"]["pass3_pass2_ok_llm_calls"] == 0
+    assert manifest["pass3_policy"]["pass2_ok_deterministic_skip_enabled"] is True
 
 
 def test_orchestrator_skips_pass3_for_low_risk_pass2_ok_when_policy_enabled_in_run_settings(
@@ -1792,7 +1799,7 @@ def test_orchestrator_recovers_malformed_pass2_field_evidence_without_recipe_err
     )
 
 
-def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
+def test_orchestrator_uses_fixed_pipeline_ids_and_forwards_workspace_root(
     tmp_path: Path,
 ) -> None:
     class _RecordingRunner:
@@ -1825,7 +1832,7 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
             out_dir.mkdir(parents=True, exist_ok=True)
             for in_path in sorted(in_dir.glob("*.json")):
                 payload = json.loads(in_path.read_text(encoding="utf-8"))
-                if pipeline_id == "custom.pass1":
+                if pipeline_id == PASS1_PIPELINE_ID:
                     output = {
                         "bundle_version": "1",
                         "recipe_id": payload.get("recipe_id"),
@@ -1836,7 +1843,7 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
                         "reasoning_tags": ["recording-runner"],
                         "excluded_block_ids": [],
                     }
-                elif pipeline_id == "custom.pass2":
+                elif pipeline_id == PASS2_PIPELINE_ID:
                     output = {
                         "bundle_version": "1",
                         "recipe_id": payload.get("recipe_id"),
@@ -1850,7 +1857,7 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
                 "field_evidence": {},
                 "warnings": [],
             }
-                elif pipeline_id == "custom.pass3":
+                elif pipeline_id == PASS3_PIPELINE_ID:
                     output = {
                         "bundle_version": "1",
                         "recipe_id": payload.get("recipe_id"),
@@ -1905,9 +1912,9 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
     )
 
     assert [call["pipeline_id"] for call in runner.calls] == [
-        "custom.pass1",
-        "custom.pass2",
-        "custom.pass3",
+        PASS1_PIPELINE_ID,
+        PASS2_PIPELINE_ID,
+        PASS3_PIPELINE_ID,
     ]
     for call in runner.calls:
         assert call["root_dir"] == pack_root
@@ -1920,14 +1927,14 @@ def test_orchestrator_uses_configured_pipeline_ids_and_workspace_root(
     manifest_path = apply_result.llm_raw_dir / "llm_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["pipelines"] == {
-        "pass1": "custom.pass1",
-        "pass2": "custom.pass2",
-        "pass3": "custom.pass3",
+        "pass1": PASS1_PIPELINE_ID,
+        "pass2": PASS2_PIPELINE_ID,
+        "pass3": PASS3_PIPELINE_ID,
     }
     assert apply_result.llm_report["pipelines"] == manifest["pipelines"]
 
 
-def test_pass1_pattern_hints_follow_run_settings(tmp_path: Path) -> None:
+def test_pass1_pattern_hints_remain_fixed_off(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     settings_off = _build_run_settings(tmp_path / "pack-off")
@@ -1987,11 +1994,8 @@ def test_pass1_pattern_hints_follow_run_settings(tmp_path: Path) -> None:
             encoding="utf-8"
         )
     )
-    hint_types = {hint["hint_type"] for hint in pass1_payload_on["pattern_hints"]}
-    assert "toc_like_cluster" in hint_types
-    assert "duplicate_title_intro" in hint_types
-    assert "trim_candidate_start" in hint_types
-    assert apply_on.llm_report["pass1_pattern_hints_enabled"] is True
+    assert pass1_payload_on["pattern_hints"] == []
+    assert apply_on.llm_report["pass1_pattern_hints_enabled"] is False
 
 
 def test_orchestrator_recipe_level_failures_fallback_without_crashing(tmp_path: Path) -> None:
@@ -2283,7 +2287,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass2_bundle_in_benchmark
     retry_payload = manifest["selective_retries"]["pass2"]
     assert retry_payload["settings"]["codex_farm_recipe_mode"] == "benchmark"
     assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_enabled"] is True
-    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_max_attempts"] == 2
+    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_max_attempts"] == 1
     assert retry_payload["original_missing_bundle_count"] == 1
     assert retry_payload["recovered_bundle_count"] == 1
     assert retry_payload["unrecovered_bundle_count"] == 0
@@ -3061,7 +3065,7 @@ def test_orchestrator_selective_retry_recovers_missing_pass3_bundle_in_benchmark
     retry_payload = manifest["selective_retries"]["pass3"]
     assert retry_payload["settings"]["codex_farm_recipe_mode"] == "benchmark"
     assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_enabled"] is True
-    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_max_attempts"] == 2
+    assert retry_payload["settings"]["codex_farm_benchmark_selective_retry_max_attempts"] == 1
     assert retry_payload["original_missing_bundle_count"] == 1
     assert retry_payload["recovered_bundle_count"] == 1
     assert retry_payload["unrecovered_bundle_count"] == 0

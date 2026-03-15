@@ -6829,3 +6829,69 @@ Preserved review context:
 
 Anti-loop note:
 - If someone claims “selective retry already shipped, so review drift can be ignored,” point them at this sequence first; the March 13 fixes came directly from that review.
+
+### 2026-03-14_08.18.17 benchmark adapter stale tags kwargs
+
+Source:
+- `docs/understandings/2026-03-14_08.19.45-benchmark-adapter-tags-surface-boundary.md`
+
+Problem captured:
+- `build_benchmark_call_kwargs_from_run_settings(...)` was still forwarding stage-only tag-pipeline kwargs after `labelstudio_benchmark(...)` narrowed its signature, so benchmark helpers could fail immediately with `unexpected keyword argument`.
+
+Durable decisions:
+- Keep the benchmark adapter aligned to the narrower benchmark command boundary.
+- Do not forward stage-only tag settings such as `llm_tags_pipeline`, `tag_catalog_json`, or `codex_farm_pipeline_pass5_tags` through benchmark prediction-generation helpers.
+- Keep the regression proof at the contract boundary: a signature-alignment test against the real `labelstudio_benchmark(...)` callable is better than relying on ad hoc runtime failures.
+
+Anti-loop note:
+- If a benchmark helper starts failing with `unexpected keyword argument`, diff adapter output against the live benchmark command signature before changing runtime logic or re-widening helper signatures.
+
+### 2026-03-14_14.34.30 agent benchmark Codex guardrail
+
+Source:
+- `docs/understandings/2026-03-14_14.34.30-agent-benchmark-codex-guardrail.md`
+
+Problem captured:
+- The old benchmark approval boundary required only `--allow-codex`, which prevented accidental live Codex use but still allowed a coding agent to self-approve by adding that flag.
+
+Durable decisions:
+- Live `labelstudio-benchmark` Codex runs now require both:
+  - `--allow-codex`
+  - `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
+- Agent-run environments are hard-blocked from live benchmark Codex execution and must use `--codex-execution-policy plan` or defer to a human-run shell.
+- The same hard block also covers `bench speed-run --include-codex-farm`, which can indirectly trigger live benchmark-like Codex work.
+
+Anti-loop note:
+- Do not treat confirmation tokens as sufficient protection inside agent sessions. The hard environment block is the durable guardrail.
+
+### 2026-03-14_14.43.05 single-offline variant metadata boundary
+
+Source:
+- `docs/understandings/2026-03-14_14.43.05-single-offline-variant-metadata-boundary.md`
+
+Problem captured:
+- Interactive single-offline benchmark pairing could crash before execution because variant planning round-tripped through `RunSettings.to_run_config_dict()` and then fed persistence-only metadata such as `bucket1_fixed_behavior_version` back into `RunSettings.from_dict(...)`.
+
+Durable decisions:
+- Keep `bucket1_fixed_behavior_version` as persistence metadata only; do not make it a live `RunSettings` field just to satisfy benchmark variant planning.
+- Fix the call site instead: paired single-offline variant planning must project the raw run-config payload back to the full live `RunSettings` contract before rebuilding vanilla/codex variants.
+- Non-default recipe pipelines such as `codex-farm-2stage-repair-v1` should survive that projection step unchanged.
+
+Anti-loop note:
+- If interactive single-offline codex planning crashes on an “unknown key” that looks like manifest metadata, inspect `_interactive_single_offline_variants` and its projection boundary before relaxing `RunSettings` validation.
+
+### 2026-03-14_16.19.56 interactive benchmark guardrail boundary
+
+Source:
+- `docs/understandings/2026-03-14_16.19.56-interactive-benchmark-guardrail-boundary.md`
+
+Problem captured:
+- The strict agent-environment benchmark block was too coarse because the interactive CLI menu and an agent-run shell share the same process environment. A real human using the menu could therefore look identical to an autonomous non-interactive agent launch.
+
+Durable decisions:
+- Non-interactive `labelstudio-benchmark` with live Codex-backed surfaces stays blocked in agent environments.
+- Interactive menu flows marked with `_INTERACTIVE_CLI_ACTIVE` bypass that specific block and are treated as human-confirmed launches.
+- The earlier confirmation-token rule still stands; this refinement narrows only the interactivity boundary, not the approval requirement itself.
+
+Anti-loop note:
+- If an interactive benchmark launch is being blocked in an agent-run shell, inspect the interactivity marker boundary before weakening the non-interactive guardrail.

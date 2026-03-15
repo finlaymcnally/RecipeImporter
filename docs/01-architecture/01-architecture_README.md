@@ -463,3 +463,20 @@ Architecture-level contracts reinforced:
   - let step1 define reason codes and invariant names first or keep it tightly coordinated,
   - step2 and step3 can run in parallel once those names settle,
   - step4 overlaps the most with shared orchestrator/contract surfaces and is the highest-conflict lane.
+
+## 2026-03-14 merged understandings digest (docs task-folder mapping refinement)
+
+Merged source note:
+- `docs/understandings/2026-03-14_14.43.37-docs-task-folder-mapping.md`
+
+Architecture-level docs hygiene contract:
+- When consolidating `docs/tasks/*` or later understanding notes, pick one dominant maintenance owner instead of duplicating the same history into every touched subsystem.
+- The March 14 refinement for active cross-cutting work is:
+  - run-settings / winner / live-schema cleanup -> `docs/02-cli/`
+  - EPUB table structure recovery -> `docs/04-parsing/`
+  - benchmark runtime contracts and single-offline variant behavior -> `docs/07-bench/`
+  - benchmark-helper layout and regression-coverage placement -> `docs/12-testing/`
+- If a task was already mostly absorbed through a section’s merged-understanding digest, finish that merge in the same section instead of creating a second “also sort of owns this” history thread elsewhere.
+
+Anti-loop note:
+- Choose the folder that owns the durable maintenance contract, not every module the patch touched.

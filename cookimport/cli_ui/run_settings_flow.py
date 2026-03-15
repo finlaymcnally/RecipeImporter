@@ -34,6 +34,14 @@ _INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
     "codex-farm-3pass-v1": "CodexFarm current 3-pass control",
     "codex-farm-2stage-repair-v1": "CodexFarm merged 2-stage prototype",
 }
+_INTERACTIVE_BLOCK_LABEL_PIPELINE_LABELS: dict[str, str] = {
+    "deterministic-v1": "Deterministic line-role baseline",
+    "codex-line-role-v1": "Codex line-role block labelling",
+}
+_INTERACTIVE_KNOWLEDGE_PIPELINE_LABELS: dict[str, str] = {
+    "off": "Off",
+    "codex-farm-knowledge-v1": "CodexFarm pass4 knowledge harvest",
+}
 _CODEX_REASONING_EFFORT_ORDER = (
     "none",
     "minimal",
@@ -139,6 +147,20 @@ def _normalize_interactive_recipe_pipeline(value: Any) -> str | None:
     return None
 
 
+def _normalize_interactive_block_label_pipeline(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in _INTERACTIVE_BLOCK_LABEL_PIPELINE_LABELS:
+        return raw
+    return None
+
+
+def _normalize_interactive_knowledge_pipeline(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if raw in _INTERACTIVE_KNOWLEDGE_PIPELINE_LABELS:
+        return raw
+    return None
+
+
 def _choose_interactive_recipe_pipeline(
     *,
     menu_select: MenuSelect,
@@ -205,6 +227,114 @@ def _choose_interactive_recipe_pipeline(
     if selection in {None, back_action}:
         return None
     return _normalize_interactive_recipe_pipeline(selection)
+
+
+def _patch_interactive_settings(
+    selected_settings: RunSettings,
+    *,
+    warn_context: str,
+    **updates: Any,
+) -> RunSettings:
+    patched_payload = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
+    patched_payload.update(updates)
+    return RunSettings.from_dict(
+        patched_payload,
+        warn_context=warn_context,
+    )
+
+
+def _choose_interactive_benchmark_llm_surfaces(
+    *,
+    selected_settings: RunSettings,
+    menu_select: MenuSelect,
+    back_action: Any,
+) -> RunSettings | None:
+    line_role_default = _normalize_interactive_block_label_pipeline(
+        selected_settings.line_role_pipeline.value
+    ) or "deterministic-v1"
+    line_role_choice = menu_select(
+        "Block labelling for this run:",
+        menu_help=(
+            "Use deterministic line-role for the non-Codex baseline, or enable Codex "
+            "line-role to benchmark the block-labelling LLM pass separately."
+        ),
+        default=line_role_default,
+        choices=[
+            questionary.Choice(
+                (
+                    f"{_INTERACTIVE_BLOCK_LABEL_PIPELINE_LABELS['deterministic-v1']} "
+                    "(`deterministic-v1`)"
+                ),
+                value="deterministic-v1",
+            ),
+            questionary.Choice(
+                (
+                    f"{_INTERACTIVE_BLOCK_LABEL_PIPELINE_LABELS['codex-line-role-v1']} "
+                    "(`codex-line-role-v1`)"
+                ),
+                value="codex-line-role-v1",
+            ),
+        ],
+    )
+    if line_role_choice in {None, back_action}:
+        return None
+    normalized_line_role = _normalize_interactive_block_label_pipeline(line_role_choice)
+    if normalized_line_role is None:
+        return None
+    selected_settings = _patch_interactive_settings(
+        selected_settings,
+        warn_context="interactive benchmark llm surface overrides",
+        line_role_pipeline=normalized_line_role,
+        atomic_block_splitter="atomic-v1",
+    )
+
+    knowledge_default = _normalize_interactive_knowledge_pipeline(
+        selected_settings.llm_knowledge_pipeline.value
+    ) or "off"
+    knowledge_choice = menu_select(
+        "Knowledge harvest for this run:",
+        menu_help=(
+            "Turn pass4 knowledge harvest on only when you want Codex to classify "
+            "non-recipe knowledge blocks for this benchmark run."
+        ),
+        default=knowledge_default,
+        choices=[
+            questionary.Choice(
+                f"{_INTERACTIVE_KNOWLEDGE_PIPELINE_LABELS['off']} (`off`)",
+                value="off",
+            ),
+            questionary.Choice(
+                (
+                    f"{_INTERACTIVE_KNOWLEDGE_PIPELINE_LABELS['codex-farm-knowledge-v1']} "
+                    "(`codex-farm-knowledge-v1`)"
+                ),
+                value="codex-farm-knowledge-v1",
+            ),
+        ],
+    )
+    if knowledge_choice in {None, back_action}:
+        return None
+    normalized_knowledge = _normalize_interactive_knowledge_pipeline(knowledge_choice)
+    if normalized_knowledge is None:
+        return None
+    return _patch_interactive_settings(
+        selected_settings,
+        warn_context="interactive benchmark llm surface overrides",
+        llm_knowledge_pipeline=normalized_knowledge,
+    )
+
+
+def _selected_settings_enable_any_codex(selected_settings: RunSettings) -> bool:
+    return any(
+        (
+            selected_settings.llm_recipe_pipeline.value != "off",
+            selected_settings.line_role_pipeline.value == "codex-line-role-v1",
+            selected_settings.llm_knowledge_pipeline.value != "off",
+        )
+    )
 
 
 def _normalize_codex_reasoning_effort_value(value: Any) -> str | None:
@@ -381,6 +511,7 @@ def choose_run_settings(
     prompt_text: PromptText | None = None,
     prompt_codex_ai_settings: bool = False,
     prompt_recipe_pipeline_menu: bool = False,
+    prompt_benchmark_llm_surface_toggles: bool = False,
 ) -> RunSettings | None:
     """Resolve one interactive top-tier run profile family."""
 
@@ -419,17 +550,20 @@ def choose_run_settings(
         warn_context="interactive top-tier pipeline harmonization",
     )
     if selected_recipe_pipeline != selected_settings.llm_recipe_pipeline.value:
-        selected_settings = RunSettings.from_dict(
-            {
-                **project_run_config_payload(
-                    selected_settings.to_run_config_dict(),
-                    contract=RUN_SETTING_CONTRACT_FULL,
-                ),
-                "llm_recipe_pipeline": selected_recipe_pipeline,
-            },
+        selected_settings = _patch_interactive_settings(
+            selected_settings,
             warn_context="interactive recipe pipeline selection override",
+            llm_recipe_pipeline=selected_recipe_pipeline,
         )
-    if selected_recipe_pipeline != "off" and prompt_codex_ai_settings:
+    if prompt_benchmark_llm_surface_toggles:
+        selected_settings = _choose_interactive_benchmark_llm_surfaces(
+            selected_settings=selected_settings,
+            menu_select=menu_select,
+            back_action=back_action,
+        )
+        if selected_settings is None:
+            return None
+    if _selected_settings_enable_any_codex(selected_settings) and prompt_codex_ai_settings:
         selected_settings = _choose_codex_ai_settings(
             selected_settings=selected_settings,
             menu_select=menu_select,

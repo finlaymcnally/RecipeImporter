@@ -8,6 +8,7 @@
     "recipe_id",
     "canonical_recipe",
     "ingredient_step_mapping",
+    "ingredient_step_mapping_reason",
     "warnings"
   ],
   "properties": {
@@ -20,14 +21,70 @@
       "minLength": 1
     },
     "canonical_recipe": {
-      "type": "string",
-      "description": "JSON-stringified canonical recipe object with title, ingredients, and steps.",
-      "minLength": 2
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "ingredients",
+        "steps",
+        "description",
+        "recipeYield"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipeYield": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "ingredient_step_mapping": {
-      "type": "string",
-      "description": "JSON-stringified mapping from ingredient lines to step ids.",
-      "minLength": 2
+      "type": "array",
+      "description": "Ordered mapping entries from ingredient line indexes to step indexes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ingredient_index",
+          "step_indexes"
+        ],
+        "properties": {
+          "ingredient_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "step_indexes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
     },
     "ingredient_step_mapping_reason": {
       "type": [

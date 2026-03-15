@@ -2951,7 +2951,10 @@ def _interactive_single_profile_all_matched_benchmark(
 def _interactive_single_offline_variants(
     selected_benchmark_settings: RunSettings,
 ) -> list[tuple[str, RunSettings]]:
-    run_config = selected_benchmark_settings.to_run_config_dict()
+    run_config = project_run_config_payload(
+        selected_benchmark_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
     current_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
     if current_pipeline != "off":
         baseline_payload = _all_method_apply_baseline_contract(run_config)
@@ -7706,6 +7709,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 prompt_text=_prompt_text,
                 prompt_codex_ai_settings=True,
                 prompt_recipe_pipeline_menu=True,
+                prompt_benchmark_llm_surface_toggles=True,
             )
             if selected_benchmark_settings is None:
                 typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -8975,6 +8979,8 @@ def _enforce_live_labelstudio_benchmark_codex_guardrails(
     benchmark_codex_confirmation: str | None,
 ) -> None:
     if codex_execution_policy != "execute" or not any_codex_enabled:
+        return
+    if _INTERACTIVE_CLI_ACTIVE.get():
         return
     if _is_agent_execution_environment():
         _fail(
@@ -11765,6 +11771,176 @@ def _copy_line_role_pass4_merge_artifacts_for_benchmark(
 
 _PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
 
+_PROMPT_STAGE_SLOT_METADATA: dict[str, dict[str, Any]] = {
+    "pass1": {
+        "slot_index": 1,
+        "default_label": "Chunking",
+        "default_artifact_stem": "pass1_chunking",
+        "expected_stage_key": "chunking",
+    },
+    "pass2": {
+        "slot_index": 2,
+        "default_label": "Schema.org Extraction",
+        "default_artifact_stem": "pass2_schemaorg",
+        "expected_stage_key": "schemaorg",
+    },
+    "pass3": {
+        "slot_index": 3,
+        "default_label": "Final Draft",
+        "default_artifact_stem": "pass3_final",
+        "expected_stage_key": "final",
+    },
+    "pass4": {
+        "slot_index": 4,
+        "default_label": "Knowledge Harvest",
+        "default_artifact_stem": "pass4_knowledge",
+        "expected_stage_key": "knowledge",
+    },
+    "pass5": {
+        "slot_index": 5,
+        "default_label": "Tag Suggestions",
+        "default_artifact_stem": "pass5_tags",
+        "expected_stage_key": "tags",
+    },
+}
+
+_PROMPT_STAGE_LABELS_BY_KEY = {
+    "chunking": "Chunking",
+    "schemaorg": "Schema.org Extraction",
+    "final": "Final Draft",
+    "knowledge": "Knowledge Harvest",
+    "tags": "Tag Suggestions",
+    "merged_repair": "Merged Repair",
+}
+
+
+def _clean_prompt_stage_text(value: Any) -> str | None:
+    cleaned = str(value or "").strip()
+    return cleaned or None
+
+
+def _derive_prompt_stage_key_from_pipeline_id(pipeline_id: str | None) -> str | None:
+    normalized = _clean_prompt_stage_text(pipeline_id)
+    if normalized is None:
+        return None
+    filtered_tokens: list[str] = []
+    for token in re.split(r"[^a-z0-9]+", normalized.lower()):
+        if not token:
+            continue
+        if token in {"recipe", "compact", "pipeline", "codex", "farm"}:
+            continue
+        if re.fullmatch(r"v\d+", token):
+            continue
+        filtered_tokens.append(token)
+    if not filtered_tokens:
+        return None
+    return slugify_name("_".join(filtered_tokens))
+
+
+def _fallback_prompt_stage_key(*, pass_name: str, path_root: str | None) -> str:
+    root_slug = slugify_name(str(path_root or "").strip()) if path_root else ""
+    if root_slug.startswith(f"{pass_name}_"):
+        trimmed = root_slug[len(pass_name) + 1 :].strip("_")
+        if trimmed:
+            return trimmed
+    return root_slug or pass_name or "stage"
+
+
+def _prompt_stage_label_from_key(stage_key: str) -> str:
+    normalized = slugify_name(stage_key)
+    mapped = _PROMPT_STAGE_LABELS_BY_KEY.get(normalized)
+    if mapped is not None:
+        return mapped
+    return normalized.replace("_", " ").strip().title() or "Prompt Stage"
+
+
+def _build_prompt_stage_metadata(
+    *,
+    pass_name: str,
+    path_root: str | None,
+    pipeline_id: str | None,
+) -> dict[str, Any]:
+    slot_metadata = _PROMPT_STAGE_SLOT_METADATA.get(pass_name, {})
+    slot_index = int(slot_metadata.get("slot_index") or 999)
+    expected_stage_key = _clean_prompt_stage_text(
+        slot_metadata.get("expected_stage_key")
+    )
+    default_label = _clean_prompt_stage_text(slot_metadata.get("default_label"))
+    default_artifact_stem = _clean_prompt_stage_text(
+        slot_metadata.get("default_artifact_stem")
+    )
+    path_slug = slugify_name(str(path_root or "").strip()) if path_root else ""
+    stage_key = _derive_prompt_stage_key_from_pipeline_id(pipeline_id) or _fallback_prompt_stage_key(
+        pass_name=pass_name,
+        path_root=path_root,
+    )
+    matches_legacy = bool(
+        expected_stage_key
+        and stage_key == expected_stage_key
+        and path_slug
+        and expected_stage_key in path_slug
+    )
+    heading_key = pass_name if matches_legacy else stage_key
+    artifact_stem = (
+        path_slug
+        if matches_legacy and path_slug
+        else slugify_name(stage_key or default_artifact_stem or pass_name)
+    )
+    label = (
+        default_label
+        if matches_legacy and default_label is not None
+        else _prompt_stage_label_from_key(stage_key)
+    )
+    return {
+        "pass_name": pass_name,
+        "slot_index": slot_index,
+        "pipeline_id": _clean_prompt_stage_text(pipeline_id),
+        "path_root": _clean_prompt_stage_text(path_root),
+        "stage_key": stage_key,
+        "heading_key": heading_key,
+        "label": label,
+        "artifact_stem": artifact_stem or f"stage_{slot_index}",
+        "matches_legacy": matches_legacy,
+    }
+
+
+def _prompt_stage_metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    pass_name = (
+        _clean_prompt_stage_text(row.get("legacy_pass"))
+        or _clean_prompt_stage_text(row.get("pass"))
+        or "stage"
+    )
+    metadata = _build_prompt_stage_metadata(
+        pass_name=pass_name,
+        path_root=(
+            _clean_prompt_stage_text(row.get("stage_dir_name"))
+            or _clean_prompt_stage_text(row.get("stage_dir"))
+            or _clean_prompt_stage_text(row.get("path_root"))
+        ),
+        pipeline_id=_clean_prompt_stage_text(row.get("pipeline_id")),
+    )
+    stage_key = _clean_prompt_stage_text(row.get("stage_key"))
+    if stage_key is not None:
+        metadata["stage_key"] = slugify_name(stage_key)
+    heading_key = _clean_prompt_stage_text(row.get("stage_heading_key"))
+    if heading_key is not None:
+        metadata["heading_key"] = slugify_name(heading_key)
+    label = _clean_prompt_stage_text(row.get("stage_label"))
+    if label is not None:
+        metadata["label"] = label
+    artifact_stem = _clean_prompt_stage_text(row.get("stage_artifact_stem"))
+    if artifact_stem is not None:
+        metadata["artifact_stem"] = slugify_name(artifact_stem)
+    if "stage_matches_legacy" in row:
+        metadata["matches_legacy"] = bool(row.get("stage_matches_legacy"))
+    try:
+        stage_slot_index = int(row.get("stage_slot_index"))
+    except (TypeError, ValueError):
+        stage_slot_index = None
+    if stage_slot_index is not None:
+        metadata["slot_index"] = stage_slot_index
+    return metadata
+
 
 def _build_codex_farm_prompt_type_samples_markdown(
     *,
@@ -11777,17 +11953,9 @@ def _build_codex_farm_prompt_type_samples_markdown(
     if not full_prompt_log_path.exists() or not full_prompt_log_path.is_file():
         return None
 
-    pass_order = ("pass1", "pass2", "pass3", "pass4", "pass5")
-    pass_labels = {
-        "pass1": "Chunking",
-        "pass2": "Schema.org Extraction",
-        "pass3": "Final Draft",
-        "pass4": "Knowledge Harvest",
-        "pass5": "Tag Suggestions",
-    }
-    samples_by_pass: dict[str, list[dict[str, Any]]] = {
-        pass_name: [] for pass_name in pass_order
-    }
+    samples_by_stage: dict[str, list[dict[str, Any]]] = {}
+    stage_metadata_by_key: dict[str, dict[str, Any]] = {}
+    stage_first_seen: dict[str, int] = {}
 
     def _extract_reasoning_excerpt(
         reasoning_events: list[dict[str, Any]],
@@ -11829,11 +11997,6 @@ def _build_codex_farm_prompt_type_samples_markdown(
     try:
         with full_prompt_log_path.open("r", encoding="utf-8") as handle:
             for raw_line in handle:
-                if all(
-                    len(samples_by_pass[pass_name]) >= examples_per_pass
-                    for pass_name in pass_order
-                ):
-                    break
                 line = raw_line.strip()
                 if not line:
                     continue
@@ -11843,10 +12006,15 @@ def _build_codex_farm_prompt_type_samples_markdown(
                     continue
                 if not isinstance(row, dict):
                     continue
-                pass_name = str(row.get("pass") or "").strip()
-                if pass_name not in samples_by_pass:
+                stage_metadata = _prompt_stage_metadata_from_row(row)
+                stage_group_key = str(stage_metadata.get("heading_key") or "").strip()
+                if not stage_group_key:
                     continue
-                if len(samples_by_pass[pass_name]) >= examples_per_pass:
+                if stage_group_key not in samples_by_stage:
+                    samples_by_stage[stage_group_key] = []
+                    stage_metadata_by_key[stage_group_key] = dict(stage_metadata)
+                    stage_first_seen[stage_group_key] = len(stage_first_seen)
+                if len(samples_by_stage[stage_group_key]) >= examples_per_pass:
                     continue
 
                 prompt_text: str | None = None
@@ -11891,7 +12059,7 @@ def _build_codex_farm_prompt_type_samples_markdown(
 
                 call_id = str(row.get("call_id") or "").strip() or "<unknown>"
                 recipe_id = str(row.get("recipe_id") or "").strip() or "<unknown>"
-                samples_by_pass[pass_name].append(
+                samples_by_stage[stage_group_key].append(
                     {
                         "call_id": call_id,
                         "recipe_id": recipe_id,
@@ -11905,7 +12073,7 @@ def _build_codex_farm_prompt_type_samples_markdown(
     except OSError:
         return None
 
-    if not any(samples_by_pass.values()):
+    if not any(samples_by_stage.values()):
         return None
 
     generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -11919,22 +12087,68 @@ def _build_codex_farm_prompt_type_samples_markdown(
         "Notes:",
         "- Samples are verbatim from `request_messages[0].content` when available.",
         "- Includes full inline JSON payloads exactly as emitted.",
-        (
-            f"- Up to {examples_per_pass} examples each for "
-            "`pass1`, `pass2`, `pass3`, `pass4`, and `pass5`."
-        ),
+        f"- Up to {examples_per_pass} examples per discovered prompt stage.",
+        "- When a prompt stage diverges from a legacy pass slot, the observed stage label is shown instead of the compatibility pass name.",
         "",
     ]
 
-    for pass_name in pass_order:
-        lines.append(f"## {pass_name} ({pass_labels[pass_name]})")
+    occupied_slot_indices = {
+        int(metadata.get("slot_index") or 999)
+        for metadata in stage_metadata_by_key.values()
+    }
+    render_entries: list[tuple[str, dict[str, Any], list[dict[str, Any]], int]] = []
+    for stage_group_key, metadata in stage_metadata_by_key.items():
+        render_entries.append(
+            (
+                stage_group_key,
+                metadata,
+                samples_by_stage.get(stage_group_key, []),
+                stage_first_seen.get(stage_group_key, 0),
+            )
+        )
+    for pass_name, slot_metadata in _PROMPT_STAGE_SLOT_METADATA.items():
+        slot_index = int(slot_metadata.get("slot_index") or 999)
+        if slot_index in occupied_slot_indices:
+            continue
+        placeholder_metadata = _build_prompt_stage_metadata(
+            pass_name=pass_name,
+            path_root=_clean_prompt_stage_text(slot_metadata.get("default_artifact_stem")),
+            pipeline_id=None,
+        )
+        render_entries.append(
+            (
+                str(placeholder_metadata.get("heading_key") or pass_name),
+                placeholder_metadata,
+                [],
+                999 + slot_index,
+            )
+        )
+    render_entries.sort(
+        key=lambda entry: (
+            int(entry[1].get("slot_index") or 999),
+            entry[3],
+            entry[0],
+        )
+    )
+
+    for stage_group_key, metadata, stage_samples, _ in render_entries:
+        stage_label = str(metadata.get("label") or "Prompt Stage")
+        lines.append(f"## {stage_group_key} ({stage_label})")
         lines.append("")
-        pass_samples = samples_by_pass.get(pass_name, [])
-        if not pass_samples:
+        legacy_pass = _clean_prompt_stage_text(metadata.get("pass_name"))
+        pipeline_id = _clean_prompt_stage_text(metadata.get("pipeline_id"))
+        if not bool(metadata.get("matches_legacy")):
+            if legacy_pass is not None:
+                lines.append(f"- legacy_slot: `{legacy_pass}`")
+            if pipeline_id is not None:
+                lines.append(f"- pipeline_id: `{pipeline_id}`")
+            if legacy_pass is not None or pipeline_id is not None:
+                lines.append("")
+        if not stage_samples:
             lines.append("_No rows captured for this pass._")
             lines.append("")
             continue
-        for index, sample in enumerate(pass_samples, start=1):
+        for index, sample in enumerate(stage_samples, start=1):
             lines.append(f"### Example {index}")
             lines.append(f"call_id: `{sample['call_id']}`")
             lines.append(f"recipe_id: `{sample['recipe_id']}`")
@@ -12550,6 +12764,7 @@ def _build_codex_farm_prompt_response_log(
     lines: list[str] = []
     category_lines: dict[str, list[str]] = {pass_name: [] for pass_name in pass_dir_map}
     category_has_payload: dict[str, bool] = {pass_name: False for pass_name in pass_dir_map}
+    category_stage_metadata: dict[str, dict[str, Any]] = {}
     try:
         for run_dir in sorted(run_dirs, key=lambda value: value.name):
             manifest_payload_by_name: dict[str, dict[str, Any]] = {}
@@ -12673,13 +12888,23 @@ def _build_codex_farm_prompt_response_log(
                     pass_name=pass_name,
                     manifest_payload=manifest_payload,
                 )
+                stage_metadata = _build_prompt_stage_metadata(
+                    pass_name=pass_name,
+                    path_root=path_root,
+                    pipeline_id=pipeline_id,
+                )
+                category_stage_metadata[pass_name] = dict(stage_metadata)
 
                 category = category_lines[pass_name]
                 category.append(
-                    f"=== CATEGORY {task_name} ({pass_name} / {path_root}) | run: {run_dir.name} ==="
+                    "=== CATEGORY "
+                    f"{task_name} ({stage_metadata['heading_key']} / {stage_metadata['label']}) "
+                    f"| legacy_slot: {pass_name} | raw_dir: {path_root} | run: {run_dir.name} ==="
                 )
                 if manifest_path is not None:
                     category.append(f"manifest: {manifest_path}")
+                if pipeline_id is not None:
+                    category.append(f"pipeline_id: {pipeline_id}")
                 category.append("")
 
                 input_files = _files_in_dir(in_dir)
@@ -13052,11 +13277,19 @@ def _build_codex_farm_prompt_response_log(
                     row_payload = {
                         "run_id": benchmark_run_id,
                         "pass": pass_name,
+                        "legacy_pass": pass_name,
                         "call_id": call_stem,
                         "timestamp_utc": timestamp_utc,
                         "recipe_id": recipe_id,
                         "source_file": source_file,
                         "pipeline_id": pipeline_id,
+                        "stage_key": stage_metadata["stage_key"],
+                        "stage_heading_key": stage_metadata["heading_key"],
+                        "stage_label": stage_metadata["label"],
+                        "stage_artifact_stem": stage_metadata["artifact_stem"],
+                        "stage_dir_name": path_root,
+                        "stage_slot_index": stage_metadata["slot_index"],
+                        "stage_matches_legacy": stage_metadata["matches_legacy"],
                         "process_run_id": process_run_id,
                         "model": model_value,
                         "request_payload_source": request_payload_source,
@@ -13119,7 +13352,14 @@ def _build_codex_farm_prompt_response_log(
         if not category_has_payload.get(pass_name):
             continue
         task_name = pass_task_map.get(pass_name, pass_name)
-        category_path = prompts_dir / f"prompt_{task_name}_{path_root}.txt"
+        stage_metadata = category_stage_metadata.get(pass_name) or _build_prompt_stage_metadata(
+            pass_name=pass_name,
+            path_root=path_root,
+            pipeline_id=None,
+        )
+        category_path = prompts_dir / (
+            f"prompt_{task_name}_{stage_metadata['artifact_stem']}.txt"
+        )
         category_path.write_text(
             "\n".join(category_lines[pass_name]) + "\n",
             encoding="utf-8",

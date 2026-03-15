@@ -74,3 +74,38 @@ def test_default_codex_farm_pass_assets_exist_and_link() -> None:
         assert schema_payload["additionalProperties"] is False
         required = set(schema_payload.get("required") or [])
         assert expected["required_keys"].issubset(required)
+
+
+def test_output_schemas_require_all_top_level_properties() -> None:
+    for schema_path in sorted((PACK_ROOT / "schemas").glob("*.json")):
+        schema_payload = _load_json(schema_path)
+        properties = schema_payload.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            continue
+        required = schema_payload.get("required")
+        assert isinstance(required, list), f"{schema_path} is missing required list"
+        missing = sorted(set(properties) - set(required))
+        assert not missing, (
+            f"{schema_path} must list every top-level property in required for "
+            f"Codex structured outputs compatibility; missing: {missing}"
+        )
+
+
+def test_recipe_output_schemas_use_native_nested_objects_for_recipe_payloads() -> None:
+    schemaorg_schema = _load_json(PACK_ROOT / "schemas/recipe.schemaorg.v1.output.schema.json")
+    final_schema = _load_json(PACK_ROOT / "schemas/recipe.final.v1.output.schema.json")
+    merged_schema = _load_json(PACK_ROOT / "schemas/recipe.merged-repair.v1.output.schema.json")
+
+    schemaorg_properties = schemaorg_schema["properties"]
+    assert schemaorg_properties["schemaorg_recipe"]["type"] == "object"
+    assert schemaorg_properties["field_evidence"]["type"] == "object"
+
+    final_properties = final_schema["properties"]
+    assert final_properties["draft_v1"]["type"] == "object"
+    assert final_properties["ingredient_step_mapping"]["type"] == "array"
+    assert final_properties["ingredient_step_mapping"]["items"]["type"] == "object"
+
+    merged_properties = merged_schema["properties"]
+    assert merged_properties["canonical_recipe"]["type"] == "object"
+    assert merged_properties["ingredient_step_mapping"]["type"] == "array"
+    assert merged_properties["ingredient_step_mapping"]["items"]["type"] == "object"

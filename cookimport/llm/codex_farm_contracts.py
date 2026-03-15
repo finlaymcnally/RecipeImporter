@@ -164,6 +164,111 @@ def _coerce_json_object_field(value: Any, field_name: str) -> dict[str, Any]:
     raise ValueError(f"{field_name} must be a JSON object or JSON object string")
 
 
+def _coerce_nonnegative_int(value: Any, field_name: str) -> int:
+    try:
+        rendered = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a non-negative integer") from exc
+    if rendered < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+    return rendered
+
+
+def _coerce_nonnegative_int_list(value: Any, field_name: str) -> list[int]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be an array of non-negative integers")
+    rows: list[int] = []
+    seen: set[int] = set()
+    for item in value:
+        rendered = _coerce_nonnegative_int(item, field_name)
+        if rendered in seen:
+            continue
+        seen.add(rendered)
+        rows.append(rendered)
+    return rows
+
+
+def _normalize_ingredient_step_mapping_payload(
+    value: Any,
+    field_name: str,
+) -> dict[str, list[int]]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        rows: dict[str, list[int]] = {}
+        for raw_key, raw_steps in value.items():
+            ingredient_index = _coerce_nonnegative_int(
+                raw_key,
+                f"{field_name} ingredient index",
+            )
+            rows[str(ingredient_index)] = _coerce_nonnegative_int_list(
+                raw_steps,
+                f"{field_name}[{ingredient_index}]",
+            )
+        return rows
+    if isinstance(value, list):
+        rows: dict[str, list[int]] = {}
+        for index, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"{field_name}[{index}] must be an object with ingredient_index and step_indexes"
+                )
+            ingredient_index = _coerce_nonnegative_int(
+                item.get("ingredient_index"),
+                f"{field_name}[{index}].ingredient_index",
+            )
+            step_indexes = _coerce_nonnegative_int_list(
+                item.get("step_indexes"),
+                f"{field_name}[{index}].step_indexes",
+            )
+            key = str(ingredient_index)
+            existing = rows.get(key, [])
+            seen = set(existing)
+            merged = list(existing)
+            for step_index in step_indexes:
+                if step_index in seen:
+                    continue
+                seen.add(step_index)
+                merged.append(step_index)
+            rows[key] = merged
+        return rows
+    raise ValueError(
+        f"{field_name} must be an object, mapping-entry array, or JSON string of either"
+    )
+
+
+def _coerce_ingredient_step_mapping_field(value: Any, field_name: str) -> dict[str, list[int]]:
+    if isinstance(value, dict | list) or value is None:
+        return _normalize_ingredient_step_mapping_payload(value, field_name)
+    if isinstance(value, str):
+        candidates: list[str] = []
+        raw_text = value.strip()
+        if raw_text:
+            candidates.append(raw_text)
+        normalized_text = _normalize_json_text(raw_text)
+        if normalized_text and normalized_text not in candidates:
+            candidates.append(normalized_text)
+        repaired_text = _repair_json_structure(normalized_text)
+        if repaired_text and repaired_text not in candidates:
+            candidates.append(repaired_text)
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except JSONDecodeError:
+                continue
+            if isinstance(parsed, dict | list):
+                return _normalize_ingredient_step_mapping_payload(parsed, field_name)
+        raise ValueError(
+            f"{field_name} must be an object, mapping-entry array, or JSON string of either"
+        )
+    raise ValueError(
+        f"{field_name} must be an object, mapping-entry array, or JSON string of either"
+    )
+
+
 def _sanitize_text_list_field(value: Any, field_name: str) -> list[str]:
     if value is None:
         return []
@@ -348,7 +453,7 @@ class Pass3FinalDraftOutput(BaseModel):
     @field_validator("ingredient_step_mapping", mode="before")
     @classmethod
     def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
-        return _coerce_json_object_field(value, "ingredient_step_mapping")
+        return _coerce_ingredient_step_mapping_field(value, "ingredient_step_mapping")
 
 
 class MergedCanonicalRecipe(BaseModel):
@@ -420,7 +525,7 @@ class MergedRecipeRepairOutput(BaseModel):
     @field_validator("ingredient_step_mapping", mode="before")
     @classmethod
     def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
-        return _coerce_json_object_field(value, "ingredient_step_mapping")
+        return _coerce_ingredient_step_mapping_field(value, "ingredient_step_mapping")
 
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)

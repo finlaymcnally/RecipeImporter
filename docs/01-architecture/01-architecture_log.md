@@ -386,3 +386,24 @@ Durable findings:
 
 Anti-loop note:
 - If reliability work starts looping, check whether the problem is really architectural scheduling conflict between these four lanes before debating prompt text or small helper behavior.
+
+### 2026-03-14_14.43.37 docs task-folder mapping refinement
+
+Source:
+- `docs/understandings/2026-03-14_14.43.37-docs-task-folder-mapping.md`
+
+Problem captured:
+- March task/understanding cleanup was still vulnerable to “this touched three areas so put it everywhere,” which would recreate duplicate history and make future anti-loop logs harder to trust.
+
+Durable decisions:
+- For the current cross-cutting cluster, pick one dominant owner:
+  - run-settings/winner/live-schema cleanup -> `docs/02-cli/`
+  - EPUB table preservation/recovery -> `docs/04-parsing/`
+  - benchmark runtime contracts and interactive single-offline planning -> `docs/07-bench/`
+  - benchmark-helper layout and regression-test placement -> `docs/12-testing/`
+- Practical merge rule:
+  - if a task is already mostly represented by a related understanding note, finish the merge in that section’s README + `_log` pair,
+  - do not clone the same chronology into multiple folders just because the implementation touched multiple modules.
+
+Anti-loop note:
+- The right home is the folder that owns the durable maintenance contract, not the folder count implied by the git diff.

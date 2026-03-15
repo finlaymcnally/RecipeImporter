@@ -14,9 +14,10 @@ Execution rules:
 
 Construction rules:
 A) `canonical_recipe`:
-- Return one canonical recipe object as a JSON string.
+- Return one canonical recipe object as a nested JSON object, not a quoted JSON string.
 - Required shape: `title`, `ingredients`, `steps`.
 - Optional fields: `description`, `recipeYield`.
+- Always emit `description` and `recipeYield`; use `null` when the source does not support them.
 - `title` should come from source evidence when present; use hints only if the source rows do not make the title clear.
 - `ingredients` must be verbatim ingredient lines grounded in `evidence_rows`.
 - `steps` must be verbatim instruction lines grounded in `evidence_rows`.
@@ -25,8 +26,12 @@ A) `canonical_recipe`:
 
 B) `ingredient_step_mapping`:
 - Populate only when links are clear from the source rows.
-- If links are unclear or unnecessary, return `{}` as a JSON string.
-- When returning `{}`, also set `ingredient_step_mapping_reason`.
+- Return `ingredient_step_mapping` as an array of objects with `ingredient_index` and `step_indexes`, not a quoted JSON string.
+- Keep entries ordered by `ingredient_index`.
+- If links are unclear or unnecessary, return `[]`.
+- Always include `ingredient_step_mapping_reason`.
+- When returning `[]`, set `ingredient_step_mapping_reason` to a short reason string.
+- When `ingredient_step_mapping` is non-empty, set `ingredient_step_mapping_reason` to `null`.
 - Use short machine-readable reasons such as `not_needed_single_step`, `not_needed_single_ingredient`, or `unclear_alignment`.
 
 C) `warnings`:

@@ -216,6 +216,40 @@ def test_interactive_single_offline_preserves_selected_codex_recipe_pipeline(
         "codex-farm-2stage-repair-v1",
     ]
 
+
+def test_interactive_single_offline_variants_ignore_persistence_only_metadata() -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-2stage-repair-v1",
+            "codex_farm_model": "gpt-5.3-codex-spark",
+            "codex_farm_reasoning_effort": "low",
+        },
+        warn_context="test metadata-safe single-offline variants",
+    )
+
+    variants = cli._interactive_single_offline_variants(selected_settings)
+
+    assert [slug for slug, _settings in variants] == ["vanilla", "codexfarm"]
+    assert [settings.llm_recipe_pipeline.value for _, settings in variants] == [
+        "off",
+        "codex-farm-2stage-repair-v1",
+    ]
+    assert [str(settings.codex_farm_model) for _, settings in variants] == [
+        "gpt-5.3-codex-spark",
+        "gpt-5.3-codex-spark",
+    ]
+    assert [
+        (
+            settings.codex_farm_reasoning_effort.value
+            if settings.codex_farm_reasoning_effort is not None
+            else None
+        )
+        for _, settings in variants
+    ] == [
+        "low",
+        "low",
+    ]
+
 def test_interactive_single_offline_uses_book_slug_in_session_root_when_source_selected(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

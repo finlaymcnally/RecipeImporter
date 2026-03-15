@@ -8,6 +8,7 @@ import pytest
 import typer
 
 from cookimport import cli, entrypoint
+from cookimport.config.codex_decision import bucket1_fixed_behavior
 
 
 def test_stage_requires_allow_codex(
@@ -232,6 +233,7 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
     plan_path = prediction_run / "codex_execution_plan.json"
     plan_path.write_text("{}", encoding="utf-8")
     captured: dict[str, object] = {}
+    fixed_bucket1_behavior = bucket1_fixed_behavior()
 
     def _fake_generate_pred_run_artifacts(**kwargs):
         captured.update(kwargs)
@@ -269,7 +271,10 @@ def test_labelstudio_benchmark_plan_mode_allows_codex_without_allow_codex(
     assert captured["allow_codex"] is False
     assert captured["codex_execution_policy"] == "plan"
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
-    assert captured["codex_farm_pipeline_pass4_knowledge"] == "recipe.knowledge.custom.v9"
+    assert (
+        captured["codex_farm_pipeline_pass4_knowledge"]
+        == fixed_bucket1_behavior.codex_farm_pipeline_pass4_knowledge
+    )
     assert captured["codex_farm_knowledge_context_blocks"] == 19
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
@@ -348,6 +353,31 @@ def test_labelstudio_benchmark_live_codex_blocked_in_agent_environment(
     assert excinfo.value.exit_code == 1
     assert failures
     assert "blocked in agent-run environments" in failures[0]
+
+
+def test_labelstudio_benchmark_live_codex_interactive_mode_bypasses_agent_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failures: list[str] = []
+
+    def _fake_fail(message: str) -> None:
+        failures.append(message)
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(cli, "_fail", _fake_fail)
+    monkeypatch.setattr(cli, "_is_agent_execution_environment", lambda: True)
+    interactive_token = cli._INTERACTIVE_CLI_ACTIVE.set(True)
+
+    try:
+        cli._enforce_live_labelstudio_benchmark_codex_guardrails(
+            codex_execution_policy="execute",
+            any_codex_enabled=True,
+            benchmark_codex_confirmation=None,
+        )
+    finally:
+        cli._INTERACTIVE_CLI_ACTIVE.reset(interactive_token)
+
+    assert failures == []
 
 
 def test_import_entrypoint_forwards_allow_codex_flag(

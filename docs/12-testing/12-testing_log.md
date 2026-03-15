@@ -526,3 +526,66 @@ Durable findings:
 
 Anti-loop note:
 - If agents start treating every raw pytest invocation as “bad,” tighten the warning heuristic instead of suppressing wrapper guidance entirely.
+
+## 2026-03-13_22.25.00 remaining Label Studio benchmark-helper mega-test breakup
+
+Problem captured:
+- The earlier helper split removed one top-level monolith, but large benchmark-helper files still remained:
+  - `test_labelstudio_benchmark_helpers_scheduler.py`,
+  - `test_labelstudio_benchmark_helpers_eval_payload.py`,
+  - and a giant non-test support module, `benchmark_helper_cases.py`.
+
+Changes made:
+- Split scheduler coverage into smaller phase-oriented modules.
+- Split eval-payload coverage into compare, execution, pipelined, and artifact-focused modules.
+- Replaced the giant `benchmark_helper_cases.py` support file with `benchmark_helper_support.py` plus direct focused pytest modules.
+- Updated marker/docs wiring so the new file layout is the documented and supported shape.
+
+Verification preserved:
+- `pytest --collect-only -q <new benchmark-helper files>` succeeded after the split.
+- Representative targeted pytest slices against the new scheduler/eval modules passed.
+- The largest remaining Label Studio files after the change were outside this specific helper cluster, which means future cleanup should target those separately instead of rebuilding this one.
+
+Anti-loop note:
+- Do not “solve” benchmark-helper sprawl by hiding dozens of test bodies inside a non-test support module. If the support file gets huge, the split is not done.
+
+## 2026-03-14_14.50.52 single-offline benchmark test hardening
+
+Problem captured:
+- The single-offline metadata crash was covered only indirectly by larger benchmark-helper tests, so a planner-boundary regression could reappear without a cheap targeted failure.
+
+Changes made:
+- Added a narrow `_interactive_single_offline_variants()` regression test that fails immediately if persistence-only metadata leaks back into `RunSettings.from_dict(...)`.
+- Added an interactive CLI-path regression for `labelstudio_benchmark -> single_offline` with codex recipe selection, while keeping the path fully offline by stubbing `labelstudio_benchmark` in-process.
+
+Verification preserved:
+- Focused helper regression slice passed:
+  - `pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py -k 'codex_enabled_runs_only_codexfarm or preserves_selected_codex_recipe_pipeline or variants_ignore_persistence_only_metadata'`
+- Focused interactive regression slice passed:
+  - `pytest tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py -k 'single_offline_mode_skips_credentials or single_offline_codex_pipeline_plans_paired_runs_without_credentials'`
+
+Anti-loop note:
+- Keep single-offline benchmark regressions offline and stubbed. If a test has to invoke real CodexFarm work or prompt for credentials just to cover planner metadata boundaries, the test is scoped too broadly.
+
+## 2026-03-14_15.58.29 benchmark smoke boundary
+
+Source:
+- `docs/understandings/2026-03-14_15.58.29-benchmark-smoke-boundary.md`
+
+Problem captured:
+- A unit-only benchmark smoke would miss menu-routing and runtime handoff failures, but a live benchmark smoke would spend tokens and introduce external failure modes that make smoke runs unusable.
+
+Durable decisions:
+- The repo’s durable benchmark smoke boundary is:
+  - run the real `_interactive_mode()` path,
+  - keep the real `_interactive_single_offline_benchmark(...)` helper,
+  - stub only `labelstudio_benchmark(...)`.
+- The stub should still emit the minimal `eval_report.json` and `run_manifest.json` artifacts so output-path and comparison wiring are exercised.
+- This boundary is intentionally broad enough to catch:
+  - menu-routing regressions,
+  - run-settings handoff regressions,
+  - paired-variant planning crashes,
+  - output-path and comparison-artifact failures.
+
+Anti-loop note:
+- If smoke coverage is missing single-offline regressions, widen only up to the real interactive single-offline flow. Do not jump straight to live benchmark execution.
