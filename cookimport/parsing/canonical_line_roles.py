@@ -4,11 +4,14 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,7 +29,12 @@ from cookimport.llm.canonical_line_role_prompt import (
     LineRolePromptFormat,
     build_canonical_line_role_prompt,
 )
-from cookimport.llm.codex_exec import default_codex_exec_cmd, run_codex_json_prompt
+from cookimport.llm.codex_farm_runner import (
+    CodexFarmRunner,
+    SubprocessCodexFarmRunner,
+    as_pipeline_run_result_payload,
+    ensure_codex_farm_pipelines_exist,
+)
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 _PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")
@@ -158,10 +166,12 @@ _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT = 4
 _LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
 _LINE_ROLE_CODEX_RETRY_ATTEMPTS = 3
 _LINE_ROLE_CODEX_RETRY_BASE_SECONDS = 1.5
-_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v2"
+_LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v3"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
 _LINE_ROLE_PROMPT_FORMAT_ENV = "COOKIMPORT_LINE_ROLE_PROMPT_FORMAT"
+_LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
+_LINE_ROLE_CODEX_FARM_DEFAULT_CMD = "codex-farm"
 _SYNTAX_OWNED_LABELS = {
     "TIME_LINE",
     "YIELD_LINE",
@@ -191,7 +201,6 @@ class CanonicalLineRolePrediction(BaseModel):
 class _CodexBatchTask:
     prompt_index: int
     candidates: tuple[AtomicLineCandidate, ...]
-    allowed_by_index: dict[int, list[str]]
     prompt_format: LineRolePromptFormat
 
 
@@ -221,7 +230,7 @@ def label_atomic_lines(
     codex_batch_size: int = 40,
     codex_max_inflight: int | None = None,
     codex_cmd: str | None = None,
-    codex_runner: Callable[..., Any] | None = None,
+    codex_runner: CodexFarmRunner | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[CanonicalLineRolePrediction]:
     ordered = list(candidates)
@@ -317,22 +326,26 @@ def label_atomic_lines(
     parse_error_count = 0
     telemetry_batches: list[dict[str, Any]] = []
     if mode == "codex-line-role-v1" and unresolved:
+        codex_farm_cmd = _resolve_line_role_codex_farm_cmd(
+            settings=settings,
+            codex_cmd_override=codex_cmd,
+        )
+        codex_farm_root = _resolve_line_role_codex_farm_root(settings=settings)
+        codex_farm_workspace_root = _resolve_line_role_codex_farm_workspace_root(
+            settings=settings
+        )
+        codex_farm_model = _resolve_line_role_codex_farm_model(settings=settings)
+        codex_farm_reasoning_effort = _resolve_line_role_codex_farm_reasoning_effort(
+            settings=settings
+        )
         log_state = _PromptLogState(artifact_root=artifact_root)
         batch_tasks: list[_CodexBatchTask] = []
         prompt_format = _resolve_line_role_prompt_format()
         for batch in _batch(unresolved, max(1, int(codex_batch_size))):
-            batch_allowed = {
-                candidate.atomic_index: _candidate_allowlist(
-                    candidate,
-                    by_atomic_index=by_atomic_index,
-                )
-                for candidate in batch
-            }
             batch_tasks.append(
                 _CodexBatchTask(
                     prompt_index=log_state.next_index(),
                     candidates=tuple(batch),
-                    allowed_by_index=batch_allowed,
                     prompt_format=prompt_format,
                 )
             )
@@ -363,7 +376,11 @@ def label_atomic_lines(
                     log_state=log_state,
                     live_llm_allowed=live_llm_allowed,
                     codex_timeout_seconds=codex_timeout_seconds,
-                    codex_cmd=codex_cmd,
+                    codex_farm_cmd=codex_farm_cmd,
+                    codex_farm_root=codex_farm_root,
+                    codex_farm_workspace_root=codex_farm_workspace_root,
+                    codex_farm_model=codex_farm_model,
+                    codex_farm_reasoning_effort=codex_farm_reasoning_effort,
                     codex_runner=codex_runner,
                 ): task.prompt_index
                 for task in batch_tasks
@@ -450,6 +467,11 @@ def label_atomic_lines(
             telemetry_batches=telemetry_batches,
         )
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
+    if mode == "codex-line-role-v1":
+        sanitized = [
+            prediction.model_copy(update={"candidate_labels": _global_line_role_labels()})
+            for prediction in sanitized
+        ]
     _write_cached_predictions(
         cache_path=cache_path,
         predictions=sanitized,
@@ -500,10 +522,6 @@ def build_line_role_codex_execution_plan(
     ):
         rows: list[dict[str, Any]] = []
         for candidate in batch:
-            candidate_allowlist = _candidate_allowlist(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            )
             rows.append(
                 {
                     "atomic_index": int(candidate.atomic_index),
@@ -511,7 +529,6 @@ def build_line_role_codex_execution_plan(
                     "block_id": str(candidate.block_id),
                     "recipe_id": candidate.recipe_id,
                     "within_recipe_span": bool(candidate.within_recipe_span),
-                    "candidate_labels": list(candidate_allowlist),
                     "text": str(candidate.text),
                 }
             )
@@ -898,6 +915,54 @@ def _resolve_line_role_prompt_format() -> LineRolePromptFormat:
     return "legacy"
 
 
+def _resolve_line_role_codex_farm_cmd(
+    *,
+    settings: RunSettings,
+    codex_cmd_override: str | None,
+) -> str:
+    override = str(codex_cmd_override or "").strip()
+    if override:
+        return override
+    configured = str(getattr(settings, "codex_farm_cmd", "") or "").strip()
+    if configured:
+        return configured
+    return _LINE_ROLE_CODEX_FARM_DEFAULT_CMD
+
+
+def _resolve_line_role_codex_farm_root(*, settings: RunSettings) -> Path:
+    configured = str(getattr(settings, "codex_farm_root", "") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parents[2] / "llm_pipelines"
+
+
+def _resolve_line_role_codex_farm_workspace_root(
+    *,
+    settings: RunSettings,
+) -> Path | None:
+    configured = str(getattr(settings, "codex_farm_workspace_root", "") or "").strip()
+    if not configured:
+        return None
+    return Path(configured).expanduser()
+
+
+def _resolve_line_role_codex_farm_model(*, settings: RunSettings) -> str | None:
+    configured = str(getattr(settings, "codex_farm_model", "") or "").strip()
+    return configured or None
+
+
+def _resolve_line_role_codex_farm_reasoning_effort(
+    *,
+    settings: RunSettings,
+) -> str | None:
+    raw_value = getattr(settings, "codex_farm_reasoning_effort", None)
+    if raw_value is None:
+        return None
+    resolved = getattr(raw_value, "value", raw_value)
+    cleaned = str(resolved or "").strip()
+    return cleaned or None
+
+
 def _run_codex_batch(
     *,
     task: _CodexBatchTask,
@@ -905,18 +970,16 @@ def _run_codex_batch(
     log_state: "_PromptLogState",
     live_llm_allowed: bool,
     codex_timeout_seconds: int,
-    codex_cmd: str | None,
-    codex_runner: Callable[..., Any] | None,
+    codex_farm_cmd: str,
+    codex_farm_root: Path,
+    codex_farm_workspace_root: Path | None,
+    codex_farm_model: str | None,
+    codex_farm_reasoning_effort: str | None,
+    codex_runner: CodexFarmRunner | None,
 ) -> _CodexBatchResult:
     batch = list(task.candidates)
-    prompt_targets = [
-        candidate.model_copy(
-            update={"candidate_labels": list(task.allowed_by_index[candidate.atomic_index])}
-        )
-        for candidate in batch
-    ]
     prompt_text = build_canonical_line_role_prompt(
-        prompt_targets,
+        batch,
         prompt_format=task.prompt_format,
     )
     prompt_path = log_state.prompt_path(task.prompt_index)
@@ -930,7 +993,11 @@ def _run_codex_batch(
         retry_result = _run_codex_prompt_with_retry(
             prompt=prompt_text,
             timeout_seconds=codex_timeout_seconds,
-            cmd=codex_cmd or default_codex_exec_cmd(),
+            cmd=codex_farm_cmd,
+            codex_farm_root=codex_farm_root,
+            codex_farm_workspace_root=codex_farm_workspace_root,
+            codex_farm_model=codex_farm_model,
+            codex_farm_reasoning_effort=codex_farm_reasoning_effort,
             allow_llm=live_llm_allowed,
             runner=codex_runner,
         )
@@ -998,7 +1065,6 @@ def _run_codex_batch(
     parsed_rows, error = _parse_codex_line_role_response(
         raw_response,
         requested=batch,
-        allowed_by_index=task.allowed_by_index,
     )
     if error is not None:
         fallback_predictions = tuple(
@@ -1055,7 +1121,7 @@ def _run_codex_batch(
             label=row["label"],
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=list(task.allowed_by_index[row["atomic_index"]]),
+            candidate_labels=_global_line_role_labels(),
             reason_tags=["codex_line_role"],
         )
         for row in parsed_rows
@@ -1083,8 +1149,12 @@ def _run_codex_prompt_with_retry(
     prompt: str,
     timeout_seconds: int,
     cmd: str,
+    codex_farm_root: Path,
+    codex_farm_workspace_root: Path | None,
+    codex_farm_model: str | None,
+    codex_farm_reasoning_effort: str | None,
     allow_llm: bool,
-    runner: Callable[..., Any] | None,
+    runner: CodexFarmRunner | None,
 ) -> _CodexPromptRetryResult:
     attempts = max(1, int(_LINE_ROLE_CODEX_RETRY_ATTEMPTS))
     backoff_seconds = max(0.0, float(_LINE_ROLE_CODEX_RETRY_BASE_SECONDS))
@@ -1093,10 +1163,14 @@ def _run_codex_prompt_with_retry(
     attempt_records: list[dict[str, Any]] = []
     for attempt_index in range(attempts):
         try:
-            payload = run_codex_json_prompt(
+            payload = _run_line_role_prompt_via_codex_farm(
                 prompt=prompt,
                 timeout_seconds=timeout_seconds,
                 cmd=cmd,
+                codex_farm_root=codex_farm_root,
+                codex_farm_workspace_root=codex_farm_workspace_root,
+                codex_farm_model=codex_farm_model,
+                codex_farm_reasoning_effort=codex_farm_reasoning_effort,
                 allow_llm=allow_llm,
                 track_usage=True,
                 runner=runner,
@@ -1167,6 +1241,11 @@ def _codex_attempt_record(
         "returncode": _safe_int_value(payload.get("returncode")),
         "response_present": bool(str(payload.get("response") or "").strip()),
         "turn_failed_message": str(payload.get("turn_failed_message") or "").strip() or None,
+        "process_run": (
+            dict(payload.get("process_run"))
+            if isinstance(payload.get("process_run"), dict)
+            else None
+        ),
         "usage": {
             "tokens_input": tokens_input,
             "tokens_cached_input": tokens_cached_input,
@@ -1176,6 +1255,195 @@ def _codex_attempt_record(
         }
         if usage is not None
         else None,
+    }
+
+
+@lru_cache(maxsize=32)
+def _ensure_line_role_codex_farm_pipeline(
+    *,
+    cmd: str,
+    root_dir_str: str,
+) -> None:
+    root_dir = Path(root_dir_str)
+    ensure_codex_farm_pipelines_exist(
+        cmd=cmd,
+        root_dir=root_dir,
+        pipeline_ids=(_LINE_ROLE_CODEX_FARM_PIPELINE_ID,),
+        env={"CODEX_FARM_ROOT": str(root_dir)},
+    )
+
+
+def _run_line_role_prompt_via_codex_farm(
+    *,
+    prompt: str,
+    timeout_seconds: int,
+    cmd: str,
+    codex_farm_root: Path,
+    codex_farm_workspace_root: Path | None,
+    codex_farm_model: str | None,
+    codex_farm_reasoning_effort: str | None,
+    allow_llm: bool,
+    track_usage: bool,
+    runner: CodexFarmRunner | None,
+) -> dict[str, Any]:
+    if not allow_llm:
+        raise RuntimeError(
+            "LLM call blocked by safety kill switch. Explicit Codex approval is required."
+        )
+
+    resolved_cmd = str(cmd or _LINE_ROLE_CODEX_FARM_DEFAULT_CMD).strip()
+    if not resolved_cmd:
+        raise ValueError("codex-farm command cannot be empty")
+    try:
+        resolved_argv = shlex.split(resolved_cmd)
+    except ValueError:
+        resolved_argv = []
+    if resolved_argv:
+        executable = Path(resolved_argv[0]).name.lower().strip()
+        if executable.startswith("codex") and "farm" not in executable:
+            raise RuntimeError(
+                "line-role codex cmd must point at codex-farm (direct local Codex CLI is unsupported)."
+            )
+    resolved_root = codex_farm_root.expanduser()
+    resolved_workspace_root = (
+        codex_farm_workspace_root.expanduser()
+        if codex_farm_workspace_root is not None
+        else None
+    )
+
+    if runner is None:
+        _ensure_line_role_codex_farm_pipeline(
+            cmd=resolved_cmd,
+            root_dir_str=str(resolved_root),
+        )
+        codex_runner: CodexFarmRunner = SubprocessCodexFarmRunner(cmd=resolved_cmd)
+    else:
+        codex_runner = runner
+
+    with TemporaryDirectory(prefix="cookimport-line-role-") as temp_dir:
+        temp_root = Path(temp_dir)
+        in_dir = temp_root / "in"
+        out_dir = temp_root / "out"
+        in_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        input_path = in_dir / "line_role_prompt.json"
+        input_path.write_text(
+            json.dumps({"prompt": prompt}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        process_run = codex_runner.run_pipeline(
+            _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
+            in_dir,
+            out_dir,
+            {"CODEX_FARM_ROOT": str(resolved_root)},
+            root_dir=resolved_root,
+            workspace_root=resolved_workspace_root,
+            model=codex_farm_model,
+            reasoning_effort=codex_farm_reasoning_effort,
+        )
+        process_run_payload = as_pipeline_run_result_payload(process_run)
+        returncode = _codex_farm_return_code(process_run_payload)
+        turn_failed_message = _codex_farm_turn_failed_message(
+            process_run_payload=process_run_payload,
+            returncode=returncode,
+        )
+        response_payload = _load_line_role_output_payload(
+            out_path=out_dir / input_path.name
+        )
+        rows = response_payload.get("rows")
+        response_text = (
+            json.dumps(rows, ensure_ascii=False)
+            if isinstance(rows, list)
+            else ""
+        )
+        usage = (
+            _codex_farm_usage_payload(process_run_payload)
+            if track_usage
+            else None
+        )
+        return {
+            "cmd": resolved_cmd,
+            "returncode": returncode,
+            "response": response_text,
+            "usage": usage,
+            "turn_failed_message": turn_failed_message,
+            "stdout": "",
+            "stderr": "",
+            "process_run": process_run_payload,
+            "timeout_seconds": max(1, int(timeout_seconds)),
+        }
+
+
+def _load_line_role_output_payload(*, out_path: Path) -> dict[str, Any]:
+    if not out_path.exists():
+        return {}
+    try:
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _codex_farm_return_code(process_run_payload: dict[str, Any] | None) -> int:
+    if not isinstance(process_run_payload, dict):
+        return 1
+    subprocess_exit = _safe_int_value(process_run_payload.get("subprocess_exit_code"))
+    process_exit = _safe_int_value(process_run_payload.get("process_exit_code"))
+    if subprocess_exit is not None and subprocess_exit != 0:
+        return subprocess_exit
+    if process_exit is not None and process_exit != 0:
+        return process_exit
+    return 0
+
+
+def _codex_farm_turn_failed_message(
+    *,
+    process_run_payload: dict[str, Any] | None,
+    returncode: int,
+) -> str | None:
+    if returncode == 0:
+        return None
+    if not isinstance(process_run_payload, dict):
+        return "codex-farm process failed"
+    error_summary = str(process_run_payload.get("error_summary") or "").strip()
+    if error_summary:
+        return error_summary
+    return "codex-farm process failed"
+
+
+def _codex_farm_usage_payload(
+    process_run_payload: dict[str, Any] | None,
+) -> dict[str, int] | None:
+    if not isinstance(process_run_payload, dict):
+        return None
+    telemetry = process_run_payload.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return None
+    summary = telemetry.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    tokens_input = _safe_int_value(summary.get("tokens_input"))
+    tokens_cached_input = _safe_int_value(summary.get("tokens_cached_input"))
+    tokens_output = _safe_int_value(summary.get("tokens_output"))
+    tokens_reasoning = _safe_int_value(summary.get("tokens_reasoning"))
+    if (
+        tokens_input is None
+        and tokens_cached_input is None
+        and tokens_output is None
+        and tokens_reasoning is None
+    ):
+        return None
+    normalized_input = max(0, int(tokens_input or 0))
+    normalized_cached_input = max(0, int(tokens_cached_input or 0))
+    normalized_output = max(0, int(tokens_output or 0))
+    normalized_reasoning = max(0, int(tokens_reasoning or 0))
+    return {
+        "input_tokens": normalized_input,
+        "cached_input_tokens": normalized_cached_input,
+        "output_tokens": normalized_output,
+        "reasoning_tokens": normalized_reasoning,
     }
 
 
@@ -1232,6 +1500,8 @@ def _write_line_role_telemetry_summary(
             {
                 "schema_version": 1,
                 "pipeline": "codex-line-role-v1",
+                "codex_backend": "codexfarm",
+                "codex_farm_pipeline_id": _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
                 "token_usage_enabled": True,
                 "summary": {
                     "batch_count": len(telemetry_batches),
@@ -1610,6 +1880,10 @@ def _candidate_allowlist(
         if not labels:
             labels = ["OTHER"]
     return labels
+
+
+def _global_line_role_labels() -> list[str]:
+    return list(FREEFORM_LABELS)
 
 
 def _fallback_prediction(
@@ -2417,12 +2691,15 @@ def _parse_codex_line_role_response(
     raw_response: str,
     *,
     requested: Sequence[AtomicLineCandidate],
-    allowed_by_index: dict[int, list[str]],
 ) -> tuple[list[dict[str, Any]], str | None]:
     try:
         payload = json.loads(raw_response)
     except json.JSONDecodeError as exc:
         return [], f"invalid_json:{exc.msg}"
+    if isinstance(payload, dict):
+        rows = payload.get("rows")
+        if isinstance(rows, list):
+            payload = rows
     if not isinstance(payload, list):
         return [], "payload_not_list"
 
@@ -2444,9 +2721,6 @@ def _parse_codex_line_role_response(
         normalized_label = normalize_freeform_label(str(row.get("label") or ""))
         if normalized_label not in FREEFORM_ALLOWED_LABELS:
             return [], f"unknown_label:{normalized_label}"
-        allowed = set(allowed_by_index.get(atomic_index) or [])
-        if normalized_label not in allowed:
-            return [], f"label_outside_allowlist:{atomic_index}:{normalized_label}"
         seen.add(atomic_index)
         parsed.append({"atomic_index": atomic_index, "label": normalized_label})
 

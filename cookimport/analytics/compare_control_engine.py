@@ -380,10 +380,30 @@ def ai_model_label_for_record(record: dict[str, Any]) -> str:
     return "-"
 
 
+def _runtime_error_profile_label(record: dict[str, Any]) -> str | None:
+    recipe_pipeline = _run_config_value(record, ("llm_recipe_pipeline", "llm_pipeline"))
+    line_role_pipeline = _run_config_value(record, ("line_role_pipeline",))
+    if recipe_pipeline is None and line_role_pipeline is None:
+        return None
+    recipe_on = recipe_pipeline is not None and recipe_pipeline.lower() != "off"
+    line_role_on = line_role_pipeline is not None and line_role_pipeline.lower() != "off"
+    if recipe_on and line_role_on:
+        return "Full-stack AI"
+    if recipe_on:
+        return "Recipe only"
+    if line_role_on:
+        return "Line-role only"
+    return "AI off"
+
+
 def ai_effort_label_for_record(record: dict[str, Any]) -> str:
     effort = _ai_effort_for_record(record)
     if effort:
         return effort
+    if _codex_runtime_error_for_record(record):
+        runtime_profile = _runtime_error_profile_label(record)
+        if runtime_profile:
+            return runtime_profile
     return ai_assistance_profile_label_for_record(record)
 
 

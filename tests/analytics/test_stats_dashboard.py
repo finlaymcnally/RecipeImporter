@@ -958,12 +958,19 @@ function firstX(name) {
 
 const vanillaSeries = findSeries("strict_accuracy (vanilla)");
 const codexSeries = findSeries("strict_accuracy (codexfarm)");
+const deterministicSeries = findSeries("strict_accuracy (deterministic)");
 const tokenVanillaSeries = findSeries("tokens_total (vanilla)");
 const tokenCodexSeries = findSeries("tokens_total (codexfarm)");
+const tokenDeterministicSeries = findSeries("tokens_total (deterministic)");
 const vanillaRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/vanilla"));
 const codexRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/codexfarm"));
+const deterministicRecord = records.find(record => (
+  String((record && record.artifact_dir) || "").includes("/line_role_only") ||
+  String((record && record.benchmark_variant) || "") === "deterministic"
+));
 const vanillaGroup = vanillaRecord ? hooks.benchmarkRunGroupInfo(vanillaRecord) : null;
 const codexGroup = codexRecord ? hooks.benchmarkRunGroupInfo(codexRecord) : null;
+const deterministicGroup = deterministicRecord ? hooks.benchmarkRunGroupInfo(deterministicRecord) : null;
 const vanillaPointCustom = (
   vanillaSeries &&
   Array.isArray(vanillaSeries.data) &&
@@ -978,24 +985,39 @@ const codexPointCustom = (
   codexSeries.data[0] &&
   codexSeries.data[0].custom
 ) || {};
+const deterministicPointCustom = (
+  deterministicSeries &&
+  Array.isArray(deterministicSeries.data) &&
+  deterministicSeries.data.length &&
+  deterministicSeries.data[0] &&
+  deterministicSeries.data[0].custom
+) || {};
 
 const payload = {
   vanilla_x: firstX("strict_accuracy (vanilla)"),
   codex_x: firstX("strict_accuracy (codexfarm)"),
+  deterministic_x: firstX("strict_accuracy (deterministic)"),
   vanilla_series_points: vanillaSeries && Array.isArray(vanillaSeries.data) ? vanillaSeries.data.length : 0,
   codex_series_points: codexSeries && Array.isArray(codexSeries.data) ? codexSeries.data.length : 0,
+  deterministic_series_points: deterministicSeries && Array.isArray(deterministicSeries.data) ? deterministicSeries.data.length : 0,
   token_vanilla_series_points: tokenVanillaSeries && Array.isArray(tokenVanillaSeries.data) ? tokenVanillaSeries.data.length : 0,
   token_codex_series_points: tokenCodexSeries && Array.isArray(tokenCodexSeries.data) ? tokenCodexSeries.data.length : 0,
+  token_deterministic_series_points: tokenDeterministicSeries && Array.isArray(tokenDeterministicSeries.data) ? tokenDeterministicSeries.data.length : 0,
   vanilla_run_group_key: vanillaGroup ? String(vanillaGroup.runGroupKey || "") : "",
   codex_run_group_key: codexGroup ? String(codexGroup.runGroupKey || "") : "",
+  deterministic_run_group_key: deterministicGroup ? String(deterministicGroup.runGroupKey || "") : "",
   vanilla_point_source_label: String(vanillaPointCustom.sourceLabel || ""),
   codex_point_source_label: String(codexPointCustom.sourceLabel || ""),
+  deterministic_point_source_label: String(deterministicPointCustom.sourceLabel || ""),
   vanilla_point_source_title: String(vanillaPointCustom.sourceTitle || ""),
   codex_point_source_title: String(codexPointCustom.sourceTitle || ""),
+  deterministic_point_source_title: String(deterministicPointCustom.sourceTitle || ""),
   vanilla_point_variant: String(vanillaPointCustom.variant || ""),
   codex_point_variant: String(codexPointCustom.variant || ""),
+  deterministic_point_variant: String(deterministicPointCustom.variant || ""),
   vanilla_point_run_timestamp: String(vanillaPointCustom.runTimestamp || ""),
   codex_point_run_timestamp: String(codexPointCustom.runTimestamp || ""),
+  deterministic_point_run_timestamp: String(deterministicPointCustom.runTimestamp || ""),
   selected_fields: Array.isArray(trendFields) ? trendFields : [],
 };
 process.stdout.write(JSON.stringify(payload));
@@ -4134,6 +4156,57 @@ class TestBenchmarkSemantics:
         assert result["codex_series_points"] == 0
         assert result["token_vanilla_series_points"] == 1
         assert result["token_codex_series_points"] == 1
+
+    def test_benchmark_trend_keeps_deterministic_hybrid_points_when_paired_variants_exist(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        records = [
+            {
+                "run_timestamp": "2026-03-01T10:01:00",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/vanilla"
+                ),
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "off",
+                },
+                "strict_accuracy": 0.42,
+            },
+            {
+                "run_timestamp": "2026-03-01T10:06:00",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
+                    "2026-03-01_10.00.00/single-offline-benchmark/seaandsmokecutdown/codexfarm"
+                ),
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-farm-3pass-v1",
+                    "line_role_pipeline": "codex-line-role-v1",
+                },
+                "strict_accuracy": 0.58,
+            },
+            {
+                "run_timestamp": "2026-03-15T15:38:16",
+                "artifact_dir": (
+                    "/tmp/golden/benchmark-vs-golden/2026-03-15_15.37.33/"
+                    "single-offline-benchmark/saltfatacidheatcutdown/line_role_only"
+                ),
+                "benchmark_variant": "deterministic",
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "deterministic-v1",
+                },
+                "strict_accuracy": 0.5238744884038199,
+            },
+        ]
+        result = _run_benchmark_trend_alignment_harness(js_path, records)
+        assert result["vanilla_series_points"] == 1
+        assert result["codex_series_points"] == 1
+        assert result["deterministic_series_points"] == 1
+        assert result["deterministic_run_group_key"] == "2026-03-15_15.37.33"
+        assert result["deterministic_point_variant"] == "deterministic"
+        assert result["deterministic_point_run_timestamp"] == "2026-03-15T15:38:16"
 
     def test_benchmark_trend_points_include_source_metadata_for_tooltips(self, tmp_path):
         dash_dir = tmp_path / "dash"

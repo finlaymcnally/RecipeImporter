@@ -473,8 +473,8 @@ Gates include:
 - Outside recipe spans, `INSTRUCTION_LINE`/`INGREDIENT_LINE` now require local recipe evidence (±2 lines) and are downgraded when evidence is missing.
 - `RECIPE_TITLE` now requires supportive next-line context when available (yield boundary, ingredient/instruction flow, or recipe-structure cues) to reduce title-vs-howto/title-vs-narrative confusion.
 - Short ingredient fragments (for example split quantity/name rows) now get neighbor-aware rescue to `INGREDIENT_LINE` when adjacent ingredient-dominant context supports it.
-- Codex fallback uses strict JSON validation and per-line label allowlists; parse/allowlist failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
-- Codex allowlists now auto-include `RECIPE_TITLE` for title-like lines so fallback correction is not blocked by upstream candidate omissions.
+- Codex fallback uses strict JSON validation with the full global line-role label set available on every row; parse failures now attempt deterministic recovery and otherwise force `OTHER`, with parse-error artifacts written under `line-role-pipeline/prompts/parse_errors.json`.
+- Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
 - Low-confidence deterministic `RECIPE_TITLE` outcomes are held on the rule path (not escalated away to codex).
 - Outside-span low-confidence escalation is disabled by default; codex escalation remains inside-span-first (optional override: `COOKIMPORT_LINE_ROLE_OUTSIDE_SPAN_LOW_CONFIDENCE_ESCALATION=1`).
 - Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
@@ -864,7 +864,7 @@ Merged source note:
 - `docs/understandings/2026-03-03_16.38.03-canonical-line-role-title-note-fix-implementation.md`
 
 Current parsing contracts to keep:
-- Title-like headings should keep `RECIPE_TITLE` reachable through both atomizer candidates and canonical allowlist expansion.
+- Title-like headings should keep `RECIPE_TITLE` reachable through atomizer hints and deterministic/Codex ownership logic without relying on per-row Codex allowlists.
 - Deterministic title hits should not be escalated away when confidence is low.
 - Note-like prose should not be pre-classified as `INSTRUCTION_LINE` by broad punctuation-only sentence rules.
 - Bare `serving` in prose is not treated as a yield boundary marker.
@@ -888,7 +888,7 @@ Merged source task files (timestamp/file order):
 - `docs/tasks/2026-03-03_19.21.23-canonical-line-role-recall-subheading-fragment-guards.md`
 
 Current parsing contracts added/confirmed:
-- `RECIPE_TITLE` must remain reachable from both atomizer candidate generation and canonical allowlist expansion for title-like lines.
+- `RECIPE_TITLE` must remain reachable from title-like atomizer signals and canonical ownership logic for title-like lines.
 - Low-confidence deterministic title hits stay on deterministic path in codex mode (do not escalate-away a good title hit).
 - Note-like prose has explicit `RECIPE_NOTES` routing; broad punctuation-only instruction fallback is narrowed.
 - Yield boundary regex for prose guard stays `servings` (not bare `serving`) to avoid false yield-tail splits in note prose.
@@ -906,7 +906,7 @@ Benchmark evidence preserved from merged task docs:
   - `RECIPE_TITLE` recall: `0.9524 -> 0.9524`
 
 Anti-loop reminders from this task batch:
-- If title recall drops to zero again, inspect allowlist reachability and low-confidence escalation behavior before prompt-only tuning.
+- If title recall drops to zero again, inspect title heuristics and low-confidence escalation behavior before prompt-only tuning.
 - If instruction->ingredient confusion reappears, inspect atomizer quantity splitting order/guards before changing canonical label thresholds.
 
 ## 2026-03-04 merged understandings digest (canonical line-role milestone 2 closure)
@@ -986,6 +986,7 @@ Current parsing contracts reinforced:
   - ambiguous duplicate short texts should stay unmatched rather than inherit the wrong prediction metadata.
 - `_sanitize_prediction(...)` must keep `candidate_labels` consistent with the final emitted `label`.
   - If sanitization changes the final label during fallback or rescue, that final label has to be re-added to `candidate_labels`.
+- In `codex-line-role-v1`, emitted `candidate_labels` are now observational full-vocabulary metadata, not per-row LLM constraints.
 - Historical benchmark artifacts can remain internally inconsistent even after exporter fixes.
   - If old runs still show `label` outside `candidate_labels`, rerun the line-role pipeline with the sanitizer fix before debugging dashboard/export consumers.
 

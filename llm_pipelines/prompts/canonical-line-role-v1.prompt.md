@@ -61,7 +61,7 @@ Return exactly a JSON array with one object per target line:
 Hard output rules:
 1) Return each requested `atomic_index` exactly once.
 2) Keep output order identical to input target order.
-3) Each `label` must be one of that target's `candidate_labels`.
+3) Each `label` must be one of the allowed global labels listed above.
 4) No markdown, no commentary, no extra keys.
 
 Target row format:

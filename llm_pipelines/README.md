@@ -18,6 +18,8 @@ Editable pipeline specs:
 - `pipelines/recipe.final.compact.v1.json`
 - `pipelines/recipe.knowledge.compact.v1.json` (optional pass4 knowledge harvest)
 - `pipelines/recipe.tags.v1.json` (optional pass5 tag suggestions)
+- `pipelines/line-role.canonical.v1.json` (canonical line-role surface)
+- `pipelines/prelabel.freeform.v1.json` (Label Studio freeform prelabel surface)
 
 Editable prompt text:
 
@@ -34,6 +36,8 @@ Output schemas:
 - `schemas/recipe.final.v1.output.schema.json`
 - `schemas/recipe.knowledge.v1.output.schema.json`
 - `schemas/recipe.tags.v1.output.schema.json`
+- `schemas/line-role.canonical.v1.output.schema.json`
+- `schemas/prelabel.freeform.v1.output.schema.json`
 
 To tune pass behavior, edit prompt text files in `prompts/`. The shipped pack keeps only the compact pass2/pass3/pass4 assets: `recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`. Those compact pipeline ids still reuse the existing pass2/pass3/pass4 output schemas while sending smaller input payloads.
 
@@ -57,5 +61,9 @@ Freeform prelabel (full mode) is file-backed and editable:
 
 Span mode prompt should keep quote/offset JSON output shape while mirroring full-mode label heuristics and tie-break logic.
 Span mode now uses one markerized block stream (`START/STOP` focus markers) so focus text is not duplicated in the same prompt payload.
+
+Prelabel runtime now executes through CodexFarm pipeline `prelabel.freeform.v1` with prompt wrapper `prompts/prelabel.freeform.v1.prompt.md`.
+
+Canonical line-role runtime now executes through CodexFarm pipeline `line-role.canonical.v1` with prompt wrapper `prompts/line-role.canonical.v1.prompt.md`.
 
 For external packs, pass `--codex-farm-root <path>`.

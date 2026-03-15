@@ -215,31 +215,71 @@ def build_stage_separated_comparison(
     }
 
 
+def build_recipe_pipeline_context_from_model(
+    *,
+    model: UploadBundleSourceModel,
+) -> dict[str, Any]:
+    topology = model.topology if isinstance(model.topology, dict) else {}
+    stage_display_names = topology.get("stage_display_names")
+    return {
+        "schema_version": str(
+            topology.get("schema_version") or "upload_bundle_recipe_pipeline_context.v1"
+        ),
+        "codex_recipe_pipelines": (
+            list(topology.get("codex_recipe_pipelines"))
+            if isinstance(topology.get("codex_recipe_pipelines"), list)
+            else []
+        ),
+        "observed_pass2_call_count": _coerce_int(topology.get("observed_pass2_call_count")) or 0,
+        "observed_pass3_call_count": _coerce_int(topology.get("observed_pass3_call_count")) or 0,
+        "observed_pass3_execution_modes": (
+            list(topology.get("observed_pass3_execution_modes"))
+            if isinstance(topology.get("observed_pass3_execution_modes"), list)
+            else []
+        ),
+        "observed_pass3_routing_reasons": (
+            list(topology.get("observed_pass3_routing_reasons"))
+            if isinstance(topology.get("observed_pass3_routing_reasons"), list)
+            else []
+        ),
+        "merged_repair_active": bool(topology.get("merged_repair_active")),
+        "nonstandard_topology_active": bool(topology.get("nonstandard_topology_active")),
+        "stage_label_mode": str(topology.get("stage_label_mode") or "standard_topology"),
+        "stage_display_names": (
+            dict(stage_display_names)
+            if isinstance(stage_display_names, dict)
+            else {
+                "baseline_stage": "baseline",
+                "line_role_pipeline_stage": "line-role",
+                "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
+                "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
+                "final_or_fallback_stage": "final-fallback",
+            }
+        ),
+        "legacy_field_aliases": (
+            dict(model.compatibility_aliases)
+            if isinstance(model.compatibility_aliases, dict)
+            else {
+                "pass2_stage": "pass2_*",
+                "pass3_stage": "pass3_*",
+            }
+        ),
+        "compatibility_note": str(topology.get("compatibility_note") or ""),
+    }
+
+
 def build_stage_separated_comparison_from_model(
     *,
     model: UploadBundleSourceModel,
     per_label_metrics: list[dict[str, Any]],
     pass_stage_per_label_metrics: dict[str, Any],
 ) -> dict[str, Any]:
-    topology = model.topology if isinstance(model.topology, dict) else {}
-    stage_display_names = topology.get("stage_display_names")
-    context_payload: dict[str, Any] = {
-        "stage_label_mode": str(topology.get("stage_label_mode") or "standard_topology"),
-        "compatibility_note": str(topology.get("compatibility_note") or ""),
-        "legacy_field_aliases": (
-            model.compatibility_aliases
-            if isinstance(model.compatibility_aliases, dict)
-            else {}
-        ),
-    }
-    if isinstance(stage_display_names, dict):
-        context_payload["stage_display_names"] = stage_display_names
     return build_stage_separated_comparison(
         recipe_triage_rows=model.recipe_triage_rows,
         per_label_metrics=per_label_metrics,
         comparison_pairs=model.comparison_pairs,
         pass_stage_per_label_metrics=pass_stage_per_label_metrics,
-        recipe_pipeline_context=context_payload,
+        recipe_pipeline_context=build_recipe_pipeline_context_from_model(model=model),
     )
 
 

@@ -79,7 +79,7 @@ Return exactly a JSON array with one object per target line:
 Hard output rules:
 1) Return each requested `atomic_index` exactly once.
 2) Keep output order identical to input target order.
-3) Each `label` must be one of that target's `candidate_labels`.
+3) Each `label` must be one of the allowed global labels listed above.
 4) No markdown, no commentary, no extra keys.
 
 Target row format:
@@ -127,16 +127,9 @@ def serialize_line_role_targets_legacy(
     *,
     allowed_labels: Sequence[str],
 ) -> str:
-    allowed_set = {str(label) for label in allowed_labels}
+    del allowed_labels
     lines: list[str] = []
     for candidate in targets:
-        candidate_allowlist = [
-            str(label)
-            for label in candidate.candidate_labels
-            if str(label) in allowed_set
-        ]
-        if not candidate_allowlist:
-            candidate_allowlist = list(allowed_labels)
         lines.append(
             json.dumps(
                 {
@@ -145,7 +138,6 @@ def serialize_line_role_targets_legacy(
                     "previous_line": str(candidate.prev_text or ""),
                     "current_line": str(candidate.text),
                     "next_line": str(candidate.next_text or ""),
-                    "candidate_labels": candidate_allowlist,
                 },
                 ensure_ascii=False,
             )
@@ -158,16 +150,9 @@ def serialize_line_role_targets_compact(
     *,
     allowed_labels: Sequence[str],
 ) -> str:
-    allowed_set = {str(label) for label in allowed_labels}
+    del allowed_labels
     lines: list[str] = []
     for candidate in targets:
-        candidate_allowlist = [
-            str(label)
-            for label in candidate.candidate_labels
-            if str(label) in allowed_set
-        ]
-        if not candidate_allowlist:
-            candidate_allowlist = list(allowed_labels)
         lines.append(
             json.dumps(
                 [
@@ -176,7 +161,6 @@ def serialize_line_role_targets_compact(
                     str(candidate.prev_text or ""),
                     str(candidate.text),
                     str(candidate.next_text or ""),
-                    candidate_allowlist,
                 ],
                 ensure_ascii=False,
             )
@@ -206,12 +190,12 @@ def _target_row_format_text(prompt_format: LineRolePromptFormat) -> str:
         return (
             "One JSON array per line: "
             "[atomic_index, within_recipe_span_1_or_0, previous_line, current_line, "
-            "next_line, candidate_labels]"
+            "next_line]"
         )
     return (
         "One JSON object per line with keys "
         "`atomic_index`, `within_recipe_span`, `previous_line`, "
-        "`current_line`, `next_line`, and `candidate_labels`."
+        "`current_line`, and `next_line`."
     )
 
 

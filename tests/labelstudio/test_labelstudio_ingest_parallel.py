@@ -32,6 +32,7 @@ from cookimport.labelstudio.ingest import (
 from cookimport.labelstudio.models import ArchiveBlock
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+from cookimport.staging.import_session import StageImportSessionResult
 
 
 def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
@@ -1481,7 +1482,7 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
     assert "tasks_jsonl" not in run_manifest["artifacts"]
 
 
-def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
+def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_authoritative(
     monkeypatch, tmp_path: Path
 ) -> None:
     source = tmp_path / "book.epub"
@@ -1515,18 +1516,7 @@ def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
                 progress_callback("fake convert complete")
             return fake_result
 
-    captured_processed_recipes: dict[str, list[RecipeCandidate]] = {}
     observed_codex_max_inflight: list[int | None] = []
-
-    def _fake_write_processed_outputs(**kwargs):
-        result = kwargs["result"]
-        assert isinstance(result, ConversionResult)
-        captured_processed_recipes["recipes"] = [
-            recipe.model_copy(deep=True) for recipe in result.recipes
-        ]
-        run_root = processed_root / "2026-03-03_01.02.03"
-        run_root.mkdir(parents=True, exist_ok=True)
-        return run_root
 
     def _fake_label_atomic_lines(candidates, _settings, **_kwargs):
         observed_codex_max_inflight.append(_kwargs.get("codex_max_inflight"))
@@ -1595,10 +1585,6 @@ def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.sample_freeform_tasks",
         lambda tasks, **_kwargs: tasks,
-    )
-    monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
-        _fake_write_processed_outputs,
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
@@ -1697,11 +1683,25 @@ def test_generate_pred_run_artifacts_line_role_projection_updates_draft_fields(
         row["text"] for row in projected_rows if row.get("label") == "RECIPE_NOTES"
     ]
 
-    processed_recipe = captured_processed_recipes["recipes"][0]
-    assert processed_recipe.ingredients == predicted_ingredients
-    assert processed_recipe.instructions == predicted_instructions
-    assert [comment.text for comment in processed_recipe.comments] == predicted_notes
-    assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 1
+    processed_run_root = Path(result["processed_run_root"])
+    processed_draft = json.loads(
+        (
+            processed_run_root
+            / "final drafts"
+            / "book"
+            / "r0.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert processed_draft["name"] == "Original name"
+    assert processed_draft["ingredients"] != predicted_ingredients
+    assert processed_draft["instructions"] != predicted_instructions
+    assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 0
+    assert (
+        result["line_role_pipeline_recipe_projection"][
+            "authoritative_stage_outputs_mutated"
+        ]
+        is False
+    )
     assert observed_codex_max_inflight == [8]
 
 
@@ -2155,15 +2155,50 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
 
     captured: dict[str, object] = {}
 
-    def _fake_write_processed_outputs(**kwargs):
+    def _fake_execute_stage_import_session_from_result(**kwargs):
         captured["write_markdown"] = kwargs.get("write_markdown")
-        processed = tmp_path / "processed-run"
-        processed.mkdir(parents=True, exist_ok=True)
-        return processed
+        run_root = tmp_path / "processed-output" / "2026-03-03_02.00.00"
+        run_root.mkdir(parents=True, exist_ok=True)
+        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
+        stage_predictions_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "stage_block_predictions.v1",
+                    "block_labels": {},
+                    "label_blocks": {},
+                    "workbook_slug": "book",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        full_text_path = run_root / "raw" / "fake" / "hash-123" / "full_text.json"
+        full_text_path.parent.mkdir(parents=True, exist_ok=True)
+        full_text_path.write_text("[]", encoding="utf-8")
+        report_path = run_root / "book.excel_import_report.json"
+        report_path.write_text("{}", encoding="utf-8")
+        result = kwargs["result"]
+        return StageImportSessionResult(
+            run_root=run_root,
+            workbook_slug="book",
+            source_file=source,
+            source_hash="hash-123",
+            importer_name="fake",
+            conversion_result=result,
+            report_path=report_path,
+            stage_block_predictions_path=stage_predictions_path,
+            run_config={"write_markdown": kwargs.get("write_markdown")},
+            run_config_hash=None,
+            run_config_summary=None,
+            llm_report={"enabled": False, "pipeline": "off"},
+            timing={},
+        )
 
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._write_processed_outputs",
-        _fake_write_processed_outputs,
+        "cookimport.labelstudio.ingest.execute_stage_import_session_from_result",
+        _fake_execute_stage_import_session_from_result,
     )
 
     result = generate_pred_run_artifacts(

@@ -47,6 +47,8 @@ from cookimport.bench.upload_bundle_v1_existing_output import (
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 from cookimport.bench.upload_bundle_v1_render import (
     build_stage_separated_comparison as render_stage_separated_comparison,
+    build_stage_separated_comparison_from_model,
+    build_recipe_pipeline_context_from_model,
     write_upload_bundle_v1,
 )
 
@@ -2480,11 +2482,38 @@ def _resolve_prompt_type_samples_path(run_dir: Path, run_manifest: dict[str, Any
     return None
 
 
+def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
+    manifest_path = prompts_dir / "prompt_category_logs_manifest.txt"
+    if not manifest_path.is_file():
+        return []
+    rows: list[Path] = []
+    for raw_line in manifest_path.read_text(encoding="utf-8").splitlines():
+        text = raw_line.strip()
+        if not text:
+            continue
+        candidate = Path(text)
+        if not candidate.is_absolute():
+            candidate = (prompts_dir / candidate).resolve()
+        rows.append(candidate)
+    return rows
+
+
 def _resolve_pass4_prompt_task_path(run_dir: Path) -> Path | None:
-    candidate_paths = [
+    candidate_paths: list[Path] = [
         run_dir / "prompts" / PASS4_PROMPT_TASK_FILE_NAME,
         run_dir / "codexfarm" / "prompts" / PASS4_PROMPT_TASK_FILE_NAME,
     ]
+    for prompts_dir in (
+        run_dir / "prompts",
+        run_dir / "codexfarm" / "prompts",
+    ):
+        if not prompts_dir.is_dir():
+            continue
+        for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
+            name = candidate.name.lower()
+            if name.startswith("prompt_task4_") and name.endswith(".txt"):
+                candidate_paths.append(candidate)
+        candidate_paths.extend(sorted(prompts_dir.glob("prompt_task4_*.txt")))
     seen: set[Path] = set()
     for candidate in candidate_paths:
         resolved = candidate.resolve(strict=False)
@@ -11551,21 +11580,15 @@ def _write_upload_bundle_three_files(
         comparison_pairs=comparison_pairs,
         run_dir_by_id=run_dir_by_id,
     )
-    recipe_pipeline_context = _upload_bundle_build_recipe_pipeline_context(
-        run_rows=run_rows,
-        comparison_pairs=comparison_pairs,
-        recipe_triage_rows=recipe_triage_rows,
-    )
+    recipe_pipeline_context = build_recipe_pipeline_context_from_model(model=model)
     pass_stage_per_label_metrics = _upload_bundle_collect_pass_stage_per_label_metrics(
         comparison_pairs=comparison_pairs,
         run_dir_by_id=run_dir_by_id,
     )
-    stage_separated_comparison = _upload_bundle_build_stage_separated_comparison(
-        recipe_triage_rows=recipe_triage_rows,
+    stage_separated_comparison = build_stage_separated_comparison_from_model(
+        model=model,
         per_label_metrics=per_label_metrics,
-        comparison_pairs=comparison_pairs,
         pass_stage_per_label_metrics=pass_stage_per_label_metrics,
-        recipe_pipeline_context=recipe_pipeline_context,
     )
     failure_ledger = _upload_bundle_build_failure_ledger(
         recipe_triage_rows=recipe_triage_rows,

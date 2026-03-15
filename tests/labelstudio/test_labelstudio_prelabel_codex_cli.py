@@ -12,71 +12,64 @@ globals().update({
 
 def test_default_codex_cmd_uses_noninteractive_exec(monkeypatch) -> None:
     monkeypatch.delenv("COOKIMPORT_CODEX_CMD", raising=False)
-    assert default_codex_cmd() == "codex exec -"
+    monkeypatch.delenv("COOKIMPORT_CODEX_FARM_CMD", raising=False)
+    assert default_codex_cmd() == "codex-farm"
 
 
 def test_default_codex_cmd_uses_env_override(monkeypatch) -> None:
-    monkeypatch.setenv("COOKIMPORT_CODEX_CMD", "codex2 exec -")
-    assert default_codex_cmd() == "codex2 exec -"
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CMD", "/tmp/custom-codex-farm")
+    monkeypatch.delenv("COOKIMPORT_CODEX_CMD", raising=False)
+    assert default_codex_cmd() == "/tmp/custom-codex-farm"
+    monkeypatch.setenv("COOKIMPORT_CODEX_CMD", "/tmp/legacy-override")
+    assert default_codex_cmd() == "/tmp/legacy-override"
 
 
-def test_codex_provider_retries_plain_codex_with_exec(monkeypatch, tmp_path: Path) -> None:
-    calls: list[list[str]] = []
+def test_codex_provider_tracks_usage_from_codex_farm_payload(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured_calls: list[dict[str, object]] = []
 
-    def _fake_run(argv, **_kwargs):
-        calls.append(list(argv))
-        if len(calls) == 1:
-            return SimpleNamespace(
-                returncode=1,
-                stdout="",
-                stderr="Error: stdin is not a terminal",
-            )
-        return SimpleNamespace(
-            returncode=0,
-            stdout='[{"block_index": 0, "label": "OTHER"}]',
-            stderr="",
-        )
+    def _fake_prompt_runner(**kwargs):
+        captured_calls.append(dict(kwargs))
+        return {
+            "response": '[{"block_index": 0, "label": "OTHER"}]',
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": {
+                "input_tokens": 11,
+                "cached_input_tokens": 7,
+                "output_tokens": 3,
+                "reasoning_tokens": 2,
+            },
+            "turn_failed_message": None,
+        }
 
-    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
-    provider = CodexCliProvider(cmd="codex", timeout_s=10, cache_dir=tmp_path)
-    response = provider.complete("label this")
-
-    assert response == '[{"block_index": 0, "label": "OTHER"}]'
-    assert calls == [["codex"], ["codex", "exec", "-"]]
-
-
-def test_codex_provider_tracks_usage_from_json_events(monkeypatch, tmp_path: Path) -> None:
-    calls: list[list[str]] = []
-
-    def _fake_run(argv, **_kwargs):
-        calls.append(list(argv))
-        return SimpleNamespace(
-            returncode=0,
-            stdout=(
-                '{"type":"thread.started"}\n'
-                '{"type":"item.completed","item":{"type":"agent_message","text":"[{\\"block_index\\": 0, \\"label\\": \\"OTHER\\"}]"}}\n'
-                '{"type":"turn.completed","usage":{"input_tokens":11,"cached_input_tokens":7,"output_tokens":3}}\n'
-            ),
-            stderr="",
-        )
-
-    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
-    provider = CodexCliProvider(
-        cmd="codex exec -",
+    monkeypatch.setattr(
+        "cookimport.labelstudio.prelabel.run_codex_farm_json_prompt",
+        _fake_prompt_runner,
+    )
+    provider = CodexFarmProvider(
+        cmd="codex-farm",
         timeout_s=10,
         cache_dir=tmp_path,
         track_usage=True,
+        model="gpt-5.3-codex-spark",
+        reasoning_effort="low",
     )
 
     response = provider.complete("label this")
     usage = provider.usage_summary()
 
     assert response == '[{"block_index": 0, "label": "OTHER"}]'
-    assert calls == [["codex", "exec", "--json", "-"]]
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["cmd"] == "codex-farm"
+    assert captured_calls[0]["model"] == "gpt-5.3-codex-spark"
+    assert captured_calls[0]["reasoning_effort"] == "low"
     assert usage["input_tokens"] == 11
     assert usage["cached_input_tokens"] == 7
     assert usage["output_tokens"] == 3
-    assert usage["reasoning_tokens"] == 0
+    assert usage["reasoning_tokens"] == 2
     assert usage["calls_with_usage"] == 1
     assert usage["calls_total"] == 1
 
@@ -85,20 +78,27 @@ def test_codex_provider_tracks_reasoning_tokens_from_nested_usage(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    def _fake_run(argv, **_kwargs):
-        return SimpleNamespace(
-            returncode=0,
-            stdout=(
-                '{"type":"thread.started"}\n'
-                '{"type":"item.completed","item":{"type":"agent_message","text":"[{\\"block_index\\": 0, \\"label\\": \\"OTHER\\"}]"}}\n'
-                '{"type":"turn.completed","usage":{"input_tokens":11,"cached_input_tokens":7,"output_tokens":3,"output_tokens_details":{"reasoning_tokens":9}}}\n'
-            ),
-            stderr="",
-        )
+    def _fake_prompt_runner(**_kwargs):
+        return {
+            "response": '[{"block_index": 0, "label": "OTHER"}]',
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": {
+                "input_tokens": 11,
+                "cached_input_tokens": 7,
+                "output_tokens": 3,
+                "reasoning_tokens": 9,
+            },
+            "turn_failed_message": None,
+        }
 
-    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
-    provider = CodexCliProvider(
-        cmd="codex exec -",
+    monkeypatch.setattr(
+        "cookimport.labelstudio.prelabel.run_codex_farm_json_prompt",
+        _fake_prompt_runner,
+    )
+    provider = CodexFarmProvider(
+        cmd="codex-farm",
         timeout_s=10,
         cache_dir=tmp_path,
         track_usage=True,
@@ -412,40 +412,44 @@ def test_codex_account_summary_prefers_codex_over_codex_alt(
 
 
 def test_preflight_codex_model_access_raises_on_turn_failed(monkeypatch) -> None:
-    def _fake_run(_argv, **_kwargs):
-        return SimpleNamespace(
-            returncode=0,
-            stdout=(
-                '{"type":"thread.started"}\n'
-                '{"type":"turn.started"}\n'
-                '{"type":"turn.failed","error":{"message":"{\\"detail\\":\\"Model not supported\\"}"}}\n'
-            ),
-            stderr="",
-        )
+    def _fake_probe(**_kwargs):
+        return {
+            "returncode": 1,
+            "stderr": "Model not supported",
+            "stdout": "",
+            "turn_failed_message": "Model not supported",
+            "response": "",
+            "usage": None,
+        }
 
-    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
+    monkeypatch.setattr(
+        "cookimport.labelstudio.prelabel.run_codex_farm_json_prompt",
+        _fake_probe,
+    )
 
     try:
-        preflight_codex_model_access(cmd="codex exec -", timeout_s=5)
+        preflight_codex_model_access(cmd="codex-farm", timeout_s=5)
         raise AssertionError("expected preflight failure")
     except RuntimeError as exc:
         assert "Model not supported" in str(exc)
 
 
 def test_codex_provider_raises_turn_failed_message(monkeypatch, tmp_path: Path) -> None:
-    def _fake_run(_argv, **_kwargs):
-        return SimpleNamespace(
-            returncode=0,
-            stdout=(
-                '{"type":"thread.started"}\n'
-                '{"type":"turn.started"}\n'
-                '{"type":"turn.failed","error":{"message":"{\\"detail\\":\\"Model denied\\"}"}}\n'
-            ),
-            stderr="",
-        )
+    def _fake_prompt_runner(**_kwargs):
+        return {
+            "response": "",
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "Model denied",
+            "usage": None,
+            "turn_failed_message": "Model denied",
+        }
 
-    monkeypatch.setattr("cookimport.labelstudio.prelabel.subprocess.run", _fake_run)
-    provider = CodexCliProvider(cmd="codex exec -", timeout_s=5, cache_dir=tmp_path)
+    monkeypatch.setattr(
+        "cookimport.labelstudio.prelabel.run_codex_farm_json_prompt",
+        _fake_prompt_runner,
+    )
+    provider = CodexFarmProvider(cmd="codex-farm", timeout_s=5, cache_dir=tmp_path)
 
     try:
         provider.complete("label this")

@@ -122,7 +122,7 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
@@ -164,7 +164,7 @@ def test_label_atomic_lines_passes_explicit_live_llm_approval_to_codex_calls(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(
@@ -426,7 +426,7 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
@@ -569,7 +569,7 @@ def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeyp
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(
@@ -581,6 +581,46 @@ def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeyp
     assert predictions[0].decided_by == "codex"
     assert "RECIPE_TITLE" in predictions[0].candidate_labels
     assert "ownership_codex_override_other_to_recipe_title" in predictions[0].reason_tags
+
+
+def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatch) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:title:global",
+            block_index=1,
+            atomic_index=0,
+            text="Shaved Carrot Salad with Ginger and Lime",
+            within_recipe_span=True,
+            candidate_labels=["OTHER"],
+            prev_text=None,
+            next_text="1 large jalapeño, seeds and veins removed if desired, thinly sliced",
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    def _fake_codex_call(**_kwargs):
+        return {
+            "response": json.dumps([{"atomic_index": 0, "label": "RECIPE_TITLE"}]),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "usage": None,
+            "turn_failed_message": None,
+        }
+
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
+        _fake_codex_call,
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-v1"),
+    )
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_TITLE"
+    assert predictions[0].decided_by == "codex"
+    assert predictions[0].candidate_labels == canonical_line_roles_module._global_line_role_labels()
 
 
 def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
@@ -713,7 +753,7 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
         raise AssertionError("codex runner should not execute for deterministic title hold")
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _codex_should_not_run,
     )
     predictions = label_atomic_lines(
@@ -781,7 +821,7 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(
@@ -818,7 +858,8 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
     assert '"atomic_index": 0' in prompt
-    assert '"candidate_labels": ["YIELD_LINE", "OTHER"]' in prompt
+    assert '"current_line": "SERVES 4"' in prompt
+    assert "candidate_labels" not in prompt
 
 
 def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
@@ -852,8 +893,8 @@ def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
     prompt = build_canonical_line_role_prompt(candidates, prompt_format="compact_v1")
     assert "within_recipe_span_1_or_0" in prompt
     assert prompt.count("within_recipe_span_1_or_0") == 1
-    assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil", ["YIELD_LINE", "OTHER"]]' in prompt
-    assert '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve.", ["INGREDIENT_LINE", "OTHER"]]' in prompt
+    assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]' in prompt
+    assert '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve."]' in prompt
 
     legacy_rows = serialize_line_role_targets_legacy(
         candidates,
@@ -935,7 +976,7 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(
@@ -1017,7 +1058,7 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(
@@ -1052,7 +1093,7 @@ def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_s
         raise AssertionError("outside-span low-confidence escalation should be disabled")
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _should_not_call_codex,
     )
     predictions = label_atomic_lines(
@@ -1466,6 +1507,7 @@ def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
     assert plan["planned_batch_count"] == 1
     assert plan["planned_candidate_count"] == 1
     assert plan["batches"][0]["atomic_indices"] == [0]
+    assert "candidate_labels" not in plan["batches"][0]["rows"][0]
 
 
 def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> None:
@@ -1514,7 +1556,7 @@ def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> Non
         _fake_sleep,
     )
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
@@ -1558,7 +1600,7 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     first = label_atomic_lines(
@@ -1575,7 +1617,7 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(
         raise AssertionError("cache hit should skip codex call")
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _runner_should_not_execute,
     )
     second = label_atomic_lines(
@@ -1641,7 +1683,7 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_with_retry_usage(
     )
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         lambda **_kwargs: next(responses),
     )
 
@@ -1701,7 +1743,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     first = label_atomic_lines(
@@ -1718,7 +1760,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         raise AssertionError("cache hit should skip codex call")
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _runner_should_not_execute,
     )
     second = label_atomic_lines(
@@ -1819,7 +1861,7 @@ def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     monkeypatch.setattr(
@@ -1876,7 +1918,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
 
     monkeypatch.setenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", "compact_v1")
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
 
@@ -1892,7 +1934,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         encoding="utf-8"
     )
     assert "within_recipe_span_1_or_0" in prompt_text
-    assert '[0, 1, "Before", "Ambiguous line 0", "After", ["OTHER"]]' in prompt_text
+    assert '[0, 1, "Before", "Ambiguous line 0", "After"]' in prompt_text
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
@@ -1940,7 +1982,7 @@ def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     monkeypatch.setattr(
@@ -2011,7 +2053,7 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
         }
 
     monkeypatch.setattr(
-        "cookimport.parsing.canonical_line_roles.run_codex_json_prompt",
+        "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
         _fake_codex_call,
     )
     monkeypatch.setattr(

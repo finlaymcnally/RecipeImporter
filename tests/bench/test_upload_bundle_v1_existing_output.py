@@ -9,6 +9,7 @@ from cookimport.bench.upload_bundle_v1_existing_output import (
 )
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 from cookimport.bench.upload_bundle_v1_render import (
+    build_recipe_pipeline_context_from_model,
     build_stage_separated_comparison_from_model,
 )
 
@@ -193,6 +194,9 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     assert len(model.comparison_pairs) == 1
     assert model.adapter_metadata["uses_root_run_rows"] is False
     assert model.adapter_metadata["discovered_run_count"] == 2
+    assert model.topology["codex_recipe_pipelines"] == ["codex-farm-2stage-repair-v1"]
+    assert model.topology["merged_repair_active"] is True
+    assert model.topology["observed_pass2_call_count"] == 0
     assert model.topology["stage_label_mode"] == "nonstandard_topology_with_legacy_aliases"
     assert model.compatibility_aliases["pass2_stage"] == "pass2_*"
 
@@ -232,12 +236,16 @@ def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
         compatibility_aliases={"pass2_stage": "extract_*", "pass3_stage": "repair_*"},
     )
 
+    recipe_pipeline_context = build_recipe_pipeline_context_from_model(model=model)
     rendered = build_stage_separated_comparison_from_model(
         model=model,
         per_label_metrics=[],
         pass_stage_per_label_metrics={},
     )
 
+    assert recipe_pipeline_context["stage_label_mode"] == "alternate_topology"
+    assert recipe_pipeline_context["stage_display_names"]["pass2_stage"] == "observed:extract_family"
+    assert recipe_pipeline_context["legacy_field_aliases"]["pass2_stage"] == "extract_*"
     assert rendered["pair_count"] == 0
     assert rendered["stage_label_mode"] == "alternate_topology"
     assert rendered["stage_display_names"]["pass2_stage"] == "observed:extract_family"

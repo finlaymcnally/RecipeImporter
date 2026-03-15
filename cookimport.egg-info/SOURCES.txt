@@ -169,6 +169,7 @@ cookimport/runs/eval_manifest.py
 cookimport/runs/manifest.py
 cookimport/staging/__init__.py
 cookimport/staging/draft_v1.py
+cookimport/staging/import_session.py
 cookimport/staging/jsonld.py
 cookimport/staging/pdf_jobs.py
 cookimport/staging/stage_block_predictions.py

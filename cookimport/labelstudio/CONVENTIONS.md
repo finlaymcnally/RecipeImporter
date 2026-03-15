@@ -30,11 +30,11 @@ Durable contracts for Label Studio import/export/eval/prelabel flows in `cookimp
 - Actual freeform (`span`) prompts should explicitly discourage whole-block selections for long blocks, treat nearby blocks as context-only (no auto-propagation to adjacent blocks), and include mixed-block split examples (for example yield+time or note+instruction in one block).
 - Freeform canonical label names are `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`; normalize legacy `TIP`/`NOTES`/`VARIANT` labels to those names.
 - Scoring/eval semantics: `HOWTO_SECTION` is resolved at eval time into `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby structural context (surrounded-by rule with nearest-neighbor fallback).
-- Codex prelabel invocations must use non-interactive CLI mode (`codex exec -`); plain `codex` is interactive and fails in pipeline subprocess calls without a TTY.
-- Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `codex exec -`.
+- Codex prelabel invocations must run through CodexFarm pipeline `prelabel.freeform.v1`.
+- Codex command resolution for prelabel is: explicit `--codex-cmd` -> `COOKIMPORT_CODEX_CMD` -> `COOKIMPORT_CODEX_FARM_CMD` -> `codex-farm`.
 - Interactive freeform prelabel should use that resolved command directly (no command chooser prompt) and display the resolved account email when available.
-- Codex model resolution order for prelabel is: explicit `--codex-model` -> `COOKIMPORT_CODEX_MODEL` -> Codex config `model` (`~/.codex/config.toml`, `~/.codex-alt/config.toml`).
-- Codex thinking effort for prelabel resolves from explicit command/CLI override first (`--codex-thinking-effort` / `--codex-reasoning-effort`, mapped to `model_reasoning_effort`), then Codex config `model_reasoning_effort`.
+- Codex model resolution order for prelabel is: explicit `--codex-model` -> `COOKIMPORT_CODEX_FARM_MODEL` -> `COOKIMPORT_CODEX_MODEL` -> local defaults.
+- Codex thinking effort for prelabel resolves from explicit command/CLI override first (`--codex-thinking-effort` / `--codex-reasoning-effort`), then `COOKIMPORT_CODEX_FARM_REASONING_EFFORT`, then local defaults.
 - Interactive prelabel model choices should be sourced from the selected command's Codex home cache metadata (`models_cache.json`) when available, with custom-id fallback.
 - Prelabel runs should perform one model-access preflight probe before task loops; account/model mismatches should fail once up front with provider detail.
 - Codex JSON `turn.failed` errors must be surfaced as provider failures (not collapsed into generic "no labels produced" parse misses).

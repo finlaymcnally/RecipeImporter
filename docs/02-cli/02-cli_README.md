@@ -278,7 +278,7 @@ Developer note:
 4. Configure optional AI prelabeling:
    - choose prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants).
    - if enabled, choose labeling style (`actual freeform` span mode vs `block based` mode).
-   - interactive mode uses the resolved Codex command (`COOKIMPORT_CODEX_CMD` or `codex exec -`), shows the resolved account email when available, then prompts for model (`use default`, discovered models from that command's Codex home / `CODEX_HOME`, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow), mapped to Codex `model_reasoning_effort`.
+   - interactive mode uses the resolved CodexFarm command (`COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`), shows the resolved account when available, then prompts for model (`use default`, discovered models, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow).
    - freeform prelabel task calls run in parallel by default (`15` workers).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
@@ -769,9 +769,9 @@ Options:
 - `--limit, -n INTEGER>=1`: cap chunks generated.
 - `--sample INTEGER>=1`: randomly sample chunks.
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
-- `--prelabel-provider TEXT` (default `codex-cli`): provider backend for prelabeling.
-- `--codex-cmd TEXT`: override Codex CLI command (defaults to `COOKIMPORT_CODEX_CMD` or `codex exec -`).
-- `--codex-model TEXT`: explicit Codex model for prelabel calls (defaults to `COOKIMPORT_CODEX_MODEL` or your Codex CLI default model).
+- `--prelabel-provider TEXT` (default `codex-farm`): provider backend for prelabeling.
+- `--codex-cmd TEXT`: override CodexFarm command (defaults to `COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`).
+- `--codex-model TEXT`: explicit Codex model for prelabel calls (defaults to `COOKIMPORT_CODEX_FARM_MODEL`, `COOKIMPORT_CODEX_MODEL`, or local defaults).
 - `--codex-thinking-effort`, `--codex-reasoning-effort` (alias flags): Codex reasoning-effort hint (`none|minimal|low|medium|high|xhigh`, normalized per model compatibility).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `600`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
@@ -1209,7 +1209,8 @@ CLI-relevant environment variables:
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).
-- `COOKIMPORT_CODEX_CMD`: default Codex CLI command used by prelabel flows when `--codex-cmd` is omitted.
+- `COOKIMPORT_CODEX_CMD`: primary command override for prelabel CodexFarm flows when `--codex-cmd` is omitted.
+- `COOKIMPORT_CODEX_FARM_CMD`: fallback command override for prelabel CodexFarm flows.
 - `COOKIMPORT_CODEX_MODEL`: default Codex model used by prelabel flows when `--codex-model` is omitted.
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.

@@ -15,9 +15,16 @@ Runner process metadata now surfaces CodexFarm `process --json.telemetry_report`
 
 When a caller provides a progress callback, `SubprocessCodexFarmRunner` now executes `codex-farm process --progress-events --json`, parses `__codex_farm_progress__` stderr JSON events, and forwards spinner-friendly `task X/Y` status messages through the existing callback channel used by stage + benchmark flows.
 
-Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` (prompt construction) and `codex_exec.py` (shared `codex exec -` invocation helper reused by prelabel + line-role paths).
+Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` plus CodexFarm-backed adapters in `parsing/canonical_line_roles.py` (`line-role.canonical.v1`) and `labelstudio/prelabel.py` (`prelabel.freeform.v1`).
 
 Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which merges codex-farm pass telemetry plus line-role telemetry into one repo-owned per-pass budget artifact.
+
+Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor boundary:
+- `discover_codexfarm_prompt_run_descriptors(...)` adapts current raw CodexFarm layout.
+- `discover_prompt_run_descriptors(...)` is a pluggable dispatcher so future stage/cookbook layouts can provide new discovery adapters without changing rendering.
+- `render_prompt_artifacts_from_descriptors(...)` writes `prompts/` artifacts from normalized stage descriptors.
+- `build_prompt_response_log(...)` is the topology-neutral builder that accepts either explicit descriptors or injected discoverers.
+- `build_codex_farm_prompt_response_log(...)` is the convenience wrapper used by CLI call sites.
 
 Compact recipe prompt variants now live behind explicit pipeline ids (`recipe.schemaorg.compact.v1`, `recipe.final.compact.v1`, and `recipe.knowledge.compact.v1`), and those compact ids are now the default pass2/pass3/pass4 selections when CodexFarm recipe parsing or knowledge harvest is enabled. Line-role prompt compaction is controlled locally by `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT=compact_v1`, which now also becomes the default when unset.
 

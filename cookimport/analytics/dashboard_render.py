@@ -10098,7 +10098,15 @@ _JS = """\
       key,
       colors: benchmarkTrendMetricColors(key, index),
     }));
-    const variantOrder = ["vanilla", "codexfarm", "other"];
+    const variantPriority = [
+      "vanilla",
+      "codexfarm",
+      "deterministic",
+      "line_role_only",
+      "recipe_only",
+      "full_stack",
+      "other",
+    ];
     const presentVariants = new Set(
       records.map(record => benchmarkVariantForRecord(record))
     );
@@ -10126,6 +10134,10 @@ _JS = """\
       );
     }
 
+    const variantOrder = [
+      ...variantPriority.filter(variant => presentVariants.has(variant)),
+      ...Array.from(presentVariants).filter(variant => !variantPriority.includes(variant)),
+    ];
     metricDefs.forEach(metric => {
       variantOrder.forEach(variant => {
         if (!presentVariants.has(variant)) return;
@@ -10139,7 +10151,7 @@ _JS = """\
             enabled: true,
             radius: 3,
           },
-          color: metric.colors[variant] || metric.colors.default,
+          color: metric.colors[variant] || metric.colors.other || metric.colors.default,
           data: points,
           turboThreshold: 0,
         });

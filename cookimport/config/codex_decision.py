@@ -19,7 +19,8 @@ LINE_ROLE_CODEX_PIPELINE = "codex-line-role-v1"
 LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
 TAGS_CODEX_PIPELINE = "codex-farm-tags-v1"
-PRELABEL_CODEX_PROVIDER = "codex-cli"
+PRELABEL_CODEX_PROVIDER = "codex-farm"
+PRELABEL_CODEX_PROVIDERS = frozenset({"codex-farm", "codex_farm", "codex-cli"})
 BUCKET1_FIXED_BEHAVIOR_VERSION = "bucket1-fixed-v1"
 SECTION_DETECTOR_SHARED_V1 = "shared_v1"
 INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
@@ -226,7 +227,7 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
     tags_codex_enabled = tags_pipeline == TAGS_CODEX_PIPELINE
     prelabel_codex_enabled = bool(
         normalized_payload.get("prelabel") or normalized_payload.get("prelabel_enabled")
-    ) and prelabel_provider in {"", PRELABEL_CODEX_PROVIDER}
+    ) and prelabel_provider in {"", *PRELABEL_CODEX_PROVIDERS}
     any_codex_enabled = any(
         (
             recipe_codex_enabled,
@@ -475,9 +476,16 @@ def format_codex_execution_policy_summary(policy: CodexExecutionPolicy) -> str:
     return format_codex_command_summary(policy.command_decision)
 
 
+def codex_backend_for_surface(surface: CodexSurfaceDecision) -> str | None:
+    if surface.any_codex_enabled:
+        return "codexfarm"
+    return None
+
+
 def codex_decision_metadata(decision: CodexCommandDecision) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "ai_assistance_profile": decision.surface.ai_assistance_profile,
+        "codex_backend": codex_backend_for_surface(decision.surface),
         "codex_decision_context": decision.context,
         "codex_decision_mode": decision.activation_mode,
         "codex_decision_allowed": decision.allowed,

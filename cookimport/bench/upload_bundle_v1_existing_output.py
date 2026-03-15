@@ -8,6 +8,17 @@ from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 
+LEGACY_PASS2_FAMILY_DISPLAY_NAME = "legacy-family:pass2_*"
+LEGACY_PASS3_FAMILY_DISPLAY_NAME = "legacy-family:pass3_*"
+MERGED_REPAIR_RECIPE_PIPELINE_ID = "codex-farm-2stage-repair-v1"
+MERGED_REPAIR_PASS3_EXECUTION_MODES = frozenset(
+    {
+        "llm_merged_repair",
+        "llm_merged_repair_then_deterministic_fallback",
+    }
+)
+MERGED_REPAIR_PASS3_ROUTING_REASON = "merged_repair_stage"
+
 
 @dataclass(frozen=True)
 class ExistingOutputAdapterHelpers:
@@ -28,11 +39,130 @@ def _record_attr(record: Any, field: str, default: Any = None) -> Any:
     return getattr(record, field, default)
 
 
-def _looks_nonstandard_pipeline(pipeline_id: str) -> bool:
-    value = pipeline_id.strip().lower()
-    if not value:
-        return False
-    return any(marker in value for marker in ("merged", "repair", "2stage"))
+def _is_codex_pipeline_enabled(value: Any) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized not in {"", "off", "none", "false", "0"}
+
+
+def _is_merged_repair_recipe_pipeline(value: Any) -> bool:
+    return str(value or "").strip() == MERGED_REPAIR_RECIPE_PIPELINE_ID
+
+
+def _build_recipe_pipeline_topology(
+    *,
+    run_rows: list[dict[str, Any]],
+    comparison_pairs: list[dict[str, Any]],
+    recipe_triage_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    codex_recipe_pipelines: set[str] = set()
+    observed_execution_modes: set[str] = set()
+    observed_routing_reasons: set[str] = set()
+    observed_pass2_call_count = 0
+    observed_pass3_call_count = 0
+
+    for row in run_rows:
+        if not isinstance(row, dict):
+            continue
+        pipeline = str(row.get("llm_recipe_pipeline") or "").strip()
+        if pipeline and _is_codex_pipeline_enabled(pipeline):
+            codex_recipe_pipelines.add(pipeline)
+
+    for pair in comparison_pairs:
+        if not isinstance(pair, dict):
+            continue
+        codex_run = pair.get("codex_run")
+        if not isinstance(codex_run, dict):
+            continue
+        pipeline = str(codex_run.get("llm_recipe_pipeline") or "").strip()
+        if pipeline and _is_codex_pipeline_enabled(pipeline):
+            codex_recipe_pipelines.add(pipeline)
+
+    for row in recipe_triage_rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("pass2_call_id") or "").strip():
+            observed_pass2_call_count += 1
+        if str(row.get("pass3_call_id") or "").strip():
+            observed_pass3_call_count += 1
+        execution_mode = str(row.get("pass3_execution_mode") or "").strip()
+        routing_reason = str(row.get("pass3_routing_reason") or "").strip()
+        if execution_mode:
+            observed_execution_modes.add(execution_mode)
+        if routing_reason:
+            observed_routing_reasons.add(routing_reason)
+
+    merged_repair_active = any(
+        _is_merged_repair_recipe_pipeline(pipeline)
+        for pipeline in codex_recipe_pipelines
+    ) or any(
+        str(mode or "").strip().lower() in MERGED_REPAIR_PASS3_EXECUTION_MODES
+        for mode in observed_execution_modes
+    ) or (MERGED_REPAIR_PASS3_ROUTING_REASON in observed_routing_reasons)
+
+    nonstandard_topology_active = merged_repair_active or (
+        bool(codex_recipe_pipelines)
+        and observed_pass2_call_count > 0
+        and observed_pass3_call_count == 0
+        and (bool(observed_execution_modes) or bool(observed_routing_reasons))
+    )
+    stage_label_mode = (
+        "nonstandard_topology_with_legacy_aliases"
+        if nonstandard_topology_active
+        else "standard_topology"
+    )
+    stage_display_names = {
+        "baseline_stage": "baseline",
+        "line_role_pipeline_stage": "line-role",
+        "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
+        "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
+        "final_or_fallback_stage": "final-fallback",
+    }
+    compatibility_note = ""
+    if nonstandard_topology_active:
+        details: list[str] = []
+        if codex_recipe_pipelines:
+            details.append(
+                "active recipe pipelines: "
+                + ", ".join(f"`{pipeline}`" for pipeline in sorted(codex_recipe_pipelines))
+            )
+        details.append(f"observed_pass2_call_count={observed_pass2_call_count}")
+        details.append(f"observed_pass3_call_count={observed_pass3_call_count}")
+        if observed_execution_modes:
+            details.append(
+                "observed_pass3_execution_modes="
+                + ",".join(sorted(observed_execution_modes))
+            )
+        if observed_routing_reasons:
+            details.append(
+                "observed_pass3_routing_reasons="
+                + ",".join(sorted(observed_routing_reasons))
+            )
+        compatibility_note = (
+            "Discovered recipe artifacts do not show a standard live pass2->pass3 call "
+            f"sequence. Primary reviewer labels use `{LEGACY_PASS2_FAMILY_DISPLAY_NAME}` / "
+            f"`{LEGACY_PASS3_FAMILY_DISPLAY_NAME}` while legacy field families `pass2_*` / "
+            "`pass3_*` remain compatibility aliases around the observed recipe-stage "
+            "topology. Observed details: "
+            + "; ".join(details)
+            + "."
+        )
+        if merged_repair_active:
+            compatibility_note += " Observed signals match the merged-repair topology."
+
+    return {
+        "schema_version": "upload_bundle_recipe_pipeline_context.v1",
+        "codex_recipe_pipelines": sorted(codex_recipe_pipelines),
+        "observed_pass2_call_count": observed_pass2_call_count,
+        "observed_pass3_call_count": observed_pass3_call_count,
+        "observed_pass3_execution_modes": sorted(observed_execution_modes),
+        "observed_pass3_routing_reasons": sorted(observed_routing_reasons),
+        "merged_repair_active": merged_repair_active,
+        "nonstandard_topology_active": nonstandard_topology_active,
+        "stage_label_mode": stage_label_mode,
+        "stage_display_names": stage_display_names,
+        "compatibility_note": compatibility_note,
+        "observed_recipe_pipelines": sorted(codex_recipe_pipelines),
+    }
 
 
 def build_upload_bundle_source_model_from_existing_root(
@@ -225,27 +355,11 @@ def build_upload_bundle_source_model_from_existing_root(
     advertised_changed_lines = helpers.coerce_int(
         comparison_summary_payload.get("changed_lines_total")
     )
-    observed_pipelines = sorted(
-        {
-            str(row.get("llm_recipe_pipeline") or "").strip()
-            for row in effective_run_rows
-            if isinstance(row, dict)
-            and str(row.get("llm_recipe_pipeline") or "").strip()
-            and str(row.get("llm_recipe_pipeline") or "").strip() != "off"
-        }
+    topology = _build_recipe_pipeline_topology(
+        run_rows=effective_run_rows,
+        comparison_pairs=effective_pairs,
+        recipe_triage_rows=effective_recipe_triage,
     )
-    nonstandard_topology_active = any(
-        _looks_nonstandard_pipeline(pipeline_id) for pipeline_id in observed_pipelines
-    )
-    topology = {
-        "observed_recipe_pipelines": observed_pipelines,
-        "nonstandard_topology_active": nonstandard_topology_active,
-        "stage_label_mode": (
-            "nonstandard_topology_with_legacy_aliases"
-            if nonstandard_topology_active
-            else "standard_topology"
-        ),
-    }
     diagnostic_families = {
         "line_role": "line_role",
         "pass2_extraction": "pass2_*",

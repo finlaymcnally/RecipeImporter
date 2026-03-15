@@ -64,7 +64,7 @@ Active Label Studio runtime scope is `freeform-spans`.
 ### 2.1 Upload consent
 
 - `labelstudio-import` requires `--allow-labelstudio-write`.
-- `labelstudio-import --prelabel` also requires `--allow-codex` even when recipe parsing stays deterministic, because freeform prelabel uses the Codex CLI path.
+- `labelstudio-import --prelabel` also requires `--allow-codex` even when recipe parsing stays deterministic, because freeform prelabel is CodexFarm-backed.
 - `labelstudio-benchmark` requires `--allow-labelstudio-write` only when upload is enabled.
 - `labelstudio-benchmark --no-upload` is offline and skips Label Studio writes.
 
@@ -140,7 +140,7 @@ If inline annotation import fails, runtime falls back to:
 - Default prelabel timeout is `600` seconds per call.
 - First provider 429 sets a stop signal; remaining queued tasks are skipped and logged.
 - Callback failures are non-fatal telemetry warnings.
-- Plain `codex` command fallback to `codex exec -` is handled for TTY-style stdin failures.
+- Prelabel runs use CodexFarm pipeline `prelabel.freeform.v1` (no direct local `codex exec` fallback path).
 
 ### 4.4 Artifacts
 
@@ -158,15 +158,17 @@ Command resolution order:
 
 1. `--codex-cmd`
 2. `COOKIMPORT_CODEX_CMD`
-3. `codex exec -`
+3. `COOKIMPORT_CODEX_FARM_CMD`
+4. `codex-farm`
 
 Model resolution order:
 
 1. `--codex-model`
-2. `COOKIMPORT_CODEX_MODEL`
-3. Codex config/defaults
+2. `COOKIMPORT_CODEX_FARM_MODEL`
+3. `COOKIMPORT_CODEX_MODEL`
+4. Codex config/defaults
 
-Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`) and maps to `model_reasoning_effort`.
+Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`) and maps to CodexFarm reasoning-effort overrides.
 
 ## 5) Export, Eval, and Benchmark Contracts
 
@@ -252,7 +254,7 @@ Evaluation implementation:
 - `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
 - `canonical-text` path uses `cookimport/bench/eval_canonical_text.py`.
 - Canonical mode ensures canonical gold artifacts from export payloads via `cookimport/labelstudio/canonical_gold.py` when needed.
-- When `line_role_pipeline != off`, canonical benchmark prediction loading prefers projection artifacts from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) instead of legacy recipe-extraction stage artifacts.
+- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors the stage evidence into `prediction-run/` for compatibility. Canonical benchmark scoring continues to use the stage-backed `stage_block_predictions.json` plus extracted blocks; `prediction-run/line-role-pipeline/*` remains diagnostic-only.
 
 Benchmark eval artifacts include:
 
@@ -286,7 +288,7 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
 Prediction-generation defaults for canonical line-role codex inflight are now shared at ingest seam: non-split jobs use `8`, split-gated jobs use `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` still overrides both.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
-When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write:
+When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `prediction-run/line-role-pipeline/`:
 - `line-role-pipeline/joined_line_table.jsonl`
 - `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
 - `line-role-pipeline/slice_metrics.json`
@@ -315,7 +317,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Prediction run is co-located under eval root (`prediction-run/`).
 - Benchmark also records processed cookbook outputs under configured processed output root.
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
-- If `line_role_pipeline != off`, prediction-run manifests include `line_role_pipeline_*` artifact pointers and optional `line_role_pipeline_recipe_projection` summary from draft-field application.
+- If `line_role_pipeline != off`, prediction-run manifests include `line_role_pipeline_*` artifact pointers and an optional `line_role_pipeline_recipe_projection` summary. For stage-backed benchmark runs that summary is diagnostic-only and records that authoritative stage outputs were not mutated.
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`
   - `line_role_pipeline_do_no_harm_changed_rows_jsonl`

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tests.labelstudio.benchmark_helper_support as _support
+from cookimport.llm import prompt_artifacts
 
 # Reuse shared imports/helpers from the benchmark helper support module.
 globals().update({
@@ -9,6 +10,8 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+
 def test_co_locate_prediction_run_for_benchmark_moves_into_eval_dir(tmp_path: Path) -> None:
     timestamp_root = tmp_path / "output" / "2026-02-10_21:09:52"
     pred_run = timestamp_root / "labelstudio" / "book"
@@ -27,6 +30,7 @@ def test_co_locate_prediction_run_for_benchmark_moves_into_eval_dir(tmp_path: Pa
     assert not (timestamp_root / "labelstudio").exists()
     assert not timestamp_root.exists()
 
+
 def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_path: Path) -> None:
     pred_run = tmp_path / "output" / "2026-02-10_21:09:52" / "labelstudio" / "book"
     pred_run.mkdir(parents=True, exist_ok=True)
@@ -42,6 +46,7 @@ def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_p
     assert moved.exists()
     assert (moved / "new.txt").exists()
     assert not (moved / "old.txt").exists()
+
 
 def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     tmp_path: Path,
@@ -565,6 +570,207 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
     assert "## merged_repair (Merged Repair)" in prompt_samples
     assert "## pass2 (Schema.org Extraction)" not in prompt_samples
     assert "merged repair prompt" in prompt_samples
+
+
+def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "run_manifest.json").write_text(
+        json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+        encoding="utf-8",
+    )
+
+    run_dir = tmp_path / "synthetic-run"
+    stage1_in = run_dir / "segmentation_stage" / "in"
+    stage1_out = run_dir / "segmentation_stage" / "out"
+    stage2_in = run_dir / "repair_stage" / "in"
+    stage2_out = run_dir / "repair_stage" / "out"
+    for folder in (stage1_in, stage1_out, stage2_in, stage2_out):
+        folder.mkdir(parents=True, exist_ok=True)
+
+    (stage1_in / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "prompt_text": "segment prompt"}),
+        encoding="utf-8",
+    )
+    (stage1_out / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "result": "segment response"}),
+        encoding="utf-8",
+    )
+    (stage2_in / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "prompt_text": "repair prompt"}),
+        encoding="utf-8",
+    )
+    (stage2_out / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "result": "repair response"}),
+        encoding="utf-8",
+    )
+
+    stage1 = prompt_artifacts.PromptStageDescriptor(
+        schema_version=prompt_artifacts.PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
+        legacy_pass="slot_a",
+        task_name="task_a",
+        slot_index=11,
+        stage_dir_name="segmentation_stage",
+        stage_key="segmentation",
+        stage_heading_key="segmentation",
+        stage_label="Segmentation",
+        stage_artifact_stem="segmentation",
+        stage_matches_legacy=False,
+        pipeline_id="recipe.segmenter.v1",
+        manifest_name="synthetic_manifest.json",
+        manifest_path=None,
+        manifest_payload={},
+        process_run_payload=None,
+        input_dir=stage1_in,
+        output_dir=stage1_out,
+    )
+    stage2 = prompt_artifacts.PromptStageDescriptor(
+        schema_version=prompt_artifacts.PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
+        legacy_pass="slot_b",
+        task_name="task_b",
+        slot_index=12,
+        stage_dir_name="repair_stage",
+        stage_key="repair",
+        stage_heading_key="repair",
+        stage_label="Repair",
+        stage_artifact_stem="repair",
+        stage_matches_legacy=False,
+        pipeline_id="recipe.repair.v1",
+        manifest_name="synthetic_manifest.json",
+        manifest_path=None,
+        manifest_payload={},
+        process_run_payload=None,
+        input_dir=stage2_in,
+        output_dir=stage2_out,
+    )
+    run_descriptor = prompt_artifacts.PromptRunDescriptor(
+        schema_version=prompt_artifacts.PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION,
+        run_dir=run_dir,
+        manifest_payload_by_name={"synthetic_manifest.json": {"enabled": True}},
+        manifest_path_by_name={},
+        stages=(stage1, stage2),
+        codex_farm_pipeline="synthetic-topology.v1",
+        codex_farm_model="model-test",
+        codex_farm_reasoning_effort=None,
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+        run_descriptors=[run_descriptor],
+    )
+
+    assert log_path is not None and log_path.exists()
+    assert (eval_output_dir / "prompts" / "prompt_task_a_segmentation.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_task_b_repair.txt").exists()
+
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 2
+    assert {row["stage_key"] for row in full_prompt_rows} == {"segmentation", "repair"}
+    assert {row["schema_version"] for row in full_prompt_rows} == {
+        prompt_artifacts.PROMPT_CALL_RECORD_SCHEMA_VERSION
+    }
+
+    prompt_samples = (
+        eval_output_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md"
+    ).read_text(encoding="utf-8")
+    assert "## segmentation (Segmentation)" in prompt_samples
+    assert "## repair (Repair)" in prompt_samples
+
+
+def test_prompt_artifact_builder_accepts_custom_descriptor_discoverer(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    (pred_run / "run_manifest.json").write_text(
+        json.dumps({"source": {"path": str(tmp_path / "book.epub")}}),
+        encoding="utf-8",
+    )
+
+    run_dir = tmp_path / "synthetic-run"
+    stage_in = run_dir / "linkage_stage" / "in"
+    stage_out = run_dir / "linkage_stage" / "out"
+    stage_in.mkdir(parents=True, exist_ok=True)
+    stage_out.mkdir(parents=True, exist_ok=True)
+    (stage_in / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "prompt_text": "linkage prompt"}),
+        encoding="utf-8",
+    )
+    (stage_out / "r0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "result": "linkage response"}),
+        encoding="utf-8",
+    )
+
+    stage = prompt_artifacts.PromptStageDescriptor(
+        schema_version=prompt_artifacts.PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
+        legacy_pass="slot_linkage",
+        task_name="task_linkage",
+        slot_index=21,
+        stage_dir_name="linkage_stage",
+        stage_key="linkage",
+        stage_heading_key="linkage",
+        stage_label="Linkage",
+        stage_artifact_stem="linkage",
+        stage_matches_legacy=False,
+        pipeline_id="recipe.linkage.v1",
+        manifest_name="synthetic_manifest.json",
+        manifest_path=None,
+        manifest_payload={},
+        process_run_payload=None,
+        input_dir=stage_in,
+        output_dir=stage_out,
+    )
+    run_descriptor = prompt_artifacts.PromptRunDescriptor(
+        schema_version=prompt_artifacts.PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION,
+        run_dir=run_dir,
+        manifest_payload_by_name={"synthetic_manifest.json": {"enabled": True}},
+        manifest_path_by_name={},
+        stages=(stage,),
+        codex_farm_pipeline="synthetic-topology.v1",
+        codex_farm_model="model-test",
+        codex_farm_reasoning_effort=None,
+    )
+
+    discover_calls: list[Path] = []
+
+    def _discover(*, pred_run: Path) -> list[prompt_artifacts.PromptRunDescriptor]:
+        discover_calls.append(pred_run)
+        return [run_descriptor]
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = prompt_artifacts.build_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+        discoverers=(_discover,),
+    )
+
+    assert discover_calls == [pred_run]
+    assert log_path is not None and log_path.exists()
+    assert (eval_output_dir / "prompts" / "prompt_task_linkage_linkage.txt").exists()
+
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 1
+    assert full_prompt_rows[0]["stage_key"] == "linkage"
+    assert full_prompt_rows[0]["legacy_pass"] == "slot_linkage"
+
 
 def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> None:
     run_root = tmp_path / "run"

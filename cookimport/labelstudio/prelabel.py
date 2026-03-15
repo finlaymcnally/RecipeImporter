@@ -9,12 +9,16 @@ import re
 import shlex
 import subprocess
 import threading
+from functools import lru_cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, Protocol
 
-from cookimport.llm.codex_exec import (
-    argv_with_json_events as _shared_argv_with_json_events,
-    run_codex_json_prompt,
+from cookimport.llm.codex_farm_runner import (
+    CodexFarmRunner,
+    SubprocessCodexFarmRunner,
+    as_pipeline_run_result_payload,
+    ensure_codex_farm_pipelines_exist,
 )
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
@@ -33,8 +37,8 @@ class LlmProvider(Protocol):
         """Return raw model output."""
 
 
-class CodexCliProvider:
-    """Run a local Codex-style CLI command and cache prompt/response pairs."""
+class CodexFarmProvider:
+    """Run prelabel prompts through codex-farm and cache prompt/response pairs."""
 
     def __init__(
         self,
@@ -44,14 +48,24 @@ class CodexCliProvider:
         cache_dir: Path | None = None,
         track_usage: bool = False,
         model: str | None = None,
+        reasoning_effort: str | None = None,
+        codex_farm_root: Path | str | None = None,
+        codex_farm_workspace_root: Path | str | None = None,
+        runner: CodexFarmRunner | None = None,
     ) -> None:
         normalized_cmd = cmd.strip()
         if not normalized_cmd:
-            raise ValueError("codex command cannot be empty")
+            raise ValueError("codex-farm command cannot be empty")
         self.cmd = normalized_cmd
         self.timeout_s = max(1, int(timeout_s))
         self.track_usage = bool(track_usage)
         self.model = resolve_codex_model(model, cmd=self.cmd)
+        self.reasoning_effort = normalize_codex_reasoning_effort(reasoning_effort)
+        self.codex_farm_root = _resolve_codex_farm_root(codex_farm_root)
+        self.codex_farm_workspace_root = _resolve_codex_farm_workspace_root(
+            codex_farm_workspace_root
+        )
+        self.runner = runner
         if cache_dir is None:
             cache_dir = Path.home() / ".cache" / "cookimport" / "prelabel"
         self.cache_dir = Path(cache_dir)
@@ -70,7 +84,15 @@ class CodexCliProvider:
         with self._usage_lock:
             self._calls_total += 1
         cache_key = hashlib.sha256(
-            f"{self.cmd}\ntrack_usage={self.track_usage}\n{prompt}".encode("utf-8")
+            (
+                f"{self.cmd}\n"
+                f"track_usage={self.track_usage}\n"
+                f"model={self.model or ''}\n"
+                f"reasoning={self.reasoning_effort or ''}\n"
+                f"root={self.codex_farm_root}\n"
+                f"workspace={self.codex_farm_workspace_root or ''}\n"
+                f"{prompt}"
+            ).encode("utf-8")
         ).hexdigest()
         cache_path = self.cache_dir / f"{cache_key}.json"
         if cache_path.exists():
@@ -83,16 +105,20 @@ class CodexCliProvider:
             except (json.JSONDecodeError, OSError):
                 pass
 
-        payload = run_codex_json_prompt(
+        payload = run_codex_farm_json_prompt(
             prompt=prompt,
             timeout_seconds=self.timeout_s,
             cmd=self.cmd,
+            model=self.model,
+            reasoning_effort=self.reasoning_effort,
+            codex_farm_root=self.codex_farm_root,
+            codex_farm_workspace_root=self.codex_farm_workspace_root,
             track_usage=self.track_usage,
-            runner=subprocess.run,
+            runner=self.runner,
         )
         turn_failed_message = str(payload.get("turn_failed_message") or "").strip()
         if turn_failed_message:
-            raise RuntimeError(f"Codex command failed: {turn_failed_message}")
+            raise RuntimeError(f"CodexFarm command failed: {turn_failed_message}")
         response = str(payload.get("response") or "")
         usage = payload.get("usage")
         returncode = int(payload.get("returncode") or 0)
@@ -103,11 +129,11 @@ class CodexCliProvider:
                 stdout = str(payload.get("stdout") or "").strip()
                 detail = _normalize_codex_error_detail(stderr or stdout or "unknown error")
                 raise RuntimeError(
-                    f"Codex command failed (exit={returncode}): {detail}"
+                    f"CodexFarm command failed (exit={returncode}): {detail}"
                 )
 
         if not response:
-            raise RuntimeError("Codex command returned empty stdout")
+            raise RuntimeError("CodexFarm command returned empty output")
 
         self._record_usage(usage)
         try:
@@ -117,6 +143,13 @@ class CodexCliProvider:
                         "cmd": self.cmd,
                         "track_usage": self.track_usage,
                         "model": self.model,
+                        "reasoning_effort": self.reasoning_effort,
+                        "codex_farm_root": str(self.codex_farm_root),
+                        "codex_farm_workspace_root": (
+                            str(self.codex_farm_workspace_root)
+                            if self.codex_farm_workspace_root is not None
+                            else None
+                        ),
                         "prompt": prompt,
                         "response": response,
                         "usage": usage,
@@ -190,7 +223,7 @@ class CodexCliProvider:
                     if isinstance(text, str) and text.strip():
                         response = text.strip()
                 if event_type == "turn.completed":
-                    usage = CodexCliProvider._normalize_usage(payload.get("usage"))
+                    usage = CodexFarmProvider._normalize_usage(payload.get("usage"))
         return response, usage
 
     @staticmethod
@@ -204,7 +237,7 @@ class CodexCliProvider:
                 usage[key] = int(value)
             except (TypeError, ValueError):
                 usage[key] = 0
-        usage["reasoning_tokens"] = CodexCliProvider._extract_reasoning_tokens(payload)
+        usage["reasoning_tokens"] = CodexFarmProvider._extract_reasoning_tokens(payload)
         return usage
 
     @staticmethod
@@ -307,6 +340,8 @@ _MODEL_REASONING_EFFORT_CONFIG_LINE_RE = re.compile(
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 _CODEX_ALT_EXECUTABLE_RE = re.compile(r"^codex[0-9]+(?:\.exe)?$")
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_PRELABEL_CODEX_FARM_PIPELINE_ID = "prelabel.freeform.v1"
+_PRELABEL_CODEX_FARM_DEFAULT_CMD = "codex-farm"
 _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "prompts"
 _FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
 _SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
@@ -393,7 +428,8 @@ def is_rate_limit_message(value: str | None) -> bool:
 
 
 def _argv_with_json_events(argv: list[str], *, track_usage: bool) -> list[str]:
-    return _shared_argv_with_json_events(argv, track_usage=track_usage)
+    del track_usage
+    return list(argv)
 
 _FULL_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
 
@@ -907,7 +943,10 @@ def codex_reasoning_effort_from_cmd(cmd: str) -> str | None:
 
 
 def default_codex_model(cmd: str | None = None) -> str | None:
-    """Resolve default codex model from env then Codex config file."""
+    """Resolve default codex model from env then local Codex config file."""
+    farm_env_model = os.environ.get("COOKIMPORT_CODEX_FARM_MODEL")
+    if farm_env_model and farm_env_model.strip():
+        return farm_env_model.strip()
     env_model = os.environ.get("COOKIMPORT_CODEX_MODEL")
     if env_model and env_model.strip():
         return env_model.strip()
@@ -930,7 +969,12 @@ def default_codex_model(cmd: str | None = None) -> str | None:
 
 
 def default_codex_reasoning_effort(cmd: str | None = None) -> str | None:
-    """Resolve default codex reasoning effort from Codex config file."""
+    """Resolve default codex reasoning effort from env/config."""
+    farm_env_effort = normalize_codex_reasoning_effort(
+        os.environ.get("COOKIMPORT_CODEX_FARM_REASONING_EFFORT")
+    )
+    if farm_env_effort:
+        return farm_env_effort
     for path in _codex_config_paths(cmd=cmd):
         if not path.exists():
             continue
@@ -1057,42 +1101,229 @@ def resolve_codex_model(value: str | None, *, cmd: str | None = None) -> str | N
     return default_codex_model(cmd=cmd)
 
 
-def preflight_codex_model_access(*, cmd: str, timeout_s: int = 600) -> None:
-    """Run one Codex probe call and fail fast for invalid model/account access."""
+def _resolve_codex_farm_root(value: Path | str | None) -> Path:
+    if value is not None:
+        configured = str(value).strip()
+        if configured:
+            return Path(configured).expanduser()
+    return Path(__file__).resolve().parents[2] / "llm_pipelines"
+
+
+def _resolve_codex_farm_workspace_root(
+    value: Path | str | None,
+) -> Path | None:
+    if value is None:
+        return None
+    configured = str(value).strip()
+    if not configured:
+        return None
+    return Path(configured).expanduser()
+
+
+@lru_cache(maxsize=32)
+def _ensure_prelabel_codex_farm_pipeline(
+    *,
+    cmd: str,
+    root_dir_str: str,
+) -> None:
+    root_dir = Path(root_dir_str)
+    ensure_codex_farm_pipelines_exist(
+        cmd=cmd,
+        root_dir=root_dir,
+        pipeline_ids=(_PRELABEL_CODEX_FARM_PIPELINE_ID,),
+        env={"CODEX_FARM_ROOT": str(root_dir)},
+    )
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _codex_farm_return_code(process_run_payload: dict[str, Any] | None) -> int:
+    if not isinstance(process_run_payload, dict):
+        return 1
+    subprocess_exit = _coerce_int(process_run_payload.get("subprocess_exit_code"))
+    process_exit = _coerce_int(process_run_payload.get("process_exit_code"))
+    if subprocess_exit is not None and subprocess_exit != 0:
+        return subprocess_exit
+    if process_exit is not None and process_exit != 0:
+        return process_exit
+    return 0
+
+
+def _codex_farm_usage_payload(
+    process_run_payload: dict[str, Any] | None,
+) -> dict[str, int] | None:
+    if not isinstance(process_run_payload, dict):
+        return None
+    telemetry = process_run_payload.get("telemetry")
+    if not isinstance(telemetry, dict):
+        return None
+    summary = telemetry.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    tokens_input = _coerce_int(summary.get("tokens_input"))
+    tokens_cached_input = _coerce_int(summary.get("tokens_cached_input"))
+    tokens_output = _coerce_int(summary.get("tokens_output"))
+    tokens_reasoning = _coerce_int(summary.get("tokens_reasoning"))
+    if (
+        tokens_input is None
+        and tokens_cached_input is None
+        and tokens_output is None
+        and tokens_reasoning is None
+    ):
+        return None
+    return {
+        "input_tokens": max(0, int(tokens_input or 0)),
+        "cached_input_tokens": max(0, int(tokens_cached_input or 0)),
+        "output_tokens": max(0, int(tokens_output or 0)),
+        "reasoning_tokens": max(0, int(tokens_reasoning or 0)),
+    }
+
+
+def run_codex_farm_json_prompt(
+    *,
+    prompt: str,
+    timeout_seconds: int,
+    cmd: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    codex_farm_root: Path | str | None = None,
+    codex_farm_workspace_root: Path | str | None = None,
+    allow_llm: bool = True,
+    track_usage: bool = False,
+    runner: CodexFarmRunner | None = None,
+) -> dict[str, Any]:
+    if not allow_llm:
+        raise RuntimeError(
+            "LLM call blocked by safety kill switch. Explicit Codex approval is required."
+        )
+    resolved_cmd = str(cmd or _PRELABEL_CODEX_FARM_DEFAULT_CMD).strip()
+    if not resolved_cmd:
+        raise ValueError("codex-farm command cannot be empty")
+    try:
+        resolved_argv = shlex.split(resolved_cmd)
+    except ValueError:
+        resolved_argv = []
+    if resolved_argv:
+        executable = Path(resolved_argv[0]).name.lower().strip()
+        if executable.startswith("codex") and "farm" not in executable:
+            raise RuntimeError(
+                "prelabel codex cmd must point at codex-farm (direct local Codex CLI is unsupported)."
+            )
+    resolved_root = _resolve_codex_farm_root(codex_farm_root)
+    resolved_workspace_root = _resolve_codex_farm_workspace_root(
+        codex_farm_workspace_root
+    )
+    if runner is None:
+        _ensure_prelabel_codex_farm_pipeline(
+            cmd=resolved_cmd,
+            root_dir_str=str(resolved_root),
+        )
+        codex_runner: CodexFarmRunner = SubprocessCodexFarmRunner(cmd=resolved_cmd)
+    else:
+        codex_runner = runner
+
+    with TemporaryDirectory(prefix="cookimport-prelabel-") as temp_dir:
+        temp_root = Path(temp_dir)
+        in_dir = temp_root / "in"
+        out_dir = temp_root / "out"
+        in_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        input_path = in_dir / "prelabel_prompt.json"
+        input_path.write_text(
+            json.dumps({"prompt": prompt}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        process_run = codex_runner.run_pipeline(
+            _PRELABEL_CODEX_FARM_PIPELINE_ID,
+            in_dir,
+            out_dir,
+            {"CODEX_FARM_ROOT": str(resolved_root)},
+            root_dir=resolved_root,
+            workspace_root=resolved_workspace_root,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        process_run_payload = as_pipeline_run_result_payload(process_run)
+        returncode = _codex_farm_return_code(process_run_payload)
+        output_payload: dict[str, Any] | None = None
+        output_path = out_dir / input_path.name
+        if output_path.exists():
+            try:
+                parsed = json.loads(output_path.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    output_payload = parsed
+            except (OSError, json.JSONDecodeError):
+                output_payload = None
+        selections = None
+        if isinstance(output_payload, dict):
+            raw_selections = output_payload.get("selections")
+            if isinstance(raw_selections, list):
+                selections = raw_selections
+        response = json.dumps(selections, ensure_ascii=False) if isinstance(
+            selections, list
+        ) else ""
+        usage = _codex_farm_usage_payload(process_run_payload) if track_usage else None
+        turn_failed_message = None
+        if returncode != 0:
+            if isinstance(process_run_payload, dict):
+                turn_failed_message = (
+                    str(process_run_payload.get("error_summary") or "").strip() or None
+                )
+            if turn_failed_message is None:
+                turn_failed_message = "codex-farm process failed"
+        return {
+            "cmd": resolved_cmd,
+            "argv": [resolved_cmd],
+            "returncode": returncode,
+            "stdout": "",
+            "stderr": "",
+            "response": response,
+            "usage": usage,
+            "turn_failed_message": turn_failed_message,
+            "completed": None,
+            "process_run": process_run_payload,
+            "timeout_seconds": max(1, int(timeout_seconds)),
+        }
+
+
+def preflight_codex_model_access(
+    *,
+    cmd: str,
+    timeout_s: int = 600,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    codex_farm_root: Path | str | None = None,
+    codex_farm_workspace_root: Path | str | None = None,
+) -> None:
+    """Run one codex-farm probe call and fail fast for invalid model access."""
     normalized_cmd = cmd.strip()
     if not normalized_cmd:
-        raise RuntimeError("codex command cannot be empty")
-    try:
-        argv = shlex.split(normalized_cmd)
-    except ValueError as exc:
-        raise RuntimeError(f"Unable to parse codex command: {normalized_cmd!r}") from exc
-    if not argv:
-        raise RuntimeError(f"Unable to parse codex command: {normalized_cmd!r}")
-
-    def _run_probe(argv_probe: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            _argv_with_json_events(argv_probe, track_usage=True),
-            input='Return EXACTLY this JSON array and nothing else: []',
-            text=True,
-            capture_output=True,
-            timeout=max(1, int(timeout_s)),
-            check=False,
-        )
-
-    completed = _run_probe(argv)
-    if (
-        completed.returncode != 0
-        and CodexCliProvider._is_stdin_tty_error(completed)
-        and CodexCliProvider._is_plain_codex_command(argv)
-    ):
-        completed = _run_probe([argv[0], "exec", "-"])
-
-    turn_failed_message = CodexCliProvider._extract_turn_failed_message(completed)
+        raise RuntimeError("codex-farm command cannot be empty")
+    probe_payload = run_codex_farm_json_prompt(
+        prompt="Return exactly an empty list.",
+        timeout_seconds=max(1, int(timeout_s)),
+        cmd=normalized_cmd,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
+        track_usage=True,
+        allow_llm=True,
+    )
+    turn_failed_message = str(probe_payload.get("turn_failed_message") or "").strip()
     if turn_failed_message:
         raise RuntimeError(turn_failed_message)
-    if completed.returncode != 0:
-        stderr = (completed.stderr or "").strip()
-        stdout = (completed.stdout or "").strip()
+    returncode = int(probe_payload.get("returncode") or 0)
+    if returncode != 0:
+        stderr = str(probe_payload.get("stderr") or "").strip()
+        stdout = str(probe_payload.get("stdout") or "").strip()
         detail = _normalize_codex_error_detail(stderr or stdout or "unknown error")
         raise RuntimeError(detail)
 
@@ -2213,8 +2444,11 @@ def prelabel_freeform_task(
 
 
 def default_codex_cmd() -> str:
-    """Resolve default codex command used by prelabel flows."""
+    """Resolve default codex-farm command used by prelabel flows."""
     explicit = (os.environ.get("COOKIMPORT_CODEX_CMD") or "").strip()
     if explicit:
         return explicit
-    return "codex exec -"
+    farm_override = (os.environ.get("COOKIMPORT_CODEX_FARM_CMD") or "").strip()
+    if farm_override:
+        return farm_override
+    return _PRELABEL_CODEX_FARM_DEFAULT_CMD

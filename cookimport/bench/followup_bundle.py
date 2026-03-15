@@ -186,6 +186,41 @@ def _source_key_from_output_subdir(output_subdir: str) -> str:
     return parts[0] if parts else ""
 
 
+def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
+    manifest_path = prompts_dir / "prompt_category_logs_manifest.txt"
+    if not manifest_path.is_file():
+        return []
+    rows: list[Path] = []
+    for raw_line in manifest_path.read_text(encoding="utf-8").splitlines():
+        text = raw_line.strip()
+        if not text:
+            continue
+        candidate = Path(text)
+        if not candidate.is_absolute():
+            candidate = (prompts_dir / candidate).resolve()
+        rows.append(candidate)
+    return rows
+
+
+def _resolve_pass4_prompt_task_path(prompts_dir: Path) -> Path | None:
+    candidates: list[Path] = [prompts_dir / "prompt_task4_pass4_knowledge.txt"]
+    for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
+        name = candidate.name.lower()
+        if name.startswith("prompt_task4_") and name.endswith(".txt"):
+            candidates.append(candidate)
+    candidates.extend(sorted(prompts_dir.glob("prompt_task4_*.txt")))
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _load_legacy_followup_cases(bundle_dir: Path) -> dict[str, dict[str, Any]]:
     followup_path = bundle_dir.parent / "followup_data" / "codexfarm_root_cause_packet.json"
     if not followup_path.is_file():
@@ -395,15 +430,16 @@ class RunContext:
     def pass4_artifact_paths(self) -> dict[str, str]:
         resolved: dict[str, str] = {}
         prompts_dir = self.run_dir / "prompts"
+        pass4_prompt_task = _resolve_pass4_prompt_task_path(prompts_dir)
         for label, path in (
             ("prompt_samples_md", prompts_dir / "prompt_type_samples_from_full_prompt_log.md"),
-            ("prompt_task4_txt", prompts_dir / "prompt_task4_pass4_knowledge.txt"),
+            ("prompt_task4_txt", pass4_prompt_task),
             (
                 "prompt_budget_summary_json",
                 self.run_dir / "prediction-run" / "prompt_budget_summary.json",
             ),
         ):
-            if path.is_file():
+            if isinstance(path, Path) and path.is_file():
                 resolved[label] = str(path)
         if self.raw_llm_dir is not None:
             manifest_path = self.raw_llm_dir / "pass4_knowledge_manifest.json"
@@ -1579,16 +1615,8 @@ def _build_line_role_audit_rows(
             confidence = _coerce_float(line_role_row.get("confidence"))
             decided_by = str(line_role_row.get("decided_by") or "").strip().lower()
             violations: list[str] = []
-            if not candidate_labels:
-                violations.append("candidate_labels_missing")
-            if final_label and candidate_labels and final_label not in candidate_labels:
-                violations.append("pred_not_in_candidate_labels")
-            if raw_model_label and candidate_labels and raw_model_label not in candidate_labels:
-                violations.append("raw_not_in_candidate_labels")
             if decided_by == "codex" and parsed_label is None:
                 violations.append("parsed_label_missing")
-            elif candidate_labels and parsed_label not in candidate_labels:
-                violations.append("parsed_not_in_candidate_labels")
             if decided_by == "codex" and prompt_link is None:
                 violations.append("prompt_artifact_missing")
             if parsed_label and final_label and parsed_label != final_label:
@@ -1897,8 +1925,6 @@ def _build_uncertainty_rows(
         reasons: list[str] = []
         if confidence is not None and confidence < confidence_threshold:
             reasons.append("low_confidence")
-        if len(candidate_labels) > 1:
-            reasons.append("multiple_candidate_labels")
         if row.get("violations"):
             reasons.append("audit_violations")
         if not reasons:

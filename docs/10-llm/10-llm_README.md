@@ -45,7 +45,8 @@ Recipe codex-farm pass modules:
 
 Canonical line-role helper modules:
 
-- `cookimport/llm/codex_exec.py` (shared `codex exec -` invocation helper with json-event parsing and non-interactive fallback)
+- `cookimport/parsing/canonical_line_roles.py` (line-role CodexFarm adapter over pipeline `line-role.canonical.v1`)
+- `cookimport/labelstudio/prelabel.py` (Label Studio prelabel CodexFarm adapter over pipeline `prelabel.freeform.v1`)
 - `cookimport/llm/canonical_line_role_prompt.py` (structured prompt builder for line-role-only Codex fallback batches)
 - `llm_pipelines/prompts/canonical-line-role-v1.prompt.md` (versioned prompt template for canonical line-role fallback)
 - `cookimport/parsing/canonical_line_roles.py` now records Codex-versus-deterministic disagreement reasons in `reason_tags`, and strong deterministic `TIME_LINE`, `YIELD_LINE`, `RECIPE_NOTES`, `HOWTO_SECTION`, and ingredient calls stay baseline-first unless local evidence is strong enough to justify a Codex override.
@@ -105,16 +106,16 @@ Report/model plumbing:
 - Direct run commands `cookimport stage`, `cookimport labelstudio-import`, `cookimport labelstudio-benchmark`, and the `import` entrypoint fail closed in execute mode when their resolved run settings enable a Codex-backed surface.
   - `stage`, `labelstudio-import`, and `import` use explicit `--allow-codex` approval at the command boundary.
   - `labelstudio-benchmark` now requires both `--allow-codex` and `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` for live Codex-backed runs, and it is hard-blocked in agent-run environments; use `--codex-execution-policy plan` for a zero-token preview from an agent session.
-- The low-level `COOKIMPORT_ALLOW_LLM` kill switch still blocks unapproved `codex exec` calls by default, but explicitly approved stage/import/benchmark runs now pass that approval through to the line-role Codex path so `codex-line-role-v1` is not silently disabled during a real approved run.
+- The low-level `COOKIMPORT_ALLOW_LLM` kill switch still blocks unapproved live Codex surfaces by default, and approved stage/import/benchmark runs pass that approval to line-role and prelabel CodexFarm adapters.
 - `COOKIMPORT_ALLOW_CODEX_FARM` remains as a legacy no-op compatibility variable.
 - `codex_farm_failure_mode` still controls behavior for active LLM passes (`fail` or `fallback`).
 - Usage attribution boundary:
   - shared `~/projects/shared/CodexFarm/var/codex_exec_activity.csv` can contain estimated/fake-test rows and is not proof of real usage for this repo,
   - repo-local truth for live runs is `var/codex_exec_activity.csv` plus `var/codex_farm.sqlite3`,
   - when no per-run model override is supplied, recipe passes fall back to the pipeline JSON defaults.
-- Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior and strict JSON/allowlist validation.
+- Canonical line-role fallback uses `line_role_pipeline=codex-line-role-v1` with deterministic-first behavior, strict JSON validation, and the full global line-role label vocabulary available on every Codex row.
 - `RunSettings` now also carries `line_role_guardrail_mode=off|preview|enforce` (default `enforce`) for explicit line-role post-sanitization arbitration behavior.
-- Canonical line-role allowlists now auto-offer `RECIPE_TITLE` for title-like lines, and low-confidence deterministic `RECIPE_TITLE` labels are kept on-rule instead of escalated away.
+- Canonical line-role title recovery no longer depends on per-row Codex allowlists, and low-confidence deterministic `RECIPE_TITLE` labels are kept on-rule instead of escalated away.
 - Canonical line-role prompt few-shots now include an explicit `RECIPE_TITLE` positive example (in addition to `RECIPE_VARIANT`) to reduce title-vs-variant confusion.
 
 ## Pass1 Pattern Hints Boundary
@@ -381,6 +382,10 @@ These settings remain part of run settings and stage execution:
   - stage run output: `<stage_run_root>/prompts/`
   - labelstudio-import run output: `<labelstudio_run_root>/prompts/`
   - key files: `prompt_request_response_log.txt`, `full_prompt_log.jsonl`, `prompt_type_samples_from_full_prompt_log.md`
+- Prompt artifact generation is now module-scoped in `cookimport/llm/prompt_artifacts.py`:
+  - discovery adapter: `discover_codexfarm_prompt_run_descriptors(...)` (layout-coupled),
+  - renderer: `render_prompt_artifacts_from_descriptors(...)` (layout-agnostic),
+  - wrapper used by CLI: `build_codex_farm_prompt_response_log(...)`.
 - The prompt sample markdown now covers pass1/pass2/pass3 and also pass4/pass5 when those manifests are present.
 - `full_prompt_log.jsonl` rows now also carry Codex trace metadata in `request_telemetry` (`trace_path`, resolved path, action/reasoning counts/types), plus `thinking_trace` payloads with reasoning events when trace files are available.
 - Local recipe pipeline pack prompts now run with `prompt_input_mode=inline` and embed full input JSON via `{{INPUT_TEXT}}`; recipe pass templates should not depend on file-read instructions.
@@ -747,8 +752,8 @@ Current LLM-side contracts to keep:
 - ProFeedback follow-up scope was benchmark/evaluation only (no default-ingestion enablement changes).
 - Pass3 ROI controls now include pass2-ok utility instrumentation plus deterministic skip policy via run settings (`codex_farm_pass3_skip_pass2_ok`); task evidence showed substantial pass3 load reduction when enabled, with no quality regression in cited SeaAndSmoke reruns.
 - Routing observability should remain additive and explicit in manifests (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason` plus pass2-ok utility fields).
-- Candidate-label surfacing is now expected end-to-end:
-  - line-role predictions include candidate-label payloads,
+- Candidate-label surfacing is now expected end-to-end as observational metadata:
+  - codex line-role predictions emit the full global label vocabulary rather than per-row shortlist constraints,
   - cutdown/export propagates candidate fields,
   - upload bundle `candidate_label_signal` should become available when those artifacts are present.
 - Upload-bundle codex diagnostics completeness expectation:

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import threading
 import time
@@ -103,7 +104,7 @@ from cookimport.labelstudio.label_config_freeform import (
     normalize_freeform_label,
 )
 from cookimport.labelstudio.prelabel import (
-    CodexCliProvider,
+    CodexFarmProvider,
     PRELABEL_GRANULARITY_BLOCK,
     annotation_labels,
     codex_account_summary,
@@ -900,25 +901,45 @@ def _build_prelabel_provider(
     codex_cmd: str | None,
     codex_model: str | None,
     codex_reasoning_effort: str | None,
+    codex_farm_root: Path | str | None,
+    codex_farm_workspace_root: Path | str | None,
     prelabel_timeout_seconds: int,
     prelabel_cache_dir: Path | None,
     prelabel_track_token_usage: bool,
-) -> CodexCliProvider:
+) -> CodexFarmProvider:
     normalized_provider = prelabel_provider.strip().lower()
-    if normalized_provider != "codex-cli":
-        raise ValueError("prelabel_provider must be 'codex-cli'")
+    if normalized_provider in {"codex-cli", "codex_farm", "codex-farm"}:
+        normalized_provider = "codex-farm"
+    if normalized_provider != "codex-farm":
+        raise ValueError("prelabel_provider must be 'codex-farm'")
     base_cmd = (codex_cmd or default_codex_cmd()).strip()
+    try:
+        base_argv = shlex.split(base_cmd)
+    except ValueError:
+        base_argv = []
+    if base_argv:
+        executable = Path(base_argv[0]).name.lower().strip()
+        if executable.startswith("codex") and "farm" not in executable:
+            raise ValueError(
+                "prelabel --codex-cmd must point at codex-farm (direct local Codex CLI is unsupported)."
+            )
     normalized_effort = normalize_codex_reasoning_effort(codex_reasoning_effort)
     resolved_model = resolve_codex_model(codex_model, cmd=base_cmd)
     resolved_cmd = codex_cmd_with_model(base_cmd, resolved_model)
     resolved_cmd = codex_cmd_with_reasoning_effort(resolved_cmd, normalized_effort)
     effective_model = codex_model_from_cmd(resolved_cmd) or resolved_model
-    return CodexCliProvider(
+    effective_reasoning_effort = (
+        codex_reasoning_effort_from_cmd(resolved_cmd) or normalized_effort
+    )
+    return CodexFarmProvider(
         cmd=resolved_cmd,
         timeout_s=prelabel_timeout_seconds,
         cache_dir=prelabel_cache_dir,
         track_usage=prelabel_track_token_usage,
         model=effective_model,
+        reasoning_effort=effective_reasoning_effort,
+        codex_farm_root=codex_farm_root,
+        codex_farm_workspace_root=codex_farm_workspace_root,
     )
 
 
@@ -1675,7 +1696,7 @@ def generate_pred_run_artifacts(
     single_offline_split_cache_key: str | None = None,
     single_offline_split_cache_force: bool = False,
     prelabel: bool = False,
-    prelabel_provider: str = "codex-cli",
+    prelabel_provider: str = "codex-farm",
     codex_cmd: str | None = None,
     codex_model: str | None = None,
     codex_reasoning_effort: str | None = None,
@@ -1704,6 +1725,12 @@ def generate_pred_run_artifacts(
     if not path.exists():
         raise FileNotFoundError(f"Path not found: {path}")
     normalized_prelabel_granularity = normalize_prelabel_granularity(prelabel_granularity)
+    normalized_prelabel_provider = str(prelabel_provider or "").strip().lower()
+    normalized_prelabel_provider = normalized_prelabel_provider.replace("_", "-")
+    if normalized_prelabel_provider in {"", "codex-cli"}:
+        normalized_prelabel_provider = "codex-farm"
+    if normalized_prelabel_provider != "codex-farm":
+        raise ValueError("prelabel_provider must be 'codex-farm'")
 
     run_dt = dt.datetime.now()
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
@@ -1861,7 +1888,7 @@ def generate_pred_run_artifacts(
     codex_decision_payload = {
         **run_settings.to_run_config_dict(),
         "prelabel_enabled": bool(prelabel),
-        "prelabel_provider": prelabel_provider,
+        "prelabel_provider": normalized_prelabel_provider,
     }
     codex_execution = resolve_codex_execution_policy(
         codex_command_context,
@@ -1880,7 +1907,9 @@ def generate_pred_run_artifacts(
         apply_codex_execution_policy_metadata(worker_run_config, codex_execution)
     )
     run_config["prelabel_enabled"] = bool(prelabel)
-    run_config["prelabel_provider"] = prelabel_provider if prelabel else None
+    run_config["prelabel_provider"] = (
+        normalized_prelabel_provider if prelabel else None
+    )
     run_config["epub_extractor_requested"] = selected_epub_extractor
     run_config["epub_extractor_effective"] = selected_epub_extractor
     run_config["write_markdown"] = bool(write_markdown)
@@ -2335,7 +2364,9 @@ def generate_pred_run_artifacts(
         if prelabel:
             planned_work["prelabel"] = {
                 "enabled": True,
-                "provider": prelabel_provider,
+                "provider": normalized_prelabel_provider,
+                "codex_backend": "codexfarm",
+                "codex_farm_pipeline_id": "prelabel.freeform.v1",
                 "granularity": normalized_prelabel_granularity,
                 "archive_block_count": len(archive),
             }
@@ -2504,6 +2535,7 @@ def generate_pred_run_artifacts(
         result.report.llm_codex_farm = llm_report
 
     if processed_output_root is not None:
+        _notify("Writing processed cookbook outputs...")
         _notify("Writing authoritative stage-backed outputs...")
         processed_output_started = time.monotonic()
         processed_run_root = processed_output_root / timestamp
@@ -2679,10 +2711,12 @@ def generate_pred_run_artifacts(
         )
         provider_cache_dir = prelabel_cache_dir or (run_root / "prelabel_cache")
         provider = _build_prelabel_provider(
-            prelabel_provider=prelabel_provider,
+            prelabel_provider=normalized_prelabel_provider,
             codex_cmd=codex_cmd,
             codex_model=codex_model,
             codex_reasoning_effort=codex_reasoning_effort,
+            codex_farm_root=codex_farm_root,
+            codex_farm_workspace_root=codex_farm_workspace_root,
             prelabel_timeout_seconds=prelabel_timeout_seconds,
             prelabel_cache_dir=provider_cache_dir,
             prelabel_track_token_usage=prelabel_track_token_usage,
@@ -2694,13 +2728,23 @@ def generate_pred_run_artifacts(
         preflight_codex_model_access(
             cmd=provider_cmd,
             timeout_s=max(1, int(prelabel_timeout_seconds)),
+            model=getattr(provider, "model", None),
+            reasoning_effort=getattr(provider, "reasoning_effort", None),
+            codex_farm_root=getattr(provider, "codex_farm_root", None),
+            codex_farm_workspace_root=getattr(
+                provider,
+                "codex_farm_workspace_root",
+                None,
+            ),
         )
         provider_model = getattr(
             provider,
             "model",
             resolve_codex_model(codex_model, cmd=provider_cmd),
         )
-        provider_reasoning_effort = codex_reasoning_effort_from_cmd(provider_cmd)
+        provider_reasoning_effort = getattr(provider, "reasoning_effort", None)
+        if provider_reasoning_effort is None:
+            provider_reasoning_effort = codex_reasoning_effort_from_cmd(provider_cmd)
         if provider_reasoning_effort is None:
             provider_reasoning_effort = normalize_codex_reasoning_effort(
                 codex_reasoning_effort
@@ -2958,6 +3002,9 @@ def generate_pred_run_artifacts(
                 payload["codex_cmd"] = provider_cmd
                 payload["codex_model"] = provider_model
                 payload["codex_reasoning_effort"] = provider_reasoning_effort
+                payload["codex_farm_cmd"] = provider_cmd
+                payload["codex_farm_model"] = provider_model
+                payload["codex_farm_reasoning_effort"] = provider_reasoning_effort
                 payload["codex_account"] = provider_account
                 with prelabel_prompt_log_path.open("a", encoding="utf-8") as handle:
                     handle.write(_format_prelabel_prompt_log_entry_markdown(payload))
@@ -3017,11 +3064,16 @@ def generate_pred_run_artifacts(
 
         prelabel_summary = {
             "enabled": True,
-            "provider": prelabel_provider,
+            "provider": normalized_prelabel_provider,
+            "codex_backend": "codexfarm",
+            "codex_farm_pipeline_id": "prelabel.freeform.v1",
             "granularity": normalized_prelabel_granularity,
             "codex_cmd": provider_cmd,
             "codex_model": provider_model,
             "codex_reasoning_effort": provider_reasoning_effort,
+            "codex_farm_cmd": provider_cmd,
+            "codex_farm_model": provider_model,
+            "codex_farm_reasoning_effort": provider_reasoning_effort,
             "codex_account": provider_account,
             "cache_dir": str(provider_cache_dir),
             "workers": effective_prelabel_workers,
@@ -3726,7 +3778,7 @@ def run_labelstudio_import(
     single_offline_split_cache_key: str | None = None,
     single_offline_split_cache_force: bool = False,
     prelabel: bool = False,
-    prelabel_provider: str = "codex-cli",
+    prelabel_provider: str = "codex-farm",
     codex_cmd: str | None = None,
     codex_model: str | None = None,
     codex_reasoning_effort: str | None = None,

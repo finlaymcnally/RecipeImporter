@@ -2496,6 +2496,26 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
     )
 
 
+def test_resolve_pass4_prompt_task_path_supports_dynamic_stage_file_names(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    run_dir = tmp_path / "single-profile-benchmark" / "book_a" / "codexfarm"
+    prompts_dir = run_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+
+    dynamic_path = prompts_dir / "prompt_task4_knowledge_stage.txt"
+    dynamic_path.write_text("dynamic pass4 content\n", encoding="utf-8")
+    (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
+        str(dynamic_path) + "\n",
+        encoding="utf-8",
+    )
+
+    resolved = module._resolve_pass4_prompt_task_path(run_dir)
+
+    assert resolved == dynamic_path
+
+
 def test_reconstruct_full_prompt_log_includes_pass4_rows(
     tmp_path: Path,
 ) -> None:

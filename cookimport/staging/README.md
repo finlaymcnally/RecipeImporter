@@ -10,6 +10,7 @@ Durable output-path and section/report contracts live in `cookimport/staging/CON
   - Instruction fallback segmentation is run-config aware (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) before section extraction and step parsing.
   - Priority 6 parsing/yield options are run-config aware (`p6_*` settings): step parsing can emit `temperature_items`, recipe-level `max_oven_temp_f`, strategy-based `cook_time_seconds` fallback, and centralized yield fields.
 - **Writer:** `writer.py` provides `write_intermediate_outputs()`, `write_draft_outputs()`, and `write_tip_outputs()` functions
+  - `import_session.py` is the shared stage-backed post-conversion runner used by single-file stage, split-merge stage, and benchmark-backed processed outputs.
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.
   - Writer helpers can optionally collect per-output file counts/bytes for inclusion in conversion reports (`outputStats`).

@@ -126,6 +126,7 @@ Interactive `single_offline` now writes into one session root:
   - `full_prompt_log.jsonl` rows include `request_payload_source` (`telemetry_csv` when `codex_exec_activity.csv` has a matching call; fallback `reconstructed_from_prompt_template` otherwise), `request_telemetry`, and dynamic stage metadata such as `legacy_pass`, `stage_key`, `stage_label`, and `stage_matches_legacy`.
   - prompt category files keep legacy names for standard pass stages (`prompt_task1_pass1_chunking.txt`, `prompt_task2_pass2_schemaorg.txt`, `prompt_task3_pass3_final.txt`) but switch to the observed stage label when a legacy slot runs a different pipeline (for example `prompt_task2_merged_repair.txt`),
   - `prompt_category_logs_manifest.txt` (one-path-per-line index of category files).
+  - downstream pass4 bundle tooling now resolves pass4 prompt category files via the manifest and `prompt_task4_*.txt` discovery, not only `prompt_task4_pass4_knowledge.txt`.
   - benchmark `run_manifest.json` now includes `full_prompt_log_status`, `full_prompt_log_rows`, and `full_prompt_log_path` under `artifacts` for CodexFarm runs.
 - optional comparison artifacts only when both variants succeed:
   - `.../single-offline-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
@@ -174,13 +175,13 @@ Interactive `single_offline` now writes into one session root:
 Priority 8 segmentation controls (`--label-projection`, `--boundary-tolerance-blocks`, `--segmentation-metrics`) are exposed only on `bench eval-stage` (not all-method or speed-suite).
 When prediction generation enables `llm_recipe_pipeline=codex-farm-3pass-v1`, benchmark progress callback spinners now receive codex-farm `task X/Y` updates from `process --progress-events` (with automatic fallback to phase-only status when that flag is unavailable). If the progress payload includes running-task metadata, callbacks also include an `active [...]` list of file-level task labels for the currently occupied workers; if it does not, only aggregate counters are shown. The worker summary row now includes a remaining-work counter (`active tasks (..., N left)`) derived from the same `task X/Y` counter so operators can always see total tasks left even when the top status line is width-truncated. Spinner output uses a larger `bouncingBar` indicator and a wider blue ASCII panel (bordered block); long status/task rows wrap across panel lines instead of being hard-clamped to one truncated row.
 In agent-run terminals (`CODEX_CI=1`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SSE_PORT`), callback progress defaults to plain change-only status lines instead of animated spinner frames; use `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner rendering.
-Canonical-text benchmark runs with `--line-role-pipeline` enabled now prefer prediction inputs from `prediction-run/line-role-pipeline/` (`stage_block_predictions.json` + `extracted_archive.json`) and fall back to legacy stage artifacts when projection artifacts are missing.
+Canonical-text benchmark runs now score the same stage-backed evidence surface as `bench eval-stage`: the authoritative stage run `.bench/<workbook_slug>/stage_block_predictions.json` plus extracted blocks text. When `--line-role-pipeline` is enabled, `prediction-run/line-role-pipeline/` artifacts are still written for diagnostics, but they are no longer the preferred scoring input.
 When pass4 `knowledge/<workbook_slug>/block_classifications.jsonl` is present, the line-role projection writer and deterministic stage scorer use it as the primary outside-span `KNOWLEDGE` versus `OTHER` signal; `knowledge/<workbook_slug>/snippets.jsonl` remains the fallback for older roots that predate the explicit classifier artifact.
 Offline `labelstudio-benchmark` prediction generation now forwards pass4 knowledge settings into the shared `RunSettings` path, so `--llm-knowledge-pipeline codex-farm-knowledge-v1` can emit `raw/llm/<workbook_slug>/pass4_knowledge_manifest.json` plus `knowledge/<workbook_slug>/snippets.jsonl` under the prediction-run root.
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
 - `line_role_predictions.jsonl` (copied from prediction-run artifact)
-  - rows now include `candidate_labels` from canonical line-role allowlists.
+  - rows can include `candidate_labels`; on current codex line-role runs this is the full global label vocabulary, not a per-row LLM shortlist.
 - `joined_line_table.jsonl`
   - rows include `candidate_labels` and `candidate_label_count` for joined-line triage.
   - exporter matching is conservative: metadata is attached only when a line-role prediction matches the canonical line by exact normalized text (same index+text first, then exact-text sequence alignment); split/merged or ambiguous duplicate lines stay unmatched rather than inheriting another line's telemetry.
@@ -1762,7 +1763,7 @@ Merged source notes (chronological):
 ### 2026-03-03_21.48.57 upload bundle unavailable-signal interpretation
 
 - `upload_bundle_v1` `calls_with_cost=0` indicates upstream observed billing fields are absent in prompt logs; estimated cost remains the fallback.
-- `candidate_label_signal.available=false` means line-role rows did not include recognized candidate-label payload keys.
+- `candidate_label_signal.available=false` means line-role rows did not include recognized candidate-label payload keys; when available, treat those fields as observational metadata rather than proof of a live LLM restriction.
 - `pair_count=1` in single-source paired runs is expected and below the bundle's `>=2` generalization-readiness threshold.
 - Pass2/pass3 stage-level per-label scoring is intentionally unavailable in current artifacts because pass2/pass3 outputs are recipe-structure payloads, not line-label prediction/eval tables.
 
@@ -1794,7 +1795,7 @@ Current benchmark contracts added/confirmed:
 Anti-loop reminders from this task batch:
 - If benchmark says dashboard refreshed but `.history/dashboard` (repo-local default) is stale, inspect refresh target wiring (`dashboard_out_dir` / `dashboard_output_root`) before touching analytics render code.
 - If interactive outputs disappear after a run, verify prune classifier scope before changing artifact writers.
-- If upload bundle `candidate_label_signal.available` or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage.
+- If upload bundle `candidate_label_signal.available` or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage, and current codex runs no longer use candidate-label payloads as per-row prompt constraints.
 
 ## 2026-03-03 docs/tasks merge digest (upload_bundle candidate-stage scoring + starterpack upgrade)
 
@@ -1803,7 +1804,7 @@ Merged source task files (timestamp/file order):
 - `docs/tasks/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md`
 
 Current benchmark/upload-bundle contracts to keep:
-- `upload_bundle_v1` candidate-label analysis is intentionally multi-shape tolerant (`candidate_labels`, `label_candidates`, `candidates`, `top_candidates`, `candidate_label_scores`, `label_scores`, `candidate_distribution`) for backward compatibility.
+- `upload_bundle_v1` candidate-label analysis is intentionally multi-shape tolerant (`candidate_labels`, `label_candidates`, `candidates`, `top_candidates`, `candidate_label_scores`, `label_scores`, `candidate_distribution`) for backward compatibility and historical runs where candidate metadata meant something different.
 - Pass2/pass3 per-label stage metrics are now on-demand in upload-bundle generation when pass artifacts exist:
   - discover pass artifacts under `prediction-run/raw/llm/*/pass2_schemaorg` and `pass3_final`,
   - project to stage labels,

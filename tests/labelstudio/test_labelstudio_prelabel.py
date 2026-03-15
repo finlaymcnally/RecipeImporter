@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import cookimport.labelstudio.prelabel as prelabel_module
 from cookimport.labelstudio.prelabel import (
-    CodexCliProvider,
+    CodexFarmProvider,
     codex_account_summary,
     codex_cmd_with_model,
     codex_cmd_with_reasoning_effort,
