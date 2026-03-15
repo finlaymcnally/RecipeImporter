@@ -209,6 +209,7 @@ from cookimport.staging.pdf_jobs import (
     plan_pdf_page_ranges,
     reassign_recipe_ids,
 )
+from cookimport.staging.import_session import execute_stage_import_session_from_result
 from cookimport.staging.writer import (
     OutputStats,
     write_chunk_outputs,
@@ -13508,7 +13509,7 @@ def _run_offline_benchmark_prediction_stage(
         import_result=import_result,
         eval_output_dir=eval_output_dir,
         prediction_phase_seconds=prediction_phase_seconds,
-        prefer_line_role_projection=(line_role_pipeline != "off"),
+        prefer_line_role_projection=False,
     )
     prediction_records = list(
         predict_stage(
@@ -24933,10 +24934,6 @@ def _merge_split_jobs(
         workbook=file_path.stem,
         workbook_path=str(file_path),
     )
-    llm_schema_overrides: dict[str, dict[str, Any]] | None = None
-    llm_draft_overrides: dict[str, dict[str, Any]] | None = None
-    llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
-
     from cookimport.cli_worker import apply_result_limits
     apply_result_limits(merged_result, limit, limit, limit_label=limit)
     report.total_topic_candidates = len(merged_result.topic_candidates)
@@ -24954,91 +24951,7 @@ def _merge_split_jobs(
                 f"represented ({standalone_coverage:.0%})."
             )
 
-    if llm_enabled:
-        _report_phase("Running codex-farm recipe pipeline...")
-        try:
-            llm_apply = run_codex_farm_recipe_pipeline(
-                conversion_result=merged_result,
-                run_settings=run_settings,
-                run_root=out,
-                workbook_slug=workbook_slug,
-                full_blocks=merged_full_blocks or None,
-                progress_callback=_report_status,
-            )
-        except CodexFarmRunnerError as exc:
-            if run_settings.codex_farm_failure_mode.value == "fallback":
-                warning = (
-                    "LLM recipe pipeline failed; falling back to deterministic outputs: "
-                    f"{exc}"
-                )
-                report.warnings.append(warning)
-                llm_report = {
-                    "enabled": True,
-                    "pipeline": run_settings.llm_recipe_pipeline.value,
-                    "fallbackApplied": True,
-                    "fatalError": str(exc),
-                }
-            else:
-                raise
-        else:
-            merged_result = llm_apply.updated_conversion_result
-            llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
-            llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
-            llm_report = dict(llm_apply.llm_report)
-
-    report = merged_result.report
-    report.llm_codex_farm = llm_report
-
-    parsing_overrides = (
-        mapping_config.parsing_overrides if mapping_config and mapping_config.parsing_overrides else None
-    )
-    extracted_tables: list[ExtractedTable] = []
-    _report_phase("Extracting tables...")
-    extracted_tables = extract_and_annotate_tables(
-        merged_result.non_recipe_blocks,
-        source_hash=file_hash,
-    )
-    _report_phase("Building chunks...")
-    if merged_result.non_recipe_blocks:
-        merged_result.chunks = chunks_from_non_recipe_blocks(
-            merged_result.non_recipe_blocks,
-            overrides=parsing_overrides,
-        )
-    elif merged_result.topic_candidates:
-        merged_result.chunks = chunks_from_topic_candidates(
-            merged_result.topic_candidates,
-            overrides=parsing_overrides,
-        )
-    if run_settings.llm_knowledge_pipeline.value != "off":
-        _report_phase("Running codex-farm knowledge harvest...")
-        try:
-            knowledge_apply = run_codex_farm_knowledge_harvest(
-                conversion_result=merged_result,
-                run_settings=run_settings,
-                run_root=out,
-                workbook_slug=workbook_slug,
-                overrides=parsing_overrides,
-                full_blocks=merged_full_blocks or None,
-                progress_callback=_report_status,
-            )
-        except CodexFarmRunnerError as exc:
-            if run_settings.codex_farm_failure_mode.value == "fallback":
-                warning = (
-                    "LLM knowledge harvest failed; continuing without knowledge artifacts: "
-                    f"{exc}"
-                )
-                report.warnings.append(warning)
-                llm_report["knowledge"] = {
-                    "enabled": True,
-                    "pipeline": run_settings.llm_knowledge_pipeline.value,
-                    "fallbackApplied": True,
-                    "fatalError": str(exc),
-                }
-            else:
-                raise
-        else:
-            llm_report["knowledge"] = dict(knowledge_apply.llm_report)
-        report.llm_codex_farm = llm_report
+    output_stats = OutputStats(out)
 
     recipe_likeness_results = [
         candidate.recipe_likeness
@@ -25058,97 +24971,27 @@ def _merge_split_jobs(
     )
     report.recipe_likeness = recipe_likeness_summary
 
-    report.run_timestamp = run_dt.isoformat(timespec="seconds")
-    enrich_report_with_stats(report, merged_result, file_path)
-
     _report_phase("Writing merged outputs...")
-    with measure(merge_stats, "writing"):
-        intermediate_dir = out / "intermediate drafts" / workbook_slug
-        final_dir = out / "final drafts" / workbook_slug
-        tips_dir = out / "tips" / workbook_slug
-
-        _report_phase("Writing intermediate drafts...")
-        with measure(merge_stats, "write_intermediate_seconds"):
-            write_intermediate_outputs(
-                merged_result,
-                intermediate_dir,
-                output_stats=output_stats,
-                schemaorg_overrides_by_recipe_id=llm_schema_overrides,
-                instruction_step_options=run_config,
-            )
-        _report_phase("Writing final drafts...")
-        with measure(merge_stats, "write_final_seconds"):
-            write_draft_outputs(
-                merged_result,
-                final_dir,
-                output_stats=output_stats,
-                draft_overrides_by_recipe_id=llm_draft_overrides,
-                ingredient_parser_options=run_config,
-                instruction_step_options=run_config,
-            )
-        _report_phase("Writing sections...")
-        with measure(merge_stats, "write_sections_seconds"):
-            write_section_outputs(
-                out,
-                workbook_slug,
-                merged_result.recipes,
-                output_stats=output_stats,
-                write_markdown=write_markdown,
-                instruction_step_options=run_config,
-            )
-        _report_phase("Writing tips...")
-        with measure(merge_stats, "write_tips_seconds"):
-            write_tip_outputs(
-                merged_result,
-                tips_dir,
-                output_stats=output_stats,
-                write_markdown=write_markdown,
-            )
-        _report_phase("Writing topic candidates...")
-        with measure(merge_stats, "write_topic_candidates_seconds"):
-            write_topic_candidate_outputs(
-                merged_result,
-                tips_dir,
-                output_stats=output_stats,
-                write_markdown=write_markdown,
-            )
-        _report_phase("Writing tables...")
-        with measure(merge_stats, "write_tables_seconds"):
-            write_table_outputs(
-                out,
-                workbook_slug,
-                extracted_tables,
-                source_file=file_path.name,
-                output_stats=output_stats,
-                write_markdown=write_markdown,
-            )
-
-        if should_write_chunks:
-            _report_phase("Writing chunks...")
-            if merged_result.chunks:
-                chunks_dir = out / "chunks" / workbook_slug
-                with measure(merge_stats, "write_chunks_seconds"):
-                    write_chunk_outputs(
-                        merged_result.chunks,
-                        chunks_dir,
-                        output_stats=output_stats,
-                        write_markdown=write_markdown,
-                    )
-
-        _report_phase("Writing stage block predictions...")
-        with measure(merge_stats, "write_stage_block_predictions_seconds"):
-            write_stage_block_predictions(
-                results=merged_result,
-                run_root=out,
-                workbook_slug=workbook_slug,
-                source_file=str(file_path),
-                archive_blocks=merged_full_blocks,
-                knowledge_block_classifications_path=(
-                    out / "knowledge" / workbook_slug / "block_classifications.jsonl"
-                ),
-                knowledge_snippets_path=out / "knowledge" / workbook_slug / "snippets.jsonl",
-                output_stats=output_stats,
-            )
+    session = execute_stage_import_session_from_result(
+        result=merged_result,
+        source_file=file_path,
+        run_root=out,
+        run_dt=run_dt,
+        importer_name=importer_name,
+        run_settings=run_settings,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+        mapping_config=mapping_config,
+        write_markdown=write_markdown,
+        progress_callback=_report_status,
+        timing_stats=merge_stats,
+        full_blocks=merged_full_blocks or None,
+        write_raw_artifacts_enabled=False,
+        output_stats=output_stats,
+    )
+    merged_result = session.conversion_result
+    report = merged_result.report
 
     merge_stats.parsing_seconds = sum(
         float(job.get("timing", {}).get("parsing_seconds", 0.0)) for job in job_results

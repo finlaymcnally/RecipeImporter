@@ -40,6 +40,15 @@ from cookimport.bench.codex_bridge_projection_policy import (
     resolve_trace_status,
     select_prompt_row_for_trace,
 )
+from cookimport.bench.upload_bundle_v1_existing_output import (
+    ExistingOutputAdapterHelpers,
+    build_upload_bundle_source_model_from_existing_root,
+)
+from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
+from cookimport.bench.upload_bundle_v1_render import (
+    build_stage_separated_comparison as render_stage_separated_comparison,
+    write_upload_bundle_v1,
+)
 
 
 DEFAULT_SAMPLE_LIMIT = 80
@@ -7081,204 +7090,41 @@ def _upload_bundle_build_pass4_knowledge_summary(
     return summary, locator_rows
 
 
-def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
-    run_index_payload = _upload_bundle_load_json_object(source_root / "run_index.json")
-    comparison_summary_payload = _upload_bundle_load_json_object(
-        source_root / "comparison_summary.json"
-    )
-    process_manifest_payload = _upload_bundle_load_json_object(source_root / "process_manifest.json")
-    per_recipe_payload = _upload_bundle_load_json_object(source_root / PER_RECIPE_BREAKDOWN_FILE_NAME)
-
-    run_rows_from_root_raw = run_index_payload.get("runs")
-    has_run_rows_from_root = isinstance(run_rows_from_root_raw, list)
-    run_rows_from_root = run_rows_from_root_raw if has_run_rows_from_root else []
-    comparison_pairs_from_root_raw = comparison_summary_payload.get("pairs")
-    has_pairs_from_root = isinstance(comparison_pairs_from_root_raw, list)
-    comparison_pairs_from_root = (
-        comparison_pairs_from_root_raw if has_pairs_from_root else []
-    )
-    pair_breakdown_from_root = per_recipe_payload.get("pairs")
-    pair_breakdown_from_root = (
-        pair_breakdown_from_root if isinstance(pair_breakdown_from_root, list) else []
-    )
-    changed_lines_from_root = _iter_jsonl(source_root / CHANGED_LINES_FILE_NAME)
-
-    starter_pack_dir = source_root / STARTER_PACK_DIR_NAME
-    starter_pack_present = starter_pack_dir.is_dir()
-    starter_recipe_triage_rows = _upload_bundle_load_recipe_triage_rows(starter_pack_dir)
-    starter_call_inventory_rows = _iter_jsonl(
-        starter_pack_dir / STARTER_PACK_CALL_INVENTORY_FILE_NAME
-    )
-    starter_selected_packets = _iter_jsonl(
-        starter_pack_dir / STARTER_PACK_SELECTED_PACKETS_FILE_NAME
-    )
-    starter_manifest_payload = _upload_bundle_load_json_object(
-        starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME
-    )
-
-    discovered_run_dirs = _discover_run_dirs(source_root)
-    derived_run_records: list[RunRecord] = []
-    for run_dir in discovered_run_dirs:
-        try:
-            derived_run_records.append(
-                _build_run_record_from_existing_run(run_dir=run_dir)
-            )
-        except Exception:  # noqa: BLE001
-            continue
-    run_dir_by_id: dict[str, Path] = {}
-    run_dirs_by_id: dict[str, list[Path]] = defaultdict(list)
-    run_dir_by_output_subdir: dict[str, Path] = {}
-    derived_run_rows: list[dict[str, Any]] = []
-    for record in sorted(
-        derived_run_records,
-        key=lambda record: (
-            record.run_timestamp or datetime.min,
-            str(record.run_id or ""),
-            str(record.run_dir or ""),
+def _upload_bundle_existing_output_adapter_helpers() -> ExistingOutputAdapterHelpers:
+    return ExistingOutputAdapterHelpers(
+        load_json_object=_upload_bundle_load_json_object,
+        iter_jsonl=_iter_jsonl,
+        load_recipe_triage_rows=_upload_bundle_load_recipe_triage_rows,
+        discover_run_dirs=_discover_run_dirs,
+        build_run_record_from_existing_run=lambda run_dir: _build_run_record_from_existing_run(
+            run_dir=run_dir
         ),
-    ):
-        run_dir_path = Path(record.run_dir)
-        run_id = str(record.run_id or "").strip()
-        if run_id:
-            run_dir_by_id.setdefault(run_id, run_dir_path)
-            run_dirs_by_id[run_id].append(run_dir_path)
-
-        output_subdir = str(record.output_subdir or "").strip()
-        try:
-            relative_subdir = str(run_dir_path.resolve().relative_to(source_root).as_posix())
-        except Exception:  # noqa: BLE001
-            relative_subdir = output_subdir
-        effective_output_subdir = relative_subdir or output_subdir
-        if effective_output_subdir:
-            run_dir_by_output_subdir.setdefault(effective_output_subdir, run_dir_path)
-
-        derived_run_rows.append(
-            {
-                "run_id": record.run_id,
-                "output_subdir": effective_output_subdir,
-                "source_key": record.source_key,
-                "source_file": record.source_file,
-                "source_hash": record.source_hash,
-                "overall_line_accuracy": record.metric_overall_line_accuracy,
-                "macro_f1_excluding_other": record.metric_macro_f1_excluding_other,
-                "practical_f1": record.metric_practical_f1,
-                "full_prompt_log_status": record.full_prompt_log_status,
-                "full_prompt_log_rows": record.full_prompt_log_rows,
-                "line_role_pipeline": record.line_role_pipeline,
-                "llm_recipe_pipeline": record.llm_recipe_pipeline,
-            }
-        )
-
-    derived_pairs: list[dict[str, Any]] = []
-    derived_changed_lines: list[dict[str, Any]] = []
-    derived_pair_breakdown: list[dict[str, Any]] = []
-    derived_recipe_triage: list[dict[str, Any]] = []
-    derived_call_inventory: list[dict[str, Any]] = []
-    if derived_run_records:
-        try:
-            (
-                derived_comparison_summary,
-                derived_changed_lines,
-                derived_pair_breakdown,
-                _derived_targeted_prompt_rows,
-                derived_recipe_triage,
-                derived_call_inventory,
-                _derived_outside_span_rows,
-            ) = _build_comparison_summary(
-                records=derived_run_records,
-                excerpt_limit=DEFAULT_EXCERPT_LIMIT,
-                targeted_prompt_case_limit=DEFAULT_TARGETED_PROMPT_CASES,
-            )
-            derived_pairs = (
-                derived_comparison_summary.get("pairs")
-                if isinstance(derived_comparison_summary.get("pairs"), list)
-                else []
-            )
-        except Exception:  # noqa: BLE001
-            derived_pairs = []
-            derived_changed_lines = []
-            derived_pair_breakdown = []
-            derived_recipe_triage = []
-            derived_call_inventory = []
-
-    effective_run_rows_raw = run_rows_from_root if run_rows_from_root else derived_run_rows
-    effective_run_rows: list[dict[str, Any]] = []
-    for row in effective_run_rows_raw:
-        if not isinstance(row, dict):
-            continue
-        run_row = dict(row)
-        run_id = str(run_row.get("run_id") or "").strip()
-        output_subdir = str(run_row.get("output_subdir") or "").strip()
-        if not output_subdir:
-            run_dir = run_dir_by_id.get(run_id)
-            if isinstance(run_dir, Path):
-                try:
-                    output_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
-                except Exception:  # noqa: BLE001
-                    output_subdir = str(run_dir.name)
-        source_file = _source_file_name(str(run_row.get("source_file") or "").strip() or None)
-        source_hash = str(run_row.get("source_hash") or "").strip()
-        source_key = str(run_row.get("source_key") or "").strip() or _source_key(
-            source_hash or None,
-            source_file,
-        )
-        run_row["run_id"] = run_id
-        run_row["output_subdir"] = output_subdir
-        run_row["source_file"] = source_file
-        run_row["source_hash"] = source_hash or None
-        run_row["source_key"] = source_key
-        effective_run_rows.append(run_row)
-    effective_pairs = comparison_pairs_from_root if comparison_pairs_from_root else derived_pairs
-    effective_changed_lines = (
-        changed_lines_from_root if changed_lines_from_root else derived_changed_lines
-    )
-    effective_pair_breakdown = (
-        pair_breakdown_from_root if pair_breakdown_from_root else derived_pair_breakdown
-    )
-    effective_recipe_triage = (
-        derived_recipe_triage if derived_recipe_triage else starter_recipe_triage_rows
-    )
-    effective_call_inventory = (
-        derived_call_inventory if derived_call_inventory else starter_call_inventory_rows
+        build_comparison_summary=_build_comparison_summary,
+        coerce_int=_coerce_int,
+        source_file_name=_source_file_name,
+        source_key=_source_key,
+        select_starter_pack_recipe_cases=_select_starter_pack_recipe_cases,
+        build_selected_recipe_packets=_build_selected_recipe_packets,
     )
 
-    effective_selected_packets = list(starter_selected_packets)
-    if not effective_selected_packets and effective_recipe_triage and effective_changed_lines:
-        try:
-            selected_rows = _select_starter_pack_recipe_cases(effective_recipe_triage)
-            effective_selected_packets = _build_selected_recipe_packets(
-                selected_recipe_rows=selected_rows,
-                changed_line_rows=effective_changed_lines,
-            )
-        except Exception:  # noqa: BLE001
-            effective_selected_packets = []
 
-    return {
-        "run_index_payload": run_index_payload,
-        "comparison_summary_payload": comparison_summary_payload,
-        "process_manifest_payload": process_manifest_payload,
-        "per_recipe_payload": per_recipe_payload,
-        "starter_manifest_payload": starter_manifest_payload,
-        "starter_pack_present": starter_pack_present,
-        "run_rows": effective_run_rows,
-        "comparison_pairs": effective_pairs,
-        "changed_line_rows": effective_changed_lines,
-        "pair_breakdown_rows": effective_pair_breakdown,
-        "recipe_triage_rows": effective_recipe_triage,
-        "call_inventory_rows": effective_call_inventory,
-        "selected_packets": effective_selected_packets,
-        "run_dir_by_id": run_dir_by_id,
-        "run_dirs_by_id": run_dirs_by_id,
-        "run_dir_by_output_subdir": run_dir_by_output_subdir,
-        "discovered_run_dirs": discovered_run_dirs,
-        "advertised_counts": {
-            "run_count": len(run_rows_from_root) if has_run_rows_from_root else None,
-            "pair_count": len(comparison_pairs_from_root) if has_pairs_from_root else None,
-            "changed_lines_total": _coerce_int(
-                comparison_summary_payload.get("changed_lines_total")
-            ),
-        },
-    }
+def _upload_bundle_build_source_model(*, source_root: Path) -> UploadBundleSourceModel:
+    return build_upload_bundle_source_model_from_existing_root(
+        source_root=source_root,
+        helpers=_upload_bundle_existing_output_adapter_helpers(),
+        default_excerpt_limit=DEFAULT_EXCERPT_LIMIT,
+        default_targeted_prompt_cases=DEFAULT_TARGETED_PROMPT_CASES,
+        per_recipe_breakdown_file_name=PER_RECIPE_BREAKDOWN_FILE_NAME,
+        changed_lines_file_name=CHANGED_LINES_FILE_NAME,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
+        starter_call_inventory_file_name=STARTER_PACK_CALL_INVENTORY_FILE_NAME,
+        starter_selected_packets_file_name=STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
+        starter_manifest_file_name=STARTER_PACK_MANIFEST_FILE_NAME,
+    )
+
+
+def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
+    return _upload_bundle_build_source_model(source_root=source_root).as_context_dict()
 
 
 def _upload_bundle_collect_confusion_delta_counts(
@@ -10634,194 +10480,13 @@ def _upload_bundle_build_stage_separated_comparison(
     pass_stage_per_label_metrics: dict[str, Any],
     recipe_pipeline_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    line_role_pipeline_by_run_id: dict[str, str] = {}
-    for pair in comparison_pairs:
-        if not isinstance(pair, dict):
-            continue
-        codex_run = pair.get("codex_run")
-        if not isinstance(codex_run, dict):
-            continue
-        run_id = str(codex_run.get("run_id") or "").strip()
-        if not run_id:
-            continue
-        line_role_pipeline_by_run_id[run_id] = str(
-            codex_run.get("line_role_pipeline") or "off"
-        )
-
-    per_recipe_rows: list[dict[str, Any]] = []
-    for row in recipe_triage_rows:
-        run_id = str(row.get("codex_run_id") or row.get("run_id") or "").strip()
-        line_role_pipeline = line_role_pipeline_by_run_id.get(run_id, "unknown")
-        pass3_fallback_reason = str(row.get("pass3_fallback_reason") or "").strip()
-        per_recipe_rows.append(
-            {
-                "source_key": str(row.get("source_key") or ""),
-                "codex_run_id": run_id,
-                "baseline_run_id": str(row.get("baseline_run_id") or ""),
-                "recipe_id": str(row.get("recipe_id") or ""),
-                "short_title": str(row.get("short_title") or ""),
-                "baseline_stage": {
-                    "line_accuracy": _coerce_float(row.get("baseline_accuracy")),
-                },
-                "line_role_pipeline_stage": {
-                    "pipeline": line_role_pipeline,
-                    "line_accuracy": _coerce_float(row.get("codex_accuracy")),
-                    "delta_vs_baseline": _coerce_float(
-                        row.get("delta_codex_minus_baseline")
-                    ),
-                },
-                "pass2_stage": {
-                    "status": str(row.get("pass2_status") or ""),
-                    "degradation_severity": str(
-                        row.get("pass2_degradation_severity") or ""
-                    ),
-                    "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
-                    "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
-                    "warning_buckets": _coerce_str_list(
-                        row.get("pass2_warning_buckets")
-                    ),
-                    "degradation_reasons": _coerce_str_list(
-                        row.get("pass2_degradation_reasons")
-                    ),
-                    "extracted_instruction_count": int(
-                        _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
-                    ),
-                },
-                "pass3_stage": {
-                    "status": str(row.get("pass3_status") or ""),
-                    "execution_mode": str(row.get("pass3_execution_mode") or ""),
-                    "routing_reason": str(row.get("pass3_routing_reason") or ""),
-                    "empty_mapping": bool(row.get("pass3_empty_mapping")),
-                    "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
-                    "warning_buckets": _coerce_str_list(
-                        row.get("pass3_warning_buckets")
-                    ),
-                    "fallback_reason": pass3_fallback_reason,
-                },
-                "final_or_fallback_stage": {
-                    "status": (
-                        "fallback"
-                        if pass3_fallback_reason
-                        else "final"
-                    ),
-                    "fallback_reason": pass3_fallback_reason or None,
-                    "pass1_status": str(row.get("pass1_status") or ""),
-                    "pass2_status": str(row.get("pass2_status") or ""),
-                    "pass3_status": str(row.get("pass3_status") or ""),
-                    "pass2_degradation_severity": str(
-                        row.get("pass2_degradation_severity") or ""
-                    ),
-                    "pass2_promotion_policy": str(
-                        row.get("pass2_promotion_policy") or ""
-                    ),
-                    "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
-                    "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
-                },
-            }
-        )
-    per_recipe_rows.sort(
-        key=lambda row: (
-            _float_or_zero(
-                ((row.get("line_role_pipeline_stage") or {}).get("delta_vs_baseline"))
-            ),
-            -int(
-                _coerce_int(
-                    ((row.get("pass2_stage") or {}).get("warning_count"))
-                )
-                or 0
-            ),
-            str(row.get("recipe_id") or ""),
-        )
+    return render_stage_separated_comparison(
+        recipe_triage_rows=recipe_triage_rows,
+        per_label_metrics=per_label_metrics,
+        comparison_pairs=comparison_pairs,
+        pass_stage_per_label_metrics=pass_stage_per_label_metrics,
+        recipe_pipeline_context=recipe_pipeline_context,
     )
-
-    def _build_pass_stage_row(stage_key: str, label: str) -> dict[str, Any]:
-        stage_payload = pass_stage_per_label_metrics.get(stage_key)
-        stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
-        stage_labels = stage_payload.get("labels")
-        stage_labels = stage_labels if isinstance(stage_labels, dict) else {}
-        label_row = stage_labels.get(label)
-        if isinstance(label_row, dict):
-            return {
-                "label_scored": True,
-                "precision_avg": _coerce_float(label_row.get("precision_avg")),
-                "recall_avg": _coerce_float(label_row.get("recall_avg")),
-                "f1_avg": _coerce_float(label_row.get("f1_avg")),
-                "gold_total_sum": int(_coerce_int(label_row.get("gold_total_sum")) or 0),
-                "pred_total_sum": int(_coerce_int(label_row.get("pred_total_sum")) or 0),
-                "runs_scored": int(_coerce_int(label_row.get("runs_scored")) or 0),
-            }
-        reason = str(stage_payload.get("unavailable_reason") or "").strip()
-        if not reason and stage_payload.get("available"):
-            reason = f"{stage_key} stage label metrics unavailable for label={label}"
-        if not reason:
-            reason = (
-                f"{stage_key} stage outputs could not be projected/scored from discovered "
-                "prediction-run codex artifacts"
-            )
-        return {
-            "label_scored": False,
-            "unavailable_reason": reason,
-            "runs_scored": int(_coerce_int(stage_payload.get("runs_scored")) or 0),
-        }
-
-    per_label_rows: list[dict[str, Any]] = []
-    for row in per_label_metrics:
-        label = str(row.get("label") or "")
-        per_label_rows.append(
-            {
-                "label": label,
-                "baseline_stage": {
-                    "recall_avg": _coerce_float(row.get("baseline_recall_avg")),
-                    "f1_avg": _coerce_float(row.get("baseline_f1_avg")),
-                },
-                "line_role_pipeline_stage": {
-                    "recall_avg": _coerce_float(row.get("codex_recall_avg")),
-                    "f1_avg": _coerce_float(row.get("codex_f1_avg")),
-                    "delta_recall_avg": _coerce_float(row.get("delta_recall_avg")),
-                    "delta_f1_avg": _coerce_float(row.get("delta_f1_avg")),
-                },
-                "pass2_stage": _build_pass_stage_row("pass2", label),
-                "pass3_stage": _build_pass_stage_row("pass3", label),
-                "final_or_fallback_stage": {
-                    "confusion_delta_outbound_total": int(
-                        _coerce_int(row.get("confusion_delta_outbound_total")) or 0
-                    ),
-                    "confusion_delta_inbound_total": int(
-                        _coerce_int(row.get("confusion_delta_inbound_total")) or 0
-                    ),
-                    "top_confusion_outbound": row.get("top_confusion_outbound"),
-                    "top_confusion_inbound": row.get("top_confusion_inbound"),
-                },
-            }
-        )
-    context_payload = recipe_pipeline_context if isinstance(recipe_pipeline_context, dict) else {}
-    return {
-        "schema_version": "upload_bundle_stage_comparison.v1",
-        "pair_count": len(comparison_pairs),
-        "stage_label_mode": str(context_payload.get("stage_label_mode") or "standard_topology"),
-        "stage_display_names": (
-            context_payload.get("stage_display_names")
-            if isinstance(context_payload.get("stage_display_names"), dict)
-            else {
-                "baseline_stage": "baseline",
-                "line_role_pipeline_stage": "line-role",
-                "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
-                "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
-                "final_or_fallback_stage": "final-fallback",
-            }
-        ),
-        "legacy_field_aliases": (
-            context_payload.get("legacy_field_aliases")
-            if isinstance(context_payload.get("legacy_field_aliases"), dict)
-            else {
-                "pass2_stage": "pass2_*",
-                "pass3_stage": "pass3_*",
-            }
-        ),
-        "compatibility_note": str(context_payload.get("compatibility_note") or ""),
-        "per_recipe": per_recipe_rows,
-        "per_label": per_label_rows,
-    }
 
 
 def _upload_bundle_source_key_for_row(row: dict[str, Any]) -> str:
@@ -11459,6 +11124,7 @@ def _write_upload_bundle_three_files(
     source_dir: Path | None = None,
     high_level_only: bool = False,
     target_bundle_size_bytes: int | None = None,
+    source_model: UploadBundleSourceModel | None = None,
 ) -> dict[str, Any]:
     source_root = source_dir.resolve() if isinstance(source_dir, Path) else output_dir.resolve()
     output_root = output_dir.resolve()
@@ -11469,7 +11135,8 @@ def _write_upload_bundle_three_files(
         else GROUP_UPLOAD_BUNDLE_TARGET_BYTES
     )
 
-    context = _upload_bundle_build_context(source_root=source_root)
+    model = source_model or _upload_bundle_build_source_model(source_root=source_root)
+    context = model.as_context_dict()
     run_index_payload = context.get("run_index_payload", {})
     comparison_summary_payload = context.get("comparison_summary_payload", {})
     process_manifest_payload = context.get("process_manifest_payload", {})
@@ -13757,9 +13424,12 @@ def build_upload_bundle_for_existing_output(
     else:
         output_root.mkdir(parents=True, exist_ok=True)
 
-    bundle_metadata = _write_upload_bundle_three_files(
+    source_model = _upload_bundle_build_source_model(source_root=source_root)
+    bundle_metadata = write_upload_bundle_v1(
+        model=source_model,
         output_dir=output_root,
-        source_dir=source_root,
+        source_root=source_root,
+        write_impl=_write_upload_bundle_three_files,
         high_level_only=high_level_only,
         target_bundle_size_bytes=target_bundle_size_bytes,
     )

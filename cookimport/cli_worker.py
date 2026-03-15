@@ -21,37 +21,13 @@ from cookimport.config.run_settings import (
 )
 from cookimport.core.models import ConversionReport, MappingConfig
 from cookimport.core.slug import slugify_name
-from cookimport.core.reporting import compute_file_hash, enrich_report_with_stats
+from cookimport.core.reporting import compute_file_hash
 from cookimport.core.timing import TimingStats, measure
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
-from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
-from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.plugins import registry
 # Ensure plugins are registered in workers
-from cookimport.plugins import (
-    excel,
-    text,
-    epub,
-    pdf,
-    recipesage,
-    paprika,
-    webschema,
-)  # noqa: F401
-from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
-from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
-from cookimport.staging.writer import (
-    OutputStats,
-    write_chunk_outputs,
-    write_draft_outputs,
-    write_intermediate_outputs,
-    write_raw_artifacts,
-    write_report,
-    write_section_outputs,
-    write_stage_block_predictions,
-    write_table_outputs,
-    write_tip_outputs,
-    write_topic_candidate_outputs,
-)
+from cookimport.plugins import excel, text, epub, pdf, recipesage, paprika, webschema  # noqa: F401
+from cookimport.staging.import_session import execute_stage_import_session_from_result
+from cookimport.staging.writer import write_report
 
 logger = logging.getLogger(__name__)
 
@@ -162,17 +138,6 @@ def apply_result_limits(
     return len(result.recipes), len(result.tips), truncated
 
 
-def _resolve_table_source_hash(result: Any, file_path: Path) -> str:
-    for artifact in getattr(result, "raw_artifacts", []):
-        source_hash = getattr(artifact, "source_hash", None)
-        if source_hash:
-            return str(source_hash)
-    try:
-        return compute_file_hash(file_path)
-    except Exception:
-        return "unknown"
-
-
 def _run_import(
     file_path: Path,
     mapping_config: MappingConfig | None,
@@ -263,15 +228,10 @@ def stage_one_file(
 
     try:
         start_total = dt.datetime.now()
-        workbook_slug = slugify_name(file_path.stem)
         run_settings = RunSettings.from_dict(
             project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
             warn_context="stage run config",
         )
-        
-        intermediate_dir = out / "intermediate drafts" / workbook_slug
-        final_dir = out / "final drafts" / workbook_slug
-        tips_dir = out / "tips" / workbook_slug
 
         # Note: mapping_config is already passed in and overridden by CLI if needed
         _report_progress("Starting file...")
@@ -292,188 +252,24 @@ def stage_one_file(
                 limit_label=limit,
             )
 
-        llm_schema_overrides: dict[str, dict[str, Any]] | None = None
-        llm_draft_overrides: dict[str, dict[str, Any]] | None = None
-        llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
-        if run_settings.llm_recipe_pipeline.value != "off":
-            _report_progress("Running codex-farm recipe pipeline...")
-            try:
-                llm_apply = run_codex_farm_recipe_pipeline(
-                    conversion_result=result,
-                    run_settings=run_settings,
-                    run_root=out,
-                    workbook_slug=workbook_slug,
-                    progress_callback=_report_progress,
-                )
-            except CodexFarmRunnerError as exc:
-                if run_settings.codex_farm_failure_mode.value == "fallback":
-                    warning = (
-                        "LLM recipe pipeline failed; falling back to deterministic outputs: "
-                        f"{exc}"
-                    )
-                    result.report.warnings.append(warning)
-                    llm_report = {
-                        "enabled": True,
-                        "pipeline": run_settings.llm_recipe_pipeline.value,
-                        "fallbackApplied": True,
-                        "fatalError": str(exc),
-                    }
-                else:
-                    raise
-            else:
-                result = llm_apply.updated_conversion_result
-                llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
-                llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
-                llm_report = dict(llm_apply.llm_report)
-
-        extracted_tables: list[ExtractedTable] = []
-        if result.non_recipe_blocks:
-            _report_progress("Extracting knowledge tables...")
-            extracted_tables = extract_and_annotate_tables(
-                result.non_recipe_blocks,
-                source_hash=_resolve_table_source_hash(result, file_path),
-            )
-
-        # Generate knowledge chunks
-        _report_progress("Generating knowledge chunks...")
-        parsing_overrides = None
-        if resolved_mapping and resolved_mapping.parsing_overrides:
-            parsing_overrides = resolved_mapping.parsing_overrides
-        if result.non_recipe_blocks:
-            result.chunks = chunks_from_non_recipe_blocks(
-                result.non_recipe_blocks,
-                overrides=parsing_overrides,
-            )
-        elif result.topic_candidates:
-            result.chunks = chunks_from_topic_candidates(
-                result.topic_candidates,
-                overrides=parsing_overrides,
-            )
-        if run_settings.llm_knowledge_pipeline.value != "off":
-            _report_progress("Running codex-farm knowledge harvest...")
-            try:
-                knowledge_apply = run_codex_farm_knowledge_harvest(
-                    conversion_result=result,
-                    run_settings=run_settings,
-                    run_root=out,
-                    workbook_slug=workbook_slug,
-                    overrides=parsing_overrides,
-                    progress_callback=_report_progress,
-                )
-            except CodexFarmRunnerError as exc:
-                if run_settings.codex_farm_failure_mode.value == "fallback":
-                    warning = (
-                        "LLM knowledge harvest failed; continuing without knowledge artifacts: "
-                        f"{exc}"
-                    )
-                    result.report.warnings.append(warning)
-                    llm_report["knowledge"] = {
-                        "enabled": True,
-                        "pipeline": run_settings.llm_knowledge_pipeline.value,
-                        "fallbackApplied": True,
-                        "fatalError": str(exc),
-                    }
-                else:
-                    raise
-            else:
-                llm_report["knowledge"] = dict(knowledge_apply.llm_report)
-
-        # Enrich report
-        result.report.importer_name = importer.name
-        if run_config is not None:
-            result.report.run_config = dict(run_config)
-        result.report.run_config_hash = run_config_hash
-        result.report.run_config_summary = run_config_summary
-        result.report.llm_codex_farm = llm_report
-        result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
-        enrich_report_with_stats(result.report, result, file_path)
-
-        output_stats = OutputStats(out)
-        with measure(file_stats, "writing"):
-            _report_progress("Writing outputs...")
-            with measure(file_stats, "write_intermediate_seconds"):
-                write_intermediate_outputs(
-                    result,
-                    intermediate_dir,
-                    output_stats=output_stats,
-                    schemaorg_overrides_by_recipe_id=llm_schema_overrides,
-                    instruction_step_options=run_config,
-                )
-            with measure(file_stats, "write_final_seconds"):
-                write_draft_outputs(
-                    result,
-                    final_dir,
-                    output_stats=output_stats,
-                    draft_overrides_by_recipe_id=llm_draft_overrides,
-                    ingredient_parser_options=run_config,
-                    instruction_step_options=run_config,
-                )
-            with measure(file_stats, "write_sections_seconds"):
-                write_section_outputs(
-                    out,
-                    workbook_slug,
-                    result.recipes,
-                    output_stats=output_stats,
-                    write_markdown=write_markdown,
-                    instruction_step_options=run_config,
-                )
-            with measure(file_stats, "write_tips_seconds"):
-                write_tip_outputs(
-                    result,
-                    tips_dir,
-                    output_stats=output_stats,
-                    write_markdown=write_markdown,
-                )
-            with measure(file_stats, "write_topic_candidates_seconds"):
-                write_topic_candidate_outputs(
-                    result,
-                    tips_dir,
-                    output_stats=output_stats,
-                    write_markdown=write_markdown,
-                )
-
-            if result.chunks:
-                chunks_dir = out / "chunks" / workbook_slug
-                with measure(file_stats, "write_chunks_seconds"):
-                    write_chunk_outputs(
-                        result.chunks,
-                        chunks_dir,
-                        output_stats=output_stats,
-                        write_markdown=write_markdown,
-                    )
-            with measure(file_stats, "write_tables_seconds"):
-                write_table_outputs(
-                    out,
-                    workbook_slug,
-                    extracted_tables,
-                    source_file=file_path.name,
-                    output_stats=output_stats,
-                    write_markdown=write_markdown,
-                )
-
-            with measure(file_stats, "write_raw_seconds"):
-                write_raw_artifacts(result, out, output_stats=output_stats)
-            with measure(file_stats, "write_stage_block_predictions_seconds"):
-                write_stage_block_predictions(
-                    results=result,
-                    run_root=out,
-                    workbook_slug=workbook_slug,
-                    source_file=str(file_path),
-                    knowledge_block_classifications_path=(
-                        out
-                        / "knowledge"
-                        / workbook_slug
-                        / "block_classifications.jsonl"
-                    ),
-                    knowledge_snippets_path=(
-                        out / "knowledge" / workbook_slug / "snippets.jsonl"
-                    ),
-                    output_stats=output_stats,
-                )
+        session = execute_stage_import_session_from_result(
+            result=result,
+            source_file=file_path,
+            run_root=out,
+            run_dt=run_dt,
+            importer_name=importer.name,
+            run_settings=run_settings,
+            run_config=run_config,
+            run_config_hash=run_config_hash,
+            run_config_summary=run_config_summary,
+            mapping_config=resolved_mapping,
+            write_markdown=write_markdown,
+            progress_callback=_report_progress,
+            timing_stats=file_stats,
+        )
+        result = session.conversion_result
 
         file_stats.total_seconds = (dt.datetime.now() - start_total).total_seconds()
-        if output_stats.file_counts:
-            result.report.output_stats = output_stats.to_report()
         result.report.timing = file_stats.to_dict()
         write_report(result.report, out, file_path.stem)
         

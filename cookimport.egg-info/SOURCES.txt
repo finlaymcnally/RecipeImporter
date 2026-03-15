@@ -53,6 +53,9 @@ cookimport/bench/slice_metrics.py
 cookimport/bench/speed_compare.py
 cookimport/bench/speed_runner.py
 cookimport/bench/speed_suite.py
+cookimport/bench/upload_bundle_v1_existing_output.py
+cookimport/bench/upload_bundle_v1_model.py
+cookimport/bench/upload_bundle_v1_render.py
 cookimport/cli_ui/__init__.py
 cookimport/cli_ui/run_settings_flow.py
 cookimport/config/__init__.py
@@ -110,6 +113,7 @@ cookimport/llm/codex_farm_transport.py
 cookimport/llm/evidence_normalizer.py
 cookimport/llm/fake_codex_farm_runner.py
 cookimport/llm/non_recipe_spans.py
+cookimport/llm/prompt_artifacts.py
 cookimport/llm/prompt_budget.py
 cookimport/llm/prompts.py
 cookimport/llm/repair.py

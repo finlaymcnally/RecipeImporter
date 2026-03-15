@@ -121,6 +121,7 @@ from cookimport.labelstudio.prelabel import (
     resolve_codex_model,
 )
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
+from cookimport.staging.import_session import execute_stage_import_session_from_result
 from cookimport.staging.writer import (
     OutputStats,
     write_chunk_outputs,
@@ -1121,119 +1122,27 @@ def _write_processed_outputs(
     timestamp = run_dt.strftime("%Y-%m-%d_%H.%M.%S")
     run_root = output_root / timestamp
     run_root.mkdir(parents=True, exist_ok=True)
-
-    workbook_name = path.stem
-    intermediate_dir = run_root / "intermediate drafts" / workbook_name
-    final_dir = run_root / "final drafts" / workbook_name
-    tips_dir = run_root / "tips" / workbook_name
-
-    extracted_tables: list[ExtractedTable] = []
-    if result.non_recipe_blocks:
-        source_hash = "unknown"
-        for artifact in result.raw_artifacts:
-            if artifact.source_hash:
-                source_hash = str(artifact.source_hash)
-                break
-        if source_hash == "unknown":
-            try:
-                source_hash = compute_file_hash(path)
-            except Exception:
-                source_hash = "unknown"
-        extracted_tables = extract_and_annotate_tables(
-            result.non_recipe_blocks,
-            source_hash=source_hash,
-        )
-
-    if result.non_recipe_blocks:
-        result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
-    elif result.topic_candidates:
-        result.chunks = chunks_from_topic_candidates(result.topic_candidates)
-
-    if result.report is None:
-        result.report = ConversionReport()
-    result.report.importer_name = importer_name
-    if run_config is not None:
-        result.report.run_config = dict(run_config)
-    result.report.run_config_hash = run_config_hash
-    result.report.run_config_summary = run_config_summary
-    result.report.llm_codex_farm = llm_codex_farm
-    result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
     report_totals_diagnostics_path = (
-        run_root / f"{workbook_name}.report_totals_mismatch_diagnostics.json"
+        run_root / f"{path.stem}.report_totals_mismatch_diagnostics.json"
     )
-    enrich_report_with_stats(
-        result.report,
-        result,
-        path,
+    session = execute_stage_import_session_from_result(
+        result=result,
+        source_file=path,
+        run_root=run_root,
+        run_dt=run_dt,
+        importer_name=importer_name,
+        run_settings=RunSettings.from_dict(
+            project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
+            warn_context="benchmark processed output run config",
+        ),
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+        write_markdown=write_markdown,
+        full_blocks=None,
         count_diagnostics_path=report_totals_diagnostics_path,
     )
-
-    output_stats = OutputStats(run_root)
-    write_intermediate_outputs(
-        result,
-        intermediate_dir,
-        output_stats=output_stats,
-        schemaorg_overrides_by_recipe_id=schemaorg_overrides_by_recipe_id,
-        instruction_step_options=run_config,
-    )
-    write_draft_outputs(
-        result,
-        final_dir,
-        output_stats=output_stats,
-        draft_overrides_by_recipe_id=draft_overrides_by_recipe_id,
-        ingredient_parser_options=run_config,
-        instruction_step_options=run_config,
-    )
-    write_section_outputs(
-        run_root,
-        workbook_name,
-        result.recipes,
-        output_stats=output_stats,
-        write_markdown=write_markdown,
-        instruction_step_options=run_config,
-    )
-    write_tip_outputs(
-        result,
-        tips_dir,
-        output_stats=output_stats,
-        write_markdown=write_markdown,
-    )
-    write_topic_candidate_outputs(
-        result,
-        tips_dir,
-        output_stats=output_stats,
-        write_markdown=write_markdown,
-    )
-    write_table_outputs(
-        run_root,
-        workbook_name,
-        extracted_tables,
-        source_file=path.name,
-        output_stats=output_stats,
-        write_markdown=write_markdown,
-    )
-    if result.chunks:
-        chunks_dir = run_root / "chunks" / workbook_name
-        write_chunk_outputs(
-            result.chunks,
-            chunks_dir,
-            output_stats=output_stats,
-            write_markdown=write_markdown,
-        )
-    write_raw_artifacts(result, run_root, output_stats=output_stats)
-    write_stage_block_predictions(
-        results=result,
-        run_root=run_root,
-        workbook_slug=workbook_name,
-        source_file=str(path),
-        knowledge_block_classifications_path=knowledge_block_classifications_path,
-        knowledge_snippets_path=knowledge_snippets_path,
-        output_stats=output_stats,
-    )
-
-    if output_stats.file_counts:
-        result.report.output_stats = output_stats.to_report()
-    write_report(result.report, run_root, workbook_name)
+    result.report = session.conversion_result.report
     return run_root
 
 
@@ -2516,14 +2425,16 @@ def generate_pred_run_artifacts(
             "codex_execution_plan_path": codex_plan_path,
         }
 
-    llm_schema_overrides: dict[str, dict[str, Any]] | None = None
-    llm_draft_overrides: dict[str, dict[str, Any]] | None = None
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
     _notify_scheduler_event_callback(
         scheduler_event_callback,
         event="post_started",
     )
-    if run_settings.llm_recipe_pipeline.value != "off":
+    processed_run_root: Path | None = None
+    processed_report_path: Path | None = None
+    processed_stage_block_predictions_path: Path | None = None
+
+    if processed_output_root is None and run_settings.llm_recipe_pipeline.value != "off":
         _notify("Running codex-farm recipe pipeline...")
         try:
             llm_apply = run_codex_farm_recipe_pipeline(
@@ -2552,28 +2463,18 @@ def generate_pred_run_artifacts(
                 raise
         else:
             result = llm_apply.updated_conversion_result
-            llm_schema_overrides = llm_apply.intermediate_overrides_by_recipe_id
-            llm_draft_overrides = llm_apply.final_overrides_by_recipe_id
             llm_report = dict(llm_apply.llm_report)
-            if (
-                run_settings.line_role_pipeline.value != "off"
-                and archive_payload_rows is not None
-            ):
-                line_role_candidates = _build_line_role_candidates_from_archive(
-                    archive_payload=archive_payload_rows,
-                    result=result,
-                    atomic_block_splitter=run_settings.atomic_block_splitter.value,
-                )
     if result.report is None:
         result.report = ConversionReport()
     result.report.llm_codex_farm = llm_report
 
-    if result.non_recipe_blocks:
-        result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
-    elif result.topic_candidates:
-        result.chunks = chunks_from_topic_candidates(result.topic_candidates)
+    if processed_output_root is None:
+        if result.non_recipe_blocks:
+            result.chunks = chunks_from_non_recipe_blocks(result.non_recipe_blocks)
+        elif result.topic_candidates:
+            result.chunks = chunks_from_topic_candidates(result.topic_candidates)
 
-    if run_settings.llm_knowledge_pipeline.value != "off":
+    if processed_output_root is None and run_settings.llm_knowledge_pipeline.value != "off":
         _notify("Running codex-farm knowledge harvest...")
         try:
             knowledge_apply = run_codex_farm_knowledge_harvest(
@@ -2602,8 +2503,51 @@ def generate_pred_run_artifacts(
             llm_report["knowledge"] = dict(knowledge_apply.llm_report)
         result.report.llm_codex_farm = llm_report
 
+    if processed_output_root is not None:
+        _notify("Writing authoritative stage-backed outputs...")
+        processed_output_started = time.monotonic()
+        processed_run_root = processed_output_root / timestamp
+        processed_run_root.mkdir(parents=True, exist_ok=True)
+        stage_session = execute_stage_import_session_from_result(
+            result=result,
+            source_file=path,
+            run_root=processed_run_root,
+            run_dt=run_dt,
+            importer_name=importer.name,
+            run_settings=run_settings,
+            run_config=run_config,
+            run_config_hash=run_config_hash,
+            run_config_summary=run_config_summary,
+            mapping_config=run_mapping,
+            write_markdown=write_markdown,
+            progress_callback=_notify,
+            count_diagnostics_path=(
+                processed_run_root / f"{path.stem}.report_totals_mismatch_diagnostics.json"
+            ),
+        )
+        result = stage_session.conversion_result
+        llm_report = dict(stage_session.llm_report)
+        result.report.llm_codex_farm = llm_report
+        processed_report_path = stage_session.report_path
+        processed_stage_block_predictions_path = (
+            stage_session.stage_block_predictions_path
+            if stage_session.stage_block_predictions_path.exists()
+            else None
+        )
+        processed_output_write_seconds = max(
+            0.0, time.monotonic() - processed_output_started
+        )
+        _notify("Authoritative stage-backed outputs complete.")
+
     if run_settings.line_role_pipeline.value != "off":
         _notify("Running canonical line-role pipeline...")
+        if archive_payload_rows is None:
+            archive_payload_rows = prepared_archive_payload(prepared_archive)
+        line_role_candidates = _build_line_role_candidates_from_archive(
+            archive_payload=archive_payload_rows,
+            result=result,
+            atomic_block_splitter=run_settings.atomic_block_splitter.value,
+        )
         if line_role_candidates:
             knowledge_block_classifications_path = (
                 _resolve_knowledge_block_classifications_path(llm_report)
@@ -2628,15 +2572,13 @@ def generate_pred_run_artifacts(
                 knowledge_snippets_path=knowledge_snippets_path,
             )
             if processed_output_root is not None:
-                line_role_spans = project_line_roles_to_freeform_spans(
-                    line_role_predictions
-                )
-                line_role_recipe_projection_summary = (
-                    apply_line_role_spans_to_recipes(
-                        conversion_result=result,
-                        spans=line_role_spans,
-                    )
-                )
+                line_role_spans = project_line_roles_to_freeform_spans(line_role_predictions)
+                line_role_recipe_projection_summary = {
+                    "recipes_applied": 0,
+                    "span_count": len(line_role_spans),
+                    "authoritative_stage_outputs_mutated": False,
+                    "mode": "diagnostics_only",
+                }
         else:
             _notify("Canonical line-role pipeline skipped (no atomic candidates).")
 
@@ -2653,48 +2595,6 @@ def generate_pred_run_artifacts(
         run_config,
         contract=summary_contract,
     )
-
-    processed_run_root: Path | None = None
-    processed_report_path: Path | None = None
-    processed_stage_block_predictions_path: Path | None = None
-    if processed_output_root is not None:
-        _notify("Writing processed cookbook outputs...")
-        processed_output_started = time.monotonic()
-        knowledge_block_classifications_path = _resolve_knowledge_block_classifications_path(
-            llm_report
-        )
-        knowledge_snippets_path = _resolve_knowledge_snippets_path(llm_report)
-        processed_run_root = _write_processed_outputs(
-            result=result,
-            path=path,
-            run_dt=run_dt,
-            output_root=processed_output_root,
-            importer_name=importer.name,
-            run_config=run_config,
-            run_config_hash=run_config_hash,
-            run_config_summary=run_config_summary,
-            schemaorg_overrides_by_recipe_id=llm_schema_overrides,
-            draft_overrides_by_recipe_id=llm_draft_overrides,
-            llm_codex_farm=llm_report,
-            knowledge_block_classifications_path=knowledge_block_classifications_path,
-            knowledge_snippets_path=knowledge_snippets_path,
-            write_markdown=write_markdown,
-        )
-        processed_report_path = (
-            processed_run_root / f"{path.stem}.excel_import_report.json"
-        )
-        candidate_stage_predictions = (
-            processed_run_root
-            / ".bench"
-            / path.stem
-            / "stage_block_predictions.json"
-        )
-        if candidate_stage_predictions.exists():
-            processed_stage_block_predictions_path = candidate_stage_predictions
-        processed_output_write_seconds = max(
-            0.0, time.monotonic() - processed_output_started
-        )
-        _notify("Processed cookbook outputs complete.")
 
     task_build_started = time.monotonic()
 
@@ -3168,10 +3068,18 @@ def generate_pred_run_artifacts(
     _notify("Writing prediction run artifacts...")
     artifact_write_started = time.monotonic()
     archive_path = run_root / "extracted_archive.json"
-    archive_payload = prepared_archive_payload(prepared_archive)
-    archive_path.write_text(
-        json.dumps(archive_payload, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    stage_archive_source: Path | None = None
+    if processed_run_root is not None:
+        stage_archive_candidates = sorted(processed_run_root.glob("raw/**/full_text.json"))
+        if len(stage_archive_candidates) == 1:
+            stage_archive_source = stage_archive_candidates[0]
+    if stage_archive_source is not None:
+        shutil.copy2(stage_archive_source, archive_path)
+    else:
+        archive_payload = prepared_archive_payload(prepared_archive)
+        archive_path.write_text(
+            json.dumps(archive_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
     (run_root / "extracted_text.txt").write_text(
         prepared_archive_text(prepared_archive) + "\n", encoding="utf-8"
@@ -3292,6 +3200,9 @@ def generate_pred_run_artifacts(
         "run_config_summary": run_config_summary,
         "llm_codex_farm": llm_report,
         "processed_run_root": (
+            str(processed_run_root) if processed_run_root is not None else None
+        ),
+        "stage_run_root": (
             str(processed_run_root) if processed_run_root is not None else None
         ),
         "processed_report_path": (
@@ -3434,6 +3345,7 @@ def generate_pred_run_artifacts(
     processed_run_path = _path_for_manifest(run_root, processed_run_root)
     if processed_run_path:
         run_manifest_artifacts["processed_output_run_dir"] = processed_run_path
+        run_manifest_artifacts["stage_run_dir"] = processed_run_path
     processed_report_manifest_path = _path_for_manifest(run_root, processed_report_path)
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
@@ -3536,12 +3448,20 @@ def generate_pred_run_artifacts(
             prompt_budget_summary_path,
         )
     run_manifest_artifacts["timing"] = timing_payload
-    llm_manifest_path = (
-        run_root
-        / "raw"
-        / "llm"
-        / _slugify_name(path.stem)
-        / "llm_manifest.json"
+    llm_manifest_candidates = [
+        run_root / "raw" / "llm" / _slugify_name(path.stem) / "llm_manifest.json",
+    ]
+    if processed_run_root is not None:
+        llm_manifest_candidates.append(
+            processed_run_root
+            / "raw"
+            / "llm"
+            / _slugify_name(path.stem)
+            / "llm_manifest.json"
+        )
+    llm_manifest_path = next(
+        (candidate for candidate in llm_manifest_candidates if candidate.exists()),
+        llm_manifest_candidates[0],
     )
     if llm_manifest_path.exists():
         recipe_guardrail_report_manifest_path = _path_for_manifest(
@@ -3639,6 +3559,7 @@ def generate_pred_run_artifacts(
     return {
         "run_root": run_root,
         "processed_run_root": processed_run_root,
+        "stage_run_root": processed_run_root,
         "processed_report_path": processed_report_path,
         "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
         "stage_block_predictions_path": local_stage_block_predictions_path,

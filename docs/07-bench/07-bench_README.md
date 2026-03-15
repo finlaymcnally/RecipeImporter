@@ -229,6 +229,10 @@ Current benchmark contracts reinforced:
 - Deterministic follow-up tooling should reuse the existing bundle/export seam:
   - builder: `scripts/benchmark_cutdown_for_external_ai.py::build_upload_bundle_for_existing_output(...)`
   - call site: `cookimport/cli.py::_write_benchmark_upload_bundle(...)`
+- Upload-bundle internals now split into model/adapter/renderer seams for topology flexibility before staging refactors:
+  - model: `cookimport/bench/upload_bundle_v1_model.py` (`UploadBundleSourceModel`)
+  - existing-root adapter: `cookimport/bench/upload_bundle_v1_existing_output.py`
+  - renderer helpers: `cookimport/bench/upload_bundle_v1_render.py`
 - Oracle upload contract is file-based, not directory/glob-based:
   - pass the three concrete bundle files individually,
   - keep recipeimport's local preview fallback for oversized dry-run payloads.
