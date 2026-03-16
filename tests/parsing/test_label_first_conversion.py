@@ -10,6 +10,7 @@ from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     AuthoritativeLabeledLine,
     RecipeSpan,
+    _atomize_archive_blocks,
 )
 
 
@@ -145,3 +146,38 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
     assert [row["index"] for row in result.non_recipe_blocks] == [3]
     assert result.non_recipe_blocks[0]["text"] == "Why batter rests matters"
     assert compatibility.non_recipe_lines[0].final_label == "KNOWLEDGE"
+
+
+def test_atomize_archive_blocks_marks_recipe_provenance_as_within_span() -> None:
+    archive_blocks = [
+        {"index": 0, "block_id": "block:0", "text": "Pancakes", "location": {"block_index": 0}},
+        {"index": 1, "block_id": "block:1", "text": "Makes 2", "location": {"block_index": 1}},
+        {"index": 2, "block_id": "block:2", "text": "Preface text", "location": {"block_index": 2}},
+    ]
+    conversion_result = ConversionResult(
+        recipes=[
+            {
+                "name": "Pancakes",
+                "recipeIngredient": [],
+                "recipeInstructions": [],
+                "provenance": {"location": {"start_block": 0, "end_block": 1}},
+            }
+        ],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path="/tmp/book.txt",
+    )
+
+    rows = _atomize_archive_blocks(
+        archive_blocks,
+        conversion_result=conversion_result,
+        atomic_block_splitter="atomic-v1",
+    )
+
+    assert [row.within_recipe_span for row in rows] == [True, True, False]
+    assert [row.recipe_id for row in rows] == ["recipe:0", "recipe:0", None]

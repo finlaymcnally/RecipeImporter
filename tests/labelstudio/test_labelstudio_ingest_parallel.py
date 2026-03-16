@@ -23,6 +23,7 @@ from cookimport.labelstudio.archive import (
 from cookimport.labelstudio.ingest import (
     _acquire_split_phase_slot,
     _normalize_llm_recipe_pipeline,
+    _write_authoritative_line_role_artifacts,
     generate_pred_run_artifacts,
     _merge_parallel_results,
     _plan_parallel_convert_jobs,
@@ -1861,7 +1862,7 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
     assert "tasks_jsonl" not in run_manifest["artifacts"]
 
 
-def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_authoritative(
+def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for_scoring(
     monkeypatch, tmp_path: Path
 ) -> None:
     source = tmp_path / "book.epub"
@@ -1997,11 +1998,10 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
         processed_run_root / ".bench" / "book" / "stage_block_predictions.json"
     )
     mirrored_stage_path = Path(result["stage_block_predictions_path"])
-    assert mirrored_stage_path.name == "stage_block_predictions.json"
-    assert mirrored_stage_path.read_text(encoding="utf-8") == processed_stage_path.read_text(
-        encoding="utf-8"
-    )
-    assert result["extracted_archive_path"].name == "extracted_archive.json"
+    assert mirrored_stage_path == projected_stage_path
+    assert result["extracted_archive_path"] == projected_archive_path
+    assert processed_stage_path.exists()
+    assert processed_stage_path != projected_stage_path
 
     stage_payload = json.loads(mirrored_stage_path.read_text(encoding="utf-8"))
     assert stage_payload["block_labels"]["0"] == "RECIPE_TITLE"
@@ -2045,6 +2045,121 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
         ]
         is False
     )
+
+
+def test_authoritative_line_role_artifacts_preserve_atomic_projection_semantics(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    label_first_result = _make_label_first_result(source=source, raw_artifacts=[])
+    label_first_result = label_first_result.model_copy(deep=True)
+    label_first_result.labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Tahini Dressing",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            confidence=0.95,
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=1,
+            text="Makes 1 cup",
+            deterministic_label="YIELD_LINE",
+            final_label="YIELD_LINE",
+            confidence=0.95,
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=2,
+            text="1/2 cup tahini",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            confidence=0.95,
+            decided_by="rule",
+        ),
+    ]
+    label_first_result.block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0, 1],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            confidence=0.95,
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[2],
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            confidence=0.95,
+            decided_by="rule",
+        ),
+    ]
+    label_first_result.archive_blocks = [
+        {
+            "index": 0,
+            "block_id": "block:0",
+            "text": "Tahini Dressing Makes 1 cup",
+            "location": {"block_index": 0},
+        },
+        {
+            "index": 1,
+            "block_id": "block:1",
+            "text": "1/2 cup tahini",
+            "location": {"block_index": 1},
+        },
+    ]
+    label_first_result.recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=1,
+            block_indices=[0, 1],
+            source_block_ids=["block:0", "block:1"],
+            start_atomic_index=0,
+            end_atomic_index=2,
+            atomic_indices=[0, 1, 2],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+
+    artifacts, summary = _write_authoritative_line_role_artifacts(
+        run_root=tmp_path,
+        source_file=str(source),
+        source_hash="hash-123",
+        workbook_slug="book",
+        label_first_result=label_first_result,
+    )
+
+    stage_payload = json.loads(
+        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+    )
+    archive_payload = json.loads(
+        artifacts["extracted_archive_path"].read_text(encoding="utf-8")
+    )
+
+    assert stage_payload["block_count"] == 3
+    assert stage_payload["block_labels"] == {
+        "0": "RECIPE_TITLE",
+        "1": "YIELD_LINE",
+        "2": "INGREDIENT_LINE",
+    }
+    assert len(archive_payload) == 3
+    assert archive_payload[1]["location"]["features"]["line_role_projection"] is True
+    assert archive_payload[1]["location"]["block_index"] == 0
+    assert summary["span_count"] == 3
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(

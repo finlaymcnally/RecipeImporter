@@ -249,6 +249,7 @@ Current bundle rules:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`
   - `build_final_recipe`
+- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; any pass-slot aliases left in packets are compatibility-only output fields
 - pass4 must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
 - follow-up tooling may still accept historical local filenames such as `pass4_knowledge_manifest.json` or older prompt-task sample paths when auditing archived bundles, but those are compatibility reads only and should not be reintroduced into new reviewer-facing bundle fields
@@ -348,7 +349,7 @@ Primary benchmark modules:
 - `cookimport/bench/artifact_gc.py`: benchmark retention and pruning
 - `cookimport/bench/oracle_upload.py`: Oracle upload wrapper for existing bundles
 - `cookimport/bench/followup_bundle.py`: follow-up packet helpers used by `cf-debug`
-- `scripts/benchmark_cutdown_for_external_ai.py`: upload-bundle builder wrapper for existing outputs
+- `scripts/benchmark_cutdown_for_external_ai.py`: existing-output external-review packet builder over semantic stage rows plus current recipe manifests/audits
 
 ## 9. See Also
 

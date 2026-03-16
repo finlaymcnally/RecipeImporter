@@ -81,7 +81,7 @@ Durable decisions:
 - dead-owner lock reclamation checks PID liveness before age-only fallback
 - replay boundary functions are explicit: predict, evaluate, legacy direct-call, and pipelined run paths
 - `--predictions-out` writes stage-block prediction records
-- `--predictions-in` accepts both current record files and older run-pointer records
+- `--predictions-in` now accepts current prediction-record files only; older run-pointer records were intentionally removed during the canonical scorer-pointer cutover
 - write toggles for markdown and Label Studio tasks are explicit and recorded in manifests
 
 Anti-loop note:
@@ -282,9 +282,11 @@ Durable decisions:
 
 - `upload_bundle_v1` and related rendering now expose `recipe_topology_key` plus ordered semantic `recipe_stages`
 - the active stage meanings are:
-  - standard recipe pipeline: `schemaorg`, `final`
-  - historical merged-repair topology: `merged_repair`
+  - `build_intermediate_det`
+  - `recipe_llm_correct_and_link`
+  - `build_final_recipe`
 - starter-pack and casebook rendering should present chunking separately from recipe correction/finalization rather than flattening everything into pass-slot labels
+- the external-AI cutdown path should read semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics directly instead of reconstructing pass-slot trees
 - historical bundles may still be read through narrow compatibility adapters for old pass4 sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
 
 Anti-loop note:

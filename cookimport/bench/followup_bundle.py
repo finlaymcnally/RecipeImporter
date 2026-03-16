@@ -857,6 +857,97 @@ def _selector_payload_locators(
     return locators
 
 
+def _sorted_recipe_delta_rows(context: FollowupBundleContext) -> list[dict[str, Any]]:
+    return sorted(
+        (
+            row
+            for row in context._per_recipe_rows.values()
+            if _coerce_float(row.get("delta_codex_minus_baseline")) is not None
+        ),
+        key=lambda row: (
+            _coerce_float(row.get("delta_codex_minus_baseline")) or 0.0,
+            str(row.get("recipe_id") or ""),
+        ),
+    )
+
+
+def _sorted_outside_span_candidates(
+    context: FollowupBundleContext,
+) -> list[dict[str, Any]]:
+    return sorted(
+        _build_outside_span_candidates(context).values(),
+        key=lambda row: (
+            -(int(row.get("changed_line_count") or 0)),
+            str(row.get("source_key") or ""),
+            int(row.get("start") or 0),
+            int(row.get("end") or 0),
+        ),
+    )
+
+
+def _default_line_role_followup_ask(
+    context: FollowupBundleContext,
+) -> dict[str, Any]:
+    selectors: dict[str, Any] = {
+        "top_neg": 0,
+        "top_pos": 0,
+        "outside_span": 0,
+        "stage_filters": ["line_role"],
+        "include_case_ids": [],
+        "include_recipe_ids": [],
+        "include_line_ranges": [],
+        "include_pass4_source_keys": [],
+        "include_pass4_output_subdirs": [],
+    }
+    question = "Show provenance and nearby context for the most relevant line-role issue."
+
+    recipe_rows = _sorted_recipe_delta_rows(context)
+    if recipe_rows:
+        row = recipe_rows[0]
+        case_id = _recipe_case_id(
+            str(row.get("recipe_id") or ""),
+            _coerce_float(row.get("delta_codex_minus_baseline")),
+        )
+        selectors["include_case_ids"] = [case_id]
+        question = f"Why does {case_id} look wrong? Show provenance and nearby context."
+    else:
+        outside_candidates = _sorted_outside_span_candidates(context)
+        if outside_candidates:
+            case_id = str(outside_candidates[0].get("case_id") or "").strip()
+            if case_id:
+                selectors["include_case_ids"] = [case_id]
+                question = (
+                    f"Why does {case_id} look wrong? Show provenance and nearby context."
+                )
+            else:
+                question = (
+                    "Show provenance and nearby context for the most relevant "
+                    "outside-span issue."
+                )
+        else:
+            question = (
+                "This bundle has no precomputed recipe or outside-span cases. "
+                "Fill in selectors for the follow-up you want."
+            )
+
+    return {
+        "ask_id": "ask_001",
+        "question": question,
+        "outputs": [
+            "case_export",
+            "line_role_audit",
+            "prompt_link_audit",
+            "page_context",
+            "uncertainty",
+        ],
+        "selectors": selectors,
+        "notes": (
+            "Use case IDs, recipe IDs, or explicit line ranges that the requester "
+            "can trace back to upload_bundle_v1."
+        ),
+    }
+
+
 def build_selector_manifest(
     *,
     context: FollowupBundleContext,
@@ -881,13 +972,7 @@ def build_selector_manifest(
     selectors: dict[str, dict[str, Any]] = {}
 
     recipe_rows = list(context._per_recipe_rows.values())
-    negatives = sorted(
-        (row for row in recipe_rows if _coerce_float(row.get("delta_codex_minus_baseline")) is not None),
-        key=lambda row: (
-            _coerce_float(row.get("delta_codex_minus_baseline")) or 0.0,
-            str(row.get("recipe_id") or ""),
-        ),
-    )
+    negatives = _sorted_recipe_delta_rows(context)
     positives = sorted(
         (row for row in recipe_rows if _coerce_float(row.get("delta_codex_minus_baseline")) is not None),
         key=lambda row: (
@@ -956,15 +1041,7 @@ def build_selector_manifest(
         add_recipe_selector(row, reason="top_positive_delta", reason_rank=rank)
 
     outside_candidates = _build_outside_span_candidates(context)
-    selected_outside = sorted(
-        outside_candidates.values(),
-        key=lambda row: (
-            -(int(row.get("changed_line_count") or 0)),
-            str(row.get("source_key") or ""),
-            int(row.get("start") or 0),
-            int(row.get("end") or 0),
-        ),
-    )
+    selected_outside = _sorted_outside_span_candidates(context)
     for rank, row in enumerate(selected_outside[: max(0, outside_span)], start=1):
         selector = {
             "selector_id": _selector_id_for_line_range(
@@ -1031,6 +1108,18 @@ def build_selector_manifest(
                 for candidate in context.runs
                 if candidate.codex_enabled
                 and _source_key_from_output_subdir(candidate.output_subdir) == source_text
+            ]
+            if len(matching_runs) == 1:
+                run = matching_runs[0]
+        if run is None:
+            matching_runs = [
+                candidate
+                for candidate in context.runs
+                if context.pass4_row_for_output_subdir(candidate.output_subdir) is not None
+                and (
+                    candidate.source_key == source_text
+                    or _source_key_from_output_subdir(candidate.output_subdir) == source_text
+                )
             ]
             if len(matching_runs) == 1:
                 run = matching_runs[0]
@@ -1198,34 +1287,7 @@ def write_followup_request_template(
     out_path: Path,
 ) -> dict[str, Any]:
     context = load_followup_bundle_context(bundle_dir)
-    asks: list[dict[str, Any]] = [
-        {
-            "ask_id": "ask_001",
-            "question": "Why does regression_c6 look wrong? Show provenance and nearby context.",
-            "outputs": [
-                "case_export",
-                "line_role_audit",
-                "prompt_link_audit",
-                "page_context",
-                "uncertainty",
-            ],
-            "selectors": {
-                "top_neg": 0,
-                "top_pos": 0,
-                "outside_span": 0,
-                "stage_filters": ["line_role"],
-                "include_case_ids": ["regression_c6"],
-                "include_recipe_ids": [],
-                "include_line_ranges": [],
-                "include_pass4_source_keys": [],
-                "include_pass4_output_subdirs": [],
-            },
-            "notes": (
-                "Use case IDs, recipe IDs, or explicit line ranges that the requester "
-                "can trace back to upload_bundle_v1."
-            ),
-        }
-    ]
+    asks: list[dict[str, Any]] = [_default_line_role_followup_ask(context)]
     first_pass4_row = next(
         (
             row

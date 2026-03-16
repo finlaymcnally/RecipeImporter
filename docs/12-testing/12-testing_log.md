@@ -120,6 +120,7 @@ Anti-loop note:
 Still-active outcomes:
 
 - broad non-slow runtimes were dominated by a small set of integration-heavy files rather than by domain count alone
+- broad compact pytest runs were not useful enough for hotspot timing because the compact reporter suppressed most `--durations` output; one-file invocations were the reliable measurement path
 - measured hotspot files before reclassification were:
   - `tests/analytics/test_stats_dashboard.py` about `45s`
   - `tests/ingestion/test_performance_features.py` about `15s`
@@ -132,6 +133,7 @@ Still-active outcomes:
   - cli `8s`
   - parsing `3s`
 - broad non-slow pytest finished in about `70.34s` after the cleanup, with unrelated existing failures still present
+- the heavy coverage stayed available in the explicit slow slice instead of being deleted or mocked away broadly
 
 Anti-loop note:
 

@@ -181,19 +181,20 @@ Durable decisions:
 Anti-loop note:
 - if a new doc or UI change reintroduces `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1` as live options, treat that as naming drift, not product complexity
 
-### 2026-03-16_09.03.14 confidence-after-refactor boundary
+### 2026-03-16_09.03.14 and 2026-03-16_12.10.00 trust/escalation boundary
 
 Problem captured:
 - confidence was easy to misread as either fully authoritative or fully obsolete after the label-first and Stage 7 cutovers
 
 Durable decisions:
-- scalar confidence still exists on authoritative labeled rows and still drives selective Codex escalation in line-role correction
-- recipe grouping and Stage 7 ownership ignore scalar confidence and trust final labels instead
-- `decided_by` and `reason_tags` are the active persisted trace fields
-- separate persisted `trust_score` and `escalation_score` fields are still not implemented
+- authoritative line/block/span artifacts now persist `trust_score`, `escalation_score`, and `escalation_reasons`
+- compatibility `confidence` on those seams is only a trust alias for older readers
+- selective Codex escalation in line-role correction now keys off explicit trust/escalation metadata and dedicated thresholds instead of one mixed scalar
+- recipe grouping and Stage 7 ownership still ignore scalar trust/confidence and use final labels as authority
+- `decided_by` and `reason_tags` remain the active decision-trace fields beside the newer trust/escalation metadata
 
 Anti-loop note:
-- do not add new runtime dependence on scalar confidence for grouping/ownership just because the field still exists on labels and provenance
+- do not collapse trust and escalation back into one scalar just because compatibility `confidence` still exists on some artifacts
 
 ### 2026-03-16_09.45.00 refactor gap review outcome
 
@@ -205,7 +206,18 @@ Durable decisions:
 - keep historical read compatibility narrow and explicit; do not let it masquerade as current write-time contract
 
 Still-relevant examples:
-- benchmark/reviewer topology currently exposes `schemaorg` / `final` or `merged_repair` semantic summaries rather than the fuller Phase 3 observability stage trio
 - `cookimport/bench/followup_bundle.py` still reads `pass4_knowledge_manifest.json` for archived bundles
-- `cookimport/config/run_settings.py` and `cookimport/labelstudio/ingest.py` still accept legacy recipe pipeline ids on load as compatibility aliases
-- `cookimport/llm/codex_farm_orchestrator.py::run_codex_farm_recipe_pipeline(...)` still contains unreachable legacy pass-state-machine code after the early single-correction return
+
+### 2026-03-16_10.53.31 and 2026-03-16_12.02.26 burn-the-boats cleanup
+
+Problem captured:
+- dead pass-slot recipe code and reviewer-facing legacy topology were still making the refactor look unfinished even though the main runtime had already moved on
+
+Durable decisions:
+- unreachable pass1/pass2/pass3 recipe orchestrator code is deleted; current runtime teaches one single-correction recipe path only
+- current docs/help/rendering should present `codex-farm-single-correction-v1` and the semantic recipe trio, not legacy 3-pass or merged-repair ids as live product truth
+- external-review benchmark surfaces now use semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as their primary recipe contract
+- any remaining historical compatibility read should stay isolated to archived local artifacts and must not leak back into new reviewer-facing output
+
+Anti-loop note:
+- if a fix proposal reintroduces pass-slot names as current runtime truth, it is undoing the cleanup rather than extending the architecture

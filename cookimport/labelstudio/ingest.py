@@ -73,7 +73,6 @@ from cookimport.parsing.canonical_line_roles import (
 from cookimport.parsing.label_source_of_truth import (
     LabelFirstCompatibilityResult,
     authoritative_lines_to_canonical_predictions,
-    build_authoritative_stage_block_predictions,
     build_label_first_compatibility_result,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
@@ -92,6 +91,8 @@ from cookimport.labelstudio.archive import (
     prepared_archive_text,
 )
 from cookimport.labelstudio.canonical_line_projection import (
+    build_line_role_extracted_archive_payload,
+    build_line_role_stage_prediction_payload,
     project_line_roles_to_freeform_spans,
 )
 from cookimport.labelstudio.freeform_tasks import (
@@ -1173,23 +1174,14 @@ def _write_authoritative_line_role_artifacts(
         label_first_result.recipe_spans,
     )
     projected_spans = project_line_roles_to_freeform_spans(predictions)
-    stage_payload = build_authoritative_stage_block_predictions(
-        block_labels=label_first_result.block_labels,
-        archive_blocks=label_first_result.archive_blocks,
+    stage_payload = build_line_role_stage_prediction_payload(
+        projected_spans,
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
         notes=["Prediction-run projection reused authoritative Stage 2 labels."],
     )
-    archive_payload = [
-        {
-            "index": int(block.get("index", 0)),
-            "text": str(block.get("text") or ""),
-            "location": dict(block.get("location") or {}),
-            "source_kind": block.get("source_kind"),
-        }
-        for block in label_first_result.archive_blocks
-    ]
+    archive_payload = build_line_role_extracted_archive_payload(projected_spans)
 
     line_role_predictions_path = pipeline_dir / "line_role_predictions.jsonl"
     projected_spans_path = pipeline_dir / "projected_spans.jsonl"
@@ -3203,10 +3195,7 @@ def generate_pred_run_artifacts(
             local_stage_block_predictions_path = stage_block_predictions_source_path
     scored_stage_block_predictions_path = local_stage_block_predictions_path
     scored_extracted_archive_path = archive_path
-    if (
-        isinstance(line_role_artifacts, dict)
-        and stage_block_predictions_source_path is None
-    ):
+    if isinstance(line_role_artifacts, dict):
         line_role_stage_path = line_role_artifacts.get("stage_block_predictions_path")
         line_role_archive_path = line_role_artifacts.get("extracted_archive_path")
         if (

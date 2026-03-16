@@ -21,6 +21,13 @@ PASS4_SAMPLE_BUNDLE = (
     / "data/golden/benchmark-vs-golden/2026-03-06_15.22.11/single-profile-benchmark/upload_bundle_v1"
 )
 PASS4_SOURCE_KEY = "02_saltfatacidheatcutdown"
+SPARSE_SINGLE_PROFILE_BUNDLE = (
+    REPO_ROOT
+    / "data/golden/benchmark-vs-golden/2026-03-16_12.14.35/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1"
+)
+SPARSE_SINGLE_PROFILE_SOURCE_KEY = (
+    "789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c"
+)
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -104,7 +111,9 @@ def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> Non
         "page_context",
         "uncertainty",
     ]
-    assert payload["asks"][0]["selectors"]["include_case_ids"] == ["regression_c6"]
+    include_case_ids = payload["asks"][0]["selectors"]["include_case_ids"]
+    assert len(include_case_ids) == 1
+    assert include_case_ids[0] in payload["asks"][0]["question"]
 
 
 def test_select_cases_is_byte_stable_for_same_arguments(tmp_path: Path) -> None:
@@ -341,6 +350,50 @@ def test_request_template_includes_pass4_example_when_bundle_has_pass4(tmp_path:
     ]
 
 
+def test_request_template_for_sparse_bundle_builds_without_missing_case_ids(
+    tmp_path: Path,
+) -> None:
+    template_path = tmp_path / "sparse_followup_request.json"
+    template_result = runner.invoke(
+        app,
+        [
+            "request-template",
+            "--bundle",
+            str(SPARSE_SINGLE_PROFILE_BUNDLE),
+            "--out",
+            str(template_path),
+        ],
+    )
+    assert template_result.exit_code == 0
+
+    template_payload = _read_json(template_path)
+    assert template_payload["asks"][0]["selectors"]["include_case_ids"] == []
+
+    out_dir = tmp_path / "sparse_followup_data"
+    result = runner.invoke(
+        app,
+        [
+            "build-followup",
+            "--bundle",
+            str(SPARSE_SINGLE_PROFILE_BUNDLE),
+            "--request",
+            str(template_path),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0
+
+    packet_index = _read_json(out_dir / "index.json")
+    assert packet_index["schema_version"] == "cf.followup_packet.v1"
+    ask_dir = out_dir / "asks" / "ask_001"
+    assert (ask_dir / "case_export" / "index.json").is_file()
+    assert (ask_dir / "line_role_audit.jsonl").is_file()
+    assert (ask_dir / "prompt_link_audit.jsonl").is_file()
+    assert (ask_dir / "page_context.jsonl").is_file()
+    assert (ask_dir / "uncertainty.jsonl").is_file()
+
+
 def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
     pass4_bundle = _make_current_pass4_bundle(tmp_path)
     out_path = tmp_path / "pass4_selectors.json"
@@ -369,6 +422,36 @@ def test_select_cases_supports_pass4_source_key(tmp_path: Path) -> None:
     assert row["output_subdir"] == f"{PASS4_SOURCE_KEY}/codexfarm"
     assert row["case_id"].startswith("pass4_")
     assert row["payload_locators"]
+
+
+def test_select_cases_supports_pass4_source_key_for_sparse_single_profile_bundle(
+    tmp_path: Path,
+) -> None:
+    out_path = tmp_path / "sparse_pass4_selectors.json"
+    result = runner.invoke(
+        app,
+        [
+            "select-cases",
+            "--bundle",
+            str(SPARSE_SINGLE_PROFILE_BUNDLE),
+            "--stage",
+            "pass4",
+            "--include-pass4-source-key",
+            SPARSE_SINGLE_PROFILE_SOURCE_KEY,
+            "--out",
+            str(out_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    payload = _read_json(out_path)
+    selectors = payload["selectors"]
+    assert len(selectors) == 1
+    row = selectors[0]
+    assert row["kind"] == "pass4_run"
+    assert row["source_key"] == SPARSE_SINGLE_PROFILE_SOURCE_KEY
+    assert row["output_subdir"] == "line_role_only"
+    assert row["enabled"] is False
 
 
 def test_audit_pass4_knowledge_writes_rows(tmp_path: Path) -> None:

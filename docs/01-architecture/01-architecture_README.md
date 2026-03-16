@@ -72,16 +72,20 @@ Architecture priorities:
 - scalar confidence is persisted with labeled rows and compatibility recipe metadata, but grouping and Stage 7 ownership do not use it as authority.
 - low-confidence deterministic line-role cases may still escalate to Codex in `cookimport/parsing/canonical_line_roles.py`; that is an escalation seam, not the main runtime truth boundary.
 - `decided_by` and `reason_tags` are the persisted decision-trace fields on current labeled rows.
-- separate persisted `trust_score` / `escalation_score` fields do not exist yet; do not document or depend on them as if they are live contracts.
+- authoritative line/block/span artifacts now also persist `trust_score`, `escalation_score`, and `escalation_reasons`; compatibility `confidence` on those seams is a trust alias for older readers.
 
 ### Current recipe LLM contract
 
 - the canonical public recipe pipeline id is `codex-farm-single-correction-v1`.
 - the active recipe Codex path is one correction stage that updates an intermediate `RecipeCandidate`, returns `ingredient_step_mapping`, and rebuilds final cookbook drafts locally.
+- current semantic recipe-stage observability for new runs uses:
+  - `build_intermediate_det`
+  - `recipe_llm_correct_and_link`
+  - `build_final_recipe`
 
 ### Known current debt
 
-- benchmark and follow-up readers should keep current-format output aligned with the semantic recipe trio and `knowledge_manifest.json`.
+- historical benchmark/follow-up compatibility reads should stay narrow (`pass4_knowledge_manifest.json`, archived prompt-task sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
 
 ## Docs Ownership Map
 
@@ -159,6 +163,7 @@ Verified call sites:
 
 For `cookimport stage`, each run uses a timestamped root:
 
+- `<out>/<timestamp>/stage_observability.json`
 - `<out>/<timestamp>/intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `<out>/<timestamp>/final drafts/<workbook_slug>/r{index}.json`
 - `<out>/<timestamp>/sections/<workbook_slug>/r{index}.sections.json` (+ `sections.md` when `--write-markdown`)
