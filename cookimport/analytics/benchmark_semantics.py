@@ -126,15 +126,12 @@ def ai_assistance_profile_for_record(record: Any) -> str:
     recipe_pipeline = run_config_value(record, ("llm_recipe_pipeline", "llm_pipeline"))
     line_role_pipeline = run_config_value(record, ("line_role_pipeline",))
     knowledge_pipeline = run_config_value(record, ("llm_knowledge_pipeline",))
-    tags_pipeline = run_config_value(record, ("llm_tags_pipeline",))
     if recipe_pipeline is not None:
         surface_payload["llm_recipe_pipeline"] = recipe_pipeline
     if line_role_pipeline is not None:
         surface_payload["line_role_pipeline"] = line_role_pipeline
     if knowledge_pipeline is not None:
         surface_payload["llm_knowledge_pipeline"] = knowledge_pipeline
-    if tags_pipeline is not None:
-        surface_payload["llm_tags_pipeline"] = tags_pipeline
     surface = classify_codex_surfaces(surface_payload)
     artifact_variant = artifact_variant_for_record(record)
     official_paired = is_official_paired_benchmark_record(record)

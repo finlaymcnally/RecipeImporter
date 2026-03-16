@@ -282,6 +282,7 @@ class MergedRecipeRepairInput(BaseModel):
     evidence_rows: list[tuple[int, str]] = Field(default_factory=list)
     recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict)
     draft_hint: dict[str, Any] = Field(default_factory=dict)
+    tagging_guide: dict[str, Any] = Field(default_factory=dict)
     authority_notes: list[str] = Field(default_factory=list)
 
     @field_validator("canonical_text", mode="before")
@@ -289,7 +290,7 @@ class MergedRecipeRepairInput(BaseModel):
     def _normalize_canonical_text(cls, value: Any) -> str:
         return _sanitize_text_fragment(value)
 
-    @field_validator("recipe_candidate_hint", "draft_hint", mode="before")
+    @field_validator("recipe_candidate_hint", "draft_hint", "tagging_guide", mode="before")
     @classmethod
     def _coerce_hint_objects(cls, value: Any, info: Any) -> dict[str, Any]:
         return _coerce_json_object_field(value or {}, info.field_name)
@@ -317,6 +318,7 @@ class MergedRecipeRepairOutput(BaseModel):
     canonical_recipe: MergedCanonicalRecipe
     ingredient_step_mapping: dict[str, Any]
     ingredient_step_mapping_reason: str | None = None
+    selected_tags: list["RecipeSelectedTag"] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
     @field_validator("canonical_recipe", mode="before")
@@ -328,6 +330,29 @@ class MergedRecipeRepairOutput(BaseModel):
     @classmethod
     def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
         return _coerce_ingredient_step_mapping_field(value, "ingredient_step_mapping")
+
+
+class RecipeSelectedTag(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: str
+    label: str
+    confidence: float | None = None
+
+    @field_validator("category", "label", mode="before")
+    @classmethod
+    def _normalize_text_fields(cls, value: Any) -> str:
+        text = _sanitize_text_fragment(value)
+        if not text:
+            raise ValueError("tag fields must be non-empty strings")
+        return text
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        return float(value)
 
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)

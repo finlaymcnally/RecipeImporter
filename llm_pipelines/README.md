@@ -15,7 +15,6 @@ Editable pipeline specs:
 
 - `pipelines/recipe.correction.compact.v1.json`
 - `pipelines/recipe.knowledge.compact.v1.json` (optional pass4 knowledge harvest)
-- `pipelines/recipe.tags.v1.json` (optional tag suggestions)
 - `pipelines/line-role.canonical.v1.json` (canonical line-role surface)
 - `pipelines/prelabel.freeform.v1.json` (Label Studio freeform prelabel surface)
 
@@ -23,17 +22,15 @@ Editable prompt text:
 
 - `prompts/recipe.correction.compact.v1.prompt.md`
 - `prompts/recipe.knowledge.compact.v1.prompt.md`
-- `prompts/recipe.tags.v1.prompt.md`
 
 Output schemas:
 
 - `schemas/recipe.correction.v1.output.schema.json`
 - `schemas/recipe.knowledge.v1.output.schema.json`
-- `schemas/recipe.tags.v1.output.schema.json`
 - `schemas/line-role.canonical.v1.output.schema.json`
 - `schemas/prelabel.freeform.v1.output.schema.json`
 
-To tune pass behavior, edit prompt text files in `prompts/`. The recipe path now uses one compact correction asset, `recipe.correction.compact.v1`, plus the optional knowledge and tag packs.
+To tune pass behavior, edit prompt text files in `prompts/`. The recipe path now uses one compact correction asset, `recipe.correction.compact.v1`, plus the optional knowledge pack.
 
 Recipe correction schemas use native nested JSON objects for recipe payload fields (`canonical_recipe`) instead of JSON-string wrapper fields. `ingredient_step_mapping` is now a strict array of mapping-entry objects on the wire because Codex structured outputs rejected the old arbitrary-key object form; recipeimport still normalizes that back to an internal dictionary after validation.
 
@@ -44,7 +41,7 @@ Prompt input contract:
 
 Prompt convention note:
 - `recipe.*.prompt.md` templates now explicitly enforce deterministic JSON behavior (no extra keys, strict field grounding, stable ordering, and "omit rather than guess" for uncertain fields).
-- Recipe codex-farm packs (`recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`, `recipe.tags.v1`) default to `codex_timeout_seconds: 600`.
+- Recipe codex-farm packs (`recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`) default to `codex_timeout_seconds: 600`.
 
 ## Label Studio freeform AI templates
 

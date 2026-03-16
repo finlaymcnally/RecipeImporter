@@ -167,11 +167,9 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
         "warm_models",
         "llm_recipe_pipeline",
         "llm_knowledge_pipeline",
-        "llm_tags_pipeline",
         "codex_farm_cmd",
         "codex_farm_context_blocks",
         "codex_farm_knowledge_context_blocks",
-        "tag_catalog_json",
         "codex_farm_failure_mode",
         "write_markdown",
     }

@@ -118,6 +118,10 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
                     {"ingredient_index": 1, "step_indexes": [1]},
                 ],
                 "ingredient_step_mapping_reason": None,
+                "selected_tags": [
+                    {"category": "meal", "label": "breakfast", "confidence": 0.83},
+                    {"category": "method", "label": "toasted", "confidence": 0.79},
+                ],
                 "warnings": [],
             }
         }
@@ -161,6 +165,11 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     )
     assert "draft_hint" not in correction_input
     assert "provenance" not in correction_input["recipe_candidate_hint"]
+    assert correction_input["tagging_guide"]["version"] == "recipe_tagging_guide.v1"
+    assert apply_result.updated_conversion_result.recipes[0].tags == [
+        "breakfast",
+        "toasted",
+    ]
 
 
 def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -> None:

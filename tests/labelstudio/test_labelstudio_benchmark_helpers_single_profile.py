@@ -846,7 +846,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
 
     failure_text = (
         "codex-farm failed for recipe.correction.compact.v1 "
-        "(subprocess_exit=1, out_dir=/tmp/pass1/out, "
+        "(subprocess_exit=1, out_dir=/tmp/recipe_correction/out, "
         "stderr_summary=codex execution precheck failed before `process`: "
         "OpenAI Codex v0.111.0 (research preview); "
         "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.)"
@@ -892,4 +892,4 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
     assert "codexfarm=codex-farm recipe.correction.compact.v1:" in failure_messages[0]
     assert "codex execution precheck failed before `process`" in failure_messages[0]
     assert "usage limit for GPT-5.3-Codex-Spark" in failure_messages[0]
-    assert "out_dir=/tmp/pass1/out" not in failure_messages[0]
+    assert "out_dir=/tmp/recipe_correction/out" not in failure_messages[0]

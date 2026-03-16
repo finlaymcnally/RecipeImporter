@@ -29,6 +29,7 @@ from .codex_farm_runner import (
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
+from .recipe_tagging_guide import build_recipe_tagging_guide
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,7 @@ def _build_recipe_correction_input(
             for block in included_blocks
         ],
         recipe_candidate_hint=recipe_candidate_hint,
+        tagging_guide=build_recipe_tagging_guide(),
         authority_notes=[
             "authoritative_source=recipe_span_blocks",
             "correct_intermediate_recipe_candidate",
@@ -210,6 +212,14 @@ def _corrected_candidate_from_output(
     state: _RecipeState,
     output: MergedRecipeRepairOutput,
 ) -> RecipeCandidate:
+    selected_tags: list[str] = []
+    seen_tags: set[str] = set()
+    for tag in list(state.recipe.tags) + [entry.label for entry in output.selected_tags]:
+        rendered = str(tag or "").strip()
+        if not rendered or rendered in seen_tags:
+            continue
+        seen_tags.add(rendered)
+        selected_tags.append(rendered)
     return state.recipe.model_copy(
         update={
             "name": output.canonical_recipe.title,
@@ -217,6 +227,7 @@ def _corrected_candidate_from_output(
             "instructions": list(output.canonical_recipe.steps),
             "description": output.canonical_recipe.description,
             "recipe_yield": output.canonical_recipe.recipe_yield,
+            "tags": selected_tags,
         },
         deep=True,
     )
@@ -247,6 +258,14 @@ def _build_recipe_correction_audit(
             "title": correction_output.canonical_recipe.title,
             "ingredient_count": len(correction_output.canonical_recipe.ingredients),
             "step_count": len(correction_output.canonical_recipe.steps),
+            "selected_tags": [
+                {
+                    "category": tag.category,
+                    "label": tag.label,
+                    "confidence": tag.confidence,
+                }
+                for tag in correction_output.selected_tags
+            ],
             "warning_count": len(correction_output.warnings),
             "ingredient_step_mapping": correction_output.ingredient_step_mapping,
             "ingredient_step_mapping_reason": correction_output.ingredient_step_mapping_reason,

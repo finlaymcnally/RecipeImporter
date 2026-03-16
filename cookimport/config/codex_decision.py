@@ -18,7 +18,6 @@ RECIPE_CODEX_PIPELINES = frozenset(RECIPE_CODEX_FARM_EXECUTION_PIPELINES)
 LINE_ROLE_CODEX_PIPELINE = "codex-line-role-v1"
 LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
-TAGS_CODEX_PIPELINE = "codex-farm-tags-v1"
 PRELABEL_CODEX_PROVIDER = "codex-farm"
 BUCKET1_FIXED_BEHAVIOR_VERSION = "bucket1-fixed-v1"
 SECTION_DETECTOR_SHARED_V1 = "shared_v1"
@@ -26,7 +25,6 @@ INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
 INSTRUCTION_STEP_SEGMENTER_HEURISTIC_V1 = "heuristic_v1"
 BENCHMARK_SEQUENCE_MATCHER_DMP = "dmp"
 COMPACT_KNOWLEDGE_PIPELINE = "recipe.knowledge.compact.v1"
-TAGS_PIPELINE = "recipe.tags.v1"
 
 
 @dataclass(frozen=True)
@@ -39,7 +37,6 @@ class Bucket1FixedBehavior:
     multi_recipe_trace: bool = False
     p6_emit_metadata_debug: bool = False
     codex_farm_pipeline_knowledge: str = COMPACT_KNOWLEDGE_PIPELINE
-    codex_farm_pipeline_tags: str = TAGS_PIPELINE
 
     def manifest_metadata(self) -> dict[str, Any]:
         return {
@@ -80,7 +77,6 @@ _TOP_TIER_VANILLA_PATCH: dict[str, Any] = {
     **_TOP_TIER_PARSER_STACK_PATCH,
     "llm_recipe_pipeline": "off",
     "llm_knowledge_pipeline": "off",
-    "llm_tags_pipeline": "off",
     "line_role_pipeline": LINE_ROLE_DETERMINISTIC_PIPELINE,
     "atomic_block_splitter": "atomic-v1",
 }
@@ -113,13 +109,11 @@ class CodexSurfaceDecision:
     recipe_pipeline: str
     line_role_pipeline: str
     knowledge_pipeline: str
-    tags_pipeline: str
     prelabel_provider: str
     recipe_codex_enabled: bool
     line_role_codex_enabled: bool
     deterministic_line_role_enabled: bool
     knowledge_codex_enabled: bool
-    tags_codex_enabled: bool
     prelabel_codex_enabled: bool
     any_codex_enabled: bool
     codex_surfaces: tuple[str, ...]
@@ -177,7 +171,6 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
     knowledge_pipeline = _normalize_text(
         normalized_payload.get("llm_knowledge_pipeline") or "off"
     )
-    tags_pipeline = _normalize_text(normalized_payload.get("llm_tags_pipeline") or "off")
     prelabel_provider = _normalize_prelabel_provider(
         normalized_payload.get("prelabel_provider")
         or (PRELABEL_CODEX_PROVIDER if prelabel_requested else "off")
@@ -189,14 +182,12 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
     line_role_codex_enabled = line_role_pipeline == LINE_ROLE_CODEX_PIPELINE
     deterministic_line_role_enabled = line_role_pipeline == LINE_ROLE_DETERMINISTIC_PIPELINE
     knowledge_codex_enabled = knowledge_pipeline == KNOWLEDGE_CODEX_PIPELINE
-    tags_codex_enabled = tags_pipeline == TAGS_CODEX_PIPELINE
     prelabel_codex_enabled = prelabel_requested
     any_codex_enabled = any(
         (
             recipe_codex_enabled,
             line_role_codex_enabled,
             knowledge_codex_enabled,
-            tags_codex_enabled,
             prelabel_codex_enabled,
         )
     )
@@ -204,7 +195,6 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         (recipe_codex_enabled, "recipe"),
         (line_role_codex_enabled, "line_role"),
         (knowledge_codex_enabled, "knowledge"),
-        (tags_codex_enabled, "tags"),
         (prelabel_codex_enabled, "prelabel"),
     )
     deterministic_surfaces = _surface_list(
@@ -214,7 +204,6 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         (
             recipe_codex_enabled,
             knowledge_codex_enabled,
-            tags_codex_enabled,
         )
     )
     if recipe_family_codex_enabled and line_role_codex_enabled:
@@ -229,7 +218,6 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
             "llm_recipe_pipeline",
             "line_role_pipeline",
             "llm_knowledge_pipeline",
-            "llm_tags_pipeline",
         )
     ):
         ai_assistance_profile = "deterministic"
@@ -240,13 +228,11 @@ def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDe
         recipe_pipeline=recipe_pipeline,
         line_role_pipeline=line_role_pipeline,
         knowledge_pipeline=knowledge_pipeline,
-        tags_pipeline=tags_pipeline,
         prelabel_provider=prelabel_provider,
         recipe_codex_enabled=recipe_codex_enabled,
         line_role_codex_enabled=line_role_codex_enabled,
         deterministic_line_role_enabled=deterministic_line_role_enabled,
         knowledge_codex_enabled=knowledge_codex_enabled,
-        tags_codex_enabled=tags_codex_enabled,
         prelabel_codex_enabled=prelabel_codex_enabled,
         any_codex_enabled=any_codex_enabled,
         codex_surfaces=codex_surfaces,

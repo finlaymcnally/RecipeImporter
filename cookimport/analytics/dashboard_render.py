@@ -9843,12 +9843,10 @@ _JS = """\
     const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
     const lineRolePipeline = runConfigValue(record, ["line_role_pipeline"]);
     const knowledgePipeline = runConfigValue(record, ["llm_knowledge_pipeline"]);
-    const tagsPipeline = runConfigValue(record, ["llm_tags_pipeline"]);
     const hasEnabledPipeline = [
       recipePipeline,
       lineRolePipeline,
       knowledgePipeline,
-      tagsPipeline,
     ].some(value => value && String(value).toLowerCase() !== "off");
     if (hasEnabledPipeline) return "codexfarm";
     if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "codexfarm";

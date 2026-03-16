@@ -241,11 +241,9 @@ def test_load_settings_includes_expanded_operator_defaults(
     assert settings["web_schema_extractor"] == "builtin_jsonld"
     assert settings["web_schema_policy"] == "prefer_schema"
     assert settings["llm_knowledge_pipeline"] == "off"
-    assert settings["llm_tags_pipeline"] == "off"
     assert settings["codex_farm_cmd"] == "codex-farm"
     assert settings["codex_farm_context_blocks"] == 30
-    assert settings["codex_farm_knowledge_context_blocks"] == 12
-    assert settings["tag_catalog_json"] == "data/tagging/tag_catalog.json"
+    assert settings["codex_farm_knowledge_context_blocks"] == 2
     assert settings["label_studio_url"] == ""
     assert settings["label_studio_api_key"] == ""
 
@@ -269,8 +267,6 @@ def test_settings_menu_includes_expanded_operator_defaults(monkeypatch: pytest.M
     assert "web_schema_policy" in captured_choice_values
     assert "llm_recipe_pipeline" in captured_choice_values
     assert "llm_knowledge_pipeline" in captured_choice_values
-    assert "llm_tags_pipeline" in captured_choice_values
-    assert "tag_catalog_json" in captured_choice_values
     assert "codex_farm_cmd" in captured_choice_values
     assert "codex_farm_root" in captured_choice_values
     assert "codex_farm_workspace_root" in captured_choice_values
@@ -288,8 +284,6 @@ def test_settings_menu_can_update_new_operator_defaults(monkeypatch: pytest.Monk
         [
             "pdf_ocr_policy",
             "always",
-            "llm_tags_pipeline",
-            "codex-farm-tags-v1",
             "web_schema_policy",
             "schema_only",
             "codex_farm_reasoning_effort",
@@ -325,7 +319,6 @@ def test_settings_menu_can_update_new_operator_defaults(monkeypatch: pytest.Monk
     cli._settings_menu(settings)
 
     assert settings["pdf_ocr_policy"] == "always"
-    assert settings["llm_tags_pipeline"] == "codex-farm-tags-v1"
     assert settings["web_schema_policy"] == "schema_only"
     assert settings["codex_farm_reasoning_effort"] == "high"
     assert settings["codex_farm_cmd"] == "codex-farm --profile test"
@@ -996,9 +989,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
-            "llm_tags_pipeline": "codex-farm-tags-v1",
             "codex_farm_knowledge_context_blocks": 37,
-            "tag_catalog_json": "data/tagging/custom_catalog.json",
         },
         warn_context="test settings",
     )
@@ -1024,11 +1015,8 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
 
     assert captured["path"] == selected_file
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
-    assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
-    assert captured["codex_farm_pipeline_tags"] == "recipe.tags.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
-    assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 
 
 def test_import_entrypoint_passes_extended_stage_settings(
@@ -1045,11 +1033,8 @@ def test_import_entrypoint_passes_extended_stage_settings(
         "epub_unstructured_preprocess_mode": "semantic_v1",
         "llm_recipe_pipeline": "off",
         "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
-        "llm_tags_pipeline": "codex-farm-tags-v1",
         "codex_farm_pipeline_knowledge": "recipe.knowledge.custom.v9",
-        "codex_farm_pipeline_tags": "recipe.tags.custom.v3",
         "codex_farm_knowledge_context_blocks": 42,
-        "tag_catalog_json": "data/tagging/custom_catalog.json",
     }
 
     def fake_stage(*, path, limit, **kwargs):
@@ -1078,11 +1063,8 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_skip_headers_footers"] is True
     assert captured["epub_unstructured_preprocess_mode"] == "semantic_v1"
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
-    assert captured["llm_tags_pipeline"] == "codex-farm-tags-v1"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"
-    assert captured["codex_farm_pipeline_tags"] == "recipe.tags.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
-    assert captured["tag_catalog_json"] == "data/tagging/custom_catalog.json"
 
 
 def test_stage_direct_call_uses_plain_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

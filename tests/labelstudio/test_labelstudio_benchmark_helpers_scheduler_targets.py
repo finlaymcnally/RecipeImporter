@@ -227,7 +227,6 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
         {
             "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
-            "llm_tags_pipeline": "codex-farm-tags-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
         },
@@ -258,9 +257,6 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
     } == {"off"}
     assert {
         variant.run_settings.llm_knowledge_pipeline.value for variant in baseline_variants
-    } == {"off"}
-    assert {
-        variant.run_settings.llm_tags_pipeline.value for variant in baseline_variants
     } == {"off"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in baseline_variants
@@ -295,7 +291,6 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
         {
             "llm_recipe_pipeline": "codex-farm-single-correction-v1",
             "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
-            "llm_tags_pipeline": "codex-farm-tags-v1",
             "line_role_pipeline": "codex-line-role-v1",
             "atomic_block_splitter": "atomic-v1",
         },
@@ -314,9 +309,6 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
     } == {"off"}
     assert {
         variant.run_settings.llm_knowledge_pipeline.value for variant in variants
-    } == {"off"}
-    assert {
-        variant.run_settings.llm_tags_pipeline.value for variant in variants
     } == {"off"}
     assert {
         variant.run_settings.line_role_pipeline.value for variant in variants

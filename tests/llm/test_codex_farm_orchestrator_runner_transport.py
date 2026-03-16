@@ -1564,6 +1564,6 @@ def test_ensure_codex_farm_pipelines_exist_raises_for_missing_pipeline(
         ensure_codex_farm_pipelines_exist(
             cmd="codex-farm",
             root_dir=pack_root,
-            pipeline_ids=("recipe.tags.v1",),
+            pipeline_ids=("recipe.knowledge.compact.v1",),
         )
-    assert "recipe.tags.v1" in str(exc_info.value)
+    assert "recipe.knowledge.compact.v1" in str(exc_info.value)

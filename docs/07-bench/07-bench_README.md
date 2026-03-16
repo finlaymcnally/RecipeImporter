@@ -255,7 +255,7 @@ Current generation seams:
 Current bundle rules:
 
 - reviewer-facing topology should be derived from the normalized model, not guessed from path layout
-- `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of `pass2_stage` / `pass3_stage` compatibility fields
+- `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of old pass-slot compatibility fields
 - current semantic recipe-stage values are:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`

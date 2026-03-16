@@ -462,7 +462,7 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
                 "codex_farm_model": None,
                 "codex_farm_reasoning_effort": None,
                 "process_runs": {
-                    "pass1": {
+                    "recipe_llm_correct_and_link": {
                         "process_payload": {
                             "codex_model": "gpt-5.3-codex-spark",
                             "codex_reasoning_effort": None,

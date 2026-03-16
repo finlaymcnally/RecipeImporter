@@ -1382,7 +1382,10 @@ class SubprocessCodexFarmRunner:
                 pipeline_id,
             )
 
-        process_payload = _parse_json_stdout(completed, command_label="process")
+        if completed.returncode != 0 and not completed.stdout.strip():
+            process_payload = None
+        else:
+            process_payload = _parse_json_stdout(completed, command_label="process")
 
         process_payload_dict = dict(process_payload) if isinstance(process_payload, dict) else None
         if process_payload is not None and expected_schema_path is not None:

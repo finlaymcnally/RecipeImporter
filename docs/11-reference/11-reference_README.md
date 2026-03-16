@@ -34,7 +34,7 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 2. `cookimport/staging/writer.py`
 - `write_draft_outputs(...)` writes final draft JSON payloads under `r{index}.json`.
 - Accepts `draft_overrides_by_recipe_id` so LLM pass outputs can replace deterministic conversion output.
-- `write_intermediate_outputs(...)` writes schema.org intermediates and shares override plumbing for pass2 payloads.
+- `write_intermediate_outputs(...)` writes schema.org intermediates and shares override plumbing for recipe-correction payloads.
 
 3. `cookimport/core/models.py`
 - Defines internal `RecipeDraftV1`, `RecipeDraftRecipeMeta`, and `RecipeDraftStep` models used by runtime validation and type boundaries.

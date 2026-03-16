@@ -25,6 +25,9 @@ from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_stage,
     build_nonrecipe_stage_result,
 )
+from cookimport.staging.recipe_tag_normalization import (
+    normalize_conversion_result_recipe_tags,
+)
 from cookimport.staging.writer import (
     OutputStats,
     write_chunk_outputs,
@@ -463,6 +466,8 @@ def execute_stage_import_session_from_result(
             llm_report["knowledge"] = dict(knowledge_apply.llm_report)
             knowledge_write_report = knowledge_apply.write_report
 
+    tag_normalization_report = normalize_conversion_result_recipe_tags(result)
+
     if result.report is None:
         result.report = ConversionReport()
     result.report.importer_name = importer_name
@@ -470,6 +475,10 @@ def execute_stage_import_session_from_result(
         result.report.run_config = dict(run_config)
     result.report.run_config_hash = run_config_hash
     result.report.run_config_summary = run_config_summary
+    llm_report["recipe_tags"] = {
+        "mode": "inline_recipe_correction",
+        "normalization": tag_normalization_report,
+    }
     result.report.llm_codex_farm = llm_report
     result.report.run_timestamp = run_dt.isoformat(timespec="seconds")
     enrich_report_with_stats(

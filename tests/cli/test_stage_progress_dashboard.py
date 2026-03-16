@@ -156,8 +156,6 @@ def test_stage_plain_progress_with_env_override(
             "1",
             "--epub-split-workers",
             "1",
-            "--llm-tags-pipeline",
-            "off",
         ],
         env={"COOKIMPORT_PLAIN_PROGRESS": "1"},
     )
@@ -201,8 +199,6 @@ def test_stage_merge_phase_messages_use_shared_snapshot_in_plain_mode(
             "1",
             "--epub-split-workers",
             "1",
-            "--llm-tags-pipeline",
-            "off",
         ],
         env={"COOKIMPORT_PLAIN_PROGRESS": "1"},
     )
@@ -251,8 +247,6 @@ def test_stage_live_progress_updates_use_shared_status_snapshot(
             "1",
             "--epub-split-workers",
             "1",
-            "--llm-tags-pipeline",
-            "off",
         ],
         env={"COOKIMPORT_PLAIN_PROGRESS": "0"},
     )
@@ -307,8 +301,6 @@ def test_stage_live_progress_falls_back_to_plain_when_live_slot_unavailable(
             "1",
             "--epub-split-workers",
             "1",
-            "--llm-tags-pipeline",
-            "off",
         ],
         env={"COOKIMPORT_PLAIN_PROGRESS": "0"},
     )

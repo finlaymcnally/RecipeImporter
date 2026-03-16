@@ -9,14 +9,15 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_labelstudio_ingest_removes_legacy_codex_farm_pass_pipeline_knobs() -> None:
+def test_labelstudio_ingest_removes_legacy_standalone_tags_knobs() -> None:
     generate_signature = inspect.signature(generate_pred_run_artifacts)
     import_signature = inspect.signature(run_labelstudio_import)
 
     for signature in (generate_signature, import_signature):
-        assert "codex_farm_pipeline_pass1" not in signature.parameters
-        assert "codex_farm_pipeline_pass2" not in signature.parameters
-        assert "codex_farm_pipeline_pass3" not in signature.parameters
+        parameter_names = set(signature.parameters)
+        assert "llm_tags_pipeline" not in parameter_names
+        assert "tag_catalog_json" not in parameter_names
+        assert "codex_farm_pipeline_tags" not in parameter_names
 
 def test_labelstudio_import_prints_processing_time(
     monkeypatch: pytest.MonkeyPatch,
@@ -444,7 +445,7 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
                 ),
                 "llm_codex_farm": {
                     "process_runs": {
-                        "pass1": {
+                        "recipe_llm_correct_and_link": {
                             "process_payload": {
                                 "telemetry": {
                                     "rows": [

@@ -51,7 +51,7 @@ def _write_prediction_manifest(
         }
         payload["llm_codex_farm"] = {
             "process_runs": {
-                "pass1": {
+                "recipe_llm_correct_and_link": {
                     "process_payload": {
                         "codex_model": "gpt-5.3-codex-spark",
                         "codex_reasoning_effort": None,

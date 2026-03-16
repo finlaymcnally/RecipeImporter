@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .codex_farm_runner import CodexFarmPipelineRunResult
+from .recipe_tagging_guide import build_recipe_tagging_guide
 
 OutputBuilder = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -67,6 +68,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
                 if first_line:
                     break
         recipe_name = first_line or str(payload.get("recipe_id") or "Untitled Recipe")
+        selected_tags = _select_recipe_tags(payload)
         return {
             "bundle_version": "1",
             "recipe_id": payload.get("recipe_id"),
@@ -79,6 +81,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
             },
             "ingredient_step_mapping": [],
             "ingredient_step_mapping_reason": "unclear_alignment",
+            "selected_tags": selected_tags,
             "warnings": [],
         }
     if pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1"}:
@@ -115,70 +118,49 @@ def _default_output(pipeline_id: str, payload: dict[str, Any]) -> dict[str, Any]
                 }
             ],
         }
-    if pipeline_id == "recipe.tags.v1":
-        recipe_id = str(payload.get("recipe_id") or "").strip() or "recipe"
-        missing_categories = payload.get("missing_categories") or []
-        candidates_by_category = payload.get("candidates_by_category") or {}
-        combined_text = " ".join(
-            [
-                str(payload.get("title") or ""),
-                str(payload.get("description") or ""),
-                str(payload.get("notes") or ""),
-                " ".join(str(line) for line in (payload.get("ingredients") or [])),
-                " ".join(str(line) for line in (payload.get("instructions") or [])),
-            ]
-        ).lower()
-        selected_tags: list[dict[str, Any]] = []
-        for category in missing_categories:
-            candidates = candidates_by_category.get(category) or []
-            chosen = _choose_tag_candidate(candidates, combined_text=combined_text)
-            if chosen is None:
-                continue
-            selected_tags.append(
-                {
-                    "tag_key_norm": chosen["tag_key_norm"],
-                    "category_key_norm": str(category),
-                    "confidence": 0.74,
-                    "evidence": chosen["evidence"],
-                }
-            )
-        return {
-            "bundle_version": "1",
-            "recipe_id": recipe_id,
-            "selected_tags": selected_tags,
-            "new_tag_proposals": [],
-        }
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")
 
 
-def _choose_tag_candidate(
-    candidates: list[dict[str, Any]],
-    *,
-    combined_text: str,
-) -> dict[str, str] | None:
-    for candidate in candidates:
-        tag_key = str(candidate.get("tag_key_norm") or "").strip()
-        display_name = str(candidate.get("display_name") or "").strip()
-        if not tag_key:
+def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    guide = payload.get("tagging_guide")
+    if not isinstance(guide, dict):
+        guide = build_recipe_tagging_guide()
+    categories = guide.get("categories")
+    if not isinstance(categories, list):
+        return []
+
+    combined_text = " ".join(
+        [
+            str(payload.get("canonical_text") or ""),
+            json.dumps(payload.get("recipe_candidate_hint") or {}, sort_keys=True),
+        ]
+    ).lower()
+    selected: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for category in categories:
+        if not isinstance(category, dict):
             continue
-        evidence_hint = display_name or tag_key
-        keywords = {
-            token.strip().lower()
-            for token in evidence_hint.replace("-", " ").split()
-            if token.strip()
-        }
-        for keyword in keywords:
-            if len(keyword) >= 3 and keyword in combined_text:
-                return {
-                    "tag_key_norm": tag_key,
-                    "evidence": f"Matched keyword '{keyword}' in recipe text.",
+        key = str(category.get("key") or "").strip()
+        examples = category.get("examples")
+        if not key or not isinstance(examples, list):
+            continue
+        for example in examples:
+            rendered = str(example or "").strip()
+            if not rendered:
+                continue
+            tokens = {token.strip().lower() for token in rendered.replace("-", " ").split() if token.strip()}
+            if not any(len(token) >= 3 and token in combined_text for token in tokens):
+                continue
+            candidate = (key, rendered.lower())
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            selected.append(
+                {
+                    "category": key,
+                    "label": rendered,
+                    "confidence": 0.74,
                 }
-    if candidates:
-        first = candidates[0]
-        tag_key = str(first.get("tag_key_norm") or "").strip()
-        if tag_key:
-            return {
-                "tag_key_norm": tag_key,
-                "evidence": "Fallback to first shortlist candidate.",
-            }
-    return None
+            )
+            break
+    return selected

@@ -12,7 +12,6 @@ from cookimport.core.slug import slugify_name
 from cookimport.runs import (
     KNOWLEDGE_MANIFEST_FILE_NAME,
     RECIPE_MANIFEST_FILE_NAME,
-    TAGS_MANIFEST_FILE_NAME,
     stage_artifact_stem,
 )
 
@@ -37,14 +36,6 @@ _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
         "stage_artifact_stem": "knowledge",
         "default_pipeline_id": "recipe.knowledge.compact.v1",
         "manifest_name": KNOWLEDGE_MANIFEST_FILE_NAME,
-    },
-    {
-        "stage_key": "tags",
-        "stage_order": 5,
-        "stage_label": "Tag Suggestions",
-        "stage_artifact_stem": "tags",
-        "default_pipeline_id": "recipe.tags.v1",
-        "manifest_name": TAGS_MANIFEST_FILE_NAME,
     },
 )
 
@@ -333,15 +324,6 @@ def _resolve_process_run_payload_for_stage(
             if isinstance(report_process_run, dict):
                 return report_process_run
         return None
-    if stage_key == "tags":
-        llm_report = manifest_payload.get("llm_report")
-        if isinstance(llm_report, dict):
-            report_process_run = llm_report.get("process_run")
-            if isinstance(report_process_run, dict):
-                return report_process_run
-        process_run = manifest_payload.get("process_run")
-        if isinstance(process_run, dict):
-            return process_run
     return None
 
 
@@ -377,15 +359,6 @@ def _resolve_manifest_pipeline_id_for_stage(
             if report_candidate is not None:
                 return report_candidate
         return default_pipeline_id
-    if stage_key == "tags":
-        llm_report = manifest_payload.get("llm_report")
-        if isinstance(llm_report, dict):
-            report_candidate = _clean_text(llm_report.get("pipeline_id"))
-            if report_candidate is not None:
-                return report_candidate
-        candidate = _clean_text(manifest_payload.get("pipeline_id"))
-        if candidate is not None:
-            return candidate
     return default_pipeline_id
 
 
@@ -397,12 +370,6 @@ def _resolve_stage_in_out_dirs(
     stage_dir_name: str,
 ) -> tuple[Path, Path]:
     paths_payload: dict[str, Any] = {}
-    if stage_key == "tags":
-        llm_report = manifest_payload.get("llm_report")
-        if isinstance(llm_report, dict):
-            llm_paths = llm_report.get("paths")
-            if isinstance(llm_paths, dict):
-                paths_payload = llm_paths
     if not paths_payload:
         raw_paths = manifest_payload.get("paths")
         if isinstance(raw_paths, dict):
@@ -411,12 +378,10 @@ def _resolve_stage_in_out_dirs(
     input_key_map = {
         "recipe_llm_correct_and_link": "recipe_correction_in",
         "extract_knowledge_optional": "knowledge_in_dir",
-        "tags": "in_dir",
     }
     output_key_map = {
         "recipe_llm_correct_and_link": "recipe_correction_out",
         "extract_knowledge_optional": "knowledge_out_dir",
-        "tags": "out_dir",
     }
 
     input_key = input_key_map.get(stage_key)

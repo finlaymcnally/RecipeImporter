@@ -53,9 +53,7 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
     "llm_knowledge_pipeline",
-    "llm_tags_pipeline",
     "codex_farm_knowledge_context_blocks",
-    "tag_catalog_json",
 )
 
 LINE_ROLE_CACHE_IDENTITY_FIELDS = ("line_role_pipeline",)

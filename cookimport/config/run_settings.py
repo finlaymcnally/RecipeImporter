@@ -126,7 +126,6 @@ _SUMMARY_ORDER = (
     "line_role_pipeline",
     "line_role_guardrail_mode",
     "llm_knowledge_pipeline",
-    "llm_tags_pipeline",
     "codex_farm_recipe_mode",
     "codex_farm_cmd",
     "codex_farm_model",
@@ -134,7 +133,6 @@ _SUMMARY_ORDER = (
     "codex_farm_context_blocks",
     "codex_farm_knowledge_context_blocks",
     "codex_farm_failure_mode",
-    "tag_catalog_json",
     "mapping_path",
     "overrides_path",
 )
@@ -326,11 +324,6 @@ class LineRoleGuardrailMode(str, Enum):
 class LlmKnowledgePipeline(str, Enum):
     off = "off"
     codex_farm_knowledge_v1 = "codex-farm-knowledge-v1"
-
-
-class LlmTagsPipeline(str, Enum):
-    off = "off"
-    codex_farm_tags_v1 = "codex-farm-tags-v1"
 
 
 class CodexFarmFailureMode(str, Enum):
@@ -982,24 +975,12 @@ class RunSettings(BaseModel):
             ),
         ),
     )
-    llm_tags_pipeline: LlmTagsPipeline = Field(
-        default=LlmTagsPipeline.off,
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Tags LLM Pipeline",
-            order=116,
-            description=(
-                "Optional tag-suggestion pipeline over staged final drafts. "
-                "Off keeps deterministic behavior."
-            ),
-        ),
-    )
     codex_farm_recipe_mode: CodexFarmRecipeMode = Field(
         default=CodexFarmRecipeMode.extract,
         json_schema_extra=_ui_meta(
             group="LLM",
             label="Codex Farm Recipe Mode",
-            order=117,
+            order=116,
             description=(
                 "Codex-farm recipe execution style. extract keeps the existing "
                 "three-pass extraction behavior; benchmark requests benchmark-native "
@@ -1084,17 +1065,6 @@ class RunSettings(BaseModel):
             step=1,
             minimum=0,
             maximum=500,
-        ),
-    )
-    tag_catalog_json: str = Field(
-        default="data/tagging/tag_catalog.json",
-        json_schema_extra=_ui_meta(
-            group="LLM",
-            label="Tag Catalog JSON",
-            order=145,
-            description=(
-                "Tag catalog snapshot path used by LLM tag suggestions when llm_tags_pipeline is enabled."
-            ),
         ),
     )
     codex_farm_failure_mode: CodexFarmFailureMode = Field(
@@ -1239,7 +1209,6 @@ class RunSettings(BaseModel):
         if (
             payload.get("llm_recipe_pipeline") == LlmRecipePipeline.off.value
             and payload.get("llm_knowledge_pipeline") == LlmKnowledgePipeline.off.value
-            and payload.get("llm_tags_pipeline") == LlmTagsPipeline.off.value
         ):
             payload.pop("codex_farm_model", None)
             payload.pop("codex_farm_reasoning_effort", None)
@@ -1325,10 +1294,6 @@ class RunSettings(BaseModel):
     @property
     def codex_farm_pipeline_knowledge(self) -> str:
         return _bucket1_fixed_behavior().codex_farm_pipeline_knowledge
-
-    @property
-    def codex_farm_pipeline_tags(self) -> str:
-        return _bucket1_fixed_behavior().codex_farm_pipeline_tags
 
 
 @dataclass(frozen=True)
@@ -1673,7 +1638,6 @@ def build_run_settings(
         str | LineRoleGuardrailMode
     ) = LineRoleGuardrailMode.enforce,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
-    llm_tags_pipeline: str | LlmTagsPipeline = LlmTagsPipeline.off,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -1682,7 +1646,6 @@ def build_run_settings(
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 2,
-    tag_catalog_json: Path | str = "data/tagging/tag_catalog.json",
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,
     overrides_path: Path | None = None,
@@ -1770,7 +1733,6 @@ def build_run_settings(
             "line_role_pipeline": _normalized_value(line_role_pipeline),
             "line_role_guardrail_mode": _normalized_value(line_role_guardrail_mode),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
-            "llm_tags_pipeline": _normalized_value(llm_tags_pipeline),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_model": (
@@ -1794,9 +1756,6 @@ def build_run_settings(
             ),
             "codex_farm_context_blocks": int(codex_farm_context_blocks),
             "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
-            "tag_catalog_json": (
-                str(tag_catalog_json).strip() or "data/tagging/tag_catalog.json"
-            ),
             "codex_farm_failure_mode": _normalized_value(codex_farm_failure_mode),
             "effective_workers": resolved_effective_workers,
             "mapping_path": str(mapping_path) if mapping_path is not None else None,

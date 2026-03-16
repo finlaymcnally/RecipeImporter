@@ -621,7 +621,7 @@ def test_summarize_prompt_warning_aggregate_counts_warnings(tmp_path: Path) -> N
         full_prompt_log_path,
         [
             {
-                "pass": "pass2",
+                "stage_key": "recipe_llm_correct_and_link",
                 "recipe_id": "r0",
                 "parsed_response": {
                     "warnings": [
@@ -631,12 +631,12 @@ def test_summarize_prompt_warning_aggregate_counts_warnings(tmp_path: Path) -> N
                 },
             },
             {
-                "pass": "pass3",
+                "stage_key": "build_final_recipe",
                 "recipe_id": "r0",
                 "parsed_response": {"warnings": [], "ingredient_step_mapping": "{}"},
             },
             {
-                "pass": "pass3",
+                "stage_key": "build_final_recipe",
                 "recipe_id": "r1",
                 "parsed_response": {
                     "warnings": ["No explicit cooking instructions were provided."],
@@ -651,7 +651,7 @@ def test_summarize_prompt_warning_aggregate_counts_warnings(tmp_path: Path) -> N
     assert summary["total_calls"] == 3
     assert summary["calls_with_warnings"] == 2
     assert summary["warnings_total"] == 3
-    assert summary["pass3_empty_ingredient_step_mapping_calls"] == 2
+    assert summary["correction_empty_ingredient_step_mapping_calls"] == 2
     assert summary["warning_buckets"]["split_line_boundary"] >= 1
     assert summary["warning_buckets"]["missing_instructions"] >= 1
 
@@ -660,8 +660,8 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
     module = _load_cutdown_module()
     codex_prompt_rows = [
         {
-            "pass": "pass1",
-            "call_id": "c0-pass1",
+            "stage_key": "build_intermediate_det",
+            "call_id": "c0-build-intermediate",
             "recipe_id": "recipe:c0",
             "parsed_response": {
                 "is_recipe": True,
@@ -673,8 +673,8 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
         },
         {
-            "pass": "pass3",
-            "call_id": "c0-pass3",
+            "stage_key": "build_final_recipe",
+            "call_id": "c0-build-final",
             "recipe_id": "recipe:c0",
             "parsed_response": {
                 "warnings": ["No explicit cooking instructions were provided."],
@@ -807,8 +807,8 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
         ],
         full_prompt_rows=[
             {
-                "pass": "pass1",
-                "call_id": "case-pass1",
+                "stage_key": "build_intermediate_det",
+                "call_id": "case-build-intermediate",
                 "recipe_id": "recipe:c0",
                 "parsed_response": {
                     "is_recipe": True,
@@ -819,8 +819,8 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
                 "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
             },
             {
-                "pass": "pass3",
-                "call_id": "case-pass3",
+                "stage_key": "build_final_recipe",
+                "call_id": "case-build-final",
                 "recipe_id": "recipe:c0",
                 "parsed_response": {
                     "warnings": ["No explicit cooking instructions were provided."],
@@ -1822,8 +1822,8 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(bucket_rows, list)
     assert {row.get("bucket") for row in bucket_rows if isinstance(row, dict)} == {
         "line_role",
-        "pass2_extraction",
-        "pass3_mapping",
+        "recipe_correction",
+        "final_recipe",
         "routing_or_fallback",
     }
     new_error_lines = int(blame_summary.get("new_error_lines") or 0)
@@ -1902,7 +1902,7 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
     assert isinstance(runtime_summary.get("cost_signal"), dict)
     assert runtime_summary["cost_signal"]["available"] is False
-    assert "pass3" not in runtime_summary["by_stage"]
+    assert "build_final_recipe" in runtime_summary["by_stage"]
     assert "recipe_llm_correct_and_link" in runtime_summary["by_stage"]
     assert "build_final_recipe" in runtime_summary["by_stage"]
     assert (
@@ -2078,7 +2078,7 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
     )
 
 
-def test_build_upload_bundle_stage_separated_comparison_scores_pass2_and_pass3(
+def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction_and_final_recipe(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -2255,8 +2255,8 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
 
     blame_summary = index_payload["analysis"]["net_error_blame_summary"]
     bucket_definitions = blame_summary["bucket_definitions"]
-    assert "suggesting extraction-stage loss" in str(bucket_definitions["pass2_extraction"])
-    assert "indicating mapping-stage loss" in str(bucket_definitions["pass3_mapping"])
+    assert "correction-stage loss" in str(bucket_definitions["recipe_correction"])
+    assert "final-stage status" in str(bucket_definitions["final_recipe"])
 
     overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
         encoding="utf-8"
@@ -2723,8 +2723,8 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
     def _make_large_prompt_rows(run_label: str) -> list[dict[str, object]]:
         return [
             {
-                "pass": "pass3",
-                "call_id": f"{run_label}-pass3-{index}",
+                "stage_key": "build_final_recipe",
+                "call_id": f"{run_label}-build-final-{index}",
                 "recipe_id": f"recipe:{run_label}:{index}",
                 "parsed_response": {
                     "warnings": [f"warning {index}"],
@@ -3114,11 +3114,11 @@ def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:
             "recipe_id": f"recipe:{index}",
             "changed_lines_codex_vs_baseline": 20 - index,
             "delta_codex_minus_baseline": 0.1 - (index * 0.01),
-            "pass1_vs_pass2_missing_block_count": index % 5,
-            "pass3_empty_mapping": index in {2, 5, 7},
-            "pass1_selected_block_count": 10 if index in {2, 5} else 2,
-            "pass2_warning_count": 3 if index == 7 else 0,
-            "pass2_extracted_instruction_count": 0 if index in {2, 7} else 1,
+            "build_intermediate_missing_block_count": index % 5,
+            "final_recipe_empty_mapping": index in {2, 5, 7},
+            "build_intermediate_selected_block_count": 10 if index in {2, 5} else 2,
+            "correction_warning_count": 3 if index == 7 else 0,
+            "correction_step_count": 0 if index in {2, 7} else 1,
             "outside_span_wrong_line_count": 3 if index == 4 else 0,
             "codex_accuracy": 0.8 - (index * 0.01),
         }
@@ -3145,11 +3145,11 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
             "recipe_id": "recipe:steady",
             "changed_lines_codex_vs_baseline": 9,
             "delta_codex_minus_baseline": 0.01,
-            "pass1_vs_pass2_missing_block_count": 0,
-            "pass3_empty_mapping": False,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 1,
+            "build_intermediate_missing_block_count": 0,
+            "final_recipe_empty_mapping": False,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 1,
             "outside_span_wrong_line_count": 0,
             "codex_accuracy": 0.90,
         },
@@ -3159,11 +3159,11 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
             "recipe_id": "recipe:empty-high-delta",
             "changed_lines_codex_vs_baseline": 4,
             "delta_codex_minus_baseline": -0.40,
-            "pass1_vs_pass2_missing_block_count": 1,
-            "pass3_empty_mapping": True,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 0,
+            "build_intermediate_missing_block_count": 1,
+            "final_recipe_empty_mapping": True,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 0,
             "outside_span_wrong_line_count": 0,
             "codex_accuracy": 0.40,
         },
@@ -3173,11 +3173,11 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
             "recipe_id": "recipe:empty-low-delta-high-changes",
             "changed_lines_codex_vs_baseline": 20,
             "delta_codex_minus_baseline": -0.05,
-            "pass1_vs_pass2_missing_block_count": 1,
-            "pass3_empty_mapping": True,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 0,
+            "build_intermediate_missing_block_count": 1,
+            "final_recipe_empty_mapping": True,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 0,
             "outside_span_wrong_line_count": 0,
             "codex_accuracy": 0.50,
         },
@@ -3201,11 +3201,11 @@ def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> 
             "recipe_id": f"recipe:high-change-{index}",
             "changed_lines_codex_vs_baseline": 20 - index,
             "delta_codex_minus_baseline": -0.10 - (index * 0.01),
-            "pass1_vs_pass2_missing_block_count": 2 + index,
-            "pass3_empty_mapping": False,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 1,
+            "build_intermediate_missing_block_count": 2 + index,
+            "final_recipe_empty_mapping": False,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 1,
             "outside_span_wrong_line_count": 0,
             "codex_accuracy": 0.60 - (index * 0.01),
         }
@@ -3218,11 +3218,11 @@ def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> 
             "recipe_id": "recipe:low-change-high-loss",
             "changed_lines_codex_vs_baseline": 1,
             "delta_codex_minus_baseline": -0.90,
-            "pass1_vs_pass2_missing_block_count": 99,
-            "pass3_empty_mapping": False,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 1,
+            "build_intermediate_missing_block_count": 99,
+            "final_recipe_empty_mapping": False,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 1,
             "outside_span_wrong_line_count": 0,
             "codex_accuracy": 0.20,
         }
@@ -3247,11 +3247,11 @@ def test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_fl
             "recipe_id": "recipe:outside-low-change-highest",
             "changed_lines_codex_vs_baseline": 1,
             "delta_codex_minus_baseline": -0.80,
-            "pass1_vs_pass2_missing_block_count": 0,
-            "pass3_empty_mapping": False,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 1,
+            "build_intermediate_missing_block_count": 0,
+            "final_recipe_empty_mapping": False,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 1,
             "outside_span_wrong_line_count": 50,
             "codex_accuracy": 0.20,
         },
@@ -3261,11 +3261,11 @@ def test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_fl
             "recipe_id": "recipe:outside-higher-change-lower-outside",
             "changed_lines_codex_vs_baseline": 8,
             "delta_codex_minus_baseline": -0.20,
-            "pass1_vs_pass2_missing_block_count": 0,
-            "pass3_empty_mapping": False,
-            "pass1_selected_block_count": 10,
-            "pass2_warning_count": 0,
-            "pass2_extracted_instruction_count": 1,
+            "build_intermediate_missing_block_count": 0,
+            "final_recipe_empty_mapping": False,
+            "build_intermediate_selected_block_count": 10,
+            "correction_warning_count": 0,
+            "correction_step_count": 1,
             "outside_span_wrong_line_count": 5,
             "codex_accuracy": 0.30,
         },

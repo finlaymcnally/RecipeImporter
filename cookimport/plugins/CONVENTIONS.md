@@ -13,7 +13,7 @@ Durable split/merge and extraction contracts across importers, worker payloads, 
 - EPUB/PDF standalone knowledge-block analysis should emit `task X/Y` progress updates and uses bounded container-level parallelism controlled by `C3IMP_STANDALONE_ANALYSIS_WORKERS` (default `4`).
 - Unstructured HTML parser `v2` requires `body.Document`/`div.Page`-style inputs; adapter-level compatibility wrapping is required before `partition_html(..., html_parser_version=\"v2\")` on generic EPUB XHTML.
 - `.job_parts` should be removed after successful merge; if it remains, treat it as evidence of merge failure/interruption.
-- Split-merge paths that run codex-farm must rebuild merged `raw/<importer>/<source_hash>/full_text.json` and rebase block indices before pass1 bundle generation.
+- Split-merge paths that run codex-farm must rebuild merged `raw/<importer>/<source_hash>/full_text.json` and rebase block indices before recipe-correction bundle generation.
 - `stage` builds and passes a base `MappingConfig` to workers, so worker conversion typically skips importer `inspect()` unless planning/split metadata requires it.
 - Topic/Tip writer paths may call file-hash resolution many times; when provenance lacks `file_hash`, hashing must be cached by source file metadata to avoid repeated whole-file reads in high-cardinality merge runs.
 - Any payload returned from split workers (especially `ConversionResult.raw_artifacts[*].metadata`) must stay process-pickle-safe primitives; module objects in metadata will fail split benchmark/stage merges with `cannot pickle 'module' object`.

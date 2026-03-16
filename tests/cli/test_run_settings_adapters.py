@@ -180,10 +180,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
 
 
 def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -> None:
-    settings = RunSettings(
-        llm_tags_pipeline="codex-farm-tags-v1",
-        tag_catalog_json="/tmp/tags.json",
-    )
+    settings = RunSettings()
 
     kwargs = build_benchmark_call_kwargs_from_run_settings(
         settings,
@@ -200,7 +197,6 @@ def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -
     extra_kwargs = sorted(set(kwargs) - signature_params)
 
     assert extra_kwargs == []
-    assert "codex_farm_pipeline_tags" not in kwargs
 
 
 def test_prediction_identity_excludes_runtime_only_settings() -> None:

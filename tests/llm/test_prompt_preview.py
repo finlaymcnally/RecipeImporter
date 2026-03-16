@@ -252,6 +252,7 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     )
     assert "draft_hint" not in recipe_input_payload
     assert "provenance" not in recipe_input_payload["recipe_candidate_hint"]
+    assert recipe_input_payload["tagging_guide"]["version"] == "recipe_tagging_guide.v1"
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
     assert "Embedded prompt payload" in line_role_row["rendered_prompt_text"]

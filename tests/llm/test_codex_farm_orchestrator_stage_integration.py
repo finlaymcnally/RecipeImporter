@@ -78,6 +78,9 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
                 },
                 "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": "not_needed_single_step",
+                "selected_tags": [
+                    {"category": "meal", "label": "breakfast", "confidence": 0.8}
+                ],
                 "warnings": [],
             }
         }

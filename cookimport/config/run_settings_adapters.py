@@ -16,13 +16,11 @@ _STAGE_OPERATOR_FIELDS = (
     "warm_models",
     "llm_recipe_pipeline",
     "llm_knowledge_pipeline",
-    "llm_tags_pipeline",
     "codex_farm_cmd",
     "codex_farm_root",
     "codex_farm_workspace_root",
     "codex_farm_context_blocks",
     "codex_farm_knowledge_context_blocks",
-    "tag_catalog_json",
 )
 _STAGE_BENCHMARK_LAB_FIELDS = (
     "epub_unstructured_html_parser_version",
@@ -71,7 +69,6 @@ _STAGE_FIXED_BEHAVIOR_FIELDS = (
     "multi_recipe_trace",
     "p6_emit_metadata_debug",
     "codex_farm_pipeline_knowledge",
-    "codex_farm_pipeline_tags",
 )
 _BENCHMARK_OPERATOR_FIELDS = (
     "workers",
@@ -108,11 +105,7 @@ _BENCHMARK_LAB_FIELDS = (
     "codex_farm_reasoning_effort",
 )
 _BENCHMARK_INTERNAL_FIELDS = _STAGE_INTERNAL_FIELDS + ("line_role_guardrail_mode",)
-_BENCHMARK_FIXED_BEHAVIOR_FIELDS = tuple(
-    field_name
-    for field_name in _STAGE_FIXED_BEHAVIOR_FIELDS
-    if field_name != "codex_farm_pipeline_tags"
-) + (
+_BENCHMARK_FIXED_BEHAVIOR_FIELDS = _STAGE_FIXED_BEHAVIOR_FIELDS + (
     "benchmark_sequence_matcher",
 )
 

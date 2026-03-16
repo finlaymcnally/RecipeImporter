@@ -97,7 +97,6 @@ _RUN_SETTINGS_PATCH_COMPAT_KEYS = {
     "multi_recipe_trace",
     "p6_emit_metadata_debug",
     "codex_farm_pipeline_knowledge",
-    "codex_farm_pipeline_tags",
 }
 
 

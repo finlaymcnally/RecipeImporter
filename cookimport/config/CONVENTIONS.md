@@ -19,7 +19,6 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 - Quality-suite winner persistence lives in `history_root_for_output(output_dir)/qualitysuite_winner_run_settings.json` via `cookimport/config/last_run_store.py`; stale or invalid winner payloads are treated as disposable cache and ignored.
 - Live run-settings loading is strict: missing keys default, but unknown or removed keys should fail instead of being silently migrated/ignored.
 - active codex-farm recipe/knowledge knobs (`llm_recipe_pipeline`, `llm_knowledge_pipeline`, `codex_farm_cmd`, `codex_farm_model`, `codex_farm_reasoning_effort`, `codex_farm_root`, `codex_farm_workspace_root`, `codex_farm_context_blocks`, `codex_farm_knowledge_context_blocks`, `codex_farm_failure_mode`) must stay wired through stage and benchmark prediction-generation paths.
-- stage-only codex-farm tags knobs (`llm_tags_pipeline`, `tag_catalog_json`, `codex_farm_pipeline_tags`) must stay wired through `stage(...)`, but benchmark adapters must not forward them into `labelstudio_benchmark(...)` unless that command surface grows matching support.
 - Bucket 1 fixed behavior lives in `cookimport/config/codex_decision.py`; new raw run-config payloads should record `bucket1_fixed_behavior_version` for reproducibility, but removed Bucket 1 setting keys are no longer a supported live input contract.
 - benchmark line-role knobs (`atomic_block_splitter`, `line_role_pipeline`) must be wired through benchmark prediction generation, persisted in run manifests/reports/cutdown summaries, and kept separate from `llm_recipe_pipeline` intent.
 - New runs always perform deterministic table detection/export (`tables/<workbook>/tables.jsonl` + `tables.md`), table-aware chunking, and optional knowledge-stage `chunk.blocks[*].table_hint` enrichment. The old `table_extraction` setting is no longer a supported live input.
@@ -29,12 +28,8 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
   - `stage`, `labelstudio-import`, and `import` use `--allow-codex`.
   - `labelstudio-benchmark` live Codex runs also require `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and must stay blocked in agent-run environments.
 - codex-farm orchestration should pass explicit `--root`/`--workspace-root` when those run settings are provided, and `llm_manifest.json` should record the effective pass pipeline ids.
-- tags-stage artifacts are stage-run scoped and should stay in:
-  - `tags/<workbook_slug>/r{index}.tags.json`
-  - `tags/<workbook_slug>/tagging_report.json`
-  - `tags/tags_index.json`
-  - `raw/llm/<workbook_slug>/tags/{in,out}/*.json` + `raw/llm/<workbook_slug>/tags_manifest.json`
-- Default local codex-farm recipe prompts live in `llm_pipelines/prompts/recipe.correction.compact.v1.prompt.md`; knowledge and tags prompts live beside it under `llm_pipelines/prompts/`.
+- Recipe tags are now part of the recipe-correction surface. The recipe prompt owns raw tag selection, and deterministic normalization runs before staged outputs are written; there is no standalone tags-pass runtime or tags-stage artifact family.
+- Default local codex-farm recipe prompts live in `llm_pipelines/prompts/recipe.correction.compact.v1.prompt.md`; the knowledge prompt lives beside it under `llm_pipelines/prompts/`.
 - For local codex-farm packs, pipeline JSON `prompt_template_path` / `output_schema_path` entries are the source of truth; avoid keeping duplicate filename schemes in `llm_pipelines/prompts/` that are not referenced by those pipeline specs.
 - New processing-option contract (do all, or the feature is incomplete):
   - add option to `RunSettings` + interactive selectors,

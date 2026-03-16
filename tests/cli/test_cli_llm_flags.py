@@ -13,13 +13,11 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert result.exit_code == 0
     assert "--llm-recipe-pipeline" in result.stdout
     assert "--llm-knowledge-pipeline" in result.stdout
-    assert "--llm-tags-pipeline" in result.stdout
     assert "--codex-farm-cmd" in result.stdout
     assert "--codex-farm-root" in result.stdout
     assert "--codex-farm-workspace-root" in result.stdout
     assert "--codex-farm-context-blocks" in result.stdout
     assert "--codex-farm-knowledge-context-blocks" in result.stdout
-    assert "--tag-catalog-json" in result.stdout
     assert "--codex-farm-failure-mode" not in result.stdout
     assert "--ocr-device" not in result.stdout
     assert "--ocr-batch-size" not in result.stdout
@@ -35,11 +33,8 @@ def test_stage_help_exposes_codex_farm_flags() -> None:
     assert "--web-schema-min-instruction-steps" not in result.stdout
     assert "--ingredient-text-fix-backend" not in result.stdout
     assert "--recipe-scorer-backend" not in result.stdout
-    assert "--codex-farm-pipeline-pass1" not in result.stdout
-    assert "--codex-farm-pipeline-pass2" not in result.stdout
-    assert "--codex-farm-pipeline-pass3" not in result.stdout
+    assert "codex-farm-pipeline-pass" not in result.stdout
     assert "--codex-farm-pipeline-knowledge" not in result.stdout
-    assert "--codex-farm-pipeline-tags" not in result.stdout
     assert "--table-extraction" not in result.stdout
     assert "codex-farm-single-correction-v1" in result.stdout
     assert "codex-farm-3pass-v1" not in result.stdout

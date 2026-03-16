@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 STAGE_OBSERVABILITY_SCHEMA_VERSION = "stage_observability.v1"
 RECIPE_MANIFEST_FILE_NAME = "recipe_manifest.json"
 KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
-TAGS_MANIFEST_FILE_NAME = "tags_manifest.json"
 
 
 class StageWorkbookObservation(BaseModel):
@@ -95,12 +94,6 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "artifact_stem": "knowledge",
         "family": "knowledge_llm",
         "order": 40,
-    },
-    "tags": {
-        "label": "Tag Suggestions",
-        "artifact_stem": "tags",
-        "family": "tags_llm",
-        "order": 50,
     },
     "write_outputs": {
         "label": "Write Outputs",
@@ -274,38 +267,6 @@ def build_stage_observability_report(
                     )
                 )
 
-            tags_manifest_path = workbook_dir / TAGS_MANIFEST_FILE_NAME
-            tags_manifest_payload = _load_json_dict(tags_manifest_path) or {}
-            tags_dir = workbook_dir / "tags"
-            if tags_manifest_path.exists() or tags_dir.exists():
-                key = "tags"
-                stage_rows.setdefault(
-                    key,
-                    ObservedStage(
-                        stage_key=key,
-                        stage_label=stage_label(key),
-                        stage_artifact_stem=stage_artifact_stem(key),
-                        stage_family=stage_family(key),
-                        stage_order=stage_order(key),
-                    ),
-                )
-                stage_rows[key].workbooks.append(
-                    StageWorkbookObservation(
-                        workbook_slug=workbook_slug,
-                        pipeline_id=str(tags_manifest_payload.get("pipeline_id") or "").strip()
-                        or None,
-                        manifest_path=_relative_to(run_root, tags_manifest_path)
-                        if tags_manifest_path.exists()
-                        else None,
-                        stage_dir=_relative_to(run_root, tags_dir) if tags_dir.exists() else None,
-                        input_dir=_relative_to(run_root, tags_dir / "in")
-                        if (tags_dir / "in").exists()
-                        else None,
-                        output_dir=_relative_to(run_root, tags_dir / "out")
-                        if (tags_dir / "out").exists()
-                        else None,
-                    )
-                )
 
     write_outputs_paths: dict[str, str] = {}
     for stage_key in ("label_det", "label_llm_correct", "group_recipe_spans"):
@@ -378,7 +339,6 @@ def build_stage_observability_report(
         ("chunks_dir", "chunks"),
         ("knowledge_dir", "knowledge"),
         ("bench_dir", ".bench"),
-        ("tags_dir", "tags"),
         ("reports_glob", "*.excel_import_report.json"),
     ):
         if "*" in path_name:

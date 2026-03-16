@@ -2462,7 +2462,7 @@ class TestCollectors:
                     },
                     "llm_codex_farm": {
                         "process_runs": {
-                            "pass1": {
+                            "recipe_llm_correct_and_link": {
                                 "process_payload": {
                                     "codex_model": "gpt-5.3-codex-spark",
                                     "codex_reasoning_effort": "<default>",
@@ -2724,7 +2724,7 @@ class TestCollectors:
                         "codex_farm_model": None,
                         "codex_farm_reasoning_effort": None,
                         "process_runs": {
-                            "pass1": {
+                            "recipe_llm_correct_and_link": {
                                 "process_payload": {
                                     "codex_model": "gpt-5.3-codex-spark",
                                     "codex_reasoning_effort": None,
@@ -5527,7 +5527,7 @@ class TestBenchmarkCsv:
                     },
                     "llm_codex_farm": {
                         "process_runs": {
-                            "pass1": {
+                            "recipe_llm_correct_and_link": {
                                 "process_payload": {
                                     "telemetry": {
                                         "rows": [

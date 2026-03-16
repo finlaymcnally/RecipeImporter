@@ -1251,17 +1251,23 @@ def _llm_selective_retry_run_config_summary(
     counts = llm_report.get("counts")
     if not isinstance(counts, dict):
         return {}
-    pass2_attempts = int(counts.get("selective_retry_pass2_attempts") or 0)
-    pass3_attempts = int(counts.get("selective_retry_pass3_attempts") or 0)
+    correction_attempts = int(
+        counts.get("selective_retry_recipe_correction_attempts") or 0
+    )
+    final_recipe_attempts = int(
+        counts.get("selective_retry_final_recipe_attempts") or 0
+    )
     return {
-        "selective_retry_attempted": bool(pass2_attempts or pass3_attempts),
-        "selective_retry_pass2_attempts": pass2_attempts,
-        "selective_retry_pass2_recovered": int(
-            counts.get("selective_retry_pass2_recovered") or 0
+        "selective_retry_attempted": bool(
+            correction_attempts or final_recipe_attempts
         ),
-        "selective_retry_pass3_attempts": pass3_attempts,
-        "selective_retry_pass3_recovered": int(
-            counts.get("selective_retry_pass3_recovered") or 0
+        "selective_retry_recipe_correction_attempts": correction_attempts,
+        "selective_retry_recipe_correction_recovered": int(
+            counts.get("selective_retry_recipe_correction_recovered") or 0
+        ),
+        "selective_retry_final_recipe_attempts": final_recipe_attempts,
+        "selective_retry_final_recipe_recovered": int(
+            counts.get("selective_retry_final_recipe_recovered") or 0
         ),
     }
 

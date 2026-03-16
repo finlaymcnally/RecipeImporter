@@ -237,8 +237,6 @@ compare_control_app = typer.Typer(
 app.add_typer(bench_app)
 app.add_typer(compare_control_app, name="compare-control")
 
-from cookimport.tagging.cli import tag_catalog_app, tag_recipes_app  # noqa: E402
-from cookimport.tagging.orchestrator import run_stage_tagging_pass  # noqa: E402
 from cookimport.epubdebug.cli import epub_app  # noqa: E402
 from cookimport.paths import (
     GOLDEN_BENCHMARK_ROOT,
@@ -252,8 +250,6 @@ from cookimport.paths import (
     history_csv_for_output,
     history_root_for_output,
 )
-app.add_typer(tag_catalog_app)
-app.add_typer(tag_recipes_app)
 app.add_typer(epub_app, name="epub")
 console = Console()
 logger = logging.getLogger(__name__)
@@ -995,7 +991,6 @@ def _load_settings() -> Dict[str, Any]:
         "web_schema_min_instruction_steps": 1,
         "llm_recipe_pipeline": "off",
         "llm_knowledge_pipeline": "off",
-        "llm_tags_pipeline": "off",
         "line_role_pipeline": "off",
         "atomic_block_splitter": "off",
         "pdf_ocr_policy": "auto",
@@ -1005,8 +1000,7 @@ def _load_settings() -> Dict[str, Any]:
         "codex_farm_model": None,
         "codex_farm_reasoning_effort": None,
         "codex_farm_context_blocks": 30,
-        "codex_farm_knowledge_context_blocks": 12,
-        "tag_catalog_json": "data/tagging/tag_catalog.json",
+        "codex_farm_knowledge_context_blocks": 2,
         "label_studio_url": "",
         "label_studio_api_key": "",
         "ocr_device": "auto",
@@ -1331,11 +1325,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         ).strip().lower()
         if current_knowledge_pipeline not in {"off", "codex-farm-knowledge-v1"}:
             current_knowledge_pipeline = "off"
-        current_tags_pipeline = str(
-            current_settings.get("llm_tags_pipeline", "off") or "off"
-        ).strip().lower()
-        if current_tags_pipeline not in {"off", "codex-farm-tags-v1"}:
-            current_tags_pipeline = "off"
         current_web_schema_extractor = str(
             current_settings.get("web_schema_extractor", "builtin_jsonld")
             or "builtin_jsonld"
@@ -1390,10 +1379,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         current_codex_reasoning_effort = _display_optional_setting(
             current_settings.get("codex_farm_reasoning_effort"),
             empty_label="<pipeline default>",
-        )
-        current_tag_catalog = _display_optional_setting(
-            current_settings.get("tag_catalog_json"),
-            empty_label="data/tagging/tag_catalog.json",
         )
         current_label_studio_url = _display_optional_setting(
             current_settings.get("label_studio_url"),
@@ -1626,17 +1611,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                         f"{current_knowledge_pipeline}"
                     ),
                     value="llm_knowledge_pipeline",
-                ),
-                questionary.Choice(
-                    (
-                        "Tags Pipeline Default: "
-                        f"{current_tags_pipeline}"
-                    ),
-                    value="llm_tags_pipeline",
-                ),
-                questionary.Choice(
-                    f"Tag Catalog JSON: {current_tag_catalog}",
-                    value="tag_catalog_json",
                 ),
                 questionary.Choice(
                     f"Codex Farm Command: {current_codex_cmd}",
@@ -2188,39 +2162,6 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             if val and val != BACK_ACTION:
                 current_settings["llm_knowledge_pipeline"] = (
                     _normalize_llm_knowledge_pipeline(str(val))
-                )
-                _save_settings(current_settings)
-
-        elif choice == "llm_tags_pipeline":
-            val = _menu_select(
-                "Select default tags pipeline for stage runs:",
-                choices=[
-                    questionary.Choice("off", value="off"),
-                    questionary.Choice(
-                        "codex-farm-tags-v1",
-                        value="codex-farm-tags-v1",
-                    ),
-                ],
-                default=current_tags_pipeline,
-                menu_help=(
-                    "Interactive stage runs will carry this saved tag-enrichment default "
-                    "through to stage(...)."
-                ),
-            )
-            if val and val != BACK_ACTION:
-                current_settings["llm_tags_pipeline"] = _normalize_llm_tags_pipeline(
-                    str(val)
-                )
-                _save_settings(current_settings)
-
-        elif choice == "tag_catalog_json":
-            val = _prompt_text(
-                "Enter tag catalog snapshot path:",
-                default=current_tag_catalog,
-            )
-            if val is not None:
-                current_settings["tag_catalog_json"] = (
-                    str(val).strip() or "data/tagging/tag_catalog.json"
                 )
                 _save_settings(current_settings)
 
@@ -3923,8 +3864,7 @@ def _extract_codex_farm_runtime_from_llm_manifest(
     if not isinstance(process_runs, dict):
         return model, reasoning_effort
 
-    for pass_name in ("pass1", "pass2", "pass3"):
-        pass_payload = process_runs.get(pass_name)
+    for pass_payload in process_runs.values():
         if not isinstance(pass_payload, dict):
             continue
 
@@ -8811,16 +8751,6 @@ def _normalize_llm_knowledge_pipeline(value: str) -> str:
         _fail(
             f"Invalid LLM knowledge pipeline: {value!r}. "
             "Expected one of: off, codex-farm-knowledge-v1."
-        )
-    return normalized
-
-
-def _normalize_llm_tags_pipeline(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized not in {"off", "codex-farm-tags-v1"}:
-        _fail(
-            f"Invalid LLM tags pipeline: {value!r}. "
-            "Expected one of: off, codex-farm-tags-v1."
         )
     return normalized
 
@@ -21094,7 +21024,6 @@ def _write_stage_run_manifest(
         ("chunks", "chunks_dir"),
         ("knowledge", "knowledge_dir"),
         (".bench", "bench_dir"),
-        ("tags", "tags_dir"),
         ("raw", "raw_dir"),
     ):
         target = run_root / path_key
@@ -21111,9 +21040,6 @@ def _write_stage_run_manifest(
     knowledge_index = run_root / "knowledge" / "knowledge_index.json"
     if knowledge_index.exists():
         artifacts["knowledge_index"] = str(knowledge_index.relative_to(run_root))
-    tags_index = run_root / "tags" / "tags_index.json"
-    if tags_index.exists():
-        artifacts["tags_index"] = str(tags_index.relative_to(run_root))
     processing_timeseries = run_root / PROCESSING_TIMESERIES_FILENAME
     if processing_timeseries.exists():
         artifacts["processing_timeseries_jsonl"] = str(
@@ -21652,7 +21578,6 @@ def _build_stage_run_summary_payload(
 
     codex_recipe = str(run_config.get("llm_recipe_pipeline", "off")).strip().lower()
     codex_knowledge = str(run_config.get("llm_knowledge_pipeline", "off")).strip().lower()
-    codex_tags = str(run_config.get("llm_tags_pipeline", "off")).strip().lower()
     codex_decision = {
         "context": run_config.get("codex_decision_context"),
         "mode": run_config.get("codex_decision_mode"),
@@ -21694,10 +21619,8 @@ def _build_stage_run_summary_payload(
         "codex_farm": {
             "recipe_pipeline": codex_recipe,
             "knowledge_pipeline": codex_knowledge,
-            "tags_pipeline": codex_tags,
             "recipe_enabled": codex_recipe != "off",
             "knowledge_enabled": codex_knowledge != "off",
-            "tags_enabled": codex_tags != "off",
             "model": run_config.get("codex_farm_model"),
             "reasoning_effort": run_config.get("codex_farm_reasoning_effort"),
         },
@@ -21786,7 +21709,6 @@ def _write_stage_run_summary(
                 f"- Codex decision: {codex_decision.get('summary') or 'n/a'}",
                 f"- Codex-farm recipe pipeline: {codex.get('recipe_pipeline')}",
                 f"- Codex-farm knowledge pipeline: {codex.get('knowledge_pipeline')}",
-                f"- Codex-farm tags pipeline: {codex.get('tags_pipeline')}",
                 f"- workers: {major_settings.get('workers')}",
                 f"- effective_workers: {major_settings.get('effective_workers')}",
                 f"- epub_extractor: {major_settings.get('epub_extractor')}",
@@ -21868,10 +21790,9 @@ def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True
         + (", ".join(observed_stage_labels) if observed_stage_labels else "none")
     )
     typer.echo(
-        "  Codex-farm (recipe/knowledge/tags): {recipe}/{knowledge}/{tags}".format(
+        "  Codex-farm (recipe/knowledge): {recipe}/{knowledge}".format(
             recipe=codex.get("recipe_pipeline", "off"),
             knowledge=codex.get("knowledge_pipeline", "off"),
-            tags=codex.get("tags_pipeline", "off"),
         )
     )
     typer.echo(
@@ -22700,17 +22621,12 @@ def stage(
         "--llm-knowledge-pipeline",
         help="Optional knowledge LLM pipeline: off or codex-farm-knowledge-v1.",
     ),
-    llm_tags_pipeline: str = typer.Option(
-        "off",
-        "--llm-tags-pipeline",
-        help="Optional tags LLM pipeline: off or codex-farm-tags-v1.",
-    ),
     allow_codex: bool = typer.Option(
         False,
         "--allow-codex/--no-allow-codex",
         help=(
             "Required when this stage run enables any Codex-backed recipe, line-role, "
-            "knowledge, or tags surface."
+            "or knowledge surface."
         ),
     ),
     codex_execution_policy: str = typer.Option(
@@ -22745,12 +22661,6 @@ def stage(
         hidden=True,
         help="Pass-4 codex-farm pipeline id (non-recipe knowledge harvesting).",
     ),
-    codex_farm_pipeline_tags: str = typer.Option(
-        "recipe.tags.v1",
-        "--codex-farm-pipeline-tags",
-        hidden=True,
-        help="Codex-farm pipeline id for tag suggestions.",
-    ),
     codex_farm_context_blocks: int = typer.Option(
         30,
         "--codex-farm-context-blocks",
@@ -22758,15 +22668,10 @@ def stage(
         help="Blocks before/after each recipe candidate included in pass-1 codex-farm bundles.",
     ),
     codex_farm_knowledge_context_blocks: int = typer.Option(
-        12,
+        2,
         "--codex-farm-knowledge-context-blocks",
         min=0,
         help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
-    ),
-    tag_catalog_json: Path = typer.Option(
-        Path("data/tagging/tag_catalog.json"),
-        "--tag-catalog-json",
-        help="Tag catalog snapshot used when --llm-tags-pipeline is enabled.",
     ),
     codex_farm_failure_mode: str = typer.Option(
         "fail",
@@ -22875,7 +22780,6 @@ def stage(
     )
     llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
     llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
-    llm_tags_pipeline = _unwrap_typer_option_default(llm_tags_pipeline)
     allow_codex = _unwrap_typer_option_default(allow_codex)
     codex_execution_policy = _unwrap_typer_option_default(codex_execution_policy)
     codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
@@ -22884,14 +22788,10 @@ def stage(
     codex_farm_pipeline_knowledge = _unwrap_typer_option_default(
         codex_farm_pipeline_knowledge
     )
-    codex_farm_pipeline_tags = _unwrap_typer_option_default(
-        codex_farm_pipeline_tags
-    )
     codex_farm_context_blocks = _unwrap_typer_option_default(codex_farm_context_blocks)
     codex_farm_knowledge_context_blocks = _unwrap_typer_option_default(
         codex_farm_knowledge_context_blocks
     )
-    tag_catalog_json = _unwrap_typer_option_default(tag_catalog_json)
     codex_farm_failure_mode = _unwrap_typer_option_default(codex_farm_failure_mode)
 
     selected_epub_extractor = _normalize_epub_extractor(epub_extractor)
@@ -22998,7 +22898,6 @@ def stage(
     )
     selected_llm_recipe_pipeline = _normalize_llm_recipe_pipeline(llm_recipe_pipeline)
     selected_llm_knowledge_pipeline = _normalize_llm_knowledge_pipeline(llm_knowledge_pipeline)
-    selected_llm_tags_pipeline = _normalize_llm_tags_pipeline(llm_tags_pipeline)
     selected_codex_execution_policy = normalize_codex_execution_policy_mode(
         codex_execution_policy
     )
@@ -23008,10 +22907,6 @@ def stage(
     selected_codex_farm_pipeline_knowledge = (
         fixed_bucket1_behavior.codex_farm_pipeline_knowledge
     )
-    selected_codex_farm_pipeline_tags = (
-        fixed_bucket1_behavior.codex_farm_pipeline_tags
-    )
-    selected_tag_catalog_json = Path(tag_catalog_json).expanduser()
 
     # Apply EPUB unstructured runtime options for this run.
     # Extractor choice is passed explicitly into worker calls.
@@ -23027,15 +22922,6 @@ def stage(
         _fail(f"Mapping file not found: {mapping}")
     if overrides is not None and not overrides.exists():
         _fail(f"Overrides file not found: {overrides}")
-    if (
-        selected_llm_tags_pipeline != "off"
-        and not selected_tag_catalog_json.exists()
-    ):
-        _fail(
-            "Tag catalog JSON not found for --llm-tags-pipeline: "
-            f"{selected_tag_catalog_json}"
-        )
-
     stage_started_monotonic = time.monotonic()
 
     # Create timestamped output folder for this run
@@ -23118,13 +23004,11 @@ def stage(
         recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
         llm_recipe_pipeline=selected_llm_recipe_pipeline,
         llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
-        llm_tags_pipeline=selected_llm_tags_pipeline,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_root=codex_farm_root,
         codex_farm_workspace_root=codex_farm_workspace_root,
         codex_farm_context_blocks=codex_farm_context_blocks,
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
-        tag_catalog_json=selected_tag_catalog_json,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
         mapping_path=mapping,
         overrides_path=overrides,
@@ -24246,33 +24130,6 @@ def stage(
         logger.warning("Performance summary skipped: %s", exc)
 
     _write_knowledge_index_best_effort(out)
-
-    if run_settings.llm_tags_pipeline.value != "off":
-        typer.secho("\nRunning codex-farm tags pass...", fg=typer.colors.CYAN)
-        try:
-            tags_result = run_stage_tagging_pass(
-                run_root=out,
-                run_settings=run_settings,
-                status_callback=lambda message: typer.secho(
-                    message, fg=typer.colors.BRIGHT_BLACK
-                ),
-            )
-        except (CodexFarmRunnerError, FileNotFoundError, ValueError) as exc:
-            if run_settings.codex_farm_failure_mode.value == "fallback":
-                warning = (
-                    "LLM tags pass failed; continuing without tag artifacts: "
-                    f"{exc}"
-                )
-                typer.secho(warning, fg=typer.colors.YELLOW)
-                logger.warning(warning)
-            else:
-                raise
-        else:
-            if tags_result.tags_index_path is not None:
-                typer.secho(
-                    f"Tags pass complete: {tags_result.tags_index_path}",
-                    fg=typer.colors.GREEN,
-                )
 
     _write_stage_observability_best_effort(
         run_root=out,
@@ -26477,10 +26334,10 @@ def _benchmark_selective_retry_manifest_summary(
         return {}
     summary_fields = (
         "selective_retry_attempted",
-        "selective_retry_pass2_attempts",
-        "selective_retry_pass2_recovered",
-        "selective_retry_pass3_attempts",
-        "selective_retry_pass3_recovered",
+        "selective_retry_recipe_correction_attempts",
+        "selective_retry_recipe_correction_recovered",
+        "selective_retry_final_recipe_attempts",
+        "selective_retry_final_recipe_recovered",
     )
     return {
         field: run_config[field]
@@ -26894,7 +26751,7 @@ def labelstudio_benchmark(
         "--allow-codex/--no-allow-codex",
         help=(
             "Required when this benchmark run enables Codex-backed recipe, line-role, "
-            "knowledge, or tags surfaces."
+            "or knowledge surfaces."
         ),
     )] = False,
     benchmark_codex_confirmation: str | None = typer.Option(

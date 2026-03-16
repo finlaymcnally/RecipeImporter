@@ -6,7 +6,7 @@ Recipe codex-farm flow is implemented in `codex_farm_orchestrator.py` with stric
 
 Run settings now include the recipe pipeline toggle plus optional workspace override (`codex_farm_workspace_root`) so recipeimport can target external codex-farm pipeline packs without code edits.
 
-Codex Farm model discovery for interactive run settings now comes from `codex-farm models list --json`, and subprocess orchestration validates configured pipeline ids via `codex-farm pipelines list --root ... --json` before pass execution.
+Codex Farm model discovery for interactive run settings now comes from `codex-farm models list --json`, and subprocess orchestration validates configured pipeline ids via `codex-farm pipelines list --root ... --json` before recipe-correction execution.
 
 When `codex-farm process --json` fails and returns a `run_id`, runner errors now include a follow-up summary from `codex-farm run errors --run-id ... --json`.
 If that summary reports `no last agent message` (typically `nonzero_exit_no_payload` chunk failures), the runner now treats it as recoverable partial-output mode so orchestrators can continue and mark only affected bundles as missing.
@@ -17,7 +17,7 @@ When a caller provides a progress callback, `SubprocessCodexFarmRunner` now exec
 
 Canonical line-role fallback support now lives in `canonical_line_role_prompt.py` plus CodexFarm-backed adapters in `parsing/canonical_line_roles.py` (`line-role.canonical.v1`) and `labelstudio/prelabel.py` (`prelabel.freeform.v1`).
 
-Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which merges codex-farm pass telemetry plus line-role telemetry into one repo-owned per-pass budget artifact.
+Prediction runs now also write `prediction-run/prompt_budget_summary.json`, which merges codex-farm stage telemetry plus line-role telemetry into one repo-owned budget artifact.
 
 Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor boundary:
 - `discover_codexfarm_prompt_run_descriptors(...)` adapts current raw CodexFarm layout.
@@ -35,6 +35,6 @@ The canonical recipe path is now `llm_recipe_pipeline=codex-farm-single-correcti
 
 Current recipe-object transport note: the correction loader uses native nested objects for `canonical_recipe`. Fake-runner outputs follow the same contract.
 
-Current recipe-correction hardening note: manifest rows expose `pass3_mapping_status` / `pass3_mapping_reason` for the deterministic final assembly that consumes `ingredient_step_mapping`.
+Current recipe-correction hardening note: manifest rows expose `final_mapping_status` / `final_mapping_reason` for the deterministic final assembly that consumes `ingredient_step_mapping`.
 
 Default behavior remains deterministic unless a non-`off` recipe Codex pipeline is explicitly enabled.

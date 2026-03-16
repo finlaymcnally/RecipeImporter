@@ -60,16 +60,16 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         json.dumps({"result": "tags response"}),
         encoding="utf-8",
     )
-    correction_trace_dir = correction_out / ".codex-farm-traces" / "task-pass1"
+    correction_trace_dir = correction_out / ".codex-farm-traces" / "task-recipe-correction"
     correction_trace_dir.mkdir(parents=True, exist_ok=True)
-    correction_trace = correction_trace_dir / "trace-pass1.trace.json"
+    correction_trace = correction_trace_dir / "trace-recipe-correction.trace.json"
     correction_trace.write_text(
         json.dumps(
             {
                 "captured_at_utc": "2026-03-02T23:59:01Z",
-                "run_id": "run-pass1",
+                "run_id": "run-recipe-correction",
                 "pipeline_id": "recipe.correction.compact.v1",
-                "task_id": "task-pass1",
+                "task_id": "task-recipe-correction",
                 "reasoning_event_count": 1,
                 "reasoning_event_types": ["response.reasoning_summary_text.delta"],
                 "reasoning_events": [
@@ -132,7 +132,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         writer.writeheader()
         writer.writerow(
             {
-                "run_id": "run-pass1",
+                "run_id": "run-recipe-correction",
                 "input_path": str(correction_in / "r0000.json"),
                 "prompt_text": "Telemetry prompt body",
                 "model": "gpt-5-test",
@@ -140,9 +140,9 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 "sandbox": "workspace-write",
                 "ask_for_approval": "true",
                 "web_search": "false",
-                "output_schema_path": "/tmp/schema-pass1.json",
-                "task_id": "task-pass1",
-                "worker_id": "worker-pass1",
+                "output_schema_path": "/tmp/schema-recipe-correction.json",
+                "task_id": "task-recipe-correction",
+                "worker_id": "worker-recipe-correction",
                 "status": "ok",
                 "duration_ms": "321",
                 "attempt_index": "1",
@@ -166,7 +166,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 # Simulate stale source-root telemetry paths; loader should resolve
                 # local trace files under the current stage out dir by task id.
                 "trace_path": str(
-                    Path("/tmp/old-run/.codex-farm-traces/task-pass1")
+                    Path("/tmp/old-run/.codex-farm-traces/task-recipe-correction")
                     / correction_trace.name
                 ),
                 "trace_action_count": "2",
@@ -191,7 +191,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
                 "codex_farm_reasoning_effort": "medium",
                 "process_runs": {
                     "recipe_correction": {
-                        "run_id": "run-pass1",
+                        "run_id": "run-recipe-correction",
                         "pipeline_id": "recipe.correction.compact.v1",
                         "telemetry": {"csv_path": str(telemetry_csv)},
                     },
@@ -227,24 +227,6 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         ),
         encoding="utf-8",
     )
-    (run_dir / "tags_manifest.json").write_text(
-        json.dumps(
-            {
-                "llm_report": {
-                    "pipeline_id": "recipe.tags.v1",
-                    "paths": {"in_dir": str(tags_in), "out_dir": str(tags_out)},
-                    "process_run": {
-                        "run_id": "run-tags",
-                        "telemetry": {"csv_path": str(telemetry_csv)},
-                    },
-                }
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-
     eval_output_dir = tmp_path / "eval"
     log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
         pred_run=pred_run,
@@ -256,12 +238,9 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert log_path is not None and log_path.exists()
     combined = log_path.read_text(encoding="utf-8")
     assert "INPUT recipe_llm_correct_and_link => r0000.json" in combined
-    assert "OUTPUT tags => r0000.json" in combined
-
     recipe_path = eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt"
     knowledge_path = eval_output_dir / "prompts" / "prompt_extract_knowledge_optional.txt"
-    tags_path = eval_output_dir / "prompts" / "prompt_tags.txt"
-    for category_path in (recipe_path, knowledge_path, tags_path):
+    for category_path in (recipe_path, knowledge_path):
         assert category_path.exists()
 
     recipe_text = recipe_path.read_text(encoding="utf-8")
@@ -275,7 +254,6 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert manifest_lines == [
         str(recipe_path),
         str(knowledge_path),
-        str(tags_path),
     ]
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
@@ -285,11 +263,10 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert len(full_prompt_rows) == 3
+    assert len(full_prompt_rows) == 2
     assert {str(row.get("stage_key") or "") for row in full_prompt_rows} == {
         "recipe_llm_correct_and_link",
         "extract_knowledge_optional",
-        "tags",
     }
     correction_row = next(
         row
@@ -305,9 +282,9 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert correction_row["request"]["sandbox"] == "workspace-write"
     assert correction_row["request"]["ask_for_approval"] is True
     assert correction_row["request"]["web_search"] is False
-    assert correction_row["request"]["output_schema_path"] == "/tmp/schema-pass1.json"
+    assert correction_row["request"]["output_schema_path"] == "/tmp/schema-recipe-correction.json"
     assert correction_row["timestamp_utc"] == "2026-03-02T23:59:00Z"
-    assert correction_row["request_telemetry"]["task_id"] == "task-pass1"
+    assert correction_row["request_telemetry"]["task_id"] == "task-recipe-correction"
     assert correction_row["request_telemetry"]["prompt_chars"] == 20
     assert correction_row["request_telemetry"]["tokens_total"] == 133
     assert correction_row["request_telemetry"]["usage_json"] == {"tokens": 123}
@@ -338,7 +315,6 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
     assert "## extract_knowledge_optional (Knowledge Harvest)" in prompt_samples
-    assert "## tags (Tag Suggestions)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
     assert "Thinking Trace:" in prompt_samples
@@ -367,7 +343,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
             {
                 "process_runs": {
                     "recipe_correction": {
-                        "run_id": "run-pass1",
+                        "run_id": "run-recipe-correction",
                         "pipeline_id": "recipe.correction.compact.v1",
                     },
                 },
@@ -413,7 +389,6 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
     assert "## extract_knowledge_optional (Knowledge Harvest)" in prompt_samples
     assert "_No rows captured for this stage._" in prompt_samples
-    assert "## tags (Tag Suggestions)" in prompt_samples
 
 
 def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_labels(
@@ -442,7 +417,7 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
                 "pipeline": "codex-farm-single-correction-v1",
                 "process_runs": {
                     "recipe_correction": {
-                        "run_id": "run-pass1",
+                        "run_id": "run-recipe-correction",
                         "pipeline_id": "recipe.correction.compact.v1",
                     },
                 },
@@ -801,7 +776,7 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
                 "line_role_pipeline_telemetry_path": str(line_role_telemetry_path),
                 "llm_codex_farm": {
                     "process_runs": {
-                        "pass1": {
+                        "recipe_llm_correct_and_link": {
                             "process_payload": {
                                 "codex_model": "gpt-5.3-codex-spark",
                                 "codex_reasoning_effort": None,
@@ -860,10 +835,10 @@ def test_pred_run_context_preserves_selective_retry_summary_fields(
                 "source_hash": "hash-1",
                 "run_config": {
                     "selective_retry_attempted": True,
-                    "selective_retry_pass2_attempts": 1,
-                    "selective_retry_pass2_recovered": 1,
-                    "selective_retry_pass3_attempts": 1,
-                    "selective_retry_pass3_recovered": 0,
+                    "selective_retry_recipe_correction_attempts": 1,
+                    "selective_retry_recipe_correction_recovered": 1,
+                    "selective_retry_final_recipe_attempts": 1,
+                    "selective_retry_final_recipe_recovered": 0,
                 },
                 "run_config_hash": "cfg-hash",
                 "run_config_summary": "selective retry summary",
@@ -876,10 +851,10 @@ def test_pred_run_context_preserves_selective_retry_summary_fields(
 
     assert context.run_config is not None
     assert context.run_config["selective_retry_attempted"] is True
-    assert context.run_config["selective_retry_pass2_attempts"] == 1
-    assert context.run_config["selective_retry_pass2_recovered"] == 1
-    assert context.run_config["selective_retry_pass3_attempts"] == 1
-    assert context.run_config["selective_retry_pass3_recovered"] == 0
+    assert context.run_config["selective_retry_recipe_correction_attempts"] == 1
+    assert context.run_config["selective_retry_recipe_correction_recovered"] == 1
+    assert context.run_config["selective_retry_final_recipe_attempts"] == 1
+    assert context.run_config["selective_retry_final_recipe_recovered"] == 0
     assert context.run_config_hash == "cfg-hash"
     assert context.run_config_summary == "selective retry summary"
 
@@ -910,7 +885,7 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
         "line_role_pipeline_telemetry_path": str(telemetry_path),
         "llm_codex_farm": {
             "process_runs": {
-                "pass1": {
+                "recipe_llm_correct_and_link": {
                     "telemetry_report": {
                         "summary": {
                             "call_count": 2,
@@ -923,7 +898,7 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                         }
                     }
                 },
-                "pass2": {
+                "build_intermediate_det": {
                     "telemetry_report": {
                         "summary": {
                             "call_count": 1,
@@ -959,8 +934,8 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     summary_path = write_prediction_run_prompt_budget_summary(pred_run, summary)
 
     written = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert written["by_stage"]["pass1"]["call_count"] == 2
-    assert written["by_stage"]["pass2"]["tokens_total"] == 104
+    assert written["by_stage"]["recipe_llm_correct_and_link"]["call_count"] == 2
+    assert written["by_stage"]["build_intermediate_det"]["tokens_total"] == 104
     assert written["by_stage"]["knowledge"]["call_count"] == 4
     assert written["by_stage"]["knowledge"]["tokens_total"] == 360
     assert written["by_stage"]["line_role"]["call_count"] == 2

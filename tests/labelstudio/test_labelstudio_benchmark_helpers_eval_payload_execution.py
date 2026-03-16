@@ -344,10 +344,10 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
                     "source_hash": "fixture-hash",
                     "run_config": {
                         "selective_retry_attempted": True,
-                        "selective_retry_pass2_attempts": 1,
-                        "selective_retry_pass2_recovered": 1,
-                        "selective_retry_pass3_attempts": 0,
-                        "selective_retry_pass3_recovered": 0,
+                        "selective_retry_recipe_correction_attempts": 1,
+                        "selective_retry_recipe_correction_recovered": 1,
+                        "selective_retry_final_recipe_attempts": 0,
+                        "selective_retry_final_recipe_recovered": 0,
                     },
                     "run_config_hash": "hash-1",
                     "run_config_summary": "selective retry summary",
@@ -379,10 +379,10 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
             "codex_execution_plan_path": codex_execution_plan_path,
             "run_config": {
                 "selective_retry_attempted": True,
-                "selective_retry_pass2_attempts": 1,
-                "selective_retry_pass2_recovered": 1,
-                "selective_retry_pass3_attempts": 0,
-                "selective_retry_pass3_recovered": 0,
+                "selective_retry_recipe_correction_attempts": 1,
+                "selective_retry_recipe_correction_recovered": 1,
+                "selective_retry_final_recipe_attempts": 0,
+                "selective_retry_final_recipe_recovered": 0,
             },
             "run_config_hash": "hash-1",
             "run_config_summary": "selective retry summary",
@@ -456,13 +456,13 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_pl
     )
     assert (
         run_manifest["run_config"]["prediction_run_config"][
-            "selective_retry_pass2_attempts"
+            "selective_retry_recipe_correction_attempts"
         ]
         == 1
     )
     assert (
         run_manifest["run_config"]["prediction_run_config"][
-            "selective_retry_pass2_recovered"
+            "selective_retry_recipe_correction_recovered"
         ]
         == 1
     )

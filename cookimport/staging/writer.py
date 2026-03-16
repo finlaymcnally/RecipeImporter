@@ -458,6 +458,8 @@ def write_draft_outputs(
             override_payload = draft_overrides_by_recipe_id.get(recipe_id)
         if isinstance(override_payload, dict):
             draft = dict(override_payload)
+            for legacy_alias_key in ("name", "ingredients", "instructions"):
+                draft.pop(legacy_alias_key, None)
         elif hasattr(override_payload, "model_dump"):
             draft = override_payload.model_dump(mode="json", by_alias=True, exclude_none=True)
         else:

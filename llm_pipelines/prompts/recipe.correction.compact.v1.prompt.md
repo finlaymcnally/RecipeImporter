@@ -10,7 +10,8 @@ Execution rules:
 2) Treat `evidence_rows` as the authoritative source text.
 3) Treat `recipe_candidate_hint` as the intermediate recipe object to correct.
 4) If `draft_hint` is present, treat it as a downstream deterministic preview only.
-5) Do not use external knowledge.
+5) Use `tagging_guide` only as a compact taxonomy guide for categories and example labels.
+6) Do not use external knowledge.
 
 Correction rules:
 A) `canonical_recipe`:
@@ -34,6 +35,15 @@ B) `ingredient_step_mapping`:
 C) `warnings`:
 - Include factual integrity caveats only.
 - Use `[]` when there are no caveats.
+
+D) `selected_tags`:
+- Return an array of objects with `category`, `label`, and `confidence`.
+- Use only category keys defined in `tagging_guide.categories`.
+- Zero selected tags is valid.
+- Select only tags that are obvious from the recipe text.
+- Prefer short human-readable labels such as `chicken`, `weeknight`, or `pressure cooker`.
+- Avoid near-duplicate labels inside one recipe.
+- Do not invent cookbook-specific ids, catalog keys, or hidden taxonomy structure.
 
 Strict constraints:
 - Preserve source truth.

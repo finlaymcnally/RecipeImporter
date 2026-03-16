@@ -61,12 +61,10 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "atomic_block_splitter",
         "line_role_pipeline",
         "llm_knowledge_pipeline",
-        "llm_tags_pipeline",
         "codex_farm_recipe_mode",
         "codex_farm_cmd",
         "codex_farm_context_blocks",
         "codex_farm_knowledge_context_blocks",
-        "tag_catalog_json",
         "codex_farm_failure_mode",
     )
     assert "bucket1_fixed_behavior_version" in run_config
@@ -168,8 +166,6 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
         spec for spec in specs if spec.name == "codex_farm_recipe_mode"
     )
     assert codex_farm_recipe_mode_spec.choices == ("extract", "benchmark")
-    llm_tags_spec = next(spec for spec in specs if spec.name == "llm_tags_pipeline")
-    assert llm_tags_spec.choices == ("off", "codex-farm-tags-v1")
     epub_extractor_spec = next(spec for spec in specs if spec.name == "epub_extractor")
     assert epub_extractor_spec.choices == ("unstructured", "beautifulsoup")
     web_policy_spec = next(spec for spec in specs if spec.name == "web_schema_policy")

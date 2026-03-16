@@ -17,6 +17,7 @@ from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
 )
+from cookimport.llm.recipe_tagging_guide import build_recipe_tagging_guide
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
@@ -310,6 +311,7 @@ def _build_recipe_preview_rows(
                 for block in included_blocks
             ],
             recipe_candidate_hint=_recipe_candidate_hint_from_draft(draft),
+            tagging_guide=build_recipe_tagging_guide(),
             authority_notes=[
                 "authoritative_source=recipe_span_blocks",
                 "correct_intermediate_recipe_candidate",

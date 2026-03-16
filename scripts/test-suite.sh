@@ -9,7 +9,7 @@ PYTEST_PATH="$repo_root/$PYTEST_BIN"
 MAXFAIL="${COOKIMPORT_TEST_MAXFAIL:-1}"
 export COOKIMPORT_TEST_SUITE=1
 
-domains=(analytics bench cli core ingestion labelstudio llm parsing staging tagging)
+domains=(analytics bench cli core ingestion labelstudio llm parsing staging)
 
 usage() {
   cat <<'USAGE'
