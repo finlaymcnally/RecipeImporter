@@ -51,6 +51,7 @@ Active Label Studio runtime scope is `freeform-spans`.
 - `cookimport labelstudio-export`
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
+- `cookimport labelstudio-benchmark compare --baseline ... --candidate ...`
 
 ### 1.3 Default roots
 
@@ -213,8 +214,9 @@ values are inferred from prediction-run metadata.
 - offline path (`--no-upload`)
 - eval-only from prediction records (`--predictions-in`)
 - prediction-record output (`--predictions-out`)
+- compare action for benchmark runs (`labelstudio-benchmark compare`)
 - line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
-- benchmark prediction-generation scratch stays inside the resolved `eval_output_dir`, then is co-located under `prediction-run/`, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
+- benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
 
 Execution modes:
 
@@ -224,13 +226,13 @@ Execution modes:
 
 - `labelstudio-benchmark --codex-execution-policy plan` belongs at the benchmark command boundary:
   - writes `codex_execution_plan.json` plus manifests,
-  - runs deterministic extraction first so the plan artifact can list the pending recipe-pass work and codex line-role batches,
+  - runs deterministic extraction/planning first so the plan artifact can list the pending recipe-pass work and codex line-role batches,
   - requires `--no-upload`,
-  - stops before extraction, evaluation, and live Codex work.
+  - stops before task generation, benchmark evaluation, upload, and live Codex work.
 - `labelstudio-import --codex-execution-policy plan` now offers the same zero-token preview shape for direct import runs:
   - writes pred-run manifests plus `codex_execution_plan.json`,
   - includes concrete planned work rows derived from deterministic extraction,
-  - skips upload, prelabel, and other live Codex work,
+  - skips task generation, upload, prelabel execution, and other live Codex work,
   - does not require `--allow-codex`.
 - `labelstudio-import --prelabel` is a separate Codex-backed surface from recipe/line-role benchmark settings.
   - Do not assume recipe/line-role decision metadata or approval checks automatically cover prelabel behavior.
@@ -240,7 +242,7 @@ Codex preview mode:
 
 - `--codex-execution-policy execute|plan` is available on `labelstudio-benchmark`.
 - `execute` now has a stricter live-benchmark gate for non-interactive runs: `--allow-codex` is still required when Codex-backed surfaces are enabled, `labelstudio-benchmark` also requires `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`, and agent-run environments are blocked from that non-interactive live path. Interactive CLI benchmark runs are treated as human-confirmed and may proceed directly.
-- `plan` is offline-only (`--no-upload`), skips live Codex/eval/upload, and writes a prediction-run `codex_execution_plan.json` plus benchmark/pred-run manifests so a later execute-mode rerun can be inspected before spending tokens.
+- `plan` is offline-only (`--no-upload`), skips task generation/upload/benchmark eval/live Codex work, and writes a prediction-run `codex_execution_plan.json` plus benchmark/pred-run manifests so a later execute-mode rerun can be inspected before spending tokens.
 - plan mode still performs deterministic extraction so the preview includes concrete pending line-role and recipe-pass work instead of only the requested Codex surfaces.
 - `labelstudio-import` also accepts `--codex-execution-policy execute|plan`; its `plan` mode writes the same pred-run plan artifact and exits before task upload or prelabel execution.
 
@@ -254,7 +256,7 @@ Evaluation implementation:
 - `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
 - `canonical-text` path uses `cookimport/bench/eval_canonical_text.py`.
 - Canonical mode ensures canonical gold artifacts from export payloads via `cookimport/labelstudio/canonical_gold.py` when needed.
-- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors the stage evidence into `prediction-run/` for compatibility. Canonical benchmark scoring always uses the stage-backed `stage_block_predictions.json` plus extracted blocks; `prediction-run/line-role-pipeline/*` remains diagnostic-only and is no longer a preferred fallback.
+- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors benchmark artifacts into the eval root. Canonical benchmark scoring uses stage-backed evidence by default, but when `line_role_pipeline != off` it uses the line-role-projected `line-role-pipeline/stage_block_predictions.json` and `line-role-pipeline/extracted_archive.json` for that run.
 
 Benchmark eval artifacts include:
 
@@ -275,6 +277,10 @@ Canonical-text mode also writes line/alignment diagnostics:
 - `alignment_gaps.jsonl`
 
 Prediction/eval telemetry files are written under eval output roots, and benchmark appends history CSV/dashboard artifacts.
+Compare runs write:
+- `comparison.json`
+- `comparison.md`
+
 When line-role prediction is enabled in prediction generation, prediction runs also write:
 - `line-role-pipeline/line_role_predictions.jsonl`
 - `line-role-pipeline/freeform_span_predictions.jsonl`
@@ -288,7 +294,7 @@ When line-role prediction is enabled in prediction generation, prediction runs a
 - `line-role-pipeline/do_no_harm_changed_rows.jsonl`
 Prediction-generation defaults for canonical line-role codex inflight are now shared at ingest seam: non-split jobs use `8`, split-gated jobs use `4`, and explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` still overrides both.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
-When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `prediction-run/line-role-pipeline/`:
+When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
 - `line-role-pipeline/joined_line_table.jsonl`
 - `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
 - `line-role-pipeline/slice_metrics.json`
@@ -314,10 +320,10 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 ### 6.3 Benchmark
 
 - Eval root: `data/golden/benchmark-vs-golden/<timestamp>/...`
-- Prediction run is co-located under eval root (`prediction-run/`).
+- Benchmark artifacts are rooted directly at the eval root.
 - Benchmark also records processed cookbook outputs under configured processed output root.
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
-- If `line_role_pipeline != off`, prediction-run manifests include `line_role_pipeline_*` artifact pointers and an optional `line_role_pipeline_recipe_projection` summary. For stage-backed benchmark runs that summary is diagnostic-only and records that authoritative stage outputs were not mutated.
+- If `line_role_pipeline != off`, benchmark manifests include `line_role_pipeline_*` artifact pointers and an optional `line_role_pipeline_recipe_projection` summary.
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`
   - `line_role_pipeline_do_no_harm_changed_rows_jsonl`
@@ -327,7 +333,15 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
   - `recipe_codex_guardrail_rows_jsonl`
   - `line_role_pipeline_guardrail_changed_rows_jsonl`
 
-## 7) Troubleshooting Checklist
+## 7) Current Gotchas
+
+- `labelstudio-export` writes only explicit spans; unlabeled text is implicit and benchmarks treat missing gold coverage as `OTHER`.
+- Overlapping exported spans are preserved. Stage-block and canonical-text scoring treat touched blocks/lines as multi-label gold, so macro/per-label metrics can lag overall accuracy.
+- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, `cookimport/staging/stage_block_predictions.py`, `cookimport/bench/eval_stage_blocks.py`, and `cookimport/bench/eval_canonical_text.py`.
+- Reusing an older Label Studio project can leave stale `label_config`; if code labels and UI labels disagree, recreate or patch the project before changing scorers.
+- `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.
+
+## 8) Troubleshooting Checklist
 
 1. Confirm the run is freeform (`freeform-spans`) and not a legacy-scope project.
 2. Confirm write consent and upload mode (`--allow-labelstudio-write`, `--no-upload`).
@@ -337,158 +351,10 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 6. If process workers are denied during split conversion, confirm logs show thread fallback (`Process-based worker concurrency unavailable ... using thread-based worker concurrency.`); serial fallback should appear only if thread startup also fails.
 7. For prelabel failures, read `prelabel_errors.jsonl` and `prelabel_report.json` first.
 
-## 8) Explicitly Retired Features
+## 9) Explicitly Retired Features
 
 These are intentionally not active runtime features:
 
 - Label Studio task-scope execution branches for `pipeline` and `canonical-blocks`.
 - Legacy `labelstudio-decorate` branch.
 - Interactive benchmark upload mode (interactive benchmark is offline-only).
-
-## 2026-02-27 Merged Understandings: Label Studio Doc Scope and Coverage
-
-Merged source notes:
-- `docs/understandings/2026-02-27_19.44.58-labelstudio-doc-prune-scope-map.md`
-- `docs/understandings/2026-02-27_19.50.37-labelstudio-doc-code-coverage-audit.md`
-
-Current-contract additions:
-- Runtime import/export/eval path is freeform-only (`freeform-spans`); legacy scope behavior remains only for explicit rejection/compat messaging.
-- Prelabel `block` and `span` granularities are both active contracts and must stay documented.
-- Module ownership docs must include `archive.py`, `canonical_gold.py`, `client.py`, `label_config_freeform.py`, `models.py`, plus benchmark evaluator dependencies.
-- Benchmark docs must include prediction-record contracts (`--predictions-in`, `--predictions-out`) and mode-specific artifact differences.
-- `labelstudio-eval` and `labelstudio-benchmark` both emit manifest/history side effects and should be documented together with those outputs.
-
-## 2026-02-28 migrated understandings digest
-
-This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
-
-### 2026-02-27_20.13.08 labelstudio unlabeled text fallback
-- Source: `docs/understandings/2026-02-27_20.13.08-labelstudio-unlabeled-text-fallback.md`
-- Summary: Pulled Label Studio freeform exports only contain explicit spans; unlabeled regions are treated as OTHER during benchmark evaluation.
-
-### 2026-02-27_20.15.35 labelstudio overlap multilabel behavior
-- Source: `docs/understandings/2026-02-27_20.15.35-labelstudio-overlap-multilabel-behavior.md`
-- Summary: Overlapping Label Studio spans are preserved in export; stage/canonical eval treat overlapping coverage as multi-label gold sets.
-
-### 2026-02-28_00.16.13 howtosection label scoring paths
-- Source: `docs/understandings/2026-02-28_00.16.13-howto-section-label-scoring-paths.md`
-- Summary: `HOWTO_SECTION` is UI-visible/exported; stage/freeform scoring resolves to ingredient/instruction while canonical-text scoring now keeps explicit HOWTO totals.
-
-### 2026-02-28_00.50.48 labelstudio export root source identity
-- Source: `docs/understandings/2026-02-28_00.50.48-labelstudio-export-root-source-identity.md`
-- Summary: Export destination selection is source-aware so repeated pulls reuse one folder even when project titles are deduped/suffixed.
-
-Current-contract additions from the HOWTO section audit:
-- Label additions are multi-surface changes, not UI-only changes:
-  - UI/export labels: `cookimport/labelstudio/label_config_freeform.py`
-  - freeform eval labels: `cookimport/labelstudio/eval_freeform.py`
-  - benchmark allowed labels: `cookimport/staging/stage_block_predictions.py:FREEFORM_LABELS`
-  - benchmark scorers: `cookimport/bench/eval_stage_blocks.py`, `cookimport/bench/eval_canonical_text.py`
-- `HOWTO_SECTION` remains an explicit task/export label for annotator visibility.
-- Stage-block/freeform scoring remaps `HOWTO_SECTION` to `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context; canonical-text scoring keeps HOWTO explicit.
-- Anti-loop guard:
-  - if a new label appears in Label Studio but not in benchmark/eval results, check scorer label maps before changing task generation.
-
-## 2026-02-28 task consolidation (`docs/tasks` split-convert fallback hardening)
-
-Merged task file:
-- `2026-02-28_12.20.59-sandbox-parallel-fallbacks-stage-and-labelstudio.md`
-
-Current Label Studio split-convert fallback contract:
-- Split conversion fallback order now mirrors stage/all-method behavior: `process -> thread -> serial`.
-- Process-worker denial should produce thread-fallback warning text first; serial fallback should only appear if thread startup also fails.
-- Shared resolver plumbing is centralized in `cookimport/core/executor_fallback.py` to keep fallback behavior aligned across stage and Label Studio surfaces.
-
-## 2026-02-28 merged understandings (split-convert fallback closure and test robustness)
-
-### 2026-02-28_13.19.45 stage and Label Studio fallback plan closure
-- Source: `docs/understandings/2026-02-28_13.19.45-stage-and-labelstudio-fallback-plan-closure-and-test-wrap.md`
-- Shared fallback resolver rollout for stage + Label Studio split conversion is complete in runtime code (`cookimport/core/executor_fallback.py` + call sites).
-- Split-convert fallback behavior is validated by targeted tests; remaining confusion tended to be assertion fragility, not missing fallback runtime wiring.
-- Test-contract reminder: warning text can wrap under rich/terminal output; normalize whitespace before matching fallback phrases in assertions.
-
-## 2026-03-02 merged understandings digest (labelstudio benchmark compare mode + gate hardening)
-
-### 2026-03-02_11.34.28 labelstudio benchmark compare CLI gate table
-- Source: `docs/understandings/2026-03-02_11.34.28-labelstudio-benchmark-compare-cli-gate-table.md`
-- `labelstudio_benchmark_compare` now prints pass/fail gate summary in terminal output immediately after verdict, while preserving `comparison.json` and `comparison.md` artifacts.
-- Active contract location: `cookimport/cli.py` compare handler.
-
-### 2026-03-02_11.39.21 benchmark alias normalization and prediction-manifest fallback
-- Source: `docs/understandings/2026-03-02_11.39.21-run-settings-alias-and-manifest-path-notes.md`
-- `RunSettings.from_dict` now normalizes `codex_farm_recipe_mode` aliases (`line-label`, `line-labels`, `default`, blank) to canonical `benchmark`/`extract`.
-- Labelstudio benchmark compare debug artifact lookup now prefers `artifacts.pred_run_dir` from winner `run_manifest` and falls back to `eval_dir/prediction-run` only when missing.
-
-### 2026-03-02_12.00.00 labelstudio benchmark compare mode resolution
-- Source: `docs/understandings/2026-03-02_12.00.00-labelstudio-benchmark-compare-mode-resolution.md`
-- Compare mode now resolves `codex_farm_mode_source` from either explicit metadata (`codex_farm_recipe_mode`) or raw llm evidence (`raw/llm` prompt/eval artifacts).
-- Missing intent now yields `inferred`/`unknown` states with explicit warning emission instead of silently treating unverified runs as benchmark mode.
-
-### 2026-03-02_20.44.30 labelstudio compare gates and debug artifact requirements
-- Source: `docs/understandings/2026-03-02_20.44.30-labelstudio-benchmark-compare-mode-and-debug-gates.md`
-- Verdict gating now keys on manifest-derived codex intent:
-  - required gates when `codex_farm_recipe_mode=benchmark` + `llm_recipe_pipeline=codex-farm-3pass-v1`,
-  - `aligned_prediction_blocks.jsonl`, `llm_manifest_json`, and pass-level manifests become mandatory for those paths.
-- Missing required evidence flips corresponding `*_debug_artifacts_present` gates and can drive overall verdict fail when strict compare mode is active.
-
-### 2026-03-02_23.40.00 labelstudio benchmark gate hardening
-- Source: `docs/understandings/2026-03-02_23.40.00-labelstudio-benchmark-compare-gate-hardening.md`
-- Missing explicit benchmark intent metadata is now an explicit hard-fail signal for strict debug-gate mode instead of a silent pass path.
-- Raw prompt manifest payloads (`prompt_inputs_manifest_txt` and `prompt_outputs_manifest_txt`) are now treated as required source files for pass-level debug checks.
-- Missing llm manifest metadata is surfaced in warning + gate output to prevent false confidence in incomplete candidate evaluations.
-
-## 2026-03-03 merged understanding (project label-config drift backfill)
-
-Source:
-- `docs/understandings/2026-03-03_00.17.58-labelstudio-project-config-howto-section-backfill.md`
-
-Current contract reminder:
-- Existing Label Studio projects can drift from current `FREEFORM_LABELS` when new labels are added later.
-- Reusing an older project can keep stale UI labels unless label config is explicitly patched or the project is recreated.
-- Verified drift example recorded in this note:
-  - project `53` (`RoastChickenAndOtherStoriesCUTDOWN`) was created before `HOWTO_SECTION` and showed 9 labels,
-  - API patching `/api/projects/<id>` with `build_freeform_label_config()` updated it to 10 labels including `HOWTO_SECTION`.
-
-Anti-loop guard:
-- If a label exists in code but is missing in the Label Studio UI, check project `label_config` freshness before changing scoring or task-generation logic.
-
-
-## 2026-03-03 merged understandings digest (labelstudio eval normalization)
-
-- `2026-03-03_02.36.40` `labelstudio-eval-none-default-normalization`: labelstudio-eval metadata override normalization must coalesce None/empty values before pipeline validation.
-
-## 2026-03-04 merged understandings digest (benchmark compare-root + single-eval compare support)
-
-Merged source notes (timestamp order):
-- `2026-03-04_11.01.40-profeedback-m5-compare-root-and-codex-auth-blockers.md`
-- `2026-03-04_11.33.00-compare-single-eval-and-pass1-toast-fix.md`
-
-Current Label Studio benchmark compare contracts reinforced:
-- `labelstudio-benchmark compare` supports both:
-  - all-method roots (`all_method_benchmark_multi_source_report.json`), and
-  - single-run eval roots/files (`eval_report.json`).
-- Single-eval compare mode writes the same `comparison.json`/`comparison.md` outputs but uses a focused gate set:
-  - `source_key_match`
-  - practical/accuracy no-regression
-  - ingredient-baseline guard
-  - variant-nonzero guard
-  - debug-artifact presence
-- Historical blocker context retained:
-  - prior compare-root resolver accepted all-method roots only,
-  - Milestone-5 full codex validation can still be auth-constrained when external codex calls fail and fallback mode is used.
-
-Cross-domain note:
-- This same follow-up also fixed pass1 `toast` imperative detection in LLM eligibility scoring (documented in `docs/10-llm`).
-
-## 2026-03-15 merged understanding digest (prelabel provider identity cleanup)
-
-Merged source note:
-- `docs/understandings/2026-03-15_22.08.20-codexfarm-only-prelabel-provider-id.md`
-
-Current Label Studio contract reinforced:
-- Freeform prelabel execution is CodexFarm-only now.
-- Valid Codex-backed prelabel provider identity is `codex-farm` (with underscore normalization tolerated where existing normalization already applies).
-- The retired `codex-cli` alias should not survive in decision metadata, runtime validation, or emitted artifacts.
-
-Anti-loop reminder:
-- If prelabel metadata and runtime behavior disagree about the provider, remove legacy alias handling before adding new compatibility branches.

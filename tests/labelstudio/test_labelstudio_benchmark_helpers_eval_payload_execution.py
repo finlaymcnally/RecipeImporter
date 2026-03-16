@@ -806,7 +806,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
             predictions_in=predictions_in,
         )
 
-def test_build_prediction_bundle_uses_stage_backed_predictions_even_with_line_role_artifacts(
+def test_build_prediction_bundle_prefers_line_role_projection_when_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -857,6 +857,7 @@ def test_build_prediction_bundle_uses_stage_backed_predictions_even_with_line_ro
             {
                 "source_file": str(source_file),
                 "source_hash": "hash-123",
+                "run_config": {"line_role_pipeline": "deterministic-v1"},
                 "stage_block_predictions_path": str(default_stage_predictions_path),
                 "line_role_pipeline_stage_block_predictions_path": str(
                     line_role_stage_predictions_path
@@ -876,10 +877,10 @@ def test_build_prediction_bundle_uses_stage_backed_predictions_even_with_line_ro
         eval_output_dir=tmp_path / "eval-default",
         prediction_phase_seconds=1.0,
     )
-    assert bundle.stage_predictions_path == default_stage_predictions_path
-    assert bundle.extracted_archive_path == default_extracted_archive_path
-    assert bundle.stage_predictions_path != line_role_stage_predictions_path
-    assert bundle.extracted_archive_path != line_role_extracted_archive_path
+    assert bundle.stage_predictions_path == line_role_stage_predictions_path
+    assert bundle.extracted_archive_path == line_role_extracted_archive_path
+    assert bundle.stage_predictions_path != default_stage_predictions_path
+    assert bundle.extracted_archive_path != default_extracted_archive_path
 
 def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

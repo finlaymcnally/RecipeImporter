@@ -120,6 +120,7 @@ Notes:
   - Rows with recipe AI off but line-role AI on are shown as `Line-role only`, not `vanilla`.
   - Legacy single-offline rows that predate explicit `line_role_pipeline` capture still fall back to the path variant (`.../vanilla` / `.../codexfarm`) so older benchmark trend history remains visible under the default `Official benchmarks only` quick filter.
   - Path-based benchmark classification now falls back across `artifact_dir`, `run_dir`, and `report_path`, because older CSV rows often omitted `artifact_dir`.
+  - The Previous Runs trend chart uses a simpler binary plot grouping: any benchmark row inferred as AI-on is plotted under `codexfarm`, and AI-off or unlabelled legacy rows are plotted under `vanilla`, so ad hoc history does not create extra `other`/hybrid trend lines.
 - Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout
@@ -267,15 +268,6 @@ Benchmark metrics note:
 - All-method run-summary/detail pages include a sticky quick-nav (Summary / Charts / Ranked Table / Drilldown) and use native collapsible section groups (`details`) to shorten default scan length without hiding metrics.
 - All-method detail pages now start with a compact `Run Summary` table (stats-only, no per-config labels), metric-category bar charts (one bar per run/config), and per-config radar/web charts before the full ranked table.
 - Ranked all-method tables now include explicit dimension columns (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so config differences are readable without decoding slug strings.
-
-## Historical decisions worth preserving
-
-Timeline notes merged from former `docs/understandings` files:
-
-- `2026-02-15_23.17.17`: local `file://` dashboard failures were fixed by embedding inline JSON in `index.html`; keep inline-first + fetch-fallback behavior.
-- `2026-02-16_10.56.36`: benchmark `Gold`/`Matched` are span-eval metrics; `Recipes` is separate and should not be interpreted as score denominator.
-- `2026-02-16_11.33.17`: benchmark `recipes` must be persisted across benchmark CSV append paths (`labelstudio-benchmark`, `labelstudio-eval`) to avoid blank `Recipes` rows.
-- `2026-02-25`: main dashboard index was trimmed to focus on all-method links, latest-benchmark diagnostics, and a scrollable benchmark history table (no throughput/speed views).
 
 ## Regenerate
 

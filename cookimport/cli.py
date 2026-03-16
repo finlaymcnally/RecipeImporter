@@ -11614,6 +11614,27 @@ def _resolve_stage_predictions_for_benchmark(
     return pred_run / "stage_block_predictions.json"
 
 
+def _resolve_line_role_stage_predictions_for_benchmark(
+    *,
+    import_result: dict[str, Any],
+    pred_context: PredRunContext,
+    pred_run: Path,
+) -> Path | None:
+    candidates: list[Path] = []
+    for value in (
+        import_result.get("line_role_pipeline_stage_block_predictions_path"),
+        pred_context.line_role_stage_block_predictions_path,
+        pred_run / "line-role-pipeline" / "stage_block_predictions.json",
+    ):
+        if not value:
+            continue
+        candidates.append(Path(str(value)))
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
 def _resolve_extracted_archive_for_benchmark(
     *,
     import_result: dict[str, Any],
@@ -11644,6 +11665,27 @@ def _resolve_extracted_archive_for_benchmark(
         "Re-run benchmark after updating."
     )
     return pred_run / "extracted_archive.json"
+
+
+def _resolve_line_role_extracted_archive_for_benchmark(
+    *,
+    import_result: dict[str, Any],
+    pred_context: PredRunContext,
+    pred_run: Path,
+) -> Path | None:
+    candidates: list[Path] = []
+    for value in (
+        import_result.get("line_role_pipeline_extracted_archive_path"),
+        pred_context.line_role_extracted_archive_path,
+        pred_run / "line-role-pipeline" / "extracted_archive.json",
+    ):
+        if not value:
+            continue
+        candidates.append(Path(str(value)))
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
 
 
 def _resolve_line_role_predictions_for_benchmark(
@@ -11758,6 +11800,43 @@ def _build_prediction_bundle_from_import_result(
     if not pred_run.exists() or not pred_run.is_dir():
         _fail(f"Prediction artifact directory not found: {pred_run}")
     pred_context = _load_pred_run_recipe_context(pred_run)
+    run_config = (
+        pred_context.run_config if isinstance(pred_context.run_config, dict) else {}
+    )
+    line_role_pipeline = str(run_config.get("line_role_pipeline") or "").strip().lower()
+    if line_role_pipeline and line_role_pipeline != "off":
+        line_role_stage_predictions_path = (
+            _resolve_line_role_stage_predictions_for_benchmark(
+                import_result=import_result,
+                pred_context=pred_context,
+                pred_run=pred_run,
+            )
+        )
+        line_role_extracted_archive_path = (
+            _resolve_line_role_extracted_archive_for_benchmark(
+                import_result=import_result,
+                pred_context=pred_context,
+                pred_run=pred_run,
+            )
+        )
+        if (
+            line_role_stage_predictions_path is not None
+            and line_role_extracted_archive_path is not None
+        ):
+            return BenchmarkPredictionBundle(
+                import_result=import_result,
+                pred_run=pred_run,
+                pred_context=pred_context,
+                stage_predictions_path=line_role_stage_predictions_path,
+                extracted_archive_path=line_role_extracted_archive_path,
+                prediction_phase_seconds=max(0.0, prediction_phase_seconds),
+            )
+        else:
+            logger.warning(
+                "Benchmark run requested line-role pipeline (%s) but line-role "
+                "projection artifacts were incomplete; falling back to stage-backed evidence.",
+                line_role_pipeline,
+            )
     default_stage_predictions_path = _resolve_stage_predictions_for_benchmark(
         import_result=import_result,
         pred_context=pred_context,

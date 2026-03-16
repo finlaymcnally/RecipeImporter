@@ -411,7 +411,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             {
                 "source_file": str(source_file),
                 "source_hash": "hash-123",
-                "run_config": {"workers": 1},
+                "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
                 "run_config_hash": "cfg-hash",
                 "run_config_summary": "workers=1",
                 "line_role_pipeline_stage_block_predictions_path": str(
@@ -539,7 +539,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     replay_payload = json.loads(
         Path(captured_eval["stage_predictions_json"]).read_text(encoding="utf-8")
     )
-    assert replay_payload["block_labels"] == {"0": "RECIPE_TITLE"}
+    assert replay_payload["block_labels"] == {"0": "OTHER"}
     assert captured_eval["sequence_matcher_env"] == "dmp"
     assert captured_csv["eval_scope"] == "canonical-text"
     timing = captured_csv.get("timing")

@@ -17,6 +17,7 @@ Code verification references:
 - `cookimport/cli_worker.py`
 - `cookimport/paths.py`
 - `cookimport/runs/manifest.py`
+- `cookimport/staging/import_session.py`
 - `cookimport/staging/writer.py`
 - `cookimport/staging/pdf_jobs.py`
 - `cookimport/labelstudio/ingest.py`
@@ -54,14 +55,16 @@ Architecture priorities:
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest.py` can:
   - run conversion (including split jobs for PDF/EPUB)
+  - reuse the shared stage import session for processed outputs in benchmark/prediction flows
   - generate tasks for `freeform-spans` (segment-based freeform labeling tasks)
   - write run artifacts (`manifest.json`, tasks JSONL, coverage, extracted archive/text)
   - upload tasks when write consent is explicit
   - perform merge-time block-index rebasing across split jobs
+  - treat processed `stage_block_predictions.json` as the primary benchmark scoring input while keeping canonical line-role artifacts diagnostic-only
 
-## Stage-First Docs IA Map (migrated from `docs/understandings`)
+## Docs Ownership Map
 
-This mapping is preserved so future docs changes stay aligned to code ownership:
+Use this mapping when updating architecture-adjacent docs so current contracts stay with the owning section:
 
 - `cookimport/cli.py` and entrypoint wrappers -> `docs/02-cli/`
 - importer registry/plugins + split-job planning/merge -> `docs/03-ingestion/`
@@ -218,6 +221,7 @@ Behavioral constraints:
 - benchmark can run evaluate-only with `--predictions-in`
 - benchmark co-locates prediction run under eval output as `prediction-run/`
 - benchmark prediction-generation scratch is rooted under the resolved benchmark eval directory so one benchmark session does not create extra sibling timestamp roots under `data/golden/benchmark-vs-golden`
+- benchmark processed outputs are stage-backed; `prediction-run/` is the task/manifest shell around those shared artifacts, not a second primary shaping pipeline
 
 ## Scripts Folder Note
 
@@ -304,8 +308,6 @@ Current architecture is still deterministic-first:
   - `tests/CONVENTIONS.md`
 - When adding a new durable rule, document it in the nearest code-local `CONVENTIONS.md` first; only add pointers in docs when discoverability needs to change.
 - Discovery-note convention: keep notes focused to one discovery, use timestamped filenames, and merge durable outcomes into the owning stage README to avoid split sources of truth.
-- Task-spec convention: keep durable contract details in owning stage READMEs even when task execution notes live in `docs/tasks/`.
-- Timestamped task-doc naming pattern to preserve chronology remains: `YYYY-MM-DD_HH.MM.SS - short-title.md`.
 
 ## Change Checklist (safe architecture edits)
 
@@ -346,167 +348,3 @@ Keep these flowchart/runtime invariants aligned:
 
 Anti-loop note:
 - If flowcharts and runtime behavior diverge, update this file and the README chart in the same change so future debugging does not branch on stale docs.
-
-## 2026-02-27 Merged Understandings: Coverage and Cleanup
-
-Merged source notes:
-- `docs/understandings/2026-02-27_19.46.01-architecture-doc-cleanup-current-path-contracts.md`
-- `docs/understandings/2026-02-27_19.52.07-architecture-doc-coverage-audit.md`
-- `docs/understandings/2026-02-27_19.52.19-docs-removed-feature-prune-map.md`
-
-Current-contract additions:
-- Label Studio defaults are workflow-specific roots: `data/golden/sent-to-labelstudio`, `data/golden/pulled-from-labelstudio`, and `data/golden/benchmark-vs-golden`.
-- Stage and Label Studio docs must include full run-root artifact contracts, including `run_manifest.json`, `sections/`, `.bench/stage_block_predictions.json`, and optional `tables/`, `knowledge/`, and `tags/` outputs where applicable.
-- `run_manifest.json` scope is intentionally narrower than some older docs implied: stage + Label Studio prediction/import/export/eval/benchmark flows emit manifests; in `cookimport bench`, `speed-run` emits manifests while other bench commands currently do not.
-- Legacy removed features (EPUB race, Label Studio decorate mode, legacy scope execution branches) should be kept only as retired-context notes, not active behavior docs.
-
-Known bad loops to avoid:
-- Do not treat `stage()` docstrings as the full output contract.
-- Do not keep removed-feature chronology as if it is still executable runtime behavior.
-
-## 2026-02-28 migrated understandings digest
-
-This section consolidates discoveries migrated from `docs/understandings` into this domain folder.
-
-### 2026-02-27_21.16.59 priority plan overlap parallelization map
-- Source: `docs/understandings/2026-02-27_21.16.59-priority-plan-overlap-parallelization-map.md`
-- Summary: Priority 1-8 overlap map for safe parallel implementation sequencing.
-
-### 2026-02-28_00.17.07 docs tasks domain mapping merge
-- Source: `docs/understandings/2026-02-28_00.17.07-docs-tasks-domain-mapping-merge.md`
-- Summary: Captured canonical domain mapping used to retire `docs/tasks` files into section READMEs + `_log` files.
-
-Current-contract additions from domain mapping merge:
-- Task history should be merged by ownership domain before file deletion:
-  - benchmark/scheduler/segmentation tasks -> `docs/07-bench`
-  - Priority 1/2/3/7 ingestion/importer tasks -> `docs/03-ingestion`
-  - Priority 4/5/6 parsing/staging-shaping tasks -> `docs/04-parsing`
-- Merge style contract:
-  - README receives current-state contracts, anti-loop reminders, and known-bad context.
-  - `_log` receives chronology, major decisions, failed serious attempts, and unresolved gaps.
-- Retirement rule:
-  - remove migrated source docs only after both README and `_log` have absorbed durable details.
-
-## 2026-02-28 migrated understandings digest (cross-domain docs routing + supersession)
-
-### 2026-02-28_09.18.47 docs/tasks routing and supersession map
-- Source: `docs/understandings/2026-02-28_09.18.47-docs-tasks-routing-and-supersession-map.md`
-- Consolidation routing contract used on 2026-02-28:
-  - importer auto-emission task -> `docs/05-staging` (with benchmark remap note to `docs/07-bench`)
-  - qualitysuite levers task -> `docs/07-bench`
-  - codex-farm benchmark enablement + setup tasks -> `docs/10-llm`
-  - codex-farm model picker task -> `docs/02-cli`
-- Supersession rule: keep env-gated codex behavior only as historical log context; README files must describe current ungated runtime.
-- Merge order rule: update both `README` and `_log` before deleting source task/understanding docs.
-
-Anti-loop note:
-- If cross-section doc merges are repeated, use explicit routing + supersession tagging first; ad-hoc merges reintroduce stale behavior claims.
-
-## 2026-02-28 merged understandings (cross-domain fallback and plan-closure contracts)
-
-Merged source notes:
-- `docs/understandings/2026-02-28_12.18.33-sandbox-processpool-fallback-surface-map.md`
-- `docs/understandings/2026-02-28_14.28.50-ogplan-implementation-coverage-audit.md`
-- `docs/understandings/2026-02-28_14.37.20-ogplan-gap-closure-evidence.md`
-- `docs/understandings/2026-02-28_15.40.31-process-worker-required-failfast-surfaces.md`
-
-Current architecture additions:
-- Process-worker denial behavior is lane-specific and must be documented by layer, not as one global fallback claim:
-  - quality-run supports subprocess experiment fallback,
-  - stage supports subprocess-backed worker fallback,
-  - split-convert previously had serial fallback until dedicated wiring landed.
-- `--require-process-workers` is now a strict cross-surface contract:
-  - stage/all-method/quality/speed fail fast when process workers cannot be established,
-  - these commands should not silently degrade under strict mode.
-- Executor-resolution telemetry is part of architecture observability now (stage worker resolution artifacts and all-method/bench executor metadata).
-- OG-plan closure rule: keep implementation claims tied to runtime/test evidence and recorded speed compare artifacts, not checklist state alone.
-
-## 2026-03-03 merged understanding (AI context staleness refresh)
-
-Source:
-- `docs/understandings/2026-03-03_00.01.32-ai-context-staleness-refresh.md`
-
-Current architecture-doc maintenance reminders:
-- Keep onboarding/AI-context docs anchored to stable runtime contracts, not volatile snapshots.
-- `bench` command framing should reflect current command surface (`speed`, `quality`, `gc`, `eval-stage`) instead of older `validate/run/sweep/knobs` phrasing.
-- Importer inventory should include active `webschema` coverage when documenting supported source types.
-- LLM boundary wording should stay accurate: stage includes optional pass1-5 codex-farm paths via run settings; it is no longer only a prelabel-adjacent concern.
-- Prefer linking to section READMEs for live operational details instead of embedding brittle health snapshots in top-level onboarding docs.
-
-## 2026-03-04 docs/understandings merge digest (documentation mapping hygiene)
-
-Merged source note:
-- `2026-03-04_00.09.35-docs-tasks-late-batch-domain-mapping.md`: Domain mapping used to consolidate the late 2026-03-03 docs/tasks batch into benchmark, analytics, and llm docs without losing chronology.
-
-Architecture-level docs hygiene contract:
-- When consolidating large task/understanding batches, preserve timestamp order and keep explicit domain mapping so cross-domain decisions remain traceable.
-
-## 2026-03-13 merged understandings digest (docs IA + reliability plan decomposition)
-
-Merged source notes (timestamp order):
-- `docs/understandings/2026-03-13_22.23.03-unified-reliability-plan-coverage.md`
-- `docs/understandings/2026-03-13_22.29.41-codexfarm-execplan-split.md`
-- `docs/understandings/2026-03-13_22.35.00-docs-task-home-mapping.md`
-
-Architecture-level contracts reinforced:
-- Cross-domain docs routing should stay stable:
-  - `docs/07-bench/` is the durable home for benchmark orchestration, session-root layout, upload/follow-up artifacts, and other benchmark-facing runtime contracts.
-  - `docs/10-llm/` is the durable home for Codex execution policy, recipe/pass4/pass5 contracts, compact-pack behavior, and pipeline-selection rules.
-  - `docs/04-parsing/` is the durable home for deterministic canonical line-role semantics and other parser-side label/guardrail rules.
-- The March 13 unified CodexFarm reliability diagnosis was broader than transport repair alone. It also included explicit label ownership, disagreement-driven review, monotonic fallback, and syntax-heavy deterministic ownership; if later summaries flatten those ideas, recover the sharper policy guidance from the split plans and logs.
-- The unified reliability plan is now intentionally decomposed into four workstreams that map to the current `docs/plans/` files:
-  - `2026-03-13_22.29.37-step1.md`: observability, invariants, and runtime-mode checks.
-  - `2026-03-13_22.29.38-step2.md`: staging/title guardrails and line-role ownership.
-  - `2026-03-13_22.29.39-step3.md`: current 3-pass repair work.
-  - `2026-03-13_22.29.40-step4.md`: merged-stage prototype.
-- Safe same-repo parallelism remains limited:
-  - let step1 define reason codes and invariant names first or keep it tightly coordinated,
-  - step2 and step3 can run in parallel once those names settle,
-  - step4 overlaps the most with shared orchestrator/contract surfaces and is the highest-conflict lane.
-
-## 2026-03-14 merged understandings digest (docs task-folder mapping refinement)
-
-Merged source note:
-- `docs/understandings/2026-03-14_14.43.37-docs-task-folder-mapping.md`
-
-Architecture-level docs hygiene contract:
-- When consolidating `docs/tasks/*` or later understanding notes, pick one dominant maintenance owner instead of duplicating the same history into every touched subsystem.
-- The March 14 refinement for active cross-cutting work is:
-  - run-settings / winner / live-schema cleanup -> `docs/02-cli/`
-  - EPUB table structure recovery -> `docs/04-parsing/`
-  - benchmark runtime contracts and single-offline variant behavior -> `docs/07-bench/`
-  - benchmark-helper layout and regression-coverage placement -> `docs/12-testing/`
-- If a task was already mostly absorbed through a section’s merged-understanding digest, finish that merge in the same section instead of creating a second “also sort of owns this” history thread elsewhere.
-
-Anti-loop note:
-- Choose the folder that owns the durable maintenance contract, not every module the patch touched.
-
-## 2026-03-15 merged understandings digest (stage-backed benchmark architecture seam)
-
-Merged source notes:
-- `docs/understandings/2026-03-15_14.55.23-stage-vs-benchmark-divergence-map.md`
-- `docs/understandings/2026-03-15_15.03.18-stage-backed-benchmark-unification-seam.md`
-- `docs/understandings/2026-03-15_15.06.38-refactor-stage-reuse-map.md`
-- `docs/understandings/2026-03-15_22.14.09-refactor-stage-map-after-stage-backed-benchmark-unification.md`
-
-Current architecture contracts reinforced:
-- The durable direction is one shared stage/import session that owns conversion, optional recipe Codex work, knowledge, chunk/table generation, processed outputs, and stage-block predictions. Benchmark-only behavior should hang off that session instead of re-implementing a second primary prediction path.
-- Authoritative benchmark scoring should come from the same stage-backed `stage_block_predictions.json` plus extracted block text used by normal import outputs. Canonical line-role remains a benchmark-side diagnostic or experiment surface, not the main source of truth.
-- The strongest reuse seams for the long-range refactor already exist:
-  - Stage 0-1 extraction/importer adapters,
-  - Stage 2 canonical line-role labeling machinery,
-  - Stage 4 shaping/parsing helpers,
-  - Stage 5-6 Codex repair/orchestration,
-  - Stage 7 knowledge outputs,
-  - Stage 8 writers/debug artifacts.
-- The main greenfield work is the label-first backbone:
-  - one shared source-document contract,
-  - one segmented-block artifact,
-  - one primary Stage 2 label artifact in the main runtime,
-  - one Stage 3 grouping layer that consumes those labels directly.
-- The later stage-backed benchmark unification reduced downstream forked behavior in Stages 5, 7, and 8, but it did not remove the main refactor target:
-  - Stage 2 labels are still not the primary runtime truth,
-  - Stage 3 grouping is still heuristic-candidate-first rather than label-first.
-
-Anti-loop note:
-- If benchmark/import behavior diverges, inspect whether the same stage session is actually being reused before patching prompt packs, benchmark-only artifact writers, or score interpretation.

@@ -13,18 +13,12 @@ This file tracks reference-section architecture versions, builds, fix attempts, 
 
 ## Chronology and Prior Attempts (do not discard)
 
-1. `11-reference_README.md` (historical baseline before split)
-- established the canonical reference artifacts list for schemas/models/field inventories:
-  - `docs/11-reference/2026-02-10_recipe-database-field-inventory.md`
-  - `docs/11-reference/recipeDraftV1.schema.json`
-  - `docs/11-reference/recipeDraftV1.ts`
-
-2. `2026-02-19_11-reference-readme-log-split` (this change)
+1. `2026-02-19_11-reference-readme-log-split`
 - split section docs into:
   - `11-reference_README.md` for current source-of-truth reference documentation.
   - `11-reference_log.md` for architecture/build/fix-attempt history and anti-loop guidance.
 
-3. `2026-02-27_19.55.26_reference-docs-code-coverage-audit` (current)
+2. `2026-02-27_19.55.26_reference-docs-code-coverage-audit`
 - audited `docs/11-reference` against active runtime code paths.
 - gap found: README listed static artifacts but did not map ownership in `cookimport/staging`, `cookimport/core/models`, and `cookimport/llm`, which made docs incomplete for code-level review.
 - action: expanded README with:
@@ -32,8 +26,15 @@ This file tracks reference-section architecture versions, builds, fix attempts, 
   - runtime ownership map for draft-v1 contract producers/validators
   - tests that currently lock contract behavior
   - strict-vs-permissive guardrail note (`schema/json+ts` strict mirrors vs Python model `extra="allow"`)
+
+3. `2026-03-15_22.41.34_reference-doc-drift-audit`
+- cleaned out stale provenance references to a retired understanding file.
+- tightened README wording so `recipeDraftV1.schema.json` and `recipeDraftV1.ts` are described as useful external mirrors, not a complete source of truth for every current runtime-emitted field.
+- kept active draft-v1 behavior in scope:
+  - compatibility aliases (`name`, `ingredients`, `instructions`) added by `cookimport/staging/writer.py`
+  - priority-6 draft metadata such as `recipe.max_oven_temp_f`, step `temperature_items`, and `_p6_debug` sidecar extraction
 - discovery note recorded in:
-  - `docs/understandings/2026-02-27_19.55.26-reference-docs-code-coverage-audit.md`
+  - `docs/understandings/2026-03-15_22.41.34-reference-doc-drift-audit.md`
 
 ## Known Gaps and Guardrails
 
@@ -43,8 +44,3 @@ This file tracks reference-section architecture versions, builds, fix attempts, 
 2. Draft-v1 strictness differs by enforcement layer.
 - Reference mirror validators (`recipeDraftV1.schema.json`, `recipeDraftV1.ts`) are strict by design.
 - Runtime Python model accepts extra fields (`extra="allow"`), so contract tightness depends on producer logic + tests unless stricter runtime validation is introduced later.
-
-## 2026-02-28 provenance retirement note
-
-The source audit file below is now merged and retired from `docs/understandings`:
-- `docs/understandings/2026-02-27_19.55.26-reference-docs-code-coverage-audit.md`

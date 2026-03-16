@@ -9817,6 +9817,44 @@ _JS = """\
     return profile;
   }
 
+  function benchmarkTrendVariantForRecord(record) {
+    const rawVariant = benchmarkVariantForRecord(record);
+    if (rawVariant === "vanilla") return "vanilla";
+    if (rawVariant === "codexfarm") return "codexfarm";
+    if (rawVariant === "deterministic") return "vanilla";
+    if (
+      rawVariant === "line_role_only" ||
+      rawVariant === "recipe_only" ||
+      rawVariant === "full_stack"
+    ) {
+      return "codexfarm";
+    }
+
+    const path = benchmarkArtifactPath(record).toLowerCase();
+    if (/(^|[\\/_-])codex(?:farm)?([\\/_-]|$)/.test(path)) return "codexfarm";
+    if (
+      path.includes("baseline-off") ||
+      /(^|[\\/_-])vanilla([\\/_-]|$)/.test(path) ||
+      /(^|[\\/_-])det(?:erministic)?([\\/_-]|$)/.test(path)
+    ) {
+      return "vanilla";
+    }
+
+    const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
+    const lineRolePipeline = runConfigValue(record, ["line_role_pipeline"]);
+    const knowledgePipeline = runConfigValue(record, ["llm_knowledge_pipeline"]);
+    const tagsPipeline = runConfigValue(record, ["llm_tags_pipeline"]);
+    const hasEnabledPipeline = [
+      recipePipeline,
+      lineRolePipeline,
+      knowledgePipeline,
+      tagsPipeline,
+    ].some(value => value && String(value).toLowerCase() !== "off");
+    if (hasEnabledPipeline) return "codexfarm";
+    if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "codexfarm";
+    return "vanilla";
+  }
+
   function benchmarkRunGroupInfo(record) {
     const fallbackTimestamp = String((record && record.run_timestamp) || "").trim();
     const rawPathCandidates = [
@@ -9881,7 +9919,8 @@ _JS = """\
     return records
       .map(record => {
         if (!record) return null;
-        if (variantKey && benchmarkVariantForRecord(record) !== variantKey) return null;
+        const trendVariant = benchmarkTrendVariantForRecord(record);
+        if (variantKey && trendVariant !== variantKey) return null;
         const parsedValue = maybeNumber(previousRunsFieldValue(record, metricKey));
         if (parsedValue == null) return null;
         const runGroup = benchmarkRunGroupInfo(record);
@@ -9896,7 +9935,8 @@ _JS = """\
             runTimestamp: String(record.run_timestamp || "").trim(),
             sourceLabel: sourceLabelForRecord(record),
             sourceTitle: sourceTitleForRecord(record),
-            variant: benchmarkVariantForRecord(record),
+            variant: trendVariant,
+            rawVariant: benchmarkVariantForRecord(record),
           },
         };
       })
@@ -10097,17 +10137,9 @@ _JS = """\
       key,
       colors: benchmarkTrendMetricColors(key, index),
     }));
-    const variantPriority = [
-      "vanilla",
-      "codexfarm",
-      "deterministic",
-      "line_role_only",
-      "recipe_only",
-      "full_stack",
-      "other",
-    ];
+    const variantPriority = ["vanilla", "codexfarm"];
     const presentVariants = new Set(
-      records.map(record => benchmarkVariantForRecord(record))
+      records.map(record => benchmarkTrendVariantForRecord(record))
     );
     const hasPairedVariants =
       presentVariants.has("vanilla") || presentVariants.has("codexfarm");

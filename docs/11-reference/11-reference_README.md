@@ -1,8 +1,8 @@
 ---
-summary: "Reference artifacts for schemas, model templates, and field inventories used by the pipeline."
+summary: "Reference artifacts and snapshots for draft-v1 schemas, model mirrors, and field inventories."
 read_when:
   - When validating output contracts or aligning with external data models
-  - When you need canonical schema/type reference files
+  - When you need the reference schema/type files in this folder
   - When auditing draft-v1 contract coverage between docs and runtime code
 ---
 
@@ -19,11 +19,11 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 
 2. `docs/11-reference/recipeDraftV1.schema.json`
 - JSON Schema mirror for the cookbook3 draft-v1 payload contract.
-- Useful for external validators and cross-repo contract checks.
+- Useful for external validators and cross-repo contract checks, but it currently tracks the strict core subset rather than every runtime-emitted field.
 
 3. `docs/11-reference/recipeDraftV1.ts`
 - Zod mirror of the draft-v1 contract (`RecipeDraftV1Schema`) plus helpers (`parseRecipeDraftV1`, `formatZodError`).
-- Useful when TypeScript tooling needs strict draft-v1 validation behavior.
+- Useful when TypeScript tooling needs strict draft-v1 validation behavior, but it currently lags some runtime-only draft fields.
 
 ## Runtime Code Map (Draft-v1 Contract)
 
@@ -77,16 +77,12 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 9. `tests/llm/test_codex_farm_orchestrator.py`
 - Exercises pass1/pass2/pass3 orchestration, including draft-v1 payload acceptance in pass3 bundle flow.
 
+10. `tests/staging/test_draft_v1_priority6.py`
+- Covers active priority-6 draft metadata behavior: `recipe.max_oven_temp_f`, per-step `temperature_items`, and writer-sidecar extraction for `_p6_debug`.
+
 ## Guardrails
 
 1. `docs/11-reference/recipeDraftV1.schema.json` and `docs/11-reference/recipeDraftV1.ts` are reference mirrors; Python runtime does not import these files directly.
-2. Python runtime model (`RecipeDraftV1`) currently allows extra fields (`extra="allow"`), while mirror schema/TS validators are strict (`additionalProperties: false` / `.strict()`).
-3. When changing draft output fields, update this folder and stage/LLM docs together (`docs/05-staging`, `docs/10-llm`) so contract docs remain in sync.
-
-## 2026-02-27 merged understanding provenance
-
-Merged source note:
-- `docs/understandings/2026-02-27_19.55.26-reference-docs-code-coverage-audit.md`
-
-Status:
-- Runtime ownership map, validation-surface list, and strict-vs-permissive guardrail notes from that audit are now integrated in this README and `11-reference_log.md`.
+2. These mirrors do not currently cover every runtime-emitted field. Current gaps include compatibility aliases (`name`, `ingredients`, `instructions`), `recipe.max_oven_temp_f`, step `temperature_items`, and optional `_p6_debug` before writer-sidecar extraction.
+3. Python runtime model (`RecipeDraftV1`) currently allows extra fields (`extra="allow"`), while mirror schema/TS validators are strict (`additionalProperties: false` / `.strict()`).
+4. When changing draft output fields, update this folder and stage/LLM docs together (`docs/05-staging`, `docs/10-llm`) so contract docs remain in sync.

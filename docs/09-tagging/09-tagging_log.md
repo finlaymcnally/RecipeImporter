@@ -9,7 +9,7 @@ read_when:
 # Tagging Log
 
 Read this if you are going in multi-turn circles on the program, or if the human says "we are going in circles on this."
-This file tracks tagging architecture versions, builds, fix attempts, and prior dead ends so we do not repeat them.
+This file tracks the tagging history that still explains current runtime behavior. Old docs-about-docs cleanup notes were pruned.
 
 ## Attempt Ledger
 
@@ -35,61 +35,11 @@ What shipped:
 - Shared orchestration entrypoint: `cookimport/tagging/orchestrator.py`.
 - Stage integration with run settings:
   - `llm_tags_pipeline`
-  - `codex_farm_pipeline_pass5_tags`
   - `tag_catalog_json`
+  - fixed `codex_farm_pipeline_pass5_tags` (`recipe.tags.v1`)
 - Run-level manifest/artifact indexing for pass5 outputs.
-
-Validation evidence preserved:
-- Task recorded targeted slices as green (`45 passed, 2 warnings`) across:
-  - tagging provider/orchestrator tests,
-  - LLM pack asset tests,
-  - run settings + CLI passthrough tests,
-  - staging/pred-run manifest parity tests.
 
 Anti-loop notes:
 - Missing pass5 artifacts are usually gate/config/failure-mode issues, not deterministic rules-engine regressions.
 - Do not route unknown LLM tag strings directly to DB apply paths; keep `new_tag_proposals` review-only.
 - Do not fold pass5 behavior into recipe-pass pipelines while `llm_recipe_pipeline` remains policy-locked off.
-
-2. `2026-02-27_19.44.41` docs pruning for relevance
-- Removed stale sectioning/migration context that was only about README/log split mechanics.
-- Removed retired-path references that are no longer needed to operate or debug tagging.
-- Kept rollout and anti-loop notes for active tagging behavior (deterministic engine + optional pass5 codex-farm lane).
-
-3. `2026-02-27_19.50.10` tagging docs parity audit (code coverage gap close)
-
-Problem captured:
-- `09-tagging_README.md` summarized only part of the live runtime surface.
-- Several active modules/integration files were missing from docs (`db_read.py`, `render.py`, `eval.py`, `tagging/cli.py`, and nearby `cookimport/cli.py`, `cookimport/config/run_settings.py`, `cookimport/entrypoint.py` pass5 wiring).
-
-Surprises/discoveries preserved:
-- Stage tagging is strictly pass5-gated (`llm_tags_pipeline != off`); deterministic tagging is always present in standalone commands, but stage emits no `tags/` artifacts when the tags pipeline is off.
-- Provider-level validation has more explicit drop reasons than prior docs captured (category not requested, unknown tag key, category mismatch, shortlist mismatch).
-- Standalone `--llm` flows can run pass5 in temp directories, while stage persists raw pass5 IO + manifest under run output.
-
-What shipped:
-- Expanded `09-tagging_README.md` into a code-coverage map for every module under `cookimport/tagging/`.
-- Added explicit section for nearby integration surfaces outside tagging package (`cookimport/cli.py`, `run_settings.py`, `entrypoint.py`).
-- Documented `tag-recipes` subcommands (`debug-signals`, `suggest`, `apply`) and pass5 validation/report counters.
-
-Anti-loop notes:
-- When docs feel incomplete, inventory `cookimport/tagging/*.py` first, then reconcile stage wiring in `cookimport/cli.py` + `run_settings.py`.
-- Missing `tags/` output during stage is usually config gating (`llm_tags_pipeline`, `tag_catalog_json`) before it is algorithm drift.
-
-4. `2026-02-27_19.45.55` tagging docs cleanup current contract
-
-Problem captured:
-- Tagging docs still contained stale split/migration bookkeeping that no longer affected runtime behavior.
-
-Durable decisions preserved:
-- Keep rollout + anti-loop notes for active pass5 lane.
-- Keep runtime wiring clarity for `tag-catalog`/`tag-recipes` command groups and stage pass integration.
-- Remove retired planning/task-link noise that does not affect operation/debugging.
-
-5. `2026-02-27_19.50.10` provenance note
-
-Source understanding merged:
-- `docs/understandings/2026-02-27_19.50.10-tagging-doc-code-coverage-map.md`
-
-Current status:
-- Its code-to-doc audit checklist is retained in this log and reflected in `09-tagging_README.md`.

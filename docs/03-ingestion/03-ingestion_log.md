@@ -247,7 +247,7 @@ Decisions applied:
   - `tables/<workbook>/...`
   - `.bench/<workbook>/stage_block_predictions.json`
   - `processing_timeseries.jsonl`
-- Updated worker/merge flow descriptions to include optional table extraction and stage-block prediction writes.
+- Updated worker/merge flow descriptions to include table extraction/write phases and stage-block prediction writes.
 - Updated ingestion test-path pointers to current `tests/ingestion`, `tests/parsing`, and `tests/staging` locations.
 
 Anti-loop note:
@@ -280,168 +280,7 @@ Durable decisions:
 
 ## 2026-02-28 migrated understanding ledger
 
-Chronological migration from `docs/understandings`; source files were removed after this merge.
-
-### 2026-02-27_21.19.47 priority 1 plan rebuild context
-
-Source: `docs/understandings/2026-02-27_21.19.47-priority-1-plan-rebuild-context.md`
-Summary: Priority-1 plan rebuild context: active plan duplicated OG archive and referenced a missing source doc.
-
-Details preserved:
-
-
-# Priority-1 Plan Rebuild Context
-
-The previous `docs/plans/priority-1.md` was byte-for-byte identical to `docs/plans/OGplan/priority-1.md`, so there was no distinction between active and archived versions.
-
-The draft also referenced `BIG PICTURE UPGRADES.md`, which is not present in this repository.
-
-Rebuild approach used for the active plan:
-
-- align the plan to actual code entrypoints (`cookimport/core/scoring.py`, importer plugin call sites, strict report/model contracts),
-- keep codex-farm recipe parsing policy-locked off,
-- split work into required core gating/reporting milestones and optional additive backend permutations.
-
-### 2026-02-27_22.03.50 priority1 fixtures and default gate parity
-
-Source: `docs/understandings/2026-02-27_22.03.50-priority1-fixtures-and-default-gate-parity.md`
-Summary: Priority-1 discovery: stabilize importer tests with local fixtures and keep recipe gate defaults aligned across stage/pred-run.
-
-Details preserved:
-
-
-# Priority-1 Fixture and Gate-Parity Discovery
-
-Paprika and RecipeSage ingestion tests were pointing at `docs/template/examples/*`, but that folder is not present in this workspace. Creating fixture payloads directly in `tmp_path` makes those tests self-contained and removes environment drift.
-
-Recipe scoring defaults also need to stay aligned across all entrypoints. `score_recipe_likeness(...)` already defaults `recipe_score_min_ingredient_lines` to `1`; stage and benchmark/pred-run defaults should match (`RunSettings`, `stage`, `labelstudio-benchmark`, `generate_pred_run_artifacts`, `run_labelstudio_import`) so one-line-ingredient recipes are not unexpectedly penalized only in CLI-driven runs.
-
-### 2026-02-27_22.14.51 priority2 current section detection and wiring map
-
-Source: `docs/understandings/2026-02-27_22.14.51-priority2-current-section-detection-and-wiring-map.md`
-Summary: Priority-2 discovery: section grouping is shared downstream, but importer extraction and run-setting wiring are still fragmented.
-
-Details preserved:
-
-
-# Priority-2 Current Section Detection and Wiring Map
-
-Current shared behavior is mostly downstream:
-
-- `cookimport/parsing/sections.py` already drives section grouping consumed by `staging/jsonld.py`, `staging/writer.py`, `staging/draft_v1.py`, and section-aware step linking.
-
-Current upstream extraction is still importer-specific:
-
-- `plugins/text.py` and `plugins/excel.py` each contain near-identical `_extract_sections_from_blob` logic.
-- `plugins/epub.py` and `plugins/pdf.py` each use their own `_extract_fields` heuristics for ingredient/instruction partitioning.
-
-Current wiring gap:
-
-- `RunSettings` has no section-detector backend knob yet.
-- Stage and prediction-generation wiring patterns are already established (`cli.py`, `cli_worker.py`, `labelstudio/ingest.py`, `run_settings_adapters.py`) and should be reused.
-
-Benchmark scope note:
-
-- `_build_all_method_variants(...)` currently permutes EPUB extractor settings only, so adding section-backend permutations should be explicit/opt-in to avoid accidental runtime growth.
-
-### 2026-02-27_22.25.43 priority3 current state audit
-
-Source: `docs/understandings/2026-02-27_22.25.43-priority3-current-state-audit.md`
-Summary: Priority 3 audit: multi-recipe splitting is still importer-local heuristics; shared splitter wiring has not landed yet.
-
-Details preserved:
-
-
-# Priority 3 Current-State Audit (2026-02-27)
-
-- Active `docs/plans/priority-3.md` and archived `docs/plans/OGplan/priority-3.md` were identical and stale, including invalid citation placeholders.
-- There is currently no shared `multi_recipe_splitter` run setting or CLI/adapters wiring in `run_settings.py`, `cli.py`, `run_settings_adapters.py`, or `labelstudio/ingest.py`.
-- Multi-recipe behavior today is importer-local:
-  - Text: `_split_recipes(...)` heuristics in `cookimport/plugins/text.py`.
-  - EPUB: `_detect_candidates(...)` + `_find_recipe_end(...)` and `_is_subsection_header(...)` guard in `cookimport/plugins/epub.py`.
-  - PDF: `_detect_candidates(...)` + `_find_recipe_end(...)` heuristics in `cookimport/plugins/pdf.py`.
-- Existing tests cover text multi-recipe fixtures and EPUB `For the X` subsection behavior, but there are no shared splitter tests yet.
-- Priority 3 segmentation-eval ambitions overlap Priority 8 planning, so shared splitter delivery should land first and evaluation surfaces should be coordinated.
-
-### 2026-02-27_22.27.41 priority7 current runtime gap map
-
-Source: `docs/understandings/2026-02-27_22.27.41-priority7-current-runtime-gap-map.md`
-Summary: Priority-7 audit: webschema lane is not implemented; importer selection is score-based with no stage pipeline flag.
-
-Details preserved:
-
-
-# Priority 7 Current Runtime Gap Map
-
-- Current importers are `text`, `excel`, `epub`, `pdf`, `paprika`, and `recipesage`; nothing claims `.html`, `.htm`, or `.jsonld`.
-- Stage runtime does not support `--pipeline` importer forcing; importer choice is automatic via `registry.best_importer_for_path(...)`.
-- `RunSettings` and CLI knobs currently cover EPUB/scoring/table/LLM surfaces only; there are no webschema fields.
-- All-method variant expansion is EPUB-specific today; non-EPUB inputs get a single variant.
-- Paprika already has a limited local HTML+JSON-LD path, which is a useful reference for Priority 7 plugin design.
-
-### 2026-02-27_22.37.24 priority3 shared splitter wiring map
-
-Source: `docs/understandings/2026-02-27_22.37.24-priority3-shared-splitter-wiring-map.md`
-Summary: Priority 3 refresh discovery: shared section detection is live, but multi-recipe splitting is still importer-local and unwired in run settings.
-
-Details preserved:
-
-
-# Priority 3 Shared-Splitter Wiring Map (2026-02-27)
-
-- `section_detector_backend` is already wired end-to-end (`run_settings`, stage CLI, run-settings adapters, Label Studio ingest).
-- Text/Excel call `extract_structured_sections_from_lines(...)`; EPUB/PDF have `shared_v1` extraction branches.
-- Multi-recipe splitting is still importer-local:
-  - Text uses `_split_recipes(...)`.
-  - EPUB/PDF rely on `_detect_candidates(...)` and `_find_recipe_end(...)`.
-- `_build_all_method_variants(...)` already adds `section_detector_backend` as a dimension when non-legacy; Priority 3 should follow this pattern for reproducible backend comparisons without auto-expanding default variant count.
-
-### 2026-02-27_22.52.17 priority7 webschema detection and variant guardrails
-
-Source: `docs/understandings/2026-02-27_22.52.17-priority7-webschema-detection-and-variant-guardrails.md`
-Summary: Priority-7 implementation detail: keep RecipeSage precedence for .json while expanding webschema all-method variants only for webschema-capable inputs.
-
-Details preserved:
-
-
-# Priority 7 WebSchema Guardrails
-
-- `webschema` detection is high-confidence for `.html/.htm/.jsonld`, but `.json` is guarded:
-  - if JSON payload looks like RecipeSage export (`recipes` list with Recipe rows), webschema returns `0.0` so RecipeSage remains selected.
-  - otherwise, webschema claims `.json` only when schema Recipe objects are actually present.
-- All-method variant expansion remains bounded:
-  - EPUB keeps existing extractor matrix behavior.
-  - non-EPUB keeps one variant except webschema-capable sources.
-  - webschema-capable sources expand only `web_schema_policy` (`prefer_schema`, `schema_only`, `heuristic_only`) while reusing base values for other webschema settings.
-
-
-### 2026-02-27_23.20.08 priority3 rules v1 coverage signal thresholds
-
-Source: `docs/understandings/2026-02-27_23.20.08-priority3-rules-v1-coverage-signal-thresholds.md`
-Summary: Priority-3 splitter discovery: rules_v1 coverage thresholds must count section-header signals, not only content-like lines, to avoid rejecting valid short recipe splits.
-
-Details preserved:
-
-
-## Discovery
-
-`rules_v1` boundary acceptance originally computed left/right coverage using only ingredient/instruction content-line flags. In short recipe spans, instruction bodies like `Do the thing.` may not classify as instruction-like content, causing false `left_section_coverage_below_threshold` rejects even when clear `Directions:` headers exist.
-
-## Durable Contract
-
-Coverage thresholds for shared multi-recipe splitting should use ingredient/instruction signal lines (content plus section-header signals) so `min_* = 1` remains practical for markdown/text fixtures with short imperative instruction lines.
-
-## Evidence
-
-- Failing test before fix: `tests/ingestion/test_text_importer.py::test_convert_multi_recipe_rules_v1_backend`
-- Rejection trace reason before fix: `left_section_coverage_below_threshold` at boundary `# Recipe Two`
-- Passing tests after fix:
-  - `tests/parsing/test_multi_recipe_splitter.py`
-  - `tests/ingestion/test_text_importer.py::test_convert_multi_recipe_rules_v1_backend`
-
-## Anti-loop Note
-
-If rules_v1 misses obvious boundaries, inspect `multi_recipe_split_trace` first and verify whether coverage failed because header signals were excluded.
+Chronological migration from `docs/understandings`; obsolete pre-implementation gap maps were removed once the corresponding features landed.
 
 ## 2026-02-27 tasks consolidation ledger (migrated from `docs/tasks`)
 
@@ -461,7 +300,7 @@ Problems captured:
 
 Durable decisions:
 - Keep one deterministic core scoring lane in `cookimport/core/scoring.py` with additive reporting (`RecipeCandidate.recipeLikeness`, `ConversionReport.recipeLikeness`).
-- Preserve project policy: recipe codex-farm parsing stays off.
+- Keep recipe-likeness gating deterministic regardless of whether optional codex-farm recipe passes are enabled.
 - Align default `recipe_score_min_ingredient_lines=1` across scorer, run settings, stage, and benchmark/pred-run paths.
 - Replace path-coupled importer tests with local temp fixtures.
 
@@ -482,7 +321,7 @@ Problems captured:
 - Label Studio ingest test doubles broke after `run_settings` kwargs were threaded through importer convert calls.
 
 Durable decisions:
-- Implement additive backend `section_detector_backend=legacy|shared_v1` with `legacy` default.
+- Implement the section-detector backend surface end-to-end, with current product runs fixed to `shared_v1` and legacy preserved only for compatibility loading.
 - Keep deterministic, LLM-free behavior and preserve existing `sections.py` output contracts.
 - Preserve component headers as standalone lines in shared EPUB/PDF paths.
 - Keep all-method variant growth explicit (dimension surfaces in reports when non-default, no automatic matrix explosion).

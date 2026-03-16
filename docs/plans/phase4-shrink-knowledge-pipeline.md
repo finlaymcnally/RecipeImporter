@@ -1,21 +1,28 @@
+---
+summary: "ExecPlan for Phase 4 of the Refactor migration: make non-recipe ownership label-driven, persist deterministic non-recipe classification, and narrow optional knowledge extraction to labeled knowledge spans only."
+read_when:
+  - "When implementing Phase 4 from docs/reports/Refactor.md"
+  - "When shrinking pass4 into optional extraction over already-labeled knowledge spans"
+---
+
 # Shrink the Knowledge Pipeline to a Label-Driven Stage 7
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 This document must be maintained in accordance with `docs/PLANS.md`.
 
-This plan assumes the earlier migration work is already present in the working tree. In concrete terms, the runtime already has one authoritative segmented block stream, one final corrected Stage 2 label for every block, one deterministic Stage 3 recipe-span artifact built from those labels, and the recipe path from Stage 4 through Stage 6 no longer depends on legacy pre-label recipe-candidate residue.
+This plan assumes the earlier migration work is already present in the working tree. In concrete terms, the runtime already has one authoritative segmented block stream, one normalized Stage 2 block-label view for every source block, one deterministic Stage 3 recipe-span artifact built from those labels, the recipe path from Stage 4 through Stage 6 no longer depends on legacy pre-label recipe-candidate residue, and `stage_observability.json` is already the canonical place where stage names and owned artifacts are recorded. If the concrete Phase 2 handoff type is named `LabelFirstCompatibilityResult`, this phase should consume its `block_labels` plus `recipe_spans` fields directly; if the code uses a different type name, add one small adapter at the boundary and keep the rest of Stage 7 typed in terms of the same normalized concepts.
 
 ## Purpose / Big Picture
 
-After this change, the non-recipe lane will stop using broad residue mining as its main architecture. Stage 7 will deterministically classify every block outside recipe spans as either `knowledge` or `other` from the already-corrected Stage 2 labels, persist that result as a first-class artifact, and only then optionally run a lightweight LLM extraction step on the `knowledge` spans. The user-visible effect is simple: a staged run with `--llm-knowledge-pipeline off` still writes stable non-recipe classification artifacts and still produces correct `KNOWLEDGE` labels in benchmark evidence, while a run with `--llm-knowledge-pipeline codex-farm-knowledge-v1` produces snippets only from blocks already labeled `knowledge`.
+After this change, the non-recipe lane will stop using broad residue mining as its main architecture. Stage 7 will deterministically classify every block outside recipe spans as either `knowledge` or `other` from the already-corrected Stage 2 labels, persist that result as a first-class artifact, and only then optionally run a lightweight LLM extraction step on the `knowledge` spans. The user-visible effect is simple: a staged run with `--llm-knowledge-pipeline off` still writes stable non-recipe classification artifacts and still produces correct `KNOWLEDGE` labels in benchmark evidence, while a run with `--llm-knowledge-pipeline codex-farm-knowledge-v1` produces snippets only from blocks already labeled `knowledge`. In the shared observability layer, the semantic stage keys should match the Refactor naming scheme: `classify_nonrecipe` for deterministic Stage 7 and `extract_knowledge_optional` for the optional extraction stage.
 
 The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` should show contiguous `knowledge` and `other` spans derived from Stage 2 labels. `knowledge/<workbook_slug>/block_classifications.jsonl` should exist even when the LLM is off, because it is now a deterministic compatibility artifact. When the LLM is on, `pass4_knowledge_manifest.json.counts.jobs_written` should reflect only `knowledge` spans or subspans, never every non-recipe residue sequence.
 
 ## Progress
 
 - [x] (2026-03-15_22.21.16) Re-read `docs/PLANS.md` before drafting this ExecPlan.
-- [x] (2026-03-15_22.21.16) Re-read `docs/plans/Refactor.md` and captured the exact Phase 4 target: stronger early labels and optional downstream extraction only on labeled knowledge spans.
+- [x] (2026-03-15_22.21.16) Re-read `docs/reports/Refactor.md` and captured the exact Phase 4 target: stronger early labels and optional downstream extraction only on labeled knowledge spans.
 - [x] (2026-03-15_22.21.16) Inspected the live knowledge lane in `cookimport/staging/import_session.py`, `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/staging/stage_block_predictions.py`, and `cookimport/labelstudio/canonical_line_projection.py`.
 - [x] (2026-03-15_22.21.16) Wrote the discovery summary to `docs/understandings/2026-03-15_22.21.16-phase4-knowledge-pipeline-current-seams.md`.
 - [x] (2026-03-15_22.21.16) Drafted this ExecPlan.
@@ -54,6 +61,10 @@ The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` s
   Rationale: preserving old paths limits breakage, but preserving old behavior would violate the label-first architecture already assumed by this phase.
   Date/Author: 2026-03-15 / Codex
 
+- Decision: Phase 4 stage naming must extend the shared `stage_observability.json` contract instead of teaching `classify_nonrecipe` and `extract_knowledge_optional` directly in each reporting surface.
+  Rationale: Phase 1 exists specifically to centralize stage semantics. Phase 4 should add its new stage keys and artifact references there once, then let summaries, benchmark evidence, and Label Studio readers inherit that truth.
+  Date/Author: 2026-03-15 / Codex
+
 ## Outcomes & Retrospective
 
 Initial planning outcome only: the live repo already has the extraction and rendering pieces needed for a smaller knowledge lane, but two compatibility seams still block the migration. First, pass4 job construction is still based on `non_recipe_blocks`. Second, stage/benchmark evidence still treats pass4 block classifications as authoritative. This plan is intentionally centered on those two seams so the implementation can shrink pass4 without reopening the recipe-path refactor.
@@ -62,7 +73,7 @@ Initial planning outcome only: the live repo already has the extraction and rend
 
 This repository stages cookbook imports into persisted outputs under `data/output/<timestamp>/`. The recipe path already writes recipe artifacts and benchmark evidence. Phase 4 is about the text outside recipe spans.
 
-A “block” is one stable text unit from the shared Stage 1 segmented source. A “final corrected label” is the single Stage 2 semantic label assigned to one block after deterministic labeling plus optional LLM correction. In this plan, Stage 2 already emits at least two non-recipe labels: `knowledge` and `other`, and may emit finer-grained noise labels such as `boilerplate` or `front_matter`. A “recipe span” is a contiguous half-open block range `[start, end)` from Stage 3 that marks which blocks belong to one recipe. A “non-recipe span” is the contiguous complement outside recipe spans, split by final Stage 2 non-recipe label family. A “knowledge span” is a non-recipe span whose Stage 2 family is `knowledge`. An “other span” is every other non-recipe span, including explicit noise categories.
+A “block” is one stable text unit from the shared Stage 1 segmented source. A “final corrected label” is the single Stage 2 semantic label assigned to one block after Phase 2 reconciles any finer-grained line-level labeling into one normalized block-label view. In this plan, Stage 2 already emits at least two non-recipe labels: `knowledge` and `other`, and may emit finer-grained noise labels such as `boilerplate` or `front_matter`. A “recipe span” is a contiguous half-open block range `[start, end)` from Stage 3 that marks which blocks belong to one recipe, with any atomic indices retained only as supporting evidence. A “non-recipe span” is the contiguous complement outside recipe spans, split by final Stage 2 non-recipe label family. A “knowledge span” is a non-recipe span whose Stage 2 family is `knowledge`. An “other span” is every other non-recipe span, including explicit noise categories.
 
 The current knowledge pipeline is spread across a few modules:
 
@@ -73,7 +84,7 @@ The current knowledge pipeline is spread across a few modules:
 - `cookimport/staging/stage_block_predictions.py` builds the deterministic benchmark evidence file `.bench/<workbook_slug>/stage_block_predictions.json`. It currently prefers pass4 block classifications when deciding which blocks are `KNOWLEDGE`.
 - `cookimport/labelstudio/canonical_line_projection.py` builds freeform benchmark line-label artifacts and currently allows pass4 to upgrade or downgrade outside-recipe labels after the main stage session.
 
-Phase 4 needs one new center of gravity: a deterministic Stage 7 artifact builder that consumes the authoritative block stream, final labels, and recipe spans, then produces one stable classification result for every non-recipe block before any LLM extraction begins.
+Phase 4 needs one new center of gravity: a deterministic Stage 7 artifact builder that consumes the authoritative block stream, the normalized Phase 2 block-label view, and the Phase 2/3 recipe-span view, then produces one stable classification result for every non-recipe block before any LLM extraction begins.
 
 ## Plan of Work
 
@@ -103,8 +114,8 @@ Also define one public constructor:
     def build_nonrecipe_stage_result(
         *,
         full_blocks: Sequence[Mapping[str, Any]],
-        final_block_labels: Sequence[Mapping[str, Any]],
-        recipe_spans: Sequence[Span],
+        final_block_labels: Sequence[AuthoritativeBlockLabel],
+        recipe_spans: Sequence[RecipeSpan],
         overrides: ParsingOverrides | None = None,
     ) -> NonRecipeStageResult:
 
@@ -145,6 +156,8 @@ Keep `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md` as optional L
 
 At the end of this milestone, a stage run has one deterministic Stage 7 artifact plus one compatibility export that old readers can consume.
 
+When these artifacts are written, register them through the Phase 1 observability contract so `stage_observability.json` can show `classify_nonrecipe` as the owner of `08_nonrecipe_spans.json` and the deterministic block-classification export.
+
 ### Milestone 3: Narrow pass4 to `knowledge` spans only
 
 Refactor `cookimport/llm/codex_farm_knowledge_jobs.py` so `build_pass4_knowledge_jobs(...)` accepts `knowledge_spans` from `NonRecipeStageResult` instead of `non_recipe_blocks`. Preserve the current context-window logic against the full block stream, but change the selection logic:
@@ -172,6 +185,8 @@ Then refactor `cookimport/llm/codex_farm_knowledge_orchestrator.py`:
     "input_mode": "stage7_knowledge_spans"
 
 At the end of this milestone, pass4 is no longer a whole-residue mining pass. It is a scoped extractor over blocks already labeled `knowledge`.
+
+Register this optional extraction stage through the shared observability layer under the semantic key `extract_knowledge_optional`. If no knowledge spans exist, the stage should still be representable as a successful no-op or skipped stage there instead of disappearing into local pass4 manifest semantics.
 
 ### Milestone 4: Rewire stage execution and compatibility readers
 
@@ -280,6 +295,8 @@ Third, benchmark compatibility no longer depends on pass4 relabeling. `cookimpor
 
 Fourth, backward compatibility is preserved for readers that only know old paths. `knowledge/<workbook_slug>/block_classifications.jsonl` still exists at the same path, and the benchmark/staging readers continue to work without path rewrites.
 
+Fifth, the new topology is visible through the shared observability contract. `stage_observability.json` must show `classify_nonrecipe` for the deterministic Stage 7 artifact write, and when the LLM lane runs it must show `extract_knowledge_optional` as a separate optional stage rather than hiding that meaning only inside pass4-era manifests.
+
 ## Idempotence and Recovery
 
 The code changes in this plan are additive and safe to rerun. The new Stage 7 builder is deterministic over the same block, label, and recipe-span inputs. Re-running tests is safe. Re-running `cookimport stage` is also safe because each run writes to a fresh timestamped output directory.
@@ -347,8 +364,8 @@ Define the new Stage 7 builder in `cookimport/staging/nonrecipe_stage.py`:
     def build_nonrecipe_stage_result(
         *,
         full_blocks: Sequence[Mapping[str, Any]],
-        final_block_labels: Sequence[Mapping[str, Any]],
-        recipe_spans: Sequence[Span],
+        final_block_labels: Sequence[AuthoritativeBlockLabel],
+        recipe_spans: Sequence[RecipeSpan],
         overrides: ParsingOverrides | None = None,
     ) -> NonRecipeStageResult:
         ...
@@ -357,4 +374,12 @@ Update `cookimport/llm/codex_farm_knowledge_jobs.py` so its public builder takes
 
 Change `cookimport/staging/stage_block_predictions.py` and `cookimport/labelstudio/canonical_line_projection.py` to treat Stage 7 deterministic categories as authoritative for outside-recipe `KNOWLEDGE` ownership. Snippets remain evidence, not classifiers.
 
-Change note (2026-03-15_22.21.16): Initial ExecPlan created from the Phase 4 section in `docs/plans/Refactor.md` plus a code/doc survey of the current pass4, staging, and Label Studio seams. Reason: provide a self-contained implementation spec for the label-driven knowledge-pipeline shrink assuming earlier migration phases already landed.
+Change note (2026-03-15_22.21.16): Initial ExecPlan created from the Phase 4 section in `docs/reports/Refactor.md` plus a code/doc survey of the current pass4, staging, and Label Studio seams. Reason: provide a self-contained implementation spec for the label-driven knowledge-pipeline shrink assuming earlier migration phases already landed.
+
+Change note (2026-03-15_22.30.53): Revised to add front matter and to align the plan with the shared Phase 1 observability contract and the Refactor naming scheme. The plan now explicitly treats `classify_nonrecipe` and `extract_knowledge_optional` as semantic stage keys owned by `stage_observability.json`, with pass4-era paths retained only as compatibility artifacts.
+
+Change note (2026-03-15_22.42.10): Revised to align the Stage 7 inputs with the tightened Phase 2 contract. Reason: the surrounding plans now make Phase 2 responsible for handing off normalized block labels and block-range `RecipeSpan` objects, so Phase 4 should name those types directly instead of falling back to generic mappings.
+
+Change note (2026-03-15_22.52.33): Revised to make the upstream handoff and acceptance boundary more explicit. Reason: the surrounding plans now agree that Phase 4 should consume the Phase 2 bundle's normalized `block_labels` plus `recipe_spans` directly and should prove the resulting topology through `stage_observability.json`, not only through pass4 compatibility artifacts.
+
+Change note (2026-03-15_23.00.00): Revised stale cross-doc references from `docs/plans/Refactor.md` to `docs/reports/Refactor.md`. Reason: the phase-plan series should point at the real source document consistently.

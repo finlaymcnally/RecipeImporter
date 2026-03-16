@@ -924,6 +924,7 @@ js = js.replace(/\n\}\)\(\);\s*$/, `
   globalThis.__trendHarness = {
     benchmarkRunGroupInfo,
     buildBenchmarkTrendSeries,
+    benchmarkTrendVariantForRecord,
     buildRollingTrend,
     setBenchmarkTrendSelectedFields,
   };
@@ -947,6 +948,16 @@ function findSeries(name) {
   return series.find(item => item && String(item.name || "") === name) || null;
 }
 
+function pointCustomForRunTimestamp(seriesItem, runTimestamp) {
+  if (!seriesItem || !Array.isArray(seriesItem.data) || !runTimestamp) return {};
+  const match = seriesItem.data.find(point => (
+    point &&
+    point.custom &&
+    String(point.custom.runTimestamp || "") === String(runTimestamp)
+  ));
+  return (match && match.custom) || {};
+}
+
 function firstX(name) {
   const item = findSeries(name);
   if (!item || !Array.isArray(item.data) || !item.data.length) return null;
@@ -958,10 +969,8 @@ function firstX(name) {
 
 const vanillaSeries = findSeries("strict_accuracy (vanilla)");
 const codexSeries = findSeries("strict_accuracy (codexfarm)");
-const deterministicSeries = findSeries("strict_accuracy (deterministic)");
 const tokenVanillaSeries = findSeries("tokens_total (vanilla)");
 const tokenCodexSeries = findSeries("tokens_total (codexfarm)");
-const tokenDeterministicSeries = findSeries("tokens_total (deterministic)");
 const vanillaRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/vanilla"));
 const codexRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/codexfarm"));
 const deterministicRecord = records.find(record => (
@@ -971,6 +980,9 @@ const deterministicRecord = records.find(record => (
 const vanillaGroup = vanillaRecord ? hooks.benchmarkRunGroupInfo(vanillaRecord) : null;
 const codexGroup = codexRecord ? hooks.benchmarkRunGroupInfo(codexRecord) : null;
 const deterministicGroup = deterministicRecord ? hooks.benchmarkRunGroupInfo(deterministicRecord) : null;
+const deterministicTrendVariant = deterministicRecord
+  ? String(hooks.benchmarkTrendVariantForRecord(deterministicRecord) || "")
+  : "";
 const vanillaPointCustom = (
   vanillaSeries &&
   Array.isArray(vanillaSeries.data) &&
@@ -985,24 +997,18 @@ const codexPointCustom = (
   codexSeries.data[0] &&
   codexSeries.data[0].custom
 ) || {};
-const deterministicPointCustom = (
-  deterministicSeries &&
-  Array.isArray(deterministicSeries.data) &&
-  deterministicSeries.data.length &&
-  deterministicSeries.data[0] &&
-  deterministicSeries.data[0].custom
-) || {};
+const deterministicPointCustom = pointCustomForRunTimestamp(
+  deterministicTrendVariant === "codexfarm" ? codexSeries : vanillaSeries,
+  deterministicRecord && deterministicRecord.run_timestamp
+);
 
 const payload = {
   vanilla_x: firstX("strict_accuracy (vanilla)"),
   codex_x: firstX("strict_accuracy (codexfarm)"),
-  deterministic_x: firstX("strict_accuracy (deterministic)"),
   vanilla_series_points: vanillaSeries && Array.isArray(vanillaSeries.data) ? vanillaSeries.data.length : 0,
   codex_series_points: codexSeries && Array.isArray(codexSeries.data) ? codexSeries.data.length : 0,
-  deterministic_series_points: deterministicSeries && Array.isArray(deterministicSeries.data) ? deterministicSeries.data.length : 0,
   token_vanilla_series_points: tokenVanillaSeries && Array.isArray(tokenVanillaSeries.data) ? tokenVanillaSeries.data.length : 0,
   token_codex_series_points: tokenCodexSeries && Array.isArray(tokenCodexSeries.data) ? tokenCodexSeries.data.length : 0,
-  token_deterministic_series_points: tokenDeterministicSeries && Array.isArray(tokenDeterministicSeries.data) ? tokenDeterministicSeries.data.length : 0,
   vanilla_run_group_key: vanillaGroup ? String(vanillaGroup.runGroupKey || "") : "",
   codex_run_group_key: codexGroup ? String(codexGroup.runGroupKey || "") : "",
   deterministic_run_group_key: deterministicGroup ? String(deterministicGroup.runGroupKey || "") : "",
@@ -1014,6 +1020,7 @@ const payload = {
   deterministic_point_source_title: String(deterministicPointCustom.sourceTitle || ""),
   vanilla_point_variant: String(vanillaPointCustom.variant || ""),
   codex_point_variant: String(codexPointCustom.variant || ""),
+  deterministic_trend_variant: deterministicTrendVariant,
   deterministic_point_variant: String(deterministicPointCustom.variant || ""),
   vanilla_point_run_timestamp: String(vanillaPointCustom.runTimestamp || ""),
   codex_point_run_timestamp: String(codexPointCustom.runTimestamp || ""),
@@ -4200,12 +4207,36 @@ class TestBenchmarkSemantics:
             },
         ]
         result = _run_benchmark_trend_alignment_harness(js_path, records)
+        assert result["vanilla_series_points"] == 2
+        assert result["codex_series_points"] == 1
+        assert result["deterministic_run_group_key"] == "2026-03-15_15.37.33"
+        assert result["deterministic_trend_variant"] == "vanilla"
+        assert result["deterministic_point_variant"] == "vanilla"
+        assert result["deterministic_point_run_timestamp"] == "2026-03-15T15:38:16"
+
+    def test_benchmark_trend_rebuckets_misc_other_runs_into_binary_variants(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        records = [
+            {
+                "run_timestamp": "2026-03-04T10:43:28",
+                "artifact_dir": "data/output/labelstudio-benchmark/profeedback-2026-03-04_10.41.51-foodlab-02-det",
+                "benchmark_variant": "other",
+                "run_config": {},
+                "strict_accuracy": 0.41,
+            },
+            {
+                "run_timestamp": "2026-03-04T10:50:28",
+                "artifact_dir": "data/output/labelstudio-benchmark/profeedback-2026-03-04_10.41.51-foodlab-03-codex-line",
+                "benchmark_variant": "other",
+                "run_config": {},
+                "strict_accuracy": 0.63,
+            },
+        ]
+        result = _run_benchmark_trend_alignment_harness(js_path, records)
         assert result["vanilla_series_points"] == 1
         assert result["codex_series_points"] == 1
-        assert result["deterministic_series_points"] == 1
-        assert result["deterministic_run_group_key"] == "2026-03-15_15.37.33"
-        assert result["deterministic_point_variant"] == "deterministic"
-        assert result["deterministic_point_run_timestamp"] == "2026-03-15T15:38:16"
 
     def test_benchmark_trend_points_include_source_metadata_for_tooltips(self, tmp_path):
         dash_dir = tmp_path / "dash"
