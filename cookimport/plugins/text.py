@@ -279,7 +279,7 @@ class TextImporter:
         if suffix == '.docx' and docx is not None:
             return 0.95
         if suffix == '.doc':
-            # Low confidence for legacy doc, likely to fail or be treated as text junk
+            # Low confidence for older binary .doc input; likely to fail or be treated as text junk
             return 0.1
         return 0.0
 
@@ -721,7 +721,7 @@ class TextImporter:
                 # If that fails or produces binary garbage, we might need a better heuristic
                 # For now, just warn/fail.
                 # Check for binary signature maybe?
-                raise ValueError("Legacy .doc files (binary) are not fully supported. Please convert to .docx or text.")
+                raise ValueError("Binary .doc files are not fully supported. Please convert to .docx or text.")
         
         # Default text read
         return path.read_text(encoding="utf-8", errors="replace")

@@ -144,7 +144,7 @@ def write_prompt_eval_alignment_doc(
         "",
         (
             f"- Recipe-object extraction pipeline: `{llm_recipe_pipeline}` "
-            "(legacy recipe span/schema prompts)."
+            "(prior recipe span/schema prompts)."
         ),
         (
             f"- Atomic block splitter: `{atomic_block_splitter}` "

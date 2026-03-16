@@ -60,7 +60,7 @@ Important current constraints:
   - `seaandsmokecutdown`
   - `dinnerfor2cutdown`
   - `roastchickenandotherstoriescutdown`
-- `bench quality-lightweight-series` remains only as a disabled compatibility stub. It exits immediately and is not an active workflow.
+- `bench quality-lightweight-series` remains only as a disabled stub. It exits immediately and is not an active workflow.
 - `bench gc` is benchmark-only retention, not a general `data/output` sweeper. It can prune matching benchmark-generated processed-output roots while preserving `performance_history.csv` and refusing destructive cleanup when durable history checks fail.
 
 ### 2.2 `cookimport labelstudio-benchmark`
@@ -145,7 +145,7 @@ Current rule:
   - `extracted_archive_path`
 - prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
 - canonical-text line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
-- new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing legacy fallback filenames or implicit directories
+- new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
 
 ### 3.2 Gold inputs
 
@@ -213,7 +213,7 @@ Canonical-text diagnostics commonly include:
 - `missed_gold_blocks.jsonl`
 - `wrong_label_blocks.jsonl`
 - `joined_line_table.jsonl`
-- legacy alias files such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired
+- older alias files such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`
 - `knowledge_budget.json`
@@ -255,23 +255,23 @@ Current generation seams:
 Current bundle rules:
 
 - reviewer-facing topology should be derived from the normalized model, not guessed from path layout
-- `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of old pass-slot compatibility fields
+- `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of older numbered stage fields
 - current semantic recipe-stage values are:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`
   - `build_final_recipe`
-- `cookimport/bench/upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only; do not add legacy recipe-topology compatibility metadata back into new bundles
-- `cookimport/bench/followup_bundle.py` should resolve `knowledge_manifest_json` only for the live knowledge-manifest seam; old pass4 locator names belong only in archived/local compatibility code
-- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived old-slot prompt rows are compatibility-only history input, not a new-output shape
+- `cookimport/bench/upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only; do not add older recipe-topology metadata back into new bundles
+- `cookimport/bench/followup_bundle.py` should resolve `knowledge_manifest_json` only for the live knowledge-manifest seam; older knowledge-stage locator names belong only in archived/local reader code
+- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived prompt rows with numbered stage labels are history input only, not a new-output shape
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
-- follow-up tooling may still accept historical local filenames when auditing archived bundles, but those are compatibility reads only and should not be reintroduced into new reviewer-facing bundle fields
+- follow-up tooling may still accept historical local filenames when auditing archived bundles, but those are archived-reader inputs only and should not be reintroduced into new reviewer-facing bundle fields
 - sparse bundles are valid first-class inputs:
   - request-template generation should choose a real bundle-local case when one exists
   - otherwise it should emit empty-selector asks that still let `cf-debug build-followup` succeed
   - `--include-knowledge-source-key` should resolve through bundle-local knowledge rows even when the bundle has no Codex-enabled paired run
-- checked-in old-format bundle fixtures should be normalized in tests before running current `cf-debug` paths; production readers should not grow new compatibility branches just to satisfy stale fixtures
+- checked-in old-format bundle fixtures should be normalized in tests before running current `cf-debug` paths; production readers should not grow new reader branches just to satisfy stale fixtures
 
 Oracle upload contract:
 

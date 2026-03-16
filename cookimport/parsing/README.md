@@ -6,7 +6,7 @@
 - Enable spaCy features with `COOKIMPORT_SPACY=1` or `enableSpacy` in overrides (if spaCy + model are installed).
 - Ingredient parsing normalizes whitespace and repairs split fractions (e.g., `3 / 4` or line-broken `3\n/4`) before parsing.
 - Instruction fallback segmentation now lives in `step_segmentation.py` (`instruction_step_segmentation_policy=off|auto|always`, `instruction_step_segmenter=heuristic_v1|pysbd_v1`) and is deterministic by default (`heuristic_v1`).
-- Instruction metadata parsing now supports Priority 6 deterministic options via `InstructionParseOptions` (time backend/strategy, temperature backend/unit backend, oven-like classifier mode); parser output includes `temperature_items` plus legacy compatibility fields.
+- Instruction metadata parsing now supports Priority 6 deterministic options via `InstructionParseOptions` (time backend/strategy, temperature backend/unit backend, oven-like classifier mode); parser output includes `temperature_items` plus the existing draft-temperature convenience fields.
 - `yield_extraction.py` centralizes deterministic yield selection/parsing with `p6_yield_mode=scored_v1` and returns normalized draft fields (`yield_units`, `yield_phrase`, `yield_unit_name`, `yield_detail`).
 - Shared section detection now lives in `section_detector.py`; `sections.py` keeps the public API while delegating detection internals to the shared `shared_v1` backend.
 - Shared multi-recipe candidate splitting now lives in `multi_recipe_splitter.py`; Text/EPUB/PDF use `multi_recipe_splitter=rules_v1` or `off`, with optional `multi_recipe_split_trace` diagnostics.

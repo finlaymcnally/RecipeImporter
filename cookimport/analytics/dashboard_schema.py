@@ -107,7 +107,7 @@ class BenchmarkRecord(BaseModel):
     strict_accuracy: float | None = None
     macro_f1_excluding_other: float | None = None
 
-    # Legacy alias metrics (compatibility for historical rows/artifacts)
+    # Additional benchmark metrics used by current reporting surfaces.
     precision: float | None = None
     recall: float | None = None
     f1: float | None = None

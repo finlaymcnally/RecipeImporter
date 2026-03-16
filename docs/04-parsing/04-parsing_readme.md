@@ -74,9 +74,9 @@ Additional parsing-package helpers used by importer-specific flows:
 Unstructured adapter note:
 - `unstructured_adapter.py` now performs deterministic multiline splitting for recipe-like `Title`/`NarrativeText`/`UncategorizedText`/`Text` blocks (in addition to `ListItem` newline splits), preserving provenance with `unstructured_stable_key` suffixes (`.s0`, `.s1`, ...) and `unstructured_split_reason`.
 
-Parsing-adjacent module (not in current stage recipe-path runtime):
+Parsing-adjacent module (not in the default stage recipe-path runtime):
 
-- `cookimport/parsing/classifier.py` (heuristic line classifier used by tagging tests)
+- `cookimport/parsing/classifier.py` (heuristic line classifier retained for focused classifier experiments)
 
 Major call sites:
 
@@ -172,7 +172,7 @@ Major call sites:
 - `time_items`: list of detected durations
 - `total_time_seconds`: strategy-selected rollup for that step (`sum_all_v1`, `max_v1`, `selective_sum_v1`)
 - `temperature_items`: all matched temperatures with normalized unit/value and `is_oven_like` flag
-- `temperature`, `temperature_unit`, `temperature_text`: compatibility fields that mirror the first matched temperature expression
+- `temperature`, `temperature_unit`, `temperature_text`: convenience mirror fields for the first matched temperature expression
 
 ### Time behavior
 
@@ -183,7 +183,7 @@ Major call sites:
 - Handles seconds/minutes/hours/days and abbreviations (`mins`, `hrs`, `secs`).
 - Ranges use midpoint (`20 to 30 minutes` => 25 minutes).
 - Strategy notes:
-  - `sum_all_v1` keeps legacy behavior.
+  - `sum_all_v1` keeps the prior full-step aggregation behavior.
   - `max_v1` keeps only longest duration in a step.
   - `selective_sum_v1` skips obvious frequency spans (`every 5 minutes`) and collapses `or` alternatives.
 
@@ -197,7 +197,7 @@ Major call sites:
   - `builtin_v1` (default)
   - `pint_v1` (optional dependency; validation guard)
 - Handles `400F`, `350°F`, `375 degrees F`, `220 degrees celsius`.
-- Returns all matches in `temperature_items`; compatibility fields keep first match for legacy callers.
+- Returns all matches in `temperature_items`; the convenience mirror fields keep the first match for single-value consumers.
 - Oven-like classification is deterministic (`p6_ovenlike_mode=keywords_v1|off`) and is used by staging to derive recipe-level `max_oven_temp_f`.
 
 ### Known limitations
@@ -241,9 +241,7 @@ Matching order:
 
 - `cookimport/parsing/section_detector.py` is the shared deterministic detector used by importers and parser section helpers.
 - `cookimport/parsing/sections.py` keeps the historical public API and delegates detection internals to `section_detector.py`.
-- Shared detection currently supports two run-setting backends:
-  - `legacy` (default, prior behavior)
-  - `shared_v1` (new shared detector path)
+- Shared detection currently uses the `shared_v1` detector path.
 - `sections.py` provides deterministic section extraction for:
   - ingredient headers (for example `For the gravy:`),
   - instruction headers (conservative heuristics; header-like short lines only).
@@ -488,14 +486,14 @@ Gates include:
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
 - Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path without any score-based fallback pressure.
 - Outside-recipe-span score-based escalation is gone; codex escalation now remains inside-span-first and reason-driven.
-- This seam is now reason-only. Current runtime artifacts do not expose compatibility `confidence`, `trust_score`, or `escalation_score` aliases; grouping and Stage 7 ownership are label-driven plus explicit `escalation_reasons` only.
+- This seam is now reason-only. Current runtime artifacts expose label-driven grouping plus explicit `escalation_reasons` only; scalar `confidence`, `trust_score`, and `escalation_score` fields are no longer part of the contract.
 - Reviewer/export surfaces should mirror that same contract. If a downstream bundle or debug packet still wants scalar uncertainty fields, that downstream surface is stale rather than the parsing contract being incomplete.
 - Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
 - `preview` computes the same downgrade decisions as enforce mode but leaves accepted predictions unchanged; `enforce` applies partial downgrades or full-source fallback to deterministic baseline labels.
 - Guardrail diagnostics are written under `line-role-pipeline/`:
   - `guardrail_report.json`
   - `guardrail_changed_rows.jsonl`
-- Legacy compatibility sidecars remain available when guardrail diagnostics exist:
+- Reviewer sidecars remain available when guardrail diagnostics exist:
   - `do_no_harm_diagnostics.json`
   - `do_no_harm_changed_rows.jsonl`
 - Codex fallback batches now run with bounded in-flight concurrency (parser default `4` per book; explicit env override via `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT`; ingest callers can pass `codex_max_inflight`) and merge back deterministically by atomic index/prompt order.
@@ -508,7 +506,7 @@ Gates include:
 ### Related modules
 
 - `cookimport/llm/canonical_line_role_prompt.py`
-- `cookimport/llm/codex_exec.py` (fail-closed compatibility only; active runtime line-role transport is CodexFarm through `canonical_line_roles.py`)
+- `cookimport/llm/codex_exec.py` (fail-closed retired transport only; active runtime line-role transport is CodexFarm through `canonical_line_roles.py`)
 - `llm_pipelines/prompts/canonical-line-role-v1.prompt.md`
 
 ### Tests to read
@@ -562,7 +560,7 @@ Current effective lanes:
 - `knowledge`
 - `noise`
 
-`ChunkLane.NARRATIVE` is legacy; reporting treats it as noise.
+`ChunkLane.NARRATIVE` is an older lane value; reporting treats it as noise.
 
 ### Highlight extraction
 
@@ -620,10 +618,6 @@ Mojibake replacements are heuristic and can be lossy in edge encodings.
 - Provides standalone line-level `ingredient`/`instruction`/`other` classification helpers.
 - This module is currently test-scoped and not on the default stage recipe conversion path.
 - Useful when debugging/iterating on heuristic classifier behavior outside draft-v1 assignment.
-
-### Tests to read
-
-- `tests/tagging/test_classifier.py`
 
 ## Output Artifacts and Paths
 

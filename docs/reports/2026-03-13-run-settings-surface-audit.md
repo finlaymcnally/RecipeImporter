@@ -184,7 +184,7 @@ These are the clearest cases where the setting behaves like a leftover rollout s
 Rationale:
 
 - These are not “which product behavior do I want today?” knobs.
-- They mostly represent current implementation identity, internal rollout compatibility, or narrow troubleshooting seams.
+- They mostly represent current implementation identity, internal rollout transition seams, or narrow troubleshooting seams.
 - Several of them are effectively single-choice already.
 - Keeping them visible causes benchmark/config drift for no real operator benefit.
 

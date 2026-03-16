@@ -147,7 +147,7 @@ def test_codex_surface_classification_treats_prelabel_as_codex_surface() -> None
     surface = classify_codex_surfaces(
         {
             "prelabel_enabled": True,
-            "prelabel_provider": "legacy-provider",
+            "prelabel_provider": "custom-provider",
         }
     )
     assert surface.prelabel_codex_enabled is True

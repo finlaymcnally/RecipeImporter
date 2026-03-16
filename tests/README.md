@@ -20,7 +20,6 @@ tests/
   llm/
   parsing/
   staging/
-  tagging/
 ```
 
 ## Minimal Runs

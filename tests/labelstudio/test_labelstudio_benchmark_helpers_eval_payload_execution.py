@@ -733,12 +733,12 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
         encoding="utf-8",
     )
 
-    predictions_in = tmp_path / "legacy-prediction-records.jsonl"
+    predictions_in = tmp_path / "saved-prediction-records.jsonl"
     write_prediction_records(
         predictions_in,
         [
             make_prediction_record(
-                example_id="legacy-example-0",
+                example_id="saved-example-0",
                 example_index=0,
                 prediction={
                     "pred_run_dir": str(prediction_run),
@@ -790,7 +790,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
         lambda *_args, **_kwargs: None,
     )
 
-    eval_root = tmp_path / "eval-legacy-record"
+    eval_root = tmp_path / "eval-saved-record"
     with pytest.raises(cli.typer.Exit):
         cli.labelstudio_benchmark(
             gold_spans=gold_spans,

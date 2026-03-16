@@ -41,7 +41,7 @@ _ALIGNMENT_STRATEGY_ENV = "COOKIMPORT_CANONICAL_ALIGNMENT_STRATEGY"
 _ALIGNMENT_STRATEGIES = {"auto", "fast", "global"}
 _ALIGNMENT_FAST_DEPRECATION_REASON = "fast_alignment_deprecated_accuracy_risk"
 _ALIGNMENT_FAST_DEPRECATION_MESSAGE = (
-    "Fast canonical alignment is deprecated due to accuracy risk; "
+    "Fast canonical alignment is disabled due to accuracy risk; "
     "global SequenceMatcher alignment is enforced."
 )
 
@@ -1406,7 +1406,7 @@ def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
         (
             "- Fast alignment: "
             + (
-                "deprecated (accuracy risk; legacy enforced)"
+                "disabled (accuracy risk; global alignment enforced)"
                 if bool(alignment.get("alignment_fast_path_deprecated"))
                 else "enabled"
             )

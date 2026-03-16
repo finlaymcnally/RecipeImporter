@@ -272,11 +272,17 @@ def test_display_gold_export_path_relative_to_golden_root(
 ) -> None:
     output_root = tmp_path / "output"
     golden_root = tmp_path / "golden"
-    path = golden_root / "sample" / "freeform" / "exports" / "freeform_span_labels.jsonl"
+    path = (
+        golden_root
+        / "pulled-from-labelstudio"
+        / "dinnerfor2cutdown"
+        / "exports"
+        / "freeform_span_labels.jsonl"
+    )
     monkeypatch.setattr(cli, "DEFAULT_GOLDEN", golden_root)
 
     display = cli._display_gold_export_path(path, output_root)
-    assert display == "sample/freeform/exports/freeform_span_labels.jsonl"
+    assert display == "dinnerfor2cutdown"
 
 def test_load_gold_recipe_headers_from_summary_prefers_recipe_counts(tmp_path: Path) -> None:
     exports = tmp_path / "run" / "exports"
@@ -358,6 +364,85 @@ def test_infer_source_file_from_gold_row_uses_default_input(
     inferred = cli._infer_source_file_from_freeform_gold(gold_path)
     assert inferred == source
 
+def test_resolve_benchmark_gold_and_source_auto_uses_inferred_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold_path = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    gold_path.write_text("{}\n", encoding="utf-8")
+    inferred_source = tmp_path / "data" / "input" / "DinnerFor2CUTDOWN.epub"
+    inferred_source.parent.mkdir(parents=True, exist_ok=True)
+    inferred_source.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(
+        cli,
+        "_infer_source_file_from_freeform_gold",
+        lambda _path: inferred_source,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_prompt_confirm",
+        lambda *_args, **_kwargs: pytest.fail("should not confirm inferred source"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_menu_select",
+        lambda *_args, **_kwargs: pytest.fail("should not prompt for source selection"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_list_importable_files",
+        lambda *_args, **_kwargs: pytest.fail("should not list importable files"),
+    )
+    monkeypatch.setattr(cli, "_require_importer", lambda *_args, **_kwargs: None)
+
+    resolved = cli._resolve_benchmark_gold_and_source(
+        gold_spans=gold_path,
+        source_file=None,
+        output_dir=tmp_path,
+        allow_cancel=False,
+    )
+
+    assert resolved == (gold_path, inferred_source)
+
+def test_resolve_benchmark_gold_and_source_prompts_when_inference_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold_path = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    gold_path.write_text("{}\n", encoding="utf-8")
+    selected_source = tmp_path / "data" / "input" / "DinnerFor2CUTDOWN.epub"
+    selected_source.parent.mkdir(parents=True, exist_ok=True)
+    selected_source.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(cli, "_infer_source_file_from_freeform_gold", lambda _path: None)
+    monkeypatch.setattr(cli, "_list_importable_files", lambda *_args, **_kwargs: [selected_source])
+    monkeypatch.setattr(
+        cli,
+        "_menu_select",
+        lambda *_args, **_kwargs: selected_source,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_prompt_confirm",
+        lambda *_args, **_kwargs: pytest.fail("should not confirm when inference is missing"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_prompt_text",
+        lambda *_args, **_kwargs: pytest.fail("should not prompt for custom source path"),
+    )
+    monkeypatch.setattr(cli, "_require_importer", lambda *_args, **_kwargs: None)
+
+    resolved = cli._resolve_benchmark_gold_and_source(
+        gold_spans=gold_path,
+        source_file=None,
+        output_dir=tmp_path,
+        allow_cancel=False,
+    )
+
+    assert resolved == (gold_path, selected_source)
+
 def test_load_source_hint_from_gold_export_falls_back_to_segment_manifest(
     tmp_path: Path,
 ) -> None:
@@ -381,11 +466,11 @@ def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
     )
     assert scope == "freeform-spans"
 
-def test_infer_scope_from_project_payload_keeps_old_freeform_detection() -> None:
+def test_infer_scope_from_project_payload_rejects_removed_old_freeform_labels() -> None:
     scope = cli._infer_scope_from_project_payload(
         {"label_config": "<View><Label value='VARIANT'/></View>"}
     )
-    assert scope == "freeform-spans"
+    assert scope is None
 
 def test_labelstudio_eval_direct_call_uses_real_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

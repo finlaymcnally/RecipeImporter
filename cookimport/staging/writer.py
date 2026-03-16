@@ -1302,7 +1302,7 @@ def _format_chunks_md(chunks: list[KnowledgeChunk]) -> list[str]:
 
     # Summary statistics
     knowledge_count = sum(1 for c in chunks if c.lane == ChunkLane.KNOWLEDGE)
-    # Treat legacy narrative lane as noise for reporting.
+    # Treat the narrative lane as noise for reporting.
     noise_count = sum(
         1 for c in chunks if c.lane in (ChunkLane.NOISE, ChunkLane.NARRATIVE)
     )

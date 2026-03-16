@@ -1422,7 +1422,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     (
                         "All-Method Scheduler Scope: "
                         f"{_normalize_all_method_scheduler_scope(current_settings.get(ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY))} "
-                        "- global mega queue or legacy per-source schedulers"
+                        "- global mega queue or per-source schedulers"
                     ),
                     value=ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY,
                 ),
@@ -1430,7 +1430,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     (
                         "All-Method Source Scheduling: "
                         f"{_normalize_all_method_source_scheduling(current_settings.get(ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY))} "
-                        "- discovery (legacy) or tail_pair (heavy/light interleave)"
+                        "- discovery or tail_pair (heavy/light interleave)"
                     ),
                     value=ALL_METHOD_SOURCE_SCHEDULING_SETTING_KEY,
                 ),
@@ -3677,27 +3677,9 @@ def _single_offline_display_metric_value(
         )
         if equal_pr and equal_rf and equal_pf:
             return precision
-        # Legacy compatibility: older eval reports may only expose split
-        # precision/recall/f1. For single-offline strict_accuracy display,
-        # keep prior behavior by preferring strict precision.
-        if precision is not None:
-            return precision
-        if recall is not None:
-            return recall
-        if f1 is not None:
-            return f1
         return None
     if metric_name == "macro_f1_excluding_other":
-        for key in (
-            "macro_f1_excluding_other",
-            "practical_f1",
-            "practical_precision",
-            "practical_recall",
-        ):
-            value = _report_optional_metric(metrics.get(key))
-            if value is not None:
-                return value
-        return None
+        return _report_optional_metric(metrics.get("macro_f1_excluding_other"))
     return _report_optional_metric(metrics.get(metric_name))
 
 
@@ -5026,12 +5008,6 @@ def _write_single_offline_starter_pack(*, session_root: Path) -> Path | None:
             output_dir=session_root,
             write_flattened_summary=True,
         )
-    except TypeError:
-        # Backward compatibility if an older helper is loaded.
-        build_starter_pack_for_existing_runs(
-            input_dir=session_root,
-            output_dir=session_root,
-        )
     except Exception as exc:  # noqa: BLE001
         typer.secho(
             f"Skipped single-offline starter pack generation: {exc}",
@@ -5115,14 +5091,6 @@ def _write_benchmark_upload_bundle(
             prune_output_dir=False,
             high_level_only=high_level_only,
             target_bundle_size_bytes=target_bundle_size_bytes,
-        )
-    except TypeError:
-        # Backward compatibility if an older helper is loaded.
-        build_upload_bundle_for_existing_output(
-            source_dir=source_root,
-            output_dir=output_dir,
-            overwrite=True,
-            prune_output_dir=False,
         )
     except Exception as exc:  # noqa: BLE001
         if not suppress_summary:
@@ -7704,6 +7672,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 prompt_text=_prompt_text,
                 prompt_codex_ai_settings=True,
                 prompt_recipe_pipeline_menu=True,
+                interactive_codex_surface_options=("recipe", "knowledge"),
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -8004,7 +7973,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     menu_help=(
                         "Pick a reasoning effort for this run "
                         "(Codex config: model_reasoning_effort). "
-                        "Minimal is hidden due Codex tool compatibility."
+                        "Minimal is hidden due Codex tool requirements."
                     ),
                     choices=effort_choices,
                 )
@@ -9090,9 +9059,6 @@ def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
             "RECIPE_NOTES",
             "RECIPE_VARIANT",
             "KNOWLEDGE",
-            # Backward compatibility with older freeform projects.
-            "NOTES",
-            "VARIANT",
         )
     ):
         return "freeform-spans"
@@ -12944,6 +12910,10 @@ def _prune_empty_dirs(start: Path, *, stop_exclusive: Path | None = None) -> Non
 
 
 def _display_gold_export_path(path: Path, output_dir: Path) -> str:
+    # Keep interactive gold selection readable: prefer the book folder name
+    # over the full pulled-from-labelstudio relative path.
+    if path.parent.name == "exports" and path.parent.parent.name:
+        return path.parent.parent.name
     for root in (output_dir, DEFAULT_GOLDEN):
         try:
             return str(path.relative_to(root))
@@ -13068,14 +13038,7 @@ def _resolve_benchmark_gold_and_source(
     if selected_source is None:
         inferred_source = _infer_source_file_from_freeform_gold(selected_gold)
     if selected_source is None and inferred_source is not None:
-        use_inferred = _prompt_confirm(
-            f"Use inferred source file `{inferred_source}`?",
-            default=True,
-        )
-        if use_inferred is None:
-            return _abort("Benchmark cancelled.")
-        if use_inferred:
-            selected_source = inferred_source
+        selected_source = inferred_source
     if selected_source is None:
         importable_files = _list_importable_files(DEFAULT_INPUT)
         if importable_files:
@@ -16295,46 +16258,6 @@ def _run_all_method_evaluate_prediction_record_once(
     }
 
 
-def _run_all_method_config_once(
-    *,
-    gold_spans_path: Path,
-    source_file: Path,
-    variant: AllMethodVariant,
-    config_index: int,
-    total_variants: int,
-    root_output_dir: Path,
-    scratch_root: Path,
-    processed_output_root: Path,
-    overlap_threshold: float,
-    force_source_match: bool,
-    max_concurrent_split_phases: int,
-    split_phase_gate_dir: Path,
-    scheduler_events_dir: Path,
-    alignment_cache_dir: Path | None,
-    split_worker_cap_per_config: int | None = None,
-    progress_callback: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
-    # Compatibility wrapper retained for any direct callers.
-    return _run_all_method_prediction_once(
-        gold_spans_path=gold_spans_path,
-        source_file=source_file,
-        variant=variant,
-        config_index=config_index,
-        total_variants=total_variants,
-        root_output_dir=root_output_dir,
-        scratch_root=scratch_root,
-        processed_output_root=processed_output_root,
-        overlap_threshold=overlap_threshold,
-        force_source_match=force_source_match,
-        max_concurrent_split_phases=max_concurrent_split_phases,
-        split_phase_gate_dir=split_phase_gate_dir,
-        scheduler_events_dir=scheduler_events_dir,
-        alignment_cache_dir=alignment_cache_dir,
-        split_worker_cap_per_config=split_worker_cap_per_config,
-        progress_callback=progress_callback,
-    )
-
-
 def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
     lines: list[str] = [
         "# All Method Benchmark Report",
@@ -16343,7 +16266,7 @@ def _render_all_method_report_md(report_payload: dict[str, Any]) -> str:
         f"- Source file: {report_payload.get('source_file', '')}",
         f"- Gold spans: {report_payload.get('gold_spans_path', '')}",
         f"- Eval mode: {report_payload.get('eval_mode', BENCHMARK_EVAL_MODE_CANONICAL_TEXT)}",
-        f"- Scheduler scope: {report_payload.get('scheduler_scope', 'legacy_per_source')}",
+        f"- Scheduler scope: {report_payload.get('scheduler_scope', 'per_source')}",
         f"- Total configurations: {report_payload.get('variant_count', 0)}",
         f"- Successful configurations: {report_payload.get('successful_variants', 0)}",
         f"- Failed configurations: {report_payload.get('failed_variants', 0)}",
@@ -16577,7 +16500,7 @@ def _render_all_method_multi_source_report_md(report_payload: dict[str, Any]) ->
         "",
         f"- Created at: {report_payload.get('created_at', '')}",
         f"- Eval mode: {report_payload.get('eval_mode', BENCHMARK_EVAL_MODE_CANONICAL_TEXT)}",
-        f"- Scheduler scope: {report_payload.get('scheduler_scope', 'legacy_per_source')}",
+        f"- Scheduler scope: {report_payload.get('scheduler_scope', 'per_source')}",
         f"- Matched targets: {report_payload.get('matched_target_count', 0)}",
         f"- Unmatched targets: {report_payload.get('unmatched_target_count', 0)}",
         (
@@ -19761,7 +19684,6 @@ def _run_all_method_benchmark(
             "source_parallelism_effective": scheduler_source_parallelism,
             "cpu_budget_per_source": scheduler_cpu_budget_per_source,
             "cpu_budget_total": scheduler_cpu_budget_total,
-            # Legacy aliases retained for downstream compatibility.
             "max_eval_tail_pipelines": effective_eval_tail_headroom,
             "smart_tail_buffer_slots": (
                 effective_eval_tail_headroom if bool(effective_smart_scheduler) else 0
@@ -20797,7 +20719,7 @@ def _run_all_method_benchmark(
         "source_file": str(source_file),
         "gold_spans_path": str(gold_spans_path),
         "eval_mode": BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-        "scheduler_scope": "legacy_per_source",
+        "scheduler_scope": "per_source",
         "variant_count": total_variants,
         "successful_variants": len(successful_rows),
         "failed_variants": len(failed_rows),

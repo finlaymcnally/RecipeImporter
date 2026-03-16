@@ -81,7 +81,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
         tips=[],
         tipCandidates=[],
         topicCandidates=[],
-        nonRecipeBlocks=[{"index": 99, "text": "stale compatibility cache"}],
+        nonRecipeBlocks=[{"index": 99, "text": "stale non-recipe cache"}],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",

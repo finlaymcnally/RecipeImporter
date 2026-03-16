@@ -452,7 +452,7 @@ def score_recipe_likeness(
 
 def score_recipe_candidate(candidate: RecipeCandidate) -> float:
     """
-    Backward-compatible numeric confidence score used by legacy callers.
+    Numeric confidence score for callers that only need the scalar score.
     """
     return score_recipe_likeness(candidate).score
 

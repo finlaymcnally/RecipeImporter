@@ -115,7 +115,7 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 
 `--prelabel-granularity` supports:
 
-- `block` (legacy block-based mapping): `{block_index, label}` -> full-block span
+- `block` (block-based mapping): `{block_index, label}` -> full-block span
 - `span` (actual freeform): quote/offset span resolution for sub-block highlights
 
 Both modes keep deterministic normalization and offset integrity.
@@ -358,7 +358,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 
 ## 8) Troubleshooting Checklist
 
-1. Confirm the run is freeform (`freeform-spans`) and not a legacy-scope project.
+1. Confirm the run is freeform (`freeform-spans`) and not an older-scope project.
 2. Confirm write consent and upload mode (`--allow-labelstudio-write`, `--no-upload`).
 3. Confirm you are checking `data/golden/*` paths (not only `data/output/*`).
 4. If overlap looks zero, test with `--force-source-match` to rule out source identity mismatch.
@@ -371,5 +371,5 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 These are intentionally not active runtime features:
 
 - Label Studio task-scope execution branches for `pipeline` and `canonical-blocks`.
-- Legacy `labelstudio-decorate` branch.
+- Removed `labelstudio-decorate` branch.
 - Interactive benchmark upload mode (interactive benchmark is offline-only).

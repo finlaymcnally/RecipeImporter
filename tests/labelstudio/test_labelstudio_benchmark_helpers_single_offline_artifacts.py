@@ -49,7 +49,7 @@ def test_single_offline_comparison_markdown_table_columns_are_width_aligned() ->
     assert table_lines[0] == "| Metric                     | CodexFarm |  Vanilla | Codex - Vanilla |"
     assert table_lines[2] == "| `strict_accuracy`          |  0.438589 | 0.399915 |        0.038674 |"
     assert table_lines[3] == "| `macro_f1_excluding_other` |  0.295998 | 0.290594 |        0.005404 |"
-    assert "Compatibility aliases in eval JSON" not in markdown
+    assert "Duplicate alias metrics in eval JSON" not in markdown
 
 def test_single_offline_comparison_markdown_includes_per_label_breakdown() -> None:
     payload = {

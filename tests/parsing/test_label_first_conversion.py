@@ -119,7 +119,7 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
         workbook_path="/tmp/book.txt",
     )
 
-    compatibility = build_conversion_result_from_label_spans(
+    updated = build_conversion_result_from_label_spans(
         source_file=Path("/tmp/book.txt"),
         importer_name="text",
         source_hash="hash-123",
@@ -130,14 +130,14 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
         recipe_spans=recipe_spans,
     )
 
-    result = compatibility.updated_conversion_result
+    result = updated.updated_conversion_result
     assert len(result.recipes) == 1
     assert result.recipes[0].name == "Pancakes"
     assert result.recipes[0].ingredients == ["1 cup flour"]
     assert result.recipes[0].instructions == ["Whisk batter"]
     assert [row["index"] for row in result.non_recipe_blocks] == [3]
     assert result.non_recipe_blocks[0]["text"] == "Why batter rests matters"
-    assert compatibility.non_recipe_lines[0].final_label == "KNOWLEDGE"
+    assert updated.non_recipe_lines[0].final_label == "KNOWLEDGE"
 
 
 def test_atomize_archive_blocks_marks_recipe_provenance_as_within_span() -> None:

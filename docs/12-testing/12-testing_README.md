@@ -34,7 +34,6 @@ Primary test folders:
 - `tests/llm`
 - `tests/parsing`
 - `tests/staging`
-- `tests/tagging`
 
 Current layout exceptions and intentional split seams:
 
@@ -71,13 +70,15 @@ Current layout exceptions and intentional split seams:
 - Step ingredient linking coverage is split into:
   - `tests/parsing/test_step_ingredient_linking.py`
   - `tests/parsing/test_step_ingredient_linking_semantic.py`
+- Canonical line-role coverage is split into:
+  - `tests/parsing/test_canonical_line_role_env.py` for fast env/helper guardrails
+  - `tests/parsing/test_canonical_line_roles.py` for the heavy behavior suite
 
 Support assets and test-runtime files:
 
 - `tests/fixtures/*` holds fixture generators and binary fixture assets.
-- `tests/tagging_gold/*` holds tagging gold fixtures.
 - `pytest.ini`, `tests/conftest.py`, `tests/paths.py`, `tests/README.md`, `tests/CONVENTIONS.md`, and `tests/AGENTS.md` are active test-runtime control surfaces.
-- `tests/paths.py` is the shared root resolver for `REPO_ROOT`, `FIXTURES_DIR`, `TAGGING_GOLD_DIR`, and `DOCS_EXAMPLES_DIR`.
+- `tests/paths.py` is the shared root resolver for `REPO_ROOT`, `FIXTURES_DIR`, and `DOCS_EXAMPLES_DIR`.
 
 ## Marker and Run Contracts
 
@@ -85,7 +86,7 @@ Current contracts:
 
 - Marker assignment is centralized in `tests/conftest.py`; do not spread domain markers across individual test files.
 - `_FILE_MARKERS` maps test filenames to domain markers. Unknown `test_*.py` files fall back to marker `core`.
-- Markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `tagging`, `slow`, and `smoke`.
+- Markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `slow`, and `smoke`.
 - `slow` and `smoke` routing is controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - If you add or rename a test file, update `_FILE_MARKERS` and then decide whether the file also belongs in `_SLOW_FILES` or `_SMOKE_FILES`.
 - The `slow` slice is intentionally narrow and currently covers only the explicitly high-cost files in `tests/conftest.py`; do not widen it without measuring runtime first.

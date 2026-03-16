@@ -23,7 +23,7 @@ def normalize_epub_html_for_unstructured(html: str, *, mode: str) -> str:
 def _normalize_mode(mode: str) -> str:
     selected_mode = mode.strip().lower()
     if selected_mode == "semantic_v1":
-        # Alias for forward compatibility while semantic_v1 evolves.
+        # Temporary alias while semantic_v1 evolves.
         return "br_split_v1"
     if selected_mode in {"none", "br_split_v1"}:
         return selected_mode

@@ -53,7 +53,7 @@ Architecture priorities:
 - split merge helpers and recipe-ID reassignment logic live in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
 - if label-first regrouping yields zero recipes after importer candidates existed, the stage session stays on the authoritative label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently reverting to candidate-first ownership.
-- Stage 7 non-recipe rows now drive table extraction, chunking, and stage-backed Label Studio knowledge counts; `ConversionResult.non_recipe_blocks` is repopulated only afterward as a compatibility cache.
+- Stage 7 non-recipe rows now drive table extraction, chunking, and stage-backed Label Studio knowledge counts; `ConversionResult.non_recipe_blocks` is repopulated only afterward as a downstream cache.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest.py` can:
@@ -85,14 +85,14 @@ Architecture priorities:
 
 ### Known current debt
 
-- historical benchmark/follow-up compatibility reads should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
+- historical benchmark/follow-up read-side normalization should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
 - the March 2026 burn-the-boats sweep already removed the biggest misleading write-time seams:
   - new benchmark outputs no longer publish canonical eval alias files as if they were first-class artifacts
   - prompt exports and external-review packets now write semantic stage metadata instead of `task1` / `task4` / `task5` style fields
-  - prelabel/template aliases and the all-method per-source legacy scheduler branch are no longer part of the live product path
+  - prelabel/template aliases and the older all-method per-source scheduler branch are no longer part of the live product path
 - the remaining burn-the-boats debt is concentrated in tooling and hidden surfaces, not the core runtime:
-  - hidden legacy CLI/run-setting knobs
-  - prompt/bundle helpers or fixtures that still model `pass1`/`pass2`/`pass3`
+  - hidden older CLI/run-setting knobs
+  - prompt/bundle helpers or fixtures that still model removed numbered stage slots
   - historical analytics/follow-up readers
 - `scripts/benchmark_cutdown_for_external_ai.py` is the main remaining external-review seam that can accidentally re-teach old topology. Keep its write path semantic-stage-only and confine any archived `pass*` handling to narrow read-side normalization.
 
@@ -208,7 +208,7 @@ Examples from current code:
 - recipe IDs via helper: `urn:recipeimport:{source_type}:{source_hash}:{location_id}`
 - writer-generated fallback recipe IDs for Excel-like flow: `urn:recipeimport:excel:{file_hash}:{sheet_slug}:r{row_index}`
 - tip/topic IDs similarly use `urn:recipeimport:tip:*` and `urn:recipeimport:topic:*`
-- Label Studio freeform-span export IDs still use `urn:cookimport:freeform_span:*` (legacy scope-local identifier format).
+- Label Studio freeform-span export IDs still use `urn:cookimport:freeform_span:*` (older scope-local identifier format).
 
 References:
 - ID helper: `cookimport/core/reporting.py`
@@ -300,7 +300,7 @@ History-root rule:
 Path helper rule:
 - canonical helper is `history_csv_for_output(output_root)` in `cookimport/paths.py`; `cookimport.analytics.perf_report.history_path(...)` delegates to that helper.
 
-Timestamp compatibility rule:
+Timestamp dual-format support rule:
 - tooling that resolves latest runs must support both timestamp folder styles:
   - `YYYY-MM-DD_HH.MM.SS`
   - `YYYY-MM-DD-HH-MM-SS`
@@ -368,7 +368,7 @@ Current architecture is still deterministic-first:
 
 5. If you touch report-file placement
 - keep `staging/writer.py` as canonical for stage report output contract.
-- either remove or clearly isolate legacy `ReportBuilder` expectations in `core/reporting.py` so docs do not drift again.
+- either remove or clearly isolate older `ReportBuilder` expectations in `core/reporting.py` so docs do not drift again.
 
 ## Flowchart Branching Contracts
 

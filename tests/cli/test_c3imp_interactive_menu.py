@@ -21,6 +21,8 @@ from cookimport.config.run_settings import CodexReasoningEffort
 from cookimport.paths import history_root_for_output
 from cookimport import entrypoint
 
+REMOVED_EXTRACTOR_VALUE = "leg" "acy"
+
 
 def test_menu_shortcuts_assign_numeric_keys():
     choices = [
@@ -327,13 +329,13 @@ def test_settings_menu_can_update_new_operator_defaults(monkeypatch: pytest.Monk
     assert saved_snapshots[-1]["label_studio_api_key"] == "fresh-key"
 
 
-def test_run_settings_payload_filter_rejects_removed_legacy_epub_extractor(
+def test_run_settings_payload_filter_rejects_removed_removed_epub_extractor_value(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
     config_path.write_text(
-        json.dumps({"epub_extractor": "legacy"}, sort_keys=True),
+        json.dumps({"epub_extractor": REMOVED_EXTRACTOR_VALUE}, sort_keys=True),
         encoding="utf-8",
     )
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
@@ -513,7 +515,7 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
     )
 
     def _menu_select(message: str, **_kwargs):
-        if message == "Recipe pipeline for this run:":
+        if message == "Workflow for this run:":
             return "codex-farm-single-correction-v1"
         if message == "Codex Farm model override:":
             return "__pipeline_default__"
@@ -643,7 +645,7 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
         output_dir=tmp_path,
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-farm-single-correction-v1"
-            if message == "Recipe pipeline for this run:"
+            if message == "Workflow for this run:"
             else pytest.fail(f"unexpected menu prompt: {message}")
         ),
         back_action=object(),
@@ -675,12 +677,14 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     )
 
     def _menu_select(message, *_args, **_kwargs):
-        if message == "Recipe pipeline for this run:":
+        if message == "Workflow for this run:":
             return "codex-farm-single-correction-v1"
+        if message == "Recipe correction for this run:":
+            return "yes"
         if message == "Block labelling for this run:":
-            return "deterministic-v1"
+            return "no"
         if message == "Knowledge harvest for this run:":
-            return "off"
+            return "no"
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -717,12 +721,14 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     seen_model_prompt = {"value": False}
 
     def _menu_select(message, *_args, **_kwargs):
-        if message == "Recipe pipeline for this run:":
-            return "off"
+        if message == "Workflow for this run:":
+            return "codex-farm-single-correction-v1"
+        if message == "Recipe correction for this run:":
+            return "no"
         if message == "Block labelling for this run:":
-            return "codex-line-role-v1"
+            return "yes"
         if message == "Knowledge harvest for this run:":
-            return "off"
+            return "no"
         if message == "Codex Farm model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
@@ -745,6 +751,45 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.llm_recipe_pipeline.value == "off"
     assert selected.line_role_pipeline.value == "codex-line-role-v1"
     assert selected.llm_knowledge_pipeline.value == "off"
+    assert selected.atomic_block_splitter.value == "atomic-v1"
+
+
+def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowledge_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _menu_select(message, *_args, **_kwargs):
+        if message == "Workflow for this run:":
+            return "codex-farm-single-correction-v1"
+        if message == "Recipe correction for this run:":
+            return "no"
+        if message == "Knowledge harvest for this run:":
+            return "yes"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_recipe_pipeline_menu=True,
+        interactive_codex_surface_options=("recipe", "knowledge"),
+    )
+
+    assert selected is not None
+    assert selected.llm_recipe_pipeline.value == "off"
+    assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
+    assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
 
 
@@ -995,6 +1040,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     )
     menu_answers = iter(["import", selected_file, "exit"])
     captured: dict[str, object] = {}
+    choose_kwargs: dict[str, object] = {}
 
     def fake_menu_select(*_args, **_kwargs):
         return next(menu_answers)
@@ -1007,12 +1053,22 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     monkeypatch.setattr(cli, "_load_settings", lambda: {})
     monkeypatch.setattr(cli, "_list_importable_files", lambda *_: [selected_file])
     monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
-    monkeypatch.setattr(cli, "choose_run_settings", lambda **_kwargs: selected_settings)
+    monkeypatch.setattr(
+        cli,
+        "choose_run_settings",
+        lambda **kwargs: choose_kwargs.update(kwargs) or selected_settings,
+    )
     monkeypatch.setattr(cli, "stage", fake_stage)
 
     with pytest.raises(typer.Exit):
         cli._interactive_mode()
 
+    assert choose_kwargs["prompt_recipe_pipeline_menu"] is True
+    assert choose_kwargs["prompt_codex_ai_settings"] is True
+    assert choose_kwargs["interactive_codex_surface_options"] == (
+        "recipe",
+        "knowledge",
+    )
     assert captured["path"] == selected_file
     assert captured["llm_knowledge_pipeline"] == "codex-farm-knowledge-v1"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.compact.v1"

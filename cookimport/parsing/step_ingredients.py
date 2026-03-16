@@ -268,7 +268,7 @@ _SPLIT_SIGNAL_BEFORE = frozenset({
     "reserve", "half", "portion", "divide", "save", "back",
 })
 
-# Combined for backward compatibility
+# Combined convenience view
 _SPLIT_SIGNAL_WORDS = _SPLIT_SIGNAL_AFTER | _SPLIT_SIGNAL_BEFORE
 
 # Fraction words for quantity splitting

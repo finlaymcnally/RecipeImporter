@@ -73,7 +73,7 @@ class DmpSequenceMatcher:
         b: str = "",
         autojunk: bool = True,  # noqa: FBT001, FBT002
     ) -> None:
-        # isjunk/autojunk are accepted for drop-in constructor compatibility.
+        # isjunk/autojunk are accepted for drop-in constructor parity.
         self.isjunk = isjunk
         self.autojunk = bool(autojunk)
         self._options = resolve_dmp_runtime_options()

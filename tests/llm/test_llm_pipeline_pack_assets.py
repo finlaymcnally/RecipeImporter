@@ -69,7 +69,7 @@ def test_output_schemas_require_all_top_level_properties() -> None:
         missing = sorted(set(properties) - set(required))
         assert not missing, (
             f"{schema_path} must list every top-level property in required for "
-            f"Codex structured outputs compatibility; missing: {missing}"
+            f"Codex structured outputs contract; missing: {missing}"
         )
 
 

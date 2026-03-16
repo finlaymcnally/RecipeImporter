@@ -1,7 +1,7 @@
 """Extract time and temperature metadata from recipe instruction text.
 
-This module keeps legacy-compatible defaults while exposing optional Priority 6
-strategies/backends through `InstructionParseOptions`.
+This module keeps the current default parse behavior while exposing optional
+Priority 6 strategies/backends through `InstructionParseOptions`.
 """
 
 from __future__ import annotations
@@ -638,7 +638,7 @@ def parse_instruction(
 ) -> InstructionMetadata:
     """Extract time and temperature metadata from an instruction string.
 
-    Legacy-compatible defaults:
+    Current defaults:
     - time backend: regex_v1
     - time strategy: sum_all_v1
     - temperature backend: regex_v1

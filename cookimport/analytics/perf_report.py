@@ -1193,37 +1193,9 @@ def _benchmark_report_metric_value(
             value = _safe_float_or_none(report.get(key))
             if value is not None:
                 return value
-        precision = _safe_float_or_none(report.get("precision"))
-        recall = _safe_float_or_none(report.get("recall"))
-        f1 = _safe_float_or_none(report.get("f1"))
-        if (
-            precision is not None
-            and recall is not None
-            and f1 is not None
-            and abs(precision - recall) <= 1e-9
-            and abs(recall - f1) <= 1e-9
-        ):
-            return precision
         return None
     if metric_name == "macro_f1_excluding_other":
-        explicit_macro = _safe_float_or_none(report.get("macro_f1_excluding_other"))
-        if explicit_macro is not None:
-            return explicit_macro
-        practical_f1 = _safe_float_or_none(report.get("practical_f1"))
-        if practical_f1 is not None:
-            return practical_f1
-        practical_precision = _safe_float_or_none(report.get("practical_precision"))
-        practical_recall = _safe_float_or_none(report.get("practical_recall"))
-        if (
-            practical_precision is not None
-            and practical_recall is not None
-            and (practical_precision + practical_recall) > 0
-        ):
-            return (
-                2 * practical_precision * practical_recall
-                / (practical_precision + practical_recall)
-            )
-        return None
+        return _safe_float_or_none(report.get("macro_f1_excluding_other"))
     return _safe_float_or_none(report.get(metric_name))
 
 

@@ -4,7 +4,7 @@ Durable reporting/dashboard caveats for `cookimport/analytics/`.
 
 ## Analytics Caveats
 
-- `perf_report.resolve_run_dir()` must accept both timestamp folder styles (`YYYY-MM-DD_HH.MM.SS` and legacy `YYYY-MM-DD-HH-MM-SS`) and choose the latest parsed run directory.
+- `perf_report.resolve_run_dir()` must accept canonical timestamp folders only (`YYYY-MM-DD_HH.MM.SS`) and choose the latest parsed run directory.
 - Stage history append must target `history_csv_for_output(<stage --out>)` (repo-local outputs use `<repo>/.history/performance_history.csv`; external outputs use `<stage --out parent>/.history/performance_history.csv`), not a hard-coded default output folder.
 - Any CLI flow that writes `performance_history.csv` rows should trigger a best-effort dashboard refresh for the same history root; all-method benchmark internals should batch that refresh to once per source in serial-source mode and once at multi-source completion when source parallelism is enabled.
 - CSV append paths in `cookimport/analytics/perf_report.py` (`append_history_csv` and `append_benchmark_csv`) must hold an inter-process file lock through schema-check + header decision + write so parallel benchmark rows cannot corrupt the shared history file.

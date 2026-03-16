@@ -1,15 +1,17 @@
 Interactive run-settings UI helpers.
 
-- `run_settings_flow.py` asks `Recipe pipeline for this run?` for interactive Import/Benchmark flows.
-- Choices are `off` and `codex-farm-single-correction-v1`.
-- Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available), then reapplies the chosen recipe pipeline.
-- Interactive benchmark setup now adds two per-run Codex surface toggles after the recipe choice:
-  - `Block labelling for this run?` maps to `line_role_pipeline=deterministic-v1|codex-line-role-v1` and keeps `atomic_block_splitter=atomic-v1`
-  - `Knowledge harvest for this run?` maps to `llm_knowledge_pipeline=off|codex-farm-knowledge-v1`
+- `run_settings_flow.py` asks `Workflow for this run?` for interactive Import/Benchmark flows.
+- Choices are still `off` and `codex-farm-single-correction-v1`, but the menu renders them as `Vanilla / deterministic only` and `CodexFarm`.
+- Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available).
+- Interactive Codex-enabled flows now reuse one consolidated Codex yes/no submenu after the workflow choice when CodexFarm is selected:
+  - interactive `Import` asks explicit yes/no selects for recipe correction and knowledge harvest
+  - interactive benchmark modes ask explicit yes/no selects for recipe correction, block labelling, and knowledge harvest
+  - unchecked recipe correction maps to `llm_recipe_pipeline=off`
+  - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
+  - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)
-- Benchmark setup also shows the Codex AI settings prompt when recipe Codex is off but another Codex surface stays enabled (for example Codex line-role only).
 - `off` resolves `Vanilla automatic top-tier`.
 - `CodexFarm` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes the full top-tier contract:
   - `llm_knowledge_pipeline=codex-farm-knowledge-v1`, `line_role_pipeline=codex-line-role-v1`, `atomic_block_splitter=atomic-v1`

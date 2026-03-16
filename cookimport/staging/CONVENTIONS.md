@@ -6,7 +6,7 @@ Output-path and artifact contracts for staging writers and merge flows.
 
 - The canonical stage report output path is set by `cookimport/staging/writer.py`:
   - `<run_root>/<workbook_slug>.excel_import_report.json`
-- `cookimport/core/reporting.py` includes a legacy `ReportBuilder` that writes under `reports/`; treat it as legacy unless explicitly wired into active runtime flows.
+- `cookimport/core/reporting.py` includes an older `ReportBuilder` that writes under `reports/`; it is not part of the active runtime flow.
 - When updating docs about report locations, verify `stage()` and split-merge paths in `cookimport/cli.py` before documenting.
 - Report metadata fields that must be consistent across normal and split runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) must be set in both:
   - `cookimport/cli_worker.py` (single-file writer path)

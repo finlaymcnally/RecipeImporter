@@ -911,7 +911,7 @@ def _write_or_validate_resolved_payload(
     existing = _load_json_object(path, context=_SERIES_RESOLVED_FILENAME)
     if existing != payload:
         raise ValueError(
-            "resume-series-dir compatibility mismatch: profile/experiments/thresholds/baseline changed."
+            "resume-series-dir settings mismatch: profile/experiments/thresholds/baseline changed."
         )
 
 

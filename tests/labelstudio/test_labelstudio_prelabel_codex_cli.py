@@ -20,8 +20,8 @@ def test_default_codex_cmd_uses_env_override(monkeypatch) -> None:
     monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CMD", "/tmp/custom-codex-farm")
     monkeypatch.delenv("COOKIMPORT_CODEX_CMD", raising=False)
     assert default_codex_cmd() == "/tmp/custom-codex-farm"
-    monkeypatch.setenv("COOKIMPORT_CODEX_CMD", "/tmp/legacy-override")
-    assert default_codex_cmd() == "/tmp/legacy-override"
+    monkeypatch.setenv("COOKIMPORT_CODEX_CMD", "/tmp/cmd-override")
+    assert default_codex_cmd() == "/tmp/cmd-override"
 
 
 def test_codex_provider_tracks_usage_from_codex_farm_payload(

@@ -27,8 +27,7 @@ def extract_sections_from_text_blob(
 ) -> dict[str, list[str]]:
     """Return ingredient/instruction/note lines when section headers are detected.
 
-    If no recognized section headers are present, returns an empty mapping so callers
-    can keep legacy fallback behavior.
+    If no recognized section headers are present, returns an empty mapping.
     """
 
     normalized = cleaning.normalize_text(str(text))
@@ -58,4 +57,3 @@ def extract_sections_from_text_blob(
         if stripped:
             sections["notes"].append(stripped)
     return sections
-

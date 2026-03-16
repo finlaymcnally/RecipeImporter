@@ -1488,7 +1488,7 @@ def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_global
         gold_export_root=gold_export_root,
         stage_predictions_json=stage_predictions_path,
         extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "fast-deprecated",
+        out_dir=tmp_path / "fast-disabled",
     )
     alignment = result["report"]["alignment"]
     assert alignment["alignment_strategy"] == "global"
@@ -1496,7 +1496,7 @@ def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_global
     assert alignment["alignment_fallback_used"] is True
     assert alignment["alignment_fallback_reason"] == canonical_eval._ALIGNMENT_FAST_DEPRECATION_REASON
     assert alignment["alignment_fast_path_deprecated"] is True
-    assert "deprecated due to accuracy risk" in str(
+    assert "disabled due to accuracy risk" in str(
         alignment["alignment_fast_path_deprecation_message"]
     )
 

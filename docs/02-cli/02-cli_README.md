@@ -122,17 +122,26 @@ Persistent `Settings` now covers the saved operator defaults used by interactive
 - output root, split sizing, warm-models, and Label Studio credentials
 
 Important split:
-- the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks CodexFarm vs vanilla and benchmark-specific line-role / knowledge toggles
-- the persistent `Settings` screen now provides the saved defaults that feed those interactive flows, but it still does not expose benchmark-lab/internal-only tuning seams such as parser internals, scoring internals, or hidden pipeline-id compatibility fields
+- the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks CodexFarm vs vanilla and applies any flow-specific per-run Codex surface overrides
+- the persistent `Settings` screen now provides the saved defaults that feed those interactive flows, but it still does not expose benchmark-lab/internal-only tuning seams such as parser internals, scoring internals, or hidden transition-only pipeline-id fields
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
-- `Recipe pipeline for this run?`
-  - choices are `off` and `codex-farm-single-correction-v1`,
+- `Workflow for this run?`
+  - choices are `off` and `codex-farm-single-correction-v1` (rendered as `Vanilla / deterministic only` and `CodexFarm`),
   - default is inferred from global `llm_recipe_pipeline`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
-- interactive benchmark setup then also asks:
-  - `Block labelling for this run?` -> `line_role_pipeline=deterministic-v1|codex-line-role-v1` (and keeps `atomic_block_splitter=atomic-v1`)
-  - `Knowledge harvest for this run?` -> `llm_knowledge_pipeline=off|codex-farm-knowledge-v1`
+- if interactive setup chooses CodexFarm, it then asks:
+  - one shared Codex submenu implemented as explicit yes/no select prompts for each available Codex-backed step
+- for interactive `Import`, that submenu asks about:
+  - recipe correction (`codex-farm-single-correction-v1`)
+  - knowledge harvest (`codex-farm-knowledge-v1`)
+- for interactive benchmark modes (`single_offline`, `single_offline_selected_matched`, `single_offline_all_matched`), that submenu asks about:
+  - recipe correction (`codex-farm-single-correction-v1`)
+  - block labelling (`codex-line-role-v1`)
+  - knowledge harvest (`codex-farm-knowledge-v1`)
+  - unchecked recipe correction maps to `llm_recipe_pipeline=off`
+  - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
+  - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
 - when any codex-backed surface is selected, chooser then asks:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
@@ -156,7 +165,7 @@ Resolved profile families:
     plus fixed Bucket 1 parser behavior recorded as
     `bucket1_fixed_behavior_version=bucket1-fixed-v1`
     (shared section detection, always-on heuristic fallback segmentation,
-    compact codex pass ids, pattern hints off, pass2-ok skip on).
+    compact codex stage ids, pattern hints off, current skip-on-success policy on).
 - `Vanilla automatic top-tier`:
   - built-in deterministic baseline with codex disabled (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`),
   - deterministic line-role + atomic splitter enabled (`line_role_pipeline=deterministic-v1`, `atomic_block_splitter=atomic-v1`),
@@ -213,9 +222,9 @@ The post-Bucket-2 product contract now has two public layers:
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_knowledge_context_blocks` (default `12`)
 
-Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus compatibility keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge`. `table_extraction` is retired entirely; new runs always extract tables.
+Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus transition-only keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge`. `table_extraction` is retired entirely; new runs always extract tables.
 
-Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for compatibility and reproducibility.
+Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for reproducibility.
 
 What each setting affects:
 
@@ -231,8 +240,8 @@ What each setting affects:
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none`, `br_split_v1`, or `semantic_v1` alias).
-- Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only for compatibility loading.
-- Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry compatibility-only keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
+- Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only when normalizing older saved payloads.
+- Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry older hidden keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
 - `p6_emit_metadata_debug`: internal-only debug toggle for optional Priority 6 sidecar artifacts.
 - Internal-only parser/OCR/scoring payload keys remain accepted for engineering experiments and benchmark reproducibility: `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `line_role_guardrail_mode`, and `codex_farm_failure_mode`.
@@ -332,7 +341,7 @@ Developer note:
 3. Falls back to manual project-name entry when project discovery fails (or no projects exist).
 4. Calls export directly (no scope prompt).
    - Detected type is informational only.
-   - Export supports freeform projects only; legacy scopes are rejected with an explicit error.
+   - Export supports freeform projects only; older scopes are rejected with an explicit error.
 5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden/pulled-from-labelstudio`.
    - By default, export writes to: `data/golden/pulled-from-labelstudio/<source_slug_or_project_slug>/exports/`.
    - When one source file is detectable, export uses the source filename stem slug so repeat pulls overwrite the same folder even if project names gain suffixes like `-2`.
@@ -350,6 +359,8 @@ Interactive benchmark now has a mode submenu before execution:
 2. Single offline path:
    - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
    - benchmark setup can now independently choose recipe Codex, block-labelling Codex, and knowledge extraction before execution,
+   - when prompting for a discovered freeform gold export, the menu label is shortened to just the book slug instead of the full pulled-from-labelstudio path,
+   - when the selected gold export already identifies a source file, interactive benchmark auto-uses that inferred source instead of asking for a `Use inferred source file?` confirmation,
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-offline-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
@@ -452,7 +463,7 @@ Top-level command groups:
 - `cookimport bench <oracle-upload|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-lightweight-series|quality-leaderboard|quality-compare|eval-stage>`
 
 `cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
-`cookimport bench quality-lightweight-series` still exists only as a disabled compatibility shim and exits immediately; use `bench quality-run` and `bench quality-compare` instead.
+`cookimport bench quality-lightweight-series` still exists only as a disabled shim and exits immediately; use `bench quality-run` and `bench quality-compare` instead.
 
 Every command supports `--help`.
 
@@ -518,8 +529,8 @@ Options:
 - `--recipe-score-bronze-min FLOAT` (default `0.35`): minimum score for `bronze` tier.
 - `--recipe-score-min-ingredient-lines INTEGER>=0` (default `1`): soft minimum ingredient line hint for scoring/gating.
 - `--recipe-score-min-instruction-lines INTEGER>=0` (default `1`): soft minimum instruction line hint for scoring/gating.
-- `--section-detector-backend TEXT` (default `legacy`): `legacy|shared_v1`; controls importer section extraction backend.
-- `--multi-recipe-splitter TEXT` (default `legacy`): `legacy|off|rules_v1`; controls shared multi-recipe candidate split backend for Text/EPUB/PDF importers.
+- `--section-detector-backend TEXT` (default `shared_v1`): `shared_v1`; controls importer section extraction backend.
+- `--multi-recipe-splitter TEXT` (default `rules_v1`): `off|rules_v1`; controls shared multi-recipe candidate split backend for Text/EPUB/PDF importers.
 - `--multi-recipe-trace / --no-multi-recipe-trace` (default disabled): write `multi_recipe_split_trace` raw artifact from shared splitter when enabled.
 - `--multi-recipe-min-ingredient-lines INTEGER>=0` (default `1`): minimum ingredient-signal lines per side for `rules_v1` split acceptance.
 - `--multi-recipe-min-instruction-lines INTEGER>=0` (default `1`): minimum instruction-signal lines per side for `rules_v1` split acceptance.
@@ -538,7 +549,7 @@ Options:
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
-- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
+- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for recipe-correction bundles.
 - `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `2`): context blocks before/after each knowledge chunk for knowledge bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - Internal-only note: stage still accepts hidden codex-farm pipeline-id/debug overrides for experiments and old payload replay, but they are no longer advertised in `--help`.
@@ -779,7 +790,7 @@ Options:
 - `--prelabel-provider TEXT` (default `codex-farm`): provider backend for prelabeling.
 - `--codex-cmd TEXT`: override CodexFarm command (defaults to `COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`).
 - `--codex-model TEXT`: explicit Codex model for prelabel calls (defaults to `COOKIMPORT_CODEX_FARM_MODEL`, `COOKIMPORT_CODEX_MODEL`, or local defaults).
-- `--codex-thinking-effort`, `--codex-reasoning-effort` (alias flags): Codex reasoning-effort hint (`none|minimal|low|medium|high|xhigh`, normalized per model compatibility).
+- `--codex-thinking-effort`, `--codex-reasoning-effort` (alias flags): Codex reasoning-effort hint (`none|minimal|low|medium|high|xhigh`, normalized to model-supported values).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `600`): timeout per provider call.
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-workers INTEGER>=1` (default `15`): concurrent freeform prelabel provider calls (`1` keeps serialized behavior).
@@ -814,7 +825,7 @@ Options:
 - `--run-dir PATH`: export from a specific run directory.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
-- Legacy project scopes (`pipeline`, `canonical-blocks`) are rejected; export supports freeform projects only.
+- Older project scopes (`pipeline`, `canonical-blocks`) are rejected; export supports freeform projects only.
 
 ### `cookimport labelstudio-eval`
 
@@ -879,7 +890,9 @@ Behavior note:
 Options:
 
 - `--gold-spans PATH`: freeform gold file; if omitted, prompt from discovered exports.
+  Interactive selection shows discovered exports as book-slug labels for readability.
 - `--source-file PATH`: source file to re-import for predictions; if omitted, prompt/infer.
+  Interactive benchmark auto-uses an inferred source file when available and only prompts for source selection when inference fails.
 - `ACTION` positional (default `run`): `run|compare`.
 - `--output-dir PATH` (default `data/golden/benchmark-vs-golden`): scratch root for prediction import artifacts.
 - `--processed-output-dir PATH` (default `data/output`): root for staged cookbook outputs generated during benchmark.
@@ -925,8 +938,8 @@ Options:
 - `--recipe-score-bronze-min FLOAT` (default `0.35`): minimum score for `bronze` tier.
 - `--recipe-score-min-ingredient-lines INTEGER>=0` (default `1`): soft minimum ingredient line hint for scoring/gating.
 - `--recipe-score-min-instruction-lines INTEGER>=0` (default `1`): soft minimum instruction line hint for scoring/gating.
-- `--section-detector-backend TEXT` (default `legacy`): `legacy|shared_v1`; controls importer section extraction backend for prediction generation.
-- `--multi-recipe-splitter TEXT` (default `legacy`): `legacy|off|rules_v1`; controls shared multi-recipe candidate split backend for Text/EPUB/PDF prediction imports.
+- `--section-detector-backend TEXT` (default `shared_v1`): `shared_v1`; controls importer section extraction backend for prediction generation.
+- `--multi-recipe-splitter TEXT` (default `rules_v1`): `off|rules_v1`; controls shared multi-recipe candidate split backend for Text/EPUB/PDF prediction imports.
 - `--multi-recipe-trace / --no-multi-recipe-trace` (default disabled): write `multi_recipe_split_trace` raw artifact from shared splitter when enabled.
 - `--multi-recipe-min-ingredient-lines INTEGER>=0` (default `1`): minimum ingredient-signal lines per side for `rules_v1` split acceptance.
 - `--multi-recipe-min-instruction-lines INTEGER>=0` (default `1`): minimum instruction-signal lines per side for `rules_v1` split acceptance.
@@ -943,7 +956,7 @@ Options:
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm during prediction generation.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
-- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for pass1 bundles.
+- `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for recipe-correction bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - `--alignment-cache-dir PATH` (internal/hidden): optional canonical alignment cache directory override for benchmark runs.
 - Internal-only note: hidden benchmark options still exist for pipeline-id and selective-retry experiments, but normal `labelstudio-benchmark --help` no longer advertises them.
@@ -988,7 +1001,7 @@ Options:
 - `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when stage/all-method internals cannot use process workers.
 - `--resume-run-dir PATH`: resume an existing speed run directory and skip tasks with completed sample snapshots.
 - `--run-settings-file PATH`: optional JSON payload in `RunSettings` shape for deterministic speed-run settings.
-- Canonical-text benchmark matching is fixed to `dmp` for normal runs; older saved payloads may still contain `benchmark_sequence_matcher` but it is compatibility-only.
+- Canonical-text benchmark matching is fixed to `dmp` for normal runs; older saved payloads may still contain `benchmark_sequence_matcher` as a load-time transition key.
 - `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method scenarios.
 - `--speedsuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `--codex-farm-model TEXT`: optional Codex Farm model override (blank keeps pipeline defaults).
@@ -1176,4 +1189,3 @@ Use that file to check prior attempts before retrying a fix path.
 - Output/staging behavior: `docs/05-staging/05-staging_readme.md`
 - Labeling and eval workflows: `docs/06-label-studio/06-label-studio_README.md`
 - Offline bench suite: `docs/07-bench/07-bench_README.md`
-- Tagging workflows: `docs/09-tagging/09-tagging_README.md`

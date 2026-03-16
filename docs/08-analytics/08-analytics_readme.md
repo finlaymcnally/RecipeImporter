@@ -105,7 +105,7 @@ Stage/import rows (`run_category=stage_import` or `labelstudio_import`) keep:
 
 Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
 - Explicit benchmark metrics: `strict_accuracy`, `macro_f1_excluding_other`
-- Legacy compatibility metrics when explicit metrics are absent: `precision`, `recall`, `f1`, `practical_*`
+- Additional reporting metrics used by current dashboard and compare/control flows: `precision`, `recall`, `f1`, `practical_*`
 - Count and boundary fields: `gold_total`, `gold_matched`, `pred_total`, `boundary_*`
 - Recipe context: `recipes`, `gold_recipe_headers`
 - Per-label durability field: `per_label_json`
@@ -113,8 +113,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 
-Compatibility behavior:
-- Appenders expand older CSV headers before writing.
+Current write behavior:
 - CSV appends use file locking.
 - CSV history is durable; `bench gc` does not rewrite or prune `performance_history.csv`.
 

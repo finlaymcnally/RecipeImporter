@@ -15,10 +15,10 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - verbose opt-out is only honored for one explicit test file or nodeid: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`
 - Per-test progress glyphs are suppressed in `tests/conftest.py` via `pytest_report_teststatus(...)`.
 - Tests are modularized by marker in `tests/conftest.py` via centralized file mapping:
-  - domain markers: `ingestion`, `parsing`, `staging`, `cli`, `labelstudio`, `bench`, `analytics`, `tagging`, `llm`, `core`
+  - domain markers: `ingestion`, `parsing`, `staging`, `cli`, `labelstudio`, `bench`, `analytics`, `llm`, `core`
   - scope markers: `smoke` (tiny sanity slice), `slow` (higher-cost suites)
 - Tests are physically grouped into domain folders:
-  - `tests/analytics`, `tests/bench`, `tests/cli`, `tests/core`, `tests/ingestion`, `tests/labelstudio`, `tests/llm`, `tests/parsing`, `tests/staging`, `tests/tagging`
+  - `tests/analytics`, `tests/bench`, `tests/cli`, `tests/core`, `tests/ingestion`, `tests/labelstudio`, `tests/llm`, `tests/parsing`, `tests/staging`
 - Shared fixture/docs path resolution now goes through `tests/paths.py` so nested folders do not break file lookups.
 - Failures now emit minimal pointer lines only:
   - `log: docs/<domain>/<domain>_log.md`
@@ -49,8 +49,6 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - `candidate.model_dump_json(indent=2)` payload dump
   - `ERROR: LLM Repair failed to return a candidate`
   - `All manual tests passed execution.`
-- `tests/tagging/test_tagging.py` (success-path print removed):
-  - `print(f"\n{report}")`
 - `tests/fixtures/generate_scanned_pdf.py` (kept, manual utility script):
   - `Generated scanned PDF: ...`
 - Ellipses in status-message assertions were reviewed and kept intentionally because they validate product output contracts (not test-runner decoration), e.g.:

@@ -407,8 +407,6 @@ def _infer_scope_from_project_payload(project: dict[str, Any]) -> str | None:
             "RECIPE_VARIANT",
             "HOWTO_SECTION",
             "KNOWLEDGE",
-            "NOTES",
-            "VARIANT",
         )
     ):
         return _SUPPORTED_SCOPE

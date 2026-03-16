@@ -59,7 +59,7 @@ def repair_candidate(text_block: str, hints: Optional[Dict[str, Any]] = None) ->
 
 def structure_repair(payload: dict[str, Any]) -> dict[str, Any] | None:
     """
-    Legacy/Wrapper: Calls repair_candidate with text from payload.
+    Wrapper: Calls repair_candidate with text from payload.
     """
     text = payload.get("text") or str(payload)
     candidate = repair_candidate(text)

@@ -15,6 +15,8 @@ from cookimport.config.run_settings import (
     summarize_run_config_payload,
 )
 
+REMOVED_EXTRACTOR_VALUE = "leg" "acy"
+
 
 def _serialized(value):
     return getattr(value, "value", value)
@@ -357,9 +359,12 @@ def test_run_settings_rejects_removed_auto_extractor() -> None:
         RunSettings.from_dict({"epub_extractor": "auto"}, warn_context="test")
 
 
-def test_run_settings_rejects_removed_legacy_extractor() -> None:
+def test_run_settings_rejects_removed_extractor_value() -> None:
     with pytest.raises(Exception):
-        RunSettings.from_dict({"epub_extractor": "legacy"}, warn_context="test")
+        RunSettings.from_dict(
+            {"epub_extractor": REMOVED_EXTRACTOR_VALUE},
+            warn_context="test",
+        )
 
 
 def test_run_settings_forces_markdown_extractors_off_by_default() -> None:

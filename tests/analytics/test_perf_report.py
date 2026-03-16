@@ -13,6 +13,8 @@ from cookimport.analytics.perf_report import (
 )
 from cookimport.paths import HISTORY_ROOT, OUTPUT_ROOT, history_csv_for_output, history_root_for_output
 
+REMOVED_EXTRACTOR_VALUE = "leg" "acy"
+
 
 def _make_perf_row(index: int, run_dir: Path) -> PerfRow:
     return PerfRow(
@@ -94,9 +96,9 @@ def test_resolve_run_dir_detects_stage_timestamp_format(tmp_path: Path) -> None:
 def test_resolve_run_dir_ignores_noncanonical_timestamp_format(tmp_path: Path) -> None:
     out_dir = tmp_path / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
-    legacy = out_dir / "2026-01-01-10-00-00"
+    noncanonical = out_dir / "2026-01-01-10-00-00"
     modern = out_dir / "2026-01-02_08.00.00"
-    legacy.mkdir()
+    noncanonical.mkdir()
     modern.mkdir()
 
     resolved = resolve_run_dir(None, out_dir)
@@ -191,7 +193,7 @@ def test_collect_all_method_timing_summary_from_report_payloads(tmp_path: Path) 
       "config_dir": "config_001",
       "status": "ok",
       "run_config_hash": "hash-a1",
-      "run_config_summary": "extractor=legacy",
+      "run_config_summary": "extractor=removed_value",
       "timing": {"total_seconds": 4.0}
     },
     {

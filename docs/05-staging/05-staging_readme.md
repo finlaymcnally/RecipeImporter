@@ -139,7 +139,7 @@ Tags embedding note:
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now prefers deterministic Stage 7 `08_nonrecipe_spans.json` ownership when available.
 - Optional knowledge snippets can enrich notes, but they are no longer the primary `KNOWLEDGE` classifier.
-- Legacy chunk-lane fallback remains only for older paths that do not have Stage 7 ownership wired through.
+- Chunk-lane fallback remains only for paths that do not have Stage 7 ownership wired through.
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
@@ -224,7 +224,7 @@ Code pointer:
 
 ### Additional draft-v1 behaviors that affect downstream consumers
 
-- `write_draft_outputs(...)` now writes only the canonical draft-v1 shape; top-level compatibility aliases such as `name`, `ingredients`, and `instructions` are no longer added to final drafts.
+- `write_draft_outputs(...)` now writes only the canonical draft-v1 shape; top-level alias fields such as `name`, `ingredients`, and `instructions` are no longer added to final drafts.
 - Ingredient text fields are lowercased in final draft output:
   - `raw_text`, `raw_ingredient_text`, `raw_unit_text`, `preparation`, `note`
 - Variant extraction removes instruction lines that are variation headers/prefixes and stores them under `recipe.variants`.
@@ -232,9 +232,9 @@ Code pointer:
 - If no instructions remain, fallback step is injected: `See original recipe for details.`
 - Unassigned ingredients create prep step at beginning: `Gather and prepare ingredients.`
 - Step time metadata from instruction parser is rolled up to `cook_time_seconds` when recipe cook time is missing.
-- Step temperatures now preserve `temperature_items` arrays when available (legacy `temperature`/`temperature_unit` fields remain for compatibility).
+- Step temperatures now preserve `temperature_items` arrays when available, alongside the existing `temperature`/`temperature_unit` convenience fields.
 - Recipe-level `max_oven_temp_f` is emitted from oven-like step temperature metadata when available.
-- Yield fields (`yield_units`, `yield_phrase`, `yield_unit_name`, `yield_detail`) now come from centralized deterministic yield extraction (`legacy_v1` passthrough or `scored_v1`).
+- Yield fields (`yield_units`, `yield_phrase`, `yield_unit_name`, `yield_detail`) now come from centralized deterministic yield extraction (`scored_v1` or passthrough).
 - When internal Priority 6 debug is enabled, draft conversion emits `_p6_debug` internally and writer strips it from final `r{index}.json` while writing `.bench/<workbook_slug>/p6_metadata_debug.jsonl`.
 - Blank recipe titles are normalized to `Untitled Recipe`.
 - Blank `source` values are normalized to `null` to satisfy staging schema min-length rules.

@@ -33,9 +33,8 @@ Backend parity note:
 
 `<repo>/.history/performance_history.csv` (default for repo-local `<output_root>` such as `data/output`)
 
-Collector compatibility fallback:
+Collector path fallback:
 - If canonical history CSV is missing, collector probes previous canonical `<output_root parent>/.history/performance_history.csv`.
-- If canonical history CSV is missing, collector also probes legacy `<output_root>/.history/performance_history.csv`.
 - Benchmark rows can also be supplemented from nested benchmark history CSV files under `<output_root>/**/.history/performance_history.csv` (used by nested benchmark processed-output layouts).
 
 This CSV is populated by:
@@ -118,10 +117,9 @@ Notes:
 - Analytics semantics note:
   - `vanilla` is reserved for official paired benchmark variants that are actually deterministic (`llm_recipe_pipeline=off` and `line_role_pipeline=off`).
   - Rows with recipe AI off but line-role AI on are shown as `Line-role only`, not `vanilla`.
-  - Legacy single-offline rows that predate explicit `line_role_pipeline` capture still fall back to the path variant (`.../vanilla` / `.../codexfarm`) so older benchmark trend history remains visible under the default `Official benchmarks only` quick filter.
-  - Path-based benchmark classification now falls back across `artifact_dir`, `run_dir`, and `report_path`, because older CSV rows often omitted `artifact_dir`.
-  - The Previous Runs trend chart uses a simpler binary plot grouping: any benchmark row inferred as AI-on is plotted under `codexfarm`, and AI-off or unlabelled legacy rows are plotted under `vanilla`, so ad hoc history does not create extra `other`/hybrid trend lines.
-- Before writing all-method pages, renderer removes stale legacy root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
+  - Path-based benchmark classification checks `artifact_dir`, `run_dir`, and `report_path` so benchmark rows stay classifiable even when one path field is missing.
+  - The Previous Runs trend chart uses a simpler binary plot grouping: any benchmark row inferred as AI-on is plotted under `codexfarm`, and AI-off or unlabelled rows are plotted under `vanilla`, so ad hoc history does not create extra `other`/hybrid trend lines.
+- Before writing all-method pages, renderer removes stale root pages (`all-method-benchmark.html`, old top-level detail pages) so only the subfolder hierarchy remains.
 
 ## Index layout
 
@@ -223,7 +221,7 @@ Notes:
   - Trend charts now include a `Trend fields` checklist (`Select all` / `Clear`) so you can add/remove any number of numeric benchmark fields. Default selection remains `strict_accuracy` + `macro_f1_excluding_other`.
   - A `Quick Filters` section sits between the trend chart and table:
     - `Official benchmarks only (single-offline vanilla/codexfarm)` keeps the chart/table focused on paired single-offline benchmark mode used for headline comparisons.
-    - `Exclude AI test/smoke benchmark runs` remains available mainly as a legacy cleanup toggle for older saved dashboard payloads.
+    - `Exclude AI test/smoke benchmark runs` remains available as a cleanup toggle for older saved dashboard payloads.
     - `Clear all filters` resets quick filters and per-column table filters in one click.
   - Benchmark trend timestamps are rendered in the browser's local timezone (`useUTC: false`) so chart hover time aligns with local run expectations.
   - Score series are plotted as discrete scatter points (no continuous interpolation line between run timestamps), with per-series dashed rolling trend overlays only.
@@ -258,7 +256,7 @@ Benchmark token note:
 
 Benchmark metrics note:
 - `Previous Runs` still highlights explicit benchmark metrics (`strict_accuracy`, `macro_f1_excluding_other`) by default, but trend charts can now plot any selected numeric benchmark field.
-- Dashboard collector populates explicit metrics from new eval-report keys directly and falls back to legacy alias fields for historical artifacts.
+- Dashboard collector populates explicit metrics from current eval-report keys directly.
 - Main dashboard does not include an all-method run-index section; all-method access is through `Previous Runs` timestamp links to run-summary pages.
 - All-method pages prefer reading `all_method_benchmark_report.json` (when present) so the dashboard can list all configured variants even when evaluation results were reused and not every `config_*/eval_report.json` exists.
 - Run-summary pages now include a compact stats table plus per-metric bar charts (one bar per aggregated configuration), per-config radar/web charts, and per-cookbook average bar/radar sections before the aggregate table/drilldown links.

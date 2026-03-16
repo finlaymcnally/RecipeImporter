@@ -57,7 +57,7 @@ def test_export_rejects_non_freeform_scope_from_manifest(
     (run_root / "manifest.json").write_text(
         json.dumps(
             {
-                "project_name": "Legacy Project",
+                "project_name": "Unsupported Scope Project",
                 "project_id": 9,
                 "task_scope": unsupported_scope,
             },
@@ -71,7 +71,7 @@ def test_export_rejects_non_freeform_scope_from_manifest(
 
     with pytest.raises(RuntimeError, match="supports freeform-spans projects only"):
         run_labelstudio_export(
-            project_name="Legacy Project",
+            project_name="Unsupported Scope Project",
             output_dir=tmp_path,
             label_studio_url="http://localhost:8080",
             label_studio_api_key="token",

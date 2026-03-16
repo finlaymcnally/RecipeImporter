@@ -20,13 +20,13 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_benchmark_cutdown_for_external_ai.py": ("bench",),
     "test_cutdown_export_consistency.py": ("bench",),
     "test_canonical_alignment_cache.py": ("bench",),
+    "test_canonical_line_role_env.py": ("parsing", "llm"),
     "test_canonical_line_roles.py": ("parsing", "llm"),
     "test_c3imp_interactive_menu.py": ("cli",),
     "test_compare_control_cli.py": ("analytics", "cli"),
     "test_compare_control_engine.py": ("analytics",),
     "test_dashboard_state_server.py": ("analytics",),
     "test_chunks.py": ("parsing",),
-    "test_classifier.py": ("tagging",),
     "test_cleaning_epub.py": ("parsing",),
     "test_cli_limits.py": ("cli",),
     "test_cli_llm_flags.py": ("cli", "llm"),
@@ -184,7 +184,6 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_step_ingredient_linking.py": ("parsing",),
     "test_step_ingredient_linking_semantic.py": ("parsing",),
     "test_step_segmentation.py": ("parsing",),
-    "test_tagging.py": ("tagging",),
     "test_tables.py": ("parsing",),
     "test_text_importer.py": ("ingestion",),
     "test_tip_extraction.py": ("parsing",),
@@ -222,7 +221,6 @@ _SLOW_FILES = {
 
 _SMOKE_FILES = {
     "test_atoms.py",
-    "test_classifier.py",
     "test_cli_limits.py",
     "test_compare_control_cli.py",
     "test_compare_control_engine.py",
@@ -253,7 +251,6 @@ _LOG_HINTS = {
     "llm": "docs/10-llm/10-llm_log.md",
     "parsing": "docs/04-parsing/04-parsing_log.md",
     "staging": "docs/05-staging/05-staging_log.md",
-    "tagging": "docs/09-tagging/09-tagging_log.md",
 }
 
 _FAILED_MARKERS: set[str] = set()

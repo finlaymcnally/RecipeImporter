@@ -25,7 +25,7 @@ Keep these tokens in templates so runtime can inject task data:
 - `{{FOCUS_CONSTRAINTS}}`
 - `{{FOCUS_BLOCK_INDICES}}`
 - `{{FOCUS_MARKER_RULES}}`
-- `{{FOCUS_BLOCK_JSON_LINES}}` (legacy focus listing, still available)
+- `{{FOCUS_BLOCK_JSON_LINES}}` (older focus listing, still available)
 - `{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}` (span template single-pass block stream with context-before/context-after markers plus `START/STOP` focus markers, each block line as `<block_index><TAB><block_text>`)
 
 For span mode, prefer `{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}` to avoid duplicating block text payloads and reduce wrapper overhead.

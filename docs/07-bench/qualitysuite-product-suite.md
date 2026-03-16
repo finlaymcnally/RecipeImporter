@@ -19,7 +19,7 @@ For first-time AI-agent operation SOPs, see `docs/07-bench/qualitysuite-agent-so
 Current status update (2026-03-01 to 2026-03-02):
 - `cookimport bench quality-lightweight-series` is retired/disabled and exits immediately.
 - The old tournament script has been removed from the repo.
-- Track 1 and Track 2 below are historical workflow context only (useful for reading legacy artifacts), not active runnable commands.
+- Track 1 and Track 2 below are historical workflow context only (useful for reading older artifacts), not active runnable commands.
 - `cookimport bench quality-run` is deterministic-only and no longer permits Codex Farm recipe/knowledge/tags enablement.
 
 ## AI-Agent Handoff (Active)
@@ -89,7 +89,7 @@ Current default recommendation for quality-first parsing:
 
 - Keep `epub_extractor=unstructured`.
 - Prefer `parser=v1`, `preprocess=semantic_v1`, `skip_headers_footers=true`.
-- Treat `section_shared_v1`, `instruction_segmentation_always`, `ingredient_missing_unit_policy=legacy_medium`, and `p6_yield_mode=scored_v1` as neutral on this 3-target sample until a larger fold set confirms uplift.
+- Treat `section_shared_v1`, `instruction_segmentation_always`, `ingredient_missing_unit_policy=medium`, and `p6_yield_mode=scored_v1` as neutral on this 3-target sample until a larger fold set confirms uplift.
 
 ## Track 1: Fast Directional Discovery
 
@@ -117,7 +117,7 @@ Primary decision criteria:
 Goal: promote parser settings with fold-level confidence criteria.
 
 The former Phase A/B/B+ flow used a dedicated tournament script that has now been removed.
-Legacy runs under `data/golden/bench/quality/tournaments/` can still be read, but the current replacement path is:
+Older runs under `data/golden/bench/quality/tournaments/` can still be read, but the current replacement path is:
 
 1. `cookimport bench quality-run`
 2. `cookimport bench quality-leaderboard`
@@ -154,7 +154,7 @@ Primary decision criteria:
 1. Run `bench quality-run` with active pruned presets for current candidate evaluation.
 2. Use `bench quality-leaderboard` to surface winner settings and Pareto tradeoffs.
 3. Finish with `bench quality-compare` for formal regression gating versus baseline.
-4. Use Track 1/2 notes only to interpret legacy artifacts from older runs.
+4. Use Track 1/2 notes only to interpret older artifacts from earlier runs.
 
 ## Mixed-Format Quick Loop (Active)
 

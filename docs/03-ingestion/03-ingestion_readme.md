@@ -377,7 +377,6 @@ Supported formats:
 
 Behavior highlights:
 - Markdown/YAML frontmatter handling
-- `multi_recipe_splitter=legacy`: historical text-local multi-recipe splitting by headings, yield markers, numbered titles, delimiter lines
 - `multi_recipe_splitter=off`: disables text multi-recipe splitting and keeps one candidate span
 - `multi_recipe_splitter=rules_v1`: uses shared deterministic splitter (`cookimport/parsing/multi_recipe_splitter.py`) with section-detector-aware `For the X` guardrails
 - Section extraction (`Ingredients`, `Instructions`, `Notes`) from text blobs
@@ -515,9 +514,9 @@ Overrides and mapping:
 - Mapping model supports `parsingOverrides` alias (`parsing_overrides` field in code).
 - Override file resolution can use sidecars like `*.overrides.yaml` / `*.overrides.json`.
 
-Extractor policy and compatibility normalization:
+Extractor policy and payload normalization:
 - `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1` is required to allow `markdown` / `markitdown` extractor selection in CLI policy-checked flows.
-- `RunSettings.from_dict(...)` converts legacy extractor aliases (`auto -> unstructured`, `legacy -> beautifulsoup`) for compatibility payloads.
+- `RunSettings.from_dict(...)` still normalizes older extractor aliases from saved payloads, including `auto -> unstructured` and the old BeautifulSoup alias.
 
 ## What We Know Is Bad / Risky
 

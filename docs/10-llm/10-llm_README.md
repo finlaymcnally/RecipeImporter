@@ -51,7 +51,7 @@ The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prel
 - `line_role_pipeline`: `off`, `deterministic-v1`, `codex-line-role-v1`
 - Prelabel is a separate Codex surface routed through CodexFarm pipeline `prelabel.freeform.v1`
 
-`cookimport/llm/codex_exec.py` is fail-closed compatibility only and should not be treated as an active backend.
+`cookimport/llm/codex_exec.py` is a fail-closed retired transport and should not be treated as an active backend.
 
 ## Policy boundary
 
@@ -65,7 +65,7 @@ The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prel
 - `--codex-execution-policy plan` writes `codex_execution_plan.json` and returns before live Codex work.
 - `labelstudio-import --prelabel` is its own Codex surface; recipe settings do not implicitly approve it.
 - `COOKIMPORT_ALLOW_LLM` still blocks unapproved live Codex execution by default.
-- `COOKIMPORT_ALLOW_CODEX_FARM` is legacy compatibility only and no longer acts as the approval gate.
+- `COOKIMPORT_ALLOW_CODEX_FARM` is a retired transition gate and no longer acts as the approval gate.
 
 Benchmark split:
 
@@ -119,7 +119,7 @@ Line-role prediction artifacts live under:
 - `prediction-run/line-role-pipeline/telemetry_summary.json`
 - `prediction-run/line-role-pipeline/guardrail_report.json`
 - `prediction-run/line-role-pipeline/guardrail_changed_rows.jsonl`
-- compatibility copies:
+- alternate reviewer copies:
   - `prediction-run/line-role-pipeline/do_no_harm_diagnostics.json`
   - `prediction-run/line-role-pipeline/do_no_harm_changed_rows.jsonl`
 
@@ -137,7 +137,7 @@ Prompt/debug artifacts:
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
 - prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_extract_knowledge_optional.txt`
-- active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Old slot labels belong only to archived local compatibility readers.
+- active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Older numbered stage labels belong only to archived local readers.
 
 Prompt cost notes worth keeping in mind:
 
@@ -169,7 +169,7 @@ Run-level observability note:
   - `autotune_report`
   - compact CSV `telemetry` slices
 - When callers provide progress callbacks, runner prefers `codex-farm process --progress-events --json` and retries once without that flag if the binary does not support it.
-- Current runners must emit structured progress events and JSON stdout when `--json` is requested; older stderr-only progress lines and empty-stdout compatibility are no longer supported.
+- Current runners must emit structured progress events and JSON stdout when `--json` is requested; previous stderr-only progress lines and empty-stdout behavior are no longer supported.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
 - In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.
 - Recipe pass block extraction falls back to `full_text.lines` when cached payloads are missing `full_text.blocks`.
@@ -187,7 +187,7 @@ Structured output contract:
 - Nullable fields must still be present and use `null` when empty.
 - `ingredient_step_mapping` is on-wire as an array of mapping-entry objects and is normalized back to the internal dict form after validation.
 
-## Legacy modules
+## Inactive modules
 
 These files still exist, but they are not the current stage/prediction/tag runtime path:
 
