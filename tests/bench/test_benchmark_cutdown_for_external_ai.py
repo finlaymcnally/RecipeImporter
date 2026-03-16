@@ -1693,7 +1693,6 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
                 "label": "RECIPE_NOTES",
                 "confidence": 0.42,
                 "decided_by": "rule",
-                "candidate_labels": ["INGREDIENT_LINE", "RECIPE_NOTES", "OTHER"],
                 "text": "1 cup flour",
             }
         ],
@@ -1742,7 +1741,6 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
                 "label": "RECIPE_TITLE",
                 "confidence": 0.95,
                 "decided_by": "rule",
-                "candidate_labels": ["RECIPE_TITLE", "HOWTO_SECTION", "OTHER"],
                 "text": "Dish Title",
             }
         ],
@@ -1796,7 +1794,6 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
                 "label": "RECIPE_TITLE",
                 "confidence": 0.95,
                 "decided_by": "rule",
-                "candidate_labels": ["RECIPE_TITLE", "HOWTO_SECTION", "OTHER"],
                 "text": "Dish Title",
             }
         ],
@@ -1939,12 +1936,10 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
             low_conf_packet.get("empty_packet_note") or ""
         )
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
-    line_role_signal = index_payload["analysis"].get("line_role_confidence_or_candidates")
+    line_role_signal = index_payload["analysis"].get("line_role_confidence")
     assert isinstance(line_role_signal, dict)
-    candidate_signal = line_role_signal.get("candidate_label_signal")
-    assert isinstance(candidate_signal, dict)
-    assert candidate_signal.get("available") is True
-    assert int(candidate_signal.get("rows_with_candidate_labels") or 0) >= 1
+    assert "candidate_label_signal" not in line_role_signal
+    assert isinstance(line_role_signal.get("selective_escalation_signal"), dict)
     runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
     assert isinstance(runtime_summary.get("cost_signal"), dict)
     assert runtime_summary["cost_signal"]["available"] is False
@@ -2905,7 +2900,6 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
                 "label": "INGREDIENT_LINE",
                 "confidence": 0.40,
                 "decided_by": "llm",
-                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
                 "text": "1 cup flour",
                 "within_recipe_span": True,
                 "page_type": "recipe_page",
@@ -2957,7 +2951,6 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
                 "label": "INGREDIENT_LINE",
                 "confidence": 0.35,
                 "decided_by": "llm",
-                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
                 "text": "1 cup flour",
                 "within_recipe_span": False,
                 "page_type": "front_matter",
@@ -3151,27 +3144,6 @@ def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) 
     coverage = float(self_check.get("critical_row_locators_coverage_ratio") or 0.0)
     # Keep a small floor so future changes don't silently null out every critical locator.
     assert coverage >= 0.14
-
-
-def test_upload_bundle_extract_candidate_labels_accepts_multiple_shapes() -> None:
-    module = _load_cutdown_module()
-    labels = module._upload_bundle_extract_candidate_labels(
-        {
-            "candidate_labels": ["recipe_title", {"label": "howto_section"}],
-            "label_candidates": [{"name": "ingredient_line"}],
-            "candidates": [{"pred_label": "other"}],
-            "label_scores": {"knowledge": 0.51, "instruction_line": 0.49},
-        }
-    )
-
-    assert labels == [
-        "RECIPE_TITLE",
-        "HOWTO_SECTION",
-        "INGREDIENT_LINE",
-        "OTHER",
-        "KNOWLEDGE",
-        "INSTRUCTION_LINE",
-    ]
 
 
 def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:

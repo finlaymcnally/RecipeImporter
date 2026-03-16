@@ -104,7 +104,6 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
             atomic_index=0,
             text="Add onions and cook for 5 minutes.",
             within_recipe_span=True,
-            candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -128,7 +127,6 @@ def test_codex_time_line_prediction_demotes_to_instruction_when_not_primary_time
     predictions = label_atomic_lines(candidates, _settings("codex-line-role-v1"))
     assert len(predictions) == 1
     assert predictions[0].label == "INSTRUCTION_LINE"
-    assert "INSTRUCTION_LINE" in predictions[0].candidate_labels
     assert predictions[0].decided_by == "fallback"
     assert "sanitized_time_to_instruction" in predictions[0].reason_tags
 
@@ -144,7 +142,6 @@ def test_label_atomic_lines_passes_explicit_live_llm_approval_to_codex_calls(
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -250,7 +247,6 @@ def test_label_atomic_lines_outside_recipe_howto_heading_is_hard_denied() -> Non
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label != "HOWTO_SECTION"
-    assert predictions[0].label in predictions[0].candidate_labels
 
 
 def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_notes() -> None:
@@ -384,7 +380,6 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -
             atomic_index=0,
             text="1 cup",
             within_recipe_span=True,
-            candidate_labels=["INGREDIENT_LINE", "YIELD_LINE", "OTHER"],
             prev_text=None,
             next_text="flour",
             rule_tags=["ingredient_like"],
@@ -396,7 +391,6 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -
             atomic_index=1,
             text="flour",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "INGREDIENT_LINE"],
             prev_text="1 cup",
             next_text="2 tablespoons sugar",
             rule_tags=["recipe_span_fallback"],
@@ -408,7 +402,6 @@ def test_codex_neighbor_ingredient_fragment_rescued_to_ingredient(monkeypatch) -
             atomic_index=2,
             text="2 tablespoons sugar",
             within_recipe_span=True,
-            candidate_labels=["INGREDIENT_LINE", "YIELD_LINE", "OTHER"],
             prev_text="flour",
             next_text=None,
             rule_tags=["ingredient_like"],
@@ -512,7 +505,6 @@ def test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction() -> 
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "INSTRUCTION_LINE"
-    assert "INSTRUCTION_LINE" in predictions[0].candidate_labels
     assert "sanitized_yield_to_instruction" in predictions[0].reason_tags
 
 
@@ -542,7 +534,9 @@ def test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_
     assert predictions[0].label == "OTHER"
 
 
-def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeypatch) -> None:
+def test_title_like_line_is_now_resolved_without_codex_shortlist_rescue(
+    monkeypatch,
+) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -551,26 +545,18 @@ def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeyp
             atomic_index=0,
             text="A PORRIDGE OF LOVAGE STEMS",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
         )
     ]
 
-    def _fake_codex_call(**_kwargs):
-        return {
-            "response": json.dumps([{"atomic_index": 0, "label": "RECIPE_TITLE"}]),
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-            "usage": None,
-            "turn_failed_message": None,
-        }
+    def _codex_should_not_run(**_kwargs):
+        raise AssertionError("codex runner should not execute for deterministic title")
 
     monkeypatch.setattr(
         "cookimport.parsing.canonical_line_roles._run_line_role_prompt_via_codex_farm",
-        _fake_codex_call,
+        _codex_should_not_run,
     )
     predictions = label_atomic_lines(
         candidates,
@@ -578,9 +564,7 @@ def test_codex_mode_title_like_candidate_allowlist_includes_recipe_title(monkeyp
     )
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
-    assert predictions[0].decided_by == "codex"
-    assert "RECIPE_TITLE" in predictions[0].candidate_labels
-    assert "ownership_codex_override_other_to_recipe_title" in predictions[0].reason_tags
+    assert predictions[0].decided_by == "rule"
 
 
 def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatch) -> None:
@@ -592,7 +576,6 @@ def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatc
             atomic_index=0,
             text="Shaved Carrot Salad with Ginger and Lime",
             within_recipe_span=True,
-            candidate_labels=["OTHER"],
             prev_text=None,
             next_text="1 large jalapeño, seeds and veins removed if desired, thinly sliced",
             rule_tags=["recipe_span_fallback"],
@@ -620,7 +603,6 @@ def test_codex_mode_accepts_global_label_not_present_in_old_shortlist(monkeypatc
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].candidate_labels == canonical_line_roles_module._global_line_role_labels()
 
 
 def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
@@ -631,7 +613,6 @@ def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
         atomic_index=0,
         text="NOTE: Keep blender cup warm.",
         within_recipe_span=True,
-        candidate_labels=["RECIPE_NOTES", "OTHER", "KNOWLEDGE"],
         prev_text=None,
         next_text="Whisk in the butter.",
         rule_tags=["note_prefix"],
@@ -647,7 +628,6 @@ def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
             label="OTHER",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["RECIPE_NOTES", "OTHER", "KNOWLEDGE"],
             reason_tags=["codex_line_role"],
         ),
         baseline_prediction=canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -660,7 +640,6 @@ def test_label_ownership_vetoes_codex_override_of_strong_recipe_note() -> None:
             label="RECIPE_NOTES",
             confidence=0.91,
             decided_by="rule",
-            candidate_labels=["RECIPE_NOTES", "OTHER", "KNOWLEDGE"],
             reason_tags=["note_prefix"],
         ),
         candidate=candidate,
@@ -680,7 +659,6 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
         atomic_index=0,
         text="Stir well and taste for seasoning.",
         within_recipe_span=True,
-        candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
         prev_text="1 cup stock",
         next_text="Serve warm.",
         rule_tags=["instruction_like"],
@@ -696,7 +674,6 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
             label="TIME_LINE",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
             reason_tags=["codex_line_role"],
         ),
         baseline_prediction=canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -709,7 +686,6 @@ def test_label_ownership_rejects_codex_time_line_without_strong_local_evidence()
             label="INSTRUCTION_LINE",
             confidence=0.95,
             decided_by="rule",
-            candidate_labels=["TIME_LINE", "INSTRUCTION_LINE", "OTHER"],
             reason_tags=["instruction_like"],
         ),
         candidate=candidate,
@@ -730,7 +706,6 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
             atomic_index=0,
             text="A PORRIDGE OF LOVAGE STEMS",
             within_recipe_span=False,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text="2 tablespoons olive oil",
             rule_tags=["outside_recipe_span"],
@@ -742,7 +717,6 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
             atomic_index=1,
             text="2 tablespoons olive oil",
             within_recipe_span=False,
-            candidate_labels=["INGREDIENT_LINE", "OTHER"],
             prev_text="A PORRIDGE OF LOVAGE STEMS",
             next_text=None,
             rule_tags=["ingredient_like", "outside_recipe_span"],
@@ -763,7 +737,6 @@ def test_codex_mode_preserves_low_confidence_deterministic_recipe_title(monkeypa
     assert len(predictions) == 2
     assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "rule"
-    assert "RECIPE_TITLE" in predictions[0].candidate_labels
 
 
 def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
@@ -803,7 +776,6 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
                 "development and how airflow changes moisture retention."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text="1. Heat a heavy skillet over medium-high heat.",
             next_text="2. Add the steak and sear until browned.",
             rule_tags=["recipe_span_fallback"],
@@ -848,7 +820,6 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         atomic_index=0,
         text="SERVES 4",
         within_recipe_span=True,
-        candidate_labels=["YIELD_LINE", "OTHER"],
         prev_text="",
         next_text="2 tablespoons olive oil",
         rule_tags=["yield_prefix"],
@@ -871,7 +842,6 @@ def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
             atomic_index=0,
             text="SERVES 4",
             within_recipe_span=True,
-            candidate_labels=["YIELD_LINE", "OTHER"],
             prev_text="",
             next_text="2 tablespoons olive oil",
             rule_tags=["yield_prefix"],
@@ -883,7 +853,6 @@ def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
             atomic_index=1,
             text="2 tablespoons olive oil",
             within_recipe_span=True,
-            candidate_labels=["INGREDIENT_LINE", "OTHER"],
             prev_text="SERVES 4",
             next_text="Whisk and serve.",
             rule_tags=["ingredient_like"],
@@ -922,7 +891,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
                 "it includes multiple clauses to remain prose-like."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text="middle",
             rule_tags=["recipe_span_fallback", "explicit_prose"],
@@ -937,7 +905,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
                 "and texture outcomes in complete sentences."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text="prev",
             next_text="next",
             rule_tags=["recipe_span_fallback", "explicit_prose"],
@@ -952,7 +919,6 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
                 "long-form explanation rather than imperative action."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text="middle",
             next_text=None,
             rule_tags=["recipe_span_fallback", "explicit_prose"],
@@ -1004,7 +970,6 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
                 "it includes multiple clauses to remain prose-like."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text="middle",
             rule_tags=["recipe_span_fallback", "explicit_prose"],
@@ -1019,7 +984,6 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
                 "and texture outcomes in complete sentences."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text="prev",
             next_text="next",
             rule_tags=["recipe_span_fallback"],
@@ -1034,7 +998,6 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
                 "long-form explanation rather than imperative action."
             ),
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text="middle",
             next_text=None,
             rule_tags=["recipe_span_fallback", "explicit_prose"],
@@ -1082,7 +1045,6 @@ def test_codex_mode_does_not_escalate_low_confidence_candidates_outside_recipe_s
             atomic_index=0,
             text="CONTENTS",
             within_recipe_span=False,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["outside_recipe_span"],
@@ -1114,7 +1076,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             atomic_index=index,
             text=f"candidate {index}",
             within_recipe_span=False,
-            candidate_labels=["OTHER", "RECIPE_TITLE"],
             prev_text=None,
             next_text=None,
             rule_tags=["outside_recipe_span"],
@@ -1130,7 +1091,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
                 atomic_index=index + 2,
                 text=f"inside {index}",
                 within_recipe_span=True,
-                candidate_labels=["INSTRUCTION_LINE", "OTHER"],
                 prev_text=None,
                 next_text=None,
                 rule_tags=["instruction_like"],
@@ -1149,7 +1109,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             label="RECIPE_TITLE",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["OTHER", "RECIPE_TITLE"],
             reason_tags=["codex_line_role"],
         ),
         1: canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -1162,7 +1121,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             label="RECIPE_VARIANT",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["OTHER", "RECIPE_VARIANT"],
             reason_tags=["codex_line_role"],
         ),
     }
@@ -1177,7 +1135,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             label="INSTRUCTION_LINE",
             confidence=0.9,
             decided_by="rule",
-            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
             reason_tags=["instruction_like"],
         )
     baseline_predictions = {
@@ -1191,7 +1148,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             label="OTHER",
             confidence=0.7,
             decided_by="rule",
-            candidate_labels=["OTHER"],
             reason_tags=["outside_recipe_span"],
         )
         for index in range(2)
@@ -1207,7 +1163,6 @@ def test_do_no_harm_arbitration_partially_downgrades_outside_promotions() -> Non
             label="INSTRUCTION_LINE",
             confidence=0.9,
             decided_by="rule",
-            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
             reason_tags=["instruction_like"],
         )
 
@@ -1234,7 +1189,6 @@ def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
             atomic_index=index,
             text=f"candidate {index}",
             within_recipe_span=(index >= 8),
-            candidate_labels=["OTHER", "RECIPE_TITLE"],
             prev_text=None,
             next_text=None,
             rule_tags=["outside_recipe_span"],
@@ -1254,7 +1208,6 @@ def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
             label="RECIPE_TITLE" if index < 8 else "INSTRUCTION_LINE",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["OTHER", "RECIPE_TITLE", "INSTRUCTION_LINE"],
             reason_tags=["codex_line_role"],
         )
         baseline_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -1267,7 +1220,6 @@ def test_do_no_harm_arbitration_full_fallback_reverts_all_rows() -> None:
             label="OTHER",
             confidence=0.7,
             decided_by="rule",
-            candidate_labels=["OTHER"],
             reason_tags=["baseline"],
         )
 
@@ -1296,7 +1248,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             atomic_index=0,
             text="candidate 0",
             within_recipe_span=False,
-            candidate_labels=["OTHER", "RECIPE_TITLE"],
             prev_text=None,
             next_text=None,
             rule_tags=["outside_recipe_span"],
@@ -1308,7 +1259,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             atomic_index=1,
             text="candidate 1",
             within_recipe_span=False,
-            candidate_labels=["OTHER", "RECIPE_VARIANT"],
             prev_text=None,
             next_text=None,
             rule_tags=["outside_recipe_span"],
@@ -1323,7 +1273,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
                 atomic_index=index + 2,
                 text=f"inside {index}",
                 within_recipe_span=True,
-                candidate_labels=["INSTRUCTION_LINE", "OTHER"],
                 prev_text=None,
                 next_text=None,
                 rule_tags=["instruction_like"],
@@ -1342,7 +1291,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             label="RECIPE_TITLE",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["OTHER", "RECIPE_TITLE"],
             reason_tags=["codex_line_role"],
         ),
         1: canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -1355,7 +1303,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             label="RECIPE_VARIANT",
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=["OTHER", "RECIPE_VARIANT"],
             reason_tags=["codex_line_role"],
         ),
     }
@@ -1370,7 +1317,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             label="OTHER",
             confidence=0.7,
             decided_by="rule",
-            candidate_labels=["OTHER"],
             reason_tags=["outside_recipe_span"],
         ),
         1: canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -1383,7 +1329,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             label="OTHER",
             confidence=0.7,
             decided_by="rule",
-            candidate_labels=["OTHER"],
             reason_tags=["outside_recipe_span"],
         ),
     }
@@ -1398,7 +1343,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             label="INSTRUCTION_LINE",
             confidence=0.9,
             decided_by="rule",
-            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
             reason_tags=["instruction_like"],
         )
         baseline_predictions[index] = canonical_line_roles_module.CanonicalLineRolePrediction(
@@ -1411,7 +1355,6 @@ def test_line_role_guardrail_preview_report_writes_non_mutating_artifacts(
             label="INSTRUCTION_LINE",
             confidence=0.9,
             decided_by="rule",
-            candidate_labels=["INSTRUCTION_LINE", "OTHER"],
             reason_tags=["instruction_like"],
         )
 
@@ -1478,7 +1421,6 @@ def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
             atomic_index=0,
             text="Ambiguous title-ish line",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "RECIPE_TITLE"],
             prev_text=None,
             next_text="1 cup flour",
             rule_tags=[],
@@ -1490,7 +1432,6 @@ def test_build_line_role_codex_execution_plan_groups_unresolved_rows() -> None:
             atomic_index=1,
             text="1 cup flour",
             within_recipe_span=True,
-            candidate_labels=["INGREDIENT_LINE", "OTHER"],
             prev_text="Ambiguous title-ish line",
             next_text=None,
             rule_tags=["ingredient_like"],
@@ -1519,7 +1460,6 @@ def test_label_atomic_lines_codex_retries_transient_failures(monkeypatch) -> Non
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -1580,7 +1520,6 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -1645,7 +1584,6 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_with_retry_usage(
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -1723,7 +1661,6 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -1782,7 +1719,6 @@ def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) 
             atomic_index=0,
             text="Ambiguous context sentence",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text=None,
             next_text=None,
             rule_tags=["recipe_span_fallback"],
@@ -1827,7 +1763,6 @@ def test_label_atomic_lines_codex_parallel_batches_keep_deterministic_outputs(
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                candidate_labels=["OTHER", "KNOWLEDGE"],
                 prev_text=None,
                 next_text=None,
                 rule_tags=["recipe_span_fallback"],
@@ -1899,7 +1834,6 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
             atomic_index=0,
             text="Ambiguous line 0",
             within_recipe_span=True,
-            candidate_labels=["OTHER", "KNOWLEDGE"],
             prev_text="Before",
             next_text="After",
             rule_tags=["recipe_span_fallback"],
@@ -1958,7 +1892,6 @@ def test_label_atomic_lines_codex_progress_callback_reports_batch_counts(
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                candidate_labels=["OTHER", "KNOWLEDGE"],
                 prev_text=None,
                 next_text=None,
                 rule_tags=["recipe_span_fallback"],
@@ -2029,7 +1962,6 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
                 atomic_index=atomic_index,
                 text=f"Ambiguous line {atomic_index}",
                 within_recipe_span=True,
-                candidate_labels=["OTHER", "KNOWLEDGE"],
                 prev_text=None,
                 next_text=None,
                 rule_tags=["recipe_span_fallback"],

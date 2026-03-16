@@ -50,9 +50,7 @@ def test_co_locate_prediction_run_for_benchmark_overwrites_existing_target(tmp_p
 
 def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
     pass1_in = run_dir / "pass1_chunking" / "in"
@@ -317,9 +315,10 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     )
 
     eval_output_dir = tmp_path / "eval"
-    log_path = cli._build_codex_farm_prompt_response_log(
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
         pred_run=pred_run,
         eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
     )
 
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
@@ -445,9 +444,10 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     )
 
     eval_output_dir = tmp_path / "eval"
-    log_path = cli._build_codex_farm_prompt_response_log(
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
         pred_run=pred_run,
         eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
     )
     assert log_path is not None and log_path.exists()
     assert (eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt").exists()
@@ -535,9 +535,10 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
     )
 
     eval_output_dir = tmp_path / "eval"
-    log_path = cli._build_codex_farm_prompt_response_log(
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
         pred_run=pred_run,
         eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
     )
 
     assert log_path is not None and log_path.exists()

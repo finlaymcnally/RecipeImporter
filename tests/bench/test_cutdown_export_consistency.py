@@ -98,7 +98,6 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
                 "decided_by": "codex",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
-                "candidate_labels": ["ingredient_line", "yield_line"],
             },
             {
                 "atomic_index": 2,
@@ -136,8 +135,6 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
         line_role_predictions_path=line_role_predictions_path,
     )
     by_line_index = {int(row["line_index"]): row for row in joined_rows}
-    assert by_line_index[1]["candidate_labels"] == ["INGREDIENT_LINE", "YIELD_LINE"]
-    assert by_line_index[1]["candidate_label_count"] == 2
     assert by_line_index[1]["line_role_match_kind"] == "atomic_index_exact_text"
     flips_rows = build_line_role_flips_vs_baseline(
         joined_line_rows=joined_rows,
@@ -218,7 +215,6 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
                 "decided_by": "rule",
                 "within_recipe_span": False,
                 "recipe_id": None,
-                "candidate_labels": ["knowledge", "other"],
             },
             {
                 "atomic_index": 1204,
@@ -226,7 +222,6 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
                 "decided_by": "rule",
                 "within_recipe_span": False,
                 "recipe_id": None,
-                "candidate_labels": ["recipe_variant", "recipe_title", "other"],
             },
             {
                 "atomic_index": 1439,
@@ -234,7 +229,6 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:11",
-                "candidate_labels": ["recipe_title", "recipe_variant", "other"],
             },
             {
                 "atomic_index": 1440,
@@ -245,7 +239,6 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
                 "decided_by": "fallback",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:11",
-                "candidate_labels": ["instruction_line", "time_line", "other"],
             },
         ],
     )
@@ -263,30 +256,17 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
     )
     by_line_index = {int(row["line_index"]): row for row in joined_rows}
 
-    assert by_line_index[0]["candidate_labels"] == ["KNOWLEDGE", "OTHER"]
     assert by_line_index[0]["line_role_match_kind"] == "exact_text_occurrence"
     assert by_line_index[0]["line_role_prediction_atomic_index"] == 74
 
-    assert by_line_index[1]["candidate_labels"] == [
-        "RECIPE_VARIANT",
-        "RECIPE_TITLE",
-        "OTHER",
-    ]
     assert by_line_index[1]["line_role_match_kind"] == "exact_text_occurrence"
     assert by_line_index[1]["line_role_prediction_atomic_index"] == 1204
 
-    assert by_line_index[2]["candidate_labels"] == []
-    assert by_line_index[2]["candidate_label_count"] == 0
     assert by_line_index[2]["decided_by"] is None
     assert by_line_index[2]["within_recipe_span"] is None
     assert by_line_index[2]["line_role_match_kind"] == "unmatched"
     assert by_line_index[2]["line_role_prediction_atomic_index"] is None
 
-    assert by_line_index[3]["candidate_labels"] == [
-        "RECIPE_TITLE",
-        "RECIPE_VARIANT",
-        "OTHER",
-    ]
     assert by_line_index[3]["line_role_match_kind"] == "exact_text_occurrence"
     assert by_line_index[3]["line_role_prediction_atomic_index"] == 1439
 
@@ -319,7 +299,6 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
                 "decided_by": "rule",
                 "within_recipe_span": False,
                 "recipe_id": None,
-                "candidate_labels": ["OTHER"],
             },
             {
                 "atomic_index": 11,
@@ -327,7 +306,6 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
-                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
             },
             {
                 "atomic_index": 12,
@@ -335,7 +313,6 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
-                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
             },
             {
                 "atomic_index": 13,
@@ -343,7 +320,6 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
                 "decided_by": "rule",
                 "within_recipe_span": True,
                 "recipe_id": "recipe:0",
-                "candidate_labels": ["INGREDIENT_LINE", "OTHER"],
             },
         ],
     )
@@ -361,9 +337,7 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
     )
     by_line_index = {int(row["line_index"]): row for row in joined_rows}
 
-    assert by_line_index[0]["candidate_labels"] == ["INGREDIENT_LINE", "OTHER"]
     assert by_line_index[0]["line_role_prediction_atomic_index"] == 11
-    assert by_line_index[2]["candidate_labels"] == []
     assert by_line_index[2]["line_role_match_kind"] == "unmatched"
 
 

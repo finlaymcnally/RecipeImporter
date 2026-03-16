@@ -23,7 +23,10 @@ def test_variants_extracted_from_instructions():
         ],
     )
 
-    draft = recipe_candidate_to_draft_v1(candidate)
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
 
     assert draft["recipe"]["variants"] == [
         "Variation spicy: add pepper.",
@@ -41,7 +44,10 @@ def test_variants_only_instructions_keep_fallback_step():
         instructions=["Variation: add herbs."],
     )
 
-    draft = recipe_candidate_to_draft_v1(candidate)
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
 
     assert draft["recipe"]["variants"] == ["Variation: add herbs."]
     assert draft["steps"][0]["instruction"] == "See original recipe for details."
@@ -61,7 +67,10 @@ def test_multiblock_variants_extracted():
         ],
     )
 
-    draft = recipe_candidate_to_draft_v1(candidate)
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
 
     assert draft["recipe"]["variants"] == [
         "• To make Honey-Mustard Vinaigrette, add 1 tablespoon honey and 1 teaspoon mustard.",
@@ -86,7 +95,10 @@ def test_multiblock_variants_with_multiple_bullets():
         ],
     )
 
-    draft = recipe_candidate_to_draft_v1(candidate)
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
 
     assert draft["recipe"]["variants"] == [
         "• Add cucumber for crunch.",

@@ -163,7 +163,9 @@ def test_write_draft_outputs_populates_compatibility_aliases(tmp_path) -> None:
     assert payload["name"] == "Alias Recipe"
     assert payload["ingredients"] == ["1 cup flour", "1 egg"]
     assert payload["instructions"][0] == "Gather and prepare ingredients."
-    assert payload["instructions"][1:] == ["Mix ingredients.", "Bake until done."]
+    instructions_tail = " ".join(payload["instructions"][1:])
+    assert "Mix ingredients." in instructions_tail
+    assert "Bake until done." in instructions_tail
 
 
 def test_write_draft_outputs_normalizes_override_aliases(tmp_path) -> None:

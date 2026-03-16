@@ -20,7 +20,6 @@ LINE_ROLE_DETERMINISTIC_PIPELINE = "deterministic-v1"
 KNOWLEDGE_CODEX_PIPELINE = "codex-farm-knowledge-v1"
 TAGS_CODEX_PIPELINE = "codex-farm-tags-v1"
 PRELABEL_CODEX_PROVIDER = "codex-farm"
-PRELABEL_CODEX_PROVIDERS = frozenset({"codex-farm", "codex_farm", "codex-cli"})
 BUCKET1_FIXED_BEHAVIOR_VERSION = "bucket1-fixed-v1"
 SECTION_DETECTOR_SHARED_V1 = "shared_v1"
 INSTRUCTION_STEP_SEGMENTATION_ALWAYS = "always"
@@ -137,6 +136,13 @@ def _normalize_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _normalize_prelabel_provider(value: Any) -> str:
+    normalized = _normalize_text(value)
+    if normalized == "codex_farm":
+        return PRELABEL_CODEX_PROVIDER
+    return normalized
+
+
 def _surface_list(*pairs: tuple[bool, str]) -> tuple[str, ...]:
     return tuple(name for enabled, name in pairs if enabled)
 
@@ -202,32 +208,28 @@ class CodexExecutionPolicy:
 
 def classify_codex_surfaces(payload: Mapping[str, Any] | None) -> CodexSurfaceDecision:
     normalized_payload = payload or {}
+    prelabel_requested = bool(
+        normalized_payload.get("prelabel") or normalized_payload.get("prelabel_enabled")
+    )
     recipe_pipeline = _normalize_text(normalized_payload.get("llm_recipe_pipeline") or "off")
     line_role_pipeline = _normalize_text(normalized_payload.get("line_role_pipeline") or "off")
     knowledge_pipeline = _normalize_text(
         normalized_payload.get("llm_knowledge_pipeline") or "off"
     )
     tags_pipeline = _normalize_text(normalized_payload.get("llm_tags_pipeline") or "off")
-    prelabel_provider = _normalize_text(
+    prelabel_provider = _normalize_prelabel_provider(
         normalized_payload.get("prelabel_provider")
-        or (
-            PRELABEL_CODEX_PROVIDER
-            if bool(
-                normalized_payload.get("prelabel")
-                or normalized_payload.get("prelabel_enabled")
-            )
-            else "off"
-        )
+        or (PRELABEL_CODEX_PROVIDER if prelabel_requested else "off")
     )
+    if prelabel_requested and prelabel_provider in {"", "off"}:
+        prelabel_provider = PRELABEL_CODEX_PROVIDER
 
     recipe_codex_enabled = recipe_pipeline in RECIPE_CODEX_PIPELINES
     line_role_codex_enabled = line_role_pipeline == LINE_ROLE_CODEX_PIPELINE
     deterministic_line_role_enabled = line_role_pipeline == LINE_ROLE_DETERMINISTIC_PIPELINE
     knowledge_codex_enabled = knowledge_pipeline == KNOWLEDGE_CODEX_PIPELINE
     tags_codex_enabled = tags_pipeline == TAGS_CODEX_PIPELINE
-    prelabel_codex_enabled = bool(
-        normalized_payload.get("prelabel") or normalized_payload.get("prelabel_enabled")
-    ) and prelabel_provider in {"", *PRELABEL_CODEX_PROVIDERS}
+    prelabel_codex_enabled = prelabel_requested
     any_codex_enabled = any(
         (
             recipe_codex_enabled,

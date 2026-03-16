@@ -752,10 +752,10 @@ Current LLM-side contracts to keep:
 - ProFeedback follow-up scope was benchmark/evaluation only (no default-ingestion enablement changes).
 - Pass3 ROI controls now include pass2-ok utility instrumentation plus deterministic skip policy via run settings (`codex_farm_pass3_skip_pass2_ok`); task evidence showed substantial pass3 load reduction when enabled, with no quality regression in cited SeaAndSmoke reruns.
 - Routing observability should remain additive and explicit in manifests (`pass2_degradation_severity`, `pass2_promotion_policy`, `pass3_execution_mode`, `pass3_routing_reason` plus pass2-ok utility fields).
-- Candidate-label surfacing is now expected end-to-end as observational metadata:
-  - codex line-role predictions emit the full global label vocabulary rather than per-row shortlist constraints,
-  - cutdown/export propagates candidate fields,
-  - upload bundle `candidate_label_signal` should become available when those artifacts are present.
+- Candidate-label metadata is gone from the active line-role path:
+  - codex line-role predictions no longer emit `candidate_labels`,
+  - cutdown/export no longer propagates candidate fields,
+  - upload bundles summarize line-role confidence under `analysis.line_role_confidence`.
 - Upload-bundle codex diagnostics completeness expectation:
   - when source artifacts exist, codex `run_diagnostics` statuses should resolve to written artifacts rather than blanket `missing`.
 - Validation workflow used in this cycle remains the contract for runtime-sensitive LLM changes:

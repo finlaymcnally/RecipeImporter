@@ -43,6 +43,20 @@ def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
     )
 
 
+def test_generate_pred_run_artifacts_rejects_legacy_prelabel_provider_alias(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="prelabel_provider must be 'codex-farm'"):
+        generate_pred_run_artifacts(
+            path=source,
+            output_dir=tmp_path / "golden",
+            prelabel_provider="codex-cli",
+        )
+
+
 def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_conversion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1596,7 +1610,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
                 atomic_index=0,
                 text="Pancakes",
                 within_recipe_span=True,
-                candidate_labels=["RECIPE_TITLE"],
             ),
             AtomicLineCandidate(
                 recipe_id="recipe:0",
@@ -1605,7 +1618,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
                 atomic_index=1,
                 text="SERVES 2",
                 within_recipe_span=True,
-                candidate_labels=["YIELD_LINE"],
             ),
             AtomicLineCandidate(
                 recipe_id="recipe:0",
@@ -1614,7 +1626,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
                 atomic_index=2,
                 text="1 cup flour",
                 within_recipe_span=True,
-                candidate_labels=["INGREDIENT_LINE"],
             ),
             AtomicLineCandidate(
                 recipe_id="recipe:0",
@@ -1623,7 +1634,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
                 atomic_index=3,
                 text="Whisk batter",
                 within_recipe_span=True,
-                candidate_labels=["INSTRUCTION_LINE"],
             ),
             AtomicLineCandidate(
                 recipe_id="recipe:0",
@@ -1632,7 +1642,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
                 atomic_index=4,
                 text="NOTE: Keep warm",
                 within_recipe_span=True,
-                candidate_labels=["RECIPE_NOTES"],
             ),
         ],
     )
@@ -1780,7 +1789,6 @@ def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default
                 atomic_index=0,
                 text="Example line",
                 within_recipe_span=True,
-                candidate_labels=["OTHER"],
             ),
         ],
     )
@@ -1880,9 +1888,6 @@ def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_rec
                 atomic_index=0,
                 text="Toast the bread.",
                 within_recipe_span=within_recipe_span,
-                candidate_labels=[
-                    "INSTRUCTION_LINE" if within_recipe_span else "OTHER"
-                ],
             )
         ]
 
@@ -1909,7 +1914,6 @@ def test_generate_pred_run_artifacts_rebuilds_line_role_candidates_after_llm_rec
                 label="INSTRUCTION_LINE" if candidate.within_recipe_span else "OTHER",
                 confidence=0.9,
                 decided_by="rule",
-                candidate_labels=list(candidate.candidate_labels),
                 reason_tags=["test_label"],
             )
             for candidate in candidates
@@ -2053,7 +2057,6 @@ def test_generate_pred_run_artifacts_passes_allow_codex_to_line_role_live_llm(
                 atomic_index=0,
                 text="Example line",
                 within_recipe_span=True,
-                candidate_labels=["OTHER", "KNOWLEDGE"],
                 rule_tags=["recipe_span_fallback"],
             ),
         ],

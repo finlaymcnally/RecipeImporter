@@ -907,8 +907,8 @@ def _build_prelabel_provider(
     prelabel_cache_dir: Path | None,
     prelabel_track_token_usage: bool,
 ) -> CodexFarmProvider:
-    normalized_provider = prelabel_provider.strip().lower()
-    if normalized_provider in {"codex-cli", "codex_farm", "codex-farm"}:
+    normalized_provider = prelabel_provider.strip().lower().replace("_", "-")
+    if normalized_provider in {"", "off"}:
         normalized_provider = "codex-farm"
     if normalized_provider != "codex-farm":
         raise ValueError("prelabel_provider must be 'codex-farm'")
@@ -1078,7 +1078,6 @@ def _build_line_role_candidates_from_archive(
                     "block_index": candidate.block_index,
                     "text": candidate.text,
                     "within_recipe_span": candidate.within_recipe_span,
-                    "candidate_labels": list(candidate.candidate_labels),
                     "rule_tags": list(candidate.rule_tags),
                 }
             )
@@ -1099,7 +1098,6 @@ def _build_line_role_candidates_from_archive(
                 atomic_index=atomic_index,
                 text=str(row["text"]),
                 within_recipe_span=bool(row["within_recipe_span"]),
-                candidate_labels=list(row["candidate_labels"]),
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
@@ -1727,7 +1725,7 @@ def generate_pred_run_artifacts(
     normalized_prelabel_granularity = normalize_prelabel_granularity(prelabel_granularity)
     normalized_prelabel_provider = str(prelabel_provider or "").strip().lower()
     normalized_prelabel_provider = normalized_prelabel_provider.replace("_", "-")
-    if normalized_prelabel_provider in {"", "codex-cli"}:
+    if normalized_prelabel_provider in {"", "off"}:
         normalized_prelabel_provider = "codex-farm"
     if normalized_prelabel_provider != "codex-farm":
         raise ValueError("prelabel_provider must be 'codex-farm'")

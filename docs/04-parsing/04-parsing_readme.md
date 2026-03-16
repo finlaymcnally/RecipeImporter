@@ -984,11 +984,8 @@ Current parsing contracts reinforced:
   - exact normalized index+text match first,
   - then exact-text sequence alignment,
   - ambiguous duplicate short texts should stay unmatched rather than inherit the wrong prediction metadata.
-- `_sanitize_prediction(...)` must keep `candidate_labels` consistent with the final emitted `label`.
-  - If sanitization changes the final label during fallback or rescue, that final label has to be re-added to `candidate_labels`.
-- In `codex-line-role-v1`, emitted `candidate_labels` are now observational full-vocabulary metadata, not per-row LLM constraints.
-- Historical benchmark artifacts can remain internally inconsistent even after exporter fixes.
-  - If old runs still show `label` outside `candidate_labels`, rerun the line-role pipeline with the sanitizer fix before debugging dashboard/export consumers.
+- `AtomicLineCandidate` and `CanonicalLineRolePrediction` no longer carry `candidate_labels`.
+- Historical benchmark artifacts from older runs can still contain candidate-label fields, but current parsing code does not emit or depend on them.
 
 Anti-loop reminder:
 - When `joined_line_table.jsonl` and `line_role_predictions.jsonl` disagree, separate exporter matching errors from already-invalid source prediction rows before changing analytics or cutdown tooling.

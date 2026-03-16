@@ -1605,7 +1605,6 @@ def _build_line_role_audit_rows(
             line_index = int(changed_row.get("line_index") or 0)
             line_role_row = codex_run.line_role_predictions_by_index.get(line_index, {})
             prompt_link = codex_run.prompt_links_by_atomic_index.get(line_index)
-            candidate_labels = _coerce_str_list(line_role_row.get("candidate_labels"))
             final_label = str(line_role_row.get("label") or "").strip() or None
             parsed_label = prompt_link.parsed_label if prompt_link is not None else None
             raw_model_label = parsed_label
@@ -1636,7 +1635,6 @@ def _build_line_role_audit_rows(
                     "gold_label": gold_label,
                     "baseline_pred": baseline_pred,
                     "codex_pred": codex_pred,
-                    "candidate_labels": candidate_labels,
                     "raw_model_label": raw_model_label,
                     "parsed_label": parsed_label,
                     "final_label_after_postprocess": final_label,
@@ -1920,7 +1918,6 @@ def _build_uncertainty_rows(
     line_role_rows = _build_line_role_audit_rows(context=context, selectors=selectors)
     rows: list[dict[str, Any]] = []
     for row in line_role_rows:
-        candidate_labels = _coerce_str_list(row.get("candidate_labels"))
         confidence = _coerce_float(row.get("confidence"))
         reasons: list[str] = []
         if confidence is not None and confidence < confidence_threshold:
@@ -1939,8 +1936,6 @@ def _build_uncertainty_rows(
                 "line_index": row.get("line_index"),
                 "raw_text": row.get("raw_text"),
                 "confidence": confidence,
-                "candidate_labels": candidate_labels,
-                "candidate_label_count": len(candidate_labels),
                 "decided_by": row.get("decided_by"),
                 "reasons": sorted(set(reasons)),
                 "violations": row.get("violations"),

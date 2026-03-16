@@ -399,17 +399,31 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
+    line_role_dir = prediction_run / "line-role-pipeline"
+    line_role_dir.mkdir(parents=True, exist_ok=True)
     (prediction_run / "stage_block_predictions.json").write_text(
         json.dumps(
             {
                 "schema_version": "stage_block_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "block_count": 1,
+                "block_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
         encoding="utf-8",
     )
+    (line_role_dir / "stage_block_predictions.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "block_count": 1,
+                "block_labels": {"0": "OTHER"},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (line_role_dir / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
     (prediction_run / "manifest.json").write_text(
         json.dumps(
             {
@@ -418,6 +432,12 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
                 "run_config": {"workers": 1},
                 "run_config_hash": "cfg-hash",
                 "run_config_summary": "workers=1",
+                "line_role_pipeline_stage_block_predictions_path": str(
+                    line_role_dir / "stage_block_predictions.json"
+                ),
+                "line_role_pipeline_extracted_archive_path": str(
+                    line_role_dir / "extracted_archive.json"
+                ),
             }
         ),
         encoding="utf-8",
@@ -529,10 +549,21 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             eval_output_dir=eval_root,
             no_upload=True,
             eval_mode="canonical-text",
+            line_role_pipeline="deterministic-v1",
             sequence_matcher="dmp",
         )
 
     assert captured_eval["gold_export_root"] == gold_spans.parent
+    assert captured_eval["stage_predictions_json"] == (
+        eval_root
+        / ".prediction-record-replay"
+        / "pipelined"
+        / "stage_block_predictions.from_records.json"
+    )
+    replay_payload = json.loads(
+        Path(captured_eval["stage_predictions_json"]).read_text(encoding="utf-8")
+    )
+    assert replay_payload["block_labels"] == {"0": "RECIPE_TITLE"}
     assert captured_eval["sequence_matcher_env"] == "dmp"
     assert captured_csv["eval_scope"] == "canonical-text"
     timing = captured_csv.get("timing")

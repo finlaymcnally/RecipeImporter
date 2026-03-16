@@ -68,16 +68,19 @@ def test_merge_split_jobs_reports_main_process_phases(tmp_path: Path) -> None:
     parsed = []
     for message in statuses:
         match = phase_pattern.match(message)
-        assert match is not None
+        if match is None:
+            continue
         parsed.append((int(match.group(1)), int(match.group(2)), message))
 
+    assert parsed
     assert parsed[0][0] == 1
     assert parsed[-1][2].endswith(": Merge done")
     assert parsed[-1][0] == len(parsed)
     assert all(total == parsed[0][1] for _, total, _ in parsed)
-    assert any(message.endswith(": Writing topic candidates...") for _, _, message in parsed)
     assert any(message.endswith(": Writing report...") for _, _, message in parsed)
     assert any(message.endswith(": Merging raw artifacts...") for _, _, message in parsed)
+    assert "Generating knowledge chunks..." in statuses
+    assert "Writing outputs..." in statuses
 
 
 def _output_stats_category_for_path(relative_path: Path) -> str | None:

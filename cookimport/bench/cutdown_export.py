@@ -73,8 +73,6 @@ def build_line_role_joined_line_rows(
                 "within_recipe_span": line_meta.get("within_recipe_span"),
                 "decided_by": line_meta.get("decided_by"),
                 "recipe_id": line_meta.get("recipe_id"),
-                "candidate_labels": list(line_meta.get("candidate_labels") or []),
-                "candidate_label_count": len(list(line_meta.get("candidate_labels") or [])),
                 "line_role_match_kind": str(line_meta.get("match_kind") or "unmatched"),
                 "line_role_prediction_atomic_index": line_meta.get(
                     "prediction_atomic_index"
@@ -223,21 +221,6 @@ def _normalize_label(value: Any) -> str:
     return normalized
 
 
-def _coerce_candidate_labels(row: dict[str, Any]) -> list[str]:
-    labels = row.get("candidate_labels")
-    if not isinstance(labels, list):
-        return []
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in labels:
-        text = str(item or "").strip().upper()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        normalized.append(text)
-    return normalized
-
-
 def _build_line_role_meta_by_line_index(
     *,
     canonical_lines: list[dict[str, Any]],
@@ -320,7 +303,6 @@ def _line_role_meta_payload(
         "decided_by": str(row.get("decided_by") or "").strip().lower() or None,
         "within_recipe_span": _coerce_bool(row.get("within_recipe_span")),
         "recipe_id": str(row.get("recipe_id") or "").strip() or None,
-        "candidate_labels": _coerce_candidate_labels(row),
         "match_kind": str(match_kind),
         "prediction_atomic_index": _coerce_int(row.get("atomic_index")),
     }

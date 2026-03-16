@@ -42,10 +42,13 @@ def _benchmark_test_run_settings(
     *,
     warn_context: str = "test",
 ) -> cli.RunSettings:
-    config: dict[str, object] = {"codex_execution_policy": "auto"}
+    config: dict[str, object] = {}
     if payload:
         config.update(payload)
-    return cli.RunSettings.from_dict(config, warn_context=warn_context)
+    run_settings_payload = {
+        key: value for key, value in config.items() if key in cli.RunSettings.model_fields
+    }
+    return cli.RunSettings.from_dict(run_settings_payload, warn_context=warn_context)
 
 
 def _patch_benchmark_call_kwargs_codex_policy(

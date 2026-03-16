@@ -33,16 +33,13 @@ def test_atomize_hollandaise_merged_block_into_atomic_candidates() -> None:
     assert "Kosher salt." in by_text
     assert "TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER" in by_text
 
-    assert by_text["NOTE: Keep blender cup warm."].candidate_labels[0] == "RECIPE_NOTES"
-    assert by_text["MAKES ABOUT 1 CUP"].candidate_labels[0] == "YIELD_LINE"
-    assert by_text["3 large egg yolks"].candidate_labels[0] == "INGREDIENT_LINE"
-    assert by_text["1 tablespoon lemon juice"].candidate_labels[0] == "INGREDIENT_LINE"
-    assert by_text["1 stick unsalted butter, melted"].candidate_labels[0] == "INGREDIENT_LINE"
-    assert by_text["Kosher salt."].candidate_labels[0] == "INGREDIENT_LINE"
-    assert (
-        by_text["TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER"].candidate_labels[0]
-        == "HOWTO_SECTION"
-    )
+    assert "note_prefix" in by_text["NOTE: Keep blender cup warm."].rule_tags
+    assert "yield_prefix" in by_text["MAKES ABOUT 1 CUP"].rule_tags
+    assert "ingredient_like" in by_text["3 large egg yolks"].rule_tags
+    assert "ingredient_like" in by_text["1 tablespoon lemon juice"].rule_tags
+    assert "ingredient_like" in by_text["1 stick unsalted butter, melted"].rule_tags
+    assert "ingredient_like" in by_text["Kosher salt."].rule_tags
+    assert "howto_heading" in by_text["TO MAKE HOLLANDAISE WITH AN IMMERSION BLENDER"].rule_tags
 
     for index, candidate in enumerate(candidates):
         assert candidate.atomic_index == index
@@ -60,9 +57,9 @@ def test_atomize_range_ingredient_not_yield() -> None:
     )
     by_text = {candidate.text: candidate for candidate in candidates}
 
-    assert by_text["SERVES 4"].candidate_labels[0] == "YIELD_LINE"
-    assert by_text["4 to 6 chicken leg quarters"].candidate_labels[0] == "INGREDIENT_LINE"
-    assert by_text["2 tablespoons olive oil"].candidate_labels[0] == "INGREDIENT_LINE"
+    assert "yield_prefix" in by_text["SERVES 4"].rule_tags
+    assert "ingredient_like" in by_text["4 to 6 chicken leg quarters"].rule_tags
+    assert "ingredient_like" in by_text["2 tablespoons olive oil"].rule_tags
 
 
 def test_atomize_omelet_variant_fixture() -> None:
@@ -77,15 +74,9 @@ def test_atomize_omelet_variant_fixture() -> None:
     )
     by_text = {candidate.text: candidate for candidate in candidates}
 
-    assert (
-        by_text["DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET"].candidate_labels[0]
-        == "RECIPE_VARIANT"
-    )
-    assert by_text["3 tablespoons whole milk"].candidate_labels[0] == "INGREDIENT_LINE"
-    assert (
-        by_text["1. Whisk eggs with milk and season with salt."].candidate_labels[0]
-        == "INSTRUCTION_LINE"
-    )
+    assert "variant_heading" in by_text["DINER-STYLE MUSHROOM, PEPPER, AND ONION OMELET"].rule_tags
+    assert "ingredient_like" in by_text["3 tablespoons whole milk"].rule_tags
+    assert "instruction_like" in by_text["1. Whisk eggs with milk and season with salt."].rule_tags
 
 
 def test_atomize_inline_numbered_steps_into_multiple_instruction_candidates() -> None:
@@ -105,7 +96,9 @@ def test_atomize_inline_numbered_steps_into_multiple_instruction_candidates() ->
         "2. Add onions and cook until soft.",
         "3. Cover and braise for 45 minutes.",
     ]
-    assert all(candidate.candidate_labels[0] == "INSTRUCTION_LINE" for candidate in candidates)
+    assert "instruction_like" in candidates[0].rule_tags
+    assert "instruction_like" in candidates[1].rule_tags
+    assert "instruction_with_time" in candidates[2].rule_tags
 
 
 def test_atomize_marks_explicit_prose_tag_for_fallback_paragraphs() -> None:
@@ -124,7 +117,7 @@ def test_atomize_marks_explicit_prose_tag_for_fallback_paragraphs() -> None:
         within_recipe_span=False,
     )
     assert len(outside_candidates) == 1
-    assert outside_candidates[0].candidate_labels[0] == "KNOWLEDGE"
+    assert "outside_recipe_span" in outside_candidates[0].rule_tags
     assert "explicit_prose" in outside_candidates[0].rule_tags
 
     inside_candidates = atomize_blocks(
@@ -142,7 +135,7 @@ def test_atomize_marks_explicit_prose_tag_for_fallback_paragraphs() -> None:
         within_recipe_span=True,
     )
     assert len(inside_candidates) == 1
-    assert inside_candidates[0].candidate_labels[0] == "OTHER"
+    assert "recipe_span_fallback" in inside_candidates[0].rule_tags
     assert "explicit_prose" in inside_candidates[0].rule_tags
 
 
@@ -159,7 +152,7 @@ def test_atomize_title_like_line_offers_recipe_title_candidate_inside_recipe() -
         within_recipe_span=True,
     )
     assert len(candidates) == 1
-    assert candidates[0].candidate_labels[0] == "RECIPE_TITLE"
+    assert "title_like" in candidates[0].rule_tags
     assert "title_like" in candidates[0].rule_tags
 
 
@@ -179,7 +172,7 @@ def test_atomize_note_like_prose_not_preclassified_as_instruction() -> None:
         within_recipe_span=True,
     )
     assert len(candidates) == 1
-    assert candidates[0].candidate_labels[0] == "RECIPE_NOTES"
+    assert "note_like_prose" in candidates[0].rule_tags
     assert "note_like_prose" in candidates[0].rule_tags
     assert "instruction_like" not in candidates[0].rule_tags
 
@@ -202,8 +195,8 @@ def test_atomize_short_quantity_led_lines_stay_ingredient_candidates() -> None:
         within_recipe_span=False,
     )
     assert len(candidates) == 2
-    assert candidates[0].candidate_labels[0] == "INGREDIENT_LINE"
-    assert candidates[1].candidate_labels[0] == "INGREDIENT_LINE"
+    assert "ingredient_like" in candidates[0].rule_tags
+    assert "ingredient_like" in candidates[1].rule_tags
 
 
 def test_atomize_keeps_instructional_multi_quantity_prose_unsplit() -> None:
@@ -218,7 +211,7 @@ def test_atomize_keeps_instructional_multi_quantity_prose_unsplit() -> None:
     )
     assert len(candidates) == 1
     assert candidates[0].text == line
-    assert candidates[0].candidate_labels[0] == "INSTRUCTION_LINE"
+    assert "instruction_with_time" in candidates[0].rule_tags
 
 
 def test_atomize_blocks_respects_off_splitter_mode() -> None:

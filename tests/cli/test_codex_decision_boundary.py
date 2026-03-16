@@ -8,7 +8,7 @@ import pytest
 import typer
 
 from cookimport import cli, entrypoint
-from cookimport.config.codex_decision import bucket1_fixed_behavior
+from cookimport.config.codex_decision import bucket1_fixed_behavior, classify_codex_surfaces
 
 
 def test_stage_requires_allow_codex(
@@ -141,6 +141,18 @@ def test_labelstudio_import_prelabel_requires_allow_codex(
     assert failures
     assert "prelabel" in failures[0]
     assert "--allow-codex" in failures[0]
+
+
+def test_codex_surface_classification_treats_prelabel_as_codex_surface() -> None:
+    surface = classify_codex_surfaces(
+        {
+            "prelabel_enabled": True,
+            "prelabel_provider": "legacy-provider",
+        }
+    )
+    assert surface.prelabel_codex_enabled is True
+    assert surface.any_codex_enabled is True
+    assert surface.codex_surfaces == ("prelabel",)
 
 
 def test_labelstudio_import_plan_mode_allows_codex_without_allow_codex(

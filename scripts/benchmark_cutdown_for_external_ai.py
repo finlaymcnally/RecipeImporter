@@ -9120,8 +9120,6 @@ def _upload_bundle_build_line_role_confidence_summary(
     low_confidence_examples: list[dict[str, Any]] = []
     low_confidence_by_label: Counter[str] = Counter()
     low_confidence_by_decided_by: Counter[str] = Counter()
-    candidate_label_rows = 0
-    candidate_label_counts: Counter[str] = Counter()
     total_rows = 0
 
     for path in sorted(file_paths):
@@ -9134,11 +9132,6 @@ def _upload_bundle_build_line_role_confidence_summary(
             decided_by_counts[decided_by] += 1
             if confidence is not None:
                 confidence_values.append(float(confidence))
-            candidate_labels = _upload_bundle_extract_candidate_labels(row)
-            if candidate_labels:
-                candidate_label_rows += 1
-                for candidate in candidate_labels:
-                    candidate_label_counts[candidate] += 1
             if (
                 confidence is not None
                 and confidence < UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD
@@ -9192,22 +9185,6 @@ def _upload_bundle_build_line_role_confidence_summary(
                 else None
             ),
         },
-        "candidate_label_signal": {
-            "available": candidate_label_rows > 0,
-            "rows_with_candidate_labels": candidate_label_rows,
-            "top_candidate_labels": [
-                {"label": label, "count": count}
-                for label, count in candidate_label_counts.most_common(12)
-            ],
-            "unavailable_reason": (
-                ""
-                if candidate_label_rows > 0
-                else (
-                    "line-role predictions do not include recognized candidate-label fields "
-                    "(candidate_labels/label_candidates/candidates/label_scores)"
-                )
-            ),
-        },
         "selective_escalation_signal": {
             "low_confidence_threshold": UPLOAD_BUNDLE_LOW_CONFIDENCE_THRESHOLD,
             "low_confidence_row_count": int(sum(low_confidence_by_label.values())),
@@ -9223,48 +9200,6 @@ def _upload_bundle_build_line_role_confidence_summary(
         },
         "low_confidence_examples": low_confidence_examples[:24],
     }
-
-
-def _upload_bundle_extract_candidate_labels(row: dict[str, Any]) -> list[str]:
-    def _normalize_candidate(value: Any) -> str | None:
-        if isinstance(value, str):
-            text = value.strip().upper()
-            return text or None
-        if isinstance(value, dict):
-            for key in ("label", "name", "pred_label", "candidate"):
-                text = str(value.get(key) or "").strip().upper()
-                if text:
-                    return text
-        return None
-
-    labels: list[str] = []
-    for field_name in (
-        "candidate_labels",
-        "label_candidates",
-        "candidates",
-        "top_candidates",
-    ):
-        payload = row.get(field_name)
-        if isinstance(payload, list):
-            for item in payload:
-                normalized = _normalize_candidate(item)
-                if normalized:
-                    labels.append(normalized)
-    for field_name in ("candidate_label_scores", "label_scores", "candidate_distribution"):
-        payload = row.get(field_name)
-        if isinstance(payload, dict):
-            for label in payload.keys():
-                normalized = _normalize_candidate(label)
-                if normalized:
-                    labels.append(normalized)
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for label in labels:
-        if label in seen:
-            continue
-        seen.add(label)
-        deduped.append(label)
-    return deduped
 
 
 def _upload_bundle_safe_run_subdir(value: str) -> str:
@@ -9951,7 +9886,6 @@ def _upload_bundle_collect_line_role_prediction_rows(
             row_payload["source_key"] = source_key
             row_payload["output_subdir"] = output_subdir
             row_payload["confidence"] = _coerce_float(row_payload.get("confidence"))
-            row_payload["candidate_labels"] = _upload_bundle_extract_candidate_labels(row_payload)
             rows.append(row_payload)
     return rows, sorted(set(relative_paths))
 
@@ -10053,7 +9987,6 @@ def _upload_bundle_build_low_confidence_changed_lines_packet(
                 "confidence": float(confidence),
                 "label": str(selected.get("label") or "OTHER"),
                 "decided_by": str(selected.get("decided_by") or "unknown"),
-                "candidate_labels": _coerce_str_list(selected.get("candidate_labels")),
                 "gold_label": str(changed_row.get("gold_label") or ""),
                 "baseline_pred": str(
                     changed_row.get("vanilla_pred") or changed_row.get("baseline_pred") or ""
@@ -12614,7 +12547,7 @@ def _write_upload_bundle_three_files(
         "analysis.changed_lines_stratified_sample",
         "analysis.low_confidence_changed_lines_packet",
         "analysis.call_inventory_runtime",
-        "analysis.line_role_confidence_or_candidates",
+        "analysis.line_role_confidence",
     ]
     if high_level_only:
         default_initial_views.insert(2, "analysis.group_high_level")
@@ -12745,7 +12678,7 @@ def _write_upload_bundle_three_files(
             "changed_lines_stratified_sample": changed_line_stratified,
             "low_confidence_changed_lines_packet": low_confidence_changed_lines_summary,
             "call_inventory_runtime": call_runtime_inventory,
-            "line_role_confidence_or_candidates": line_role_signal_summary,
+            "line_role_confidence": line_role_signal_summary,
             "selected_recipe_packets": {
                 "packet_count": len(selected_packets),
                 "packets": selected_packets,
@@ -13052,12 +12985,6 @@ def _write_upload_bundle_three_files(
     estimated_cost_signal = (
         estimated_cost_signal if isinstance(estimated_cost_signal, dict) else {}
     )
-    candidate_signal = (
-        line_role_signal_summary.get("candidate_label_signal")
-        if isinstance(line_role_signal_summary, dict)
-        else {}
-    )
-    candidate_signal = candidate_signal if isinstance(candidate_signal, dict) else {}
     overview_lines.extend(
         [
             "## Availability Notes",
@@ -13077,10 +13004,6 @@ def _write_upload_bundle_three_files(
             (
                 "- call_cost_estimated_coverage_ratio: "
                 f"{_serialize_float(_coerce_float(estimated_cost_signal.get('coverage_ratio')))}"
-            ),
-            (
-                "- line_role_candidate_labels_available: "
-                f"{'true' if bool(candidate_signal.get('available')) else 'false'}"
             ),
             (
                 "- total_duration_ms: "

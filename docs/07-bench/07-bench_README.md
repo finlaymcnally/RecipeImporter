@@ -70,6 +70,7 @@ Most benchmark behavior is shared with this command. Active benchmark-specific c
 - stage-block eval runs force `line_role_pipeline=off` and `atomic_block_splitter=off`; line-role/atomic controls apply to canonical-text runs.
 - `--codex-farm-recipe-mode extract|benchmark`
 - Internal-only benchmark settings payloads and QualitySuite `run_settings_patch` values still accept Bucket 2 parser/OCR/scoring knobs such as `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `pdf_column_gap_ratio`, `line_role_guardrail_mode`, `ocr_device`, `ocr_batch_size`, and `codex_farm_failure_mode`, but those no longer appear in ordinary `labelstudio-benchmark --help`.
+- QualitySuite `run_settings_patch` validation also accepts legacy Bucket 1 compatibility keys (for example `section_detector_backend` and `instruction_step_*`) so historical experiment files still load; those keys remain fixed-behavior compatibility inputs, not active quality-run tuning levers.
 - The benchmark-lab public layer is narrower than the raw schema: EPUB parser tuning, web fallback tuning, `atomic_block_splitter`, `line_role_pipeline`, `codex_farm_recipe_mode`, and Codex model/effort overrides stay benchmark-visible, while internal and retired keys remain artifact-only.
 - when `codex_farm_recipe_mode=benchmark`, pass2/pass3 partial-output runs that were already accepted by the runner can now retry only the missing bundle files; successful original outputs stay untouched, retry artifacts live under `raw/llm/<workbook_slug>/pass2_schemaorg/retry_attempt_XX` or `pass3_final/retry_attempt_XX`, detailed truth lives in `raw/llm/<workbook_slug>/llm_manifest.json`, and benchmark/prediction-run `run_manifest.json` keeps concise retry counts while the benchmark root also preserves a direct `llm_manifest_json` artifact link.
 - CodexFarm benchmark prediction roots now surface structural/invariant diagnostics directly in `raw/llm/<workbook_slug>/llm_manifest.json`:
@@ -181,9 +182,7 @@ Offline `labelstudio-benchmark` prediction generation now forwards pass4 knowled
 `--atomic-block-splitter off` keeps one candidate per extracted block; `--atomic-block-splitter atomic-v1` enables deterministic block atomization before line-role labeling.
 When `--line-role-pipeline != off`, eval runs also write diagnostics under `line-role-pipeline/`:
 - `line_role_predictions.jsonl` (copied from prediction-run artifact)
-  - rows can include `candidate_labels`; on current codex line-role runs this is the full global label vocabulary, not a per-row LLM shortlist.
 - `joined_line_table.jsonl`
-  - rows include `candidate_labels` and `candidate_label_count` for joined-line triage.
   - exporter matching is conservative: metadata is attached only when a line-role prediction matches the canonical line by exact normalized text (same index+text first, then exact-text sequence alignment); split/merged or ambiguous duplicate lines stay unmatched rather than inheriting another line's telemetry.
 - `line_role_flips_vs_baseline.jsonl`
   - baseline source is paired history eval rows when available (same source, canonical mode, `line_role_pipeline=off`, preferring matching `llm_recipe_pipeline`); fallback remains inferred baseline from `decided_by` metadata when no paired baseline exists.
@@ -220,7 +219,7 @@ Generated roots:
 - `labelstudio-benchmark` writes benchmark artifacts under benchmark run roots.
 - Stage runs write stage evidence under `.bench/<workbook_slug>/stage_block_predictions.json`; pred-run builders copy this into run-root `stage_block_predictions.json`.
 - Line-role prediction runs additionally emit `line-role-pipeline/line_role_predictions.jsonl`, `line-role-pipeline/freeform_span_predictions.jsonl`, `line-role-pipeline/stage_block_predictions.json`, `line-role-pipeline/extracted_archive.json`, `line-role-pipeline/guardrail_report.json`, and `line-role-pipeline/guardrail_changed_rows.jsonl`.
-  - when pass4 snippets are available, `line-role-pipeline/freeform_span_predictions.jsonl` and `line-role-pipeline/stage_block_predictions.json` include the merged pass4 `KNOWLEDGE` upgrades that canonical-text scoring consumes.
+  - these remain diagnostics/analysis artifacts for new stage-backed benchmark runs; canonical-text scoring now reads the primary stage-backed `stage_block_predictions.json` instead of preferring the projected line-role copy.
 - CodexFarm recipe prediction runs additionally emit `raw/llm/<workbook_slug>/guardrail_report.json` and `raw/llm/<workbook_slug>/guardrail_rows.jsonl`; those paths are also linked from `llm_manifest.json` and the prediction-run manifest when present.
 
 ## 2026-03-06 merged understandings digest (follow-up/debug/reuse seams)
@@ -290,8 +289,7 @@ When eval roots are retained, benchmark runs also write an upload-friendly 3-fil
 - upload bundles now include `analysis.low_confidence_changed_lines_packet`; packet rows may be empty but are still emitted with an explicit empty-note.
 - call-runtime summaries expose observed-cost `cost_signal` plus token-based `estimated_cost_signal` fallback fields (default pricing, clearly marked as estimates) so missing per-call cost data is explicit while preserving first-pass cost ordering.
 - benchmark pair inventory includes `generalization_readiness` (`minimum_pairs_for_generalization`, `additional_pairs_needed_for_generalization`) for quick triage on single-pair overfitting risk.
-- line-role candidate-label analytics accept multiple candidate field shapes (`candidate_labels`, `label_candidates`, `candidates`, `label_scores`) for forward compatibility.
-  - new codex-line-role-v1 runs should report `candidate_label_signal.available=true` once `line_role_predictions.jsonl` includes `candidate_labels`.
+- upload bundles now publish `analysis.line_role_confidence` for confidence stats, low-confidence slices, and `decided_by` counts.
 - stage-separated per-label views now attempt pass2/pass3 scoring directly from discovered prediction-run codex artifacts (`raw/llm/*/pass2_schemaorg` and `pass3_final`) and surface `label_scored=true` when projection/scoring succeeds.
   - fallback remains explicit (`label_scored=false` + `unavailable_reason`) for older/incomplete runs or missing gold-label paths.
 - row locators now include basename fallback resolution (for example, mapping comparison-summary lookups to `codex_vs_vanilla_comparison.json` when that is the available root artifact) plus critical locator coverage counters in `self_check`.
@@ -1685,10 +1683,10 @@ Current benchmark contract reminders:
   - candidate recall floors stay blocking at `RECIPE_NOTES > 0.40`, `RECIPE_VARIANT > 0.40`, `INGREDIENT_LINE > 0.35`.
 - Historical anti-loop note:
   - comparator-gate semantics changed during iteration; keep run-level `regression_gates.md` artifacts when debugging "why did this gate change?".
-- Line-role projection remains the benchmark/prediction bridge:
-  - prediction generation writes `prediction-run/line-role-pipeline/*` projection artifacts,
-  - canonical benchmark bundle loading prefers projected stage/archive files when available,
-  - optional draft updates can project predicted line roles back into recipe fields to align draft and benchmark views.
+- Line-role projection is now diagnostics-only in the benchmark bridge:
+  - prediction generation may still write `prediction-run/line-role-pipeline/*` projection artifacts,
+  - canonical benchmark bundle loading always uses the primary stage-backed stage/archive files,
+  - optional projection summaries can describe recipe-field deltas without mutating authoritative stage-backed score inputs.
 
 ## 2026-03-03 docs/tasks merge digest (mixed-format qualitysuite, benchmark GC, and external-AI cutdown contracts)
 
@@ -1763,7 +1761,7 @@ Merged source notes (chronological):
 ### 2026-03-03_21.48.57 upload bundle unavailable-signal interpretation
 
 - `upload_bundle_v1` `calls_with_cost=0` indicates upstream observed billing fields are absent in prompt logs; estimated cost remains the fallback.
-- `candidate_label_signal.available=false` means line-role rows did not include recognized candidate-label payload keys; when available, treat those fields as observational metadata rather than proof of a live LLM restriction.
+- `analysis.line_role_confidence` is the active upload-bundle summary for line-role confidence and selective-escalation evidence.
 - `pair_count=1` in single-source paired runs is expected and below the bundle's `>=2` generalization-readiness threshold.
 - Pass2/pass3 stage-level per-label scoring is intentionally unavailable in current artifacts because pass2/pass3 outputs are recipe-structure payloads, not line-label prediction/eval tables.
 
@@ -1790,12 +1788,12 @@ Current benchmark contracts added/confirmed:
 - Upload bundle output is default in interactive + direct benchmark flows and remains additive by default (`upload_bundle_v1/` does not replace core artifacts).
 - Strict 3-file upload mode remains available for cutdown flows (`--upload-3-files`, `--upload-3-files-only`) while preserving no-data-loss payload indexing.
 - `upload_bundle_v1` index/overview now prioritizes derived topline/self-check and triage navigation while retaining full payload access.
-- Upload bundle call/runtime analysis must distinguish observed cost vs estimated fallback cost, accept multiple candidate-label payload shapes, and expose explicit generalization-readiness fields.
+- Upload bundle call/runtime analysis must distinguish observed cost vs estimated fallback cost and expose explicit generalization-readiness fields.
 
 Anti-loop reminders from this task batch:
 - If benchmark says dashboard refreshed but `.history/dashboard` (repo-local default) is stale, inspect refresh target wiring (`dashboard_out_dir` / `dashboard_output_root`) before touching analytics render code.
 - If interactive outputs disappear after a run, verify prune classifier scope before changing artifact writers.
-- If upload bundle `candidate_label_signal.available` or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage, and current codex runs no longer use candidate-label payloads as per-row prompt constraints.
+- If upload-bundle line-role confidence or cost fields are missing, check upstream artifact availability first; this can be data-availability, not bundle-generation breakage.
 
 ## 2026-03-03 docs/tasks merge digest (upload_bundle candidate-stage scoring + starterpack upgrade)
 
@@ -1804,7 +1802,6 @@ Merged source task files (timestamp/file order):
 - `docs/tasks/2026-03-03_23.18.24-upload-bundle-v1-starterpack-upgrade.md`
 
 Current benchmark/upload-bundle contracts to keep:
-- `upload_bundle_v1` candidate-label analysis is intentionally multi-shape tolerant (`candidate_labels`, `label_candidates`, `candidates`, `top_candidates`, `candidate_label_scores`, `label_scores`, `candidate_distribution`) for backward compatibility and historical runs where candidate metadata meant something different.
 - Pass2/pass3 per-label stage metrics are now on-demand in upload-bundle generation when pass artifacts exist:
   - discover pass artifacts under `prediction-run/raw/llm/*/pass2_schemaorg` and `pass3_final`,
   - project to stage labels,

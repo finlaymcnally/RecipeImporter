@@ -193,7 +193,6 @@ class CanonicalLineRolePrediction(BaseModel):
     label: str
     confidence: float
     decided_by: Literal["rule", "codex", "fallback"]
-    candidate_labels: list[str] = Field(default_factory=list)
     reason_tags: list[str] = Field(default_factory=list)
 
 
@@ -289,12 +288,6 @@ def label_atomic_lines(
                 label=label,
                 confidence=confidence,
                 decided_by="rule",
-                candidate_labels=list(
-                    _candidate_allowlist(
-                        candidate,
-                        by_atomic_index=by_atomic_index,
-                    )
-                ),
                 reason_tags=tags,
             )
         deterministic_baseline[candidate.atomic_index] = baseline_prediction
@@ -467,11 +460,6 @@ def label_atomic_lines(
             telemetry_batches=telemetry_batches,
         )
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
-    if mode == "codex-line-role-v1":
-        sanitized = [
-            prediction.model_copy(update={"candidate_labels": _global_line_role_labels()})
-            for prediction in sanitized
-        ]
     _write_cached_predictions(
         cache_path=cache_path,
         predictions=sanitized,
@@ -798,7 +786,6 @@ def _downgraded_prediction(
         label=prediction.label,
         confidence=prediction.confidence,
         decided_by="fallback",
-        candidate_labels=list(prediction.candidate_labels),
         reason_tags=reason_tags,
     )
 
@@ -1121,7 +1108,6 @@ def _run_codex_batch(
             label=row["label"],
             confidence=0.75,
             decided_by="codex",
-            candidate_labels=_global_line_role_labels(),
             reason_tags=["codex_line_role"],
         )
         for row in parsed_rows
@@ -1668,7 +1654,6 @@ def _canonical_candidate_fingerprint(
                 "atomic_index": candidate.atomic_index,
                 "text": candidate.text,
                 "within_recipe_span": candidate.within_recipe_span,
-                "candidate_labels": list(candidate.candidate_labels),
                 "prev_text": candidate.prev_text,
                 "next_text": candidate.next_text,
                 "rule_tags": list(candidate.rule_tags),
@@ -1826,64 +1811,14 @@ def _deterministic_label(
                 ]
             return "OTHER", 0.66, ["outside_recipe_span", "prose_default_other"]
         return "OTHER", 0.65, ["outside_recipe_span"]
-    if "RECIPE_TITLE" in candidate.candidate_labels and _looks_recipe_title_with_context(
+    if (
+        "title_like" in tags or _looks_recipe_title(candidate.text)
+    ) and _looks_recipe_title_with_context(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
         return "RECIPE_TITLE", 0.8, ["title_like"]
     return None, 0.0, ["needs_disambiguation"]
-
-
-def _candidate_allowlist(
-    candidate: AtomicLineCandidate,
-    *,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-) -> list[str]:
-    if candidate.candidate_labels:
-        labels = [
-            label
-            for label in candidate.candidate_labels
-            if label in FREEFORM_ALLOWED_LABELS
-        ]
-    else:
-        labels = list(FREEFORM_LABELS)
-    if _should_offer_recipe_title(candidate) and "RECIPE_TITLE" not in labels:
-        labels = ["RECIPE_TITLE", *labels]
-    if not candidate.within_recipe_span:
-        labels = [label for label in labels if label != "HOWTO_SECTION"]
-        filtered: list[str] = []
-        for label in labels:
-            if label in {"RECIPE_TITLE", "RECIPE_VARIANT"} and not _outside_span_title_variant_allowed(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            ):
-                continue
-            if label in {"INSTRUCTION_LINE", "INGREDIENT_LINE"} and not _outside_span_structured_line_allowed(
-                candidate,
-                label=label,
-                by_atomic_index=by_atomic_index,
-            ):
-                continue
-            filtered.append(label)
-        labels = filtered
-    if not labels:
-        labels = ["OTHER"]
-    if (
-        candidate.within_recipe_span
-        and "KNOWLEDGE" in labels
-        and not _knowledge_allowed_inside_recipe(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        labels = [label for label in labels if label != "KNOWLEDGE"]
-        if not labels:
-            labels = ["OTHER"]
-    return labels
-
-
-def _global_line_role_labels() -> list[str]:
-    return list(FREEFORM_LABELS)
 
 
 def _fallback_prediction(
@@ -1894,10 +1829,6 @@ def _fallback_prediction(
 ) -> CanonicalLineRolePrediction:
     if by_atomic_index is None:
         by_atomic_index = {int(candidate.atomic_index): candidate}
-    candidate_labels = _candidate_allowlist(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    )
     deterministic_label, deterministic_confidence, deterministic_tags = _deterministic_label(
         candidate,
         by_atomic_index=by_atomic_index,
@@ -1920,7 +1851,6 @@ def _fallback_prediction(
         label=label,
         confidence=confidence,
         decided_by="fallback",
-        candidate_labels=list(candidate_labels),
         reason_tags=reason_tags,
     )
 
@@ -1932,12 +1862,6 @@ def _sanitize_prediction(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> CanonicalLineRolePrediction:
     label = prediction.label if prediction.label in FREEFORM_ALLOWED_LABELS else "OTHER"
-    candidate_labels = _candidate_allowlist(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    )
-    if label not in candidate_labels:
-        candidate_labels = [label, *candidate_labels]
     reason_tags = list(prediction.reason_tags)
     decided_by = prediction.decided_by
     if (
@@ -2002,8 +1926,6 @@ def _sanitize_prediction(
             label = _outside_span_fallback_label(candidate)
             decided_by = "fallback"
             reason_tags.append("outside_span_structured_label_needs_local_evidence")
-    if label not in candidate_labels:
-        candidate_labels = [label, *candidate_labels]
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -2014,7 +1936,6 @@ def _sanitize_prediction(
         label=label,
         confidence=prediction.confidence,
         decided_by=decided_by,
-        candidate_labels=list(candidate_labels),
         reason_tags=reason_tags,
     )
 
@@ -2043,7 +1964,6 @@ def _prediction_with_reason_tags(
         label=prediction.label,
         confidence=prediction.confidence,
         decided_by=decided_by or prediction.decided_by,
-        candidate_labels=list(prediction.candidate_labels),
         reason_tags=reason_tags,
     )
 
@@ -2131,6 +2051,7 @@ def _should_escalate_low_confidence_candidate(
     confidence: float,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
+    del by_atomic_index
     if float(confidence) >= _CODEX_LOW_CONFIDENCE_THRESHOLD:
         return False
     if (
@@ -2140,13 +2061,7 @@ def _should_escalate_low_confidence_candidate(
         return False
     if deterministic_label == "RECIPE_TITLE":
         return False
-    candidate_allowlist = _candidate_allowlist(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    )
-    if deterministic_label is not None and deterministic_label not in candidate_allowlist:
-        return False
-    return len(candidate_allowlist) > 1
+    return True
 
 
 def _outside_span_low_confidence_escalation_enabled() -> bool:
@@ -2339,11 +2254,6 @@ def _neighbor_is_ingredient_dominant(candidate: AtomicLineCandidate | None) -> b
         return True
     if _looks_obvious_ingredient(candidate):
         return True
-    labels = {str(label).strip().upper() for label in candidate.candidate_labels}
-    if "INGREDIENT_LINE" in labels and not (
-        {"instruction_like", "instruction_with_time"} & tags
-    ):
-        return True
     return False
 
 
@@ -2529,23 +2439,6 @@ def _looks_compact_heading(text: str) -> bool:
         return False
     uppercase_chars = sum(1 for ch in stripped if ch.isupper())
     return (uppercase_chars / alpha_chars) >= 0.68
-
-
-def _should_offer_recipe_title(candidate: AtomicLineCandidate) -> bool:
-    tags = {str(tag) for tag in candidate.rule_tags}
-    if any(
-        blocked in tags
-        for blocked in {
-            "note_prefix",
-            "yield_prefix",
-            "howto_heading",
-            "instruction_like",
-            "instruction_with_time",
-            "time_metadata",
-        }
-    ):
-        return False
-    return _looks_recipe_title(candidate.text)
 
 
 def _looks_note_text(text: str) -> bool:

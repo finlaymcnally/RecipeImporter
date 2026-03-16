@@ -122,7 +122,6 @@ class AtomicLineCandidate(BaseModel):
     atomic_index: int
     text: str
     within_recipe_span: bool
-    candidate_labels: list[str] = Field(default_factory=list)
     prev_text: str | None = None
     next_text: str | None = None
     rule_tags: list[str] = Field(default_factory=list)
@@ -146,7 +145,7 @@ def atomize_blocks(
         else:
             segments = [block_text]
         for segment in segments:
-            labels, rule_tags = _infer_candidate_labels(
+            rule_tags = _infer_rule_tags(
                 segment,
                 within_recipe_span=within_recipe_span,
             )
@@ -157,7 +156,6 @@ def atomize_blocks(
                     "block_index": block_index,
                     "text": segment,
                     "within_recipe_span": within_recipe_span,
-                    "candidate_labels": labels,
                     "rule_tags": rule_tags,
                 }
             )
@@ -174,7 +172,6 @@ def atomize_blocks(
                 atomic_index=atomic_index,
                 text=str(row["text"]),
                 within_recipe_span=bool(row["within_recipe_span"]),
-                candidate_labels=list(row["candidate_labels"]),
                 prev_text=prev_text,
                 next_text=next_text,
                 rule_tags=list(row["rule_tags"]),
@@ -346,42 +343,42 @@ def _is_control_line(text: str) -> bool:
     )
 
 
-def _infer_candidate_labels(
+def _infer_rule_tags(
     text: str,
     *,
     within_recipe_span: bool,
-) -> tuple[list[str], list[str]]:
+) -> list[str]:
     if _is_note_line(text):
-        return ["RECIPE_NOTES", "OTHER"], ["note_prefix"]
+        return ["note_prefix"]
     if _is_yield_line(text):
-        return ["YIELD_LINE", "INGREDIENT_LINE", "OTHER"], ["yield_prefix"]
+        return ["yield_prefix"]
     if _is_howto_heading(text):
-        return ["HOWTO_SECTION", "RECIPE_VARIANT", "OTHER"], ["howto_heading"]
+        return ["howto_heading"]
     if _is_variant_heading(text):
-        return ["RECIPE_VARIANT", "RECIPE_TITLE", "OTHER"], ["variant_heading"]
+        return ["variant_heading"]
     if _is_recipe_title_like(text):
         if within_recipe_span:
-            return ["RECIPE_TITLE", "RECIPE_VARIANT", "OTHER"], ["title_like"]
-        return ["RECIPE_TITLE", "KNOWLEDGE", "OTHER"], ["title_like", "outside_recipe_span"]
+            return ["title_like"]
+        return ["title_like", "outside_recipe_span"]
     if _is_ingredient_line(text):
-        return ["INGREDIENT_LINE", "YIELD_LINE", "OTHER"], ["ingredient_like"]
+        return ["ingredient_like"]
     if _looks_note_prose(text):
-        return ["RECIPE_NOTES", "INSTRUCTION_LINE", "OTHER"], ["note_like_prose"]
+        return ["note_like_prose"]
     if _is_numbered_instruction(text) or _is_instruction_sentence(text):
         if _is_time_metadata(text):
-            return ["INSTRUCTION_LINE", "TIME_LINE", "OTHER"], ["instruction_with_time"]
-        return ["INSTRUCTION_LINE", "TIME_LINE", "OTHER"], ["instruction_like"]
+            return ["instruction_with_time"]
+        return ["instruction_like"]
     if _is_time_metadata(text):
-        return ["TIME_LINE", "INSTRUCTION_LINE", "OTHER"], ["time_metadata"]
+        return ["time_metadata"]
     if within_recipe_span:
         rule_tags = ["recipe_span_fallback"]
         if _looks_explicit_prose(text):
             rule_tags.append("explicit_prose")
-        return ["OTHER", "KNOWLEDGE"], rule_tags
+        return rule_tags
     rule_tags = ["outside_recipe_span"]
     if _looks_explicit_prose(text):
         rule_tags.append("explicit_prose")
-    return ["KNOWLEDGE", "OTHER"], rule_tags
+    return rule_tags
 
 
 def _is_note_line(text: str) -> bool:

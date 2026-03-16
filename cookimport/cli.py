@@ -11629,47 +11629,6 @@ def _resolve_stage_predictions_for_benchmark(
     return pred_run / "stage_block_predictions.json"
 
 
-def _resolve_line_role_projection_for_benchmark(
-    *,
-    import_result: dict[str, Any],
-    pred_context: PredRunContext,
-    pred_run: Path,
-) -> tuple[Path, Path] | None:
-    stage_candidates: list[Path] = []
-    for value in (
-        import_result.get("line_role_pipeline_stage_block_predictions_path"),
-        pred_context.line_role_stage_block_predictions_path,
-        pred_run / "line-role-pipeline" / "stage_block_predictions.json",
-    ):
-        if not value:
-            continue
-        stage_candidates.append(Path(str(value)))
-
-    archive_candidates: list[Path] = []
-    for value in (
-        import_result.get("line_role_pipeline_extracted_archive_path"),
-        pred_context.line_role_extracted_archive_path,
-        pred_run / "line-role-pipeline" / "extracted_archive.json",
-    ):
-        if not value:
-            continue
-        archive_candidates.append(Path(str(value)))
-
-    resolved_stage: Path | None = None
-    for candidate in stage_candidates:
-        if candidate.exists() and candidate.is_file():
-            resolved_stage = candidate
-            break
-    resolved_archive: Path | None = None
-    for candidate in archive_candidates:
-        if candidate.exists() and candidate.is_file():
-            resolved_archive = candidate
-            break
-    if resolved_stage is None or resolved_archive is None:
-        return None
-    return resolved_stage, resolved_archive
-
-
 def _resolve_line_role_predictions_for_benchmark(
     *,
     import_result: dict[str, Any],
@@ -11776,7 +11735,6 @@ def _build_prediction_bundle_from_import_result(
     import_result: dict[str, Any],
     eval_output_dir: Path,
     prediction_phase_seconds: float,
-    prefer_line_role_projection: bool = False,
 ) -> BenchmarkPredictionBundle:
     pred_run = _co_locate_prediction_run_for_benchmark(
         Path(import_result["run_root"]),
@@ -11794,23 +11752,12 @@ def _build_prediction_bundle_from_import_result(
         or not default_extracted_archive_path.is_file()
     ):
         _fail(f"Prediction run is missing extracted_archive.json: {pred_run}")
-    stage_predictions_path = default_stage_predictions_path
-    extracted_archive_path = default_extracted_archive_path
-    if prefer_line_role_projection:
-        projected = _resolve_line_role_projection_for_benchmark(
-            import_result=import_result,
-            pred_context=pred_context,
-            pred_run=pred_run,
-        )
-        if projected is not None:
-            stage_predictions_path, extracted_archive_path = projected
-
     return BenchmarkPredictionBundle(
         import_result=import_result,
         pred_run=pred_run,
         pred_context=pred_context,
-        stage_predictions_path=stage_predictions_path,
-        extracted_archive_path=extracted_archive_path,
+        stage_predictions_path=default_stage_predictions_path,
+        extracted_archive_path=default_extracted_archive_path,
         prediction_phase_seconds=max(0.0, prediction_phase_seconds),
     )
 
@@ -11895,7 +11842,6 @@ def _run_offline_benchmark_prediction_stage(
         import_result=import_result,
         eval_output_dir=eval_output_dir,
         prediction_phase_seconds=prediction_phase_seconds,
-        prefer_line_role_projection=False,
     )
     prediction_records = list(
         predict_stage(
@@ -12017,9 +11963,9 @@ def _run_offline_benchmark_prediction_stage(
     )
     codexfarm_prompt_response_log_path = (
         llm_prompt_artifacts.build_codex_farm_prompt_response_log(
-        pred_run=pred_run,
-        eval_output_dir=eval_output_dir,
-        repo_root=REPO_ROOT,
+            pred_run=pred_run,
+            eval_output_dir=eval_output_dir,
+            repo_root=REPO_ROOT,
         )
     )
     return BenchmarkPredictionStageResult(
@@ -23345,8 +23291,6 @@ def _merge_split_jobs(
                 f"represented ({standalone_coverage:.0%})."
             )
 
-    output_stats = OutputStats(out)
-
     recipe_likeness_results = [
         candidate.recipe_likeness
         for candidate in merged_result.recipes
@@ -27156,9 +27100,9 @@ def labelstudio_import(
         run_root_path = Path(str(run_root_value))
         codexfarm_prompt_response_log_path = (
             llm_prompt_artifacts.build_codex_farm_prompt_response_log(
-            pred_run=run_root_path,
-            eval_output_dir=run_root_path,
-            repo_root=REPO_ROOT,
+                pred_run=run_root_path,
+                eval_output_dir=run_root_path,
+                repo_root=REPO_ROOT,
             )
         )
 
@@ -29206,15 +29150,10 @@ def labelstudio_benchmark(
                         stage_prediction_seconds = max(
                             0.0, time.monotonic() - prediction_phase_started
                         )
-                        use_line_role_projection = (
-                            selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
-                            and selected_line_role_pipeline != "off"
-                        )
                         return _build_prediction_bundle_from_import_result(
                             import_result=stage_import_result,
                             eval_output_dir=eval_output_dir,
                             prediction_phase_seconds=stage_prediction_seconds,
-                            prefer_line_role_projection=use_line_role_projection,
                         )
 
                     def _prewarm_evaluation_inputs() -> dict[str, Path] | None:
@@ -29274,9 +29213,9 @@ def labelstudio_benchmark(
         extracted_archive_path = prediction_bundle.extracted_archive_path
         codexfarm_prompt_response_log_path = (
             llm_prompt_artifacts.build_codex_farm_prompt_response_log(
-            pred_run=pred_run,
-            eval_output_dir=eval_output_dir,
-            repo_root=REPO_ROOT,
+                pred_run=pred_run,
+                eval_output_dir=eval_output_dir,
+                repo_root=REPO_ROOT,
             )
         )
         prediction_phase_seconds = prediction_bundle.prediction_phase_seconds

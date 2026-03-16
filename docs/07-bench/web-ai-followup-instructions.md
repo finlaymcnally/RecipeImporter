@@ -96,7 +96,7 @@ When present, these are the highest-value things to reason from before asking fo
 - `analysis.changed_lines_stratified_sample`
 - `analysis.low_confidence_changed_lines_packet`
 - `analysis.call_inventory_runtime`
-- `analysis.line_role_confidence_or_candidates`
+- `analysis.line_role_confidence`
 - `analysis.pass4_knowledge`
 - `analysis.group_high_level`, `analysis.book_scorecard`, `analysis.ablation_summary`, `analysis.outside_span_by_book`, `analysis.runtime_by_book` for multi-book sessions
 

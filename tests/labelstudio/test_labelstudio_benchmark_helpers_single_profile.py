@@ -21,7 +21,6 @@ def test_interactive_benchmark_single_profile_all_matched_mode_routes_to_runner(
     chosen_settings = cli.RunSettings.from_dict(
         {
             "epub_extractor": "beautifulsoup",
-            "instruction_step_segmentation_policy": "off",
         },
         warn_context="test single-profile chooser",
     )
@@ -80,7 +79,6 @@ def test_interactive_benchmark_single_profile_selected_matched_mode_routes_to_ru
     chosen_settings = cli.RunSettings.from_dict(
         {
             "epub_extractor": "beautifulsoup",
-            "instruction_step_segmentation_policy": "off",
         },
         warn_context="test single-profile selected chooser",
     )
@@ -399,14 +397,10 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-farm-3pass-v1",
-            "section_detector_backend": "legacy",
             "multi_recipe_splitter": "legacy",
-            "instruction_step_segmentation_policy": "auto",
             "pdf_ocr_policy": "auto",
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_skip_headers_footers": False,
-            "codex_farm_pipeline_pass2": "recipe.schemaorg.v1",
-            "codex_farm_pipeline_pass3": "recipe.final.v1",
         },
         warn_context="test single-profile codex",
     )

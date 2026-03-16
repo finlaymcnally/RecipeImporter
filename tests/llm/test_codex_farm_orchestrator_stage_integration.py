@@ -183,7 +183,10 @@ def test_stage_one_file_skips_codex_farm_when_pipeline_off(
     def _fake_import(*_args, **_kwargs):
         return fake_result.model_copy(deep=True), TimingStats(), MappingConfig()
 
-    monkeypatch.setattr("cookimport.cli_worker.run_codex_farm_recipe_pipeline", _fake_orchestrator)
+    monkeypatch.setattr(
+        "cookimport.staging.import_session.run_codex_farm_recipe_pipeline",
+        _fake_orchestrator,
+    )
     monkeypatch.setattr("cookimport.cli_worker._run_import", _fake_import)
     monkeypatch.setattr(
         "cookimport.cli_worker.registry.best_importer_for_path",

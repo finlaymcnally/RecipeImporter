@@ -89,6 +89,23 @@ _ALL_METHOD_RUNTIME_ALLOWED_KEYS = {
     "smart_scheduler",
 }
 _RACE_KEEP_RATIO_SECONDARY = 0.5
+_RUN_SETTINGS_PATCH_COMPAT_KEYS = {
+    "section_detector_backend",
+    "instruction_step_segmentation_policy",
+    "instruction_step_segmenter",
+    "benchmark_sequence_matcher",
+    "multi_recipe_trace",
+    "p6_emit_metadata_debug",
+    "codex_farm_pass1_pattern_hints_enabled",
+    "codex_farm_pipeline_pass1",
+    "codex_farm_pipeline_pass2",
+    "codex_farm_pipeline_pass3",
+    "codex_farm_pipeline_pass4_knowledge",
+    "codex_farm_pipeline_pass5_tags",
+    "codex_farm_pass3_skip_pass2_ok",
+    "codex_farm_benchmark_selective_retry_enabled",
+    "codex_farm_benchmark_selective_retry_max_attempts",
+}
 
 
 ProgressCallback = Callable[[str], None]
@@ -422,7 +439,10 @@ def _apply_wsl_quality_safety_guard(
 
         guarded_run_settings = (
             RunSettings.from_dict(
-                guarded_payload,
+                project_run_config_payload(
+                    guarded_payload,
+                    contract=RUN_SETTING_CONTRACT_FULL,
+                ),
                 warn_context=(
                     f"quality-run experiment {experiment.id} "
                     "[wsl safety guard]"
@@ -1734,14 +1754,20 @@ def _resolve_experiments(
     benchmark_base_payload = apply_benchmark_baseline_contract(base_payload)
     resolved: list[_ResolvedExperiment] = []
     for experiment in experiments:
-        merged_payload = dict(benchmark_base_payload)
-        merged_payload.update(dict(experiment.run_settings_patch))
+        requested_payload = dict(base_payload)
+        requested_payload.update(dict(experiment.run_settings_patch))
+        # Reject Codex-enabled requests before benchmark baseline coercion can mask them.
         _validate_qualitysuite_requested_settings_disallow_codex_farm(
             experiment_id=experiment.id,
-            payload=merged_payload,
+            payload=requested_payload,
         )
+        merged_payload = dict(benchmark_base_payload)
+        merged_payload.update(dict(experiment.run_settings_patch))
         requested_run_settings = RunSettings.from_dict(
-            merged_payload,
+            project_run_config_payload(
+                merged_payload,
+                contract=RUN_SETTING_CONTRACT_FULL,
+            ),
             warn_context=f"quality-run experiment {experiment.id}",
         )
         requested_run_settings_payload = requested_run_settings.to_run_config_dict()
@@ -2924,7 +2950,7 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
 
 
 def _validate_patch_keys(*, experiment_id: str, patch: dict[str, Any]) -> None:
-    known_fields = set(RunSettings.model_fields)
+    known_fields = set(RunSettings.model_fields) | _RUN_SETTINGS_PATCH_COMPAT_KEYS
     unknown_keys = sorted(set(patch) - known_fields)
     if unknown_keys:
         joined = ", ".join(unknown_keys)

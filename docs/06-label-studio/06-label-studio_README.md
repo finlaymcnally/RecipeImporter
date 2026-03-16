@@ -254,7 +254,7 @@ Evaluation implementation:
 - `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
 - `canonical-text` path uses `cookimport/bench/eval_canonical_text.py`.
 - Canonical mode ensures canonical gold artifacts from export payloads via `cookimport/labelstudio/canonical_gold.py` when needed.
-- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors the stage evidence into `prediction-run/` for compatibility. Canonical benchmark scoring continues to use the stage-backed `stage_block_predictions.json` plus extracted blocks; `prediction-run/line-role-pipeline/*` remains diagnostic-only.
+- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors the stage evidence into `prediction-run/` for compatibility. Canonical benchmark scoring always uses the stage-backed `stage_block_predictions.json` plus extracted blocks; `prediction-run/line-role-pipeline/*` remains diagnostic-only and is no longer a preferred fallback.
 
 Benchmark eval artifacts include:
 

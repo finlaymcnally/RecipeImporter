@@ -222,7 +222,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
     assert captured["processed_output_root"] == processed_root
     assert captured["auto_project_name_on_scope_mismatch"] is True
 
-def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
+def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch_in_plan_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -337,12 +337,15 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     )
 
     captured_generate: dict[str, object] = {}
+    fixed_bucket1_behavior = cli.bucket1_fixed_behavior()
     llm_manifest_path = prediction_run / "raw" / "llm" / "book" / "llm_manifest.json"
+    codex_execution_plan_path = prediction_run / "codex_execution_plan.json"
 
     def fake_generate_pred_run_artifacts(**kwargs):
         captured_generate.update(kwargs)
         llm_manifest_path.parent.mkdir(parents=True, exist_ok=True)
         llm_manifest_path.write_text("{}", encoding="utf-8")
+        codex_execution_plan_path.write_text("{}", encoding="utf-8")
         (prediction_run / "manifest.json").write_text(
             json.dumps(
                 {
@@ -380,6 +383,16 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "codex_execution_plan_path": codex_execution_plan_path,
+            "run_config": {
+                "selective_retry_attempted": True,
+                "selective_retry_pass2_attempts": 1,
+                "selective_retry_pass2_recovered": 1,
+                "selective_retry_pass3_attempts": 0,
+                "selective_retry_pass3_recovered": 0,
+            },
+            "run_config_hash": "hash-1",
+            "run_config_summary": "selective retry summary",
         }
 
     monkeypatch.setattr(cli, "generate_pred_run_artifacts", fake_generate_pred_run_artifacts)
@@ -398,8 +411,8 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        allow_codex=True,
         llm_recipe_pipeline="codex-farm-3pass-v1",
+        codex_execution_policy="plan",
         codex_farm_model="gpt-5.3-codex-spark",
         codex_farm_reasoning_effort="low",
         codex_farm_benchmark_selective_retry_enabled=False,
@@ -418,11 +431,18 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     assert captured_generate["pdf_ocr_policy"] == "always"
     assert captured_generate["pdf_column_gap_ratio"] == 0.21
     assert captured_generate["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
-    assert captured_generate["allow_codex"] is True
+    assert captured_generate["allow_codex"] is False
+    assert captured_generate["codex_execution_policy"] == "plan"
     assert captured_generate["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert captured_generate["codex_farm_reasoning_effort"] == "low"
-    assert captured_generate["codex_farm_benchmark_selective_retry_enabled"] is False
-    assert captured_generate["codex_farm_benchmark_selective_retry_max_attempts"] == 3
+    assert (
+        captured_generate["codex_farm_benchmark_selective_retry_enabled"]
+        is fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_enabled
+    )
+    assert (
+        captured_generate["codex_farm_benchmark_selective_retry_max_attempts"]
+        == fixed_bucket1_behavior.codex_farm_benchmark_selective_retry_max_attempts
+    )
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
     run_manifest_path = eval_root / "run_manifest.json"
@@ -432,36 +452,42 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     assert run_manifest["run_config"]["upload"] is False
     assert run_manifest["run_config"]["write_markdown"] is False
     assert run_manifest["run_config"]["write_label_studio_tasks"] is False
-    assert run_manifest["run_config"]["pdf_ocr_policy"] == "always"
-    assert run_manifest["run_config"]["pdf_column_gap_ratio"] == 0.21
     assert run_manifest["run_config"]["llm_recipe_pipeline"] == "codex-farm-3pass-v1"
-    assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "execute"
-    assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "execute"
-    assert run_manifest["run_config"]["codex_execution_live_llm_allowed"] is True
+    assert run_manifest["run_config"]["codex_execution_policy_requested_mode"] == "plan"
+    assert run_manifest["run_config"]["codex_execution_policy_resolved_mode"] == "plan"
+    assert run_manifest["run_config"]["codex_execution_plan_only"] is True
+    assert run_manifest["run_config"]["codex_execution_live_llm_allowed"] is False
     assert run_manifest["run_config"]["codex_decision_context"] == "labelstudio_benchmark"
-    assert run_manifest["run_config"]["codex_decision_allowed"] is True
+    assert run_manifest["run_config"]["codex_decision_allowed"] is False
     assert run_manifest["run_config"]["codex_decision_codex_surfaces"] == ["recipe"]
     assert run_manifest["run_config"]["codex_farm_model"] == "gpt-5.3-codex-spark"
     assert run_manifest["run_config"]["codex_farm_reasoning_effort"] == "low"
     assert run_manifest["run_config"]["atomic_block_splitter"] == "off"
     assert run_manifest["run_config"]["line_role_pipeline"] == "off"
-    assert run_manifest["run_config"]["selective_retry_attempted"] is True
-    assert run_manifest["run_config"]["selective_retry_pass2_attempts"] == 1
-    assert run_manifest["run_config"]["selective_retry_pass2_recovered"] == 1
+    assert run_manifest["artifacts"]["prediction_codex_execution_plan_json"].endswith(
+        "codex_execution_plan.json"
+    )
     assert (
         run_manifest["run_config"]["prediction_run_config"]["selective_retry_attempted"]
         is True
     )
-    assert run_manifest["artifacts"]["llm_manifest_json"] == str(llm_manifest_path)
+    assert (
+        run_manifest["run_config"]["prediction_run_config"][
+            "selective_retry_pass2_attempts"
+        ]
+        == 1
+    )
+    assert (
+        run_manifest["run_config"]["prediction_run_config"][
+            "selective_retry_pass2_recovered"
+        ]
+        == 1
+    )
+    assert "llm_manifest_json" not in run_manifest["artifacts"]
     assert "eval_report_md" not in run_manifest["artifacts"]
     assert not (eval_root / "eval_report.md").exists()
     upload_bundle_dir = eval_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
-    assert upload_bundle_dir.is_dir()
-    assert {
-        path.name
-        for path in upload_bundle_dir.iterdir()
-        if path.is_file()
-    } == set(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
+    assert not upload_bundle_dir.exists()
 
 def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -798,7 +824,7 @@ def test_labelstudio_benchmark_predictions_in_supports_legacy_run_pointer_record
     assert captured_eval["stage_predictions_json"] == stage_predictions_path
     assert captured_eval["extracted_blocks_json"] == extracted_archive_path
 
-def test_build_prediction_bundle_prefers_line_role_projection_for_canonical_mode(
+def test_build_prediction_bundle_uses_stage_backed_predictions_even_with_line_role_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -869,23 +895,15 @@ def test_build_prediction_bundle_prefers_line_role_projection_for_canonical_mode
     )
     import_result = {"run_root": prediction_run}
 
-    default_bundle = cli._build_prediction_bundle_from_import_result(
+    bundle = cli._build_prediction_bundle_from_import_result(
         import_result=import_result,
         eval_output_dir=tmp_path / "eval-default",
         prediction_phase_seconds=1.0,
-        prefer_line_role_projection=False,
     )
-    assert default_bundle.stage_predictions_path == default_stage_predictions_path
-    assert default_bundle.extracted_archive_path == default_extracted_archive_path
-
-    line_role_bundle = cli._build_prediction_bundle_from_import_result(
-        import_result=import_result,
-        eval_output_dir=tmp_path / "eval-line-role",
-        prediction_phase_seconds=1.0,
-        prefer_line_role_projection=True,
-    )
-    assert line_role_bundle.stage_predictions_path == line_role_stage_predictions_path
-    assert line_role_bundle.extracted_archive_path == line_role_extracted_archive_path
+    assert bundle.stage_predictions_path == default_stage_predictions_path
+    assert bundle.extracted_archive_path == default_extracted_archive_path
+    assert bundle.stage_predictions_path != line_role_stage_predictions_path
+    assert bundle.extracted_archive_path != line_role_extracted_archive_path
 
 def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

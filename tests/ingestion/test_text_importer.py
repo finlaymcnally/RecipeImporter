@@ -64,15 +64,10 @@ def test_convert_multi_recipe_rules_v1_backend() -> None:
         None,
         run_settings=RunSettings(
             multi_recipe_splitter="rules_v1",
-            multi_recipe_trace=True,
         ),
     )
 
     assert len(result.recipes) == 2
-    assert any(
-        artifact.location_id == "multi_recipe_split_trace"
-        for artifact in result.raw_artifacts
-    )
 
 
 def test_convert_multi_recipe_splitter_off_keeps_single_candidate() -> None:

@@ -273,11 +273,12 @@ Bad:
 - Deterministic line-role labeling already exists in `cookimport/parsing/canonical_line_roles.py` and the candidate-prep layer in `cookimport/parsing/recipe_block_atomizer.py`.
 - The current label taxonomy is already close to the plan for recipe-local labels: `RECIPE_TITLE`, `RECIPE_VARIANT`, `YIELD_LINE`, `TIME_LINE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `RECIPE_NOTES`, `HOWTO_SECTION`, `KNOWLEDGE`, and `OTHER`.
 - Optional LLM correction already exists in the same module via the Codex-backed `codex-line-role-v1` path. It reviews deterministic candidates rather than rediscovering the whole book from scratch.
-- `CanonicalLineRolePrediction` already carries a final label, confidence, decision source (`rule` / `codex` / `fallback`), candidate labels, and reason tags.
+- `CanonicalLineRolePrediction` already carries a final label, confidence, decision source (`rule` / `codex` / `fallback`), and reason tags.
 - Label projection and artifact writing already exist in `cookimport/labelstudio/canonical_line_projection.py`.
+- After the stage-backed benchmark unification, canonical line-role now runs after the shared authoritative stage session and stays diagnostics-only instead of mutating the benchmark’s authoritative recipe outputs.
 
 ### Greenfield or substantial refactor needed
-- This label pipeline is not the main runtime source of truth yet. It currently lives in the Label Studio / benchmark lane (`cookimport/labelstudio/ingest.py`) and can project back onto recipes, but the primary stage/import path still groups recipes before this labeling layer exists.
+- This label pipeline is not the main runtime source of truth yet. It still lives mainly in the Label Studio / benchmark diagnostics lane (`cookimport/labelstudio/ingest.py`), and the primary stage/import path still groups recipes before this labeling layer exists.
 - Current grouping and recipe extraction do not consume Stage 2 labels as the canonical foundation. They still depend mainly on heuristic candidate detection in importers.
 - The repo does not yet emit the exact Stage 2 artifacts described here as a normal first-class run contract (`deterministic labels`, `corrected labels`, inspectable diffs).
 - Some of the requested non-recipe subtype coverage (`boilerplate`, `toc`, `front_matter`, `endorsement`, `navigation`, `chapter_heading`) will need new rules and probably new prompt examples.
@@ -451,6 +452,7 @@ But this should be the exception, not the default architecture.
   - pass3: final-draft output plus ingredient-step mapping
 - The newer merged-repair path (`codex-farm-2stage-repair-v1`) is even closer to this stage. It already asks for one canonical corrected recipe plus `ingredient_step_mapping` and `ingredient_step_mapping_reason`.
 - Transport audits, evidence normalization, structural audits, and issue flags already exist around this path, so the validation mindset is already present.
+- `cookimport/staging/import_session.py` now centralizes the shared post-conversion stage session, so the recipe Codex path is no longer duplicated between normal stage runs and benchmark processed-output generation.
 
 ### Greenfield or substantial refactor needed
 - The current LLM recipe pipeline is still anchored on heuristic recipe candidates and pass1 span refinement, not on Stage 2 labels + Stage 3 grouped spans.
@@ -555,6 +557,7 @@ This stage may become much smaller once Stage 2 labeling is strong enough.
 - Optional LLM knowledge handling already exists in `cookimport/llm/codex_farm_knowledge_orchestrator.py` and `cookimport/llm/codex_farm_knowledge_jobs.py`.
 - `cookimport/llm/non_recipe_spans.py` and the pass4 job builder already implement explicit recipe-vs-non-recipe span math.
 - The line-role benchmark path already knows how to merge knowledge evidence back into line labels through `cookimport/labelstudio/canonical_line_projection.py`.
+- Stage runs and benchmark processed-output generation now share the same post-conversion chunking / pass4 knowledge session through `cookimport/staging/import_session.py`, so this lane is less forked than before.
 
 ### Greenfield or substantial refactor needed
 - Non-recipe handling is not yet primarily label-driven. Today it is mostly “whatever blocks were not absorbed into importer recipe candidates.”
@@ -594,6 +597,7 @@ For any final recipe, it should be easy to inspect:
 
 ### Current code that already does this or something close
 - Output writing is already centralized in `cookimport/staging/writer.py`.
+- `cookimport/staging/import_session.py` now centralizes the authoritative post-conversion stage session used by normal stage runs, split-merge stage runs, and stage-backed benchmark processed-output generation.
 - Run-level traceability already exists via `run_manifest.json` helpers in `cookimport/runs/manifest.py`.
 - Stage and prediction runs already persist rich raw/debug artifacts:
   - raw source/full-text artifacts
@@ -604,9 +608,10 @@ For any final recipe, it should be easy to inspect:
   - LLM raw pass inputs/outputs/manifests under `raw/llm/...`
   - Label Studio manifests and prompt logs in `cookimport/labelstudio/ingest.py`
 - The current Codex recipe path already writes transport audits, evidence-normalization logs, merged-repair audits, and recipe guardrail artifacts.
+- Benchmarking is now stage-backed: canonical benchmark scoring uses the authoritative stage evidence surface, while `prediction-run/line-role-pipeline/*` remains diagnostics-only.
 
 ### Greenfield or substantial refactor needed
-- The artifact contract is still organized around the current architecture, not the refactor’s desired stage names and boundaries.
+- The benchmark/import bifurcation is smaller now, but the artifact contract is still organized around the current architecture, not the refactor’s desired stage names and boundaries.
 - There is not yet one per-recipe debug packet that cleanly bundles every upstream artifact named in this plan.
 - Stage 2 and Stage 3 artifacts do not yet exist as first-class runtime outputs in the main stage path, so Stage 8 cannot currently expose the full “label first -> group second -> parse third -> correct fourth -> write last” chain.
 

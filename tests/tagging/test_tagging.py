@@ -416,7 +416,6 @@ class TestLlmTagPass:
         settings = RunSettings.from_dict(
             {
                 "llm_tags_pipeline": "codex-farm-tags-v1",
-                "codex_farm_pipeline_pass5_tags": "recipe.tags.v1",
                 "codex_farm_failure_mode": "fail",
                 "tag_catalog_json": str(CATALOG_PATH),
             },
