@@ -161,12 +161,11 @@ def build_recipe_pipeline_topology(
     for row in recipe_triage_rows:
         if not isinstance(row, dict):
             continue
-        if str(row.get("pass2_call_id") or "").strip():
+        if str(row.get("correction_call_id") or "").strip():
             observed_pass2_call_count += 1
-        if str(row.get("pass3_call_id") or "").strip():
             observed_pass3_call_count += 1
-        execution_mode = str(row.get("pass3_execution_mode") or "").strip()
-        routing_reason = str(row.get("pass3_routing_reason") or "").strip()
+        execution_mode = str(row.get("build_final_status") or "").strip()
+        routing_reason = str(row.get("final_mapping_reason") or "").strip()
         if execution_mode:
             observed_execution_modes.add(execution_mode)
         if routing_reason:

@@ -157,31 +157,32 @@ def _write_prediction_run_stage_outputs(
     llm_run_dir = prediction_run / "raw" / "llm" / "fixture-slug"
     safe_recipe_name = recipe_id.replace(":", "_")
     _write_json(
-        llm_run_dir / "schemaorg" / "in" / f"{safe_recipe_name}.json",
+        llm_run_dir / "recipe_correction" / "in" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
-            "blocks": [
-                {"index": 0, "text": "Dish Title"},
-                {"index": 1, "text": "1 cup flour"},
-                {"index": 2, "text": "Mix gently"},
-                {"index": 3, "text": "Chef note"},
+            "evidence_rows": [
+                [0, "Dish Title"],
+                [1, "1 cup flour"],
+                [2, "Mix gently"],
+                [3, "Chef note"],
             ],
         },
     )
     _write_json(
-        llm_run_dir / "schemaorg" / "out" / f"{safe_recipe_name}.json",
+        llm_run_dir / "recipe_correction" / "out" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
-            "schemaorg_recipe": {
-                "name": "Dish Title",
+            "canonical_recipe": {
+                "title": "Dish Title",
                 "description": "Chef note",
+                "ingredients": ["1 cup flour"],
+                "steps": ["Mix gently"],
             },
-            "extracted_ingredients": [{"text": "1 cup flour"}],
-            "extracted_instructions": [{"text": "Mix gently"}],
+            "ingredient_step_mapping": {"0": [0]},
         },
     )
     _write_json(
-        llm_run_dir / "final" / "out" / f"{safe_recipe_name}.json",
+        llm_run_dir / "build_final_recipe" / "out" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "draft_v1": {
@@ -195,6 +196,31 @@ def _write_prediction_run_stage_outputs(
             },
         },
     )
+
+
+def _semantic_recipe_manifest_row(
+    *,
+    build_intermediate_status: str = "ok",
+    correction_status: str = "degraded",
+    build_final_status: str = "fallback",
+    mapping_status: str = "fallback",
+    mapping_reason: str = "deterministic final assembly kept fallback mapping",
+    structural_status: str = "warning",
+    structural_reason_codes: list[str] | None = None,
+    warnings: list[str] | None = None,
+    errors: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "build_intermediate_det": build_intermediate_status,
+        "recipe_llm_correct_and_link": correction_status,
+        "build_final_recipe": build_final_status,
+        "mapping_status": mapping_status,
+        "mapping_reason": mapping_reason,
+        "structural_status": structural_status,
+        "structural_reason_codes": list(structural_reason_codes or []),
+        "warnings": list(warnings or []),
+        "errors": list(errors or []),
+    }
 
 
 def _write_pass4_knowledge_artifacts(
@@ -368,8 +394,8 @@ def _set_eval_report_metrics(
 def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
     return [
         {
-            "pass": "pass1",
-            "call_id": "fixture-pass1",
+            "stage_key": "build_intermediate_det",
+            "call_id": "fixture-build-intermediate",
             "recipe_id": "recipe:c0",
             "parsed_response": {
                 "is_recipe": True,
@@ -380,8 +406,8 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
         },
         {
-            "pass": "pass3",
-            "call_id": "fixture-pass3",
+            "stage_key": "build_final_recipe",
+            "call_id": "fixture-build-final",
             "recipe_id": "recipe:c0",
             "parsed_response": {
                 "warnings": ["Serving information is split across two lines."],
@@ -395,8 +421,8 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
 def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
     return [
         {
-            "pass": "pass1",
-            "call_id": "starter-pass1",
+            "stage_key": "build_intermediate_det",
+            "call_id": "starter-build-intermediate",
             "recipe_id": "recipe:c0",
             "timestamp_utc": "2026-03-03T10:00:00Z",
             "model": "gpt-test",
@@ -420,27 +446,33 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
             },
         },
         {
-            "pass": "pass2",
-            "call_id": "starter-pass2",
+            "stage_key": "recipe_llm_correct_and_link",
+            "call_id": "starter-correction",
             "recipe_id": "recipe:c0",
             "timestamp_utc": "2026-03-03T10:00:05Z",
             "model": "gpt-test",
             "parsed_response": {
                 "warnings": ["No explicit cooking instructions were provided."],
-                "extracted_ingredients": [{"text": "1 cup flour"}],
-                "extracted_instructions": [],
+                "canonical_recipe": {
+                    "title": "Dish Title",
+                    "ingredients": ["1 cup flour"],
+                    "steps": ["Mix gently"],
+                },
+                "ingredient_step_mapping": {},
             },
             "request_input_payload": {
-                "blocks": [
-                    {"index": 0, "block_id": "b0", "text": "Dish Title"},
-                    {"index": 1, "block_id": "b1", "text": "1 cup flour"},
+                "evidence_rows": [
+                    [0, "Dish Title"],
+                    [1, "1 cup flour"],
+                    [2, "Mix gently"],
+                    [3, "Chef note"],
                 ],
                 "canonical_text": "Dish Title\n1 cup flour\nMix gently\nChef note\n",
             },
         },
         {
-            "pass": "pass3",
-            "call_id": "starter-pass3",
+            "stage_key": "build_final_recipe",
+            "call_id": "starter-build-final",
             "recipe_id": "recipe:c0",
             "timestamp_utc": "2026-03-03T10:00:10Z",
             "model": "gpt-test",
@@ -722,33 +754,10 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
         codex_run_dir,
         with_extracted_archive=True,
         llm_manifest_recipes={
-            "recipe:c0": {
-                "pass1": "ok",
-                "pass2": "degraded",
-                "pass3": "fallback",
-                "pass1_span_loss_metrics": {
-                    "clamped_block_loss_count": 2,
-                    "clamped_block_loss_ratio": 0.5,
-                },
-                "pass2_degradation_reasons": ["missing_instructions"],
-                "pass2_degradation_severity": "hard",
-                "pass2_promotion_policy": "hard_fallback",
-                "pass3_execution_mode": "deterministic",
-                "pass3_routing_reason": "pass2_hard_degradation_forced_fallback",
-                "pass3_fallback_reason": "pass3 output rejected as low quality",
-                "transport_audit": {
-                    "mismatch": True,
-                    "mismatch_reasons": ["missing_payload_blocks"],
-                    "effective_to_payload_coverage_ratio": 0.75,
-                },
-                "evidence_normalization": {
-                    "stats": {
-                        "split_quantity_lines": 3,
-                        "dropped_page_markers": 1,
-                        "folded_page_markers": 0,
-                    }
-                },
-            }
+            "recipe:c0": _semantic_recipe_manifest_row(
+                warnings=["No explicit cooking instructions were provided."],
+                structural_reason_codes=["missing_instructions"],
+            )
         },
     )
     _set_pred_run_artifact(codex_run_dir, "prediction-run")
@@ -763,35 +772,26 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
     )
 
     triage_row = next(row for row in diagnostics.recipe_triage_rows if row["recipe_id"] == "recipe:c0")
-    assert triage_row["pass1_status"] == "ok"
-    assert triage_row["pass2_status"] == "degraded"
-    assert triage_row["pass3_status"] == "fallback"
-    assert triage_row["pass1_clamped_block_loss_count"] == 2
-    assert triage_row["pass1_clamped_block_loss_ratio"] == 0.5
-    assert triage_row["pass2_degradation_reasons"] == ["missing_instructions"]
-    assert triage_row["pass2_degradation_severity"] == "hard"
-    assert triage_row["pass2_promotion_policy"] == "hard_fallback"
-    assert triage_row["pass3_execution_mode"] == "deterministic"
-    assert triage_row["pass3_routing_reason"] == "pass2_hard_degradation_forced_fallback"
-    assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
-    assert triage_row["transport_mismatch"] is True
-    assert triage_row["transport_mismatch_reasons"] == ["missing_payload_blocks"]
-    assert triage_row["transport_effective_to_payload_coverage_ratio"] == 0.75
-    assert triage_row["evidence_split_quantity_lines"] == 3
-    assert triage_row["evidence_dropped_page_markers"] == 1
-    assert triage_row["evidence_folded_page_markers"] == 0
+    assert triage_row["build_intermediate_status"] == "ok"
+    assert triage_row["correction_status"] == "degraded"
+    assert triage_row["build_final_status"] == "fallback"
+    assert triage_row["final_mapping_status"] == "fallback"
+    assert triage_row["final_mapping_reason"] == "deterministic final assembly kept fallback mapping"
+    assert triage_row["structural_status"] == "warning"
+    assert triage_row["structural_reason_codes"] == ["missing_instructions"]
+    assert triage_row["recipe_warning_count"] == 1
+    assert triage_row["recipe_error_count"] == 0
 
     summary = module._build_warning_and_trace_summary(
         call_inventory_rows=diagnostics.call_inventory_rows,
         recipe_triage_rows=diagnostics.recipe_triage_rows,
         outside_span_trace_rows=diagnostics.outside_span_trace_rows,
     )
-    assert summary["pass2_degraded_recipe_count"] == 1
-    assert summary["pass3_fallback_recipe_count"] == 1
-    assert summary["transport_mismatch_recipe_count"] == 1
-    assert summary["pass1_clamped_loss_recipe_count"] == 1
-    assert summary["pass2_degradation_severity_counts"]["hard"] == 1
-    assert summary["pass3_execution_mode_counts"]["deterministic"] == 1
+    assert summary["recipe_stage_status_counts"]["build_intermediate_det"]["ok"] == 1
+    assert summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"]["degraded"] == 1
+    assert summary["recipe_stage_status_counts"]["build_final_recipe"]["fallback"] == 1
+    assert summary["final_mapping_status_counts"]["fallback"] == 1
+    assert summary["structural_status_counts"]["warning"] == 1
 
 
 def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> None:
@@ -1200,36 +1200,10 @@ def test_main_includes_project_context_digest_and_metadata(tmp_path: Path) -> No
         codex_run_dir,
         with_extracted_archive=True,
         llm_manifest_recipes={
-            "recipe:c0": {
-                "pass1": "ok",
-                "pass2": "degraded",
-                "pass3": "fallback",
-                "pass1_span_loss_metrics": {
-                    "clamped_block_loss_count": 3,
-                    "clamped_block_loss_ratio": 0.25,
-                },
-                "pass2_degradation_reasons": [
-                    "missing_instructions",
-                    "ocr_or_page_artifact",
-                ],
-                "pass2_degradation_severity": "hard",
-                "pass2_promotion_policy": "hard_fallback",
-                "pass3_execution_mode": "deterministic",
-                "pass3_routing_reason": "pass2_hard_degradation_forced_fallback",
-                "pass3_fallback_reason": "pass3 output rejected as low quality",
-                "transport_audit": {
-                    "mismatch": True,
-                    "mismatch_reasons": ["missing_payload_blocks"],
-                    "effective_to_payload_coverage_ratio": 0.75,
-                },
-                "evidence_normalization": {
-                    "stats": {
-                        "split_quantity_lines": 2,
-                        "dropped_page_markers": 1,
-                        "folded_page_markers": 1,
-                    }
-                },
-            }
+            "recipe:c0": _semantic_recipe_manifest_row(
+                warnings=["No explicit cooking instructions were provided."],
+                structural_reason_codes=["missing_instructions"],
+            )
         },
     )
     _set_pred_run_artifact(codex_run_dir, "prediction-run")
@@ -1446,36 +1420,10 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         codex_run_dir,
         with_extracted_archive=True,
         llm_manifest_recipes={
-            "recipe:c0": {
-                "pass1": "ok",
-                "pass2": "degraded",
-                "pass3": "fallback",
-                "pass1_span_loss_metrics": {
-                    "clamped_block_loss_count": 3,
-                    "clamped_block_loss_ratio": 0.25,
-                },
-                "pass2_degradation_reasons": [
-                    "missing_instructions",
-                    "ocr_or_page_artifact",
-                ],
-                "pass2_degradation_severity": "hard",
-                "pass2_promotion_policy": "hard_fallback",
-                "pass3_execution_mode": "deterministic",
-                "pass3_routing_reason": "pass2_hard_degradation_forced_fallback",
-                "pass3_fallback_reason": "pass3 output rejected as low quality",
-                "transport_audit": {
-                    "mismatch": True,
-                    "mismatch_reasons": ["missing_payload_blocks"],
-                    "effective_to_payload_coverage_ratio": 0.75,
-                },
-                "evidence_normalization": {
-                    "stats": {
-                        "split_quantity_lines": 2,
-                        "dropped_page_markers": 1,
-                        "folded_page_markers": 1,
-                    }
-                },
-            }
+            "recipe:c0": _semantic_recipe_manifest_row(
+                warnings=["No explicit cooking instructions were provided."],
+                structural_reason_codes=["missing_instructions"],
+            )
         },
     )
     _set_pred_run_artifact(codex_run_dir, "prediction-run")
@@ -1497,7 +1445,7 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
                     "raw_block_stable_key": f"block-{index}",
                     "raw_block_excerpt": f"raw excerpt {index}",
                     "prompt_candidate_block_excerpt": f"prompt excerpt {index}",
-                    "call_id": "starter-pass2",
+                    "call_id": "starter-correction",
                 }
             )
         return rows, "ready"
@@ -1542,26 +1490,15 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     triage_rows = _read_jsonl(starter_dir / "01_recipe_triage.jsonl")
     assert triage_rows
     triage_row = triage_rows[0]
-    assert triage_row["pass1_status"] == "ok"
-    assert triage_row["pass2_status"] == "degraded"
-    assert triage_row["pass3_status"] == "fallback"
-    assert triage_row["pass1_clamped_block_loss_count"] == 3
-    assert triage_row["pass1_clamped_block_loss_ratio"] == 0.25
-    assert triage_row["pass2_degradation_reasons"] == [
-        "missing_instructions",
-        "page_or_layout_artifact",
-    ]
-    assert triage_row["pass2_degradation_severity"] == "hard"
-    assert triage_row["pass2_promotion_policy"] == "hard_fallback"
-    assert triage_row["pass3_execution_mode"] == "deterministic"
-    assert triage_row["pass3_routing_reason"] == "pass2_hard_degradation_forced_fallback"
-    assert triage_row["pass3_fallback_reason"] == "pass3 output rejected as low quality"
-    assert triage_row["transport_mismatch"] is True
-    assert triage_row["transport_mismatch_reasons"] == ["missing_payload_blocks"]
-    assert triage_row["transport_effective_to_payload_coverage_ratio"] == 0.75
-    assert triage_row["evidence_split_quantity_lines"] == 2
-    assert triage_row["evidence_dropped_page_markers"] == 1
-    assert triage_row["evidence_folded_page_markers"] == 1
+    assert triage_row["build_intermediate_status"] == "ok"
+    assert triage_row["correction_status"] == "degraded"
+    assert triage_row["build_final_status"] == "fallback"
+    assert triage_row["final_mapping_status"] == "fallback"
+    assert triage_row["final_mapping_reason"] == "deterministic final assembly kept fallback mapping"
+    assert triage_row["structural_status"] == "warning"
+    assert triage_row["structural_reason_codes"] == ["missing_instructions"]
+    assert triage_row["recipe_warning_count"] == 1
+    assert triage_row["recipe_error_count"] == 0
 
     call_inventory_rows = _read_jsonl(starter_dir / "02_call_inventory.jsonl")
     assert call_inventory_rows
@@ -1569,7 +1506,8 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         "run_id",
         "source_key",
         "recipe_id",
-        "pass",
+        "stage_key",
+        "stage_label",
         "call_id",
         "timestamp_utc",
         "model",
@@ -1586,11 +1524,11 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     assert required_call_inventory_keys.issubset(call_inventory_rows[0].keys())
 
     warning_summary = _read_json(starter_dir / "04_warning_and_trace_summary.json")
-    assert warning_summary["pass2_degraded_recipe_count"] == 1
-    assert warning_summary["pass3_fallback_recipe_count"] == 1
-    assert warning_summary["transport_mismatch_recipe_count"] == 1
-    assert warning_summary["pass1_clamped_loss_recipe_count"] == 1
-    assert "pass_status_counts" in warning_summary
+    assert warning_summary["recipe_stage_status_counts"]["build_intermediate_det"]["ok"] == 1
+    assert warning_summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"]["degraded"] == 1
+    assert warning_summary["recipe_stage_status_counts"]["build_final_recipe"]["fallback"] == 1
+    assert warning_summary["final_mapping_status_counts"]["fallback"] == 1
+    assert "recipe_stage_status_counts" in warning_summary
 
     selected_packets = _read_jsonl(starter_dir / "06_selected_recipe_packets.jsonl")
     assert selected_packets
@@ -1600,28 +1538,16 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
         for stage in first_packet["recipe_stages"]
         if isinstance(stage, dict)
     }
-    assert recipe_stage_summaries["recipe_llm_correct_and_link"]["degradation_reasons"] == [
-        "missing_instructions",
-        "page_or_layout_artifact",
-    ]
+    assert recipe_stage_summaries["recipe_llm_correct_and_link"]["status"] == "degraded"
+    assert recipe_stage_summaries["recipe_llm_correct_and_link"]["warning_count"] == 1
+    assert recipe_stage_summaries["build_final_recipe"]["status"] == "fallback"
+    assert recipe_stage_summaries["build_final_recipe"]["mapping_status"] == "fallback"
     assert (
-        recipe_stage_summaries["recipe_llm_correct_and_link"]["degradation_severity"]
-        == "hard"
+        recipe_stage_summaries["build_final_recipe"]["mapping_reason"]
+        == "deterministic final assembly kept fallback mapping"
     )
-    assert (
-        recipe_stage_summaries["recipe_llm_correct_and_link"]["promotion_policy"]
-        == "hard_fallback"
-    )
-    assert recipe_stage_summaries["build_final_recipe"]["execution_mode"] == "deterministic"
-    assert (
-        recipe_stage_summaries["build_final_recipe"]["routing_reason"]
-        == "pass2_hard_degradation_forced_fallback"
-    )
-    assert (
-        recipe_stage_summaries["build_final_recipe"]["fallback_reason"]
-        == "pass3 output rejected as low quality"
-    )
-    assert first_packet["transport_summary"]["mismatch"] is True
+    assert recipe_stage_summaries["build_final_recipe"]["structural_status"] == "warning"
+    assert first_packet["transport_summary"] == {}
 
     starter_manifest = _read_json(starter_dir / "10_process_manifest.json")
     assert starter_manifest["starter_pack_version"] == "v1"
@@ -2264,14 +2190,13 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
         codex_run_dir,
         with_extracted_archive=True,
         llm_manifest_recipes={
-            "recipe:c0": {
-                "pass1_status": "ok",
-                "pass2_status": "ok",
-                "pass3_status": "ok",
-                "pass2_promotion_policy": "keep_llm_result",
-                "pass3_execution_mode": "deterministic",
-                "pass3_routing_reason": "normal_final_assembly",
-            }
+            "recipe:c0": _semantic_recipe_manifest_row(
+                correction_status="ok",
+                build_final_status="ok",
+                mapping_status="ok",
+                mapping_reason="",
+                structural_status="ok",
+            )
         },
     )
     _set_pred_run_artifact(codex_run_dir, "prediction-run")
@@ -2374,7 +2299,7 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
         {
             "llm_codex_farm": {
                 "process_runs": {
-                    "pass1": {
+                    "recipe_correction": {
                         "telemetry_report": {
                             "summary": {
                                 "tokens_total": 120000,
@@ -2383,50 +2308,24 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
                             }
                         }
                     },
-                    "pass2": {
-                        "telemetry_report": {
-                            "summary": {
-                                "tokens_total": 130000,
-                                "duration_avg_ms": 2100,
-                                "status_counts": {"ok": 2, "failed": 0, "timeout": 0},
-                            }
-                        }
-                    },
-                    "pass3": {
-                        "telemetry_report": {
-                            "summary": {
-                                "tokens_total": 250000,
-                                "duration_avg_ms": 5100,
-                                "status_counts": {"ok": 1, "failed": 0, "timeout": 0},
-                            }
-                        }
-                    },
                 }
             }
         },
     )
 
-    bundle_dir = session_root / "upload_bundle_v1"
-    module.build_upload_bundle_for_existing_output(
-        source_dir=session_root,
-        output_dir=bundle_dir,
-        overwrite=True,
-        prune_output_dir=False,
+    runtime_inventory = module._upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
+        run_dirs=[codex_run_dir],
+        run_dir_by_id={run_id: codex_run_dir},
     )
-
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
+    assert isinstance(runtime_inventory, dict)
+    runtime_summary = runtime_inventory["summary"]
     assert runtime_summary["runtime_source"] == "prediction_run_manifest_telemetry"
-    assert int(runtime_summary["call_count"]) == 5
-    assert int(runtime_summary["calls_with_runtime"]) == 5
-    assert int(runtime_summary["total_tokens"]) == 500000
-    assert float(runtime_summary["pass1_token_share"]) == 0.24
-    assert float(runtime_summary["pass2_token_share"]) == 0.26
-    assert float(runtime_summary["pass3_token_share"]) == 0.5
+    assert int(runtime_summary["call_count"]) == 2
+    assert int(runtime_summary["calls_with_runtime"]) == 2
+    assert int(runtime_summary["total_tokens"]) == 120000
+    assert float(runtime_summary["recipe_correction_token_share"]) == 1.0
     by_pass = runtime_summary["by_pass"]
-    assert int(by_pass["pass1"]["total_tokens"]) == 120000
-    assert int(by_pass["pass2"]["total_tokens"]) == 130000
-    assert int(by_pass["pass3"]["total_tokens"]) == 250000
+    assert int(by_pass["recipe_correction"]["total_tokens"]) == 120000
     assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
@@ -2453,20 +2352,10 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
         {
             "schema_version": "prompt_budget_summary.v1",
             "by_pass": {
-                "pass1": {
+                "recipe_correction": {
                     "call_count": 2,
                     "duration_total_ms": 2200,
                     "tokens_total": 120000,
-                },
-                "pass2": {
-                    "call_count": 2,
-                    "duration_total_ms": 4200,
-                    "tokens_total": 130000,
-                },
-                "pass3": {
-                    "call_count": 1,
-                    "duration_total_ms": 5100,
-                    "tokens_total": 250000,
                 },
                 "line_role": {
                     "call_count": 3,
@@ -2484,9 +2373,9 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
     assert isinstance(runtime_inventory, dict)
     runtime_summary = runtime_inventory["summary"]
     assert runtime_summary["runtime_source"] == "prediction_run_prompt_budget_summary"
-    assert int(runtime_summary["call_count"]) == 8
-    assert int(runtime_summary["total_tokens"]) == 550000
-    assert float(runtime_summary["line_role_token_share"]) == round(50000 / 550000, 4)
+    assert int(runtime_summary["call_count"]) == 5
+    assert int(runtime_summary["total_tokens"]) == 170000
+    assert float(runtime_summary["line_role_token_share"]) == round(50000 / 170000, 4)
     assert int(runtime_summary["by_pass"]["line_role"]["total_tokens"]) == 50000
 
 
@@ -2736,9 +2625,11 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
             {
                 "schema_version": "prompt_budget_summary.v1",
                 "by_pass": {
-                    "pass1": {"call_count": 2, "duration_total_ms": 100, "tokens_total": 1000},
-                    "pass2": {"call_count": 2, "duration_total_ms": 200, "tokens_total": 2000},
-                    "pass3": {"call_count": 1, "duration_total_ms": 300, "tokens_total": 3000},
+                    "recipe_correction": {
+                        "call_count": 2,
+                        "duration_total_ms": 200,
+                        "tokens_total": 3000,
+                    },
                 },
             },
         )

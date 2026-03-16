@@ -82,10 +82,6 @@ def _recipe_stage_metric_key(
 ) -> str | None:
     if stage_key == "build_intermediate_det":
         return None
-    if stage_key == "recipe_llm_correct_and_link":
-        return "pass2"
-    if stage_key == "build_final_recipe":
-        return "pass3"
     return stage_key
 
 
@@ -93,7 +89,6 @@ def _build_recipe_stage_row(
     *,
     recipe_stage: dict[str, str],
     row: dict[str, Any],
-    pass3_fallback_reason: str,
 ) -> dict[str, Any]:
     stage_key = str(recipe_stage.get("stage_key") or "")
     stage_label = str(recipe_stage.get("stage_label") or stage_key)
@@ -101,34 +96,40 @@ def _build_recipe_stage_row(
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
-            "status": "ok",
+            "status": str(row.get("build_intermediate_status") or "ok"),
             "deterministic_stage": True,
         }
     if stage_key == "recipe_llm_correct_and_link":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
-            "status": str(row.get("pass2_status") or ""),
-            "degradation_severity": str(row.get("pass2_degradation_severity") or ""),
-            "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
-            "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
-            "warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
-            "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
-            "extracted_instruction_count": int(
-                _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+            "status": str(row.get("correction_status") or ""),
+            "warning_count": int(_coerce_int(row.get("correction_warning_count")) or 0),
+            "warning_buckets": _coerce_str_list(row.get("correction_warning_buckets")),
+            "ingredient_count": int(
+                _coerce_int(row.get("correction_ingredient_count")) or 0
             ),
+            "step_count": int(
+                _coerce_int(row.get("correction_step_count")) or 0
+            ),
+            "mapping_count": int(
+                _coerce_int(row.get("correction_mapping_count")) or 0
+            ),
+            "empty_mapping": bool(row.get("correction_empty_mapping")),
         }
     if stage_key == "build_final_recipe":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
-            "status": str(row.get("pass3_status") or ""),
-            "execution_mode": str(row.get("pass3_execution_mode") or ""),
-            "routing_reason": str(row.get("pass3_routing_reason") or ""),
-            "empty_mapping": bool(row.get("pass3_empty_mapping")),
-            "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
-            "warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
-            "fallback_reason": pass3_fallback_reason,
+            "status": str(row.get("build_final_status") or ""),
+            "mapping_status": str(row.get("final_mapping_status") or ""),
+            "mapping_reason": str(row.get("final_mapping_reason") or ""),
+            "structural_status": str(row.get("structural_status") or ""),
+            "structural_reason_codes": _coerce_str_list(
+                row.get("structural_reason_codes")
+            ),
+            "warning_count": int(_coerce_int(row.get("recipe_warning_count")) or 0),
+            "error_count": int(_coerce_int(row.get("recipe_error_count")) or 0),
         }
     return {
         "stage_key": stage_key,
@@ -164,12 +165,10 @@ def build_stage_separated_comparison(
     for row in recipe_triage_rows:
         run_id = str(row.get("codex_run_id") or row.get("run_id") or "").strip()
         line_role_pipeline = line_role_pipeline_by_run_id.get(run_id, "unknown")
-        pass3_fallback_reason = str(row.get("pass3_fallback_reason") or "").strip()
         recipe_stage_rows = [
             _build_recipe_stage_row(
                 recipe_stage=recipe_stage,
                 row=row,
-                pass3_fallback_reason=pass3_fallback_reason,
             )
             for recipe_stage in recipe_stages
         ]
@@ -189,9 +188,10 @@ def build_stage_separated_comparison(
                     "delta_vs_baseline": _coerce_float(row.get("delta_codex_minus_baseline")),
                 },
                 "recipe_stages": recipe_stage_rows,
-                "final_or_fallback_stage": {
-                    "status": "fallback" if pass3_fallback_reason else "final",
-                    "fallback_reason": pass3_fallback_reason or None,
+                "final_stage": {
+                    "status": str(row.get("build_final_status") or ""),
+                    "mapping_status": str(row.get("final_mapping_status") or ""),
+                    "mapping_reason": str(row.get("final_mapping_reason") or "") or None,
                     "recipe_stage_statuses": {
                         str(stage_row.get("stage_key") or ""): str(stage_row.get("status") or "")
                         for stage_row in recipe_stage_rows
