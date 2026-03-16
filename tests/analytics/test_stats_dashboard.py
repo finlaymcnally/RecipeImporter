@@ -2425,7 +2425,7 @@ class TestCollectors:
         )
         assert all("line-role-gated" not in path for path in artifact_dirs)
 
-    def test_csv_collector_backfills_codex_runtime_from_prediction_run_manifest(
+    def test_csv_collector_backfills_codex_runtime_from_manifest(
         self, tmp_path
     ):
         output_root = tmp_path / "output"
@@ -2442,9 +2442,8 @@ class TestCollectors:
             / "seaandsmokecutdown"
             / "codexfarm"
         )
-        pred_run_dir = eval_dir / "prediction-run"
-        pred_run_dir.mkdir(parents=True, exist_ok=True)
-        (pred_run_dir / "manifest.json").write_text(
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        (eval_dir / "manifest.json").write_text(
             json.dumps(
                 {
                     "source_file": str(tmp_path / "input" / "SeaAndSmokeCUTDOWN.epub"),
@@ -2506,7 +2505,7 @@ class TestCollectors:
         assert "codex_farm_model=gpt-5.3-codex-spark" in str(record.run_config_summary)
         assert "codex_farm_reasoning_effort=<default>" in str(record.run_config_summary)
 
-    def test_csv_collector_backfills_codex_runtime_error_from_prediction_run_manifest(
+    def test_csv_collector_backfills_codex_runtime_error_from_manifest(
         self, tmp_path
     ):
         output_root = tmp_path / "output"
@@ -2523,9 +2522,8 @@ class TestCollectors:
             / "seaandsmokecutdown"
             / "codexfarm"
         )
-        pred_run_dir = eval_dir / "prediction-run"
-        pred_run_dir.mkdir(parents=True, exist_ok=True)
-        (pred_run_dir / "manifest.json").write_text(
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        (eval_dir / "manifest.json").write_text(
             json.dumps(
                 {
                     "source_file": str(tmp_path / "input" / "SeaAndSmokeCUTDOWN.epub"),
@@ -2685,10 +2683,10 @@ class TestCollectors:
         assert len(data.benchmark_records) == 1
         assert data.benchmark_records[0].recipes == 23
 
-    def test_benchmark_collector_prediction_run_manifest_enrichment(self, tmp_path):
+    def test_benchmark_collector_manifest_enrichment(self, tmp_path):
         eval_path = _write_eval_report(tmp_path)
-        pred_run_dir = eval_path.parent / "prediction-run"
-        pred_run_dir.mkdir(parents=True, exist_ok=True)
+        eval_dir = eval_path.parent
+        eval_dir.mkdir(parents=True, exist_ok=True)
         processed_report_path = (
             tmp_path / "output" / "2026-02-12_11.22.33" / "book.excel_import_report.json"
         )
@@ -2697,7 +2695,7 @@ class TestCollectors:
             json.dumps({"totalRecipes": 17}),
             encoding="utf-8",
         )
-        (pred_run_dir / "manifest.json").write_text(
+        (eval_dir / "manifest.json").write_text(
             json.dumps(
                 {
                     "task_count": 42,
@@ -2742,7 +2740,7 @@ class TestCollectors:
             ),
             encoding="utf-8",
         )
-        (pred_run_dir / "coverage.json").write_text(
+        (eval_dir / "coverage.json").write_text(
             json.dumps({"extracted_chars": 200, "chunked_chars": 150}),
             encoding="utf-8",
         )
@@ -2945,7 +2943,7 @@ class TestCollectors:
         )
         assert len(data.stage_records) == 0
 
-    def test_prediction_run_excluded(self, tmp_path):
+    def test_prediction_run_dir_is_collected_when_report_exists(self, tmp_path):
         pred_dir = (
             tmp_path / "golden" / "eval-vs-pipeline"
             / "2026-02-11_01.00.00" / "prediction-run"
@@ -2958,7 +2956,8 @@ class TestCollectors:
             output_root=tmp_path / "output",
             golden_root=tmp_path / "golden",
         )
-        assert len(data.benchmark_records) == 0
+        assert len(data.benchmark_records) == 1
+        assert str(data.benchmark_records[0].artifact_dir).endswith("/prediction-run")
 
 
 # ---------------------------------------------------------------------------
@@ -4642,8 +4641,8 @@ class TestBenchmarkSemantics:
 
         for idx in range(1, 4):
             config_dir = all_method_root / f"config_{idx:03d}_cfg{idx}_extractor_beautifulsoup"
-            (config_dir / "prediction-run").mkdir(parents=True, exist_ok=True)
-            (config_dir / "prediction-run" / "manifest.json").write_text(
+            config_dir.mkdir(parents=True, exist_ok=True)
+            (config_dir / "manifest.json").write_text(
                 json.dumps(
                     {
                         "importer_name": "epub",
@@ -5247,20 +5246,19 @@ class TestBenchmarkCsv:
         assert rows[1]["run_category"] == "benchmark_eval"
         assert float(rows[1]["precision"]) == pytest.approx(0.05)
 
-    def test_backfill_benchmark_csv_from_prediction_manifest(self, tmp_path):
+    def test_backfill_benchmark_csv_from_manifest(self, tmp_path):
         history_dir = tmp_path / "output" / ".history"
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
 
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.05.00"
-        pred_run = eval_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
+        eval_dir.mkdir(parents=True, exist_ok=True)
         processed_report = (
             tmp_path / "output" / "2026-02-16_14.04.00" / "book.excel_import_report.json"
         )
         processed_report.parent.mkdir(parents=True, exist_ok=True)
         processed_report.write_text(json.dumps({"totalRecipes": 12}), encoding="utf-8")
-        (pred_run / "manifest.json").write_text(
+        (eval_dir / "manifest.json").write_text(
             json.dumps(
                 {
                     "recipe_count": 12,
@@ -5353,9 +5351,8 @@ class TestBenchmarkCsv:
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.30.00"
-        pred_run = eval_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_path = eval_dir / "line-role-pipeline" / "telemetry_summary.json"
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         telemetry_path.write_text(
             json.dumps(
@@ -5371,7 +5368,7 @@ class TestBenchmarkCsv:
             ),
             encoding="utf-8",
         )
-        (pred_run / "manifest.json").write_text(
+        (eval_dir / "manifest.json").write_text(
             json.dumps(
                 {
                     "source_file": "book.epub",
@@ -5414,9 +5411,8 @@ class TestBenchmarkCsv:
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.35.00"
-        pred_run = eval_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_path = eval_dir / "line-role-pipeline" / "telemetry_summary.json"
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         telemetry_path.write_text(
             json.dumps(
@@ -5474,9 +5470,8 @@ class TestBenchmarkCsv:
         history_dir.mkdir(parents=True)
         csv_path = history_dir / "performance_history.csv"
         eval_dir = tmp_path / "golden" / "eval-vs-pipeline" / "2026-02-16_14.40.00"
-        pred_run = eval_dir / "prediction-run"
-        pred_run.mkdir(parents=True, exist_ok=True)
-        telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_path = eval_dir / "line-role-pipeline" / "telemetry_summary.json"
         telemetry_path.parent.mkdir(parents=True, exist_ok=True)
         telemetry_path.write_text(
             json.dumps(

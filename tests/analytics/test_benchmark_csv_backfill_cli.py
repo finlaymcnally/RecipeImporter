@@ -35,8 +35,7 @@ def _write_prediction_manifest(
     *,
     include_codex_runtime: bool = False,
 ) -> None:
-    pred_run = eval_dir / "prediction-run"
-    pred_run.mkdir(parents=True, exist_ok=True)
+    eval_dir.mkdir(parents=True, exist_ok=True)
     processed_report.parent.mkdir(parents=True, exist_ok=True)
     processed_report.write_text(json.dumps({"totalRecipes": 9}), encoding="utf-8")
     payload: dict[str, object] = {
@@ -71,7 +70,7 @@ def _write_prediction_manifest(
                 }
             }
         }
-    (pred_run / "manifest.json").write_text(
+    (eval_dir / "manifest.json").write_text(
         json.dumps(payload),
         encoding="utf-8",
     )

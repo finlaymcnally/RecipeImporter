@@ -1038,8 +1038,12 @@ Current LLM contracts reinforced:
   - `build_codex_farm_prompt_response_log(...)` as the compatibility wrapper used by current callers
   - injected discovery via `discover_prompt_run_descriptors(...)` / `build_prompt_response_log(...)` when future non-CodexFarm layouts need to plug in
 - The repo has five Codex-backed surfaces:
-  - `recipe`, `knowledge`, and `tags` use CodexFarm
-  - `line_role` and `prelabel` use local `codex exec`
+  - `recipe`, `line_role`, `knowledge`, `tags`, and `prelabel` all use CodexFarm-backed execution now
+  - `cookimport/llm/codex_exec.py` is fail-closed compatibility only and should not be treated as an active runtime transport
+- Canonical line-role and freeform prelabel now share the same backend invariant as the recipe/knowledge/tag surfaces:
+  - line-role pipeline id: `line-role.canonical.v1`
+  - prelabel pipeline id: `prelabel.freeform.v1`
+  - command-boundary/backend metadata should resolve to `codexfarm`, not mixed backend aliases
 
 Anti-loop reminder:
 - If prompt artifact work starts requiring renderer edits for every new run layout, the problem is discovery coupling. Push the change into descriptors/adapters before touching rendering again.

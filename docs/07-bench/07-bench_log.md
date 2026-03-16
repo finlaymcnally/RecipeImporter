@@ -6933,6 +6933,10 @@ Durable decisions:
 - Canonical line-role survives as diagnostics only and runs after the shared stage session so it sees final recipe provenance.
 - The dead `prefer_line_role_projection` compatibility seam can stay removed.
 - `upload_bundle_v1` should route discovery through a normalized model, then render both stage-separated comparison and recipe pipeline context from that shared topology payload.
+- Prompt artifact export should stay topology-neutral at the renderer boundary:
+  - dynamic stage labels come from observed stage metadata,
+  - discovery lives behind prompt-stage descriptors,
+  - follow-up/bundle helpers should prefer descriptor/category-manifest resolution over fixed `prompt_taskN_passM_*.txt` assumptions.
 
 Anti-loop note:
 - If a benchmark refactor needs a second primary prediction lane or path-derived reviewer topology again, you are reintroducing the fork these notes were trying to retire.

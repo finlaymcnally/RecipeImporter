@@ -27,7 +27,7 @@ Current contract confirmation:
 - `_FILE_MARKERS` currently covers all `74/74` `test_*.py` filenames; no unmapped files were found.
 - Fallback behavior remains: unmapped test filenames would receive marker `core`.
 - Compact output is still enforced from `pytest_configure(...)` even when callers pass `-o addopts=''`.
-- Verbose opt-out is still only `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
+- Verbose opt-out is now scoped: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` only enables full verbosity for one explicit file or nodeid, while broad directory/marker runs stay compact.
 - Domain folders remain the primary layout, with one intentional root-level cross-domain module: `tests/test_eval_freeform_practical_metrics.py`.
 - Support data surfaces under tests remain active: `tests/fixtures/*` and `tests/tagging_gold/*`.
 - Shared path helper constants in `tests/paths.py` remain active (`REPO_ROOT`, `FIXTURES_DIR`, `TAGGING_GOLD_DIR`, `DOCS_EXAMPLES_DIR`).
@@ -230,10 +230,29 @@ Problem captured:
 
 Decisions still active:
 - Enforce compact terminal settings in `pytest_configure(...)` independent of `addopts`.
-- Keep explicit opt-out via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
+- Keep `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` as the deep-debug escape hatch, but only for one explicit test file or nodeid.
 
 Anti-loop note:
-- If full verbosity is needed, use the env opt-out instead of weakening compact defaults.
+- If full verbosity is needed, scope the rerun first. Do not weaken compact defaults just because broad runs ignore the env var now.
+
+### 2026-03-15_22.26.06 scoped pytest verbose-output guardrail
+
+Source task file:
+- `docs/tasks/2026-03-15_22.26.06-pytest-verbose-output-guardrails.md`
+
+Problem captured:
+- Agents kept exporting `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` during routine loops, which effectively erased the compact pytest contract for broad runs.
+
+Durable decisions:
+- Broad runs, marker runs, and directory runs stay compact even when `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is set.
+- Full verbose output is now reserved for one explicit test file or nodeid where the operator is clearly doing a narrow deep-debug rerun.
+- Failure guidance should prefer a compact scoped rerun before suggesting full verbose mode.
+
+Verification preserved:
+- `. .venv/bin/activate && pytest tests/core/test_pytest_output_guidance.py`
+
+Anti-loop note:
+- If someone says “the env var doesn’t work anymore,” check whether they tried to use it on a broad run. That is now intentional.
 
 ### 2026-02-27_19.44.54 testing docs pruning current contracts
 

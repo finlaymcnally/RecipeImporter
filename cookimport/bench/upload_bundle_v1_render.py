@@ -146,7 +146,7 @@ def build_stage_separated_comparison(
         if not reason:
             reason = (
                 f"{stage_key} stage outputs could not be projected/scored from discovered "
-                "prediction-run codex artifacts"
+                "benchmark codex artifacts"
             )
         return {
             "label_scored": False,

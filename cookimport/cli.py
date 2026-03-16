@@ -27112,21 +27112,21 @@ def labelstudio_eval(
         "--llm-recipe-pipeline",
         help=(
             "Optional run-config override for eval metadata parity. "
-            "When omitted, value is inferred from prediction-run metadata."
+            "When omitted, value is inferred from eval-run manifest metadata."
         ),
     )] = None,
     atomic_block_splitter: Annotated[str | None, typer.Option(
         "--atomic-block-splitter",
         help=(
             "Optional run-config override for eval metadata parity. "
-            "When omitted, value is inferred from prediction-run metadata."
+            "When omitted, value is inferred from eval-run manifest metadata."
         ),
     )] = None,
     line_role_pipeline: Annotated[str | None, typer.Option(
         "--line-role-pipeline",
         help=(
             "Optional run-config override for eval metadata parity. "
-            "When omitted, value is inferred from prediction-run metadata."
+            "When omitted, value is inferred from eval-run manifest metadata."
         ),
     )] = None,
 ) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from pathlib import Path
 
 import pytest
@@ -151,6 +152,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_perf_report.py": ("analytics",),
     "test_performance_features.py": ("ingestion",),
     "test_phase1_manual.py": ("core",),
+    "test_pytest_output_guidance.py": ("core",),
     "test_prediction_records.py": ("bench",),
     "test_progress_messages.py": ("bench",),
     "test_quality_suite_compare.py": ("bench",),
@@ -250,8 +252,10 @@ _LOG_HINTS = {
 }
 
 _FAILED_MARKERS: set[str] = set()
+_FAILED_NODEIDS: list[str] = []
 _HINTS_EMITTED = False
 _RAW_PYTEST_GUIDANCE_EMITTED = False
+_VERBOSE_ENV_GUIDANCE_EMITTED = False
 
 
 def _env_truthy(name: str) -> bool:
@@ -303,6 +307,21 @@ def _should_emit_raw_pytest_guidance(config: pytest.Config) -> bool:
     return len(test_targets) >= 3 or len(domains) >= 2
 
 
+def _should_honor_verbose_output(config: pytest.Config) -> bool:
+    if not _env_truthy(_FORCE_VERBOSE_OUTPUT_ENV):
+        return False
+    args = [str(arg) for arg in config.invocation_params.args]
+    if any(arg in {"--collect-only", "--fixtures", "--help", "-h"} for arg in args):
+        return False
+    if any(arg == "-m" or arg.startswith("-m") for arg in args):
+        return False
+    test_targets = [arg for arg in args if _looks_like_test_target(arg)]
+    if len(test_targets) != 1:
+        return False
+    classified = _classify_test_target(test_targets[0])
+    return classified is not None and not classified[1]
+
+
 def _emit_raw_pytest_guidance(terminalreporter) -> None:
     global _RAW_PYTEST_GUIDANCE_EMITTED
     if _RAW_PYTEST_GUIDANCE_EMITTED or terminalreporter is None:
@@ -313,9 +332,19 @@ def _emit_raw_pytest_guidance(terminalreporter) -> None:
     _RAW_PYTEST_GUIDANCE_EMITTED = True
 
 
+def _emit_verbose_env_guidance(terminalreporter) -> None:
+    global _VERBOSE_ENV_GUIDANCE_EMITTED
+    if _VERBOSE_ENV_GUIDANCE_EMITTED or terminalreporter is None:
+        return
+    terminalreporter.write_line(
+        "note: COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 only applies to one explicit test file/nodeid; broad runs stay compact."
+    )
+    _VERBOSE_ENV_GUIDANCE_EMITTED = True
+
+
 def pytest_configure(config: pytest.Config) -> None:
     os.environ["COOKIMPORT_ALLOW_LLM"] = "1"
-    if _env_truthy(_FORCE_VERBOSE_OUTPUT_ENV):
+    if _should_honor_verbose_output(config):
         return
     # Enforce compact output even when callers pass `-o addopts=''`.
     config.option.no_header = True
@@ -343,9 +372,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
+    terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if _env_truthy(_FORCE_VERBOSE_OUTPUT_ENV) and not _should_honor_verbose_output(
+        session.config
+    ):
+        _emit_verbose_env_guidance(terminalreporter)
     if not _should_emit_raw_pytest_guidance(session.config):
         return
-    terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
     _emit_raw_pytest_guidance(terminalreporter)
 
 
@@ -372,8 +405,10 @@ def _emit_failure_hints(terminalreporter) -> None:
     terminalreporter.write_line("")
     for marker_name in sorted(hinted_markers):
         terminalreporter.write_line(f"log: {_LOG_HINTS[marker_name]}")
+    if _FAILED_NODEIDS:
+        terminalreporter.write_line(f"rerun: pytest {shlex.quote(_FAILED_NODEIDS[0])}")
     terminalreporter.write_line(
-        "verbose: COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest -o addopts='' -vv --tb=short --show-capture=all --assert=rewrite <failing_test>"
+        "deep-debug: after a scoped compact rerun, add COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 only for one explicit file/nodeid if you still need traceback/capture details."
     )
     _HINTS_EMITTED = True
 
@@ -381,6 +416,8 @@ def _emit_failure_hints(terminalreporter) -> None:
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     if not report.failed or report.when == "teardown":
         return
+    if report.nodeid not in _FAILED_NODEIDS:
+        _FAILED_NODEIDS.append(report.nodeid)
     for marker_name in _LOG_HINTS:
         if marker_name in report.keywords:
             _FAILED_MARKERS.add(marker_name)

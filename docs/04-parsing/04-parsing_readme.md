@@ -297,8 +297,11 @@ Recipe boundary detection directly controls which text reaches parsing/linking/t
 - `cookimport/parsing/epub_html_normalize.py` pre-normalizes XHTML before unstructured partitioning.
 - `cookimport/parsing/unstructured_adapter.py` maps unstructured elements to deterministic blocks + diagnostics metadata.
 - `cookimport/parsing/epub_table_rows.py` preserves EPUB `<tr>` rows as structured cell arrays plus visible `|`-delimited row text so downstream table detection does not have to guess column boundaries.
+  - BeautifulSoup-based EPUB extraction preserves empty cells instead of collapsing them away.
+  - Unstructured-based EPUB extraction expands `metadata.text_as_html` tables into explicit row blocks when that HTML is available, instead of trying to recover columns from already-flattened text.
 - `cookimport/parsing/epub_postprocess.py` and `cookimport/parsing/epub_health.py` are shared guardrails after HTML-based extraction.
 - `cookimport/plugins/epub.py` and `cookimport/plugins/pdf.py` both read `run_settings.section_detector_backend` and can route field extraction through the shared detector when set to `shared_v1`.
+- obvious conversion/reference titles now carry a narrow recipe-likeness penalty so Food Lab-style tables can stay in non-recipe flow and reach `tables.py` instead of being trapped as fake recipes.
 
 ## Deterministic Pattern Flags (`cookimport/parsing/pattern_flags.py`)
 
@@ -495,7 +498,7 @@ Gates include:
 ### Related modules
 
 - `cookimport/llm/canonical_line_role_prompt.py`
-- `cookimport/llm/codex_exec.py`
+- `cookimport/llm/codex_exec.py` (fail-closed compatibility only; active runtime line-role transport is CodexFarm through `canonical_line_roles.py`)
 - `llm_pipelines/prompts/canonical-line-role-v1.prompt.md`
 
 ### Tests to read
@@ -525,6 +528,10 @@ Gates include:
 ### Table-aware behavior
 
 - Table rows in `non_recipe_blocks` are tagged with `features.table_id` + `features.table_row_index` during normal stage/prediction runs.
+- `detect_tables_from_non_recipe_blocks(...)` trusts structured EPUB row metadata first, then falls back to visible delimiters / flattening heuristics for older or non-EPUB sources.
+- Flattened reference-table salvage is intentionally narrow:
+  - target headings are conversions, weights, temperatures, equivalencies, and similar reference sections,
+  - salvaged tables should carry lower confidence / notes instead of pretending they were clean structured-table detections.
 - `chunk_non_recipe_blocks` treats same-`table_id` runs as atomic for max-char splitting (it does not split in the middle of a detected table).
 - Chunks carrying `provenance.table_ids` are forced to `knowledge` lane so table facts are not dropped as noise.
 - Table chunks are never merged with non-table chunks, in either `merge_small_chunks` or adjacent-chunk consolidation.

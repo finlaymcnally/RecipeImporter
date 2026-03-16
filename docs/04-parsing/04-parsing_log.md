@@ -1072,6 +1072,7 @@ Durable findings:
 
 Source:
 - `docs/understandings/2026-03-13_23.02.22-epub-table-structure-and-reference-gating.md`
+- `docs/tasks/2026-03-13_22.47.36-epub-table-structure-preservation.md`
 
 Problem captured:
 - Row preservation alone still missed some Food Lab conversion charts because recipe-likeness scoring kept them in recipe-candidate flow instead of `nonRecipeBlocks`.

@@ -98,8 +98,11 @@ Default output is intentionally compact, and this is enforced in `tests/conftest
 even if someone passes `-o addopts=''` by hand.
 
 On failures, pytest prints short hints to matching `docs/*_log.md` files.
-For full traceback/details, rerun with:
+First rerun the one failing file or nodeid in normal compact mode:
 
 ```bash
-COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1 pytest -o addopts='' -vv --tb=short --show-capture=all --assert=rewrite <failing_test>
+pytest <failing_test_or_nodeid>
 ```
+
+If that still is not enough, `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is honored only for
+one explicit file or nodeid, not for broad/marker/directory runs.

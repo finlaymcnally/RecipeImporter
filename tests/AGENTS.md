@@ -12,7 +12,7 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - hides header + summary
   - suppresses warnings
   - clamps `-v/-vv` back to compact mode
-  - opt-out env for full verbose output: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`
+  - verbose opt-out is only honored for one explicit test file or nodeid: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`
 - Per-test progress glyphs are suppressed in `tests/conftest.py` via `pytest_report_teststatus(...)`.
 - Tests are modularized by marker in `tests/conftest.py` via centralized file mapping:
   - domain markers: `ingestion`, `parsing`, `staging`, `cli`, `labelstudio`, `bench`, `analytics`, `tagging`, `llm`, `core`
@@ -76,7 +76,7 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - Avoid `print(...)` in normal test paths.
   - Keep assertion text short; do not dump large payloads in failures.
   - Put deep debugging detail in matching `docs/*_log.md`, not test stdout.
-  - Use `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` only when full pytest verbosity is explicitly needed.
+  - Do not set `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` for routine loops; use it only after a compact rerun of one explicit file/nodeid still needs more detail.
 - Keep runs scoped:
   - Prefer marker/file-targeted runs over full-suite runs.
   - Typical default for AI loops: `pytest -m smoke` or one domain marker.

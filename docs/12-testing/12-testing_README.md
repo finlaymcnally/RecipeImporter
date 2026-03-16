@@ -172,12 +172,13 @@ Current compact-output behavior:
 - Default pytest runs avoid per-test dot/progress floods.
 - Success-path print noise is removed from normal test modules.
 - Compact mode remains enforced even with `-o addopts=''` unless explicit verbose opt-out is requested.
-- `pytest -v/-vv` is clamped back to compact mode unless opt-out is enabled.
-- Failure hints are emitted once at run end (not per failure) by `pytest_terminal_summary(...)`/`pytest_sessionfinish(...)`.
+- `pytest -v/-vv` is clamped back to compact mode unless scoped verbose opt-out is enabled.
+- Failure hints are emitted once at run end (not per failure) by `pytest_terminal_summary(...)`/`pytest_sessionfinish(...)`, and they now prefer a compact scoped rerun before suggesting deep-debug mode.
 
 Verbose opt-out contract:
 
-- Set `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` to restore full verbose output behavior for deep debugging.
+- Set `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` only for one explicit test file or nodeid when a compact rerun still needs full traceback/capture details.
+- Broad runs, marker runs, and directory runs stay compact even if `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is set.
 
 Design intent:
 
@@ -196,7 +197,7 @@ Design intent:
 - 2026-02-22: low-noise defaults and centralized marker mapping introduced and are still active.
 - 2026-02-22: tests were reorganized into domain folders; `tests/paths.py` remains the path-stability helper.
 - 2026-02-22: success-path test stdout noise was trimmed; only intentional helper-script prints remain.
-- 2026-02-22: compact-output enforcement on `addopts` override landed and remains opt-out via `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1`.
+- 2026-02-22: compact-output enforcement on `addopts` override landed and now remains scoped opt-out only: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is honored for one explicit file or nodeid, not for broad directory/marker runs.
 
 ## 2026-02-27 Merged Understandings: Testing Docs Prune + Coverage Audit
 

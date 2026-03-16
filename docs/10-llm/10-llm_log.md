@@ -2860,7 +2860,52 @@ Durable decisions:
 - Keep reviewer-facing stage labels derived from observed stage metadata even if raw folder names stay legacy-slot based.
 - Treat `full_prompt_log.jsonl` as the stable downstream contract.
 - Separate discovery, normalized descriptors, and rendering so future cookbook/stage topology changes become adapter work instead of exporter rewrites.
-- Keep the backend map explicit: recipe/knowledge/tags are CodexFarm surfaces; line-role and prelabel use direct `codex exec`.
+- Keep the backend map explicit and current: all five live Codex surfaces (`recipe`, `line_role`, `knowledge`, `tags`, `prelabel`) are CodexFarm surfaces now, and `cookimport/llm/codex_exec.py` is fail-closed compatibility only.
 
 Anti-loop note:
 - If a prompt artifact refactor still needs hardcoded `pass1/pass2/pass4` path knowledge in rendering, the boundary is in the wrong place.
+
+### 2026-03-13_22.29.37 through 2026-03-13_23.34.27 CodexFarm reliability split-plan landing
+
+Source task files:
+- `docs/tasks/2026-03-13_22.29.37-step1.md`
+- `docs/tasks/2026-03-13_22.29.38-step2.md`
+- `docs/tasks/2026-03-13_22.29.39-step3.md`
+- `docs/tasks/2026-03-13_22.29.40-step4.md`
+
+Problem captured:
+- The March 6 CodexFarm benchmark failures were being discussed as one blurry problem even though they split into four different seams:
+  - observability/invariant drift,
+  - upstream title and line-role ownership mistakes,
+  - current 3-pass transport/contract/routing failures,
+  - the separate architecture question of whether a merged repair stage should replace the pass2 -> pass3 seam.
+
+Durable decisions:
+- Keep structural-success rules and transport-verifier reason codes stable in `cookimport/llm/codex_farm_contracts.py` / `cookimport/llm/codex_farm_transport.py`; later prompt or routing work should consume those codes instead of inventing new ones.
+- Treat recipe runtime mode as part of the contract: recipe extraction/repair calls must remain structured-output, non-agentic CodexFarm calls.
+- Hold title/boundary guardrails in deterministic staging and projected-title application, but keep syntax-heavy ownership vetoes in canonical line-role arbitration.
+- Keep `codex-farm-3pass-v1` as the repaired control path and `codex-farm-2stage-repair-v1` as the additive architecture prototype; do not blur benchmark comparisons by silently merging those paths.
+- The first merged-stage prototype should emit one canonical recipe object and derive downstream schema.org / `RecipeDraftV1` locally, rather than maintaining multiple competing final artifacts.
+
+Anti-loop note:
+- If benchmark failures are being described only as “CodexFarm is bad again,” split them back into invariant failure, upstream staging/ownership failure, current-path repair, and prototype-evaluation questions before changing prompts or routing.
+
+### 2026-03-15_15.18.57 and 2026-03-15_15.38.20 CodexFarm-only backend and global line-role labels
+
+Source task files:
+- `docs/tasks/2026-03-15_15.18.57-codexfarm-only-codex-execution.md`
+- `docs/tasks/2026-03-15_15.38.20-line-role-global-labels.md`
+
+Problem captured:
+- The repo still had mixed Codex transports, and some benchmark/debug surfaces still carried obsolete line-role shortlist assumptions even after the prompt/parser allowlist was removed.
+
+Durable decisions:
+- Runtime backend unification is strict: no enabled surface should shell out to local `codex exec`; line-role and prelabel now run through CodexFarm pipeline packs and emit CodexFarm-shaped metadata/artifacts.
+- `cookimport/llm/codex_exec.py` should remain only as a fail-closed trap for stale callers, not as a supported fallback path.
+- Candidate-label shortlist metadata is gone from the active line-role path:
+  - `AtomicLineCandidate` and `CanonicalLineRolePrediction` no longer publish `candidate_labels`,
+  - Codex sees the full global label vocabulary,
+  - benchmark/export/upload-bundle analysis should use `analysis.line_role_confidence` plus `reason_tags` and final labels instead of resurrecting shortlist analytics.
+
+Anti-loop note:
+- If a current line-role issue is being explained with “Codex was not allowed to choose the right label,” prove that a shortlist still exists in emitted artifacts first. The active failure mode is more likely atomizer or deterministic-evidence weakness.
