@@ -2020,10 +2020,14 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
             / "r0.json"
         ).read_text(encoding="utf-8")
     )
-    assert processed_draft["name"] == "Pancakes"
-    assert processed_draft["ingredients"] == predicted_ingredients
-    assert processed_draft["instructions"][0] == "Gather and prepare ingredients."
-    assert processed_draft["instructions"][1:] == predicted_instructions
+    assert processed_draft["recipe"]["title"] == "Pancakes"
+    assert [
+        line["raw_text"]
+        for step in processed_draft["steps"]
+        for line in step.get("ingredient_lines", [])
+    ] == predicted_ingredients
+    assert processed_draft["steps"][0]["instruction"] == "Gather and prepare ingredients."
+    assert [step["instruction"] for step in processed_draft["steps"][1:]] == predicted_instructions
     assert predicted_notes == ["NOTE: Keep warm"]
     assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 1
     assert (

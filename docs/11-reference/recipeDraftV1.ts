@@ -120,6 +120,7 @@ const RecipeSchema = z
     title: z.string().trim().min(1),
     description: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),
+    tags: z.array(z.string().trim().min(1)).optional().nullable(),
     image_url: z.string().optional().nullable(),
     variants: z.array(z.string().trim().min(1)).optional().nullable(),
     yield_units: z.number().min(1).optional().default(1),

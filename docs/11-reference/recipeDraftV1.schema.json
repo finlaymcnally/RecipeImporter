@@ -29,6 +29,13 @@
         "notes": {
           "type": ["string", "null"]
         },
+        "tags": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "image_url": {
           "type": ["string", "null"]
         },

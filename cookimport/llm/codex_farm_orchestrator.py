@@ -14,12 +14,9 @@ from cookimport.runs import RECIPE_MANIFEST_FILE_NAME, stage_artifact_stem
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 from .codex_farm_contracts import (
-    MergedCanonicalRecipe,
     MergedRecipeRepairInput,
     MergedRecipeRepairOutput,
-    Pass2SchemaOrgOutput,
     StructuralAuditResult,
-    classify_pass3_structural_audit,
     load_contract_json,
     serialize_merged_recipe_repair_input,
 )
@@ -57,6 +54,26 @@ _ELIGIBILITY_YIELD_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _ELIGIBILITY_TITLE_LIKE_RE = re.compile(r"^[A-Z][A-Z0-9'/:,\- ]{2,}$")
+_AUDIT_PLACEHOLDER_TITLES = {
+    "recipe",
+    "recipe title",
+    "recipe name",
+    "title unavailable",
+    "unknown recipe",
+    "untitled recipe",
+}
+_AUDIT_PLACEHOLDER_STEP_TEXTS = {
+    "",
+    "n a",
+    "na",
+    "not provided",
+    "not available",
+    "no instruction provided",
+    "see original recipe for details",
+    "see original recipe",
+    "refer to original recipe",
+    "follow original recipe",
+}
 _ELIGIBILITY_CHAPTER_PAGE_HINT_KEYS = (
     "chapter_page_hint",
     "chapter_page_hints",
@@ -117,35 +134,12 @@ class _RecipeState:
     bundle_name: str
     heuristic_start: int | None
     heuristic_end: int | None
-    start_block_index: int | None = None
-    end_block_index: int | None = None
-    pass1_raw_start_block_index: int | None = None
-    pass1_raw_end_block_index: int | None = None
-    pass1_span_loss_metrics: dict[str, Any] | None = None
-    pass1_degradation_reasons: list[str] = field(default_factory=list)
-    pass1_eligibility_status: str | None = None
-    pass1_eligibility_action: str | None = None
-    pass1_eligibility_score: int | None = None
-    pass1_eligibility_score_components: dict[str, Any] | None = None
-    pass1_eligibility_reasons: list[str] = field(default_factory=list)
-    excluded_block_ids: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
-    canonical_text: str = ""
-    pass2_effective_indices: list[int] = field(default_factory=list)
-    pass2_payload_indices: list[int] = field(default_factory=list)
-    pass3_fallback_reason: str | None = None
-    pass2_output: Pass2SchemaOrgOutput | None = None
-    pass2_degradation_reasons: list[str] = field(default_factory=list)
-    pass2_degradation_severity: str | None = None
-    pass2_promotion_policy: str | None = None
-    pass3_execution_mode: str | None = None
-    pass3_routing_reason: str | None = None
-    pass3_mapping_status: str | None = None
-    pass3_mapping_reason: str | None = None
-    pass3_utility_signal: dict[str, Any] | None = None
     structural_status: str = "ok"
     structural_reason_codes: list[str] = field(default_factory=list)
+    correction_mapping_status: str | None = None
+    correction_mapping_reason: str | None = None
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -300,8 +294,8 @@ def _build_single_correction_manifest(
             "structural_status": state.structural_status,
             "structural_reason_codes": list(state.structural_reason_codes),
         }
-        mapping_status = getattr(state, "pass3_mapping_status", None)
-        mapping_reason = getattr(state, "pass3_mapping_reason", None)
+        mapping_status = getattr(state, "correction_mapping_status", None)
+        mapping_reason = getattr(state, "correction_mapping_reason", None)
         if mapping_status:
             row["mapping_status"] = mapping_status
         if mapping_reason:
@@ -519,17 +513,6 @@ def _run_single_correction_recipe_pipeline(
             state=state,
             output=correction_output,
         )
-        derived_schemaorg_recipe = _derive_schemaorg_from_canonical_recipe(
-            correction_output.canonical_recipe
-        )
-        derived_pass2_output = Pass2SchemaOrgOutput(
-            recipe_id=state.recipe_id,
-            schemaorg_recipe=derived_schemaorg_recipe,
-            extracted_ingredients=list(correction_output.canonical_recipe.ingredients),
-            extracted_instructions=list(correction_output.canonical_recipe.steps),
-            field_evidence={},
-            warnings=list(correction_output.warnings),
-        )
         final_payload = recipe_candidate_to_draft_v1(
             corrected_candidate,
             ingredient_parser_options=run_settings.to_run_config_dict(),
@@ -537,20 +520,17 @@ def _run_single_correction_recipe_pipeline(
             ingredient_step_mapping_override=correction_output.ingredient_step_mapping,
             ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason,
         )
-        structural_audit = classify_pass3_structural_audit(
+        structural_audit = _classify_recipe_correction_structural_audit(
+            correction_output=correction_output,
             draft_payload=final_payload,
-            pass2_output=derived_pass2_output,
-            ingredient_step_mapping=correction_output.ingredient_step_mapping,
-            ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason,
-            pass2_reason_codes=[],
         )
         _merge_structural_audit(state=state, audit=structural_audit)
         (
-            state.pass3_mapping_status,
-            state.pass3_mapping_reason,
-        ) = _classify_pass3_mapping_status(
+            state.correction_mapping_status,
+            state.correction_mapping_reason,
+        ) = _classify_recipe_correction_mapping_status(
             draft_payload=final_payload,
-            pass2_output=derived_pass2_output,
+            correction_output=correction_output,
             ingredient_step_mapping=correction_output.ingredient_step_mapping,
             ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason,
         )
@@ -561,8 +541,8 @@ def _run_single_correction_recipe_pipeline(
             corrected_candidate=corrected_candidate,
             final_payload=final_payload,
             structural_audit=structural_audit,
-            mapping_status=state.pass3_mapping_status,
-            mapping_reason=state.pass3_mapping_reason,
+            mapping_status=state.correction_mapping_status,
+            mapping_reason=state.correction_mapping_reason,
         )
         _write_json(
             audit_payload,
@@ -741,22 +721,6 @@ def _merge_structural_audit(
         state.structural_status = audit.status
 
 
-def _derive_schemaorg_from_canonical_recipe(
-    canonical_recipe: MergedCanonicalRecipe,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "@type": "Recipe",
-        "name": canonical_recipe.title,
-        "recipeIngredient": list(canonical_recipe.ingredients),
-        "recipeInstructions": list(canonical_recipe.steps),
-    }
-    if canonical_recipe.description:
-        payload["description"] = canonical_recipe.description
-    if canonical_recipe.recipe_yield:
-        payload["recipeYield"] = canonical_recipe.recipe_yield
-    return payload
-
-
 def _resolve_pipeline_root(run_settings: RunSettings) -> Path:
     if run_settings.codex_farm_root:
         root = Path(run_settings.codex_farm_root).expanduser()
@@ -927,10 +891,10 @@ def _normalize_mapping_reason_token(value: str | None) -> str:
     return rendered.strip("_")
 
 
-def _classify_pass3_mapping_status(
+def _classify_recipe_correction_mapping_status(
     *,
     draft_payload: dict[str, Any],
-    pass2_output: Pass2SchemaOrgOutput | None,
+    correction_output: MergedRecipeRepairOutput,
     ingredient_step_mapping: dict[str, Any] | None,
     ingredient_step_mapping_reason: str | None,
 ) -> tuple[str, str | None]:
@@ -956,10 +920,8 @@ def _classify_pass3_mapping_status(
             return "not_needed", rendered_reason
         return "unclear", rendered_reason
 
-    ingredient_count = (
-        sum(1 for item in pass2_output.extracted_ingredients if str(item).strip())
-        if pass2_output is not None
-        else 0
+    ingredient_count = sum(
+        1 for item in correction_output.canonical_recipe.ingredients if str(item).strip()
     )
     steps_payload = draft_payload.get("steps")
     step_count = (
@@ -974,3 +936,110 @@ def _classify_pass3_mapping_status(
     if ingredient_count >= 2 and step_count >= 2:
         return "missing_reason", None
     return "not_needed_implicit", None
+
+
+def _classify_recipe_correction_structural_audit(
+    *,
+    correction_output: MergedRecipeRepairOutput,
+    draft_payload: dict[str, Any],
+) -> StructuralAuditResult:
+    reason_codes: list[str] = []
+    title = str(correction_output.canonical_recipe.title or "").strip()
+    if _is_placeholder_recipe_title(title):
+        reason_codes.append("placeholder_title")
+
+    steps_payload = draft_payload.get("steps")
+    if not isinstance(steps_payload, list):
+        reason_codes.append("missing_steps")
+        return _build_structural_audit(reason_codes)
+
+    rendered_steps: list[str] = []
+    for step in steps_payload:
+        if not isinstance(step, dict):
+            continue
+        instruction = str(step.get("instruction") or "").strip()
+        if instruction:
+            rendered_steps.append(instruction)
+    if not rendered_steps:
+        reason_codes.append("missing_steps")
+    elif all(_is_placeholder_instruction(step) for step in rendered_steps):
+        reason_codes.append("placeholder_steps_only")
+
+    blocked_description = _normalize_audit_text(
+        str(correction_output.canonical_recipe.description or "")
+    )
+    extracted_instruction_set = {
+        _normalize_audit_text(str(item))
+        for item in correction_output.canonical_recipe.steps
+        if _normalize_audit_text(str(item))
+    }
+    if len(blocked_description) >= 20:
+        for step in rendered_steps:
+            normalized_step = _normalize_audit_text(step)
+            if (
+                normalized_step
+                and normalized_step not in extracted_instruction_set
+                and (
+                    blocked_description == normalized_step
+                    or blocked_description in normalized_step
+                    or normalized_step in blocked_description
+                )
+            ):
+                reason_codes.append("step_matches_schema_description")
+                break
+
+    mapping_payload = correction_output.ingredient_step_mapping
+    rendered_mapping_reason = str(
+        correction_output.ingredient_step_mapping_reason or ""
+    ).strip()
+    nonempty_ingredients = [
+        str(item).strip()
+        for item in correction_output.canonical_recipe.ingredients
+        if str(item).strip()
+    ]
+    if (
+        not mapping_payload
+        and not rendered_mapping_reason
+        and len(nonempty_ingredients) >= 2
+        and len(rendered_steps) >= 2
+    ):
+        reason_codes.append("empty_mapping_without_reason")
+
+    return _build_structural_audit(reason_codes)
+
+
+def _build_structural_audit(reason_codes: list[str]) -> StructuralAuditResult:
+    normalized = _unique_reason_codes(reason_codes)
+    if not normalized:
+        return StructuralAuditResult(status="ok", severity="none", reason_codes=[])
+    return StructuralAuditResult(
+        status="failed",
+        severity="hard",
+        reason_codes=normalized,
+    )
+
+
+def _unique_reason_codes(values: list[str]) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        rendered = str(value or "").strip()
+        if not rendered or rendered in seen:
+            continue
+        seen.add(rendered)
+        rows.append(rendered)
+    return rows
+
+
+def _normalize_audit_text(value: str) -> str:
+    rendered = str(value or "").strip().lower()
+    rendered = re.sub(r"[^a-z0-9]+", " ", rendered)
+    return re.sub(r"\s+", " ", rendered).strip()
+
+
+def _is_placeholder_instruction(value: str) -> bool:
+    return _normalize_audit_text(value) in _AUDIT_PLACEHOLDER_STEP_TEXTS
+
+
+def _is_placeholder_recipe_title(value: str) -> bool:
+    return _normalize_audit_text(value) in _AUDIT_PLACEHOLDER_TITLES

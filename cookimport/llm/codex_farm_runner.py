@@ -4,10 +4,10 @@ import csv
 import json
 import logging
 import os
+import re
 import shlex
 import subprocess
 import threading
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -208,7 +208,9 @@ def _parse_json_stdout(
 ) -> Any | None:
     raw_stdout = (completed.stdout or "").strip()
     if not raw_stdout:
-        return None
+        raise CodexFarmRunnerError(
+            f"codex-farm {command_label} returned empty stdout despite --json."
+        )
     try:
         return json.loads(raw_stdout)
     except json.JSONDecodeError as exc:
@@ -295,14 +297,6 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
     return dict(payload) if isinstance(payload, dict) else None
 
 
-_CODEX_FARM_LEGACY_PROGRESS_PATTERN = re.compile(
-    r"^(?P<run_id>\S+)"
-    r"(?:\s+queued=(?P<queued>-?\d+))?"
-    r"(?:\s+running=(?P<running>-?\d+))?"
-    r"(?:\s+done=(?P<done>-?\d+))?"
-    r"(?:\s+error=(?P<error>-?\d+))?"
-    r"(?:\s+canceled=(?P<canceled>-?\d+))?$"
-)
 _CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
     r"^Created run (?P<run_id>\S+) with (?P<total_tasks>-?\d+) tasks$"
 )
@@ -339,28 +333,6 @@ def _format_created_run_progress_message(
     )
 
 
-def _parse_legacy_progress_line(stderr_line: str) -> dict[str, int | str] | None:
-    line = str(stderr_line or "").strip()
-    if not line.startswith("run="):
-        return None
-    match = _CODEX_FARM_LEGACY_PROGRESS_PATTERN.match(line)
-    if match is None:
-        return None
-    run_id = str(match.group("run_id")).strip()
-    if not run_id:
-        return None
-    parsed: dict[str, int | str] = {"run_id": run_id}
-    for key in ("queued", "running", "done", "error", "canceled"):
-        raw = match.group(key)
-        if raw is None:
-            continue
-        try:
-            parsed[key] = int(raw)
-        except ValueError:
-            continue
-    return parsed
-
-
 def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
     lines: list[str] = []
     for raw_line in str(stderr_text or "").splitlines():
@@ -369,8 +341,6 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
         if _parse_progress_event(raw_line) is not None:
             continue
         if _parse_created_run_line(raw_line) is not None:
-            continue
-        if _parse_legacy_progress_line(raw_line) is not None:
             continue
         lines.append(raw_line.rstrip("\r\n"))
     return lines
@@ -501,31 +471,6 @@ def _format_progress_task_labels(payload: Mapping[str, Any]) -> list[str]:
         seen.add(normalized)
         labels.append(normalized)
     return labels
-
-
-def _format_legacy_progress_message(
-    payload: Mapping[str, Any],
-    *,
-    pipeline_id: str,
-) -> str:
-    run_id = str(payload.get("run_id") or "").strip()
-    queued = payload.get("queued")
-    running = payload.get("running")
-    done = payload.get("done")
-    error = payload.get("error")
-    canceled = payload.get("canceled")
-    parts: list[str] = [f"codex-farm {pipeline_id}: {run_id}"]
-    if queued is not None:
-        parts.append(f"queued {queued}")
-    if running is not None:
-        parts.append(f"running {running}")
-    if done is not None:
-        parts.append(f"done {done}")
-    if error is not None:
-        parts.append(f"errors {error}")
-    if canceled is not None:
-        parts.append(f"canceled {canceled}")
-    return " | ".join(parts)
 
 
 def _format_progress_event_message(
@@ -1362,16 +1307,7 @@ class SubprocessCodexFarmRunner:
                             )
                         )
                         return True
-                    legacy_payload = _parse_legacy_progress_line(line)
-                    if legacy_payload is None:
-                        return False
-                    _emit_progress(
-                        _format_legacy_progress_message(
-                            payload=legacy_payload,
-                            pipeline_id=pipeline_id,
-                        )
-                    )
-                    return True
+                    return False
                 message = _format_progress_event_message(
                     progress_payload,
                     pipeline_id=pipeline_id,
@@ -1446,15 +1382,7 @@ class SubprocessCodexFarmRunner:
                 pipeline_id,
             )
 
-        process_payload: Any | None
-        try:
-            process_payload = _parse_json_stdout(completed, command_label="process")
-        except CodexFarmRunnerError:
-            if completed.returncode == 0:
-                # Keep compatibility with older/fake runners that may emit empty/non-JSON stdout.
-                process_payload = None
-            else:
-                raise
+        process_payload = _parse_json_stdout(completed, command_label="process")
 
         process_payload_dict = dict(process_payload) if isinstance(process_payload, dict) else None
         if process_payload is not None and expected_schema_path is not None:

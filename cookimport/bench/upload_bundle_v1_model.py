@@ -31,30 +31,3 @@ class UploadBundleSourceModel:
     topology: dict[str, Any] = field(default_factory=dict)
     diagnostic_families: dict[str, str] = field(default_factory=dict)
     adapter_metadata: dict[str, Any] = field(default_factory=dict)
-
-    def as_context_dict(self) -> dict[str, Any]:
-        """Compatibility view for legacy script internals."""
-
-        return {
-            "run_index_payload": self.run_index_payload,
-            "comparison_summary_payload": self.comparison_summary_payload,
-            "process_manifest_payload": self.process_manifest_payload,
-            "per_recipe_payload": self.per_recipe_payload,
-            "starter_manifest_payload": self.starter_manifest_payload,
-            "starter_pack_present": self.starter_pack_present,
-            "run_rows": self.run_rows,
-            "comparison_pairs": self.comparison_pairs,
-            "changed_line_rows": self.changed_line_rows,
-            "pair_breakdown_rows": self.pair_breakdown_rows,
-            "recipe_triage_rows": self.recipe_triage_rows,
-            "call_inventory_rows": self.call_inventory_rows,
-            "selected_packets": self.selected_packets,
-            "run_dir_by_id": self.run_dir_by_id,
-            "run_dirs_by_id": self.run_dirs_by_id,
-            "run_dir_by_output_subdir": self.run_dir_by_output_subdir,
-            "discovered_run_dirs": self.discovered_run_dirs,
-            "advertised_counts": self.advertised_counts,
-            "topology": self.topology,
-            "diagnostic_families": self.diagnostic_families,
-            "adapter_metadata": self.adapter_metadata,
-        }

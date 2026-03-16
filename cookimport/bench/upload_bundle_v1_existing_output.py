@@ -57,16 +57,15 @@ def _semantic_recipe_stages() -> list[dict[str, str]]:
 
 def _semantic_recipe_stage_call_counts(
     *,
-    observed_pass2_call_count: int,
-    observed_pass3_call_count: int,
+    observed_correction_call_count: int,
+    observed_final_recipe_build_count: int,
 ) -> dict[str, int]:
-    pass2_count = int(observed_pass2_call_count)
-    pass3_count = int(observed_pass3_call_count)
-    correction_count = pass2_count or pass3_count
+    correction_count = int(observed_correction_call_count)
+    final_build_count = int(observed_final_recipe_build_count)
     return {
-        "build_intermediate_det": max(correction_count, pass3_count),
+        "build_intermediate_det": max(correction_count, final_build_count),
         "recipe_llm_correct_and_link": correction_count,
-        "build_final_recipe": pass3_count,
+        "build_final_recipe": final_build_count,
     }
 
 
@@ -75,8 +74,8 @@ def build_recipe_pipeline_topology_context(
     codex_recipe_pipelines: list[str] | set[str],
     observed_execution_modes: list[str] | set[str],
     observed_routing_reasons: list[str] | set[str],
-    observed_pass2_call_count: int,
-    observed_pass3_call_count: int,
+    observed_correction_call_count: int,
+    observed_final_recipe_build_count: int,
 ) -> dict[str, Any]:
     raw_pipelines = sorted(
         {
@@ -109,8 +108,8 @@ def build_recipe_pipeline_topology_context(
     recipe_stages = _semantic_recipe_stages() if normalized_pipelines else []
     observed_recipe_stage_call_counts = (
         _semantic_recipe_stage_call_counts(
-            observed_pass2_call_count=observed_pass2_call_count,
-            observed_pass3_call_count=observed_pass3_call_count,
+            observed_correction_call_count=observed_correction_call_count,
+            observed_final_recipe_build_count=observed_final_recipe_build_count,
         )
         if recipe_stages
         else {}
@@ -138,8 +137,8 @@ def build_recipe_pipeline_topology(
     codex_recipe_pipelines: set[str] = set()
     observed_execution_modes: set[str] = set()
     observed_routing_reasons: set[str] = set()
-    observed_pass2_call_count = 0
-    observed_pass3_call_count = 0
+    observed_correction_call_count = 0
+    observed_final_recipe_build_count = 0
 
     for row in run_rows:
         if not isinstance(row, dict):
@@ -162,8 +161,8 @@ def build_recipe_pipeline_topology(
         if not isinstance(row, dict):
             continue
         if str(row.get("correction_call_id") or "").strip():
-            observed_pass2_call_count += 1
-            observed_pass3_call_count += 1
+            observed_correction_call_count += 1
+            observed_final_recipe_build_count += 1
         execution_mode = str(row.get("build_final_status") or "").strip()
         routing_reason = str(row.get("final_mapping_reason") or "").strip()
         if execution_mode:
@@ -175,8 +174,8 @@ def build_recipe_pipeline_topology(
         codex_recipe_pipelines=sorted(codex_recipe_pipelines),
         observed_execution_modes=sorted(observed_execution_modes),
         observed_routing_reasons=sorted(observed_routing_reasons),
-        observed_pass2_call_count=observed_pass2_call_count,
-        observed_pass3_call_count=observed_pass3_call_count,
+        observed_correction_call_count=observed_correction_call_count,
+        observed_final_recipe_build_count=observed_final_recipe_build_count,
     )
 
 
@@ -377,8 +376,8 @@ def build_upload_bundle_source_model_from_existing_root(
     )
     diagnostic_families = {
         "line_role": "line_role",
-        "pass2_extraction": "pass2_*",
-        "pass3_mapping": "pass3_*",
+        "recipe_correction": "correction_*",
+        "final_recipe": "build_final_*",
         "routing_or_fallback": "routing_or_fallback",
     }
 

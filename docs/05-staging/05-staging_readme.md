@@ -228,7 +228,7 @@ Code pointer:
 
 ### Additional draft-v1 behaviors that affect downstream consumers
 
-- `write_draft_outputs(...)` now guarantees top-level compatibility aliases for every final draft (`name`, `ingredients`, `instructions`) while preserving explicitly provided alias values in overrides; missing/null aliases are derived from canonical `recipe.title` + `steps[*]` data so vanilla/codex variants expose the same alias shape.
+- `write_draft_outputs(...)` now writes only the canonical draft-v1 shape; top-level compatibility aliases such as `name`, `ingredients`, and `instructions` are no longer added to final drafts.
 - Ingredient text fields are lowercased in final draft output:
   - `raw_text`, `raw_ingredient_text`, `raw_unit_text`, `preparation`, `note`
 - Variant extraction removes instruction lines that are variation headers/prefixes and stores them under `recipe.variants`.

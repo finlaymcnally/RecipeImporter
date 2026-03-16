@@ -40,10 +40,10 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 - Defines internal `RecipeDraftV1`, `RecipeDraftRecipeMeta`, and `RecipeDraftStep` models used by runtime validation and type boundaries.
 
 4. `cookimport/llm/codex_farm_contracts.py`
-- Defines pass3 LLM contract envelope (`Pass3FinalDraftOutput`) carrying `draft_v1`.
+- Defines the live merged-repair LLM contract envelopes (`MergedRecipeRepairInput` / `MergedRecipeRepairOutput`) used by the recipe correction stage.
 
 5. `cookimport/llm/codex_farm_orchestrator.py`
-- Normalizes LLM pass3 draft payload, validates with `RecipeDraftV1.model_validate(...)`, and forwards validated overrides into writer output paths.
+- Normalizes recipe-correction payloads, validates rebuilt `RecipeDraftV1` outputs, and forwards validated overrides into writer output paths.
 
 6. `cookimport/staging/jsonld.py`
 - Deterministic converter for schema.org intermediate recipe payloads used by `write_intermediate_outputs(...)`.
@@ -69,13 +69,13 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 - Confirms generated draft outputs include `schema_v == 1` for importer outputs.
 
 7. `tests/llm/test_writer_overrides.py`
-- Confirms writer accepts and emits pass2/pass3 override payloads.
+- Confirms writer accepts and emits current recipe override payloads.
 
 8. `tests/llm/test_codex_farm_contracts.py`
-- Validates required fields for pass3 bundle contract envelope.
+- Validates required fields for the live merged-repair contract envelope.
 
 9. `tests/llm/test_codex_farm_orchestrator.py`
-- Exercises pass1/pass2/pass3 orchestration, including draft-v1 payload acceptance in pass3 bundle flow.
+- Exercises the deterministic-build plus single recipe-correction orchestration path.
 
 10. `tests/staging/test_draft_v1_priority6.py`
 - Covers active priority-6 draft metadata behavior: `recipe.max_oven_temp_f`, per-step `temperature_items`, and writer-sidecar extraction for `_p6_debug`.
@@ -83,6 +83,6 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 ## Guardrails
 
 1. `docs/11-reference/recipeDraftV1.schema.json` and `docs/11-reference/recipeDraftV1.ts` are reference mirrors; Python runtime does not import these files directly.
-2. These mirrors do not currently cover every runtime-emitted field. Current gaps include compatibility aliases (`name`, `ingredients`, `instructions`), `recipe.tags`, `recipe.max_oven_temp_f`, step `temperature_items`, and optional `_p6_debug` before writer-sidecar extraction.
+2. These mirrors do not currently cover every runtime-emitted field. Current gaps include `recipe.max_oven_temp_f`, step `temperature_items`, and optional `_p6_debug` before writer-sidecar extraction.
 3. Python runtime model (`RecipeDraftV1`) currently allows extra fields (`extra="allow"`), while mirror schema/TS validators are strict (`additionalProperties: false` / `.strict()`).
 4. When changing draft output fields, update this folder and stage/LLM docs together (`docs/05-staging`, `docs/10-llm`) so contract docs remain in sync.

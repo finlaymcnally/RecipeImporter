@@ -171,7 +171,7 @@ def test_sanitize_staging_line_drops_blank_linked_recipe_id() -> None:
     assert line["ingredient_id"] == "flour"
 
 
-def test_write_draft_outputs_populates_compatibility_aliases(tmp_path) -> None:
+def test_write_draft_outputs_writes_canonical_draft_shape(tmp_path) -> None:
     candidate = RecipeCandidate(
         name="Alias Recipe",
         ingredients=["1 cup flour", "1 egg"],
@@ -194,15 +194,20 @@ def test_write_draft_outputs_populates_compatibility_aliases(tmp_path) -> None:
     write_draft_outputs(result, out_dir)
 
     payload = json.loads((out_dir / "r0.json").read_text(encoding="utf-8"))
-    assert payload["name"] == "Alias Recipe"
-    assert payload["ingredients"] == ["1 cup flour", "1 egg"]
-    assert payload["instructions"][0] == "Gather and prepare ingredients."
-    instructions_tail = " ".join(payload["instructions"][1:])
+    assert payload["recipe"]["title"] == "Alias Recipe"
+    assert [line["raw_text"] for line in payload["steps"][0]["ingredient_lines"]] == [
+        "1 cup flour",
+        "1 egg",
+    ]
+    assert payload["steps"][0]["instruction"] == "Gather and prepare ingredients."
+    instructions_tail = " ".join(
+        step["instruction"] for step in payload["steps"][1:]
+    )
     assert "Mix ingredients." in instructions_tail
     assert "Bake until done." in instructions_tail
 
 
-def test_write_draft_outputs_normalizes_override_aliases(tmp_path) -> None:
+def test_write_draft_outputs_preserves_canonical_override_shape(tmp_path) -> None:
     candidate = RecipeCandidate(
         name="Ignored Name",
         ingredients=["salt"],
@@ -243,12 +248,15 @@ def test_write_draft_outputs_normalizes_override_aliases(tmp_path) -> None:
     )
 
     payload = json.loads((out_dir / "r0.json").read_text(encoding="utf-8"))
-    assert payload["name"] == "Override Recipe"
-    assert payload["ingredients"] == ["2 eggs", "pinch salt"]
-    assert payload["instructions"] == ["Whisk quickly."]
+    assert payload["recipe"]["title"] == "Override Recipe"
+    assert [line["raw_text"] for line in payload["steps"][0]["ingredient_lines"]] == [
+        "2 eggs",
+        "pinch salt",
+    ]
+    assert [step["instruction"] for step in payload["steps"]] == ["Whisk quickly."]
 
 
-def test_write_draft_outputs_preserves_existing_override_aliases(tmp_path) -> None:
+def test_write_draft_outputs_drops_legacy_override_aliases(tmp_path) -> None:
     candidate = RecipeCandidate(
         name="Ignored",
         ingredients=["salt"],
@@ -284,9 +292,11 @@ def test_write_draft_outputs_preserves_existing_override_aliases(tmp_path) -> No
     )
 
     payload = json.loads((out_dir / "r0.json").read_text(encoding="utf-8"))
-    assert payload["name"] == "Pinned Name"
-    assert payload["ingredients"] == ["pinned ingredient"]
-    assert payload["instructions"] == ["Pinned instruction"]
+    assert payload["recipe"]["title"] == "Derived Title"
+    assert payload["steps"] == [{"instruction": "Derived instruction", "ingredient_lines": []}]
+    assert "name" not in payload
+    assert "ingredients" not in payload
+    assert "instructions" not in payload
 
 
 def test_apply_line_role_spans_to_recipes_keeps_credible_name_when_title_lacks_boundary_evidence() -> None:

@@ -229,24 +229,6 @@ def _resolve_knowledge_prompt_task_path(prompts_dir: Path) -> Path | None:
     return None
 
 
-def _load_legacy_followup_cases(bundle_dir: Path) -> dict[str, dict[str, Any]]:
-    followup_path = bundle_dir.parent / "followup_data" / "codexfarm_root_cause_packet.json"
-    if not followup_path.is_file():
-        return {}
-    payload = _read_json(followup_path)
-    if not isinstance(payload, list):
-        return {}
-    rows: dict[str, dict[str, Any]] = {}
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        case_id = str(item.get("case_id") or "").strip()
-        if not case_id:
-            continue
-        rows[case_id] = item
-    return rows
-
-
 def _locator(
     *,
     path: str,
@@ -490,7 +472,6 @@ class FollowupBundleContext:
             artifact = PayloadArtifact(path=path, payload_row=payload_row, row=payload)
             self.payload_artifacts.append(artifact)
             self.payload_by_path[path] = artifact
-        self.legacy_followup_cases = _load_legacy_followup_cases(self.bundle_dir)
         self.runs: list[RunContext] = []
         for row in self.index.get("run_diagnostics") or []:
             if not isinstance(row, dict):
@@ -581,9 +562,6 @@ class FollowupBundleContext:
         ]
         rows.sort(key=lambda row: int(row.get("line_index") or 0))
         return rows
-
-    def legacy_case(self, case_id: str) -> dict[str, Any] | None:
-        return self.legacy_followup_cases.get(case_id)
 
     def run_for_output_subdir(self, output_subdir: str) -> RunContext | None:
         for run in self.runs:
@@ -772,29 +750,6 @@ def load_followup_bundle_context(bundle_dir: Path) -> FollowupBundleContext:
 def _build_outside_span_candidates(
     context: FollowupBundleContext,
 ) -> dict[str, dict[str, Any]]:
-    legacy_rows: dict[str, dict[str, Any]] = {}
-    for case_id, row in context.legacy_followup_cases.items():
-        match = OUTSIDE_SPAN_CASE_ID_RE.match(case_id)
-        if not match:
-            continue
-        source_key = str(row.get("source_key") or "").strip()
-        start = _coerce_int(match.group("start"))
-        end = _coerce_int(match.group("end"))
-        if not source_key or start is None or end is None:
-            continue
-        selected_rows = context.changed_lines_for_range(source_key, start, end)
-        legacy_rows[case_id] = {
-            "case_id": case_id,
-            "source_key": source_key,
-            "start": start,
-            "end": end,
-            "changed_line_count": len(selected_rows),
-            "payload_locators": [row["_payload_locator"] for row in selected_rows],
-            "reason": "legacy_followup_outside_span_case",
-        }
-    if legacy_rows:
-        return legacy_rows
-
     by_source: dict[str, list[int]] = {}
     for row in context._changed_lines:
         if str(row.get("span_region") or "") != "outside_active_recipe_span":
@@ -1181,34 +1136,6 @@ def build_selector_manifest(
             }
             selectors[selector["selector_id"]] = selector
             continue
-        legacy_row = context.legacy_case(case_text)
-        if legacy_row is not None:
-            source_key = str(legacy_row.get("source_key") or "").strip()
-            recipe_id = str(legacy_row.get("recipe_id") or "").strip()
-            if recipe_id:
-                per_recipe_row = context.per_recipe_row(source_key, recipe_id)
-                if per_recipe_row is not None:
-                    add_recipe_selector(per_recipe_row, reason="explicit_legacy_case_id", reason_rank=0)
-                    matched = True
-            else:
-                match = OUTSIDE_SPAN_CASE_ID_RE.match(case_text)
-                if match and source_key:
-                    start = int(match.group("start"))
-                    end = int(match.group("end"))
-                    selected_rows = context.changed_lines_for_range(source_key, start, end)
-                    selector = {
-                        "selector_id": _selector_id_for_line_range(source_key, start, end),
-                        "case_id": case_text,
-                        "kind": "line_range",
-                        "source_key": source_key,
-                        "start": start,
-                        "end": end,
-                        "reason": "explicit_legacy_case_id",
-                        "reason_rank": 0,
-                        "payload_locators": [row["_payload_locator"] for row in selected_rows],
-                    }
-                    selectors[selector["selector_id"]] = selector
-                    matched = True
         if not matched:
             for run in context.runs:
                 if _knowledge_case_id(

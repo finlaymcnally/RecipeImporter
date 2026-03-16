@@ -29,9 +29,7 @@ Primary entrypoints:
 Recipe CodexFarm path:
 
 - `cookimport/llm/codex_farm_orchestrator.py`
-- `cookimport/llm/codex_farm_transport.py`
 - `cookimport/llm/codex_farm_contracts.py`
-- `cookimport/llm/evidence_normalizer.py`
 - `cookimport/llm/codex_farm_ids.py`
 - `cookimport/llm/codex_farm_runner.py`
 
@@ -175,14 +173,15 @@ Run-level observability note:
 
 - `SubprocessCodexFarmRunner` validates configured pipeline IDs via `codex-farm pipelines list --root ... --json`.
 - Runner resolves each pipeline's `output_schema_path` and passes it explicitly as `--output-schema`.
-- `process --json` metadata is persisted per pass as `process_run` or `process_runs.pass1|pass2|pass3`.
+- `process --json` metadata is persisted as the semantic recipe-correction `process_run`.
 - Persisted process metadata includes:
   - `telemetry_report`
   - `autotune_report`
   - compact CSV `telemetry` slices
 - When callers provide progress callbacks, runner prefers `codex-farm process --progress-events --json` and retries once without that flag if the binary does not support it.
+- Current runners must emit structured progress events and JSON stdout when `--json` is requested; older stderr-only progress lines and empty-stdout compatibility are no longer supported.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
-- In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing pass2/pass3 bundles.
+- In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.
 - Recipe pass block extraction falls back to `full_text.lines` when cached payloads are missing `full_text.blocks`.
 
 Compact/default contract:

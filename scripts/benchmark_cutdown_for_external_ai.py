@@ -280,18 +280,6 @@ LLM_STAGE_MAP = {
     },
 }
 
-# Compatibility for archived/full-prompt test fixtures that still exercise the
-# older benchmark-specific intermediate projections.
-PASS_DIR_MAP = {
-    "pass1": "chunking",
-    "pass2": "schemaorg",
-    "pass3": "final",
-}
-PASS_PIPELINE_MAP = {
-    "pass1": "recipe.chunking.v1",
-    "pass2": "recipe.schemaorg.compact.v1",
-    "pass3": "recipe.final.compact.v1",
-}
 _UPLOAD_BUNDLE_YIELD_LINE_RE = re.compile(
     r"\b(yield|serves?|servings?|makes?)\b",
     re.IGNORECASE,
@@ -376,8 +364,8 @@ def _upload_bundle_recipe_stages_for_row(
         codex_recipe_pipelines=[str(recipe_pipeline_id or "").strip()],
         observed_execution_modes=[],
         observed_routing_reasons=[],
-        observed_pass2_call_count=correction_seen,
-        observed_pass3_call_count=correction_seen,
+        observed_correction_call_count=correction_seen,
+        observed_final_recipe_build_count=correction_seen,
     )
     recipe_stages = topology.get("recipe_stages")
     return list(recipe_stages) if isinstance(recipe_stages, list) else []
@@ -1642,12 +1630,7 @@ def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str,
             for message, count in warning_message_counts.most_common(20)
         ],
         "correction_empty_ingredient_step_mapping_calls": correction_empty_mapping_calls,
-        "pass3_empty_ingredient_step_mapping_calls": correction_empty_mapping_calls,
         "correction_empty_ingredient_step_mapping_recipe_ids": [
-            {"recipe_id": recipe_id, "count": count}
-            for recipe_id, count in correction_empty_mapping_recipe_ids.most_common()
-        ],
-        "pass3_empty_ingredient_step_mapping_recipe_ids": [
             {"recipe_id": recipe_id, "count": count}
             for recipe_id, count in correction_empty_mapping_recipe_ids.most_common()
         ],
@@ -2501,19 +2484,7 @@ def _load_llm_manifest_recipe_diagnostics(
                 "structural_reason_codes": _coerce_str_list(
                     recipe_payload.get("structural_reason_codes")
                 ),
-                "pass1_status": (
-                    _manifest_pass_status(recipe_payload.get("pass1"))
-                    or _manifest_pass_status(recipe_payload.get("pass1_status"))
-                ),
-                "pass2_status": (
-                    _manifest_pass_status(recipe_payload.get("pass2"))
-                    or _manifest_pass_status(recipe_payload.get("pass2_status"))
-                ),
-                "pass3_status": (
-                    _manifest_pass_status(recipe_payload.get("pass3"))
-                    or _manifest_pass_status(recipe_payload.get("pass3_status"))
-                ),
-                "pass1_clamped_block_loss_count": int(
+                "build_intermediate_clamped_block_loss_count": int(
                     _coerce_int(
                         ((recipe_payload.get("pass1_span_loss_metrics") or {}).get(
                             "clamped_block_loss_count"
@@ -2521,30 +2492,30 @@ def _load_llm_manifest_recipe_diagnostics(
                     )
                     or 0
                 ),
-                "pass1_clamped_block_loss_ratio": _coerce_float(
+                "build_intermediate_clamped_block_loss_ratio": _coerce_float(
                     ((recipe_payload.get("pass1_span_loss_metrics") or {}).get(
                         "clamped_block_loss_ratio"
                     ))
                 ),
-                "pass2_degradation_reasons": [
+                "correction_degradation_reasons": [
                     _normalize_warning_bucket_reason(reason)
                     for reason in _coerce_str_list(
                         recipe_payload.get("pass2_degradation_reasons")
                     )
                 ],
-                "pass2_degradation_severity": str(
+                "correction_degradation_severity": str(
                     recipe_payload.get("pass2_degradation_severity") or ""
                 ).strip(),
-                "pass2_promotion_policy": str(
+                "correction_promotion_policy": str(
                     recipe_payload.get("pass2_promotion_policy") or ""
                 ).strip(),
-                "pass3_execution_mode": str(
+                "build_final_execution_mode": str(
                     recipe_payload.get("pass3_execution_mode") or ""
                 ).strip(),
-                "pass3_routing_reason": str(
+                "build_final_routing_reason": str(
                     recipe_payload.get("pass3_routing_reason") or ""
                 ).strip(),
-                "pass3_fallback_reason": str(
+                "build_final_fallback_reason": str(
                     recipe_payload.get("pass3_fallback_reason") or ""
                 ).strip(),
                 "transport_mismatch": _coerce_bool(
@@ -3632,17 +3603,7 @@ def _prompt_row_identity_key(row: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _prompt_row_stage_key(row: dict[str, Any]) -> str:
-    stage_key = str(row.get("stage_key") or "").strip()
-    if stage_key:
-        return stage_key
-    legacy_pass = str(row.get("pass") or "").strip().lower()
-    if legacy_pass == "pass1":
-        return "build_intermediate_det"
-    if legacy_pass == "pass2":
-        return "recipe_llm_correct_and_link"
-    if legacy_pass == "pass3":
-        return "build_final_recipe"
-    return ""
+    return str(row.get("stage_key") or "").strip()
 
 
 def _prompt_row_recipe_id(row: dict[str, Any]) -> str:
@@ -4405,60 +4366,47 @@ def _build_pair_diagnostics(
                 "structural_reason_codes": structural_reason_codes,
                 "recipe_warning_count": recipe_warning_count,
                 "recipe_error_count": recipe_error_count,
-                "pass1_call_id": str(legacy_intermediate_row.get("call_id") or "")
+                "build_intermediate_call_id": str(legacy_intermediate_row.get("call_id") or "")
                 if isinstance(legacy_intermediate_row, dict)
                 else "",
-                "pass2_call_id": correction_call_id,
-                "pass3_call_id": str(legacy_final_row.get("call_id") or "")
+                "correction_call_id": correction_call_id,
+                "build_final_call_id": str(legacy_final_row.get("call_id") or "")
                 if isinstance(legacy_final_row, dict)
                 else "",
-                "pass1_start_block_index": pass1_start_block_index,
-                "pass1_end_block_index": pass1_end_block_index,
-                "pass1_selected_block_count": pass1_selected_block_count,
-                "pass2_input_block_count": correction_input_block_count,
-                "pass1_vs_pass2_missing_block_count": 0,
-                "pass1_vs_pass2_extra_block_count": 0,
-                "pass2_warning_count": correction_warning_count,
-                "pass2_warning_buckets": correction_warning_buckets,
-                "pass2_extracted_ingredient_count": correction_ingredient_count,
-                "pass2_extracted_instruction_count": correction_step_count,
-                "pass3_step_count": pass3_step_count,
-                "pass3_mapping_count": pass3_mapping_count,
-                "pass3_empty_mapping": pass3_empty_mapping or correction_empty_mapping,
-                "pass3_warning_count": pass3_warning_count,
-                "pass3_warning_buckets": pass3_warning_buckets,
-                "pass1_status": str(
-                    manifest_diagnostics.get("pass1_status") or build_intermediate_status
-                ),
-                "pass2_status": str(
-                    manifest_diagnostics.get("pass2_status") or correction_status
-                ),
-                "pass3_status": str(
-                    manifest_diagnostics.get("pass3_status") or build_final_status
-                ),
-                "pass1_clamped_block_loss_count": int(
+                "build_intermediate_start_block_index": pass1_start_block_index,
+                "build_intermediate_end_block_index": pass1_end_block_index,
+                "build_intermediate_selected_block_count": pass1_selected_block_count,
+                "correction_input_block_count": correction_input_block_count,
+                "build_intermediate_missing_block_count": 0,
+                "build_intermediate_extra_block_count": 0,
+                "final_recipe_step_count": pass3_step_count,
+                "final_recipe_mapping_count": pass3_mapping_count,
+                "final_recipe_empty_mapping": pass3_empty_mapping or correction_empty_mapping,
+                "final_recipe_warning_count": pass3_warning_count,
+                "final_recipe_warning_buckets": pass3_warning_buckets,
+                "build_intermediate_clamped_block_loss_count": int(
                     _coerce_int(manifest_diagnostics.get("pass1_clamped_block_loss_count"))
                     or 0
                 ),
-                "pass1_clamped_block_loss_ratio": _coerce_float(
+                "build_intermediate_clamped_block_loss_ratio": _coerce_float(
                     manifest_diagnostics.get("pass1_clamped_block_loss_ratio")
                 ),
-                "pass2_degradation_reasons": _coerce_str_list(
+                "correction_degradation_reasons": _coerce_str_list(
                     manifest_diagnostics.get("pass2_degradation_reasons")
                 ),
-                "pass2_degradation_severity": str(
+                "correction_degradation_severity": str(
                     manifest_diagnostics.get("pass2_degradation_severity") or ""
                 ),
-                "pass2_promotion_policy": str(
+                "correction_promotion_policy": str(
                     manifest_diagnostics.get("pass2_promotion_policy") or ""
                 ),
-                "pass3_execution_mode": str(
+                "build_final_execution_mode": str(
                     manifest_diagnostics.get("pass3_execution_mode") or ""
                 ),
-                "pass3_routing_reason": str(
+                "build_final_routing_reason": str(
                     manifest_diagnostics.get("pass3_routing_reason") or ""
                 ),
-                "pass3_fallback_reason": str(
+                "build_final_fallback_reason": str(
                     manifest_diagnostics.get("pass3_fallback_reason") or ""
                 ),
                 "transport_mismatch": _coerce_bool(
@@ -4931,8 +4879,8 @@ def _build_warning_and_trace_summary(
     correction_empty_mapping_count = sum(
         1 for row in recipe_triage_rows if bool(row.get("correction_empty_mapping"))
     )
-    pass3_empty_mapping_count = sum(
-        1 for row in recipe_triage_rows if bool(row.get("pass3_empty_mapping"))
+    final_recipe_empty_mapping_count = sum(
+        1 for row in recipe_triage_rows if bool(row.get("final_recipe_empty_mapping"))
     )
     recipe_warning_recipe_count = sum(
         1
@@ -4948,22 +4896,22 @@ def _build_warning_and_trace_summary(
     transport_mismatch_recipe_count = sum(
         1 for row in recipe_triage_rows if bool(row.get("transport_mismatch"))
     )
-    pass1_clamped_loss_recipe_count = sum(
+    build_intermediate_clamped_loss_recipe_count = sum(
         1
         for row in recipe_triage_rows
-        if int(_coerce_int(row.get("pass1_clamped_block_loss_count")) or 0) > 0
+        if int(_coerce_int(row.get("build_intermediate_clamped_block_loss_count")) or 0) > 0
     )
-    pass2_degraded_recipe_count = sum(
+    correction_degraded_recipe_count = sum(
         1
         for row in recipe_triage_rows
-        if _coerce_str_list(row.get("pass2_degradation_reasons"))
-        or _upload_bundle_status_is_problem(row.get("pass2_status"))
+        if _coerce_str_list(row.get("correction_degradation_reasons"))
+        or _upload_bundle_status_is_problem(row.get("correction_status"))
     )
-    pass3_fallback_recipe_count = sum(
+    build_final_fallback_recipe_count = sum(
         1
         for row in recipe_triage_rows
-        if str(row.get("pass3_fallback_reason") or "").strip()
-        or _upload_bundle_status_is_problem(row.get("pass3_status"))
+        if str(row.get("build_final_fallback_reason") or "").strip()
+        or _upload_bundle_status_is_problem(row.get("build_final_status"))
     )
 
     build_intermediate_status_counts: Counter[str] = Counter()
@@ -4971,19 +4919,19 @@ def _build_warning_and_trace_summary(
     build_final_status_counts: Counter[str] = Counter()
     final_mapping_status_counts: Counter[str] = Counter()
     structural_status_counts: Counter[str] = Counter()
-    pass2_degradation_severity_counts: Counter[str] = Counter()
-    pass3_execution_mode_counts: Counter[str] = Counter()
+    correction_degradation_severity_counts: Counter[str] = Counter()
+    build_final_execution_mode_counts: Counter[str] = Counter()
     for row in recipe_triage_rows:
         build_intermediate_status = (
-            str(row.get("pass1_status") or row.get("build_intermediate_status") or "").strip()
+            str(row.get("build_intermediate_status") or "").strip()
             or "missing"
         )
         correction_status = (
-            str(row.get("pass2_status") or row.get("correction_status") or "").strip()
+            str(row.get("correction_status") or "").strip()
             or "missing"
         )
         build_final_status = (
-            str(row.get("pass3_status") or row.get("build_final_status") or "").strip()
+            str(row.get("build_final_status") or "").strip()
             or "missing"
         )
         final_mapping_status = (
@@ -4996,24 +4944,26 @@ def _build_warning_and_trace_summary(
         final_mapping_status_counts[final_mapping_status] += 1
         structural_status_counts[structural_status] += 1
 
-        pass2_degradation_severity = str(row.get("pass2_degradation_severity") or "").strip()
-        if pass2_degradation_severity:
-            pass2_degradation_severity_counts[pass2_degradation_severity] += 1
-        pass3_execution_mode = str(row.get("pass3_execution_mode") or "").strip()
-        if pass3_execution_mode:
-            pass3_execution_mode_counts[pass3_execution_mode] += 1
+        correction_degradation_severity = str(
+            row.get("correction_degradation_severity") or ""
+        ).strip()
+        if correction_degradation_severity:
+            correction_degradation_severity_counts[correction_degradation_severity] += 1
+        build_final_execution_mode = str(row.get("build_final_execution_mode") or "").strip()
+        if build_final_execution_mode:
+            build_final_execution_mode_counts[build_final_execution_mode] += 1
 
     return {
         "warnings_by_stage": _counter_to_sorted_dict(warnings_by_stage),
         "warning_buckets": _counter_to_sorted_dict(warning_buckets),
         "correction_empty_mapping_count": correction_empty_mapping_count,
-        "pass3_empty_mapping_count": pass3_empty_mapping_count,
+        "final_recipe_empty_mapping_count": final_recipe_empty_mapping_count,
         "recipe_warning_recipe_count": recipe_warning_recipe_count,
         "structural_problem_recipe_count": structural_problem_recipe_count,
         "transport_mismatch_recipe_count": transport_mismatch_recipe_count,
-        "pass1_clamped_loss_recipe_count": pass1_clamped_loss_recipe_count,
-        "pass2_degraded_recipe_count": pass2_degraded_recipe_count,
-        "pass3_fallback_recipe_count": pass3_fallback_recipe_count,
+        "build_intermediate_clamped_loss_recipe_count": build_intermediate_clamped_loss_recipe_count,
+        "correction_degraded_recipe_count": correction_degraded_recipe_count,
+        "build_final_fallback_recipe_count": build_final_fallback_recipe_count,
         "recipe_stage_status_counts": {
             "build_intermediate_det": _counter_to_sorted_dict(
                 build_intermediate_status_counts
@@ -5023,16 +4973,11 @@ def _build_warning_and_trace_summary(
             ),
             "build_final_recipe": _counter_to_sorted_dict(build_final_status_counts),
         },
-        "pass_status_counts": {
-            "pass1": _counter_to_sorted_dict(build_intermediate_status_counts),
-            "pass2": _counter_to_sorted_dict(correction_status_counts),
-            "pass3": _counter_to_sorted_dict(build_final_status_counts),
-        },
-        "pass2_degradation_severity_counts": _counter_to_sorted_dict(
-            pass2_degradation_severity_counts
+        "correction_degradation_severity_counts": _counter_to_sorted_dict(
+            correction_degradation_severity_counts
         ),
-        "pass3_execution_mode_counts": _counter_to_sorted_dict(
-            pass3_execution_mode_counts
+        "build_final_execution_mode_counts": _counter_to_sorted_dict(
+            build_final_execution_mode_counts
         ),
         "final_mapping_status_counts": _counter_to_sorted_dict(
             final_mapping_status_counts
@@ -5079,37 +5024,33 @@ def _select_starter_pack_recipe_cases(
     def _block_loss_count(row: dict[str, Any]) -> int:
         return int(
             _coerce_int(
-                row.get(
-                    "pass1_vs_pass2_missing_block_count",
-                    row.get("pass1_clamped_block_loss_count"),
-                )
+                row.get("build_intermediate_missing_block_count")
+                if row.get("build_intermediate_missing_block_count") is not None
+                else row.get("build_intermediate_clamped_block_loss_count")
             )
             or 0
         )
 
     def _empty_mapping(row: dict[str, Any]) -> bool:
-        return bool(row.get("pass3_empty_mapping") or row.get("correction_empty_mapping"))
+        return bool(
+            row.get("final_recipe_empty_mapping") or row.get("correction_empty_mapping")
+        )
 
     def _upstream_input_count(row: dict[str, Any]) -> int:
         return int(
             _coerce_int(
-                row.get("pass1_selected_block_count", row.get("correction_input_block_count"))
+                row.get("build_intermediate_selected_block_count")
+                if row.get("build_intermediate_selected_block_count") is not None
+                else row.get("correction_input_block_count")
             )
             or 0
         )
 
     def _warning_count(row: dict[str, Any]) -> int:
-        return int(
-            _coerce_int(row.get("pass2_warning_count", row.get("correction_warning_count"))) or 0
-        )
+        return int(_coerce_int(row.get("correction_warning_count")) or 0)
 
     def _instruction_count(row: dict[str, Any]) -> int:
-        return int(
-            _coerce_int(
-                row.get("pass2_extracted_instruction_count", row.get("correction_step_count"))
-            )
-            or 0
-        )
+        return int(_coerce_int(row.get("correction_step_count")) or 0)
 
     selected_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
     ordered_keys: list[tuple[str, str, str]] = []
@@ -7293,10 +7234,6 @@ def _upload_bundle_build_source_model(*, source_root: Path) -> UploadBundleSourc
         starter_selected_packets_file_name=STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
         starter_manifest_file_name=STARTER_PACK_MANIFEST_FILE_NAME,
     )
-
-
-def _upload_bundle_build_context(*, source_root: Path) -> dict[str, Any]:
-    return _upload_bundle_build_source_model(source_root=source_root).as_context_dict()
 
 
 def _upload_bundle_collect_confusion_delta_counts(
@@ -11223,39 +11160,46 @@ def _write_upload_bundle_three_files(
     )
 
     model = source_model or _upload_bundle_build_source_model(source_root=source_root)
-    context = model.as_context_dict()
-    run_index_payload = context.get("run_index_payload", {})
-    comparison_summary_payload = context.get("comparison_summary_payload", {})
-    process_manifest_payload = context.get("process_manifest_payload", {})
-    starter_manifest_payload = context.get("starter_manifest_payload", {})
-
-    run_rows = context.get("run_rows")
-    run_rows = run_rows if isinstance(run_rows, list) else []
-    comparison_pairs = context.get("comparison_pairs")
-    comparison_pairs = comparison_pairs if isinstance(comparison_pairs, list) else []
-    changed_line_rows = context.get("changed_line_rows")
-    changed_line_rows = changed_line_rows if isinstance(changed_line_rows, list) else []
-    pair_breakdown_rows = context.get("pair_breakdown_rows")
-    pair_breakdown_rows = pair_breakdown_rows if isinstance(pair_breakdown_rows, list) else []
-    recipe_triage_rows = context.get("recipe_triage_rows")
-    recipe_triage_rows = recipe_triage_rows if isinstance(recipe_triage_rows, list) else []
-    call_inventory_rows = context.get("call_inventory_rows")
-    call_inventory_rows = call_inventory_rows if isinstance(call_inventory_rows, list) else []
-    selected_packets = context.get("selected_packets")
-    selected_packets = selected_packets if isinstance(selected_packets, list) else []
-    run_dir_by_id = context.get("run_dir_by_id")
-    run_dir_by_id = run_dir_by_id if isinstance(run_dir_by_id, dict) else {}
-    run_dirs_by_id = context.get("run_dirs_by_id")
-    run_dirs_by_id = run_dirs_by_id if isinstance(run_dirs_by_id, dict) else {}
-    run_dir_by_output_subdir = context.get("run_dir_by_output_subdir")
-    run_dir_by_output_subdir = (
-        run_dir_by_output_subdir if isinstance(run_dir_by_output_subdir, dict) else {}
+    run_index_payload = model.run_index_payload if isinstance(model.run_index_payload, dict) else {}
+    comparison_summary_payload = (
+        model.comparison_summary_payload
+        if isinstance(model.comparison_summary_payload, dict)
+        else {}
     )
-    advertised_counts = context.get("advertised_counts")
-    advertised_counts = advertised_counts if isinstance(advertised_counts, dict) else {}
-    starter_pack_physical_present = bool(context.get("starter_pack_present"))
-    discovered_run_dirs = context.get("discovered_run_dirs")
-    discovered_run_dirs = discovered_run_dirs if isinstance(discovered_run_dirs, list) else []
+    process_manifest_payload = (
+        model.process_manifest_payload if isinstance(model.process_manifest_payload, dict) else {}
+    )
+    starter_manifest_payload = (
+        model.starter_manifest_payload if isinstance(model.starter_manifest_payload, dict) else {}
+    )
+
+    run_rows = model.run_rows if isinstance(model.run_rows, list) else []
+    comparison_pairs = model.comparison_pairs if isinstance(model.comparison_pairs, list) else []
+    changed_line_rows = model.changed_line_rows if isinstance(model.changed_line_rows, list) else []
+    pair_breakdown_rows = (
+        model.pair_breakdown_rows if isinstance(model.pair_breakdown_rows, list) else []
+    )
+    recipe_triage_rows = (
+        model.recipe_triage_rows if isinstance(model.recipe_triage_rows, list) else []
+    )
+    call_inventory_rows = (
+        model.call_inventory_rows if isinstance(model.call_inventory_rows, list) else []
+    )
+    selected_packets = model.selected_packets if isinstance(model.selected_packets, list) else []
+    run_dir_by_id = model.run_dir_by_id if isinstance(model.run_dir_by_id, dict) else {}
+    run_dirs_by_id = model.run_dirs_by_id if isinstance(model.run_dirs_by_id, dict) else {}
+    run_dir_by_output_subdir = (
+        model.run_dir_by_output_subdir
+        if isinstance(model.run_dir_by_output_subdir, dict)
+        else {}
+    )
+    advertised_counts = (
+        model.advertised_counts if isinstance(model.advertised_counts, dict) else {}
+    )
+    starter_pack_physical_present = bool(model.starter_pack_present)
+    discovered_run_dirs = (
+        model.discovered_run_dirs if isinstance(model.discovered_run_dirs, list) else []
+    )
     group_artifact_selection: dict[str, Any] = {
         "mode": "full",
         "target_bundle_size_bytes": None,
