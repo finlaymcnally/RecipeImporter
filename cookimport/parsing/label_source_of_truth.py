@@ -139,6 +139,33 @@ class RecipeSpan(BaseModel):
         return self
 
 
+class RecipeSpanDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    span_id: str
+    decision: Literal["accepted_recipe_span", "rejected_pseudo_recipe_span"]
+    rejection_reason: str | None = None
+    start_block_index: int
+    end_block_index: int
+    block_indices: list[int] = Field(default_factory=list)
+    source_block_ids: list[str] = Field(default_factory=list)
+    start_atomic_index: int | None = None
+    end_atomic_index: int | None = None
+    atomic_indices: list[int] = Field(default_factory=list)
+    title_block_index: int | None = None
+    title_atomic_index: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+    escalation_reasons: list[str] = Field(default_factory=list)
+    decision_notes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_metadata(self) -> "RecipeSpanDecision":
+        self.warnings = _unique_string_list(self.warnings)
+        self.escalation_reasons = _unique_string_list(self.escalation_reasons)
+        self.decision_notes = _unique_string_list(self.decision_notes)
+        return self
+
+
 class LabelStageResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -152,6 +179,7 @@ class LabelFirstStageResult(BaseModel):
     labeled_lines: list[AuthoritativeLabeledLine] = Field(default_factory=list)
     block_labels: list[AuthoritativeBlockLabel] = Field(default_factory=list)
     recipe_spans: list[RecipeSpan] = Field(default_factory=list)
+    span_decisions: list[RecipeSpanDecision] = Field(default_factory=list)
     non_recipe_lines: list[AuthoritativeLabeledLine] = Field(default_factory=list)
     updated_conversion_result: ConversionResult
     archive_blocks: list[dict[str, Any]] = Field(default_factory=list)
@@ -207,7 +235,7 @@ def build_label_first_stage_result(
 
     from cookimport.parsing.recipe_span_grouping import group_recipe_spans_from_labels
 
-    recipe_spans, normalized_block_labels = group_recipe_spans_from_labels(
+    recipe_spans, span_decisions, normalized_block_labels = group_recipe_spans_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -220,6 +248,7 @@ def build_label_first_stage_result(
         labeled_lines=labeled_lines,
         block_labels=normalized_block_labels,
         recipe_spans=recipe_spans,
+        span_decisions=span_decisions,
         run_settings=run_settings,
     )
 
@@ -234,13 +263,9 @@ def build_conversion_result_from_label_spans(
     labeled_lines: Sequence[AuthoritativeLabeledLine],
     block_labels: Sequence[AuthoritativeBlockLabel],
     recipe_spans: Sequence[RecipeSpan],
+    span_decisions: Sequence[RecipeSpanDecision],
     run_settings: RunSettings | None = None,
 ) -> LabelFirstStageResult:
-    block_ids_in_recipe = {
-        int(block_index)
-        for span in recipe_spans
-        for block_index in span.block_indices
-    }
     lines_by_block: dict[int, list[AuthoritativeLabeledLine]] = defaultdict(list)
     for row in labeled_lines:
         lines_by_block[int(row.source_block_index)].append(row)
@@ -251,16 +276,6 @@ def build_conversion_result_from_label_spans(
         (dict(block) for block in archive_blocks if isinstance(block, dict)),
         key=lambda row: int(row.get("index", 0)),
     )
-    non_recipe_blocks = [
-        dict(block)
-        for block in ordered_blocks
-        if int(block.get("index", -1)) not in block_ids_in_recipe
-    ]
-    non_recipe_lines = [
-        row
-        for row in labeled_lines
-        if int(row.source_block_index) not in block_ids_in_recipe
-    ]
 
     report = (
         original_result.report.model_copy(deep=True)
@@ -285,7 +300,11 @@ def build_conversion_result_from_label_spans(
         if isinstance(raw_overrides, dict):
             overrides = raw_overrides
 
-    for recipe_index, span in enumerate(recipe_spans):
+    accepted_recipe_spans: list[RecipeSpan] = []
+    decision_by_span_id = {row.span_id: row for row in span_decisions}
+    updated_span_decisions: list[RecipeSpanDecision] = []
+
+    for span in recipe_spans:
         span_rows = [
             row
             for block_index in span.block_indices
@@ -293,17 +312,72 @@ def build_conversion_result_from_label_spans(
         ]
         span_rows.sort(key=lambda row: row.atomic_index)
         recipe = _build_recipe_candidate_from_span(
-            recipe_index=recipe_index,
+            recipe_index=len(accepted_recipe_spans),
             span=span,
             span_rows=span_rows,
             source_hash=source_hash,
             importer_name=importer_name,
             provenance_builder=provenance_builder,
         )
+        existing_decision = decision_by_span_id.get(span.span_id)
+        rejection_reason = _recipe_candidate_rejection_reason(recipe)
+        if rejection_reason is not None:
+            updated_span_decisions.append(
+                _reject_recipe_span_decision(
+                    span=span,
+                    existing_decision=existing_decision,
+                    rejection_reason=rejection_reason,
+                )
+            )
+            continue
+        accepted_recipe_spans.append(span)
+        updated_span_decisions.append(
+            existing_decision
+            if existing_decision is not None
+            else RecipeSpanDecision(
+                span_id=span.span_id,
+                decision="accepted_recipe_span",
+                start_block_index=span.start_block_index,
+                end_block_index=span.end_block_index,
+                block_indices=list(span.block_indices),
+                source_block_ids=list(span.source_block_ids),
+                start_atomic_index=span.start_atomic_index,
+                end_atomic_index=span.end_atomic_index,
+                atomic_indices=list(span.atomic_indices),
+                title_block_index=span.title_block_index,
+                title_atomic_index=span.title_atomic_index,
+                warnings=list(span.warnings),
+                escalation_reasons=list(span.escalation_reasons),
+                decision_notes=list(span.decision_notes),
+            )
+        )
         recipes.append(recipe)
         tip_candidates.extend(
             extract_tip_candidates_from_candidate(recipe, overrides=overrides)
         )
+
+    accepted_span_ids = {row.span_id for row in accepted_recipe_spans}
+    for decision in span_decisions:
+        if decision.span_id in accepted_span_ids:
+            continue
+        if decision.span_id not in {row.span_id for row in updated_span_decisions}:
+            updated_span_decisions.append(decision)
+
+    block_ids_in_recipe = {
+        int(block_index)
+        for span in accepted_recipe_spans
+        for block_index in span.block_indices
+    }
+    non_recipe_blocks = [
+        dict(block)
+        for block in ordered_blocks
+        if int(block.get("index", -1)) not in block_ids_in_recipe
+    ]
+    non_recipe_lines = [
+        row
+        for row in labeled_lines
+        if int(row.source_block_index) not in block_ids_in_recipe
+    ]
 
     tips, _recipe_specific, _not_tips = partition_tip_candidates(tip_candidates)
     updated_result = ConversionResult(
@@ -322,7 +396,8 @@ def build_conversion_result_from_label_spans(
     return LabelFirstStageResult(
         labeled_lines=list(labeled_lines),
         block_labels=list(block_labels),
-        recipe_spans=list(recipe_spans),
+        recipe_spans=accepted_recipe_spans,
+        span_decisions=updated_span_decisions,
         non_recipe_lines=non_recipe_lines,
         updated_conversion_result=updated_result,
         archive_blocks=[dict(block) for block in ordered_blocks],
@@ -457,6 +532,50 @@ def _build_recipe_candidate_from_span(
         provenance=provenance,
     )
     return recipe
+
+
+def _recipe_candidate_rejection_reason(recipe: RecipeCandidate) -> str | None:
+    ingredients = list(recipe.recipeIngredient or [])
+    instructions = list(recipe.recipeInstructions or [])
+    if ingredients or instructions:
+        return None
+    return "rejected_missing_recipe_body"
+
+
+def _reject_recipe_span_decision(
+    *,
+    span: RecipeSpan,
+    existing_decision: RecipeSpanDecision | None,
+    rejection_reason: str,
+) -> RecipeSpanDecision:
+    base = (
+        existing_decision.model_dump(mode="json")
+        if existing_decision is not None
+        else span.model_dump(mode="json")
+    )
+    decision_notes = list(base.get("decision_notes") or [])
+    escalation_reasons = list(base.get("escalation_reasons") or [])
+    if rejection_reason not in decision_notes:
+        decision_notes.append(rejection_reason)
+    if rejection_reason not in escalation_reasons:
+        escalation_reasons.append(rejection_reason)
+    return RecipeSpanDecision(
+        span_id=str(base["span_id"]),
+        decision="rejected_pseudo_recipe_span",
+        rejection_reason=rejection_reason,
+        start_block_index=int(base["start_block_index"]),
+        end_block_index=int(base["end_block_index"]),
+        block_indices=[int(value) for value in base.get("block_indices") or []],
+        source_block_ids=[str(value) for value in base.get("source_block_ids") or []],
+        start_atomic_index=base.get("start_atomic_index"),
+        end_atomic_index=base.get("end_atomic_index"),
+        atomic_indices=[int(value) for value in base.get("atomic_indices") or []],
+        title_block_index=base.get("title_block_index"),
+        title_atomic_index=base.get("title_atomic_index"),
+        warnings=[str(value) for value in base.get("warnings") or []],
+        escalation_reasons=escalation_reasons,
+        decision_notes=decision_notes,
+    )
 
 
 def _fallback_recipe_name(rows: Sequence[AuthoritativeLabeledLine]) -> str:

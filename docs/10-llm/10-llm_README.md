@@ -83,6 +83,7 @@ Benchmark split:
   - canonical line-role Codex labeling
   - freeform prelabel
 - Prediction-run plan mode happens after deterministic conversion and archive preparation so the plan artifact can enumerate concrete recipe bundles, knowledge jobs, and line-role batches.
+- `prompt_budget_summary.json` should preserve CodexFarm split token totals (`tokens_input`, `tokens_cached_input`, `tokens_output`) from per-call telemetry rows when they are present in the prediction manifest.
 
 ## Artifacts
 
@@ -128,9 +129,11 @@ Prompt/debug artifacts:
 - `prompts/full_prompt_log.jsonl` is the stable per-call truth
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
+- `prompts/thinking_trace_summary.jsonl` and `prompts/thinking_trace_summary.md` summarize trace-path coverage, availability, and reasoning-event presence from the merged prompt log
 - `prediction-run/prompt_budget_summary.json` merges recipe/knowledge telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - when a processed run already has live CodexFarm input files under `raw/llm/<workbook_slug>/{recipe_correction,knowledge}/in/`, preview export reuses those exact payloads before falling back to local reconstruction
+- preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`, with heuristic token estimates plus blunt warnings when prompt call count or rendered prompt volume crosses dangerous thresholds
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
   - knowledge prompt inputs from the compact-only `codex_farm_knowledge_jobs`

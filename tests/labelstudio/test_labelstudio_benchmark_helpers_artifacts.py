@@ -320,6 +320,31 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert "Thinking Trace:" in prompt_samples
     assert "candidate span tightened" in prompt_samples
 
+    thinking_trace_summary_jsonl_path = (
+        eval_output_dir / "prompts" / "thinking_trace_summary.jsonl"
+    )
+    thinking_trace_summary_md_path = (
+        eval_output_dir / "prompts" / "thinking_trace_summary.md"
+    )
+    assert thinking_trace_summary_jsonl_path.exists()
+    assert thinking_trace_summary_md_path.exists()
+    trace_rows = [
+        json.loads(line)
+        for line in thinking_trace_summary_jsonl_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(trace_rows) == 2
+    correction_trace_row = next(
+        row for row in trace_rows if row.get("stage_key") == "recipe_llm_correct_and_link"
+    )
+    assert correction_trace_row["trace_exists"] is True
+    assert correction_trace_row["reasoning_event_count"] == 1
+    assert "candidate span tightened" in str(correction_trace_row["reasoning_excerpt"])
+    trace_summary_md = thinking_trace_summary_md_path.read_text(encoding="utf-8")
+    assert "# CodexFarm Thinking Trace Summary" in trace_summary_md
+    assert "- total_rows: `2`" in trace_summary_md
+    assert "## recipe_llm_correct_and_link (Recipe Correction)" in trace_summary_md
+
 def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     tmp_path: Path,
 ) -> None:
@@ -618,6 +643,11 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
 
     eval_output_dir = tmp_path / "eval"
     eval_output_dir.mkdir(parents=True, exist_ok=True)
+    (eval_output_dir / "line-role-pipeline").mkdir(parents=True, exist_ok=True)
+    (eval_output_dir / "line-role-pipeline" / "telemetry_summary.json").write_text(
+        json.dumps({"batches": [], "note": "benchmark-root diagnostics only"}, indent=2),
+        encoding="utf-8",
+    )
     (eval_output_dir / "run_manifest.json").write_text(
         json.dumps(
             {
@@ -664,6 +694,17 @@ def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
     assert row["request_telemetry"]["run_id"] == "line-role-run-1"
     assert row["request_telemetry"]["tokens_total"] == 16
     assert row["raw_response"]["output_text"].startswith("[{")
+    trace_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "thinking_trace_summary.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(trace_rows) == 1
+    assert trace_rows[0]["stage_key"] == "line_role"
+    assert trace_rows[0]["trace_exists"] is False
+    assert trace_rows[0]["trace_path"] is None
     manifest_lines = (
         eval_output_dir / "prompts" / "prompt_category_logs_manifest.txt"
     ).read_text(encoding="utf-8").splitlines()
@@ -891,6 +932,14 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         "# samples\n",
         encoding="utf-8",
     )
+    (prompts_dir / "thinking_trace_summary.jsonl").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    (prompts_dir / "thinking_trace_summary.md").write_text(
+        "# trace summary\n",
+        encoding="utf-8",
+    )
 
     cli._write_stage_run_manifest(
         run_root=run_root,
@@ -917,6 +966,12 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
     )
     assert artifacts["prompt_type_samples_from_full_prompt_log_md"] == (
         "prompts/prompt_type_samples_from_full_prompt_log.md"
+    )
+    assert artifacts["thinking_trace_summary_jsonl"] == (
+        "prompts/thinking_trace_summary.jsonl"
+    )
+    assert artifacts["thinking_trace_summary_md"] == (
+        "prompts/thinking_trace_summary.md"
     )
 
 def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
@@ -1140,3 +1195,81 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     assert written["by_stage"]["line_role"]["call_count"] == 2
     assert written["by_stage"]["line_role"]["attempt_count"] == 3
     assert written["totals"]["tokens_total"] == 651
+
+
+def test_prompt_budget_summary_reads_top_level_codex_farm_telemetry_rows(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "process_runs": {
+                "recipe_correction": {
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "tokens_input": 100,
+                                "tokens_cached_input": 20,
+                                "tokens_output": 10,
+                                "tokens_reasoning": 0,
+                                "tokens_total": 110,
+                            },
+                            {
+                                "tokens_input": 200,
+                                "tokens_cached_input": 30,
+                                "tokens_output": 15,
+                                "tokens_reasoning": 0,
+                                "tokens_total": 215,
+                            },
+                        ]
+                    },
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 2,
+                            "duration_total_ms": 1234,
+                            "tokens_total": 325,
+                        }
+                    },
+                }
+            },
+            "knowledge": {
+                "process_run": {
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "tokens_input": 50,
+                                "tokens_cached_input": 5,
+                                "tokens_output": 8,
+                                "tokens_reasoning": 1,
+                                "tokens_total": 58,
+                            }
+                        ]
+                    },
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 1,
+                            "duration_total_ms": 456,
+                            "tokens_total": 58,
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    assert summary["by_stage"]["recipe_correction"]["tokens_input"] == 300
+    assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 50
+    assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 25
+    assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 325
+    assert summary["by_stage"]["knowledge"]["tokens_input"] == 50
+    assert summary["by_stage"]["knowledge"]["tokens_cached_input"] == 5
+    assert summary["by_stage"]["knowledge"]["tokens_output"] == 8
+    assert summary["by_stage"]["knowledge"]["tokens_total"] == 58
+    assert summary["totals"]["tokens_input"] == 350
+    assert summary["totals"]["tokens_cached_input"] == 55
+    assert summary["totals"]["tokens_output"] == 33
+    assert summary["totals"]["tokens_total"] == 383

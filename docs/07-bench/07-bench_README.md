@@ -263,6 +263,11 @@ Current bundle rules:
 - `cookimport/bench/upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only; do not add older recipe-topology metadata back into new bundles
 - `cookimport/bench/followup_bundle.py` should resolve `knowledge_manifest_json` only for the live knowledge-manifest seam; older knowledge-stage locator names belong only in archived/local reader code
 - `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived prompt rows with numbered stage labels are history input only, not a new-output shape
+- existing-output bundle discovery must prefer current run-local artifact roots before older inferred layouts:
+  - prompt logs and prompt samples from `<run>/prompts/`
+  - prompt budget summaries from `<run>/prompt_budget_summary.json` or `<run>/prediction-run/prompt_budget_summary.json`
+  - knowledge manifests from either prediction-run raw LLM outputs or processed-output `raw/llm/*/knowledge_manifest.json`
+  - when a required knowledge manifest lives outside the session root, the bundle should mirror it into a derived payload row so `navigation.row_locators.knowledge_by_run` still resolves bundle-locally
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up

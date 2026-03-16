@@ -9,6 +9,7 @@ from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     LabelFirstStageResult,
     RecipeSpan,
+    RecipeSpanDecision,
 )
 from cookimport.staging import import_session
 
@@ -91,6 +92,26 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
         labeled_lines=[],
         block_labels=[_label_block(0, "KNOWLEDGE")],
         recipe_spans=[],
+        span_decisions=[
+            RecipeSpanDecision(
+                span_id="pseudo_recipe_span_0",
+                decision="rejected_pseudo_recipe_span",
+                rejection_reason="rejected_missing_title_anchor",
+                start_block_index=0,
+                end_block_index=1,
+                block_indices=[0, 1],
+                source_block_ids=["b0", "b1"],
+                warnings=[
+                    "recipe_span_started_without_title",
+                    "recipe_span_missing_title_label",
+                ],
+                escalation_reasons=["missing_required_recipe_fields"],
+                decision_notes=[
+                    "recipe_span_started_without_title",
+                    "span_missing_title_block",
+                ],
+            )
+        ],
         non_recipe_lines=[],
         updated_conversion_result=authoritative_result,
         archive_blocks=[{"index": 0, "block_id": "b0", "text": "Technique note"}],
@@ -132,6 +153,14 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     assert mismatch_path.is_file()
     assert session.label_artifact_paths["authority_mismatch_path"] == mismatch_path
     assert session.label_artifact_paths["span_decisions_path"].is_file()
+    span_path = session.label_artifact_paths["recipe_spans_path"]
+    span_payload = span_path.read_text(encoding="utf-8")
+    assert '"recipe_spans": []' in span_payload
+    decision_payload = session.label_artifact_paths["span_decisions_path"].read_text(
+        encoding="utf-8"
+    )
+    assert '"decision": "rejected_pseudo_recipe_span"' in decision_payload
+    assert '"rejection_reason": "rejected_missing_title_anchor"' in decision_payload
 
 
 def test_execute_stage_import_session_uses_stage7_rows_for_tables_and_chunks(

@@ -106,10 +106,17 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
         ),
     ]
 
-    spans, normalized_blocks = group_recipe_spans_from_labels(block_labels, labeled_lines)
+    spans, span_decisions, normalized_blocks = group_recipe_spans_from_labels(
+        block_labels,
+        labeled_lines,
+    )
 
     assert [row.source_block_index for row in normalized_blocks] == [0, 1, 2, 3, 4, 5]
     assert len(spans) == 2
+    assert [row.decision for row in span_decisions] == [
+        "accepted_recipe_span",
+        "accepted_recipe_span",
+    ]
     assert spans[0].block_indices == [0, 1, 2]
     assert spans[0].title_block_index == 0
     assert spans[0].escalation_reasons == []
@@ -117,7 +124,7 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
     assert spans[1].title_block_index == 4
 
 
-def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_title() -> None:
+def test_group_recipe_spans_from_labels_rejects_recipeish_blocks_without_title() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -157,9 +164,15 @@ def test_group_recipe_spans_from_labels_warns_when_recipeish_blocks_have_no_titl
         ),
     ]
 
-    spans, _normalized_blocks = group_recipe_spans_from_labels(block_labels, labeled_lines)
+    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+        block_labels,
+        labeled_lines,
+    )
 
-    assert len(spans) == 1
-    assert "recipe_span_missing_title_label" in spans[0].warnings
-    assert "missing_required_recipe_fields" in spans[0].escalation_reasons
-    assert "span_missing_title_block" in spans[0].decision_notes
+    assert spans == []
+    assert len(span_decisions) == 1
+    assert span_decisions[0].decision == "rejected_pseudo_recipe_span"
+    assert span_decisions[0].rejection_reason == "rejected_missing_title_anchor"
+    assert "recipe_span_missing_title_label" in span_decisions[0].warnings
+    assert "missing_required_recipe_fields" in span_decisions[0].escalation_reasons
+    assert "span_missing_title_block" in span_decisions[0].decision_notes

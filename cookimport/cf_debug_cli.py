@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -280,4 +281,21 @@ def preview_prompts(
         codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
         atomic_block_splitter=atomic_block_splitter,
     )
+    try:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        manifest_payload = {}
+    warnings = manifest_payload.get("warnings")
+    if isinstance(warnings, list):
+        for warning in warnings:
+            if not isinstance(warning, dict):
+                continue
+            message = str(warning.get("message") or "").strip()
+            if not message:
+                continue
+            severity = str(warning.get("severity") or "").strip().lower()
+            color = typer.colors.YELLOW
+            if severity == "danger":
+                color = typer.colors.RED
+            typer.secho(message, fg=color, err=True)
     typer.echo(str(manifest_path))

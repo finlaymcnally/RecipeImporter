@@ -207,18 +207,11 @@ def _write_label_first_artifacts(
     _write_json(
         span_decisions_path,
         {
-            "schema_version": "group_recipe_span_decisions.v1",
+            "schema_version": "group_recipe_span_decisions.v2",
             "workbook_slug": workbook_slug,
             "span_decisions": [
-                {
-                    "span_id": row.span_id,
-                    "start_block_index": row.start_block_index,
-                    "end_block_index": row.end_block_index,
-                    "escalation_reasons": list(row.escalation_reasons),
-                    "decision_notes": list(row.decision_notes),
-                    "warnings": list(row.warnings),
-                }
-                for row in label_first_result.recipe_spans
+                _serialize_span_decision(row)
+                for row in _span_decisions_for_artifacts(label_first_result)
             ],
         },
     )
@@ -249,6 +242,57 @@ def _write_label_first_artifacts(
             }
         )
     return paths
+
+
+def _span_decisions_for_artifacts(
+    label_first_result: LabelFirstStageResult,
+) -> list[Any]:
+    if label_first_result.span_decisions:
+        return list(label_first_result.span_decisions)
+    return [
+        {
+            "span_id": row.span_id,
+            "decision": "accepted_recipe_span",
+            "rejection_reason": None,
+            "start_block_index": row.start_block_index,
+            "end_block_index": row.end_block_index,
+            "block_indices": list(row.block_indices),
+            "source_block_ids": list(row.source_block_ids),
+            "start_atomic_index": row.start_atomic_index,
+            "end_atomic_index": row.end_atomic_index,
+            "atomic_indices": list(row.atomic_indices),
+            "title_block_index": row.title_block_index,
+            "title_atomic_index": row.title_atomic_index,
+            "warnings": list(row.warnings),
+            "escalation_reasons": list(row.escalation_reasons),
+            "decision_notes": list(row.decision_notes),
+        }
+        for row in label_first_result.recipe_spans
+    ]
+
+
+def _serialize_span_decision(row: Any) -> dict[str, Any]:
+    if hasattr(row, "model_dump"):
+        payload = row.model_dump(mode="json")
+    else:
+        payload = dict(row)
+    return {
+        "span_id": payload.get("span_id"),
+        "decision": payload.get("decision", "accepted_recipe_span"),
+        "rejection_reason": payload.get("rejection_reason"),
+        "start_block_index": payload.get("start_block_index"),
+        "end_block_index": payload.get("end_block_index"),
+        "block_indices": list(payload.get("block_indices") or []),
+        "source_block_ids": list(payload.get("source_block_ids") or []),
+        "start_atomic_index": payload.get("start_atomic_index"),
+        "end_atomic_index": payload.get("end_atomic_index"),
+        "atomic_indices": list(payload.get("atomic_indices") or []),
+        "title_block_index": payload.get("title_block_index"),
+        "title_atomic_index": payload.get("title_atomic_index"),
+        "escalation_reasons": list(payload.get("escalation_reasons") or []),
+        "decision_notes": list(payload.get("decision_notes") or []),
+        "warnings": list(payload.get("warnings") or []),
+    }
 
 
 def _write_label_first_authority_mismatch_artifact(

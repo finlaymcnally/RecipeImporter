@@ -114,7 +114,8 @@ Per workbook (slugified file stem):
 Label-first metadata note:
 
 - `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
-- `span_decisions.json` is the compact reviewer/debug rollup for per-span escalation notes.
+- `group_recipe_spans/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
+- `span_decisions.json` is the compact reviewer/debug rollup for both accepted recipe spans and rejected pseudo-recipe runs, including explicit `decision` and `rejection_reason` fields.
 
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).

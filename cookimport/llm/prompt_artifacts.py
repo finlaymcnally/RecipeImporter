@@ -19,7 +19,10 @@ from cookimport.runs import (
 PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
 PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
+PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION = "prompt_thinking_trace_summary.v1"
 PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
+THINKING_TRACE_SUMMARY_JSONL_NAME = "thinking_trace_summary.jsonl"
+THINKING_TRACE_SUMMARY_MD_NAME = "thinking_trace_summary.md"
 
 _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
     {
@@ -120,6 +123,15 @@ def _load_json_dict(path: Path) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     return payload
+
+
+def _load_json_value(path: Path) -> Any | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _safe_read_text(path: Path) -> str:
@@ -902,6 +914,44 @@ def _load_thinking_trace_payload(*, trace_path: Path | None) -> dict[str, Any] |
     }
 
 
+def _extract_reasoning_excerpt(
+    reasoning_events: list[dict[str, Any]],
+    *,
+    max_events: int = 3,
+    max_chars: int = 3000,
+) -> str | None:
+    if not reasoning_events:
+        return None
+    snippets: list[str] = []
+    for event in reasoning_events[:max_events]:
+        if not isinstance(event, dict):
+            continue
+        for key in ("summary_text", "summary", "text", "delta", "content"):
+            value = event.get(key)
+            if isinstance(value, str):
+                cleaned = value.strip()
+                if cleaned:
+                    snippets.append(cleaned)
+                    break
+    if snippets:
+        joined = "\n\n".join(snippets)
+        if len(joined) > max_chars:
+            return joined[: max_chars - 3].rstrip() + "..."
+        return joined
+    try:
+        serialized = json.dumps(
+            reasoning_events[:max_events],
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    except TypeError:
+        return None
+    if len(serialized) > max_chars:
+        return serialized[: max_chars - 3].rstrip() + "..."
+    return serialized
+
+
 def build_codex_farm_prompt_type_samples_markdown(
     *,
     full_prompt_log_path: Path,
@@ -916,43 +966,6 @@ def build_codex_farm_prompt_type_samples_markdown(
     samples_by_stage: dict[str, list[dict[str, Any]]] = {}
     stage_metadata_by_key: dict[str, dict[str, Any]] = {}
     stage_first_seen: dict[str, int] = {}
-
-    def _extract_reasoning_excerpt(
-        reasoning_events: list[dict[str, Any]],
-        *,
-        max_events: int = 3,
-        max_chars: int = 3000,
-    ) -> str | None:
-        if not reasoning_events:
-            return None
-        snippets: list[str] = []
-        for event in reasoning_events[:max_events]:
-            if not isinstance(event, dict):
-                continue
-            for key in ("summary_text", "summary", "text", "delta", "content"):
-                value = event.get(key)
-                if isinstance(value, str):
-                    cleaned = value.strip()
-                    if cleaned:
-                        snippets.append(cleaned)
-                        break
-        if snippets:
-            joined = "\n\n".join(snippets)
-            if len(joined) > max_chars:
-                return joined[: max_chars - 3].rstrip() + "..."
-            return joined
-        try:
-            serialized = json.dumps(
-                reasoning_events[:max_events],
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            )
-        except TypeError:
-            return None
-        if len(serialized) > max_chars:
-            return serialized[: max_chars - 3].rstrip() + "..."
-        return serialized
 
     try:
         with full_prompt_log_path.open("r", encoding="utf-8") as handle:
@@ -1138,6 +1151,189 @@ def build_codex_farm_prompt_type_samples_markdown(
     return output_path
 
 
+def build_codex_farm_thinking_trace_summaries(
+    *,
+    full_prompt_log_path: Path,
+    output_jsonl_path: Path,
+    output_md_path: Path,
+    examples_per_stage: int = 3,
+) -> tuple[Path | None, Path | None]:
+    rows = _load_prompt_rows(full_prompt_log_path)
+    if not rows:
+        output_jsonl_path.unlink(missing_ok=True)
+        output_md_path.unlink(missing_ok=True)
+        return None, None
+
+    summary_rows: list[dict[str, Any]] = []
+    stage_summary: dict[str, dict[str, Any]] = {}
+    stage_examples: dict[str, list[dict[str, Any]]] = {}
+
+    for row in rows:
+        stage_metadata = _prompt_stage_metadata_from_row(row)
+        stage_key = str(stage_metadata.get("heading_key") or stage_metadata.get("stage_key") or "stage")
+        stage_label = str(stage_metadata.get("label") or "Prompt Stage")
+        thinking_trace_payload = (
+            row.get("thinking_trace") if isinstance(row.get("thinking_trace"), dict) else {}
+        )
+        request_telemetry = (
+            row.get("request_telemetry") if isinstance(row.get("request_telemetry"), dict) else {}
+        )
+        trace_path = _clean_text(thinking_trace_payload.get("path"))
+        trace_exists = bool(trace_path and Path(trace_path).exists())
+        reasoning_events = thinking_trace_payload.get("reasoning_events")
+        normalized_reasoning_events = (
+            [event for event in reasoning_events if isinstance(event, dict)]
+            if isinstance(reasoning_events, list)
+            else []
+        )
+        reasoning_event_count = _coerce_int(
+            thinking_trace_payload.get("reasoning_event_count")
+        )
+        if reasoning_event_count is None:
+            reasoning_event_count = len(normalized_reasoning_events)
+        action_event_count = _coerce_int(thinking_trace_payload.get("action_event_count"))
+        trace_available = bool(thinking_trace_payload.get("available"))
+        reasoning_excerpt = _extract_reasoning_excerpt(
+            normalized_reasoning_events,
+            max_events=3,
+            max_chars=1200,
+        )
+        summary_row = {
+            "schema_version": PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION,
+            "run_id": row.get("run_id"),
+            "call_id": row.get("call_id"),
+            "recipe_id": row.get("recipe_id"),
+            "stage_key": stage_key,
+            "stage_label": stage_label,
+            "stage_order": stage_metadata.get("stage_order"),
+            "trace_path": trace_path,
+            "trace_exists": trace_exists,
+            "trace_available": trace_available,
+            "trace_resolved_path": _clean_text(request_telemetry.get("trace_resolved_path")),
+            "process_run_id": row.get("process_run_id"),
+            "reasoning_event_count": reasoning_event_count,
+            "reasoning_event_types": list(
+                thinking_trace_payload.get("reasoning_event_types") or []
+            )
+            if isinstance(thinking_trace_payload.get("reasoning_event_types"), list)
+            else [],
+            "action_event_count": action_event_count,
+            "action_event_types": list(
+                thinking_trace_payload.get("action_event_types") or []
+            )
+            if isinstance(thinking_trace_payload.get("action_event_types"), list)
+            else [],
+            "reasoning_excerpt": reasoning_excerpt,
+        }
+        summary_rows.append(summary_row)
+
+        stage_state = stage_summary.setdefault(
+            stage_key,
+            {
+                "stage_label": stage_label,
+                "stage_order": int(stage_metadata.get("stage_order") or 999),
+                "rows": 0,
+                "trace_path_present": 0,
+                "trace_exists": 0,
+                "trace_available": 0,
+                "reasoning_event_rows": 0,
+            },
+        )
+        stage_state["rows"] += 1
+        if trace_path is not None:
+            stage_state["trace_path_present"] += 1
+        if trace_exists:
+            stage_state["trace_exists"] += 1
+        if trace_available:
+            stage_state["trace_available"] += 1
+        if reasoning_event_count and reasoning_event_count > 0:
+            stage_state["reasoning_event_rows"] += 1
+
+        stage_examples.setdefault(stage_key, [])
+        if len(stage_examples[stage_key]) < examples_per_stage:
+            stage_examples[stage_key].append(summary_row)
+
+    output_jsonl_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in summary_rows),
+        encoding="utf-8",
+    )
+
+    total_rows = len(summary_rows)
+    total_trace_path_present = sum(
+        int(stage["trace_path_present"]) for stage in stage_summary.values()
+    )
+    total_trace_exists = sum(int(stage["trace_exists"]) for stage in stage_summary.values())
+    total_trace_available = sum(
+        int(stage["trace_available"]) for stage in stage_summary.values()
+    )
+    total_reasoning_event_rows = sum(
+        int(stage["reasoning_event_rows"]) for stage in stage_summary.values()
+    )
+    generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    lines: list[str] = [
+        "# CodexFarm Thinking Trace Summary",
+        "",
+        f"Generated: {generated_timestamp}",
+        "Source:",
+        f"- {full_prompt_log_path}",
+        "",
+        "Overall:",
+        f"- total_rows: `{total_rows}`",
+        f"- rows_with_trace_path: `{total_trace_path_present}`",
+        f"- rows_with_existing_trace_file: `{total_trace_exists}`",
+        f"- rows_with_available_trace_payload: `{total_trace_available}`",
+        f"- rows_with_reasoning_events: `{total_reasoning_event_rows}`",
+        "",
+    ]
+    for stage_key, stage_state in sorted(
+        stage_summary.items(),
+        key=lambda item: (
+            int(item[1].get("stage_order") or 999),
+            item[0],
+        ),
+    ):
+        lines.extend(
+            [
+                f"## {stage_key} ({stage_state['stage_label']})",
+                "",
+                f"- rows: `{stage_state['rows']}`",
+                f"- rows_with_trace_path: `{stage_state['trace_path_present']}`",
+                f"- rows_with_existing_trace_file: `{stage_state['trace_exists']}`",
+                f"- rows_with_available_trace_payload: `{stage_state['trace_available']}`",
+                f"- rows_with_reasoning_events: `{stage_state['reasoning_event_rows']}`",
+                "",
+                "### Sample Rows",
+                "",
+            ]
+        )
+        examples = stage_examples.get(stage_key, [])
+        if not examples:
+            lines.append("_No rows captured for this stage._")
+            lines.append("")
+            continue
+        for example in examples:
+            lines.append(f"- call_id: `{example.get('call_id') or '<unknown>'}`")
+            lines.append(f"  recipe_id: `{example.get('recipe_id') or '<unknown>'}`")
+            lines.append(f"  trace_exists: `{example.get('trace_exists')}`")
+            lines.append(
+                f"  reasoning_event_count: `{example.get('reasoning_event_count')}`"
+            )
+            trace_path = _clean_text(example.get("trace_path"))
+            if trace_path is not None:
+                lines.append(f"  trace_path: `{trace_path}`")
+            excerpt = _clean_text(example.get("reasoning_excerpt"))
+            if excerpt is not None:
+                lines.append("  reasoning_excerpt:")
+                lines.append("")
+                lines.append("```text")
+                lines.append(excerpt)
+                lines.append("```")
+            lines.append("")
+
+    output_md_path.write_text("\n".join(lines), encoding="utf-8")
+    return output_jsonl_path, output_md_path
+
+
 def _parse_prompt_index_from_name(name: str) -> int | None:
     match = re.search(r"(\d+)", str(name or ""))
     if match is None:
@@ -1212,7 +1408,8 @@ def _upsert_text_section(
 def _resolve_stage_run_root_for_prompt_exports(*, pred_run: Path) -> Path | None:
     candidate = pred_run.resolve(strict=False)
     if candidate.is_dir() and (
-        (candidate / "raw" / "llm").is_dir() or (candidate / "line-role-pipeline").is_dir()
+        (candidate / "raw" / "llm").is_dir()
+        or (candidate / "line-role-pipeline" / "prompts").is_dir()
     ):
         return candidate
 
@@ -1229,7 +1426,9 @@ def _resolve_stage_run_root_for_prompt_exports(*, pred_run: Path) -> Path | None
         resolved = _resolve_artifact_path(pred_run, prediction_artifacts.get(artifact_key))
         if resolved is None or not resolved.exists() or not resolved.is_dir():
             continue
-        if (resolved / "raw" / "llm").is_dir() or (resolved / "line-role-pipeline").is_dir():
+        if (resolved / "raw" / "llm").is_dir() or (
+            resolved / "line-role-pipeline" / "prompts"
+        ).is_dir():
             return resolved
 
     return None
@@ -1314,7 +1513,7 @@ def _build_line_role_prompt_rows(
 
         prompt_text = _safe_read_text(prompt_file)
         response_text = _safe_read_text(response_file) if response_file.exists() else ""
-        parsed_response = _load_json_dict(parsed_file)
+        parsed_response = _load_json_value(parsed_file)
         if parsed_response is None:
             parsed_response = _parse_json_text(response_text)
 
@@ -1593,6 +1792,17 @@ def _append_line_role_prompt_artifacts(
         ]
     if category_path is not None and category_path not in manifest_lines:
         manifest_lines.append(category_path)
+        stage_order_by_manifest_path = {
+            str(prompts_dir / "prompt_recipe_llm_correct_and_link.txt"): 1,
+            str(prompts_dir / "prompt_line_role.txt"): 2,
+            str(prompts_dir / "prompt_extract_knowledge_optional.txt"): 4,
+        }
+        manifest_lines.sort(
+            key=lambda path: (
+                stage_order_by_manifest_path.get(path, 999),
+                path,
+            )
+        )
         category_manifest_path.write_text(
             "\n".join(manifest_lines).rstrip() + "\n",
             encoding="utf-8",
@@ -2226,6 +2436,19 @@ def build_prompt_response_log(
         eval_output_dir=eval_output_dir,
         repo_root=resolved_repo_root,
     )
+    prompts_dir = eval_output_dir / "prompts"
+    full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
+    thinking_trace_summary_jsonl_path = prompts_dir / THINKING_TRACE_SUMMARY_JSONL_NAME
+    thinking_trace_summary_md_path = prompts_dir / THINKING_TRACE_SUMMARY_MD_NAME
+    if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
+        build_codex_farm_thinking_trace_summaries(
+            full_prompt_log_path=full_prompt_log_path,
+            output_jsonl_path=thinking_trace_summary_jsonl_path,
+            output_md_path=thinking_trace_summary_md_path,
+        )
+    else:
+        thinking_trace_summary_jsonl_path.unlink(missing_ok=True)
+        thinking_trace_summary_md_path.unlink(missing_ok=True)
     return prompt_log_path or line_role_prompt_log_path
 
 
@@ -2233,12 +2456,16 @@ __all__ = [
     "PROMPT_CALL_RECORD_SCHEMA_VERSION",
     "PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION",
     "PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION",
+    "PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION",
     "PROMPT_TYPE_SAMPLES_MD_NAME",
+    "THINKING_TRACE_SUMMARY_JSONL_NAME",
+    "THINKING_TRACE_SUMMARY_MD_NAME",
     "PromptCallRecord",
     "PromptRunDescriptorDiscoverer",
     "PromptRunDescriptor",
     "PromptStageDescriptor",
     "build_codex_farm_prompt_response_log",
+    "build_codex_farm_thinking_trace_summaries",
     "build_prompt_response_log",
     "build_codex_farm_prompt_type_samples_markdown",
     "discover_prompt_run_descriptors",

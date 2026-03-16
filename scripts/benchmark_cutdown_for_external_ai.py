@@ -1383,7 +1383,7 @@ def _build_preprocess_trace_failure_rows(
         pred_run_dir=pred_run_dir,
     )
     if extracted_archive_path is None:
-        return [], "missing_extracted_archive"
+        return [], "missing_prediction_run" if pred_run_dir is None else "missing_extracted_archive"
 
     archive_blocks = _load_extracted_archive_blocks(extracted_archive_path)
     prompt_rows_by_recipe, fallback_prompt_row = _select_prompt_rows_by_recipe(full_prompt_rows)

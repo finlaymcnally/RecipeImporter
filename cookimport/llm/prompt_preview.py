@@ -17,6 +17,10 @@ from cookimport.llm.codex_farm_orchestrator import (
     _build_recipe_correction_input,
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
+from cookimport.llm.prompt_budget import (
+    build_prompt_preview_budget_summary,
+    write_prompt_preview_budget_summary,
+)
 from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
@@ -133,6 +137,14 @@ def write_prompt_preview_for_existing_run(
         output_path=prompts_dir / "prompt_type_samples_from_full_prompt_log.md",
         examples_per_pass=3,
     )
+    budget_summary = build_prompt_preview_budget_summary(
+        prompt_rows=rows,
+        preview_dir=out_dir,
+    )
+    budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
+        out_dir,
+        budget_summary,
+    )
 
     manifest = {
         "schema_version": "codex_prompt_preview.v1",
@@ -152,12 +164,15 @@ def write_prompt_preview_for_existing_run(
         "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
         "atomic_block_splitter": atomic_block_splitter,
         "counts": counts,
+        "warnings": budget_summary.get("warnings") or [],
         "artifacts": {
             "full_prompt_log_jsonl": "prompts/full_prompt_log.jsonl",
             "prompt_request_response_log_txt": "prompts/prompt_request_response_log.txt",
             "prompt_type_samples_from_full_prompt_log_md": (
                 "prompts/prompt_type_samples_from_full_prompt_log.md"
             ),
+            "prompt_preview_budget_summary_json": str(budget_json_path.relative_to(out_dir)),
+            "prompt_preview_budget_summary_md": str(budget_md_path.relative_to(out_dir)),
         },
     }
     manifest_path = out_dir / "prompt_preview_manifest.json"

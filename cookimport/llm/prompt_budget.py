@@ -12,6 +12,18 @@ _TOKEN_KEYS = (
     "tokens_total",
 )
 
+_PREVIEW_INPUT_CHARS_PER_TOKEN = 3.2
+_PREVIEW_STAGE_OUTPUT_RATIO = {
+    "recipe_llm_correct_and_link": 0.18,
+    "extract_knowledge_optional": 0.12,
+    "line_role": 0.20,
+}
+_PREVIEW_STAGE_LABELS = {
+    "recipe_llm_correct_and_link": "Recipe Correction",
+    "extract_knowledge_optional": "Knowledge Harvest",
+    "line_role": "Line Role",
+}
+
 
 def build_prediction_run_prompt_budget_summary(
     pred_manifest: Mapping[str, Any],
@@ -90,17 +102,109 @@ def write_prediction_run_prompt_budget_summary(
     return target_path
 
 
+def build_prompt_preview_budget_summary(
+    *,
+    prompt_rows: list[Mapping[str, Any]],
+    preview_dir: Path,
+) -> dict[str, Any]:
+    by_stage: dict[str, dict[str, Any]] = {}
+    for row in prompt_rows:
+        stage_key = str(row.get("stage_key") or "").strip()
+        if not stage_key:
+            stage_key = "unknown"
+        rendered_prompt_text = str(row.get("rendered_prompt_text") or "")
+        prompt_chars = len(rendered_prompt_text)
+        stage_payload = by_stage.setdefault(
+            stage_key,
+            {
+                "stage": stage_key,
+                "stage_label": _PREVIEW_STAGE_LABELS.get(stage_key, stage_key.replace("_", " ").title()),
+                "kind": "preview",
+                "call_count": 0,
+                "prompt_chars_total": 0,
+                "prompt_chars_avg": 0,
+                "estimated_input_tokens": 0,
+                "estimated_output_tokens": 0,
+                "estimated_total_tokens": 0,
+            },
+        )
+        stage_payload["call_count"] += 1
+        stage_payload["prompt_chars_total"] += prompt_chars
+
+    totals = {
+        "call_count": 0,
+        "prompt_chars_total": 0,
+        "prompt_chars_avg": 0,
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "estimated_total_tokens": 0,
+    }
+    for stage_key, payload in by_stage.items():
+        call_count = int(payload.get("call_count") or 0)
+        prompt_chars_total = int(payload.get("prompt_chars_total") or 0)
+        estimated_input_tokens = _estimate_preview_input_tokens(prompt_chars_total)
+        estimated_output_tokens = _estimate_preview_output_tokens(
+            stage_key=stage_key,
+            call_count=call_count,
+            estimated_input_tokens=estimated_input_tokens,
+        )
+        payload["prompt_chars_avg"] = int(round(prompt_chars_total / call_count)) if call_count > 0 else 0
+        payload["estimated_input_tokens"] = estimated_input_tokens
+        payload["estimated_output_tokens"] = estimated_output_tokens
+        payload["estimated_total_tokens"] = estimated_input_tokens + estimated_output_tokens
+        totals["call_count"] += call_count
+        totals["prompt_chars_total"] += prompt_chars_total
+        totals["estimated_input_tokens"] += estimated_input_tokens
+        totals["estimated_output_tokens"] += estimated_output_tokens
+        totals["estimated_total_tokens"] += estimated_input_tokens + estimated_output_tokens
+    if totals["call_count"] > 0:
+        totals["prompt_chars_avg"] = int(round(totals["prompt_chars_total"] / totals["call_count"]))
+
+    warnings = _build_prompt_preview_budget_warnings(
+        by_stage=by_stage,
+        totals=totals,
+    )
+
+    return {
+        "schema_version": "prompt_preview_budget_summary.v1",
+        "preview_dir": str(preview_dir),
+        "estimation_method": {
+            "type": "heuristic_char_based",
+            "estimated_input_chars_per_token": _PREVIEW_INPUT_CHARS_PER_TOKEN,
+            "notes": [
+                "Estimated tokens are derived from rendered prompt text length because preview runs do not have live tokenizer telemetry.",
+                "Warnings are intentionally blunt and also consider raw prompt chars plus call counts, not only token estimates.",
+            ],
+        },
+        "by_stage": by_stage,
+        "totals": totals,
+        "warnings": warnings,
+    }
+
+
+def write_prompt_preview_budget_summary(
+    preview_dir: Path,
+    summary: Mapping[str, Any],
+) -> tuple[Path, Path]:
+    json_path = preview_dir / "prompt_preview_budget_summary.json"
+    md_path = preview_dir / "prompt_preview_budget_summary.md"
+    json_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    md_path.write_text(
+        _render_prompt_preview_budget_summary_md(summary),
+        encoding="utf-8",
+    )
+    return json_path, md_path
+
+
 def _build_codex_farm_stage_summary(
     *,
     stage_name: str,
     stage_payload: Mapping[str, Any],
 ) -> dict[str, Any] | None:
-    process_payload = stage_payload.get("process_payload")
-    telemetry_rows = None
-    if isinstance(process_payload, Mapping):
-        telemetry = process_payload.get("telemetry")
-        if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
-            telemetry_rows = telemetry.get("rows")
+    telemetry_rows = _extract_telemetry_rows(stage_payload=stage_payload)
 
     token_totals: dict[str, int | None] = {key: None for key in _TOKEN_KEYS}
     row_count = 0
@@ -151,6 +255,18 @@ def _build_codex_farm_stage_summary(
         "duration_total_ms": duration_total_ms,
         **token_totals,
     }
+
+
+def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | None:
+    process_payload = stage_payload.get("process_payload")
+    if isinstance(process_payload, Mapping):
+        telemetry = process_payload.get("telemetry")
+        if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
+            return telemetry.get("rows")
+    telemetry = stage_payload.get("telemetry")
+    if isinstance(telemetry, Mapping) and isinstance(telemetry.get("rows"), list):
+        return telemetry.get("rows")
+    return None
 
 
 def _build_line_role_stage_summary(
@@ -295,3 +411,134 @@ def _sum_optional_ints(left: int | None, right: int | None) -> int | None:
     if right is None:
         return left
     return left + right
+
+
+def _estimate_preview_input_tokens(prompt_chars_total: int) -> int:
+    if prompt_chars_total <= 0:
+        return 0
+    return int(round(prompt_chars_total / _PREVIEW_INPUT_CHARS_PER_TOKEN))
+
+
+def _estimate_preview_output_tokens(
+    *,
+    stage_key: str,
+    call_count: int,
+    estimated_input_tokens: int,
+) -> int:
+    if call_count <= 0 or estimated_input_tokens <= 0:
+        return 0
+    ratio = _PREVIEW_STAGE_OUTPUT_RATIO.get(stage_key, 0.10)
+    return int(round(estimated_input_tokens * ratio))
+
+
+def _build_prompt_preview_budget_warnings(
+    *,
+    by_stage: Mapping[str, Mapping[str, Any]],
+    totals: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+
+    total_calls = _nonnegative_int(totals.get("call_count")) or 0
+    total_prompt_chars = _nonnegative_int(totals.get("prompt_chars_total")) or 0
+    total_estimated_tokens = _nonnegative_int(totals.get("estimated_total_tokens")) or 0
+    if total_calls >= 200 or total_prompt_chars >= 1_500_000 or total_estimated_tokens >= 500_000:
+        warnings.append(
+            {
+                "severity": "danger",
+                "code": "extreme_prompt_budget",
+                "message": (
+                    f"EXTREME prompt budget: {total_calls} calls, {total_prompt_chars:,} rendered prompt chars, "
+                    f"~{total_estimated_tokens:,} estimated total tokens. Treat this as a multi-million-token danger zone."
+                ),
+            }
+        )
+    elif total_calls >= 100 or total_prompt_chars >= 750_000 or total_estimated_tokens >= 250_000:
+        warnings.append(
+            {
+                "severity": "warning",
+                "code": "high_prompt_budget",
+                "message": (
+                    f"High prompt budget: {total_calls} calls, {total_prompt_chars:,} rendered prompt chars, "
+                    f"~{total_estimated_tokens:,} estimated total tokens."
+                ),
+            }
+        )
+
+    recipe_stage = by_stage.get("recipe_llm_correct_and_link")
+    if isinstance(recipe_stage, Mapping):
+        recipe_calls = _nonnegative_int(recipe_stage.get("call_count")) or 0
+        recipe_chars = _nonnegative_int(recipe_stage.get("prompt_chars_total")) or 0
+        if recipe_calls >= 100:
+            warnings.append(
+                {
+                    "severity": "danger" if recipe_calls >= 200 else "warning",
+                    "code": "recipe_fanout_high",
+                    "message": (
+                        f"Recipe correction fan-out is very high: {recipe_calls} prompts "
+                        f"({recipe_chars:,} rendered chars) before any model output."
+                    ),
+                }
+            )
+
+    knowledge_stage = by_stage.get("extract_knowledge_optional")
+    if isinstance(knowledge_stage, Mapping):
+        knowledge_calls = _nonnegative_int(knowledge_stage.get("call_count")) or 0
+        if knowledge_calls >= 40:
+            warnings.append(
+                {
+                    "severity": "warning",
+                    "code": "knowledge_fanout_high",
+                    "message": f"Knowledge extraction fan-out is high: {knowledge_calls} prompts.",
+                }
+            )
+    return warnings
+
+
+def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
+    totals = summary.get("totals")
+    if not isinstance(totals, Mapping):
+        totals = {}
+    lines = [
+        "# Prompt Preview Budget Summary",
+        "",
+        f"- Preview dir: `{summary.get('preview_dir')}`",
+        (
+            f"- Estimated total tokens: `~{int(_nonnegative_int(totals.get('estimated_total_tokens')) or 0):,}` "
+            "(heuristic)"
+        ),
+        f"- Total calls: `{int(_nonnegative_int(totals.get('call_count')) or 0):,}`",
+        f"- Rendered prompt chars: `{int(_nonnegative_int(totals.get('prompt_chars_total')) or 0):,}`",
+        "",
+    ]
+    warnings = summary.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.append("## Warnings")
+        lines.append("")
+        for warning in warnings:
+            if not isinstance(warning, Mapping):
+                continue
+            lines.append(f"- [{str(warning.get('severity') or 'warning').upper()}] {str(warning.get('message') or '').strip()}")
+        lines.append("")
+
+    lines.append("## By Stage")
+    lines.append("")
+    lines.append("| Stage | Calls | Prompt Chars | Est. Input Tokens | Est. Total Tokens |")
+    lines.append("| --- | ---: | ---: | ---: | ---: |")
+    by_stage = summary.get("by_stage")
+    if isinstance(by_stage, Mapping):
+        for stage_key, payload in by_stage.items():
+            if not isinstance(payload, Mapping):
+                continue
+            lines.append(
+                "| "
+                + f"{str(payload.get('stage_label') or stage_key)} | "
+                + f"{int(_nonnegative_int(payload.get('call_count')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('prompt_chars_total')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('estimated_input_tokens')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('estimated_total_tokens')) or 0):,} |"
+            )
+    lines.append("")
+    lines.append(
+        "_Estimated tokens are derived from rendered prompt text length because preview runs do not have live tokenizer telemetry._"
+    )
+    return "\n".join(lines) + "\n"

@@ -12,6 +12,7 @@ Durable output-path and section/report contracts live in `cookimport/staging/CON
   - Priority 6 parsing/yield options are run-config aware (`p6_*` settings): step parsing can emit `temperature_items`, recipe-level `max_oven_temp_f`, strategy-based `cook_time_seconds` fallback, and centralized yield fields.
 - **Writer:** `writer.py` provides `write_intermediate_outputs()`, `write_draft_outputs()`, and `write_tip_outputs()` functions
   - `import_session.py` is the shared stage-backed post-conversion runner used by single-file stage, split-merge stage, and benchmark-backed processed outputs.
+  - `group_recipe_spans/<workbook_slug>/recipe_spans.json` now contains accepted spans only; `span_decisions.json` carries both accepted and rejected grouping decisions so titleless pseudo-recipes stay debuggable without becoming recipes.
   - `nonrecipe_stage.py` is the deterministic Stage 7 classifier for all outside-recipe blocks; writer now emits `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` from that boundary.
   - Outputs are flattened under the per-file folder as `r{index}.json[ld]` (no sheet subfolders).
   - When a candidate lacks `row_index` provenance (text/PDF/EPUB), `writer.py` falls back to `location.chunk_index` for stable IDs.

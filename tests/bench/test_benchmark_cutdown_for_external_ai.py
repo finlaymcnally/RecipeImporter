@@ -101,6 +101,17 @@ def _set_pred_run_artifact(run_dir: Path, pred_run_value: str) -> None:
     _write_json(run_manifest_path, payload)
 
 
+def _set_run_artifact(run_dir: Path, key: str, value: object) -> None:
+    run_manifest_path = run_dir / "run_manifest.json"
+    payload = _read_json(run_manifest_path)
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    artifacts[key] = value
+    payload["artifacts"] = artifacts
+    _write_json(run_manifest_path, payload)
+
+
 def _write_prediction_run(
     run_dir: Path,
     *,
@@ -228,6 +239,8 @@ def _write_knowledge_artifacts(
     *,
     workbook_slug: str = "fixture-slug",
     knowledge_call_count: int = 4,
+    prompt_budget_at_run_root: bool = False,
+    include_prediction_run_files: bool = True,
 ) -> None:
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -250,8 +263,13 @@ def _write_knowledge_artifacts(
         "knowledge raw prompt body\n",
         encoding="utf-8",
     )
+    prompt_budget_path = (
+        run_dir / "prompt_budget_summary.json"
+        if prompt_budget_at_run_root
+        else run_dir / "prediction-run" / "prompt_budget_summary.json"
+    )
     _write_json(
-        run_dir / "prediction-run" / "prompt_budget_summary.json",
+        prompt_budget_path,
         {
             "schema_version": "prompt_budget_summary.v1",
             "by_stage": {
@@ -263,40 +281,72 @@ def _write_knowledge_artifacts(
             },
         },
     )
-    _write_json(
-        run_dir / "prediction-run" / "manifest.json",
-        {
-            "llm_codex_farm": {
-                "knowledge": {
-                    "enabled": True,
-                    "pipeline": "codex-farm-knowledge-v1",
-                    "pipeline_id": "recipe.knowledge.compact.v1",
-                    "counts": {
-                        "jobs_written": knowledge_call_count,
-                        "outputs_parsed": knowledge_call_count,
-                        "snippets_written": knowledge_call_count * 2,
-                    },
-                    "paths": {
-                        "manifest_path": str(
-                            run_dir
-                            / "prediction-run"
-                            / "raw"
-                            / "llm"
-                            / workbook_slug
-                            / "knowledge_manifest.json"
-                        )
-                    },
+    if include_prediction_run_files:
+        _write_json(
+            run_dir / "prediction-run" / "manifest.json",
+            {
+                "llm_codex_farm": {
+                    "knowledge": {
+                        "enabled": True,
+                        "pipeline": "codex-farm-knowledge-v1",
+                        "pipeline_id": "recipe.knowledge.compact.v1",
+                        "counts": {
+                            "jobs_written": knowledge_call_count,
+                            "outputs_parsed": knowledge_call_count,
+                            "snippets_written": knowledge_call_count * 2,
+                        },
+                        "paths": {
+                            "manifest_path": str(
+                                run_dir
+                                / "prediction-run"
+                                / "raw"
+                                / "llm"
+                                / workbook_slug
+                                / "knowledge_manifest.json"
+                            )
+                        },
+                    }
                 }
-            }
+            },
+        )
+        _write_json(
+            run_dir
+            / "prediction-run"
+            / "raw"
+            / "llm"
+            / workbook_slug
+            / "knowledge_manifest.json",
+            {
+                "pipeline_id": "recipe.knowledge.compact.v1",
+                "counts": {
+                    "jobs_written": knowledge_call_count,
+                    "outputs_parsed": knowledge_call_count,
+                    "snippets_written": knowledge_call_count * 2,
+                },
+            },
+        )
+
+
+def _write_processed_output_knowledge_artifacts(
+    run_dir: Path,
+    *,
+    processed_output_root: Path,
+    workbook_slug: str = "fixture-slug",
+    knowledge_call_count: int = 4,
+) -> None:
+    _write_json(
+        processed_output_root / "09_knowledge_outputs.json",
+        {
+            "enabled": True,
+            "counts": {
+                "jobs_written": knowledge_call_count,
+                "outputs_parsed": knowledge_call_count,
+                "snippets_written": knowledge_call_count * 2,
+            },
         },
     )
     _write_json(
-        run_dir
-        / "prediction-run"
-        / "raw"
-        / "llm"
-        / workbook_slug
-        / "knowledge_manifest.json",
+        processed_output_root / "raw" / "llm" / workbook_slug / "knowledge_manifest.json",
         {
             "pipeline_id": "recipe.knowledge.compact.v1",
             "counts": {
@@ -305,6 +355,33 @@ def _write_knowledge_artifacts(
                 "snippets_written": knowledge_call_count * 2,
             },
         },
+    )
+    _set_run_artifact(run_dir, "processed_output_run_dir", str(processed_output_root))
+
+
+def _write_replay_extracted_archive(run_dir: Path) -> None:
+    replay_path = (
+        run_dir / ".prediction-record-replay" / "pipelined" / "extracted_archive.from_records.json"
+    )
+    _write_json(
+        replay_path,
+        [
+            {
+                "index": 1,
+                "text": "1 cup flour (replay block)",
+                "location": {"features": {"unstructured_stable_key": "block-1"}},
+            },
+            {
+                "index": 3,
+                "text": "Chef note (replay block)",
+                "location": {"features": {"unstructured_stable_key": "block-3"}},
+            },
+        ],
+    )
+    _set_run_artifact(
+        run_dir,
+        "evaluation_extracted_archive_json",
+        ".prediction-record-replay/pipelined/extracted_archive.from_records.json",
     )
 
 
@@ -552,11 +629,11 @@ def _make_run_record(
     full_prompt_log_rows = 0
     full_prompt_log_path: str | None = None
     if full_prompt_rows is not None:
-        full_prompt_rel_path = "codexfarm/full_prompt_log.jsonl"
+        full_prompt_rel_path = "prompts/full_prompt_log.jsonl"
         _write_jsonl(run_dir / full_prompt_rel_path, full_prompt_rows)
         artifacts["full_prompt_log_path"] = full_prompt_rel_path
         full_prompt_log_rows = len(full_prompt_rows)
-        full_prompt_log_path = f"{run_id}/full_prompt_log.jsonl"
+        full_prompt_log_path = full_prompt_rel_path
 
     run_manifest = {
         "run_id": run_id,
@@ -2446,6 +2523,127 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
     assert locator_row["prompt_budget_summary_json"]["path"].endswith(
         "prediction-run/prompt_budget_summary.json"
     )
+
+
+def test_build_upload_bundle_discovers_current_single_offline_knowledge_layout(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-offline-benchmark" / "book_a"
+    codex_run_id = "codexfarm"
+    baseline_run_id = "vanilla"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-farm-single-correction-v1",
+        line_role_pipeline="codex-line-role-v1",
+        wrong_label_rows=[
+            {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
+        ],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+
+    codex_run_dir = session_root / codex_run_id
+    _write_knowledge_artifacts(
+        codex_run_dir,
+        workbook_slug="fixture-slug",
+        knowledge_call_count=4,
+        prompt_budget_at_run_root=True,
+        include_prediction_run_files=False,
+    )
+    _write_replay_extracted_archive(codex_run_dir)
+    _write_processed_output_knowledge_artifacts(
+        codex_run_dir,
+        processed_output_root=tmp_path / "processed-output" / codex_run_id,
+        workbook_slug="fixture-slug",
+        knowledge_call_count=4,
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    knowledge_summary = index_payload["analysis"]["knowledge"]
+    assert knowledge_summary["enabled_run_count"] == 1
+    assert knowledge_summary["runs_with_prompt_samples"] == 1
+    assert knowledge_summary["runs_with_knowledge_manifest"] == 1
+    assert knowledge_summary["total_knowledge_call_count"] == 4
+
+    codex_row = next(
+        row for row in knowledge_summary["rows"] if str(row.get("run_id") or "") == codex_run_id
+    )
+    assert codex_row["knowledge_call_count"] == 4
+    assert codex_row["jobs_written"] == 4
+    assert codex_row["outputs_parsed"] == 4
+    assert codex_row["snippets_written"] == 8
+    assert codex_row["prompt_samples_status"] == "written"
+    assert codex_row["prompt_knowledge_status"] == "written"
+    assert codex_row["knowledge_manifest_status"] == "written"
+    assert codex_row["prompt_budget_summary_status"] == "written"
+    assert codex_row["prompt_samples_in_bundle"] is True
+    assert codex_row["prompt_knowledge_in_bundle"] is True
+    assert codex_row["knowledge_manifest_in_bundle"] is True
+    assert codex_row["prompt_budget_summary_in_bundle"] is True
+
+    baseline_row = next(
+        row
+        for row in knowledge_summary["rows"]
+        if str(row.get("run_id") or "") == baseline_run_id
+    )
+    assert baseline_row["prompt_samples_in_bundle"] is False
+    assert baseline_row["prompt_knowledge_in_bundle"] is False
+    assert baseline_row["knowledge_manifest_in_bundle"] is False
+    assert baseline_row["prompt_budget_summary_in_bundle"] is False
+
+    row_locators = index_payload["navigation"]["row_locators"]["knowledge_by_run"]
+    assert isinstance(row_locators, list)
+    codex_locator_row = next(
+        item for item in row_locators if str(item.get("run_id") or "") == codex_run_id
+    )
+    assert codex_locator_row["prompt_samples_md"]["path"].endswith(
+        "prompts/prompt_type_samples_from_full_prompt_log.md"
+    )
+    assert codex_locator_row["prompt_knowledge_txt"]["path"].endswith(
+        "prompts/prompt_extract_knowledge_optional.txt"
+    )
+    assert codex_locator_row["prompt_budget_summary_json"]["path"].endswith(
+        "codexfarm/prompt_budget_summary.json"
+    )
+    assert codex_locator_row["knowledge_manifest_json"]["path"].endswith(
+        "_upload_bundle_derived/runs/codexfarm/knowledge_manifest.json"
+    )
+
+    baseline_locator_row = next(
+        item for item in row_locators if str(item.get("run_id") or "") == baseline_run_id
+    )
+    assert baseline_locator_row["prompt_samples_md"] is None
+    assert baseline_locator_row["prompt_knowledge_txt"] is None
+    assert baseline_locator_row["knowledge_manifest_json"] is None
+    assert baseline_locator_row["prompt_budget_summary_json"] is None
+
+    run_diagnostics = index_payload["run_diagnostics"]
+    codex_diag = next(
+        row for row in run_diagnostics if str(row.get("run_id") or "") == codex_run_id
+    )
+    assert codex_diag["full_prompt_log_status"] == "complete"
+    assert codex_diag["prompt_warning_aggregate_status"] == "written"
+    assert codex_diag["projection_trace_status"] == "written"
+    assert codex_diag["preprocess_trace_failures_status"] == "written"
 
 
 def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(

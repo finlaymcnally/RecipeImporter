@@ -123,6 +123,12 @@ _NON_RECIPE_PROSE_PREFIXES = (
     "index",
     "conversions",
 )
+_RECIPE_NOTE_ADVISORY_CUE_RE = re.compile(
+    r"\b(?:be sure|don't|do not|i don't recommend|i like to|i prefer|"
+    r"i recommend|i use|it's important|make sure|remember|the key is|"
+    r"you can|you don't need|you should)\b",
+    re.IGNORECASE,
+)
 _RECIPE_CONTEXT_RE = re.compile(
     r"\b(?:egg|eggs|omelet|omelette|soup|chicken|stock|broth|sauce|gravy|"
     r"hollandaise|poach|boil|fry|roast|braise|biscuits?|scones?|pancakes?|"
@@ -138,6 +144,22 @@ _EXPLICIT_KNOWLEDGE_CUE_RE = re.compile(
     r"\b(?:conduct heat|heat transfer|this means|which means|in other words|"
     r"for example|for instance|as a rule|in general|rule of thumb|ratio|"
     r"temperature|emulsion)\b",
+    re.IGNORECASE,
+)
+_KNOWLEDGE_DOMAIN_CUE_RE = re.compile(
+    r"\b(?:acid|aroma|aromas|bitter|bitterness|bland|boil|boiling|braise|"
+    r"braising|brown|browning|chemistry|conduct|conduction|crisp|crust|"
+    r"emulsion|evaporate|evaporation|fat|flavor|flavors|heat|iodized|"
+    r"kosher salt|mineral|minerals|moisture|protein|proteins|ratio|salt|"
+    r"salinity|simmer|starch|starches|sweetness|taste|texture|textures|"
+    r"vinegar|water)\b",
+    re.IGNORECASE,
+)
+_KNOWLEDGE_EXPLANATION_CUE_RE = re.compile(
+    r"\b(?:affect|affects|balance|balances|because|control|controls|"
+    r"determine|determines|enhance|enhances|explained by|explains|improve|"
+    r"improves|means|modify|modifies|relationship|role|this is why|"
+    r"without|why)\b",
     re.IGNORECASE,
 )
 _RECIPEISH_OUTSIDE_SPAN_LABELS = {
@@ -1949,11 +1971,14 @@ def _deterministic_label(
     ):
         if _looks_narrative_prose(candidate.text):
             return "OTHER", ["outside_recipe_narrative"]
-        if _looks_explicit_knowledge_cue(candidate.text):
+        if _looks_knowledge_prose_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
             return "KNOWLEDGE", [
                 "outside_recipe_span",
                 "prose_like",
-                "explicit_knowledge_cue",
+                "knowledge_context",
             ]
         return "OTHER", ["outside_recipe_span", "prose_default_other"]
     if "yield_prefix" in tags:
@@ -1981,6 +2006,11 @@ def _deterministic_label(
     if "time_metadata" in tags and _is_primary_time_line(candidate.text):
         return "TIME_LINE", ["time_metadata"]
     if "outside_recipe_span" in tags:
+        if _looks_knowledge_heading_with_context(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            return "KNOWLEDGE", ["outside_recipe_span", "knowledge_heading_context"]
         if _looks_recipe_title_with_context(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -1989,11 +2019,14 @@ def _deterministic_label(
         if _looks_prose(candidate.text):
             if _looks_narrative_prose(candidate.text):
                 return "OTHER", ["outside_recipe_narrative", "outside_recipe_span"]
-            if _looks_explicit_knowledge_cue(candidate.text):
+            if _looks_knowledge_prose_with_context(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            ):
                 return "KNOWLEDGE", [
                     "outside_recipe_span",
                     "prose_like",
-                    "explicit_knowledge_cue",
+                    "knowledge_context",
                 ]
             return "OTHER", ["outside_recipe_span", "prose_default_other"]
         return "OTHER", ["outside_recipe_span"]
@@ -2262,18 +2295,48 @@ def _outside_span_structured_line_allowed(
     if label == "INGREDIENT_LINE":
         if not _looks_obvious_ingredient(candidate):
             return False
-        return _outside_span_has_neighboring_recipe_evidence(
+        return _outside_span_has_neighboring_anchor_evidence(
             candidate,
             by_atomic_index=by_atomic_index,
         )
     if label == "INSTRUCTION_LINE":
         if not _looks_instructional_neighbor(candidate):
             return False
-        return _outside_span_has_neighboring_recipe_evidence(
+        return _outside_span_has_neighboring_anchor_evidence(
             candidate,
             by_atomic_index=by_atomic_index,
         )
     return True
+
+
+def _outside_span_has_neighboring_anchor_evidence(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    radius: int = 6,
+) -> bool:
+    center = int(candidate.atomic_index)
+    lower = int(candidate.atomic_index) - max(1, int(radius))
+    upper = int(candidate.atomic_index) + max(1, int(radius))
+    for atomic_index in range(lower, upper + 1):
+        if atomic_index == center:
+            continue
+        row = by_atomic_index.get(atomic_index)
+        if row is None:
+            continue
+        tags = {str(tag) for tag in row.rule_tags}
+        if row.within_recipe_span:
+            return True
+        if {"title_like", "yield_prefix", "howto_heading", "variant_heading"} & tags:
+            return True
+        if _looks_recipe_start_boundary(row):
+            return True
+        if _looks_recipe_title_with_context(
+            row,
+            by_atomic_index=by_atomic_index,
+        ):
+            return True
+    return False
 
 
 def _outside_span_has_neighboring_recipe_evidence(
@@ -2687,7 +2750,7 @@ def _looks_recipe_note_prose(text: str) -> bool:
     if not _RECIPE_CONTEXT_RE.search(stripped):
         return False
     if _FIRST_PERSON_RE.search(stripped):
-        return True
+        return bool(_RECIPE_NOTE_ADVISORY_CUE_RE.search(stripped))
     if "you can" in lowered or "make sure" in lowered:
         return True
     if "don't" in lowered or "it's important" in lowered:
@@ -2710,6 +2773,77 @@ def _looks_narrative_prose(text: str) -> bool:
     if any(lowered.startswith(prefix) for prefix in _NON_RECIPE_PROSE_PREFIXES):
         return True
     return bool(_FIRST_PERSON_RE.search(stripped) and not _RECIPE_CONTEXT_RE.search(stripped))
+
+
+def _knowledge_domain_cue_count(text: str) -> int:
+    return len(
+        {match.group(0).lower() for match in _KNOWLEDGE_DOMAIN_CUE_RE.finditer(text)}
+    )
+
+
+def _looks_domain_knowledge_prose(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped or not _looks_prose(stripped):
+        return False
+    if _looks_editorial_note(stripped) or _looks_recipe_note_prose(stripped):
+        return False
+    domain_cues = _knowledge_domain_cue_count(stripped)
+    if domain_cues <= 0:
+        return False
+    if _KNOWLEDGE_EXPLANATION_CUE_RE.search(stripped):
+        return True
+    return domain_cues >= 3
+
+
+def _looks_knowledge_heading_with_context(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    if candidate.within_recipe_span or by_atomic_index is None:
+        return False
+    text = str(candidate.text or "").strip()
+    if not text or not _looks_compact_heading(text):
+        return False
+    if _knowledge_domain_cue_count(text) <= 0:
+        return False
+    for offset in (-1, 1):
+        neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
+        if neighbor is None or neighbor.within_recipe_span:
+            continue
+        neighbor_text = str(neighbor.text or "")
+        if _looks_domain_knowledge_prose(neighbor_text) or _looks_explicit_knowledge_cue(
+            neighbor_text
+        ):
+            return True
+    return False
+
+
+def _looks_knowledge_prose_with_context(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+) -> bool:
+    text = str(candidate.text or "").strip()
+    if _looks_explicit_knowledge_cue(text) or _looks_domain_knowledge_prose(text):
+        return True
+    if by_atomic_index is None:
+        return False
+    for offset in (-1, 1):
+        neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
+        if neighbor is None or neighbor.within_recipe_span:
+            continue
+        neighbor_text = str(neighbor.text or "")
+        if _looks_explicit_knowledge_cue(neighbor_text) or _looks_domain_knowledge_prose(
+            neighbor_text
+        ):
+            return True
+        if _looks_knowledge_heading_with_context(
+            neighbor,
+            by_atomic_index=by_atomic_index,
+        ):
+            return True
+    return False
 
 
 def _looks_strict_yield_header(text: str) -> bool:

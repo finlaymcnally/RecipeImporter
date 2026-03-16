@@ -223,6 +223,10 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
         "line_role_prompt_count": 1,
         "recipe_prompt_count": 1,
     }
+    assert manifest["warnings"] == []
+    artifacts = manifest["artifacts"]
+    assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
+    assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
 
     full_prompt_rows = [
         json.loads(line)
@@ -262,6 +266,12 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert (out_dir / "raw" / "llm" / "fixturebook" / "extract_knowledge_optional" / "in").is_dir()
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_prompt_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    assert budget_summary["totals"]["call_count"] == 3
+    assert budget_summary["warnings"] == []
+    assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 
 
 def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> None:
@@ -345,6 +355,60 @@ def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> No
     assert knowledge_row["recipe_id"] == "fixturebook.c9999.nr"
 
 
+def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+    live_recipe_dir = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in"
+    huge_text = "X" * 20000
+    for index in range(120):
+        _write_json(
+            live_recipe_dir / f"r{index:04d}.json",
+            {
+                "bundle_version": "1",
+                "recipe_id": f"urn:recipe:test:{index}",
+                "workbook_slug": workbook_slug,
+                "source_hash": "fixture-source-hash",
+                "canonical_text": huge_text,
+                "evidence_rows": [[index, huge_text]],
+                "recipe_candidate_hint": {
+                    "identifier": f"urn:recipe:test:{index}",
+                    "name": f"Recipe {index}",
+                    "recipeIngredient": ["1 cup flour"],
+                    "recipeInstructions": ["Mix."],
+                    "description": None,
+                    "recipeYield": None,
+                },
+                "tagging_guide": {"version": "custom-live-guide"},
+                "authority_notes": ["warning_fixture"],
+            },
+        )
+
+    out_dir = tmp_path / "preview"
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+        llm_knowledge_pipeline="off",
+        line_role_pipeline="off",
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    warning_messages = [warning["message"] for warning in manifest["warnings"]]
+    assert any("EXTREME prompt budget:" in message for message in warning_messages)
+    assert any("Recipe correction fan-out is very high:" in message for message in warning_messages)
+
+    budget_summary = json.loads(
+        (out_dir / "prompt_preview_budget_summary.json").read_text(encoding="utf-8")
+    )
+    assert budget_summary["totals"]["call_count"] == 120
+    assert budget_summary["totals"]["prompt_chars_total"] > 1_500_000
+    assert any(
+        warning["code"] == "extreme_prompt_budget" for warning in budget_summary["warnings"]
+    )
+    assert "multi-million-token danger zone" in (
+        out_dir / "prompt_preview_budget_summary.md"
+    ).read_text(encoding="utf-8")
+
+
 def test_cf_debug_preview_prompts_resolves_processed_run_from_benchmark_manifest(
     tmp_path: Path,
 ) -> None:
@@ -375,3 +439,50 @@ def test_cf_debug_preview_prompts_resolves_processed_run_from_benchmark_manifest
     manifest_path = Path(result.stdout.strip())
     assert manifest_path == out_dir / "prompt_preview_manifest.json"
     assert manifest_path.is_file()
+
+
+def test_cf_debug_preview_prompts_emits_budget_warning_to_stderr(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+    live_recipe_dir = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in"
+    huge_text = "X" * 20000
+    for index in range(120):
+        _write_json(
+            live_recipe_dir / f"r{index:04d}.json",
+            {
+                "bundle_version": "1",
+                "recipe_id": f"urn:recipe:test:{index}",
+                "workbook_slug": workbook_slug,
+                "source_hash": "fixture-source-hash",
+                "canonical_text": huge_text,
+                "evidence_rows": [[index, huge_text]],
+                "recipe_candidate_hint": {
+                    "identifier": f"urn:recipe:test:{index}",
+                    "name": f"Recipe {index}",
+                    "recipeIngredient": ["1 cup flour"],
+                    "recipeInstructions": ["Mix."],
+                    "description": None,
+                    "recipeYield": None,
+                },
+                "tagging_guide": {"version": "custom-live-guide"},
+                "authority_notes": ["warning_fixture"],
+            },
+        )
+    out_dir = tmp_path / "preview"
+    result = runner.invoke(
+        app,
+        [
+            "preview-prompts",
+            "--run",
+            str(run_dir),
+            "--out",
+            str(out_dir),
+            "--llm-knowledge-pipeline",
+            "off",
+            "--line-role-pipeline",
+            "off",
+        ],
+    )
+    assert result.exit_code == 0
+    assert result.stdout.strip() == str(out_dir / "prompt_preview_manifest.json")
+    assert "EXTREME prompt budget:" in result.stderr

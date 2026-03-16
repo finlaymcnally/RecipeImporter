@@ -6,6 +6,7 @@ from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     AuthoritativeLabeledLine,
     RecipeSpan,
+    RecipeSpanDecision,
 )
 
 _RECIPE_LOCAL_LABELS = {
@@ -24,7 +25,7 @@ _TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
 def group_recipe_spans_from_labels(
     block_labels: Sequence[AuthoritativeBlockLabel],
     labeled_lines: Sequence[AuthoritativeLabeledLine],
-) -> tuple[list[RecipeSpan], list[AuthoritativeBlockLabel]]:
+) -> tuple[list[RecipeSpan], list[RecipeSpanDecision], list[AuthoritativeBlockLabel]]:
     ordered_blocks = sorted(block_labels, key=lambda row: row.source_block_index)
     atomic_indices_by_block: dict[int, list[int]] = {}
     for row in labeled_lines:
@@ -33,20 +34,22 @@ def group_recipe_spans_from_labels(
         )
 
     spans: list[RecipeSpan] = []
+    span_decisions: list[RecipeSpanDecision] = []
     pending: list[AuthoritativeBlockLabel] = []
 
     def flush_pending(*, warning: str | None = None) -> None:
         nonlocal pending
         if not pending:
             return
-        spans.append(
-            _build_span(
-                span_index=len(spans),
-                block_rows=pending,
-                atomic_indices_by_block=atomic_indices_by_block,
-                warning=warning,
-            )
+        decision = _build_span_decision(
+            span_index=len(span_decisions),
+            block_rows=pending,
+            atomic_indices_by_block=atomic_indices_by_block,
+            warning=warning,
         )
+        span_decisions.append(decision)
+        if decision.decision == "accepted_recipe_span":
+            spans.append(_decision_to_recipe_span(decision))
         pending = []
 
     for block in ordered_blocks:
@@ -74,16 +77,16 @@ def group_recipe_spans_from_labels(
             warning = "recipe_span_started_without_title"
         flush_pending(warning=warning)
 
-    return spans, ordered_blocks
+    return spans, span_decisions, ordered_blocks
 
 
-def _build_span(
+def _build_span_decision(
     *,
     span_index: int,
     block_rows: Sequence[AuthoritativeBlockLabel],
     atomic_indices_by_block: dict[int, list[int]],
     warning: str | None,
-) -> RecipeSpan:
+) -> RecipeSpanDecision:
     block_indices = [int(row.source_block_index) for row in block_rows]
     source_block_ids = [str(row.source_block_id) for row in block_rows]
     atomic_indices: list[int] = []
@@ -108,7 +111,10 @@ def _build_span(
         warnings.append(warning)
         escalation_reasons.append(warning)
         decision_notes.append(warning)
-    if not any(str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows):
+    has_title_anchor = any(
+        str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows
+    )
+    if not has_title_anchor:
         warnings.append("recipe_span_missing_title_label")
         escalation_reasons.append("missing_required_recipe_fields")
         decision_notes.append("span_missing_title_block")
@@ -127,8 +133,18 @@ def _build_span(
             decision_notes.append("title_block_was_not_rule_held")
 
     atomic_indices = sorted(set(atomic_indices))
-    return RecipeSpan(
+    rejection_reason = None if has_title_anchor else "rejected_missing_title_anchor"
+    if rejection_reason is not None:
+        decision_notes.append(rejection_reason)
+
+    return RecipeSpanDecision(
         span_id=f"recipe_span_{span_index}",
+        decision=(
+            "accepted_recipe_span"
+            if has_title_anchor
+            else "rejected_pseudo_recipe_span"
+        ),
+        rejection_reason=rejection_reason,
         start_block_index=min(block_indices),
         end_block_index=max(block_indices),
         block_indices=block_indices,
@@ -142,3 +158,11 @@ def _build_span(
         escalation_reasons=escalation_reasons,
         decision_notes=decision_notes,
     )
+
+
+def _decision_to_recipe_span(decision: RecipeSpanDecision) -> RecipeSpan:
+    payload = decision.model_dump(
+        mode="json",
+        exclude={"decision", "rejection_reason"},
+    )
+    return RecipeSpan.model_validate(payload)

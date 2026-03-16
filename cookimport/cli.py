@@ -21116,6 +21116,28 @@ def _write_stage_run_manifest(
             artifacts["prompt_type_samples_from_full_prompt_log_md"] = str(
                 prompt_type_samples_path.relative_to(run_root)
             )
+        thinking_trace_summary_jsonl_path = (
+            prompt_artifacts_dir
+            / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_JSONL_NAME
+        )
+        if (
+            thinking_trace_summary_jsonl_path.exists()
+            and thinking_trace_summary_jsonl_path.is_file()
+        ):
+            artifacts["thinking_trace_summary_jsonl"] = str(
+                thinking_trace_summary_jsonl_path.relative_to(run_root)
+            )
+        thinking_trace_summary_md_path = (
+            prompt_artifacts_dir
+            / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_MD_NAME
+        )
+        if (
+            thinking_trace_summary_md_path.exists()
+            and thinking_trace_summary_md_path.is_file()
+        ):
+            artifacts["thinking_trace_summary_md"] = str(
+                thinking_trace_summary_md_path.relative_to(run_root)
+            )
     history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)
@@ -28568,6 +28590,14 @@ def labelstudio_benchmark(
             codexfarm_prompt_response_log_path.parent
             / llm_prompt_artifacts.PROMPT_TYPE_SAMPLES_MD_NAME
         )
+        thinking_trace_summary_jsonl_path = (
+            codexfarm_prompt_response_log_path.parent
+            / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_JSONL_NAME
+        )
+        thinking_trace_summary_md_path = (
+            codexfarm_prompt_response_log_path.parent
+            / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_MD_NAME
+        )
         if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
             full_prompt_log_rows = 0
             try:
@@ -28597,6 +28627,26 @@ def labelstudio_benchmark(
             ] = _path_for_manifest(
                 eval_output_dir,
                 prompt_type_samples_path,
+            )
+        if (
+            thinking_trace_summary_jsonl_path.exists()
+            and thinking_trace_summary_jsonl_path.is_file()
+        ):
+            benchmark_artifacts["codexfarm_thinking_trace_summary_jsonl"] = (
+                _path_for_manifest(
+                    eval_output_dir,
+                    thinking_trace_summary_jsonl_path,
+                )
+            )
+        if (
+            thinking_trace_summary_md_path.exists()
+            and thinking_trace_summary_md_path.is_file()
+        ):
+            benchmark_artifacts["codexfarm_thinking_trace_summary_md"] = (
+                _path_for_manifest(
+                    eval_output_dir,
+                    thinking_trace_summary_md_path,
+                )
             )
     processed_run_root_raw = import_result.get("processed_run_root")
     processed_run_root = (

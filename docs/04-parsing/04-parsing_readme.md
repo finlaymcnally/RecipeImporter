@@ -76,6 +76,7 @@ Unstructured adapter note:
 
 Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
+- outside-recipe `KNOWLEDGE` labeling is still deterministic-first in `canonical_line_roles.py`; long explanatory cooking-science prose and compact domain headings can promote to `KNOWLEDGE`, while first-person prose no longer becomes `RECIPE_NOTES` unless it also reads like advice/editorial note text.
 
 Parsing-adjacent module (not in the default stage recipe-path runtime):
 
@@ -96,6 +97,12 @@ Major call sites:
 - Candidate confidence scoring using parsing signals: `cookimport/core/scoring.py`
 - Knowledge-job bundle construction from parser chunks: `cookimport/llm/codex_farm_knowledge_jobs.py`
 - Output writing: `cookimport/staging/writer.py`
+
+Label-first recipe-span note:
+
+- `cookimport/parsing/recipe_span_grouping.py` now treats title-like anchoring as a hard acceptance boundary.
+- Titleless structured runs remain visible in staging diagnostics as rejected pseudo-recipes, but they are not emitted into `recipe_spans.json` or downstream recipe drafting.
+- Outside importer-held recipe spans, deterministic `INGREDIENT_LINE` and `INSTRUCTION_LINE` labels now require nearby recipe-anchor evidence instead of allowing a small structured cluster to self-justify.
 
 ## End-to-End Data Flow (Current)
 

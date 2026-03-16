@@ -194,6 +194,99 @@ def test_label_atomic_lines_outside_recipe_can_be_knowledge() -> None:
     assert predictions[0].within_recipe_span is False
 
 
+def test_label_atomic_lines_outside_recipe_science_prose_is_knowledge() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:science",
+            "block_index": 1,
+            "text": (
+                "The primary role that salt plays in cooking is to amplify flavor. "
+                "Though salt also affects texture, nearly every decision you make "
+                "about salt will involve enhancing and deepening flavor."
+            ),
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].label == "KNOWLEDGE"
+
+
+def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:prev",
+            "block_index": 1,
+            "text": (
+                "Salt affects texture and flavor because it changes how food "
+                "absorbs moisture during cooking."
+            ),
+        },
+        {
+            "block_id": "block:knowledge:heading",
+            "block_index": 2,
+            "text": "SALT AND FLAVOR",
+        },
+        {
+            "block_id": "block:knowledge:next",
+            "block_index": 3,
+            "text": (
+                "The relationship between salt and flavor is multidimensional, "
+                "and even small changes can improve aroma and balance bitterness."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    by_text = {prediction.text: prediction for prediction in predictions}
+    assert by_text["SALT AND FLAVOR"].label == "KNOWLEDGE"
+
+
+def test_label_atomic_lines_outside_recipe_first_person_learning_prose_is_not_recipe_notes() -> None:
+    blocks = [
+        {
+            "block_id": "block:knowledge:first-person",
+            "block_index": 1,
+            "text": (
+                "As I improved, I began to detect the nuances that distinguish good "
+                "food from great, understanding when pasta water needed more salt "
+                "and when vinegar was needed to balance a rich stew."
+            ),
+        },
+        {
+            "block_id": "block:knowledge:neighbor",
+            "block_index": 2,
+            "text": (
+                "Salt, fat, acid, and heat guided those decisions because each one "
+                "changed flavor, texture, and temperature in predictable ways."
+            ),
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    by_text = {prediction.text: prediction for prediction in predictions}
+    assert (
+        by_text[
+            "As I improved, I began to detect the nuances that distinguish good "
+            "food from great, understanding when pasta water needed more salt "
+            "and when vinegar was needed to balance a rich stew."
+        ].label
+        == "KNOWLEDGE"
+    )
+
+
 def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
     blocks = [
         {
@@ -228,6 +321,30 @@ def test_label_atomic_lines_outside_recipe_variant_heading_without_context_is_do
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label in {"OTHER", "KNOWLEDGE"}
+
+
+def test_label_atomic_lines_outside_recipe_structured_cluster_needs_anchor_evidence() -> None:
+    blocks = [
+        {
+            "block_id": "block:ingredient:1",
+            "block_index": 1,
+            "text": "1 tablespoon kosher salt",
+        },
+        {
+            "block_id": "block:instruction:2",
+            "block_index": 2,
+            "text": "Stir to combine.",
+        },
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 2
+    assert predictions[0].label in {"OTHER", "KNOWLEDGE"}
+    assert predictions[1].label in {"OTHER", "KNOWLEDGE"}
 
 
 def test_label_atomic_lines_outside_recipe_howto_heading_is_hard_denied() -> None:
