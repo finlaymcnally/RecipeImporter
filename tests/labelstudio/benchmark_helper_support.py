@@ -282,7 +282,7 @@ def _write_labelstudio_compare_source_row(
             if prediction_run_config
             else {}
         ),
-        "artifacts": {},
+        "artifacts": {"artifact_root_dir": "prediction-run"},
     }
     (eval_root / "run_manifest.json").write_text(
         json.dumps(prediction_run_manifest, indent=2, sort_keys=True),

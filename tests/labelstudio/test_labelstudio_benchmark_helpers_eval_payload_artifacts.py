@@ -113,6 +113,8 @@ def test_labelstudio_benchmark_prunes_transient_artifacts_only_after_csv_append(
             "run_root": prediction_run,
             "processed_run_root": processed_run_root,
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 2.5},
         },
     )
@@ -279,6 +281,8 @@ def test_labelstudio_benchmark_disables_prune_when_interactive_cli_active(
             "run_root": prediction_run,
             "processed_run_root": processed_run_root,
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 2.5},
         },
     )
@@ -420,6 +424,8 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
             "tasks_uploaded": 1,
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11-00-00-00",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
         }
 
     monkeypatch.setattr(cli, "run_labelstudio_import", fake_run_labelstudio_import)

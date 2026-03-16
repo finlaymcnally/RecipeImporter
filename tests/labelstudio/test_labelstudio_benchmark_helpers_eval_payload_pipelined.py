@@ -58,6 +58,8 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.4},
         }
     monkeypatch.setattr(cli, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
@@ -169,6 +171,8 @@ def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_fi
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.2},
         },
     )
@@ -323,6 +327,8 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.2},
         },
     )
@@ -418,12 +424,6 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
                     line_role_dir / "stage_block_predictions.json"
                 ),
                 "extracted_archive_path": str(line_role_dir / "extracted_archive.json"),
-                "line_role_pipeline_stage_block_predictions_path": str(
-                    line_role_dir / "stage_block_predictions.json"
-                ),
-                "line_role_pipeline_extracted_archive_path": str(
-                    line_role_dir / "extracted_archive.json"
-                ),
             }
         ),
         encoding="utf-8",
@@ -435,6 +435,8 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "stage_block_predictions_path": line_role_dir / "stage_block_predictions.json",
+            "extracted_archive_path": line_role_dir / "extracted_archive.json",
         },
     )
     monkeypatch.setattr(
@@ -613,6 +615,8 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
         },
     )
     monkeypatch.setattr(
@@ -810,6 +814,8 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {
                 "total_seconds": 9.0,
                 "prediction_seconds": 9.0,

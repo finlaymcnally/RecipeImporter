@@ -1660,12 +1660,12 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
         write_markdown=False,
     )
 
-    projected_stage_path = result["line_role_pipeline_stage_block_predictions_path"]
-    projected_archive_path = result["line_role_pipeline_extracted_archive_path"]
     projected_spans_path = result["line_role_pipeline_projected_spans_path"]
-    assert projected_stage_path is not None and projected_stage_path.exists()
-    assert projected_archive_path is not None and projected_archive_path.exists()
     assert projected_spans_path is not None and projected_spans_path.exists()
+    projected_stage_path = projected_spans_path.parent / "stage_block_predictions.json"
+    projected_archive_path = projected_spans_path.parent / "extracted_archive.json"
+    assert projected_stage_path.exists()
+    assert projected_archive_path.exists()
     assert result["stage_block_predictions_path"] == projected_stage_path
     assert result["extracted_archive_path"] == projected_archive_path
 

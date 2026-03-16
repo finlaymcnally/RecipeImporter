@@ -441,7 +441,7 @@ def test_single_offline_comparison_includes_codex_runtime_from_llm_manifest_fall
                     "codex_farm_model": None,
                     "codex_farm_reasoning_effort": None,
                 },
-                "artifacts": {"pred_run_dir": "prediction-run"},
+                "artifacts": {"artifact_root_dir": "prediction-run"},
             }
         ),
         encoding="utf-8",

@@ -2436,10 +2436,7 @@ def generate_pred_run_artifacts(
             "run_root": run_root,
             "processed_run_root": None,
             "processed_report_path": None,
-            "processed_stage_block_predictions_path": None,
             "stage_block_predictions_path": None,
-            "line_role_pipeline_stage_block_predictions_path": None,
-            "line_role_pipeline_extracted_archive_path": None,
             "line_role_pipeline_line_role_predictions_path": None,
             "line_role_pipeline_projected_spans_path": None,
             "line_role_pipeline_guardrail_report_path": None,
@@ -2466,7 +2463,7 @@ def generate_pred_run_artifacts(
     )
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
-    processed_stage_block_predictions_path: Path | None = None
+    stage_block_predictions_source_path: Path | None = None
 
     if processed_output_root is None and run_settings.llm_recipe_pipeline.value != "off":
         _notify("Running codex-farm recipe pipeline...")
@@ -2564,7 +2561,7 @@ def generate_pred_run_artifacts(
         llm_report = dict(stage_session.llm_report)
         result.report.llm_codex_farm = llm_report
         processed_report_path = stage_session.report_path
-        processed_stage_block_predictions_path = (
+        stage_block_predictions_source_path = (
             stage_session.stage_block_predictions_path
             if stage_session.stage_block_predictions_path.exists()
             else None
@@ -3162,17 +3159,17 @@ def generate_pred_run_artifacts(
     )
     local_stage_block_predictions_path: Path | None = None
     if (
-        processed_stage_block_predictions_path is not None
-        and processed_stage_block_predictions_path.exists()
+        stage_block_predictions_source_path is not None
+        and stage_block_predictions_source_path.exists()
     ):
         if mirror_stage_artifacts_into_run_root:
             local_stage_block_predictions_path = run_root / "stage_block_predictions.json"
             shutil.copy2(
-                processed_stage_block_predictions_path,
+                stage_block_predictions_source_path,
                 local_stage_block_predictions_path,
             )
         else:
-            local_stage_block_predictions_path = processed_stage_block_predictions_path
+            local_stage_block_predictions_path = stage_block_predictions_source_path
     scored_stage_block_predictions_path = local_stage_block_predictions_path
     scored_extracted_archive_path = archive_path
     if (
@@ -3290,29 +3287,12 @@ def generate_pred_run_artifacts(
         "processed_report_path": (
             str(processed_report_path) if processed_report_path is not None else None
         ),
-        "processed_stage_block_predictions_path": (
-            str(processed_stage_block_predictions_path)
-            if processed_stage_block_predictions_path is not None
-            else None
-        ),
         "stage_block_predictions_path": (
             str(scored_stage_block_predictions_path)
             if scored_stage_block_predictions_path is not None
             else None
         ),
         "extracted_archive_path": str(scored_extracted_archive_path),
-        "line_role_pipeline_stage_block_predictions_path": (
-            str(line_role_artifacts["stage_block_predictions_path"])
-            if isinstance(line_role_artifacts, dict)
-            and line_role_artifacts.get("stage_block_predictions_path") is not None
-            else None
-        ),
-        "line_role_pipeline_extracted_archive_path": (
-            str(line_role_artifacts["extracted_archive_path"])
-            if isinstance(line_role_artifacts, dict)
-            and line_role_artifacts.get("extracted_archive_path") is not None
-            else None
-        ),
         "line_role_pipeline_line_role_predictions_path": (
             str(line_role_artifacts["line_role_predictions_path"])
             if isinstance(line_role_artifacts, dict)
@@ -3434,14 +3414,6 @@ def generate_pred_run_artifacts(
     processed_report_manifest_path = _path_for_manifest(run_root, processed_report_path)
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
-    processed_stage_predictions_manifest_path = _path_for_manifest(
-        run_root,
-        processed_stage_block_predictions_path,
-    )
-    if processed_stage_predictions_manifest_path:
-        run_manifest_artifacts[
-            "processed_stage_block_predictions_json"
-        ] = processed_stage_predictions_manifest_path
     local_stage_predictions_manifest_path = _path_for_manifest(
         run_root,
         scored_stage_block_predictions_path,
@@ -3451,22 +3423,6 @@ def generate_pred_run_artifacts(
             "stage_block_predictions_json"
         ] = local_stage_predictions_manifest_path
     if isinstance(line_role_artifacts, dict):
-        line_role_stage_manifest_path = _path_for_manifest(
-            run_root,
-            line_role_artifacts.get("stage_block_predictions_path"),
-        )
-        if line_role_stage_manifest_path:
-            run_manifest_artifacts[
-                "line_role_pipeline_stage_block_predictions_json"
-            ] = line_role_stage_manifest_path
-        line_role_archive_manifest_path = _path_for_manifest(
-            run_root,
-            line_role_artifacts.get("extracted_archive_path"),
-        )
-        if line_role_archive_manifest_path:
-            run_manifest_artifacts[
-                "line_role_pipeline_extracted_archive_json"
-            ] = line_role_archive_manifest_path
         line_role_predictions_manifest_path = _path_for_manifest(
             run_root,
             line_role_artifacts.get("line_role_predictions_path"),
@@ -3647,18 +3603,7 @@ def generate_pred_run_artifacts(
         "stage_run_root": processed_run_root,
         "extracted_archive_path": scored_extracted_archive_path,
         "processed_report_path": processed_report_path,
-        "processed_stage_block_predictions_path": processed_stage_block_predictions_path,
         "stage_block_predictions_path": scored_stage_block_predictions_path,
-        "line_role_pipeline_stage_block_predictions_path": (
-            line_role_artifacts.get("stage_block_predictions_path")
-            if isinstance(line_role_artifacts, dict)
-            else None
-        ),
-        "line_role_pipeline_extracted_archive_path": (
-            line_role_artifacts.get("extracted_archive_path")
-            if isinstance(line_role_artifacts, dict)
-            else None
-        ),
         "line_role_pipeline_line_role_predictions_path": (
             line_role_artifacts.get("line_role_predictions_path")
             if isinstance(line_role_artifacts, dict)
@@ -4198,22 +4143,6 @@ def run_labelstudio_import(
     )
     if processed_report_manifest_path:
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
-    line_role_stage_manifest_path = _path_for_manifest(
-        run_root,
-        pred.get("line_role_pipeline_stage_block_predictions_path"),
-    )
-    if line_role_stage_manifest_path:
-        run_manifest_artifacts[
-            "line_role_pipeline_stage_block_predictions_json"
-        ] = line_role_stage_manifest_path
-    line_role_archive_manifest_path = _path_for_manifest(
-        run_root,
-        pred.get("line_role_pipeline_extracted_archive_path"),
-    )
-    if line_role_archive_manifest_path:
-        run_manifest_artifacts[
-            "line_role_pipeline_extracted_archive_json"
-        ] = line_role_archive_manifest_path
     line_role_predictions_manifest_path = _path_for_manifest(
         run_root,
         pred.get("line_role_pipeline_line_role_predictions_path"),
@@ -4294,16 +4223,7 @@ def run_labelstudio_import(
         "processed_run_root": pred["processed_run_root"],
         "extracted_archive_path": pred.get("extracted_archive_path"),
         "stage_block_predictions_path": pred.get("stage_block_predictions_path"),
-        "processed_stage_block_predictions_path": pred.get(
-            "processed_stage_block_predictions_path"
-        ),
         "processed_report_path": pred["processed_report_path"],
-        "line_role_pipeline_stage_block_predictions_path": pred.get(
-            "line_role_pipeline_stage_block_predictions_path"
-        ),
-        "line_role_pipeline_extracted_archive_path": pred.get(
-            "line_role_pipeline_extracted_archive_path"
-        ),
         "line_role_pipeline_line_role_predictions_path": pred.get(
             "line_role_pipeline_line_role_predictions_path"
         ),

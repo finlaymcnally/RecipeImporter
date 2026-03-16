@@ -500,7 +500,7 @@ def test_labelstudio_benchmark_compare_accepts_single_eval_report_inputs(
                             "codex_farm_recipe_mode": "extract",
                         },
                     },
-                    "artifacts": {"pred_run_dir": "prediction-run"},
+                    "artifacts": {"artifact_root_dir": "prediction-run"},
                 },
                 indent=2,
                 sort_keys=True,

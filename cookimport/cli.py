@@ -11475,10 +11475,6 @@ def _load_pred_run_recipe_context(
     source_hash = str(payload.get("source_hash") or "").strip() or None
     processed_report_path = str(payload.get("processed_report_path") or "")
     stage_block_predictions_path = str(payload.get("stage_block_predictions_path") or "")
-    if not stage_block_predictions_path:
-        stage_block_predictions_path = str(
-            payload.get("processed_stage_block_predictions_path") or ""
-        )
     extracted_archive_path = str(payload.get("extracted_archive_path") or "")
     run_config = payload.get("run_config")
     if not isinstance(run_config, dict):
@@ -11585,9 +11581,7 @@ def _resolve_stage_predictions_for_benchmark(
     stage_predictions_candidates: list[Path] = []
     for value in (
         import_result.get("stage_block_predictions_path"),
-        import_result.get("processed_stage_block_predictions_path"),
         pred_context.stage_block_predictions_path,
-        pred_run / "stage_block_predictions.json",
     ):
         if not value:
             continue
@@ -11598,8 +11592,8 @@ def _resolve_stage_predictions_for_benchmark(
             return candidate
 
     _fail(
-        "This prediction run is missing stage block predictions. "
-        "Re-run benchmark after updating."
+        "This prediction run is missing canonical stage block predictions "
+        "(stage_block_predictions_path). Re-run benchmark after updating."
     )
     return pred_run / "stage_block_predictions.json"
 
@@ -11614,26 +11608,18 @@ def _resolve_extracted_archive_for_benchmark(
     for value in (
         import_result.get("extracted_archive_path"),
         pred_context.extracted_archive_path,
-        pred_run / "extracted_archive.json",
     ):
         if not value:
             continue
         archive_candidates.append(Path(str(value)))
-
-    processed_run_root_raw = import_result.get("processed_run_root")
-    if str(processed_run_root_raw or "").strip():
-        processed_run_root = Path(str(processed_run_root_raw)).expanduser()
-        stage_archive_candidates = sorted(processed_run_root.glob("raw/**/full_text.json"))
-        if len(stage_archive_candidates) == 1:
-            archive_candidates.append(stage_archive_candidates[0])
 
     for candidate in archive_candidates:
         if candidate.exists() and candidate.is_file():
             return candidate
 
     _fail(
-        "This prediction run is missing extracted archive evidence. "
-        "Re-run benchmark after updating."
+        "This prediction run is missing canonical extracted archive evidence "
+        "(extracted_archive_path). Re-run benchmark after updating."
     )
     return pred_run / "extracted_archive.json"
 

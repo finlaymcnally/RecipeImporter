@@ -138,8 +138,10 @@ Required supporting artifact:
 
 Current rule:
 
-- benchmark scoring reads the stage-backed evidence surface by default
-- when `line_role_pipeline != off` and projection artifacts exist, canonical-text scoring uses the line-role-projected `stage_block_predictions.json` plus line-role extracted archive from the same benchmark root
+- benchmark scoring reads one canonical pointer pair from prediction-run metadata:
+  - `stage_block_predictions_path`
+  - `extracted_archive_path`
+- prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
 
 ### 3.2 Gold inputs
 
@@ -181,11 +183,11 @@ Current rules:
 - prediction text is aligned against canonical gold text
 - canonical scoring keeps legacy global alignment semantics for safety
 - the sequence matcher is fixed to `dmp`; non-`dmp` modes are not an active benchmark surface
-- canonical-text benchmark runs score the stage-backed evidence surface unless line-role projection is enabled and available for the run
+- canonical-text benchmark runs score the same canonical pointer pair used by all benchmark modes
 
 Current line-role and pass4 behavior:
 
-- `line-role-pipeline/` artifacts are written when line-role is enabled; canonical-text scoring uses these projection artifacts as the primary prediction source for line-role-enabled runs
+- `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
 - `knowledge/<workbook_slug>/block_classifications.jsonl` is the preferred pass4 artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
 - older roots can still fall back to `knowledge/<workbook_slug>/snippets.jsonl`
 - prediction-run and eval diagnostics can emit:

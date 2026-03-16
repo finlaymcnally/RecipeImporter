@@ -256,7 +256,9 @@ Evaluation implementation:
 - `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
 - `canonical-text` path uses `cookimport/bench/eval_canonical_text.py`.
 - Canonical mode ensures canonical gold artifacts from export payloads via `cookimport/labelstudio/canonical_gold.py` when needed.
-- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors benchmark artifacts into the eval root. Canonical benchmark scoring uses stage-backed evidence by default, but when `line_role_pipeline != off` it uses the line-role-projected `line-role-pipeline/stage_block_predictions.json` and `line-role-pipeline/extracted_archive.json` for that run.
+- Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors benchmark artifacts into the eval root.
+- Scoring reads only one canonical prediction-run pointer pair from `manifest.json`: `stage_block_predictions_path` and `extracted_archive_path`.
+- When line-role projection is enabled, those canonical pointers are set to the projection outputs during generation (no scorer-side source switching).
 
 Benchmark eval artifacts include:
 
@@ -323,7 +325,8 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - Benchmark artifacts are rooted directly at the eval root.
 - Benchmark also records processed cookbook outputs under configured processed output root.
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
-- If `line_role_pipeline != off`, benchmark manifests include `line_role_pipeline_*` artifact pointers and an optional `line_role_pipeline_recipe_projection` summary.
+- If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
+- Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`
   - `line_role_pipeline_do_no_harm_changed_rows_jsonl`
