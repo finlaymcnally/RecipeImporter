@@ -113,6 +113,9 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 
+Important boundary:
+- `precision`, `recall`, and `practical_f1` are still part of the live dashboard/compare-control product surface. Analytics cleanup should target fallback readers, old layout tolerance, and stale wording before it attempts any metric rename.
+
 Current write behavior:
 - CSV appends use file locking.
 - CSV history is durable; `bench gc` does not rewrite or prune `performance_history.csv`.

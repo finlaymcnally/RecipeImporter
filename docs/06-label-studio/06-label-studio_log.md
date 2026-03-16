@@ -36,7 +36,7 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 - Interactive prelabel mode mapping aligned with CLI flags.
 - Prelabel command/model resolution was standardized around explicit option -> env override -> default.
 - Added task-level progress counters (`task X/Y`) with shared callback plumbing.
-- Finalized taxonomy normalization and compatibility aliases.
+- Finalized taxonomy normalization and transition aliases.
 
 ### 2026-02-23: prelabel reliability and throughput
 
@@ -55,8 +55,8 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 
 ### 2026-02-25: freeform-only migration boundary finalized
 
-- Removed legacy scope execution branches from import/export/eval runtime paths.
-- Kept legacy scope inference only for UX tagging and explicit rejection messaging.
+- Removed older scope execution branches from import/export/eval runtime paths.
+- Kept older scope inference only for UX tagging and explicit rejection messaging.
 - Moved shared archive helpers to scope-neutral `cookimport/labelstudio/archive.py`.
 
 ### 2026-03-02: benchmark compare became an active contract
@@ -78,13 +78,21 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 ### 2026-03-15: eval artifact-root canonicalization
 
 - `labelstudio-eval` manifests now treat `artifacts.artifact_root_dir` as the canonical prediction-run pointer.
-- `pred_run_dir` remains only historical compatibility baggage; new manifest logic should not depend on it.
+- `pred_run_dir` remains only historical transition baggage; new manifest logic should not depend on it.
 - This matters because eval outputs and prediction artifacts can live under different directories; falling back to the eval root produces the wrong artifact base.
+
+### 2026-03-16: interactive benchmark source/gold picker cleanup
+
+- The freeform gold-export picker should display the book slug when the export path follows the normal `<book>/exports/<file>` layout; long relative paths are fallback-only.
+- If benchmark input resolution can infer the matching source file from the chosen gold export, it should use that source immediately instead of adding a redundant confirmation step.
+
+Anti-loop note:
+- keep these fixes local to benchmark helper display/resolution seams; do not rebuild the whole interactive benchmark flow just to change labels or one inferred-source branch
 
 ## 2) Current Non-Negotiable Contracts
 
 - Runtime scope is `freeform-spans`.
-- Export rejects legacy-scoped (`pipeline`, `canonical-blocks`) projects/manifests/payloads.
+- Export rejects older-scoped (`pipeline`, `canonical-blocks`) projects/manifests/payloads.
 - Deterministic IDs (`segment_id`, `span_id`) remain core to resume/idempotence and auditability.
 - Prelabel supports both `block` and `span` granularity, with strict offset/text integrity.
 - Prelabel provider identity is `codex-farm`.
@@ -96,7 +104,7 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 
 ## 3) Known Bad Loops To Avoid
 
-- Do not reintroduce legacy scope options/prompts as active execution branches.
+- Do not reintroduce older scope options/prompts as active execution branches.
 - Do not treat prompt-only filtering as enough for focus scoping; parser/runtime enforcement is required.
 - Do not classify empty span output (`[]`) as automatic provider failure.
 - Do not assume callback/spinner failures indicate conversion/import failure.

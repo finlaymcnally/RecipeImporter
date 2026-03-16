@@ -86,10 +86,10 @@ Still-relevant outcomes:
 Anti-loop note:
 - If a custom non-canonical history path is used, explicit `cookimport stats-dashboard` rebuilds are expected.
 
-### 2026-02-28 collector compatibility and diagnostics preference
+### 2026-02-28 collector transition and diagnostics preference
 
 Still-relevant outcomes:
-- Collector keeps compatibility fallbacks for prior history-root layouts.
+- Collector keeps transition fallbacks for prior history-root layouts.
 - Diagnostics prefer non-speed benchmark rows when both speed and non-speed rows exist.
 - Path normalization is part of the diagnostics selection contract, so mixed slash styles do not change row classification.
 
@@ -142,6 +142,15 @@ Still-relevant outcomes:
 - On served dashboards, program-side UI state is authoritative on first load.
 - Trend overlays use rolling behavior that shrinks at the series edges instead of reusing the same tail window.
 - `Official benchmarks only` remains intentionally narrow; hybrid rows can still appear elsewhere in diagnostics/history.
+
+### 2026-03-16 metrics are current product fields, not just compatibility baggage
+
+Still-relevant outcomes:
+- dashboard renderers, CLI summaries, and analytics normalization still use `precision`, `recall`, and `practical_f1` as current metrics
+- the real legacy seams in analytics are fallback readers and old artifact-layout tolerance, not the metric fields themselves
+
+Anti-loop note:
+- do not delete the precision/recall/practical metrics during a "legacy purge" unless the product has first adopted a replacement analytics vocabulary
 
 ## 2) Current anti-loop notes
 

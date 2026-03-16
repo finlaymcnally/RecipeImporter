@@ -74,6 +74,9 @@ Additional parsing-package helpers used by importer-specific flows:
 Unstructured adapter note:
 - `unstructured_adapter.py` now performs deterministic multiline splitting for recipe-like `Title`/`NarrativeText`/`UncategorizedText`/`Text` blocks (in addition to `ListItem` newline splits), preserving provenance with `unstructured_stable_key` suffixes (`.s0`, `.s1`, ...) and `unstructured_split_reason`.
 
+Canonical line-role prompt seam note:
+- prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
+
 Parsing-adjacent module (not in the default stage recipe-path runtime):
 
 - `cookimport/parsing/classifier.py` (heuristic line classifier retained for focused classifier experiments)

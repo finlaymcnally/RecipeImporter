@@ -73,6 +73,8 @@ Current layout exceptions and intentional split seams:
 - Canonical line-role coverage is split into:
   - `tests/parsing/test_canonical_line_role_env.py` for fast env/helper guardrails
   - `tests/parsing/test_canonical_line_roles.py` for the heavy behavior suite
+- Small live Codex env/import helpers should keep one direct non-slow regression test even when broader slow integration coverage already exists.
+- CLI path-resolution tests should prefer synthesizing the minimal artifact contract they need under `tmp_path` instead of depending on repo-local sample benchmark roots.
 
 Support assets and test-runtime files:
 
@@ -149,3 +151,5 @@ Design intent:
 - 2026-03-14: the benchmark smoke boundary is the real interactive single-offline flow with only `labelstudio_benchmark(...)` stubbed.
 - 2026-03-15: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is a scoped deep-debug tool for one explicit file or nodeid, not a broad-run mode switch.
 - 2026-03-15: benchmark-helper tests that only need local artifact wiring can use `codex_execution_policy=plan`, and mixed `RunSettings` payloads must be projected to live model fields before `RunSettings.from_dict(...)`.
+- 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.
+- 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.

@@ -134,6 +134,7 @@ Prompt/debug artifacts:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
   - knowledge prompt inputs from the compact-only `codex_farm_knowledge_jobs`
   - line-role prompt text from `build_canonical_line_role_prompt`
+- prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
 - prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_extract_knowledge_optional.txt`
@@ -157,7 +158,7 @@ Where prompt cuts should live:
 - when `build_knowledge_jobs(...)` skips every chunk, `run_codex_farm_knowledge_harvest(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
 
 Run-level observability note:
-- `stage_observability.json` at the run root is the canonical stage index. The recipe/knowledge/tags manifests above are stage-local detail, not a second naming system.
+- `stage_observability.json` at the run root is the canonical stage index. The recipe and knowledge manifests above are stage-local detail, not a second naming system.
 
 ## Runner and contract notes
 
@@ -200,4 +201,3 @@ These files still exist, but they are not the current stage/prediction/tag runti
 
 - `docs/10-llm/10-llm_log.md`
 - `docs/10-llm/knowledge_harvest.md`
-- `docs/10-llm/tags_pass.md`

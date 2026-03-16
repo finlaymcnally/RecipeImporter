@@ -31,7 +31,7 @@ This file tracks reference-section architecture versions, builds, fix attempts, 
 - cleaned out stale provenance references to a retired understanding file.
 - tightened README wording so `recipeDraftV1.schema.json` and `recipeDraftV1.ts` are described as useful external mirrors, not a complete source of truth for every current runtime-emitted field.
 - kept active draft-v1 behavior in scope:
-  - compatibility aliases (`name`, `ingredients`, `instructions`) added by `cookimport/staging/writer.py`
+  - transition aliases (`name`, `ingredients`, `instructions`) added by `cookimport/staging/writer.py`
   - priority-6 draft metadata such as `recipe.max_oven_temp_f`, step `temperature_items`, and `_p6_debug` sidecar extraction
 - discovery note recorded in:
   - `docs/understandings/2026-03-15_22.41.34-reference-doc-drift-audit.md`

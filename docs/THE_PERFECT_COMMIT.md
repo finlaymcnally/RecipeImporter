@@ -132,7 +132,7 @@ It is defined by **outputs**, not effort:
 * Make the smallest change that satisfies the task spec.
 * Keep edits localized (touch the fewest files/lines that make sense).
 * Avoid collateral rewrites that harm blame/bisect.
-* Keep the commit **self-contained**: include whatever is required so the post-commit state is coherent (code + config + tests + any necessary compatibility glue).
+* Keep the commit **self-contained**: include whatever is required so the post-commit state is coherent (code + config + tests + any necessary transition glue).
 
 **Should**
 
@@ -260,7 +260,7 @@ Agents don’t need a diary; you need a contract and proof you can trust later.
 * **Acceptance criteria** (what must be true after the change)
 * **Verification steps** (commands or steps to observe the behavior)
 * **Evidence** (test output, before/after screenshots *only if needed*, benchmark numbers if relevant)
-* **Non-obvious constraints** (gotchas, tradeoffs, compatibility requirements)
+* **Non-obvious constraints** (gotchas, tradeoffs, transition requirements)
 * **Decision** (chosen approach + why, 1–5 lines)
 * **Rollback / compensation plan** (only when needed: migrations, multi-system changes, risky changes)
 

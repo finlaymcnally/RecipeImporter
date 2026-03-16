@@ -85,6 +85,8 @@ Active Label Studio runtime scope is `freeform-spans`.
   - single offline run,
   - all-method offline sweep.
 - Interactive benchmark routes both modes to `labelstudio-benchmark` with `eval-mode canonical-text`.
+- The interactive gold-export picker shortens normal `.../<book>/exports/<file>` paths to the book slug for display, while keeping the older relative-path fallback for nonstandard layouts.
+- When a chosen gold export implies a matching source file, interactive benchmark uses that inferred source automatically; the manual source picker appears only when inference fails.
 
 ## 3) Task Generation, Resume, and IDs
 

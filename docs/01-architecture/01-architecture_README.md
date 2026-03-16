@@ -94,6 +94,11 @@ Architecture priorities:
   - hidden older CLI/run-setting knobs
   - prompt/bundle helpers or fixtures that still model removed numbered stage slots
   - historical analytics/follow-up readers
+- after the 2026-03-16 purge, the remaining legacy weight is concentrated in narrow compatibility helpers plus docs/tests/fixtures, not in the core recipe execution path
+- cleanup rule:
+  - rename current algorithms that still carry `legacy` names
+  - delete true compatibility readers once fixtures/artifacts are regenerated
+  - do not add new write-side aliases just to preserve older wording
 - `scripts/benchmark_cutdown_for_external_ai.py` is the main remaining external-review seam that can accidentally re-teach old topology. Keep its write path semantic-stage-only and confine any archived `pass*` handling to narrow read-side normalization.
 
 ## Docs Ownership Map
@@ -107,7 +112,7 @@ Use this mapping when updating architecture-adjacent docs so current contracts s
 - Label Studio import/export/eval/benchmark workflows -> `docs/06-label-studio/`
 - offline benchmark suite loops -> `docs/07-bench/`
 - perf report + dashboard + metrics history surfaces -> `docs/08-analytics/`
-- auto-tagging rules and commands -> `docs/09-tagging/`
+- inline recipe tagging and tag-normalization contracts -> `docs/09-tagging/`
 - schemas/inventories/reference artifacts -> `docs/11-reference/`
 
 Reason this exists:

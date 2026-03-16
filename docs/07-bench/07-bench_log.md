@@ -60,7 +60,7 @@ Durable decisions:
 
 - interactive benchmark modes use `canonical-text`
 - canonical-text exists to score extractor permutations in canonical line space
-- scoring keeps legacy global alignment semantics for safety
+- scoring keeps older global alignment semantics for safety
 - benchmark matcher selection is effectively locked to `dmp`
 
 Anti-loop note:
@@ -79,7 +79,7 @@ Durable decisions:
 
 - canonical eval uses a shared per-source alignment cache
 - dead-owner lock reclamation checks PID liveness before age-only fallback
-- replay boundary functions are explicit: predict, evaluate, legacy direct-call, and pipelined run paths
+- replay boundary functions are explicit: predict, evaluate, older direct-call, and pipelined run paths
 - `--predictions-out` writes stage-block prediction records
 - `--predictions-in` now accepts current prediction-record files only; older run-pointer records were intentionally removed during the canonical scorer-pointer cutover
 - write toggles for markdown and Label Studio tasks are explicit and recorded in manifests
@@ -184,7 +184,6 @@ Durable decisions:
 - baseline contract is:
   - `llm_recipe_pipeline=off`
   - `llm_knowledge_pipeline=off`
-  - `llm_tags_pipeline=off`
   - `line_role_pipeline=off`
   - `atomic_block_splitter=off`
 - build Codex variants from that normalized baseline, but do not re-normalize those Codex payloads back into baseline form
@@ -215,7 +214,22 @@ Anti-loop note:
 
 - if knowledge-stage “ran” but benchmark lift is flat, inspect the narrow scored upgrade seam before assuming knowledge-stage failed
 
-## 11. 2026-03-13 execution semantics and single-root output contract
+## 11. 2026-03-16 quality-runner live Codex surface boundary
+
+Problem captured:
+
+- quality-run requested-settings validation still had stale assumptions about a separate tags Codex surface
+
+Durable decisions:
+
+- `CodexSurfaceDecision` should track the live surfaces only
+- deterministic `bench quality-run` validation needs to reject Codex recipe and knowledge usage; the removed tags surface should not return as a compatibility alias
+
+Anti-loop note:
+
+- if a quality-suite fix proposal wants to add `tags_codex_enabled` back, it is restoring a deleted surface instead of aligning to the live model
+
+## 12. 2026-03-13 execution semantics and single-root output contract
 
 Problem captured:
 
@@ -231,7 +245,7 @@ Anti-loop note:
 
 - nearby sibling timestamps are not proof of a filesystem contract; verify whether there were separate invocations
 
-## 12. 2026-03-15 stage-backed scoring and upload-bundle seam map
+## 13. 2026-03-15 stage-backed scoring and upload-bundle seam map
 
 Problem captured:
 
@@ -251,12 +265,12 @@ Anti-loop note:
 
 - if a refactor needs a second primary prediction lane or path-derived topology again, it is reintroducing the old fork
 
-## 13. 2026-03-15 canonical scorer-pointer cutover and hard deletion
+## 14. 2026-03-15 canonical scorer-pointer cutover and hard deletion
 
 Problem captured:
 
 - benchmark helper paths still carried stage-vs-line-role scorer branches and duplicate manifest keys
-- compatibility readers could silently recover artifacts from old filenames or implicit directories, which made it hard to tell whether the canonical benchmark contract was actually populated
+- transition readers could silently recover artifacts from old filenames or implicit directories, which made it hard to tell whether the canonical benchmark contract was actually populated
 
 Durable decisions:
 
@@ -269,9 +283,9 @@ Durable decisions:
 
 Anti-loop note:
 
-- if a helper wants to guess scorer files from path layout, that is reintroducing the deleted compatibility contract
+- if a helper wants to guess scorer files from path layout, that is reintroducing the deleted transition contract
 
-## 14. 2026-03-16 semantic recipe-stage bundle contract
+## 15. 2026-03-16 semantic recipe-stage bundle contract
 
 Problem captured:
 
@@ -287,25 +301,25 @@ Durable decisions:
   - `build_final_recipe`
 - starter-pack and casebook rendering should present chunking separately from recipe correction/finalization rather than flattening everything into pass-slot labels
 - the external-AI cutdown path should read semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics directly instead of reconstructing pass-slot trees
-- historical bundles may still be read through narrow compatibility adapters for old knowledge-stage sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
+- historical bundles may still be read through narrow transition adapters for old knowledge-stage sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
 
 Anti-loop note:
 
-- if external-review output starts showing pass-slot field names again, fix the normalized model or renderer instead of adding more compatibility prose around it
+- if external-review output starts showing pass-slot field names again, fix the normalized model or renderer instead of adding more transition prose around it
 
-## 15. 2026-03-16 bundle follow-through, scorer regressions, and retention boundaries
+## 16. 2026-03-16 bundle follow-through, scorer regressions, and retention boundaries
 
 ### 2026-03-16_10.20.11 upload-bundle semantic contract guard
 
 Problem captured:
 
-- bundle helpers were at risk of reintroducing legacy recipe-topology metadata even after the renderer/model seam had moved to semantic stages
+- bundle helpers were at risk of reintroducing older recipe-topology metadata even after the renderer/model seam had moved to semantic stages
 
 Durable decisions:
 
 - `upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only
 - `followup_bundle.py` should treat `knowledge_manifest_json` as the live knowledge-manifest locator
-- archived old-format bundles belong in fixture rewrite/normalization code during test setup, not in new production compatibility branches
+- archived old-format bundles belong in fixture rewrite/normalization code during test setup, not in new production transition branches
 
 Anti-loop note:
 
@@ -315,14 +329,14 @@ Anti-loop note:
 
 Problem captured:
 
-- `scripts/benchmark_cutdown_for_external_ai.py` had already switched some outer surfaces to semantic names, but prompt reconstruction, scoring summaries, and starter-pack fields still rebuilt `pass1`/`pass2`/`pass3` internals
+- `scripts/benchmark_cutdown_for_external_ai.py` had already switched some outer surfaces to semantic names, but prompt reconstruction, scoring summaries, and starter-pack fields still rebuilt `first-stage`/`second-stage`/`third-stage` internals
 
 Durable decisions:
 
 - prompt rows, sampled prompt logs, and runtime call inventories should be keyed by semantic `stage_key`
 - recipe triage should read `recipe_manifest.json` stage states plus `recipe_correction_audit/*.json` instead of synthetic pass-slot trees
 - recipe artifacts now live under `recipe_correction/{in,out}` and `build_final_recipe/out`; `chunking/schemaorg/final` should not be rebuilt as a live contract
-- archived prompt logs may still carry `pass1` / `pass2` / `pass3` / `pass4`; keep that compatibility isolated to the read-side stage-key normalizer
+- archived prompt logs may still carry `first-stage` / `second-stage` / `third-stage` / `fourth-stage`; keep that transition isolated to the read-side stage-key normalizer
 
 Anti-loop note:
 
@@ -390,7 +404,7 @@ Anti-loop note:
 
 - do not script ad hoc `rm -rf` cleanup of benchmark roots when `bench gc` already knows how to preserve history
 
-### 2026-03-16_14.17.02 canonical eval legacy alias purge
+### 2026-03-16_14.17.02 canonical eval older alias purge
 
 Problem captured:
 
@@ -403,7 +417,7 @@ Durable decisions:
 
 Anti-loop note:
 
-- if tests start expecting legacy alias outputs again, update the tests rather than reviving the alias writer
+- if tests start expecting older alias outputs again, update the tests rather than reviving the alias writer
 
 ### 2026-03-16_14.48.06 cf-debug fixture normalization
 
@@ -421,9 +435,9 @@ Durable decisions:
 
 Anti-loop note:
 
-- production `cf-debug` readers should not grow fixture-only compatibility branches
+- production `cf-debug` readers should not grow fixture-only transition branches
 
-## 16. 2026-03-15 QualitySuite guard order and payload projection
+## 17. 2026-03-15 QualitySuite guard order and payload projection
 
 Problem captured:
 
@@ -439,7 +453,7 @@ Anti-loop note:
 
 - if QualitySuite behavior looks inconsistent, debug validation order and payload projection before relaxing strict settings loading
 
-## 17. Retired History Notice
+## 18. Retired History Notice
 
 The following removed benchmark workflows were intentionally pruned from this log:
 

@@ -18,11 +18,24 @@ Current rule:
 - treat the persistent `Settings` menu as a narrower global-default editor, not the full product settings surface
 - if an operator setting seems "missing" interactively, first decide whether it belongs in the per-run chooser or the persistent Settings screen before adding a third place to edit it
 
-Known current gap:
-- the persistent Settings screen still does not expose several ordinary operator settings now documented elsewhere, including `pdf_ocr_policy`, `llm_tags_pipeline`, `tag_catalog_json`, and Codex path/context defaults
+Anti-loop note:
+- do not assume that a setting appearing in `RunSettings` or top-tier chooser flows automatically means the persistent Settings screen should also expose it
+- do not expose block-labelling toggles in interactive import; that would create a fake menu for fields the stage adapters do not carry
+
+### 2026-03-16_16.45.16 and 2026-03-16_16.53.38 workflow-first Codex submenu
+
+Preserved finding:
+- interactive benchmark/import setup was drifting into separate prompt styles and fake surface symmetry
+
+Current rule:
+- ask one top-level workflow question first (`Vanilla / deterministic only` vs `CodexFarm`)
+- if CodexFarm is chosen, reuse one explicit yes/no Codex submenu rather than separate checkbox/select hybrids
+- keep the submenu flow-scoped:
+  - benchmark exposes recipe correction, block labelling, and knowledge harvest
+  - import exposes recipe correction and knowledge harvest only
 
 Anti-loop note:
-- do not assume that a setting appearing in `RunSettings` or top-tier chooser flows automatically means the persistent Settings screen already edits it
+- if import and benchmark need different runtime fields, share the submenu mechanics but not the exact option list
 
 ### 2026-03-15_23.20.00 retained surface only
 

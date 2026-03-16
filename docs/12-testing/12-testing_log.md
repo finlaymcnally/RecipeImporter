@@ -157,3 +157,15 @@ Still-active outcomes:
 Anti-loop note:
 
 - if the `labelstudio` domain gets slow again, inspect whether routing tests stopped stubbing the single-offline helper before changing global pytest policy
+
+### 2026-03-16 fast Codex-helper regression anchors and synthetic benchmark fixtures
+
+Still-active outcomes:
+
+- live Codex env/helper seams need one direct non-slow regression test even when broader slow-path coverage already exists
+- `tests/parsing/test_canonical_line_role_env.py` is the example to copy for tiny live-path helpers: catch import/env breakage in the fast suite before a benchmark run hits it
+- `tests/bench/test_benchmark_oracle_upload.py` should synthesize a minimal `upload_bundle_v1` under `tmp_path` instead of relying on one repo-local benchmark root
+
+Anti-loop note:
+
+- if a test only needs a resolvable artifact contract, build the smallest valid fixture locally instead of depending on historical checked-in run directories

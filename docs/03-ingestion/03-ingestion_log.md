@@ -87,8 +87,8 @@ Discovery preserved:
 - This is usually parser-v2 input-shape mismatch, not EPUB corruption.
 
 Durable contract:
-- Keep parser default at `v1` for broad compatibility.
-- When parser `v2` is requested, compatibility wrapping/annotation must happen in adapter layer (`cookimport/parsing/unstructured_adapter.py`) so all flows share behavior.
+- Keep parser default at `v1` for broad transition.
+- When parser `v2` is requested, transition wrapping/annotation must happen in adapter layer (`cookimport/parsing/unstructured_adapter.py`) so all flows share behavior.
 - EPUB unstructured option triplet must propagate in every run-producing path (not stage only):
   - `epub_unstructured_html_parser_version`
   - `epub_unstructured_skip_headers_footers`
@@ -160,9 +160,9 @@ Anti-loop note:
 ### 2026-02-22_14.43.40 split merge codex-farm full_text rebase
 
 Preserved findings:
-- codex-farm pass1 context requires one merged absolute block stream.
+- codex-farm first-stage context requires one merged absolute block stream.
 - Split runs already produce per-job `full_text.json`; merge must reassemble and rebase into one workbook-level `full_text.json`.
-- Matching offset application across recipe/tip/topic location fields is required so provenance and pass1 windows align.
+- Matching offset application across recipe/tip/topic location fields is required so provenance and first-stage windows align.
 
 Anti-loop note:
 - If split-run codex-farm context looks shifted, inspect merged `raw/.../full_text.json` and location-offset application before changing pass logic.
@@ -189,7 +189,7 @@ Problem captured:
 Decision preserved:
 - Parallelize at standalone-container boundary with `ThreadPoolExecutor` in EPUB and PDF importer paths.
 - Keep deterministic merge order by sorting container results by original container index after worker completion.
-- Keep progress callback text in `task X/Y` format for spinner throughput and ETA compatibility.
+- Keep progress callback text in `task X/Y` format for spinner throughput and ETA transition.
 
 Evidence preserved from task:
 - Recorded verification run:
@@ -275,12 +275,12 @@ Problem captured:
 
 Durable decisions:
 - Keep only active-runtime contracts in `03-ingestion_readme.md`.
-- Keep extractor-auto as compatibility migration context only.
+- Keep extractor-auto as transition migration context only.
 - Preserve active markitdown whole-book and split-merge ordering rules.
 
 ## 2026-02-28 migrated understanding ledger
 
-Chronological migration from `docs/understandings`; obsolete pre-implementation gap maps were removed once the corresponding features landed.
+Chronological migration from `docs/understandings`; removed pre-implementation gap maps were removed once the corresponding features landed.
 
 ## 2026-02-27 tasks consolidation ledger (migrated from `docs/tasks`)
 
@@ -321,7 +321,7 @@ Problems captured:
 - Label Studio ingest test doubles broke after `run_settings` kwargs were threaded through importer convert calls.
 
 Durable decisions:
-- Implement the section-detector backend surface end-to-end, with current product runs fixed to `shared_v1` and legacy preserved only for compatibility loading.
+- Implement the section-detector backend surface end-to-end, with current product runs fixed to `shared_v1` and older preserved only for transition loading.
 - Keep deterministic, LLM-free behavior and preserve existing `sections.py` output contracts.
 - Preserve component headers as standalone lines in shared EPUB/PDF paths.
 - Keep all-method variant growth explicit (dimension surfaces in reports when non-default, no automatic matrix explosion).
@@ -363,7 +363,7 @@ Problems captured:
 - Early `rules_v1` threshold logic rejected short valid recipe units because coverage used content-like lines only.
 
 Durable decisions:
-- Add backend selector `multi_recipe_splitter=legacy|off|rules_v1` with `legacy` default and `off` for strict isolation.
+- Add backend selector `multi_recipe_splitter=older|off|rules_v1` with `older` default and `off` for strict isolation.
 - Reuse shared section detector output for splitter guardrails (`For the X` semantics) rather than creating a second independent heuristic stack.
 - Keep all-method splitter dimension explicit/opt-in.
 - Use signal-line coverage (content + header signals) for threshold gating in `rules_v1`.
@@ -390,7 +390,7 @@ Durable decisions/outcomes:
 - Added shared deterministic pattern module used by both EPUB and PDF candidate flows.
 - Added explicit deterministic actions and diagnostics (`pattern_diagnostics.json` + warning keys) before and after candidate detection.
 - Preserved all suppressed text in `non_recipe_blocks` to avoid silent evidence loss.
-- Added optional pass1 `pattern_hints` wiring as advisory metadata only, env-gated and default-off.
+- Added optional first-stage `pattern_hints` wiring as advisory metadata only, env-gated and default-off.
 
 Evidence preserved:
 - `pytest -o addopts='' tests/ingestion/test_epub_importer.py tests/ingestion/test_pdf_importer.py tests/ingestion/test_epub_extraction_quickwins.py tests/core/test_recipe_likeness_scoring.py -q` (`45 passed` recorded)

@@ -117,7 +117,7 @@ Persistent `Settings` now covers the saved operator defaults used by interactive
 - workers and all-method scheduler/sharding defaults
 - EPUB extraction defaults plus `pdf_ocr_policy`
 - webschema extractor/policy/min-threshold defaults
-- saved recipe/knowledge/tags pipeline defaults
+- saved recipe/knowledge defaults
 - saved Codex command/path/model/reasoning/context defaults
 - output root, split sizing, warm-models, and Label Studio credentials
 
@@ -142,6 +142,9 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
+- this difference is intentional:
+  - import reuses the submenu with recipe + knowledge only because stage call adapters do not carry `line_role_pipeline` or `atomic_block_splitter`
+  - benchmark modes expose block labelling because benchmark call builders do carry those fields
 - when any codex-backed surface is selected, chooser then asks:
   - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)

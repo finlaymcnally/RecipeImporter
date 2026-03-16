@@ -33,7 +33,7 @@ Problem captured:
 Durable decisions:
 - prompt preview reconstruction composes existing recipe job builders, knowledge job builders, and canonical line-role prompt builders rather than inventing a second preview-only prompt stack
 - when `var/run_assets/<run_id>/` is absent, preview reconstruction should fall back to pipeline metadata from `llm_pipelines/`
-- `prompt_budget_summary.json` and adjacent prompt-review surfaces should publish semantic `by_stage` / `knowledge` naming, not old slot-group or `pass4` naming
+- `prompt_budget_summary.json` and adjacent prompt-review surfaces should publish semantic `by_stage` / `knowledge` naming, not old slot-group or `fourth-stage` naming
 - prompt artifact rows/files should key off semantic stage metadata only:
   - `stage_key`
   - `stage_label`
@@ -66,6 +66,18 @@ Durable decisions:
 Anti-loop note:
 - if preview token counts drop but live runs do not, the optimization probably landed in a preview-only seam
 
+## 2026-03-16 prompt preview tags boundary
+
+Problem captured:
+- inline tag projection was easy to misinterpret as a fourth previewable prompt family or a hidden token-cost increase
+
+Durable decisions:
+- `cf-debug preview-prompts` still reconstructs recipe, knowledge, and line-role prompts only
+- embedding accepted tags into final drafts and JSON-LD is output projection work, not a separate prompt builder
+
+Anti-loop note:
+- if token accounting changes after a tags edit, prove the recipe prompt changed before blaming the tagging projection
+
 ## 2026-03-15 prompt artifact seams and Codex backend map
 
 Problem captured:
@@ -77,8 +89,8 @@ Durable decisions:
   - `discover_codexfarm_prompt_run_descriptors(...)`
   - `render_prompt_artifacts_from_descriptors(...)`
   - `build_codex_farm_prompt_response_log(...)`
-- All five live Codex-backed surfaces (`recipe`, `line_role`, `knowledge`, `tags`, `prelabel`) run through CodexFarm now.
-- `cookimport/llm/codex_exec.py` is fail-closed compatibility only.
+- The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prelabel`; recipe tags are part of the recipe surface rather than a separate Codex lane.
+- `cookimport/llm/codex_exec.py` is fail-closed transition only.
 
 Anti-loop note:
 - If prompt artifact work requires renderer edits for every new raw layout, the bug is in discovery coupling, not rendering.
@@ -91,7 +103,7 @@ Problem captured:
 Durable decisions:
 - Use native nested objects for recipe payload fields on the wire.
 - Keep `ingredient_step_mapping` as an array of mapping-entry objects on the wire, then normalize back into the repo's internal dict form.
-- Bucket 1 fixed behavior owns pass1 hints, pass pipeline IDs, pass3 skip behavior, and retry attempt count; tests should not expect stale overrides to win.
+- Bucket 1 fixed behavior owns first-stage hints, pass pipeline IDs, third-stage skip behavior, and retry attempt count; tests should not expect stale overrides to win.
 - Missing thinking traces are usually upstream capture/classification gaps, not a markdown-rendering bug.
 
 Anti-loop note:
@@ -153,7 +165,7 @@ Durable decisions:
   - CLI defaults in `cookimport/cli.py`
   - canonical line-role prompt-format resolution
 - Benchmark prediction generation now forwards knowledge-stage settings into shared `RunSettings`.
-- `knowledge/<workbook_slug>/block_classifications.jsonl` is the primary outside-span contract; `snippets.jsonl` remains compatibility/reviewer evidence.
+- `knowledge/<workbook_slug>/block_classifications.jsonl` is the primary outside-span contract; `snippets.jsonl` remains transition/reviewer evidence.
 
 Anti-loop note:
 - If compact prompts or knowledge-stage behavior look half-enabled, check control-surface alignment and shared `RunSettings` wiring before editing prompts.
@@ -179,7 +191,7 @@ Problem captured:
 
 Durable decisions:
 - Interactive model discovery uses `codex-farm models list --json`.
-- Subprocess-backed recipe/knowledge-stage/pass5 flows validate pipeline IDs up front with `codex-farm pipelines list --root <pack> --json`.
+- Subprocess-backed recipe and knowledge-stage flows validate pipeline IDs up front with `codex-farm pipelines list --root <pack> --json`.
 - Runner resolves each pipeline's `output_schema_path` and passes it as `--output-schema`.
 - When `process --json` returns a `run_id`, runner can enrich failures with `codex-farm run errors --run-id ... --json`.
 - Pass metadata persists `telemetry_report`, `autotune_report`, and compact CSV `telemetry` slices.
@@ -188,20 +200,15 @@ Durable decisions:
 Anti-loop note:
 - Do not duplicate pipeline/schema/telemetry logic in each orchestrator; keep it centralized in `cookimport/llm/codex_farm_runner.py`.
 
-## 2026-02-25 knowledge-stage and pass5 artifact boundaries
+## 2026-02-25 knowledge-stage artifact boundaries
 
 Problem captured:
-- Missing knowledge-stage/pass5 artifacts were often misdiagnosed as prompt-quality problems instead of wiring regressions.
+- Missing knowledge-stage artifacts were often misdiagnosed as prompt-quality problems instead of wiring regressions.
 
 Durable decisions:
 - Keep knowledge-stage table hints aligned across single-file, split-merge, and processed-output paths.
 - When knowledge extraction is off, deterministic knowledge-lane chunk mapping still backfills stage knowledge labels.
-- Pass5 writes:
-  - `tags/<workbook_slug>/r{index}.tags.json`
-  - `tags/<workbook_slug>/tagging_report.json`
-  - `tags/tags_index.json`
-- Raw pass5 CodexFarm IO stays under `raw/llm/<workbook_slug>/pass5_tags/`.
-- `codex_farm_failure_mode` controls pass5 hard-stop versus warn-and-continue behavior.
+- inline recipe tags now belong to the recipe-correction surface and normal draft outputs, not a separate fifth-stage/tag tree.
 
 Anti-loop note:
-- If `KNOWLEDGE=0` appears with knowledge extraction off, or `tags/` is missing after stage, debug wiring and run settings before changing prompt assets.
+- If `KNOWLEDGE=0` appears with knowledge extraction off, debug wiring and run settings before changing prompt assets.

@@ -38,7 +38,7 @@ Problem:
 What stuck:
 
 - Current chunk routing is effectively binary: `knowledge` or `noise`.
-- Legacy `ChunkLane.NARRATIVE` is kept only for compatibility and is treated as noise in reporting.
+- older `ChunkLane.NARRATIVE` is kept only for transition and is treated as noise in reporting.
 
 Still true:
 
@@ -56,7 +56,7 @@ What stuck:
 - `unstructured_adapter.py` preserves more block structure and performs deterministic multiline splitting with provenance.
 - `epub_postprocess.py` is the shared cleanup pass for HTML-style extractor outputs (`beautifulsoup`, `unstructured`, `markdown`).
 - `epub_health.py` emits warning-oriented health metrics instead of blocking extraction.
-- Unstructured parser `v2` still needs the compatibility wrapper for normal EPUB XHTML shape.
+- Unstructured parser `v2` still needs the transition wrapper for normal EPUB XHTML shape.
 
 Anti-loop note:
 
@@ -108,7 +108,7 @@ Problem:
 What stuck:
 
 - Default missing-unit behavior is explicit: `ingredient_missing_unit_policy=null`.
-- Compatibility mode remains available as `legacy_medium`.
+- transition mode remains available as `legacy_medium`.
 - Optional normalizers/backends stay opt-in and soft-failable.
 - Packaging hints can be hoisted into notes via `ingredient_packaging_mode=regex_v1`.
 
@@ -162,7 +162,7 @@ What stuck:
 - `pattern_flags.py` is the shared detection and action boundary for EPUB/PDF candidate cleanup.
 - Rejected pattern-heavy candidates remain preserved as non-recipe blocks.
 - Scoring penalties are deterministic and stable.
-- Pass1 `pattern_hints` remain advisory-only and default-off.
+- first-stage `pattern_hints` remain advisory-only and default-off.
 
 Still true:
 
@@ -243,6 +243,23 @@ What changed:
 - This log was reduced to still-live feature history and anti-loop notes.
 - Source-file migration history from old `docs/tasks` and `docs/understandings` was removed here because it was contradicting current code and obscuring the useful parts.
 
+### 2026-03-16: canonical line-role shared prompt seam and fast env guard
+
+Problem:
+
+- line-role prompt trimming was easy to land in one caller and accidentally desynchronize live Codex runs from prompt preview
+- the single-offline Codex benchmark path also exposed that a tiny env/helper seam could crash before the broader slow suite caught it
+
+What stuck:
+
+- outside-recipe neighbor blanking belongs in the shared prompt-construction path, not in preview-only rendering
+- live canonical line-role runs and `cf-debug preview-prompts` should keep rebuilding from the same serializer/builder seam
+- `_resolve_line_role_codex_max_inflight()` now has a direct fast regression anchor in `tests/parsing/test_canonical_line_role_env.py`
+
+Anti-loop note:
+
+- if preview prompt counts improve but live line-role cost or behavior does not, the change probably landed in the wrong seam
+
 ### 2026-03-16: label-first atomizer span hints and reason-only line-role seam
 
 Problem:
@@ -285,7 +302,7 @@ Anti-loop note:
 ### EPUB parsing
 
 - Compare raw extractor output, postprocessed blocks, and extraction-health warnings before changing downstream parsing code.
-- If using unstructured HTML `v2`, verify the compatibility wrapper path is still active.
+- If using unstructured HTML `v2`, verify the transition wrapper path is still active.
 
 ### Tables and chunks
 

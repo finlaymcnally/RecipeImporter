@@ -25,7 +25,7 @@ Key outcomes that remain relevant:
 - history CSV root resolves from the output root parent (`<output_root parent>/.history`), which is `data/.history` for default stage output
 - timestamp folder format is `YYYY-MM-DD_HH.MM.SS` (dot-separated time)
 - stage report JSON is written at the run root (not a `reports/` subfolder)
-- stage run-root artifacts include more than drafts/tips/chunks/raw/report; current writer flow also emits `sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`/`tags`, and `run_manifest.json`
+- stage run-root artifacts include more than drafts/tips/chunks/raw/report; current writer flow also emits `sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`, embedded recipe tags in draft/JSON-LD outputs, and `run_manifest.json`
 - Label Studio split merge must rebase block indices to keep eval alignment
 - `run_manifest.json` is the cross-command traceability join point
 
@@ -39,7 +39,7 @@ Key outcomes that remain relevant:
 2. Report path assumptions are easy to get wrong
 - Some text/comments imply a `reports/` subfolder for stage outputs.
 - Current stage writer writes `<workbook_slug>.excel_import_report.json` at run root.
-- `cookimport/core/reporting.py` still contains a legacy `ReportBuilder` that writes to `reports/`; this is not the active stage writer path, but it can mislead documentation work.
+- `cookimport/core/reporting.py` still contains a older `ReportBuilder` that writes to `reports/`; this is not the active stage writer path, but it can mislead documentation work.
 
 3. URN namespace naming drift
 - Older architecture examples used `urn:cookimport:*`.
@@ -91,7 +91,7 @@ Problem captured:
 Durable decisions:
 - Keep Label Studio command defaults documented per workflow root under `data/golden/*`.
 - Keep history CSV contract documented as `<output_root parent>/.history/performance_history.csv`.
-- Keep extractor list current (`unstructured`, `beautifulsoup`, `markdown`, `markitdown`) and remove stale `legacy` mentions.
+- Keep extractor list current (`unstructured`, `beautifulsoup`, `markdown`, `markitdown`) and remove stale `older` mentions.
 
 ### 2026-02-27_19.52.07 architecture doc coverage audit
 
@@ -99,7 +99,7 @@ Problem captured:
 - Architecture docs under-described stage and Label Studio artifact surfaces.
 
 Durable decisions:
-- Document stage run-root artifacts beyond draft/tip/report (`sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`/`tags`, `run_manifest.json`).
+- Document stage run-root artifacts beyond draft/tip/report (`sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`, embedded recipe tags in draft/JSON-LD outputs, `run_manifest.json`).
 - Document Label Studio prediction/import optional artifacts (`label_studio_tasks.jsonl` in offline mode, optional copied `stage_block_predictions.json`, prelabel report/error/prompt-log files).
 - Keep explicit note that `run_manifest` emission is stage/Label Studio scoped, not universal to every benchmark command.
 
@@ -109,8 +109,8 @@ Problem captured:
 - Large docs had historical branches for removed runtime features that were creating debugging loops.
 
 Durable decisions:
-- Keep compatibility/rejection behavior only where runtime still enforces it.
-- Treat EPUB race fields, Label Studio decorate mode, and legacy runtime scope execution branches as retired history.
+- Keep transition/rejection behavior only where runtime still enforces it.
+- Treat EPUB race fields, Label Studio decorate mode, and older runtime scope execution branches as retired history.
 - Prefer concise retired-feature notes over long archival execution narratives.
 
 ## 2026-02-28 runtime parallelism notes
@@ -140,6 +140,66 @@ Durable findings:
 Anti-loop note:
 - if benchmark/import behavior diverges, check for duplicate session ownership before patching prompt packs, diagnostic projections, or score interpretation
 
+## 2026-03-16 repo-wide legacy purge map
+
+### 2026-03-16_15.18.08 legacy seam clusters
+
+Problem captured:
+- the remaining `legacy`/`compatibility` code looked monolithic even after most of the old runtime backbone was already gone
+
+Durable decisions:
+- separate the remaining seams into:
+  - pass-slot/internal naming inside current recipe orchestration
+  - compatibility readers/translators for older artifacts and histories
+  - current algorithms that still happen to be named `legacy`
+  - docs/tests/fixtures that carry most of the old terminology weight
+- rename current algorithms that still use `legacy` names instead of silently deleting them
+
+Anti-loop note:
+- if a cleanup proposal treats every `legacy` string the same way, it is too blunt for the remaining seam map
+
+### 2026-03-16_16.05.00 first safe purge batch
+
+Problem captured:
+- the safest first deletions were dormant alternate names and readers that no longer changed the live product shape
+
+Durable decisions:
+- compact line-role prompt formatting is the only live line-role prompt format
+- current runtime names should use their real current names rather than preserve old aliases
+- analytics and preview helpers should stop probing retired layouts when current artifacts already define the contract
+
+Anti-loop note:
+- do not add compatibility aliases back just because one old fixture still mentions them
+
+### 2026-03-16_16.26.00 final live seam clusters
+
+Problem captured:
+- after the first purge batch, the remaining destructive cleanup was mostly compatibility code around the runtime rather than the core recipe algorithm
+
+Durable decisions:
+- current Codex subprocess flows require structured JSON stdout when `--json` is requested; empty-stdout fallback behavior stays deleted
+- upload-bundle helpers should expose semantic counters/models instead of numbered-stage compatibility projections
+- dead transport replay tooling with no live consumer should be removed instead of preserved
+
+Anti-loop note:
+- if a fix proposal wants old transport replay or numbered-stage bundle counters back, it is reviving dead tooling rather than fixing the live product
+
+### 2026-03-16_16.33.01 post-purge audit
+
+Problem captured:
+- after the purge landed, it was still unclear where the remaining legacy burden actually lived
+
+Durable decisions:
+- active runtime legacy seams are now relatively small
+- docs, archival docs, stale test metadata, and checked-in test cruft carry most of the remaining old terminology
+- the next high-yield cleanup passes are:
+  1. narrow live compatibility helpers,
+  2. stale test scaffolding/fixtures,
+  3. docs-only archival cleanup
+
+Anti-loop note:
+- if the repo still feels "full of legacy," prove whether you are looking at live code or docs/fixtures first
+
 ## 2026-03-15 to 2026-03-16 refactor closure notes
 
 ### 2026-03-15_23.40.19 phase1 observability cutover surface
@@ -151,7 +211,7 @@ Problem captured:
 Durable decisions:
 - run-level semantic stage observability is the shared contract for prompt export and bundle/render surfaces
 - new reviewer-facing and doc-facing stage descriptions should come from semantic stage rows, not pass-slot labels or local path guessing
-- old pass-slot or raw-path naming may survive only as narrow historical read compatibility
+- old pass-slot or raw-path naming may survive only as narrow historical read transition
 
 ### 2026-03-16_00.08.23 and 2026-03-16_10.40.00 label-first authority hard cut
 
@@ -163,7 +223,7 @@ Durable decisions:
 - stage-backed paths stay on the authoritative label-first result even when regrouping disagrees with importer candidates
 - that mismatch now writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently restoring candidate-first ownership
 - Stage 7 rows are the live source for non-recipe tables, chunks, knowledge counts, and benchmark evidence
-- `ConversionResult.non_recipe_blocks` remains compatibility cache data only after Stage 7 work is complete
+- `ConversionResult.non_recipe_blocks` remains transition cache data only after Stage 7 work is complete
 
 Anti-loop note:
 - if a fix proposal needs candidate-first fallback or `non_recipe_blocks` as a live decision boundary, it is undoing the refactor
@@ -176,7 +236,7 @@ Problem captured:
 Durable decisions:
 - public write-time recipe pipeline id is `codex-farm-single-correction-v1`
 - the recipe Codex path is one correction stage plus deterministic final draft rebuild from explicit ingredient-step mappings
-- legacy ids remain read-time aliases only; new user-facing docs and reviewer surfaces should not present them as primary values
+- older ids remain read-time aliases only; new user-facing docs and reviewer surfaces should not present them as primary values
 
 Anti-loop note:
 - if a new doc or UI change reintroduces `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1` as live options, treat that as naming drift, not product complexity
@@ -184,7 +244,7 @@ Anti-loop note:
 ### 2026-03-16_09.03.14, 2026-03-16_12.10.00, and 2026-03-16_14.09.27 trust/escalation boundary
 
 Problem captured:
-- confidence/trust was easy to misread as either fully authoritative or fully obsolete after the label-first and Stage 7 cutovers
+- confidence/trust was easy to misread as either fully authoritative or fully removed after the label-first and Stage 7 cutovers
 - the write surface was wider than the decision surface, so stale score fields could linger in stage artifacts, prediction-run artifacts, and reviewer packets even after the core runtime stopped depending on them
 
 Durable decisions:
@@ -200,7 +260,7 @@ Durable decisions:
 - `decided_by`, `reason_tags`, and explicit `escalation_reasons` remain the active decision-trace fields on current line-role outputs
 
 Anti-loop note:
-- do not reintroduce scalar trust/confidence fields into runtime or reviewer outputs just because archived bundles still need narrow compatibility reads
+- do not reintroduce scalar trust/confidence fields into runtime or reviewer outputs just because archived bundles still need narrow transition reads
 
 ### 2026-03-16_09.45.00 refactor gap review outcome
 
@@ -208,8 +268,8 @@ Problem captured:
 - after Phases 1-4 landed, the remaining drift was mostly stale docs/help/readers rather than missing core runtime behavior
 
 Durable decisions:
-- treat surviving legacy names and compatibility readers as cleanup targets, not evidence that the old architecture is still co-primary
-- keep historical read compatibility narrow and explicit; do not let it masquerade as current write-time contract
+- treat surviving older names and transition readers as cleanup targets, not evidence that the old architecture is still co-primary
+- keep historical read transition narrow and explicit; do not let it masquerade as current write-time contract
 
 Still-relevant examples:
 - `cookimport/bench/followup_bundle.py` still reads `knowledge_manifest.json` for archived bundles
@@ -217,15 +277,15 @@ Still-relevant examples:
 ### 2026-03-16_10.53.31 and 2026-03-16_12.02.26 burn-the-boats cleanup
 
 Problem captured:
-- dead pass-slot recipe code and reviewer-facing legacy topology were still making the refactor look unfinished even though the main runtime had already moved on
+- dead pass-slot recipe code and reviewer-facing older topology were still making the refactor look unfinished even though the main runtime had already moved on
 
 Durable decisions:
-- unreachable pass1/pass2/pass3 recipe orchestrator code is deleted; current runtime teaches one single-correction recipe path only
-- current docs/help/rendering should present `codex-farm-single-correction-v1` and the semantic recipe trio, not legacy 3-pass or merged-repair ids as live product truth
+- unreachable first-stage/second-stage/third-stage recipe orchestrator code is deleted; current runtime teaches one single-correction recipe path only
+- current docs/help/rendering should present `codex-farm-single-correction-v1` and the semantic recipe trio, not older 3-pass or merged-repair ids as live product truth
 - external-review benchmark surfaces now use semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as their primary recipe contract
 - new prompt exports and sampled artifacts now write semantic stage metadata and stage-named files instead of `task1` / `task4` / `task5` names
 - benchmark eval alias artifacts such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired for new runs
-- any remaining historical compatibility read should stay isolated to archived local artifacts and must not leak back into new reviewer-facing output
+- any remaining historical transition read should stay isolated to archived local artifacts and must not leak back into new reviewer-facing output
 
 Anti-loop note:
 - if a fix proposal reintroduces pass-slot names as current runtime truth, it is undoing the cleanup rather than extending the architecture
@@ -238,21 +298,21 @@ Problem captured:
 Durable decisions:
 - the biggest remaining old-world seam is tooling and hidden defaults, not the stage runtime core
 - the last easy deletions were mostly outside the runtime core:
-  - hidden `pass1`/`pass2`/`pass3` and selective-retry CLI/run-setting knobs
+  - hidden `first-stage`/`second-stage`/`third-stage` and selective-retry CLI/run-setting knobs
   - prompt-artifact tests and benchmark helper fixtures that still hand-built `chunking/schemaorg/final` trees
   - checked-in old recipe pack files under `llm_pipelines/` after transport/tests moved to `recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`, and `recipe.tags.v1`
 - the remaining cleanup clusters are:
-  - label-first bridge naming and compatibility caches
-  - hidden parser/runtime defaults still called `legacy`
+  - label-first bridge naming and transition caches
+  - hidden parser/runtime defaults still called `older`
   - prompt/bundle tooling that serializes old pass-slot names
   - benchmark alias writers
-  - analytics/history readers that synthesize current data from deprecated fields or CSV locations
+  - analytics/history readers that synthesize current data from retired fields or CSV locations
 - the safest execution order is:
   - remove runtime bridge naming first
   - collapse hidden defaults and scheduler knobs next
   - delete prompt/benchmark aliases after that
   - cut analytics/history fallbacks last with docs/tests in the same pass
-- analytics/history support was intentionally preserved as the one explicit historical exception during the purge; do not treat that exception as a reason to keep reviving other compatibility branches
+- analytics/history support was intentionally preserved as the one explicit historical exception during the purge; do not treat that exception as a reason to keep reviving other transition branches
 - historical logs, plans, and archived reports may still mention removed pipeline ids. Keep that material as history, but do not copy those names back into live docs, tests, or reviewer surfaces.
 - validation from this sweep was representative, not exhaustive. For maximum certainty, the full project test suite still needs to run after destructive cleanup passes.
 
