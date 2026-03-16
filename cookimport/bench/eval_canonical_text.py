@@ -38,11 +38,11 @@ _ALIGNMENT_CHAR_MAP = {
 }
 
 _ALIGNMENT_STRATEGY_ENV = "COOKIMPORT_CANONICAL_ALIGNMENT_STRATEGY"
-_ALIGNMENT_STRATEGIES = {"auto", "fast", "legacy"}
+_ALIGNMENT_STRATEGIES = {"auto", "fast", "global"}
 _ALIGNMENT_FAST_DEPRECATION_REASON = "fast_alignment_deprecated_accuracy_risk"
 _ALIGNMENT_FAST_DEPRECATION_MESSAGE = (
     "Fast canonical alignment is deprecated due to accuracy risk; "
-    "legacy global SequenceMatcher alignment is enforced."
+    "global SequenceMatcher alignment is enforced."
 )
 
 _FAST_ALIGN_MIN_WINDOW_CHARS = 8000
@@ -643,7 +643,7 @@ def _load_alignment_cache_payload(
     return validated_rows, dict(alignment_raw), None
 
 
-def _align_prediction_blocks_legacy(
+def _align_prediction_blocks_global(
     *,
     prediction_text: str,
     canonical_text: str,
@@ -661,7 +661,7 @@ def _align_prediction_blocks_legacy(
         0.0, time.monotonic() - normalize_canonical_started
     )
 
-    aligned_rows, alignment, alignment_phase_seconds = _align_prediction_blocks_legacy_from_normalized(
+    aligned_rows, alignment, alignment_phase_seconds = _align_prediction_blocks_global_from_normalized(
         prediction_normalized=prediction_normalized,
         canonical_normalized=canonical_normalized,
         prediction_blocks=prediction_blocks,
@@ -672,7 +672,7 @@ def _align_prediction_blocks_legacy(
     return aligned_rows, alignment, alignment_phase_seconds
 
 
-def _align_prediction_blocks_legacy_from_normalized(
+def _align_prediction_blocks_global_from_normalized(
     *,
     prediction_normalized: str,
     canonical_normalized: str,
@@ -981,7 +981,7 @@ def _align_prediction_blocks_to_canonical(
 
     aligned_rows: list[dict[str, Any]] | None = None
     alignment: dict[str, Any] | None = None
-    legacy_phase_seconds: dict[str, float] = {
+    global_phase_seconds: dict[str, float] = {
         "sequence_matcher_seconds": 0.0,
         "block_mapping_seconds": 0.0,
     }
@@ -1004,13 +1004,13 @@ def _align_prediction_blocks_to_canonical(
         prediction_hash = sha256_text(prediction_normalized)
         boundaries_hash = hash_block_boundaries(block_boundaries)
         cache_key_summary = (
-            "v1/legacy/n1/"
+            "v1/global/n1/"
             f"canon={canonical_hash[:12]}/"
             f"pred={prediction_hash[:12]}/"
             f"b={boundaries_hash[:12]}"
         )
         cache_key = build_cache_file_key(
-            alignment_strategy="legacy",
+            alignment_strategy="global",
             canonical_normalized_sha256=canonical_hash,
             prediction_normalized_sha256=prediction_hash,
             prediction_block_boundaries_sha256=boundaries_hash,
@@ -1018,7 +1018,7 @@ def _align_prediction_blocks_to_canonical(
             algo_version=CANONICAL_ALIGNMENT_ALGO_VERSION,
         )
         expected_signatures = {
-            "alignment_strategy": "legacy",
+            "alignment_strategy": "global",
             "normalization_version": CANONICAL_ALIGNMENT_NORMALIZATION_VERSION,
             "repo_alignment_algo_version": CANONICAL_ALIGNMENT_ALGO_VERSION,
             "canonical_normalized_sha256": canonical_hash,
@@ -1067,8 +1067,8 @@ def _align_prediction_blocks_to_canonical(
                 if cache_hit:
                     pass
                 elif lock_acquired:
-                    aligned_rows, alignment, legacy_phase_seconds = (
-                        _align_prediction_blocks_legacy_from_normalized(
+                    aligned_rows, alignment, global_phase_seconds = (
+                        _align_prediction_blocks_global_from_normalized(
                             prediction_normalized=prediction_normalized,
                             canonical_normalized=canonical_normalized,
                             prediction_blocks=prediction_blocks,
@@ -1079,7 +1079,7 @@ def _align_prediction_blocks_to_canonical(
                     cache.write_atomic(
                         cache_key,
                         make_cache_entry(
-                            alignment_strategy="legacy",
+                            alignment_strategy="global",
                             canonical_normalized_sha256=canonical_hash,
                             prediction_normalized_sha256=prediction_hash,
                             prediction_block_boundaries_sha256=boundaries_hash,
@@ -1093,7 +1093,7 @@ def _align_prediction_blocks_to_canonical(
                     )
                     cache_write_seconds = max(0.0, time.monotonic() - write_started)
     if aligned_rows is None or alignment is None:
-        aligned_rows, alignment, legacy_phase_seconds = _align_prediction_blocks_legacy_from_normalized(
+        aligned_rows, alignment, global_phase_seconds = _align_prediction_blocks_global_from_normalized(
             prediction_normalized=prediction_normalized,
             canonical_normalized=canonical_normalized,
             prediction_blocks=prediction_blocks,
@@ -1103,18 +1103,18 @@ def _align_prediction_blocks_to_canonical(
         "normalize_prediction_seconds": normalize_prediction_seconds,
         "normalize_canonical_seconds": normalize_canonical_seconds,
         "sequence_matcher_seconds": max(
-            0.0, float(legacy_phase_seconds.get("sequence_matcher_seconds") or 0.0)
+            0.0, float(global_phase_seconds.get("sequence_matcher_seconds") or 0.0)
         ),
         "block_mapping_seconds": max(
-            0.0, float(legacy_phase_seconds.get("block_mapping_seconds") or 0.0)
+            0.0, float(global_phase_seconds.get("block_mapping_seconds") or 0.0)
         ),
     }
     deprecated_request = normalized_strategy in {"auto", "fast"}
     alignment.update(
         {
-            "alignment_strategy": "legacy",
+            "alignment_strategy": "global",
             "alignment_requested_strategy": normalized_strategy,
-            "alignment_primary_strategy": "legacy",
+            "alignment_primary_strategy": "global",
             "alignment_fallback_used": deprecated_request,
             "alignment_fallback_reason": (
                 _ALIGNMENT_FAST_DEPRECATION_REASON if deprecated_request else None

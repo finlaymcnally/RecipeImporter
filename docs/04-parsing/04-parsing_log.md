@@ -243,6 +243,27 @@ What changed:
 - This log was reduced to still-live feature history and anti-loop notes.
 - Source-file migration history from old `docs/tasks` and `docs/understandings` was removed here because it was contradicting current code and obscuring the useful parts.
 
+### 2026-03-16: label-first atomizer span hints and reason-only line-role seam
+
+Problem:
+
+- label-first authoritative reuse briefly atomized every archive block as if it were outside a recipe span
+- that caused canonical line-role safety rules to erase legitimate recipe structure before regrouping could recover it
+- the same refactor window also made it easy to leave old confidence/trust score fields on line-role artifacts even after runtime decisions had moved to explicit escalation reasons
+
+What stuck:
+
+- `_atomize_archive_blocks(...)` still needs provisional recipe-span hints derived from existing recipe provenance (`start_block` / `end_block`, with line-index fallback) before authoritative regrouping runs
+- forcing `within_recipe_span=False` for all blocks is a known bad path; on `saltfatacidheatcutdown` it collapsed counts from the healthy shape (`RECIPE_TITLE=27`, `INSTRUCTION_LINE=64`, `HOWTO_SECTION=28`) down to `RECIPE_TITLE=4`, `INSTRUCTION_LINE=35`, `HOWTO_SECTION=0`
+- current line-role artifacts are reason-only:
+  - keep labels, provenance, `decided_by`, `reason_tags`, and `escalation_reasons`
+  - do not keep scalar `confidence`, `trust_score`, or `escalation_score`
+
+Anti-loop note:
+
+- if label-first canonical output suddenly turns recipe structure into `OTHER`, debug atomizer span hints before retuning label heuristics or benchmark scorer math
+- if a proposed reviewer/export fix adds score fields back, it is fighting the current runtime contract
+
 ## Things We Know Are Still Bad
 
 - Text-only ingredient identity is still risky when identical ingredient lines are intentionally duplicated.
@@ -288,4 +309,3 @@ What changed:
   1. `cookimport/parsing/*.py`
   2. repo call sites importing those modules
   3. the README module and call-site lists
-

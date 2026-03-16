@@ -239,6 +239,19 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
     assert "BEGIN_INPUT_JSON" in recipe_row["rendered_prompt_text"]
     assert "urn:recipe:test:r0" in recipe_row["rendered_prompt_text"]
+    recipe_input_payload = json.loads(
+        (
+            out_dir
+            / "raw"
+            / "llm"
+            / "fixturebook"
+            / "recipe_llm_correct_and_link"
+            / "in"
+            / "r0.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert "draft_hint" not in recipe_input_payload
+    assert "provenance" not in recipe_input_payload["recipe_candidate_hint"]
 
     line_role_row = next(row for row in full_prompt_rows if row["stage_key"] == "line_role")
     assert "Embedded prompt payload" in line_role_row["rendered_prompt_text"]

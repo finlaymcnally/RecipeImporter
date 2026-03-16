@@ -43,3 +43,20 @@ Anti-loop notes:
 - Missing pass5 artifacts are usually gate/config/failure-mode issues, not deterministic rules-engine regressions.
 - Do not route unknown LLM tag strings directly to DB apply paths; keep `new_tag_proposals` review-only.
 - Do not fold pass5 behavior into recipe-pass pipelines while `llm_recipe_pipeline` remains policy-locked off.
+
+2. `2026-03-16_14.57.28` pass5-to-tags runtime seam cleanup
+
+Problem captured:
+- broad stage observability had already standardized on semantic stage names, but tagging still carried `pass5` terminology in a few live config/CLI/artifact seams
+
+What stuck:
+- treat this as a narrow rename, not a broader pipeline-architecture migration
+- current live names are:
+  - `RunSettings.codex_farm_pipeline_tags`
+  - `--codex-farm-pipeline-tags`
+  - `raw/llm/<workbook_slug>/tags/`
+- `recipe.tags.v1` remains the pipeline id; only the surrounding runtime seam was renamed
+
+Anti-loop notes:
+- if a future cleanup touches tagging, do not widen it into the whole old pass-slot architecture unless the actual code path still depends on that language
+- if tests/fixtures still say `pass5_tags`, prefer updating the fixture rather than teaching new runtime code to emit both names

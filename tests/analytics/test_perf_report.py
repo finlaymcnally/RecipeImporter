@@ -91,7 +91,7 @@ def test_resolve_run_dir_detects_stage_timestamp_format(tmp_path: Path) -> None:
     assert resolved == newer
 
 
-def test_resolve_run_dir_accepts_legacy_timestamp_format(tmp_path: Path) -> None:
+def test_resolve_run_dir_ignores_noncanonical_timestamp_format(tmp_path: Path) -> None:
     out_dir = tmp_path / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
     legacy = out_dir / "2026-01-01-10-00-00"

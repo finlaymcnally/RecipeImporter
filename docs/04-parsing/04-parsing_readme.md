@@ -456,6 +456,7 @@ Gates include:
 - Heading-like title rows now emit `RECIPE_TITLE` candidates (`title_like`) before generic fallback labels.
 - Note-like prose rows now emit `RECIPE_NOTES` candidates (`note_like_prose`) before instruction heuristics.
 - Yield regex intentionally excludes bare `serving` to avoid splitting prose lines like `before serving`.
+- Label-first Stage 2 reuse still needs provisional `within_recipe_span` hints before regrouped spans exist. If `_atomize_archive_blocks(...)` defaults every block to outside-span, canonical safety rules will over-downgrade real `RECIPE_TITLE`, `HOWTO_SECTION`, `INSTRUCTION_LINE`, and `RECIPE_VARIANT` rows to `OTHER`.
 
 ### Tests to read
 
@@ -488,7 +489,7 @@ Gates include:
 - Title-like recovery no longer depends on per-row Codex allowlist expansion; atomizer/deterministic heuristics still influence non-LLM ownership logic.
 - Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path without any score-based fallback pressure.
 - Outside-recipe-span score-based escalation is gone; codex escalation now remains inside-span-first and reason-driven.
-- This seam no longer exposes compatibility `confidence`/`trust_score` aliases; grouping and Stage 7 ownership are label-driven plus explicit reasons only.
+- This seam is now reason-only. Current runtime artifacts do not expose compatibility `confidence`, `trust_score`, or `escalation_score` aliases; grouping and Stage 7 ownership are label-driven plus explicit `escalation_reasons` only.
 - Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
 - `preview` computes the same downgrade decisions as enforce mode but leaves accepted predictions unchanged; `enforce` applies partial downgrades or full-source fallback to deterministic baseline labels.
 - Guardrail diagnostics are written under `line-role-pipeline/`:

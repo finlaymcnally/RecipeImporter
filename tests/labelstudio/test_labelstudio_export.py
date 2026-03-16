@@ -36,11 +36,11 @@ def test_infer_scope_from_project_payload_detects_known_scopes() -> None:
     )
 
 
-@pytest.mark.parametrize("legacy_scope", ["pipeline", "canonical-blocks"])
-def test_export_rejects_legacy_scope_from_manifest(
+@pytest.mark.parametrize("unsupported_scope", ["pipeline", "canonical-blocks"])
+def test_export_rejects_non_freeform_scope_from_manifest(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
-    legacy_scope: str,
+    unsupported_scope: str,
 ) -> None:
     class FakeClient:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -59,7 +59,7 @@ def test_export_rejects_legacy_scope_from_manifest(
             {
                 "project_name": "Legacy Project",
                 "project_id": 9,
-                "task_scope": legacy_scope,
+                "task_scope": unsupported_scope,
             },
             indent=2,
             sort_keys=True,

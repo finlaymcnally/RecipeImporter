@@ -10,9 +10,11 @@ from cookimport.llm.codex_farm_contracts import (
     Pass3FinalDraftCompactInput,
     Pass3FinalDraftInput,
     Pass3FinalDraftOutput,
+    MergedRecipeRepairInput,
     MergedRecipeRepairOutput,
     classify_pass2_structural_audit,
     classify_pass3_structural_audit,
+    serialize_merged_recipe_repair_input,
 )
 
 
@@ -263,6 +265,39 @@ def test_pass3_input_accepts_json_string_schemaorg() -> None:
         }
     )
     assert payload.schemaorg_recipe == {"name": "T"}
+
+
+def test_merged_recipe_repair_input_accepts_missing_draft_hint() -> None:
+    payload = MergedRecipeRepairInput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "workbook_slug": "book",
+            "source_hash": "hash",
+            "canonical_text": "Toast\n1 slice bread",
+            "evidence_rows": [[1, "Toast"], [2, "1 slice bread"]],
+            "recipe_candidate_hint": {"name": "Toast"},
+            "authority_notes": ["authoritative_source=recipe_span_blocks"],
+        }
+    )
+    assert payload.draft_hint == {}
+
+
+def test_serialize_merged_recipe_repair_input_omits_empty_draft_hint() -> None:
+    payload = MergedRecipeRepairInput.model_validate(
+        {
+            "bundle_version": "1",
+            "recipe_id": "urn:recipe:test",
+            "workbook_slug": "book",
+            "source_hash": "hash",
+            "canonical_text": "Toast\n1 slice bread",
+            "evidence_rows": [[1, "Toast"], [2, "1 slice bread"]],
+            "recipe_candidate_hint": {"name": "Toast"},
+            "authority_notes": ["authoritative_source=recipe_span_blocks"],
+        }
+    )
+    serialized = serialize_merged_recipe_repair_input(payload)
+    assert "draft_hint" not in serialized
 
 
 def test_pass2_compact_input_uses_evidence_rows_only() -> None:

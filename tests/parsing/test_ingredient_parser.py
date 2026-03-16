@@ -210,10 +210,10 @@ class TestMissingUnitPolicies:
         assert result["input_qty"] == 2.0
         assert result["raw_unit_text"] == "each"
 
-    def test_policy_legacy_medium(self):
+    def test_policy_medium(self):
         result = parse_ingredient_line(
             "2 onions",
-            ingredient_missing_unit_policy="legacy_medium",
+            ingredient_missing_unit_policy="medium",
         )
         assert result["quantity_kind"] == "exact"
         assert result["input_qty"] == 2.0

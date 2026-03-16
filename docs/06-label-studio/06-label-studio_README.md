@@ -338,7 +338,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
 - Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
 - Eval/benchmark manifests should resolve the prediction-run directory from `artifacts.artifact_root_dir`; do not add new readers that prefer eval-root-relative fallbacks when the prediction artifacts live elsewhere.
-- New-format benchmark/prediction runs do not write or consume `pass4_merge_report.json`; Stage 7 ownership is already baked into the reused stage artifacts.
+- New-format benchmark/prediction runs do not write or consume the old knowledge-stage merge report; Stage 7 ownership is already baked into the reused stage artifacts.
 - Line-role manifests now also surface do-no-harm pointers:
   - `line_role_pipeline_do_no_harm_diagnostics_json`
   - `line_role_pipeline_do_no_harm_changed_rows_jsonl`

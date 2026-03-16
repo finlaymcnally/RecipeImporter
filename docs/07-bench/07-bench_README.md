@@ -61,6 +61,7 @@ Important current constraints:
   - `dinnerfor2cutdown`
   - `roastchickenandotherstoriescutdown`
 - `bench quality-lightweight-series` remains only as a disabled compatibility stub. It exits immediately and is not an active workflow.
+- `bench gc` is benchmark-only retention, not a general `data/output` sweeper. It can prune matching benchmark-generated processed-output roots while preserving `performance_history.csv` and refusing destructive cleanup when durable history checks fail.
 
 ### 2.2 `cookimport labelstudio-benchmark`
 
@@ -123,7 +124,7 @@ Knowledge extraction is now a first-class follow-up seam:
 - selectors can target knowledge source keys/output subdirs explicitly
 - `audit-knowledge` emits run-level knowledge evidence
 - follow-up packets can include `knowledge_audit.jsonl`
-- uncertainty/follow-up exports now center on low trust plus explicit escalation reasons instead of confidence-only thresholds
+- uncertainty/follow-up exports now center on explicit escalation reasons; current reviewer packets do not carry scalar trust/confidence fields
 
 ## 3. Scoring And Artifact Contracts
 
@@ -143,6 +144,7 @@ Current rule:
   - `stage_block_predictions_path`
   - `extracted_archive_path`
 - prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
+- canonical-text line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing legacy fallback filenames or implicit directories
 
 ### 3.2 Gold inputs
@@ -190,6 +192,9 @@ Current rules:
 Current line-role and knowledge behavior:
 
 - `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
+- when authoritative Stage 2 labels are reused, the scored line-role artifact pair still has to stay in canonical atomic-span coordinates:
+  - `stage_block_predictions.json` should be serialized from canonical line-role projections, not copied from source blocks
+  - `extracted_archive.json` should carry the matching atomic line coordinates and `line_role_projection` metadata
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
 - `08_nonrecipe_spans.json` is the authoritative Stage 7 ownership artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
 - `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge extraction outputs
@@ -254,10 +259,18 @@ Current bundle rules:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`
   - `build_final_recipe`
-- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived `pass1`/`pass2`/`pass3`/`pass4` prompt rows are read-only compatibility input, not a new-output shape
+- `cookimport/bench/upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only; do not add legacy recipe-topology compatibility metadata back into new bundles
+- `cookimport/bench/followup_bundle.py` should resolve `knowledge_manifest_json` only for the live knowledge-manifest seam; old pass4 locator names belong only in archived/local compatibility code
+- `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived old-slot prompt rows are compatibility-only history input, not a new-output shape
+- new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
 - follow-up tooling may still accept historical local filenames when auditing archived bundles, but those are compatibility reads only and should not be reintroduced into new reviewer-facing bundle fields
+- sparse bundles are valid first-class inputs:
+  - request-template generation should choose a real bundle-local case when one exists
+  - otherwise it should emit empty-selector asks that still let `cf-debug build-followup` succeed
+  - `--include-knowledge-source-key` should resolve through bundle-local knowledge rows even when the bundle has no Codex-enabled paired run
+- checked-in old-format bundle fixtures should be normalized in tests before running current `cf-debug` paths; production readers should not grow new compatibility branches just to satisfy stale fixtures
 
 Oracle upload contract:
 

@@ -986,9 +986,29 @@ def _load_settings() -> Dict[str, Any]:
         "epub_unstructured_html_parser_version": "v1",
         "epub_unstructured_skip_headers_footers": True,
         "epub_unstructured_preprocess_mode": "semantic_v1",
+        "web_schema_extractor": "builtin_jsonld",
+        "web_schema_normalizer": "simple",
+        "web_html_text_extractor": "bs4",
+        "web_schema_policy": "prefer_schema",
+        "web_schema_min_confidence": 0.75,
+        "web_schema_min_ingredients": 2,
+        "web_schema_min_instruction_steps": 1,
         "llm_recipe_pipeline": "off",
+        "llm_knowledge_pipeline": "off",
+        "llm_tags_pipeline": "off",
         "line_role_pipeline": "off",
         "atomic_block_splitter": "off",
+        "pdf_ocr_policy": "auto",
+        "codex_farm_cmd": "codex-farm",
+        "codex_farm_root": None,
+        "codex_farm_workspace_root": None,
+        "codex_farm_model": None,
+        "codex_farm_reasoning_effort": None,
+        "codex_farm_context_blocks": 30,
+        "codex_farm_knowledge_context_blocks": 12,
+        "tag_catalog_json": "data/tagging/tag_catalog.json",
+        "label_studio_url": "",
+        "label_studio_api_key": "",
         "ocr_device": "auto",
         "ocr_batch_size": 1,
         "pdf_pages_per_job": 50,
@@ -1079,6 +1099,28 @@ def _coerce_positive_float(value: Any) -> float | None:
     if parsed <= 0:
         return None
     return parsed
+
+
+def _coerce_float_between(
+    value: Any,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if minimum is not None and parsed < minimum:
+        return None
+    if maximum is not None and parsed > maximum:
+        return None
+    return parsed
+
+
+def _display_optional_setting(value: Any, *, empty_label: str) -> str:
+    cleaned = str(value or "").strip()
+    return cleaned or empty_label
 
 
 def _coerce_bool_setting(value: Any, *, default: bool) -> bool:
@@ -1256,8 +1298,6 @@ def _all_method_default_parallel_sources_from_cpu() -> int:
 
 def _coerce_configured_epub_extractor(value: Any) -> str:
     normalized = normalize_epub_extractor_name(value or "unstructured")
-    if normalized == "legacy":
-        return "beautifulsoup"
     if normalized == "auto":
         return "unstructured"
     if normalized not in EPUB_EXTRACTOR_CANONICAL_SET:
@@ -1276,6 +1316,94 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             current_settings.get("epub_extractor", "unstructured")
         )
         current_settings["epub_extractor"] = current_epub_extractor
+        current_pdf_ocr_policy = str(
+            current_settings.get("pdf_ocr_policy", "auto") or "auto"
+        ).strip().lower()
+        if current_pdf_ocr_policy not in {"off", "auto", "always"}:
+            current_pdf_ocr_policy = "auto"
+        current_recipe_pipeline = str(
+            current_settings.get("llm_recipe_pipeline", "off") or "off"
+        ).strip().lower()
+        if current_recipe_pipeline not in RECIPE_CODEX_FARM_ALLOWED_PIPELINES:
+            current_recipe_pipeline = "off"
+        current_knowledge_pipeline = str(
+            current_settings.get("llm_knowledge_pipeline", "off") or "off"
+        ).strip().lower()
+        if current_knowledge_pipeline not in {"off", "codex-farm-knowledge-v1"}:
+            current_knowledge_pipeline = "off"
+        current_tags_pipeline = str(
+            current_settings.get("llm_tags_pipeline", "off") or "off"
+        ).strip().lower()
+        if current_tags_pipeline not in {"off", "codex-farm-tags-v1"}:
+            current_tags_pipeline = "off"
+        current_web_schema_extractor = str(
+            current_settings.get("web_schema_extractor", "builtin_jsonld")
+            or "builtin_jsonld"
+        ).strip().lower().replace("-", "_")
+        if current_web_schema_extractor not in {
+            "builtin_jsonld",
+            "extruct",
+            "scrape_schema_recipe",
+            "recipe_scrapers",
+            "ensemble_v1",
+        }:
+            current_web_schema_extractor = "builtin_jsonld"
+        current_web_schema_normalizer = str(
+            current_settings.get("web_schema_normalizer", "simple") or "simple"
+        ).strip().lower().replace("-", "_")
+        if current_web_schema_normalizer not in {"simple", "pyld"}:
+            current_web_schema_normalizer = "simple"
+        current_web_html_text_extractor = str(
+            current_settings.get("web_html_text_extractor", "bs4") or "bs4"
+        ).strip().lower().replace("-", "_")
+        if current_web_html_text_extractor not in {
+            "bs4",
+            "trafilatura",
+            "readability_lxml",
+            "justext",
+            "boilerpy3",
+            "ensemble_v1",
+        }:
+            current_web_html_text_extractor = "bs4"
+        current_web_schema_policy = str(
+            current_settings.get("web_schema_policy", "prefer_schema")
+            or "prefer_schema"
+        ).strip().lower().replace("-", "_")
+        if current_web_schema_policy not in ALL_METHOD_WEBSCHEMA_POLICIES:
+            current_web_schema_policy = "prefer_schema"
+        current_codex_cmd = _display_optional_setting(
+            current_settings.get("codex_farm_cmd"),
+            empty_label="codex-farm",
+        )
+        current_codex_root = _display_optional_setting(
+            current_settings.get("codex_farm_root"),
+            empty_label="<auto>",
+        )
+        current_codex_workspace_root = _display_optional_setting(
+            current_settings.get("codex_farm_workspace_root"),
+            empty_label="<auto>",
+        )
+        current_codex_model = _display_optional_setting(
+            current_settings.get("codex_farm_model"),
+            empty_label="<pipeline default>",
+        )
+        current_codex_reasoning_effort = _display_optional_setting(
+            current_settings.get("codex_farm_reasoning_effort"),
+            empty_label="<pipeline default>",
+        )
+        current_tag_catalog = _display_optional_setting(
+            current_settings.get("tag_catalog_json"),
+            empty_label="data/tagging/tag_catalog.json",
+        )
+        current_label_studio_url = _display_optional_setting(
+            current_settings.get("label_studio_url"),
+            empty_label="<unset>",
+        )
+        current_label_studio_api_key_status = (
+            "set"
+            if str(current_settings.get("label_studio_api_key") or "").strip()
+            else "unset"
+        )
 
         # Refresh values in display
         choice = _menu_select(
@@ -1430,6 +1558,124 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                     value="epub_unstructured_preprocess_mode",
                 ),
                 questionary.Choice(
+                    (
+                        f"PDF OCR Policy: {current_pdf_ocr_policy} - "
+                        "off/auto/always"
+                    ),
+                    value="pdf_ocr_policy",
+                ),
+                questionary.Choice(
+                    (
+                        "Web Schema Extractor: "
+                        f"{current_web_schema_extractor}"
+                    ),
+                    value="web_schema_extractor",
+                ),
+                questionary.Choice(
+                    (
+                        "Web Schema Normalizer: "
+                        f"{current_web_schema_normalizer}"
+                    ),
+                    value="web_schema_normalizer",
+                ),
+                questionary.Choice(
+                    (
+                        "Web HTML Text Extractor: "
+                        f"{current_web_html_text_extractor}"
+                    ),
+                    value="web_html_text_extractor",
+                ),
+                questionary.Choice(
+                    (
+                        "Web Schema Policy: "
+                        f"{current_web_schema_policy}"
+                    ),
+                    value="web_schema_policy",
+                ),
+                questionary.Choice(
+                    (
+                        "Web Schema Min Confidence: "
+                        f"{float(current_settings.get('web_schema_min_confidence', 0.75)):.2f}"
+                    ),
+                    value="web_schema_min_confidence",
+                ),
+                questionary.Choice(
+                    (
+                        "Web Schema Min Ingredients: "
+                        f"{current_settings.get('web_schema_min_ingredients', 2)}"
+                    ),
+                    value="web_schema_min_ingredients",
+                ),
+                questionary.Choice(
+                    (
+                        "Web Schema Min Instruction Steps: "
+                        f"{current_settings.get('web_schema_min_instruction_steps', 1)}"
+                    ),
+                    value="web_schema_min_instruction_steps",
+                ),
+                questionary.Choice(
+                    (
+                        "Recipe Pipeline Default: "
+                        f"{current_recipe_pipeline}"
+                    ),
+                    value="llm_recipe_pipeline",
+                ),
+                questionary.Choice(
+                    (
+                        "Knowledge Pipeline Default: "
+                        f"{current_knowledge_pipeline}"
+                    ),
+                    value="llm_knowledge_pipeline",
+                ),
+                questionary.Choice(
+                    (
+                        "Tags Pipeline Default: "
+                        f"{current_tags_pipeline}"
+                    ),
+                    value="llm_tags_pipeline",
+                ),
+                questionary.Choice(
+                    f"Tag Catalog JSON: {current_tag_catalog}",
+                    value="tag_catalog_json",
+                ),
+                questionary.Choice(
+                    f"Codex Farm Command: {current_codex_cmd}",
+                    value="codex_farm_cmd",
+                ),
+                questionary.Choice(
+                    f"Codex Farm Root: {current_codex_root}",
+                    value="codex_farm_root",
+                ),
+                questionary.Choice(
+                    f"Codex Farm Workspace Root: {current_codex_workspace_root}",
+                    value="codex_farm_workspace_root",
+                ),
+                questionary.Choice(
+                    f"Codex Farm Model Default: {current_codex_model}",
+                    value="codex_farm_model",
+                ),
+                questionary.Choice(
+                    (
+                        "Codex Farm Reasoning Default: "
+                        f"{current_codex_reasoning_effort}"
+                    ),
+                    value="codex_farm_reasoning_effort",
+                ),
+                questionary.Choice(
+                    (
+                        "Codex Farm Context Blocks: "
+                        f"{current_settings.get('codex_farm_context_blocks', 30)}"
+                    ),
+                    value="codex_farm_context_blocks",
+                ),
+                questionary.Choice(
+                    (
+                        "Codex Farm Knowledge Context Blocks: "
+                        f"{current_settings.get('codex_farm_knowledge_context_blocks', 12)}"
+                    ),
+                    value="codex_farm_knowledge_context_blocks",
+                ),
+                questionary.Choice(
                     f"Output Folder: {current_settings.get('output_dir', str(DEFAULT_INTERACTIVE_OUTPUT))} - stage artifacts",
                     value="output_dir",
                 ),
@@ -1444,6 +1690,14 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 questionary.Choice(
                     f"Warm Models: {'Yes' if current_settings.get('warm_models', False) else 'No'} - preload heavy models",
                     value="warm_models",
+                ),
+                questionary.Choice(
+                    f"Label Studio URL: {current_label_studio_url}",
+                    value="label_studio_url",
+                ),
+                questionary.Choice(
+                    f"Label Studio API Key: {current_label_studio_api_key_status}",
+                    value="label_studio_api_key",
                 ),
                 questionary.Separator(),
                 questionary.Choice("Back to Main Menu - return without changing anything", value="back"),
@@ -1771,6 +2025,293 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 current_settings["epub_unstructured_preprocess_mode"] = val
                 _save_settings(current_settings)
 
+        elif choice == "pdf_ocr_policy":
+            val = _menu_select(
+                "Select PDF OCR policy:",
+                choices=[
+                    questionary.Choice("off - never run OCR", value="off"),
+                    questionary.Choice(
+                        "auto - OCR only when text extraction needs it",
+                        value="auto",
+                    ),
+                    questionary.Choice("always - force OCR for PDFs", value="always"),
+                ],
+                default=current_pdf_ocr_policy,
+                menu_help=(
+                    "Choose how PDF imports decide between native text extraction "
+                    "and OCR."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["pdf_ocr_policy"] = _normalize_pdf_ocr_policy(str(val))
+                _save_settings(current_settings)
+
+        elif choice == "web_schema_extractor":
+            val = _menu_select(
+                "Select web schema extractor:",
+                choices=[
+                    "builtin_jsonld",
+                    "extruct",
+                    "scrape_schema_recipe",
+                    "recipe_scrapers",
+                    "ensemble_v1",
+                ],
+                default=current_web_schema_extractor,
+                menu_help="Choose the structured-data extractor for webschema imports.",
+            )
+            if val and val != BACK_ACTION:
+                current_settings["web_schema_extractor"] = _normalize_web_schema_extractor(
+                    str(val)
+                )
+                _save_settings(current_settings)
+
+        elif choice == "web_schema_normalizer":
+            val = _menu_select(
+                "Select web schema normalizer:",
+                choices=["simple", "pyld"],
+                default=current_web_schema_normalizer,
+                menu_help="Choose schema normalization before mapping.",
+            )
+            if val and val != BACK_ACTION:
+                current_settings["web_schema_normalizer"] = (
+                    _normalize_web_schema_normalizer(str(val))
+                )
+                _save_settings(current_settings)
+
+        elif choice == "web_html_text_extractor":
+            val = _menu_select(
+                "Select web HTML text extractor:",
+                choices=[
+                    "bs4",
+                    "trafilatura",
+                    "readability_lxml",
+                    "justext",
+                    "boilerpy3",
+                    "ensemble_v1",
+                ],
+                default=current_web_html_text_extractor,
+                menu_help="Choose the fallback text extractor when schema data is missing.",
+            )
+            if val and val != BACK_ACTION:
+                current_settings["web_html_text_extractor"] = (
+                    _normalize_web_html_text_extractor(str(val))
+                )
+                _save_settings(current_settings)
+
+        elif choice == "web_schema_policy":
+            val = _menu_select(
+                "Select web schema policy:",
+                choices=list(ALL_METHOD_WEBSCHEMA_POLICIES),
+                default=current_web_schema_policy,
+                menu_help=(
+                    "prefer_schema uses schema first, schema_only disables heuristic "
+                    "fallback, heuristic_only skips schema data."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["web_schema_policy"] = _normalize_web_schema_policy(
+                    str(val)
+                )
+                _save_settings(current_settings)
+
+        elif choice == "web_schema_min_confidence":
+            val = _prompt_text(
+                "Enter web schema minimum confidence (0.0 to 1.0):",
+                default=str(current_settings.get("web_schema_min_confidence", 0.75)),
+            )
+            parsed = _coerce_float_between(val, minimum=0.0, maximum=1.0)
+            if parsed is not None:
+                current_settings["web_schema_min_confidence"] = parsed
+                _save_settings(current_settings)
+
+        elif choice == "web_schema_min_ingredients":
+            val = _prompt_text(
+                "Enter minimum ingredient lines for web schema acceptance:",
+                default=str(current_settings.get("web_schema_min_ingredients", 2)),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings["web_schema_min_ingredients"] = parsed
+                _save_settings(current_settings)
+
+        elif choice == "web_schema_min_instruction_steps":
+            val = _prompt_text(
+                "Enter minimum instruction steps for web schema acceptance:",
+                default=str(current_settings.get("web_schema_min_instruction_steps", 1)),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings["web_schema_min_instruction_steps"] = parsed
+                _save_settings(current_settings)
+
+        elif choice == "llm_recipe_pipeline":
+            val = _menu_select(
+                "Select default recipe pipeline for interactive runs:",
+                choices=[
+                    questionary.Choice(
+                        "off - default to deterministic/vanilla top-tier",
+                        value="off",
+                    ),
+                    questionary.Choice(
+                        "codex-farm-single-correction-v1 - default to CodexFarm top-tier",
+                        value="codex-farm-single-correction-v1",
+                    ),
+                ],
+                default=current_recipe_pipeline,
+                menu_help=(
+                    "This sets the default choice shown by the per-run interactive "
+                    "top-tier picker."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["llm_recipe_pipeline"] = _normalize_llm_recipe_pipeline(
+                    str(val)
+                )
+                _save_settings(current_settings)
+
+        elif choice == "llm_knowledge_pipeline":
+            val = _menu_select(
+                "Select default knowledge pipeline for interactive runs:",
+                choices=[
+                    questionary.Choice("off", value="off"),
+                    questionary.Choice(
+                        "codex-farm-knowledge-v1",
+                        value="codex-farm-knowledge-v1",
+                    ),
+                ],
+                default=current_knowledge_pipeline,
+                menu_help=(
+                    "This becomes the default knowledge-harvest choice when the "
+                    "interactive benchmark flow asks for per-run Codex surfaces."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["llm_knowledge_pipeline"] = (
+                    _normalize_llm_knowledge_pipeline(str(val))
+                )
+                _save_settings(current_settings)
+
+        elif choice == "llm_tags_pipeline":
+            val = _menu_select(
+                "Select default tags pipeline for stage runs:",
+                choices=[
+                    questionary.Choice("off", value="off"),
+                    questionary.Choice(
+                        "codex-farm-tags-v1",
+                        value="codex-farm-tags-v1",
+                    ),
+                ],
+                default=current_tags_pipeline,
+                menu_help=(
+                    "Interactive stage runs will carry this saved tag-enrichment default "
+                    "through to stage(...)."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["llm_tags_pipeline"] = _normalize_llm_tags_pipeline(
+                    str(val)
+                )
+                _save_settings(current_settings)
+
+        elif choice == "tag_catalog_json":
+            val = _prompt_text(
+                "Enter tag catalog snapshot path:",
+                default=current_tag_catalog,
+            )
+            if val is not None:
+                current_settings["tag_catalog_json"] = (
+                    str(val).strip() or "data/tagging/tag_catalog.json"
+                )
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_cmd":
+            val = _prompt_text(
+                "Enter Codex Farm command:",
+                default=current_codex_cmd,
+            )
+            if val is not None:
+                current_settings["codex_farm_cmd"] = str(val).strip() or "codex-farm"
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_root":
+            val = _prompt_text(
+                "Enter Codex Farm root path (blank to use repo default):",
+                default=str(current_settings.get("codex_farm_root") or ""),
+            )
+            if val is not None:
+                current_settings["codex_farm_root"] = str(val).strip() or None
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_workspace_root":
+            val = _prompt_text(
+                "Enter Codex Farm workspace root (blank to use pipeline default):",
+                default=str(current_settings.get("codex_farm_workspace_root") or ""),
+            )
+            if val is not None:
+                current_settings["codex_farm_workspace_root"] = str(val).strip() or None
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_model":
+            val = _prompt_text(
+                "Enter Codex Farm model default (blank for pipeline default):",
+                default=str(current_settings.get("codex_farm_model") or ""),
+            )
+            if val is not None:
+                current_settings["codex_farm_model"] = str(val).strip() or None
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_reasoning_effort":
+            reasoning_choices, reasoning_default = build_codex_farm_reasoning_effort_choices(
+                selected_model=str(current_settings.get("codex_farm_model") or "").strip() or None,
+                selected_effort=current_settings.get("codex_farm_reasoning_effort"),
+                supported_efforts_by_model={},
+                include_minimal=True,
+            )
+            reasoning_choices = [
+                questionary.Choice("Pipeline default", value="__default__"),
+                *[
+                    choice
+                    for choice in reasoning_choices
+                    if str(choice.value) != "__default__"
+                ],
+            ]
+            val = _menu_select(
+                "Select Codex Farm reasoning default:",
+                choices=reasoning_choices,
+                default=reasoning_default,
+                menu_help=(
+                    "Choose the saved default reasoning effort for Codex-backed runs. "
+                    "Pipeline default leaves the pack default in control."
+                ),
+            )
+            if val and val != BACK_ACTION:
+                current_settings["codex_farm_reasoning_effort"] = (
+                    None if str(val) == "__default__" else str(val)
+                )
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_context_blocks":
+            val = _prompt_text(
+                "Enter Codex Farm context blocks:",
+                default=str(current_settings.get("codex_farm_context_blocks", 30)),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings["codex_farm_context_blocks"] = parsed
+                _save_settings(current_settings)
+
+        elif choice == "codex_farm_knowledge_context_blocks":
+            val = _prompt_text(
+                "Enter Codex Farm knowledge context blocks:",
+                default=str(
+                    current_settings.get("codex_farm_knowledge_context_blocks", 12)
+                ),
+            )
+            parsed = _coerce_positive_int(val)
+            if parsed is not None:
+                current_settings["codex_farm_knowledge_context_blocks"] = parsed
+                _save_settings(current_settings)
+
         elif choice == "output_dir":
             val = _prompt_text(
                 "Enter output folder for interactive runs:",
@@ -1806,6 +2347,29 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
             if val is not None:
                 current_settings["warm_models"] = val
                 _save_settings(current_settings)
+
+        elif choice == "label_studio_url":
+            val = _prompt_text(
+                "Enter Label Studio URL (blank clears saved value):",
+                default=str(current_settings.get("label_studio_url") or ""),
+            )
+            if val is not None:
+                current_settings["label_studio_url"] = str(val).strip()
+                _save_settings(current_settings)
+
+        elif choice == "label_studio_api_key":
+            val = _prompt_password(
+                "Enter Label Studio API key (blank keeps current, __clear__ clears):",
+                default="",
+            )
+            if val is not None:
+                cleaned = str(val).strip()
+                if cleaned == "__clear__":
+                    current_settings["label_studio_api_key"] = ""
+                    _save_settings(current_settings)
+                elif cleaned:
+                    current_settings["label_studio_api_key"] = cleaned
+                    _save_settings(current_settings)
 
 
 def _interactive_all_method_benchmark(
@@ -7113,7 +7677,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
         )
         choices.append(
             questionary.Choice(
-                "Settings: Change worker/OCR/output defaults",
+                "Settings: Change saved interactive defaults",
                 value="settings",
             )
         )
@@ -8137,11 +8701,11 @@ def _normalize_ingredient_unit_canonicalizer(value: str) -> str:
 
 def _normalize_ingredient_missing_unit_policy(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy_medium", "null", "each"}:
+    if normalized in {"medium", "null", "each"}:
         return normalized
     _fail(
         f"Invalid ingredient missing unit policy: {value!r}. "
-        "Expected one of: legacy_medium, null, each."
+        "Expected one of: medium, null, each."
     )
     return "null"
 
@@ -12717,7 +13281,7 @@ def _build_all_method_sweep_payloads(
     )
     add_one_at_a_time(
         key="ingredient_missing_unit_policy",
-        values=("null", "legacy_medium", "each"),
+        values=("null", "medium", "each"),
         default="null",
     )
     add_one_at_a_time(
@@ -22029,7 +22593,7 @@ def stage(
         "null",
         "--ingredient-missing-unit-policy",
         hidden=True,
-        help="Policy when quantity has no unit: legacy_medium, null, or each.",
+        help="Policy when quantity has no unit: medium, null, or each.",
     ),
     p6_time_backend: str = typer.Option(
         "regex_v1",
@@ -26234,7 +26798,7 @@ def labelstudio_benchmark(
     ingredient_missing_unit_policy: Annotated[str, typer.Option(
         "--ingredient-missing-unit-policy",
         hidden=True,
-        help="Policy when quantity has no unit: legacy_medium, null, or each.",
+        help="Policy when quantity has no unit: medium, null, or each.",
     )] = "null",
     p6_time_backend: Annotated[str, typer.Option(
         "--p6-time-backend",
@@ -26426,7 +26990,7 @@ def labelstudio_benchmark(
         "--codex-farm-knowledge-context-blocks",
         min=0,
         help="Blocks before/after each non-recipe chunk included as context in pass-4 bundles.",
-    )] = 12,
+    )] = 2,
     codex_farm_failure_mode: Annotated[str, typer.Option(
         "--codex-farm-failure-mode",
         hidden=True,

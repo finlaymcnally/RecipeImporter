@@ -7,7 +7,7 @@ from typing import Literal, Sequence
 from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
-LineRolePromptFormat = Literal["legacy", "compact_v1"]
+LineRolePromptFormat = Literal["compact_v1"]
 
 _PROMPT_TEMPLATE_PATH = (
     Path(__file__).resolve().parents[2]
@@ -94,7 +94,7 @@ def build_canonical_line_role_prompt(
     targets: Sequence[AtomicLineCandidate],
     *,
     allowed_labels: Sequence[str] | None = None,
-    prompt_format: LineRolePromptFormat = "legacy",
+    prompt_format: LineRolePromptFormat = "compact_v1",
 ) -> str:
     if not targets:
         raise ValueError("targets cannot be empty")
@@ -122,30 +122,7 @@ def build_canonical_line_role_prompt(
     return rendered.strip() + "\n"
 
 
-def serialize_line_role_targets_legacy(
-    targets: Sequence[AtomicLineCandidate],
-    *,
-    allowed_labels: Sequence[str],
-) -> str:
-    del allowed_labels
-    lines: list[str] = []
-    for candidate in targets:
-        lines.append(
-            json.dumps(
-                {
-                    "atomic_index": int(candidate.atomic_index),
-                    "within_recipe_span": bool(candidate.within_recipe_span),
-                    "previous_line": str(candidate.prev_text or ""),
-                    "current_line": str(candidate.text),
-                    "next_line": str(candidate.next_text or ""),
-                },
-                ensure_ascii=False,
-            )
-        )
-    return "\n".join(lines)
-
-
-def serialize_line_role_targets_compact(
+def serialize_line_role_targets(
     targets: Sequence[AtomicLineCandidate],
     *,
     allowed_labels: Sequence[str],
@@ -158,9 +135,9 @@ def serialize_line_role_targets_compact(
                 [
                     int(candidate.atomic_index),
                     1 if bool(candidate.within_recipe_span) else 0,
-                    str(candidate.prev_text or ""),
+                    _neighbor_text(candidate, candidate.prev_text),
                     str(candidate.text),
-                    str(candidate.next_text or ""),
+                    _neighbor_text(candidate, candidate.next_text),
                 ],
                 ensure_ascii=False,
             )
@@ -174,36 +151,28 @@ def _serialize_targets(
     allowed_labels: Sequence[str],
     prompt_format: LineRolePromptFormat,
 ) -> str:
-    if prompt_format == "compact_v1":
-        return serialize_line_role_targets_compact(
-            targets,
-            allowed_labels=allowed_labels,
-        )
-    return serialize_line_role_targets_legacy(
-        targets,
-        allowed_labels=allowed_labels,
-    )
+    del prompt_format
+    return serialize_line_role_targets(targets, allowed_labels=allowed_labels)
 
 
 def _target_row_format_text(prompt_format: LineRolePromptFormat) -> str:
-    if prompt_format == "compact_v1":
-        return (
-            "One JSON array per line: "
-            "[atomic_index, within_recipe_span_1_or_0, previous_line, current_line, "
-            "next_line]"
-        )
+    del prompt_format
     return (
-        "One JSON object per line with keys "
-        "`atomic_index`, `within_recipe_span`, `previous_line`, "
-        "`current_line`, and `next_line`."
+        "One JSON array per line: "
+        "[atomic_index, within_recipe_span_1_or_0, previous_line, current_line, "
+        "next_line]"
     )
 
 
+def _neighbor_text(candidate: AtomicLineCandidate, value: str | None) -> str:
+    if not bool(candidate.within_recipe_span):
+        return ""
+    return str(value or "")
+
+
 def _normalize_prompt_format(value: str) -> LineRolePromptFormat:
-    normalized = str(value).strip().lower()
-    if normalized == "compact_v1":
-        return "compact_v1"
-    return "legacy"
+    del value
+    return "compact_v1"
 
 
 def _load_prompt_template() -> str:

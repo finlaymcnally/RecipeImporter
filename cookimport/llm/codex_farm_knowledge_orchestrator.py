@@ -95,6 +95,7 @@ def run_codex_farm_knowledge_harvest(
             "input_mode": "stage7_knowledge_spans",
             "counts": {
                 "jobs_written": 0,
+                "jobs_skipped": 0,
                 "outputs_parsed": 0,
                 "chunks_missing": 0,
                 "snippets_written": 0,
@@ -164,6 +165,38 @@ def run_codex_farm_knowledge_harvest(
         job_format=_resolve_knowledge_job_format(pipeline_id),
     )
 
+    if build_report.jobs_written == 0:
+        llm_report = {
+            "enabled": True,
+            "pipeline": run_settings.llm_knowledge_pipeline.value,
+            "pipeline_id": pipeline_id,
+            "input_mode": "stage7_knowledge_spans",
+            "output_schema_path": output_schema_path,
+            "counts": {
+                "jobs_written": 0,
+                "jobs_skipped": build_report.skipped_chunk_count,
+                "outputs_parsed": 0,
+                "chunks_missing": 0,
+                "snippets_written": 0,
+            },
+            "timing": {"total_seconds": 0.0},
+            "paths": {
+                "knowledge_in_dir": str(knowledge_in_dir),
+                "knowledge_out_dir": str(knowledge_out_dir),
+                "manifest_path": str(manifest_path),
+            },
+            "missing_chunk_ids": [],
+            "skipped_lane_counts": dict(build_report.skipped_lane_counts),
+            "stage_status": "all_chunks_skipped",
+        }
+        _write_json(llm_report, manifest_path)
+        return CodexFarmKnowledgeHarvestResult(
+            llm_report=llm_report,
+            llm_raw_dir=llm_raw_dir,
+            manifest_path=manifest_path,
+            write_report=None,
+        )
+
     process_run = codex_runner.run_pipeline(
         pipeline_id,
         knowledge_in_dir,
@@ -196,6 +229,7 @@ def run_codex_farm_knowledge_harvest(
         "output_schema_path": output_schema_path,
         "counts": {
             "jobs_written": build_report.jobs_written,
+            "jobs_skipped": build_report.skipped_chunk_count,
             "outputs_parsed": len(outputs),
             "chunks_missing": len(missing_chunk_ids),
             "snippets_written": write_report.snippets_written,
@@ -209,6 +243,7 @@ def run_codex_farm_knowledge_harvest(
             "manifest_path": str(manifest_path),
         },
         "missing_chunk_ids": missing_chunk_ids,
+        "skipped_lane_counts": dict(build_report.skipped_lane_counts),
         "process_run": process_run_payload,
     }
     _write_json(llm_report, manifest_path)

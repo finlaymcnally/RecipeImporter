@@ -260,7 +260,7 @@ def preview_prompts(
     ),
     codex_farm_context_blocks: int = typer.Option(30, "--codex-farm-context-blocks", min=0),
     codex_farm_knowledge_context_blocks: int = typer.Option(
-        12,
+        2,
         "--codex-farm-knowledge-context-blocks",
         min=0,
     ),

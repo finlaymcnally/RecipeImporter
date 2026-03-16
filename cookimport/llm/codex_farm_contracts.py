@@ -507,6 +507,15 @@ class MergedRecipeRepairInput(BaseModel):
         return _sanitize_text_list_field(value, "authority_notes")
 
 
+def serialize_merged_recipe_repair_input(
+    payload: "MergedRecipeRepairInput",
+) -> dict[str, Any]:
+    serialized = payload.model_dump(mode="json", by_alias=True)
+    if not serialized.get("draft_hint"):
+        serialized.pop("draft_hint", None)
+    return serialized
+
+
 class MergedRecipeRepairOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

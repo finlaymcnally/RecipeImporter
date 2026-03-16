@@ -40,6 +40,8 @@ class KnowledgeJobBuildReport:
     jobs_written: int
     chunk_ids: list[str]
     chunk_lane_by_id: dict[str, str | None]
+    skipped_chunk_count: int
+    skipped_lane_counts: dict[str, int]
 
 
 def build_knowledge_jobs(
@@ -50,9 +52,10 @@ def build_knowledge_jobs(
     workbook_slug: str,
     source_hash: str,
     out_dir: Path,
-    context_blocks: int = 12,
+    context_blocks: int = 2,
     overrides: ParsingOverrides | None = None,
     job_format: str = COMPACT_KNOWLEDGE_JOB_FORMAT,
+    skip_suggested_lanes: Sequence[str] = ("noise",),
 ) -> KnowledgeJobBuildReport:
     """Write knowledge-stage job bundles to out_dir and return a build report.
 
@@ -75,6 +78,13 @@ def build_knowledge_jobs(
     chunk_ids: list[str] = []
     chunk_lane_by_id: dict[str, str | None] = {}
     chunk_counter = 0
+    normalized_skip_lanes = {
+        str(value or "").strip().lower()
+        for value in skip_suggested_lanes
+        if str(value or "").strip()
+    }
+    skipped_chunk_count = 0
+    skipped_lane_counts: dict[str, int] = {}
 
     for stage_span in knowledge_spans:
         sequence = block_rows_for_nonrecipe_span(
@@ -87,6 +97,19 @@ def build_knowledge_jobs(
         chunks = chunks_from_non_recipe_blocks(sequence, overrides=overrides)
         for chunk in chunks:
             chunk_id = f"{workbook_slug}.c{chunk_counter:04d}.nr"
+            suggested_lane: str | None
+            if isinstance(chunk.lane, ChunkLane):
+                suggested_lane = chunk.lane.value
+            else:
+                suggested_lane = str(chunk.lane) if chunk.lane is not None else None
+            normalized_lane = str(suggested_lane or "").strip().lower()
+            if normalized_lane and normalized_lane in normalized_skip_lanes:
+                skipped_chunk_count += 1
+                skipped_lane_counts[normalized_lane] = (
+                    int(skipped_lane_counts.get(normalized_lane) or 0) + 1
+                )
+                chunk_counter += 1
+                continue
             payload = _build_job_payload(
                 chunk_id=chunk_id,
                 workbook_slug=workbook_slug,
@@ -106,7 +129,7 @@ def build_knowledge_jobs(
             _write_json(payload.model_dump(**payload_kwargs), out_dir / f"{chunk_id}.json")
             chunk_ids.append(chunk_id)
             chunk_lane_by_id[chunk_id] = (
-                str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else None
+                str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
             )
             chunk_counter += 1
 
@@ -114,6 +137,8 @@ def build_knowledge_jobs(
         jobs_written=len(chunk_ids),
         chunk_ids=chunk_ids,
         chunk_lane_by_id=chunk_lane_by_id,
+        skipped_chunk_count=skipped_chunk_count,
+        skipped_lane_counts=skipped_lane_counts,
     )
 
 

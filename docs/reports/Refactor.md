@@ -555,9 +555,9 @@ This stage may become much smaller once Stage 2 labeling is strong enough.
 - Importers already preserve non-recipe text as `ConversionResult.non_recipe_blocks`.
 - Deterministic downstream handling already exists in `cookimport/parsing/chunks.py`, `cookimport/parsing/tips.py`, and table extraction helpers used from `cookimport/cli_worker.py` / `cookimport/cli.py`.
 - Optional LLM knowledge handling already exists in `cookimport/llm/codex_farm_knowledge_orchestrator.py` and `cookimport/llm/codex_farm_knowledge_jobs.py`.
-- `cookimport/llm/non_recipe_spans.py` and the pass4 job builder already implement explicit recipe-vs-non-recipe span math.
+- `cookimport/llm/non_recipe_spans.py` and the knowledge-stage job builder already implement explicit recipe-vs-non-recipe span math.
 - The line-role benchmark path already knows how to merge knowledge evidence back into line labels through `cookimport/labelstudio/canonical_line_projection.py`.
-- Stage runs and benchmark processed-output generation now share the same post-conversion chunking / pass4 knowledge session through `cookimport/staging/import_session.py`, so this lane is less forked than before.
+- Stage runs and benchmark processed-output generation now share the same post-conversion chunking / knowledge-stage session through `cookimport/staging/import_session.py`, so this lane is less forked than before.
 
 ### Greenfield or substantial refactor needed
 - Non-recipe handling is not yet primarily label-driven. Today it is mostly “whatever blocks were not absorbed into importer recipe candidates.”
@@ -717,7 +717,7 @@ Provide:
 
 # Recommended Naming Scheme
 
-Avoid generic `pass1`, `pass2`, `pass3`, `pass4` naming in the refactor.
+Avoid generic `pass1`, `pass2`, `pass3`, `knowledge-stage` naming in the refactor.
 
 Use names that describe job responsibility:
 

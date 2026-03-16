@@ -447,17 +447,18 @@ def _infer_scope_from_export_payload(payload: list[dict[str, Any]]) -> str | Non
     return None
 
 
-def _raise_if_legacy_scope(scope: str | None, *, source: str) -> None:
-    if scope in _LEGACY_SCOPES:
-        raise RuntimeError(
-            f"Legacy Label Studio scope '{scope}' detected in {source}; "
-            "export supports freeform-spans projects only."
-        )
+def _require_freeform_scope(scope: str | None, *, source: str) -> None:
+    if scope in {None, "", _SUPPORTED_SCOPE}:
+        return
     if scope == "mixed":
         raise RuntimeError(
             "Export payload mixes multiple Label Studio task scopes; "
             "export supports freeform-spans projects only."
         )
+    raise RuntimeError(
+        f"Label Studio scope '{scope}' detected in {source}; "
+        "export supports freeform-spans projects only."
+    )
 
 
 def run_labelstudio_export(
@@ -497,7 +498,7 @@ def run_labelstudio_export(
         manifest_source_hash = source_hash_raw or None
         manifest_importer = importer_raw or None
         manifest_scope = str(manifest.get("task_scope") or "").strip() or None
-        _raise_if_legacy_scope(manifest_scope, source="run manifest")
+        _require_freeform_scope(manifest_scope, source="run manifest")
 
     project = client.find_project_by_title(project_name)
     if not project:
@@ -506,7 +507,7 @@ def run_labelstudio_export(
         )
 
     project_scope = _infer_scope_from_project_payload(project)
-    _raise_if_legacy_scope(project_scope, source=f"project '{project_name}'")
+    _require_freeform_scope(project_scope, source=f"project '{project_name}'")
 
     if project_id is None:
         project_id = project.get("id")
@@ -516,7 +517,7 @@ def run_labelstudio_export(
     export_payload = client.export_tasks(int(project_id))
 
     payload_scope = _infer_scope_from_export_payload(export_payload)
-    _raise_if_legacy_scope(payload_scope, source="export payload")
+    _require_freeform_scope(payload_scope, source="export payload")
 
     if run_root is None:
         run_root = _resolve_export_run_root(

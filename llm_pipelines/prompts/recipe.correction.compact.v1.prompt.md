@@ -9,7 +9,7 @@ Execution rules:
 1) Use only the JSON payload above as input.
 2) Treat `evidence_rows` as the authoritative source text.
 3) Treat `recipe_candidate_hint` as the intermediate recipe object to correct.
-4) Treat `draft_hint` as a downstream deterministic preview only.
+4) If `draft_hint` is present, treat it as a downstream deterministic preview only.
 5) Do not use external knowledge.
 
 Correction rules:

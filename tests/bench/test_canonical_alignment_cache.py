@@ -155,7 +155,7 @@ def _cache_test_key_and_signatures() -> tuple[str, dict[str, Any]]:
     prediction_hash = sha256_text(prediction_text)
     boundaries_hash = hash_block_boundaries(boundaries)
     signatures = {
-        "alignment_strategy": "legacy",
+        "alignment_strategy": "global",
         "normalization_version": CANONICAL_ALIGNMENT_NORMALIZATION_VERSION,
         "repo_alignment_algo_version": CANONICAL_ALIGNMENT_ALGO_VERSION,
         "canonical_normalized_sha256": canonical_hash,
@@ -165,7 +165,7 @@ def _cache_test_key_and_signatures() -> tuple[str, dict[str, Any]]:
         "prediction_normalized_char_count": len(prediction_text),
     }
     key = build_cache_file_key(
-        alignment_strategy="legacy",
+        alignment_strategy="global",
         canonical_normalized_sha256=canonical_hash,
         prediction_normalized_sha256=prediction_hash,
         prediction_block_boundaries_sha256=boundaries_hash,
@@ -214,10 +214,10 @@ def _cache_worker(
             elif acquired:
                 if hold_seconds > 0:
                     time.sleep(hold_seconds)
-                cache.write_atomic(
-                    cache_key,
-                    make_cache_entry(
-                        alignment_strategy="legacy",
+                    cache.write_atomic(
+                        cache_key,
+                        make_cache_entry(
+                            alignment_strategy="global",
                         canonical_normalized_sha256=signatures["canonical_normalized_sha256"],
                         prediction_normalized_sha256=signatures["prediction_normalized_sha256"],
                         prediction_block_boundaries_sha256=signatures[

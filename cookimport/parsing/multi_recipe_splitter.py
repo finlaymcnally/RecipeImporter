@@ -110,7 +110,7 @@ def _split_units(
     if not units:
         return MultiRecipeSplitResult(spans=())
 
-    if backend in {"legacy", "off"}:
+    if backend == "off":
         return MultiRecipeSplitResult(
             spans=(CandidateSpan(start=0, end=len(units), reasons=(f"{backend}_passthrough",)),),
             trace=_trace_payload(
@@ -236,9 +236,9 @@ def _split_units(
 
 def _normalize_backend(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
-    if normalized in {"legacy", "off", "rules_v1"}:
+    if normalized in {"off", "rules_v1"}:
         return normalized
-    return "legacy"
+    return "rules_v1"
 
 
 def _build_prefix_counts(flags: Sequence[bool]) -> list[int]:

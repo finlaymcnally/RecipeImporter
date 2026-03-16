@@ -152,6 +152,15 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["build_final_recipe_ok"] == 1
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
+    correction_input_paths = sorted(
+        (apply_result.llm_raw_dir / "recipe_correction" / "in").glob("*.json")
+    )
+    assert len(correction_input_paths) == 1
+    correction_input = json.loads(
+        correction_input_paths[0].read_text(encoding="utf-8")
+    )
+    assert "draft_hint" not in correction_input
+    assert "provenance" not in correction_input["recipe_candidate_hint"]
 
 
 def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -> None:

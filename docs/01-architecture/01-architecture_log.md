@@ -181,20 +181,26 @@ Durable decisions:
 Anti-loop note:
 - if a new doc or UI change reintroduces `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1` as live options, treat that as naming drift, not product complexity
 
-### 2026-03-16_09.03.14 and 2026-03-16_12.10.00 trust/escalation boundary
+### 2026-03-16_09.03.14, 2026-03-16_12.10.00, and 2026-03-16_14.09.27 trust/escalation boundary
 
 Problem captured:
-- confidence was easy to misread as either fully authoritative or fully obsolete after the label-first and Stage 7 cutovers
+- confidence/trust was easy to misread as either fully authoritative or fully obsolete after the label-first and Stage 7 cutovers
+- the write surface was wider than the decision surface, so stale score fields could linger in stage artifacts, prediction-run artifacts, and reviewer packets even after the core runtime stopped depending on them
 
 Durable decisions:
-- authoritative line/block/span artifacts now persist `trust_score`, `escalation_score`, and `escalation_reasons`
-- compatibility `confidence` on those seams is only a trust alias for older readers
-- selective Codex escalation in line-role correction now keys off explicit trust/escalation metadata and dedicated thresholds instead of one mixed scalar
+- the only live control-path use of mixed line-role confidence was the Codex escalation gate in `cookimport/parsing/canonical_line_roles.py`; recipe grouping and Stage 7 ownership were already label-driven
+- the migration touched `label_source_of_truth.py`, `staging/import_session.py`, `labelstudio/ingest.py`, benchmark follow-up exports, and the external-AI cutdown path together
+- the final current contract is reason-only on the label-first seam:
+  - authoritative labeled rows keep labels, provenance, and `escalation_reasons`
+  - scalar `confidence`, `trust_score`, and `escalation_score` are gone from current line-role artifacts
+- reviewer/export surfaces changed in lockstep:
+  - `analysis.line_role_escalation` replaced `analysis.line_role_trust`
+  - `analysis.explicit_escalation_changed_lines_packet` replaced the old low-trust packet
 - recipe grouping and Stage 7 ownership still ignore scalar trust/confidence and use final labels as authority
-- `decided_by` and `reason_tags` remain the active decision-trace fields beside the newer trust/escalation metadata
+- `decided_by`, `reason_tags`, and explicit `escalation_reasons` remain the active decision-trace fields on current line-role outputs
 
 Anti-loop note:
-- do not collapse trust and escalation back into one scalar just because compatibility `confidence` still exists on some artifacts
+- do not reintroduce scalar trust/confidence fields into runtime or reviewer outputs just because archived bundles still need narrow compatibility reads
 
 ### 2026-03-16_09.45.00 refactor gap review outcome
 
@@ -206,7 +212,7 @@ Durable decisions:
 - keep historical read compatibility narrow and explicit; do not let it masquerade as current write-time contract
 
 Still-relevant examples:
-- `cookimport/bench/followup_bundle.py` still reads `pass4_knowledge_manifest.json` for archived bundles
+- `cookimport/bench/followup_bundle.py` still reads `knowledge_manifest.json` for archived bundles
 
 ### 2026-03-16_10.53.31 and 2026-03-16_12.02.26 burn-the-boats cleanup
 
@@ -221,3 +227,30 @@ Durable decisions:
 
 Anti-loop note:
 - if a fix proposal reintroduces pass-slot names as current runtime truth, it is undoing the cleanup rather than extending the architecture
+
+### 2026-03-16_10.53.31, 2026-03-16_11.01.54, 2026-03-16_13.47.23, and 2026-03-16_13.54.32 remaining cleanup map
+
+Problem captured:
+- once the live stage path was on the new architecture, the remaining drift was scattered across hidden knobs, helper tooling, fixtures, and analytics/history fallbacks rather than one obvious runtime module
+
+Durable decisions:
+- the last easy deletions were mostly outside the runtime core:
+  - hidden `pass1`/`pass2`/`pass3` and selective-retry CLI/run-setting knobs
+  - prompt-artifact tests and benchmark helper fixtures that still hand-built `chunking/schemaorg/final` trees
+  - checked-in old recipe pack files under `llm_pipelines/` after transport/tests moved to `recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`, and `recipe.tags.v1`
+- the remaining cleanup clusters are:
+  - label-first bridge naming and compatibility caches
+  - hidden parser/runtime defaults still called `legacy`
+  - prompt/bundle tooling that serializes old pass-slot names
+  - benchmark alias writers
+  - analytics/history readers that synthesize current data from deprecated fields or CSV locations
+- the safest execution order is:
+  - remove runtime bridge naming first
+  - collapse hidden defaults and scheduler knobs next
+  - delete prompt/benchmark aliases after that
+  - cut analytics/history fallbacks last with docs/tests in the same pass
+- historical logs, plans, and archived reports may still mention removed pipeline ids. Keep that material as history, but do not copy those names back into live docs, tests, or reviewer surfaces.
+- validation from this sweep was representative, not exhaustive. For maximum certainty, the full project test suite still needs to run after destructive cleanup passes.
+
+Anti-loop note:
+- if a cleanup proposal starts by patching analytics readers or archived docs before deleting the remaining live seam, it is starting at the wrong end

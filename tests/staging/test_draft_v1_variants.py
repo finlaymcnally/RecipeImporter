@@ -122,7 +122,7 @@ def test_ingredient_parser_options_override_missing_unit_policy():
 
     legacy_draft = recipe_candidate_to_draft_v1(
         candidate,
-        ingredient_parser_options={"ingredient_missing_unit_policy": "legacy_medium"},
+        ingredient_parser_options={"ingredient_missing_unit_policy": "medium"},
     )
     assert _first_ingredient_line(legacy_draft)["raw_unit_text"] == "medium"
 

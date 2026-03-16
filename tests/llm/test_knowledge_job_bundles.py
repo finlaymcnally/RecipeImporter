@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from cookimport.core.models import ChunkLane, KnowledgeChunk
 from cookimport.llm.codex_farm_knowledge_jobs import (
     COMPACT_KNOWLEDGE_JOB_FORMAT,
     LEGACY_KNOWLEDGE_JOB_FORMAT,
@@ -240,3 +243,49 @@ def test_build_knowledge_jobs_compact_format_reduces_bundle_size(tmp_path: Path)
     assert "features_subset" not in compact_payload["context"]["blocks_before"][0]
     table_hint = compact_payload["chunk"]["blocks"][0]["table_hint"]
     assert "markdown" not in table_hint
+
+
+def test_build_knowledge_jobs_skips_noise_lane_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-noise",
+                lane=ChunkLane.NOISE,
+                text="Advertisement copy.",
+                blockIds=[4],
+            )
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": 4, "text": "Advertisement copy."},
+        ],
+        knowledge_spans=[
+            NonRecipeSpan(
+                span_id="nr.knowledge.4.5",
+                category="knowledge",
+                block_start_index=4,
+                block_end_index=5,
+                block_indices=[4],
+                block_ids=["b4"],
+            )
+        ],
+        recipe_spans=[],
+        workbook_slug="book",
+        source_hash="hash123",
+        out_dir=tmp_path / "in",
+    )
+
+    assert report.jobs_written == 0
+    assert report.skipped_chunk_count == 1
+    assert report.skipped_lane_counts == {"noise": 1}
+    assert sorted((tmp_path / "in").glob("*.json")) == []

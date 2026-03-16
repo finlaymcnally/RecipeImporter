@@ -1433,19 +1433,19 @@ def test_evaluate_canonical_text_omits_legacy_alias_artifacts(tmp_path: Path) ->
     assert not (out_dir / "false_positive_preds.jsonl").exists()
 
 
-def test_evaluate_canonical_text_auto_matches_legacy_metrics(
+def test_evaluate_canonical_text_auto_matches_global_metrics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     gold_export_root, stage_predictions_path, extracted_archive_path = _write_minimal_canonical_fixture(
         tmp_path
     )
-    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "legacy")
-    legacy_result = evaluate_canonical_text(
+    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "global")
+    global_result = evaluate_canonical_text(
         gold_export_root=gold_export_root,
         stage_predictions_json=stage_predictions_path,
         extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "legacy",
+        out_dir=tmp_path / "global",
     )
 
     monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "auto")
@@ -1456,26 +1456,26 @@ def test_evaluate_canonical_text_auto_matches_legacy_metrics(
         out_dir=tmp_path / "auto",
     )
 
-    legacy_report = legacy_result["report"]
+    global_report = global_result["report"]
     auto_report = auto_result["report"]
-    assert legacy_report["overall_line_accuracy"] == pytest.approx(
+    assert global_report["overall_line_accuracy"] == pytest.approx(
         auto_report["overall_line_accuracy"]
     )
-    assert legacy_report["macro_f1_excluding_other"] == pytest.approx(
+    assert global_report["macro_f1_excluding_other"] == pytest.approx(
         auto_report["macro_f1_excluding_other"]
     )
-    assert legacy_report["wrong_label_blocks"] == auto_report["wrong_label_blocks"]
-    assert auto_report["alignment"]["alignment_strategy"] == "legacy"
+    assert global_report["wrong_label_blocks"] == auto_report["wrong_label_blocks"]
+    assert auto_report["alignment"]["alignment_strategy"] == "global"
     assert auto_report["alignment"]["alignment_requested_strategy"] == "auto"
     assert auto_report["alignment"]["alignment_fallback_used"] is True
     assert (
         auto_report["alignment"]["alignment_fallback_reason"]
         == canonical_eval._ALIGNMENT_FAST_DEPRECATION_REASON
     )
-    assert legacy_report["alignment"]["alignment_strategy"] == "legacy"
+    assert global_report["alignment"]["alignment_strategy"] == "global"
 
 
-def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_legacy(
+def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_global(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1491,7 +1491,7 @@ def test_evaluate_canonical_text_fast_request_is_deprecated_and_forced_to_legacy
         out_dir=tmp_path / "fast-deprecated",
     )
     alignment = result["report"]["alignment"]
-    assert alignment["alignment_strategy"] == "legacy"
+    assert alignment["alignment_strategy"] == "global"
     assert alignment["alignment_requested_strategy"] == "fast"
     assert alignment["alignment_fallback_used"] is True
     assert alignment["alignment_fallback_reason"] == canonical_eval._ALIGNMENT_FAST_DEPRECATION_REASON

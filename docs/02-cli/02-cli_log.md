@@ -8,6 +8,22 @@ read_when:
 
 This file is the anti-loop log for CLI work. It now keeps only notes for surfaces that still exist in the current CLI.
 
+### 2026-03-16_15.07.07 interactive chooser versus persistent Settings gap
+
+Preserved finding:
+- the interactive CLI now has two different settings surfaces, and they are easy to conflate during refactor follow-through
+
+Current rule:
+- treat `choose_run_settings(...)` as the refactor-aware top-tier surface for import and benchmark flows
+- treat the persistent `Settings` menu as a narrower global-default editor, not the full product settings surface
+- if an operator setting seems "missing" interactively, first decide whether it belongs in the per-run chooser or the persistent Settings screen before adding a third place to edit it
+
+Known current gap:
+- the persistent Settings screen still does not expose several ordinary operator settings now documented elsewhere, including `pdf_ocr_policy`, `llm_tags_pipeline`, `tag_catalog_json`, and Codex path/context defaults
+
+Anti-loop note:
+- do not assume that a setting appearing in `RunSettings` or top-tier chooser flows automatically means the persistent Settings screen already edits it
+
 ### 2026-03-15_23.20.00 retained surface only
 
 Cleanup rule:

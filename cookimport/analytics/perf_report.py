@@ -16,7 +16,6 @@ from cookimport.paths import history_csv_for_output
 from cookimport.config.run_settings import summarize_run_config_payload
 
 _RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.\d{2}$")
-_LEGACY_RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
 _RUNTIME_PLACEHOLDER_VALUES = {"none", "null", "n/a"}
 _DEFAULT_REASONING_PLACEHOLDER_VALUES = {
@@ -222,11 +221,6 @@ def _parse_run_dir_timestamp(folder_name: str) -> dt.datetime | None:
     if _RUN_DIR_PATTERN.match(folder_name):
         try:
             return dt.datetime.strptime(folder_name, "%Y-%m-%d_%H.%M.%S")
-        except ValueError:
-            return None
-    if _LEGACY_RUN_DIR_PATTERN.match(folder_name):
-        try:
-            return dt.datetime.strptime(folder_name, "%Y-%m-%d-%H-%M-%S")
         except ValueError:
             return None
     return None

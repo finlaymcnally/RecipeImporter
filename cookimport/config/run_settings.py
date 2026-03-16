@@ -264,7 +264,7 @@ class IngredientUnitCanonicalizer(str, Enum):
 
 
 class IngredientMissingUnitPolicy(str, Enum):
-    legacy_medium = "legacy_medium"
+    medium = "medium"
     null = "null"
     each = "each"
 
@@ -710,7 +710,7 @@ class RunSettings(BaseModel):
             order=72,
             description=(
                 "Policy when quantity exists but unit is missing: "
-                "legacy_medium, null, or each."
+                "medium, null, or each."
             ),
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
@@ -1073,7 +1073,7 @@ class RunSettings(BaseModel):
         ),
     )
     codex_farm_knowledge_context_blocks: int = Field(
-        default=12,
+        default=2,
         ge=0,
         le=500,
         json_schema_extra=_ui_meta(
@@ -1681,7 +1681,7 @@ def build_run_settings(
     codex_farm_root: Path | str | None = None,
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 12,
+    codex_farm_knowledge_context_blocks: int = 2,
     tag_catalog_json: Path | str = "data/tagging/tag_catalog.json",
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
     mapping_path: Path | None = None,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shlex
 import threading
@@ -165,7 +164,6 @@ _LINE_ROLE_CODEX_RETRY_BASE_SECONDS = 1.5
 _LINE_ROLE_CACHE_SCHEMA_VERSION = "canonical_line_role_cache.v3"
 _LINE_ROLE_CACHE_ROOT_ENV = "COOKIMPORT_LINE_ROLE_CACHE_ROOT"
 _LINE_ROLE_PROGRESS_MAX_UPDATES = 100
-_LINE_ROLE_PROMPT_FORMAT_ENV = "COOKIMPORT_LINE_ROLE_PROMPT_FORMAT"
 _LINE_ROLE_CODEX_FARM_PIPELINE_ID = "line-role.canonical.v1"
 _LINE_ROLE_CODEX_FARM_DEFAULT_CMD = "codex-farm"
 _SYNTAX_OWNED_LABELS = {
@@ -1072,10 +1070,7 @@ def _line_role_progress_interval(total_tasks: int) -> int:
 
 
 def _resolve_line_role_prompt_format() -> LineRolePromptFormat:
-    raw_value = str(os.getenv(_LINE_ROLE_PROMPT_FORMAT_ENV, "compact_v1") or "").strip().lower()
-    if raw_value == "compact_v1":
-        return "compact_v1"
-    return "legacy"
+    return "compact_v1"
 
 
 def _resolve_line_role_codex_farm_cmd(

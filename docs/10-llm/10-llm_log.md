@@ -17,11 +17,51 @@ Problem captured:
 
 Durable cleanup:
 - Removed QualitySuite Codex-permutation notes because `bench quality-run` is deterministic-only now and rejects `--include-codex-farm`.
-- Removed recipe-only prediction-run wording; `generate_pred_run_artifacts(...)` now plans or runs recipe Codex, pass4 knowledge, line-role, and prelabel surfaces.
+- Removed recipe-only prediction-run wording; `generate_pred_run_artifacts(...)` now plans or runs recipe Codex, knowledge-stage, line-role, and prelabel surfaces.
 - Removed retired env-gate and old interactive-editor history that no longer explains current behavior.
 
 Anti-loop note:
 - If docs and CLI disagree, trust the current command boundary in `cookimport/cli.py` and `cookimport/labelstudio/ingest.py` before preserving more historical wording.
+
+## 2026-03-16 prompt preview reconstruction and stage-key cutover
+
+Problem captured:
+- zero-token prompt preview needed to work on existing benchmark/stage roots even when no live Codex run assets were present
+- prompt exports and sampled artifacts were still carrying pass-slot file/row naming in places where the runtime had already moved to semantic stage names
+- prompt-budget review was hard to act on without one concrete audit of where the tokens were really going
+
+Durable decisions:
+- prompt preview reconstruction composes existing recipe job builders, knowledge job builders, and canonical line-role prompt builders rather than inventing a second preview-only prompt stack
+- when `var/run_assets/<run_id>/` is absent, preview reconstruction should fall back to pipeline metadata from `llm_pipelines/`
+- prompt artifact rows/files should key off semantic stage metadata only:
+  - `stage_key`
+  - `stage_label`
+  - `stage_artifact_stem`
+- the deleted all-method per-source scheduler branch was dead test coverage, not a live runtime contract
+
+Evidence worth keeping:
+- audited preview run totals came out to about `663k` input tokens on an `~86k` token book
+- the lowest-risk savings in that run were:
+  - drop recipe `draft_hint` (`~92k`)
+  - trim knowledge context blocks to `2` per side (`~121k`)
+  - skip noise-lane knowledge prompts (`~25k`)
+  - trim line-role neighbor context outside recipe spans (`~27k` or more depending on aggressiveness)
+
+Anti-loop note:
+- if prompt preview work starts reintroducing `task1` / `task4` / `task5` names into new artifacts, the regression is in artifact naming, not the underlying prompt builders
+
+## 2026-03-16 prompt-cut shared builder seam
+
+Problem captured:
+- it was tempting to implement prompt-volume reductions only in preview rendering, which would make token audits look better without changing live Codex cost
+
+Durable decisions:
+- recipe prompt body cuts should land in the shared serializer for `MergedRecipeRepairInput`, not only in `prompt_preview.py`
+- knowledge prompt count cuts should land in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
+- if `build_knowledge_jobs(...)` returns no work, `run_codex_farm_knowledge_harvest(...)` must short-circuit before Codex invocation or empty-manifest writing
+
+Anti-loop note:
+- if preview token counts drop but live runs do not, the optimization probably landed in a preview-only seam
 
 ## 2026-03-15 prompt artifact seams and Codex backend map
 
@@ -54,7 +94,7 @@ Durable decisions:
 Anti-loop note:
 - If a merged-repair run fails before useful output, inspect schema validity, fixed-behavior policy, and trace capture before rewriting prompt text.
 
-## 2026-03-14 recipe pipeline versus pass4 knowledge
+## 2026-03-14 recipe pipeline versus knowledge-stage
 
 Problem captured:
 - `codex-farm-2stage-repair-v1` made it easy to conflate the recipe sub-pipeline with the whole Codex-backed workflow.
@@ -62,10 +102,10 @@ Problem captured:
 Durable decisions:
 - `llm_recipe_pipeline` and `llm_knowledge_pipeline` are separate surfaces.
 - Switching between `codex-farm-3pass-v1` and `codex-farm-2stage-repair-v1` changes only the recipe extraction path.
-- Pass4 remains its own later stage with the same `pass4_knowledge` artifact tree.
+- Knowledge extraction remains its own later stage with the same `knowledge` artifact tree.
 
 Anti-loop note:
-- If a recipe pipeline rename seems to imply pass4 moved or vanished, inspect `llm_knowledge_pipeline` wiring first.
+- If a recipe pipeline rename seems to imply knowledge-stage moved or vanished, inspect `llm_knowledge_pipeline` wiring first.
 
 ## 2026-03-13 structural audits and new recipe-pipeline seams
 
@@ -98,10 +138,10 @@ Durable decisions:
 Anti-loop note:
 - If a run used Codex "mysteriously," inspect decision metadata before touching prompt or runner code.
 
-## 2026-03-06 plan mode, compact defaults, and pass4 benchmark enablement
+## 2026-03-06 plan mode, compact defaults, and knowledge-stage benchmark enablement
 
 Problem captured:
-- Plan mode was initially too shallow to be useful, compact defaults were controlled in too many places, and benchmark prediction generation had dropped pass4 settings.
+- Plan mode was initially too shallow to be useful, compact defaults were controlled in too many places, and benchmark prediction generation had dropped knowledge-stage settings.
 
 Durable decisions:
 - `--codex-execution-policy plan` runs deterministic prep first, then writes `codex_execution_plan.json` before stopping.
@@ -109,11 +149,11 @@ Durable decisions:
   - `cookimport/config/run_settings.py`
   - CLI defaults in `cookimport/cli.py`
   - canonical line-role prompt-format resolution
-- Benchmark prediction generation now forwards pass4 settings into shared `RunSettings`.
+- Benchmark prediction generation now forwards knowledge-stage settings into shared `RunSettings`.
 - `knowledge/<workbook_slug>/block_classifications.jsonl` is the primary outside-span contract; `snippets.jsonl` remains compatibility/reviewer evidence.
 
 Anti-loop note:
-- If compact prompts or pass4 behavior look half-enabled, check control-surface alignment and shared `RunSettings` wiring before editing prompts.
+- If compact prompts or knowledge-stage behavior look half-enabled, check control-surface alignment and shared `RunSettings` wiring before editing prompts.
 
 ## 2026-03-03 runner reliability and prompt provenance hardening
 
@@ -136,7 +176,7 @@ Problem captured:
 
 Durable decisions:
 - Interactive model discovery uses `codex-farm models list --json`.
-- Subprocess-backed recipe/pass4/pass5 flows validate pipeline IDs up front with `codex-farm pipelines list --root <pack> --json`.
+- Subprocess-backed recipe/knowledge-stage/pass5 flows validate pipeline IDs up front with `codex-farm pipelines list --root <pack> --json`.
 - Runner resolves each pipeline's `output_schema_path` and passes it as `--output-schema`.
 - When `process --json` returns a `run_id`, runner can enrich failures with `codex-farm run errors --run-id ... --json`.
 - Pass metadata persists `telemetry_report`, `autotune_report`, and compact CSV `telemetry` slices.
@@ -145,14 +185,14 @@ Durable decisions:
 Anti-loop note:
 - Do not duplicate pipeline/schema/telemetry logic in each orchestrator; keep it centralized in `cookimport/llm/codex_farm_runner.py`.
 
-## 2026-02-25 pass4 and pass5 artifact boundaries
+## 2026-02-25 knowledge-stage and pass5 artifact boundaries
 
 Problem captured:
-- Missing pass4/pass5 artifacts were often misdiagnosed as prompt-quality problems instead of wiring regressions.
+- Missing knowledge-stage/pass5 artifacts were often misdiagnosed as prompt-quality problems instead of wiring regressions.
 
 Durable decisions:
-- Keep pass4 table hints aligned across single-file, split-merge, and processed-output paths.
-- When pass4 is off, deterministic knowledge-lane chunk mapping still backfills stage knowledge labels.
+- Keep knowledge-stage table hints aligned across single-file, split-merge, and processed-output paths.
+- When knowledge extraction is off, deterministic knowledge-lane chunk mapping still backfills stage knowledge labels.
 - Pass5 writes:
   - `tags/<workbook_slug>/r{index}.tags.json`
   - `tags/<workbook_slug>/tagging_report.json`
@@ -161,4 +201,4 @@ Durable decisions:
 - `codex_farm_failure_mode` controls pass5 hard-stop versus warn-and-continue behavior.
 
 Anti-loop note:
-- If `KNOWLEDGE=0` appears with pass4 off, or `tags/` is missing after stage, debug wiring and run settings before changing prompt assets.
+- If `KNOWLEDGE=0` appears with knowledge extraction off, or `tags/` is missing after stage, debug wiring and run settings before changing prompt assets.

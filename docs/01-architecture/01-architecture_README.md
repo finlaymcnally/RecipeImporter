@@ -86,6 +86,11 @@ Architecture priorities:
 ### Known current debt
 
 - historical benchmark/follow-up compatibility reads should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
+- the remaining burn-the-boats debt is concentrated in tooling and hidden surfaces, not the core runtime:
+  - hidden legacy CLI/run-setting knobs
+  - prompt/bundle helpers or fixtures that still model `pass1`/`pass2`/`pass3`
+  - historical analytics/follow-up readers
+- `scripts/benchmark_cutdown_for_external_ai.py` is the main remaining external-review seam that can accidentally re-teach old topology. Keep its write path semantic-stage-only and confine any archived `pass*` handling to narrow read-side normalization.
 
 ## Docs Ownership Map
 

@@ -21,6 +21,7 @@ from .codex_farm_contracts import (
     StructuralAuditResult,
     classify_pass3_structural_audit,
     load_contract_json,
+    serialize_merged_recipe_repair_input,
 )
 from .codex_farm_ids import bundle_filename, ensure_recipe_id, sanitize_for_filename
 from .codex_farm_runner import (
@@ -183,13 +184,13 @@ def _build_recipe_correction_input(
     workbook_slug: str,
     source_hash: str,
     included_blocks: list[dict[str, Any]],
-    run_settings: RunSettings,
 ) -> MergedRecipeRepairInput:
-    deterministic_draft = recipe_candidate_to_draft_v1(
-        state.recipe,
-        ingredient_parser_options=run_settings.to_run_config_dict(),
-        instruction_step_options=run_settings.to_run_config_dict(),
+    recipe_candidate_hint = state.recipe.model_dump(
+        mode="json",
+        by_alias=True,
+        exclude_none=True,
     )
+    recipe_candidate_hint.pop("provenance", None)
     return MergedRecipeRepairInput(
         recipe_id=state.recipe_id,
         workbook_slug=workbook_slug,
@@ -201,12 +202,7 @@ def _build_recipe_correction_input(
             (int(block.get("index", 0)), str(block.get("text") or "").strip())
             for block in included_blocks
         ],
-        recipe_candidate_hint=state.recipe.model_dump(
-            mode="json",
-            by_alias=True,
-            exclude_none=True,
-        ),
-        draft_hint=dict(deterministic_draft),
+        recipe_candidate_hint=recipe_candidate_hint,
         authority_notes=[
             "authoritative_source=recipe_span_blocks",
             "correct_intermediate_recipe_candidate",
@@ -472,11 +468,10 @@ def _run_single_correction_recipe_pipeline(
             workbook_slug=workbook_slug,
             source_hash=source_hash,
             included_blocks=included_blocks,
-            run_settings=run_settings,
         )
         correction_inputs_by_recipe_id[state.recipe_id] = correction_input
         _write_json(
-            correction_input.model_dump(mode="json", by_alias=True),
+            serialize_merged_recipe_repair_input(correction_input),
             correction_in_dir / state.bundle_name,
         )
 

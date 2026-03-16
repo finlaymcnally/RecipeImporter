@@ -37,7 +37,7 @@ For the rest of this phase series, treat the following semantic keys from `docs/
 - [x] (2026-03-15_23.40.19) Renamed new raw stage-owned storage and run-level reporting so pass-slot names disappear from new stage and prompt outputs.
 - [x] (2026-03-16_00.25.40) Removed compatibility fields from benchmark upload-bundle rendering and starter-pack/casebook recipe-stage output; bundle analysis now emits semantic `recipe_stages` instead of `pass2_stage` / `pass3_stage`.
 - [x] (2026-03-16_00.25.40) Updated benchmark/follow-up tests and fixture helpers for semantic recipe stages, `recipe_manifest.json`, `knowledge_manifest.json`, and the semantic knowledge prompt artifact.
-- [x] (2026-03-15_23.40.19) Added focused tests for deterministic, three-pass, merged-repair, and pass4 knowledge cases under the new semantic-only naming.
+- [x] (2026-03-15_23.40.19) Added focused tests for deterministic, three-pass, merged-repair, and knowledge-stage cases under the new semantic-only naming.
 - [x] (2026-03-15_23.40.19) Updated short folder notes and current docs so future reviewers can understand the new observability contract from checked-in documentation alone.
 
 ## Surprises & Discoveries
@@ -58,7 +58,7 @@ For the rest of this phase series, treat the following semantic keys from `docs/
   Evidence: `prompt_type_samples_from_full_prompt_log.md` initially rendered headings like `## pass1 (Chunking)` until heading generation was switched to semantic `stage_key`.
 
 - Observation: follow-up tooling needed explicit local-path fallback coverage even after bundle analysis stopped using pass-slot stage names.
-  Evidence: `cf-debug audit-pass4-knowledge` only returned fully green against the checked-in pass4 sample bundle after `followup_bundle.py` was taught to accept both semantic local files (`knowledge_manifest.json`) and historical local files (`pass4_knowledge_manifest.json`, `prediction-run/prompt_budget_summary.json`).
+  Evidence: `cf-debug audit-knowledge` only returned fully green against the checked-in knowledge-stage sample bundle after `followup_bundle.py` was taught to accept both semantic local files (`knowledge_manifest.json`) and historical local files (`knowledge_manifest.json`, `prediction-run/prompt_budget_summary.json`).
 
 ## Decision Log
 
@@ -108,7 +108,7 @@ Benchmarking adds a fourth surface. `cookimport/bench/upload_bundle_v1_render.py
 
 For this plan, define the key terms plainly:
 
-A “legacy pass slot” means the old numbered storage or report position such as `pass1`, `pass2`, `pass3`, `pass4`, or `pass5`, including names like `pass2_schemaorg` and fields like `pass2_stage`.
+A “legacy pass slot” means the old numbered storage or report position such as `pass1`, `pass2`, `pass3`, `knowledge-stage`, or `pass5`, including names like `pass2_schemaorg` and fields like `pass2_stage`.
 
 A “semantic stage” means the job that actually ran, such as `chunking`, `schemaorg`, `final`, `merged_repair`, `knowledge`, `tags`, or `write_outputs` for the current implementation, and the more final keys such as `label_det` or `build_final_recipe` once later phases land.
 
@@ -280,7 +280,7 @@ Expected outcome:
 
 The change is accepted only if the same semantic stage naming is visible across every major reporting surface for the same run root and the old pass-slot naming is absent from new outputs.
 
-For a deterministic stage run, `stage_observability.json` must exist and must not claim absent recipe LLM stages. `run_summary.json` and `run_summary.md` must include an ordered observed-stage view derived from that file. `run_manifest.json` must point to `stage_observability.json`. None of those files may contain `pass1`, `pass2`, `pass3`, `pass4`, `pass5`, `legacy_slot`, or `compatibility_aliases`.
+For a deterministic stage run, `stage_observability.json` must exist and must not claim absent recipe LLM stages. `run_summary.json` and `run_summary.md` must include an ordered observed-stage view derived from that file. `run_manifest.json` must point to `stage_observability.json`. None of those files may contain `pass1`, `pass2`, `pass3`, `knowledge-stage`, `pass5`, `legacy_slot`, or `compatibility_aliases`.
 
 For a classic three-pass recipe run, the stage index must include semantic recipe stages for `chunking`, `schemaorg`, and `final`, plus any optional knowledge or tags stages that actually ran. Prompt artifact outputs must use those semantic labels as their display names and must not include pass-slot synonyms.
 

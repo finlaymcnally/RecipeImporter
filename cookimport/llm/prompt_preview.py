@@ -8,7 +8,10 @@ from typing import Any, Mapping
 
 from cookimport.core.slug import slugify_name
 from cookimport.llm.canonical_line_role_prompt import build_canonical_line_role_prompt
-from cookimport.llm.codex_farm_contracts import MergedRecipeRepairInput
+from cookimport.llm.codex_farm_contracts import (
+    MergedRecipeRepairInput,
+    serialize_merged_recipe_repair_input,
+)
 from cookimport.llm.codex_farm_knowledge_jobs import (
     COMPACT_KNOWLEDGE_JOB_FORMAT,
     build_knowledge_jobs,
@@ -57,7 +60,7 @@ def write_prompt_preview_for_existing_run(
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 12,
+    codex_farm_knowledge_context_blocks: int = 2,
     atomic_block_splitter: str = "atomic-v1",
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
@@ -298,7 +301,6 @@ def _build_recipe_preview_rows(
             or draft.get("@id")
             or f"urn:recipe-preview:{context.workbook_slug}:{recipe_index}"
         ).strip()
-        draft_hint = context.final_draft_by_index.get(recipe_index, {})
         input_payload = MergedRecipeRepairInput(
             recipe_id=recipe_id,
             workbook_slug=context.workbook_slug,
@@ -311,16 +313,16 @@ def _build_recipe_preview_rows(
                 for block in included_blocks
             ],
             recipe_candidate_hint=_recipe_candidate_hint_from_draft(draft),
-            draft_hint=draft_hint,
             authority_notes=[
                 "authoritative_source=recipe_span_blocks",
                 "correct_intermediate_recipe_candidate",
                 "emit_linkage_payload_for_deterministic_final_assembly",
             ],
-        ).model_dump(mode="json", by_alias=True)
+        )
+        serialized_input = serialize_merged_recipe_repair_input(input_payload)
         input_path = in_dir / f"r{recipe_index}.json"
         input_path.write_text(
-            json.dumps(input_payload, indent=2, sort_keys=True) + "\n",
+            json.dumps(serialized_input, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         rows.append(
@@ -329,7 +331,7 @@ def _build_recipe_preview_rows(
                 recipe_id=recipe_id,
                 source_file=context.source_file,
                 pipeline_assets=pipeline_assets,
-                input_payload=input_payload,
+                input_payload=serialized_input,
                 input_path=input_path,
                 stage_key="recipe_llm_correct_and_link",
                 stage_label="Recipe Correction",
@@ -892,7 +894,6 @@ def _discover_source_hash(
 
 
 def _recipe_candidate_hint_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
-    provenance = _coerce_dict(draft.get("recipeimport:provenance"))
     recipe_instructions = draft.get("recipeInstructions")
     if not isinstance(recipe_instructions, list):
         recipe_instructions = []
@@ -903,7 +904,6 @@ def _recipe_candidate_hint_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
         "recipeInstructions": list(recipe_instructions),
         "description": draft.get("description"),
         "recipeYield": draft.get("recipeYield"),
-        "provenance": provenance,
     }
 
 

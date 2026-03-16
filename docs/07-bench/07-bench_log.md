@@ -193,27 +193,27 @@ Anti-loop note:
 
 - if `include_codex_farm=True` stops producing Codex variants, check for accidental re-normalization of Codex payloads
 
-## 10. 2026-03-06 QualitySuite deterministic-only guard, pass4 wiring, and selective retry
+## 10. 2026-03-06 QualitySuite deterministic-only guard, knowledge-stage wiring, and selective retry
 
 Problem captured:
 
 - QualitySuite metadata could drift from the real executable baseline
 - Codex-enabled settings could sneak into supposedly deterministic quality runs
-- pass4 benchmark evidence existed but was inconsistently surfaced
+- knowledge-stage benchmark evidence existed but was inconsistently surfaced
 - partial pass failures needed salvage at the pass boundary, not whole-book reruns
 
 Durable decisions:
 
 - `bench quality-run` is deterministic-only end-to-end
 - preserve both `requested_run_settings` and normalized executable `run_settings`
-- pass4 benchmark helpers keep baseline variants off and enable pass4 only in Codex variants
-- `knowledge/<workbook_slug>/block_classifications.jsonl` is the preferred scored pass4 artifact for outside-span `KNOWLEDGE`
-- `cf-debug` now has pass4-specific selectors and `audit-pass4-knowledge`
+- knowledge-stage benchmark helpers keep baseline variants off and enable knowledge-stage only in Codex variants
+- `knowledge/<workbook_slug>/block_classifications.jsonl` is the preferred scored knowledge-stage artifact for outside-span `KNOWLEDGE`
+- `cf-debug` now has knowledge-stage selectors and `audit-knowledge`
 - benchmark selective retry retries only missing bundle files for the current failed pass and records detailed truth in `raw/llm/<workbook_slug>/llm_manifest.json`
 
 Anti-loop note:
 
-- if pass4 “ran” but benchmark lift is flat, inspect the narrow scored upgrade seam before assuming pass4 failed
+- if knowledge-stage “ran” but benchmark lift is flat, inspect the narrow scored upgrade seam before assuming knowledge-stage failed
 
 ## 11. 2026-03-13 execution semantics and single-root output contract
 
@@ -287,13 +287,141 @@ Durable decisions:
   - `build_final_recipe`
 - starter-pack and casebook rendering should present chunking separately from recipe correction/finalization rather than flattening everything into pass-slot labels
 - the external-AI cutdown path should read semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics directly instead of reconstructing pass-slot trees
-- historical bundles may still be read through narrow compatibility adapters for old pass4 sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
+- historical bundles may still be read through narrow compatibility adapters for old knowledge-stage sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
 
 Anti-loop note:
 
 - if external-review output starts showing pass-slot field names again, fix the normalized model or renderer instead of adding more compatibility prose around it
 
-## 15. 2026-03-15 QualitySuite guard order and payload projection
+## 15. 2026-03-16 bundle follow-through, scorer regressions, and retention boundaries
+
+### 2026-03-16_10.20.11 upload-bundle semantic contract guard
+
+Problem captured:
+
+- bundle helpers were at risk of reintroducing legacy recipe-topology metadata even after the renderer/model seam had moved to semantic stages
+
+Durable decisions:
+
+- `upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only
+- `followup_bundle.py` should treat `knowledge_manifest_json` as the live knowledge-manifest locator
+- archived old-format bundles belong in fixture rewrite/normalization code during test setup, not in new production compatibility branches
+
+Anti-loop note:
+
+- if a fix proposal adds new pass-slot bundle fields to make stale fixtures happy, update the fixture instead
+
+### 2026-03-16_11.06.13, 2026-03-16_12.02.26, and 2026-03-16_15.26.00 external-AI cutdown semantic-stage cutover
+
+Problem captured:
+
+- `scripts/benchmark_cutdown_for_external_ai.py` had already switched some outer surfaces to semantic names, but prompt reconstruction, scoring summaries, and starter-pack fields still rebuilt `pass1`/`pass2`/`pass3` internals
+
+Durable decisions:
+
+- prompt rows, sampled prompt logs, and runtime call inventories should be keyed by semantic `stage_key`
+- recipe triage should read `recipe_manifest.json` stage states plus `recipe_correction_audit/*.json` instead of synthetic pass-slot trees
+- recipe artifacts now live under `recipe_correction/{in,out}` and `build_final_recipe/out`; `chunking/schemaorg/final` should not be rebuilt as a live contract
+- archived prompt logs may still carry `pass1` / `pass2` / `pass3` / `pass4`; keep that compatibility isolated to the read-side stage-key normalizer
+
+Anti-loop note:
+
+- if starter-pack output starts showing synthetic `pass*` fields again, the cutdown writer regressed even if old logs still load
+
+### 2026-03-16_12.21.38 upload-bundle functional check
+
+Problem captured:
+
+- there was a risk that current follow-up readers worked only on rich paired bundles and silently broke on sparse single-profile bundles
+
+Durable decisions:
+
+- sparse `upload_bundle_v1` bundles are valid when the topology/index files load and bundle-local selectors can resolve
+- request-template generation must be bundle-aware:
+  - choose a real recipe/outside-span case when present
+  - otherwise emit an empty-selector ask so `build-followup` still succeeds
+- `--include-knowledge-source-key` must resolve through any run that has a bundle knowledge row, not only Codex-enabled paired runs
+
+Evidence worth keeping:
+
+- the checked bundle at `data/golden/benchmark-vs-golden/2026-03-16_12.14.35/single-offline-benchmark/saltfatacidheatcutdown/upload_bundle_v1` loaded cleanly with `topline.run_count=1`, `pair_count=0`, and semantic single-correction recipe context
+
+Anti-loop note:
+
+- empty case files on a sparse bundle are usually legitimate sparsity, not artifact breakage
+
+### 2026-03-16_12.30.30 and 2026-03-16_12.41.00 canonical scorer-pointer and atomic-artifact regressions
+
+Problem captured:
+
+- canonical benchmark quality cratered after label-first reuse even though the run had healthy `line-role-pipeline/` outputs
+- the scorer pointers stayed on stage-backed artifacts, and the first reuse path also serialized source-block coordinates instead of atomic-line coordinates
+
+Durable decisions:
+
+- canonical benchmark helpers must trust the one canonical pointer pair and rewire it explicitly to `line-role-pipeline/stage_block_predictions.json` plus `line-role-pipeline/extracted_archive.json` when that pair is the scored surface
+- authoritative Stage 2 reuse still has to serialize the scored artifact pair through the canonical projection builders, not by copying `label_first_result.archive_blocks` or source-block predictions directly
+
+Evidence worth keeping:
+
+- bad regression run symptom:
+  - projection archive contained `1471` nonempty rows, but `eval_report.json` matched only `85` nonempty prediction blocks because the scorer was still reading the wrong manifest pointers
+- source-block serialization also collapsed the scored surface from `1768` atomic rows to `1471` source-block rows on `saltfatacidheatcutdown`
+
+Anti-loop note:
+
+- if canonical metrics collapse after a label-first refactor, inspect manifest pointers and coordinate system before retuning labels or aligner math
+
+### 2026-03-16_13.33.17 benchmark GC retention boundary
+
+Problem captured:
+
+- disk cleanup around benchmark runs was easy to confuse with destructive history cleanup
+
+Durable decisions:
+
+- `cookimport bench gc` is benchmark-only retention
+- the aggressive safe cleanup path can prune old benchmark roots plus matching processed-output roots while preserving `performance_history.csv`
+- GC should refuse deletion when durable CSV history cannot be confirmed
+
+Anti-loop note:
+
+- do not script ad hoc `rm -rf` cleanup of benchmark roots when `bench gc` already knows how to preserve history
+
+### 2026-03-16_14.17.02 canonical eval legacy alias purge
+
+Problem captured:
+
+- canonical eval still synthesized span-style alias files that no live scorer or reviewer contract needed
+
+Durable decisions:
+
+- `_legacy_alias_rows` and files like `missed_gold_spans.jsonl` / `false_positive_preds.jsonl` are retired
+- the live canonical diagnostics contract is the explicit line/block mismatch set plus alignment diagnostics
+
+Anti-loop note:
+
+- if tests start expecting legacy alias outputs again, update the tests rather than reviving the alias writer
+
+### 2026-03-16_14.48.06 cf-debug fixture normalization
+
+Problem captured:
+
+- checked-in `upload_bundle_v1` fixtures still used old knowledge-stage keys even though active `cf-debug` paths had already moved to semantic names
+
+Durable decisions:
+
+- current `cf-debug` tests should normalize copied bundle fixtures in temp dirs before invoking the CLI
+- the working helper path is:
+  - rewrite old knowledge index keys to current semantic names
+  - materialize minimal local knowledge artifacts
+  - append matching payload rows and locators so `knowledge_audit` and `case_export` can resolve evidence
+
+Anti-loop note:
+
+- production `cf-debug` readers should not grow fixture-only compatibility branches
+
+## 16. 2026-03-15 QualitySuite guard order and payload projection
 
 Problem captured:
 
@@ -309,7 +437,7 @@ Anti-loop note:
 
 - if QualitySuite behavior looks inconsistent, debug validation order and payload projection before relaxing strict settings loading
 
-## 16. Retired History Notice
+## 17. Retired History Notice
 
 The following removed benchmark workflows were intentionally pruned from this log:
 

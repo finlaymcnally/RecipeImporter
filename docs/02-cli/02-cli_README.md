@@ -96,7 +96,7 @@ Menu options:
 - `Label Studio export: Export completed labels into golden artifacts`
 - `Evaluate vs freeform gold: Generate predictions and compare to your labels`
 - `Dashboard: Build lifetime stats dashboard HTML`
-- `Settings: Change worker/OCR/output defaults`
+- `Settings: Change saved interactive defaults`
 - `Exit: Close the tool`
 
 Availability rule:
@@ -112,6 +112,18 @@ Menu numbering and shortcuts:
 ### [J] Settings
 
 `Settings` edits global defaults in `cookimport.json`.
+
+Persistent `Settings` now covers the saved operator defaults used by interactive stage/benchmark flows:
+- workers and all-method scheduler/sharding defaults
+- EPUB extraction defaults plus `pdf_ocr_policy`
+- webschema extractor/policy/min-threshold defaults
+- saved recipe/knowledge/tags pipeline defaults
+- saved Codex command/path/model/reasoning/context defaults
+- tag-catalog path, output root, split sizing, warm-models, and Label Studio credentials
+
+Important split:
+- the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks CodexFarm vs vanilla and benchmark-specific line-role / knowledge toggles
+- the persistent `Settings` screen now provides the saved defaults that feed those interactive flows, but it still does not expose benchmark-lab/internal-only tuning seams such as parser internals, scoring internals, or hidden pipeline-id compatibility fields
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Recipe pipeline for this run?`

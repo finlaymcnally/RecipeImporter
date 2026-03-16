@@ -227,6 +227,113 @@ def test_load_settings_preserves_stale_sequence_matcher_key(
 
     assert settings["benchmark_sequence_matcher"] == "fallback"
 
+
+def test_load_settings_includes_expanded_operator_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "cookimport.json"
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", config_path)
+
+    settings = cli._load_settings()
+
+    assert settings["pdf_ocr_policy"] == "auto"
+    assert settings["web_schema_extractor"] == "builtin_jsonld"
+    assert settings["web_schema_policy"] == "prefer_schema"
+    assert settings["llm_knowledge_pipeline"] == "off"
+    assert settings["llm_tags_pipeline"] == "off"
+    assert settings["codex_farm_cmd"] == "codex-farm"
+    assert settings["codex_farm_context_blocks"] == 30
+    assert settings["codex_farm_knowledge_context_blocks"] == 12
+    assert settings["tag_catalog_json"] == "data/tagging/tag_catalog.json"
+    assert settings["label_studio_url"] == ""
+    assert settings["label_studio_api_key"] == ""
+
+
+def test_settings_menu_includes_expanded_operator_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_choice_values: list[str] = []
+
+    def fake_menu_select(*_args, choices, **_kwargs):
+        for choice in choices:
+            if isinstance(choice, questionary.Separator):
+                continue
+            captured_choice_values.append(str(choice.value))
+        return "back"
+
+    monkeypatch.setattr(cli, "_menu_select", fake_menu_select)
+
+    cli._settings_menu(cli._load_settings())
+
+    assert "pdf_ocr_policy" in captured_choice_values
+    assert "web_schema_extractor" in captured_choice_values
+    assert "web_schema_policy" in captured_choice_values
+    assert "llm_recipe_pipeline" in captured_choice_values
+    assert "llm_knowledge_pipeline" in captured_choice_values
+    assert "llm_tags_pipeline" in captured_choice_values
+    assert "tag_catalog_json" in captured_choice_values
+    assert "codex_farm_cmd" in captured_choice_values
+    assert "codex_farm_root" in captured_choice_values
+    assert "codex_farm_workspace_root" in captured_choice_values
+    assert "codex_farm_model" in captured_choice_values
+    assert "codex_farm_reasoning_effort" in captured_choice_values
+    assert "codex_farm_context_blocks" in captured_choice_values
+    assert "codex_farm_knowledge_context_blocks" in captured_choice_values
+    assert "label_studio_url" in captured_choice_values
+    assert "label_studio_api_key" in captured_choice_values
+
+
+def test_settings_menu_can_update_new_operator_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = cli._load_settings()
+    menu_answers = iter(
+        [
+            "pdf_ocr_policy",
+            "always",
+            "llm_tags_pipeline",
+            "codex-farm-tags-v1",
+            "web_schema_policy",
+            "schema_only",
+            "codex_farm_reasoning_effort",
+            "high",
+            "codex_farm_cmd",
+            "label_studio_url",
+            "label_studio_api_key",
+            "back",
+        ]
+    )
+    text_answers = iter(
+        [
+            "codex-farm --profile test",
+            "http://localhost:8080",
+        ]
+    )
+    password_answers = iter(["fresh-key"])
+    saved_snapshots: list[dict[str, object]] = []
+
+    monkeypatch.setattr(cli, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    monkeypatch.setattr(cli, "_prompt_text", lambda *_args, **_kwargs: next(text_answers))
+    monkeypatch.setattr(
+        cli,
+        "_prompt_password",
+        lambda *_args, **_kwargs: next(password_answers),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_save_settings",
+        lambda payload: saved_snapshots.append(dict(payload)),
+    )
+
+    cli._settings_menu(settings)
+
+    assert settings["pdf_ocr_policy"] == "always"
+    assert settings["llm_tags_pipeline"] == "codex-farm-tags-v1"
+    assert settings["web_schema_policy"] == "schema_only"
+    assert settings["codex_farm_reasoning_effort"] == "high"
+    assert settings["codex_farm_cmd"] == "codex-farm --profile test"
+    assert settings["label_studio_url"] == "http://localhost:8080"
+    assert settings["label_studio_api_key"] == "fresh-key"
+    assert saved_snapshots[-1]["label_studio_api_key"] == "fresh-key"
+
+
 def test_run_settings_payload_filter_rejects_removed_legacy_epub_extractor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

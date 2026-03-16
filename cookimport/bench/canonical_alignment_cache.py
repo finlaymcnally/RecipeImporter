@@ -38,7 +38,7 @@ def build_cache_file_key(
     payload = {
         "schema_version": CANONICAL_ALIGNMENT_CACHE_SCHEMA_VERSION,
         "normalization_version": int(normalization_version),
-        "alignment_strategy": str(alignment_strategy or "legacy"),
+        "alignment_strategy": str(alignment_strategy or "global"),
         "algo_version": int(algo_version),
         "canonical_sha256": str(canonical_normalized_sha256),
         "prediction_sha256": str(prediction_normalized_sha256),
@@ -318,7 +318,7 @@ def make_cache_entry(
     return CanonicalAlignmentCacheEntry(
         schema_version=CANONICAL_ALIGNMENT_CACHE_SCHEMA_VERSION,
         created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        alignment_strategy=str(alignment_strategy or "legacy"),
+        alignment_strategy=str(alignment_strategy or "global"),
         normalization_version=CANONICAL_ALIGNMENT_NORMALIZATION_VERSION,
         repo_alignment_algo_version=CANONICAL_ALIGNMENT_ALGO_VERSION,
         canonical_normalized_sha256=str(canonical_normalized_sha256),

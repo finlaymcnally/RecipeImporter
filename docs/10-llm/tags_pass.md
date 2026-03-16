@@ -1,13 +1,12 @@
----
-summary: "How to run the optional codex-farm pass5 tag suggestion workflow and where its artifacts live."
+summary: "How to run the optional codex-farm tags-stage suggestion workflow and where its artifacts live."
 read_when:
-  - "When enabling or debugging pass5 tag suggestion outputs"
+  - "When enabling or debugging tags-stage suggestion outputs"
   - "When editing the recipe.tags.v1 codex-farm pipeline prompt/schema assets"
 ---
 
-# Pass 5: Tag Suggestions (codex-farm)
+# Tags Stage: Tag Suggestions (codex-farm)
 
-Pass 5 is an optional codex-farm pipeline that assigns recipe tags from a provided tag catalog shortlist.
+The tags stage is an optional codex-farm pipeline that assigns recipe tags from a provided tag catalog shortlist.
 
 It is off by default and only runs when explicitly enabled.
 
@@ -20,7 +19,7 @@ From repo root:
 
 Optional knobs:
 
-- `--codex-farm-pipeline-pass5-tags recipe.tags.v1`
+- `--codex-farm-pipeline-tags recipe.tags.v1`
 - `--codex-farm-root <pack_root>` and `--codex-farm-workspace-root <dir>`
 - `--codex-farm-failure-mode fail|fallback`
 
@@ -29,9 +28,9 @@ Optional knobs:
 Per staged workbook (`<workbook_slug>`):
 
 - Raw codex-farm IO:
-  - `data/output/<ts>/raw/llm/<workbook_slug>/pass5_tags/in/*.json`
-  - `data/output/<ts>/raw/llm/<workbook_slug>/pass5_tags/out/*.json`
-  - `data/output/<ts>/raw/llm/<workbook_slug>/pass5_tags_manifest.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/tags/in/*.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/tags/out/*.json`
+  - `data/output/<ts>/raw/llm/<workbook_slug>/tags_manifest.json`
 - User-facing tag artifacts:
   - `data/output/<ts>/tags/<workbook_slug>/r{index}.tags.json`
   - `data/output/<ts>/tags/<workbook_slug>/tagging_report.json`
@@ -42,7 +41,7 @@ Run-level index:
 
 ## Pipeline assets
 
-Local default pass-5 files:
+Local default tags-stage files:
 
 - `llm_pipelines/pipelines/recipe.tags.v1.json`
 - `llm_pipelines/prompts/recipe.tags.v1.prompt.md`

@@ -1289,8 +1289,6 @@ class PdfImporter:
         if raw_backend is None and run_settings is not None:
             raw_backend = getattr(run_settings, "multi_recipe_splitter", None)
         normalized = str(raw_backend or "rules_v1").strip().lower().replace("-", "_")
-        if normalized == "legacy":
-            return "rules_v1"
         if normalized in {"off", "rules_v1"}:
             return normalized
         return "rules_v1"

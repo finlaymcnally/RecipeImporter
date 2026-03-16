@@ -252,7 +252,7 @@ def test_canonical_eval_uses_dmp_and_reports_dmp_telemetry(
     gold_export_root, stage_predictions_path, extracted_archive_path = (
         _write_minimal_canonical_fixture(tmp_path)
     )
-    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "legacy")
+    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "global")
     monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "dmp")
     monkeypatch.setenv("COOKIMPORT_DMP_CLEANUP", "No")
     monkeypatch.setenv("COOKIMPORT_DMP_CHECKLINES", "0")

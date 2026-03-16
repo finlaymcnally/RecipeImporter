@@ -115,6 +115,7 @@ cookimport/llm/fake_codex_farm_runner.py
 cookimport/llm/non_recipe_spans.py
 cookimport/llm/prompt_artifacts.py
 cookimport/llm/prompt_budget.py
+cookimport/llm/prompt_preview.py
 cookimport/llm/prompts.py
 cookimport/llm/repair.py
 cookimport/ocr/__init__.py

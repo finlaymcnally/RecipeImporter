@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from cookimport.config.run_settings import RunSettings
-from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact
+from cookimport.core.models import ChunkLane, ConversionReport, ConversionResult, KnowledgeChunk, RawArtifact
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_knowledge_harvest
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
 from cookimport.parsing.label_source_of_truth import RecipeSpan
@@ -183,3 +185,103 @@ def test_knowledge_orchestrator_noops_when_no_stage7_knowledge_spans(tmp_path: P
     assert apply_result.llm_report["stage_status"] == "no_knowledge_spans"
     assert apply_result.llm_report["counts"]["jobs_written"] == 0
     assert apply_result.manifest_path.exists()
+
+
+def test_knowledge_orchestrator_noops_when_all_chunks_are_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _fake_chunks(_sequence, overrides=None):
+        del overrides
+        return [
+            KnowledgeChunk(
+                id="chunk-noise",
+                lane=ChunkLane.NOISE,
+                text="Advertisement copy.",
+                blockIds=[4],
+            )
+        ]
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_farm_knowledge_jobs.chunks_from_non_recipe_blocks",
+        _fake_chunks,
+    )
+
+    pack_root = tmp_path / "pack"
+    for name in ("pipelines", "prompts", "schemas"):
+        (pack_root / name).mkdir(parents=True, exist_ok=True)
+
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    settings = RunSettings.model_validate(
+        {
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(pack_root),
+            "codex_farm_pipeline_knowledge": "recipe.knowledge.compact.v1",
+        }
+    )
+    result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tipCandidates=[],
+        topicCandidates=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 4, "text": "Advertisement copy."},
+                    ]
+                },
+                metadata={},
+            )
+        ],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath="book.txt",
+    )
+    runner = FakeCodexFarmRunner()
+
+    apply_result = run_codex_farm_knowledge_harvest(
+        conversion_result=result,
+        nonrecipe_stage_result=NonRecipeStageResult(
+            nonrecipe_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            knowledge_spans=[
+                NonRecipeSpan(
+                    span_id="nr.knowledge.4.5",
+                    category="knowledge",
+                    block_start_index=4,
+                    block_end_index=5,
+                    block_indices=[4],
+                    block_ids=["b4"],
+                )
+            ],
+            other_spans=[],
+            block_category_by_index={4: "knowledge"},
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert runner.calls == []
+    assert apply_result.llm_report["stage_status"] == "all_chunks_skipped"
+    assert apply_result.llm_report["counts"]["jobs_written"] == 0
+    assert apply_result.llm_report["counts"]["jobs_skipped"] == 1
+    assert apply_result.llm_report["skipped_lane_counts"] == {"noise": 1}

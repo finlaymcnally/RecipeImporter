@@ -7,8 +7,7 @@ import time
 from cookimport.config.run_settings import RunSettings
 from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_prompt,
-    serialize_line_role_targets_compact,
-    serialize_line_role_targets_legacy,
+    serialize_line_role_targets,
 )
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
@@ -821,12 +820,11 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
         next_text="2 tablespoons olive oil",
         rule_tags=["yield_prefix"],
     )
-    prompt = build_canonical_line_role_prompt([candidate], prompt_format="legacy")
+    prompt = build_canonical_line_role_prompt([candidate])
     assert "schema.org extraction" in prompt
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
     assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
-    assert '"atomic_index": 0' in prompt
-    assert '"current_line": "SERVES 4"' in prompt
+    assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]' in prompt
     assert "candidate_labels" not in prompt
 
 
@@ -862,15 +860,52 @@ def test_canonical_line_role_prompt_compact_format_defines_tuple_once() -> None:
     assert '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]' in prompt
     assert '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve."]' in prompt
 
-    legacy_rows = serialize_line_role_targets_legacy(
+    compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
     )
-    compact_rows = serialize_line_role_targets_compact(
+    assert compact_rows.splitlines() == [
+        '[0, 1, "", "SERVES 4", "2 tablespoons olive oil"]',
+        '[1, 1, "SERVES 4", "2 tablespoons olive oil", "Whisk and serve."]',
+    ]
+
+
+def test_canonical_line_role_prompt_blanks_neighbors_outside_recipe_rows() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:1",
+            block_index=1,
+            atomic_index=0,
+            text="Praise for SALT FAT ACID HEAT",
+            within_recipe_span=False,
+            prev_text="Front matter",
+            next_text="Quote paragraph",
+            rule_tags=["outside_recipe"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="r1",
+            block_id="block:2",
+            block_index=2,
+            atomic_index=1,
+            text="SERVES 4",
+            within_recipe_span=True,
+            prev_text="",
+            next_text="2 tablespoons olive oil",
+            rule_tags=["yield_prefix"],
+        ),
+    ]
+
+    compact_rows = serialize_line_role_targets(
         candidates,
         allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
-    )
-    assert len(compact_rows.encode("utf-8")) < len(legacy_rows.encode("utf-8")) * 0.8
+    ).splitlines()
+
+    compact_outside = json.loads(compact_rows[0])
+    assert compact_outside == [0, 0, "", "Praise for SALT FAT ACID HEAT", ""]
+
+    compact_inside = json.loads(compact_rows[1])
+    assert compact_inside == [1, 1, "", "SERVES 4", "2 tablespoons olive oil"]
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(

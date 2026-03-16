@@ -104,6 +104,7 @@ def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> Non
     settings = RunSettings()
 
     assert settings.codex_farm_pipeline_knowledge == "recipe.knowledge.compact.v1"
+    assert settings.codex_farm_knowledge_context_blocks == 2
 
 
 def test_build_run_settings_defaults_match_safe_run_settings_defaults() -> None:

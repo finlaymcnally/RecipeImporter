@@ -18,6 +18,7 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
   - standalone draft path: `cookimport tag-recipes suggest ... --llm`
   - standalone DB path: `cookimport tag-recipes apply ... --llm`
   - stage path: `cookimport stage ... --llm-tags-pipeline codex-farm-tags-v1 --tag-catalog-json <path>`
+- Stage observability already treats this optional work as the semantic `tags` stage. Historical `pass5` wording is now only background context for older plans/logs/tests and should not be reintroduced into new runtime/output names.
 - Stage pass is gated:
   - if `llm_tags_pipeline=off`, stage does not run tagging pass and writes no `tags/` artifacts.
   - if enabled, stage requires `tag_catalog_json` to exist.
@@ -53,6 +54,14 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
   - typed fields/defaults for `llm_tags_pipeline`, `tag_catalog_json`, and `codex_farm_failure_mode`
   - exposes the fixed tags pipeline id via `RunSettings.codex_farm_pipeline_tags`
   - normalizes values via `build_run_settings(...)`
+
+Naming note:
+
+- the remaining live seam is narrow and semantic:
+  - config property: `codex_farm_pipeline_tags`
+  - CLI option: `--codex-farm-pipeline-tags`
+  - raw stage artifacts: `raw/llm/<workbook_slug>/tags/...`
+- if you still see `pass5_tags`, treat it as historical fixture/log language or a cleanup target, not the current contract
 
 ## CLI Surfaces
 

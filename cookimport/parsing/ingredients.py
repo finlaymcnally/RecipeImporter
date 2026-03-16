@@ -21,7 +21,7 @@ INGREDIENT_PARSER_BACKEND_NLP = "ingredient_parser_nlp"
 INGREDIENT_PARSER_BACKEND_QUANTULUM3 = "quantulum3_regex"
 INGREDIENT_PARSER_BACKEND_HYBRID = "hybrid_nlp_then_quantulum3"
 INGREDIENT_UNIT_CANONICALIZER_PINT = "pint"
-INGREDIENT_MISSING_UNIT_POLICY_LEGACY_MEDIUM = "legacy_medium"
+INGREDIENT_MISSING_UNIT_POLICY_MEDIUM = "medium"
 INGREDIENT_MISSING_UNIT_POLICY_NULL = "null"
 INGREDIENT_MISSING_UNIT_POLICY_EACH = "each"
 
@@ -45,7 +45,7 @@ _INGREDIENT_UNIT_CANONICALIZER_ALLOWED = {
     INGREDIENT_UNIT_CANONICALIZER_PINT,
 }
 _INGREDIENT_MISSING_UNIT_POLICY_ALLOWED = {
-    INGREDIENT_MISSING_UNIT_POLICY_LEGACY_MEDIUM,
+    INGREDIENT_MISSING_UNIT_POLICY_MEDIUM,
     INGREDIENT_MISSING_UNIT_POLICY_NULL,
     INGREDIENT_MISSING_UNIT_POLICY_EACH,
 }
@@ -561,10 +561,7 @@ def _repair_result(
     if input_qty is not None and not raw_unit_text:
         if ingredient_missing_unit_policy == INGREDIENT_MISSING_UNIT_POLICY_EACH:
             raw_unit_text = "each"
-        elif (
-            ingredient_missing_unit_policy
-            == INGREDIENT_MISSING_UNIT_POLICY_LEGACY_MEDIUM
-        ):
+        elif ingredient_missing_unit_policy == INGREDIENT_MISSING_UNIT_POLICY_MEDIUM:
             raw_unit_text = "medium"
 
     if not name or len(name) < 2:

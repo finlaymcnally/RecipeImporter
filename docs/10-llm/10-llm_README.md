@@ -2,7 +2,7 @@
 summary: "Current LLM integration boundaries for CodexFarm across recipe, line-role, knowledge, tags, and prelabel flows."
 read_when:
   - When changing codex-farm settings or pipeline IDs
-  - When debugging optional knowledge-stage or pass5 tag artifacts
+  - When debugging optional knowledge-stage or tags-stage artifacts
   - When auditing recipe pipeline enablement/default behavior
   - When reconciling Label Studio prediction-run LLM wiring vs stage wiring
 ---
@@ -38,7 +38,7 @@ Recipe CodexFarm path:
 Other active Codex-backed surfaces:
 
 - Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`
-- Pass5 tags: `cookimport/tagging/orchestrator.py`, `cookimport/tagging/llm_second_pass.py`, `cookimport/tagging/codex_farm_tags_provider.py`, `cookimport/tagging/cli.py`
+- Tags stage: `cookimport/tagging/orchestrator.py`, `cookimport/tagging/llm_second_pass.py`, `cookimport/tagging/codex_farm_tags_provider.py`, `cookimport/tagging/cli.py`
 - Canonical line-role: `cookimport/parsing/canonical_line_roles.py`, `cookimport/llm/canonical_line_role_prompt.py`
 - Freeform prelabel: `cookimport/labelstudio/prelabel.py`
 - Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py`
@@ -78,14 +78,14 @@ Benchmark split:
 
 ## Prediction-run versus stage boundary
 
-- Stage/import runs can execute recipe Codex, optional knowledge extraction, and pass5 tags.
-- Pass5 tags run after final drafts are written and read from `final drafts/<workbook_slug>/`.
+- Stage/import runs can execute recipe Codex, optional knowledge extraction, and tags-stage suggestions.
+- The tags stage runs after final drafts are written and reads from `final drafts/<workbook_slug>/`.
 - Prediction-run generation can plan or execute:
   - recipe Codex passes
   - optional knowledge extraction over Stage 7 `knowledge` spans
   - canonical line-role Codex labeling
   - freeform prelabel
-- Prediction-run generation does not run pass5 tagging unless a processed stage output is also being written through the stage session path.
+- Prediction-run generation does not run tags-stage suggestions unless a processed stage output is also being written through the stage session path.
 - Prediction-run plan mode happens after deterministic conversion and archive preparation so the plan artifact can enumerate concrete recipe bundles, knowledge jobs, and line-role batches.
 
 ## Artifacts
@@ -113,7 +113,7 @@ Knowledge-stage writes:
 
 `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are now the machine-readable outside-span contract. `snippets.jsonl` remains reviewer-facing evidence only.
 
-Pass5 tags writes:
+Tags stage writes:
 
 - `data/output/<ts>/raw/llm/<workbook_slug>/tags/{in,out}/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/tags_manifest.json`
@@ -137,6 +137,29 @@ Prompt/debug artifacts:
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
 - `prediction-run/prompt_budget_summary.json` merges recipe/knowledge/tags telemetry with line-role telemetry when present
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
+- preview reconstruction is local-only and composed from three seams:
+  - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
+  - knowledge prompt inputs from `codex_farm_knowledge_jobs`
+  - line-role prompt text from `build_canonical_line_role_prompt`
+- preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
+- prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_extract_knowledge_optional.txt`
+
+Prompt cost notes worth keeping in mind:
+
+- the first 2026-03-16 prompt audit measured about `663k` live-like input tokens on an `~86k` token source book
+- after the first two cut bundles now implemented in shared builders, the same benchmark preview rebuild measures about `365k` live-like input tokens
+- the implemented low-risk trims are:
+  - drop empty recipe `draft_hint`
+  - remove recipe hint provenance from correction payloads
+  - reduce knowledge context blocks from `12 -> 4 -> 2`
+  - skip knowledge calls already marked `suggested_lane=noise`
+  - blank line-role neighbor context for outside-recipe rows
+
+Where prompt cuts should live:
+
+- recipe prompt body reductions should usually happen in the shared `MergedRecipeRepairInput` serializer so live recipe runs and preview reconstruction stay aligned
+- knowledge prompt count reductions should usually happen in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
+- when `build_knowledge_jobs(...)` skips every chunk, `run_codex_farm_knowledge_harvest(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
 
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe/knowledge/tags manifests above are stage-local detail, not a second naming system.

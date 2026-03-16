@@ -91,7 +91,7 @@ def test_split_candidate_lines_passthrough_backends_return_single_span() -> None
         "Instructions",
         "Mix ingredients.",
     ]
-    for backend in ("legacy", "off"):
+    for backend in ("off",):
         result = split_candidate_lines(
             lines,
             config=MultiRecipeSplitConfig(
@@ -136,4 +136,3 @@ def test_split_candidate_lines_trace_payload_is_populated_when_enabled() -> None
     assert result.trace["backend"] == "rules_v1"
     assert "accepted_boundaries" in result.trace
     assert "rejected_boundaries" in result.trace
-
