@@ -726,6 +726,69 @@ def test_interactive_single_profile_selected_matched_benchmark_runs_selected_tar
     )
 
 
+def test_interactive_single_profile_selected_matched_uses_concise_book_labels(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b = tmp_path / "Book B.docx"
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="dinnerfor2cutdown",
+        ),
+        cli.AllMethodTarget(
+            gold_spans_path=gold_b,
+            source_file=source_b,
+            source_file_name=source_b.name,
+            gold_display="thefoodlabcutdown",
+        ),
+    ]
+    monkeypatch.setattr(
+        cli,
+        "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    observed_titles: list[str] = []
+
+    def _fake_menu_select(_prompt: str, **kwargs):
+        for choice in kwargs.get("choices", []):
+            title = getattr(choice, "title", None)
+            if isinstance(title, str):
+                observed_titles.append(title)
+        return cli.BACK_ACTION
+
+    monkeypatch.setattr(cli, "_menu_select", _fake_menu_select)
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=cli.RunSettings.from_dict(
+            {"llm_recipe_pipeline": "off"},
+            warn_context="test matched label rendering",
+        ),
+        benchmark_eval_output=tmp_path / "golden" / "2026-03-06_01.02.03",
+        processed_output_root=tmp_path / "processed",
+        write_markdown=False,
+        write_label_studio_tasks=False,
+        allow_subset_selection=True,
+    )
+
+    assert completed is False
+    assert "Run all matched books" in observed_titles
+    assert "[ ] 01) dinnerfor2cutdown" in observed_titles
+    assert "[ ] 02) thefoodlabcutdown" in observed_titles
+
+
 def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selected_book(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

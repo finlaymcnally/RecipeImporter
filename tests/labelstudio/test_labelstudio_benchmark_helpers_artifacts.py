@@ -471,6 +471,205 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
     assert "recipe correction prompt" in prompt_samples
 
 
+def test_build_codex_farm_prompt_response_log_follows_benchmark_stage_run_pointer(
+    tmp_path: Path,
+) -> None:
+    processed_run = tmp_path / "processed" / "2026-03-16_18.11.25"
+    run_dir = processed_run / "raw" / "llm" / "book"
+    correction_in = run_dir / "recipe_correction" / "in"
+    correction_out = run_dir / "recipe_correction" / "out"
+    correction_in.mkdir(parents=True, exist_ok=True)
+    correction_out.mkdir(parents=True, exist_ok=True)
+    (correction_in / "r0000.json").write_text(
+        json.dumps({"prompt_text": "recipe correction prompt"}),
+        encoding="utf-8",
+    )
+    (correction_out / "r0000.json").write_text(
+        json.dumps({"result": "recipe correction response"}),
+        encoding="utf-8",
+    )
+    (run_dir / "recipe_manifest.json").write_text(
+        json.dumps(
+            {
+                "pipeline": "codex-farm-single-correction-v1",
+                "pipelines": {
+                    "recipe_correction": "recipe.correction.compact.v1",
+                },
+                "paths": {
+                    "recipe_correction_in": str(correction_in),
+                    "recipe_correction_out": str(correction_out),
+                },
+                "process_runs": {
+                    "recipe_correction": {
+                        "run_id": "run-recipe-correction",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    (eval_output_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "artifacts": {
+                    "stage_run_dir": str(processed_run),
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=eval_output_dir,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+    )
+
+    assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
+    assert log_path is not None and log_path.exists()
+    assert (eval_output_dir / "prompts" / "full_prompt_log.jsonl").exists()
+    assert (eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt").exists()
+
+
+def test_build_codex_farm_prompt_response_log_exports_line_role_only_stage_run(
+    tmp_path: Path,
+) -> None:
+    processed_run = tmp_path / "processed" / "2026-03-16_18.11.25"
+    prompt_dir = processed_run / "line-role-pipeline" / "prompts"
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    (prompt_dir / "prompt_0001.txt").write_text(
+        "line role prompt body\n",
+        encoding="utf-8",
+    )
+    (prompt_dir / "response_0001.txt").write_text(
+        '[{"atomic_index": 1, "label": "RECIPE_TITLE"}]\n',
+        encoding="utf-8",
+    )
+    (prompt_dir / "parsed_0001.json").write_text(
+        json.dumps([{"atomic_index": 1, "label": "RECIPE_TITLE"}], indent=2),
+        encoding="utf-8",
+    )
+    (prompt_dir / "parse_errors.json").write_text(
+        json.dumps({"parse_error_count": 0, "parse_error_present": False}, indent=2),
+        encoding="utf-8",
+    )
+    schema_path = tmp_path / "line-role.schema.json"
+    schema_path.write_text(
+        json.dumps({"type": "array"}, indent=2),
+        encoding="utf-8",
+    )
+    (processed_run / "line-role-pipeline" / "telemetry_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "codex_backend": "codexfarm",
+                "codex_farm_pipeline_id": "line-role.canonical.v1",
+                "batches": [
+                    {
+                        "prompt_index": 1,
+                        "candidate_count": 3,
+                        "requested_atomic_indices": [1, 2, 3],
+                        "parse_error": False,
+                        "codex_failure": None,
+                        "attempt_count": 1,
+                        "attempts_with_usage": 1,
+                        "attempts": [
+                            {
+                                "attempt_index": 1,
+                                "response_present": True,
+                                "returncode": 0,
+                                "turn_failed_message": None,
+                                "usage": {
+                                    "tokens_input": 10,
+                                    "tokens_cached_input": 1,
+                                    "tokens_output": 2,
+                                    "tokens_reasoning": 3,
+                                    "tokens_total": 16,
+                                },
+                                "process_run": {
+                                    "pipeline_id": "line-role.canonical.v1",
+                                    "output_schema_path": str(schema_path),
+                                    "process_payload": {
+                                        "run_id": "line-role-run-1",
+                                        "status": "done",
+                                        "pipeline_id": "line-role.canonical.v1",
+                                        "codex_model": "gpt-5.3-codex-spark",
+                                        "codex_reasoning_effort": "low",
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    (eval_output_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "source": {"path": str(tmp_path / "book.epub")},
+                "artifacts": {
+                    "stage_run_dir": str(processed_run),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=eval_output_dir,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+    )
+
+    assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
+    assert log_path is not None and log_path.exists()
+    assert (eval_output_dir / "prompts" / "prompt_line_role.txt").exists()
+    assert (
+        eval_output_dir / "prompts" / "line-role-pipeline" / "prompt_0001.txt"
+    ).exists()
+    assert (
+        eval_output_dir / "prompts" / "line-role-pipeline" / "response_0001.txt"
+    ).exists()
+    assert (
+        eval_output_dir / "prompts" / "line-role-pipeline" / "telemetry_summary.json"
+    ).exists()
+
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 1
+    row = full_prompt_rows[0]
+    assert row["stage_key"] == "line_role"
+    assert row["request_telemetry"]["run_id"] == "line-role-run-1"
+    assert row["request_telemetry"]["tokens_total"] == 16
+    assert row["raw_response"]["output_text"].startswith("[{")
+    manifest_lines = (
+        eval_output_dir / "prompts" / "prompt_category_logs_manifest.txt"
+    ).read_text(encoding="utf-8").splitlines()
+    assert manifest_lines == [str(eval_output_dir / "prompts" / "prompt_line_role.txt")]
+
+
 def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
     tmp_path: Path,
 ) -> None:

@@ -49,6 +49,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from cookimport.cli_ui.run_settings_flow import (
     build_codex_farm_reasoning_effort_choices,
+    choose_codex_ai_settings,
+    choose_interactive_codex_surfaces,
     choose_run_settings,
     supported_codex_farm_efforts_by_model,
 )
@@ -2510,7 +2512,7 @@ def _interactive_all_method_benchmark(
                 fg=typer.colors.BRIGHT_BLACK,
             )
     typer.secho(
-        "Codex Farm permutations are available for all-method runs.",
+        "CodexFarm process selection is available for all-method runs.",
         fg=typer.colors.BRIGHT_BLACK,
     )
     typer.secho(
@@ -2518,14 +2520,35 @@ def _interactive_all_method_benchmark(
         fg=typer.colors.BRIGHT_BLACK,
     )
 
-    include_codex_prompt = _prompt_confirm(
-        "Include Codex Farm permutations?",
-        default=True,
+    all_method_codex_defaults_payload = {
+        key: value
+        for key, value in selected_benchmark_settings.model_dump(
+            mode="json", exclude_none=True
+        ).items()
+        if key in RunSettings.model_fields
+    }
+    all_method_codex_defaults_payload.update(
+        {
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+            "line_role_pipeline": "codex-line-role-v1",
+            "llm_knowledge_pipeline": "codex-farm-knowledge-v1",
+            "atomic_block_splitter": "atomic-v1",
+        }
     )
-    if include_codex_prompt is None:
+    all_method_codex_settings = choose_interactive_codex_surfaces(
+        selected_settings=RunSettings.from_dict(
+            all_method_codex_defaults_payload,
+            warn_context="interactive all-method codex defaults",
+        ),
+        back_action=BACK_ACTION,
+        surface_options=("recipe", "line_role", "knowledge"),
+    )
+    if all_method_codex_settings is None:
         typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
         return
-    include_codex_requested = bool(include_codex_prompt)
+    include_codex_requested = _all_method_settings_enable_any_codex(
+        all_method_codex_settings
+    )
     include_codex_effective, codex_warning = _resolve_all_method_codex_choice(
         include_codex_requested
     )
@@ -2535,48 +2558,23 @@ def _interactive_all_method_benchmark(
     benchmark_settings_for_variants = selected_benchmark_settings
     if include_codex_effective:
         _ensure_codex_farm_cmd_available(selected_benchmark_settings.codex_farm_cmd)
-        model_prompt = _prompt_text(
-            "Codex Farm model override (blank for pipeline default):",
-            default=str(selected_benchmark_settings.codex_farm_model or ""),
+        all_method_codex_settings = choose_codex_ai_settings(
+            selected_settings=all_method_codex_settings,
+            menu_select=_menu_select,
+            back_action=BACK_ACTION,
         )
-        if model_prompt is None:
+        if all_method_codex_settings is None:
             typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
             return
-        model_override = str(model_prompt).strip() or None
-        supported_efforts_by_model = supported_codex_farm_efforts_by_model(
-            cmd=selected_benchmark_settings.codex_farm_cmd
-        )
-        effort_choices, effort_default = build_codex_farm_reasoning_effort_choices(
-            selected_model=model_override,
-            selected_effort=selected_benchmark_settings.codex_farm_reasoning_effort,
-            supported_efforts_by_model=supported_efforts_by_model,
-        )
-        effort_choice = _menu_select(
-            "Codex Farm reasoning effort override:",
-            menu_help="Blank uses pipeline default. Affects all codex-farm passes.",
-            default=effort_default,
-            choices=effort_choices,
-        )
-        if effort_choice in {None, BACK_ACTION}:
-            typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)
-            return
-        reasoning_effort_override = (
-            None if effort_choice == "__default__" else str(effort_choice)
-        )
-        patched_payload = selected_benchmark_settings.model_dump(
-            mode="json", exclude_none=True
-        )
-        patched_payload["codex_farm_model"] = model_override
-        patched_payload["codex_farm_reasoning_effort"] = reasoning_effort_override
-        benchmark_settings_for_variants = RunSettings.from_dict(
-            patched_payload,
-            warn_context="all method benchmark settings",
-        )
+        benchmark_settings_for_variants = all_method_codex_settings
 
     selected_target_variants = _build_all_method_target_variants(
         targets=targets,
         base_settings=benchmark_settings_for_variants,
         include_codex_farm=include_codex_effective,
+        codex_variant_settings=(
+            benchmark_settings_for_variants if include_codex_effective else None
+        ),
         include_markdown_extractors=include_markdown_extractors,
         include_deterministic_sweeps=bool(include_deterministic_sweeps),
     )
@@ -2906,10 +2904,7 @@ def _interactive_single_profile_all_matched_benchmark(
                 marker = "x" if target_index in selected_indices else " "
                 choices.append(
                     questionary.Choice(
-                        (
-                            f"[{marker}] {index:02d}) {target.source_file_name} "
-                            f"[{target.gold_display}]"
-                        ),
+                        f"[{marker}] {index:02d}) {_display_benchmark_target_name(gold_display=target.gold_display, source_file_name=target.source_file_name)}",
                         value=target_index,
                     )
                 )
@@ -3512,6 +3507,59 @@ def _all_method_apply_codex_contract_from_baseline(
     baseline_payload: dict[str, Any],
 ) -> dict[str, Any]:
     return apply_benchmark_codex_contract_from_baseline(baseline_payload)
+
+
+def _all_method_apply_selected_codex_contract_from_baseline(
+    baseline_payload: dict[str, Any],
+    *,
+    codex_variant_settings: RunSettings,
+) -> dict[str, Any]:
+    codex_payload = dict(baseline_payload)
+    codex_config = codex_variant_settings.to_run_config_dict()
+    for key in (
+        "llm_recipe_pipeline",
+        "llm_knowledge_pipeline",
+        "line_role_pipeline",
+        "atomic_block_splitter",
+        "codex_farm_model",
+        "codex_farm_reasoning_effort",
+    ):
+        if key in codex_config:
+            codex_payload[key] = codex_config[key]
+    return codex_payload
+
+
+def _all_method_codex_surface_slug_parts(
+    codex_variant_settings: RunSettings,
+) -> list[str]:
+    parts: list[str] = []
+    recipe_pipeline = codex_variant_settings.llm_recipe_pipeline.value
+    if recipe_pipeline != "off":
+        parts.append(f"llm_recipe_{_all_method_variant_token(recipe_pipeline)}")
+    if codex_variant_settings.line_role_pipeline.value == "codex-line-role-v1":
+        parts.append(
+            f"line_role_{_all_method_variant_token(codex_variant_settings.line_role_pipeline.value)}"
+        )
+    knowledge_pipeline = codex_variant_settings.llm_knowledge_pipeline.value
+    if knowledge_pipeline != "off":
+        parts.append(
+            f"llm_knowledge_{_all_method_variant_token(knowledge_pipeline)}"
+        )
+    return parts
+
+
+def _all_method_settings_enable_any_codex(
+    codex_variant_settings: RunSettings | None,
+) -> bool:
+    if codex_variant_settings is None:
+        return False
+    return any(
+        (
+            codex_variant_settings.llm_recipe_pipeline.value != "off",
+            codex_variant_settings.line_role_pipeline.value == "codex-line-role-v1",
+            codex_variant_settings.llm_knowledge_pipeline.value != "off",
+        )
+    )
 
 
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
@@ -12922,6 +12970,20 @@ def _display_gold_export_path(path: Path, output_dir: Path) -> str:
     return str(path)
 
 
+def _display_benchmark_target_name(
+    *,
+    gold_display: str | None,
+    source_file_name: str | None,
+) -> str:
+    concise_gold_display = str(gold_display or "").strip()
+    if concise_gold_display:
+        return concise_gold_display
+    source_name = str(source_file_name or "").strip()
+    if source_name:
+        return Path(source_name).stem or source_name
+    return "benchmark-target"
+
+
 def _display_prediction_run_path(path: Path, output_dir: Path) -> str:
     for root in (output_dir, DEFAULT_GOLDEN):
         try:
@@ -13225,6 +13287,7 @@ def _build_all_method_variants(
     base_settings: RunSettings,
     source_file: Path,
     include_codex_farm: bool,
+    codex_variant_settings: RunSettings | None = None,
     include_markdown_extractors: bool = False,
     include_deterministic_sweeps: bool = False,
 ) -> list[AllMethodVariant]:
@@ -13285,18 +13348,56 @@ def _build_all_method_variants(
                 normalized_payload.get("llm_recipe_pipeline") or "off"
             ).strip().lower()
             if current_llm == "off":
-                codex_payload = _all_method_apply_codex_contract_from_baseline(
-                    normalized_payload
-                )
-                codex_dimensions = dict(dimensions)
-                codex_dimensions["llm_recipe_pipeline"] = "codex-farm-single-correction-v1"
-                codex_dimensions["line_role_pipeline"] = "codex-line-role-v1"
-                codex_dimensions["atomic_block_splitter"] = "atomic-v1"
+                if codex_variant_settings is None:
+                    codex_payload = _all_method_apply_codex_contract_from_baseline(
+                        normalized_payload
+                    )
+                    codex_slug_parts = [
+                        "llm_recipe_"
+                        + _all_method_variant_token(
+                            "codex-farm-single-correction-v1"
+                        )
+                    ]
+                    codex_dimensions = dict(dimensions)
+                    codex_dimensions["llm_recipe_pipeline"] = (
+                        "codex-farm-single-correction-v1"
+                    )
+                    codex_dimensions["line_role_pipeline"] = "codex-line-role-v1"
+                    codex_dimensions["llm_knowledge_pipeline"] = (
+                        "codex-farm-knowledge-v1"
+                    )
+                    codex_dimensions["atomic_block_splitter"] = "atomic-v1"
+                else:
+                    codex_slug_parts = _all_method_codex_surface_slug_parts(
+                        codex_variant_settings
+                    )
+                    if not codex_slug_parts:
+                        return
+                    codex_payload = _all_method_apply_selected_codex_contract_from_baseline(
+                        normalized_payload,
+                        codex_variant_settings=codex_variant_settings,
+                    )
+                    codex_dimensions = dict(dimensions)
+                    if codex_variant_settings.llm_recipe_pipeline.value != "off":
+                        codex_dimensions["llm_recipe_pipeline"] = (
+                            codex_variant_settings.llm_recipe_pipeline.value
+                        )
+                    if (
+                        codex_variant_settings.line_role_pipeline.value
+                        == "codex-line-role-v1"
+                    ):
+                        codex_dimensions["line_role_pipeline"] = (
+                            codex_variant_settings.line_role_pipeline.value
+                        )
+                    if codex_variant_settings.llm_knowledge_pipeline.value != "off":
+                        codex_dimensions["llm_knowledge_pipeline"] = (
+                            codex_variant_settings.llm_knowledge_pipeline.value
+                        )
+                    codex_dimensions["atomic_block_splitter"] = (
+                        codex_variant_settings.atomic_block_splitter.value
+                    )
                 add_variant(
-                    slug=(
-                        f"{slug}__llm_recipe_"
-                        f"{_all_method_variant_token('codex-farm-single-correction-v1')}"
-                    ),
+                    slug=f"{slug}__{'__'.join(codex_slug_parts)}",
                     payload=codex_payload,
                     dimensions=codex_dimensions,
                     sweep_tag=sweep_tag,
@@ -13428,6 +13529,7 @@ def _build_all_method_target_variants(
     targets: list[AllMethodTarget],
     base_settings: RunSettings,
     include_codex_farm: bool,
+    codex_variant_settings: RunSettings | None = None,
     include_markdown_extractors: bool = False,
     include_deterministic_sweeps: bool = False,
 ) -> list[tuple[AllMethodTarget, list[AllMethodVariant]]]:
@@ -13438,6 +13540,7 @@ def _build_all_method_target_variants(
                 base_settings=base_settings,
                 source_file=target.source_file,
                 include_codex_farm=include_codex_farm,
+                codex_variant_settings=codex_variant_settings,
                 include_markdown_extractors=include_markdown_extractors,
                 include_deterministic_sweeps=include_deterministic_sweeps,
             ),

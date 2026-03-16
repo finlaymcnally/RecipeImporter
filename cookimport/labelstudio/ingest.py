@@ -3547,7 +3547,7 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "recipe_codex_guardrail_rows_jsonl"
             ] = recipe_guardrail_rows_manifest_path
-        llm_run_dir = llm_manifest_path.parent.parent
+        llm_run_dir = llm_manifest_path.parent
         prompt_inputs_manifest_path = run_root / "prompt_inputs_manifest.txt"
         prompt_outputs_manifest_path = run_root / "prompt_outputs_manifest.txt"
         prompt_input_dirs = (

@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import questionary
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from questionary import utils
+from questionary.prompts import common
+from questionary.question import Question
+from questionary.styles import merge_styles_default
 
 from cookimport.config.codex_decision import (
     TopTierProfileKind,
@@ -25,6 +32,7 @@ from cookimport.llm.codex_farm_runner import list_codex_farm_models
 
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
+PromptCodexSurfaceMenu = Callable[..., Any]
 PromptText = Callable[..., Any]
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
 _WORKER_UTILIZATION_DEFAULT = 1.0
@@ -214,14 +222,11 @@ def _choose_interactive_recipe_pipeline(
         default=default_pipeline,
         choices=[
             questionary.Choice(
-                f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['off']} (`off`)",
+                _INTERACTIVE_RECIPE_PIPELINE_LABELS["off"],
                 value="off",
             ),
             questionary.Choice(
-                (
-                    f"{_INTERACTIVE_RECIPE_PIPELINE_LABELS['codex-farm-single-correction-v1']} "
-                    "(`codex-farm-single-correction-v1`)"
-                ),
+                _INTERACTIVE_RECIPE_PIPELINE_LABELS["codex-farm-single-correction-v1"],
                 value="codex-farm-single-correction-v1",
             ),
         ],
@@ -248,57 +253,210 @@ def _patch_interactive_settings(
     )
 
 
+def _prompt_codex_surface_menu(
+    *,
+    message: str,
+    step_rows: list[tuple[str, str]],
+    enabled_by_step: dict[str, bool],
+    back_action: Any,
+    **kwargs: Any,
+) -> dict[str, bool] | Any:
+    label_width = max((len(label) for _step_id, label in step_rows), default=0)
+    choices: list[questionary.Choice] = [
+        questionary.Choice("", value=step_id, shortcut_key=False)
+        for step_id, _label in step_rows
+    ]
+    choices.append(questionary.Separator())
+    choices.append(questionary.Choice("Continue", value="__done__"))
+    choice_labels = dict(step_rows)
+    merged_style = merge_styles_default([])
+
+    ic = common.InquirerControl(
+        choices,
+        default="__done__",
+        pointer="»",
+        use_indicator=False,
+        use_shortcuts=False,
+        show_selected=False,
+        show_description=False,
+        use_arrow_keys=True,
+        initial_choice=choices[0] if step_rows else choices[-1],
+    )
+
+    def _sync_titles() -> None:
+        for index, choice in enumerate(ic.choices):
+            if isinstance(choice, questionary.Separator):
+                continue
+            if choice.value == "__done__":
+                choice.title = "Continue"
+                continue
+            step_id = str(choice.value)
+            label = choice_labels.get(step_id, step_id)
+            is_current = index == ic.pointed_at
+            is_enabled = bool(enabled_by_step.get(step_id))
+            label_class = "class:highlighted" if is_current else "class:text"
+            selected_class = "class:selected"
+            inactive_class = "class:text"
+            yes_class = (
+                "class:highlighted"
+                if is_current and is_enabled
+                else (selected_class if is_enabled else inactive_class)
+            )
+            no_class = (
+                "class:highlighted"
+                if is_current and not is_enabled
+                else (selected_class if not is_enabled else inactive_class)
+            )
+            yes_text = (
+                ">[Yes]<"
+                if is_current and is_enabled
+                else (" [Yes] " if is_enabled else " [yes] ")
+            )
+            no_text = (
+                ">[No ]<"
+                if is_current and not is_enabled
+                else (" [No ] " if not is_enabled else " [no ] ")
+            )
+            choice.title = [
+                (label_class, f"{label.ljust(label_width)}  "),
+                (yes_class, yes_text),
+                (inactive_class, " "),
+                (no_class, no_text),
+            ]
+
+    def _select_next() -> None:
+        ic.select_next()
+        while not ic.is_selection_valid():
+            ic.select_next()
+
+    def _select_previous() -> None:
+        ic.select_previous()
+        while not ic.is_selection_valid():
+            ic.select_previous()
+
+    def _set_current_state(enabled: bool) -> None:
+        current = ic.get_pointed_at()
+        step_id = str(current.value)
+        if step_id in enabled_by_step:
+            enabled_by_step[step_id] = enabled
+
+    _sync_titles()
+
+    def _get_prompt_tokens() -> list[tuple[str, str]]:
+        return [
+            ("class:qmark", "?"),
+            ("class:question", f" {message} "),
+            (
+                "class:instruction",
+                "(Use up/down to pick a row, left/right to choose Yes/No, Enter to continue, Esc to go back)",
+            ),
+        ]
+
+    layout = common.create_inquirer_layout(ic, _get_prompt_tokens, **kwargs)
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.ControlQ, eager=True)
+    @bindings.add(Keys.ControlC, eager=True)
+    def _abort(event: Any) -> None:
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    @bindings.add(Keys.Escape, eager=True)
+    def _go_back(event: Any) -> None:
+        event.app.exit(result=back_action)
+
+    @bindings.add(Keys.Down, eager=True)
+    def _move_down(event: Any) -> None:
+        _select_next()
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Up, eager=True)
+    def _move_up(event: Any) -> None:
+        _select_previous()
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Left, eager=True)
+    @bindings.add("h", eager=True)
+    def _set_yes(event: Any) -> None:
+        _set_current_state(True)
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Right, eager=True)
+    @bindings.add("l", eager=True)
+    def _set_no(event: Any) -> None:
+        _set_current_state(False)
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.ControlM, eager=True)
+    def _submit(event: Any) -> None:
+        current = ic.get_pointed_at()
+        current_value = str(current.value)
+        if current_value == "__done__":
+            ic.is_answered = True
+            event.app.exit(result=dict(enabled_by_step))
+            return
+        if current_value in enabled_by_step:
+            enabled_by_step[current_value] = not enabled_by_step[current_value]
+            _sync_titles()
+            event.app.invalidate()
+
+    @bindings.add(Keys.Any)
+    def _other(event: Any) -> None:
+        """Disallow inserting other text."""
+
+    question = Question(
+        Application(
+            layout=layout,
+            key_bindings=bindings,
+            style=merged_style,
+            **utils.used_kwargs(kwargs, Application.__init__),
+        )
+    )
+    return question.ask()
+
+
 def _choose_interactive_codex_surfaces(
     *,
     selected_settings: RunSettings,
-    menu_select: MenuSelect,
+    prompt_codex_surface_menu: PromptCodexSurfaceMenu,
     back_action: Any,
     surface_options: tuple[str, ...],
 ) -> RunSettings | None:
-    step_prompts: list[tuple[str, str, bool, str]] = []
+    step_rows: list[tuple[str, str]] = []
+    enabled_by_step: dict[str, bool] = {}
     if "recipe" in surface_options:
-        step_prompts.append(
-            (
-                "recipe",
-                "Recipe correction for this run:",
-                selected_settings.llm_recipe_pipeline.value != "off",
-                "Toggle the Codex recipe correction pass.",
-            )
+        step_rows.append(
+            ("recipe", "Recipe correction (`codex-farm-single-correction-v1`)")
         )
+        enabled_by_step["recipe"] = selected_settings.llm_recipe_pipeline.value != "off"
     if "line_role" in surface_options:
-        step_prompts.append(
-            (
-                "line_role",
-                "Block labelling for this run:",
-                selected_settings.line_role_pipeline.value == "codex-line-role-v1",
-                "Enable or disable the Codex line-role pass for this run.",
-            )
+        step_rows.append(("line_role", "Block labelling (`codex-line-role-v1`)"))
+        enabled_by_step["line_role"] = (
+            selected_settings.line_role_pipeline.value == "codex-line-role-v1"
         )
     if "knowledge" in surface_options:
-        step_prompts.append(
-            (
-                "knowledge",
-                "Knowledge harvest for this run:",
-                selected_settings.llm_knowledge_pipeline.value != "off",
-                "Enable or disable Codex knowledge extraction for this run.",
-            )
+        step_rows.append(
+            ("knowledge", "Knowledge harvest (`codex-farm-knowledge-v1`)")
+        )
+        enabled_by_step["knowledge"] = (
+            selected_settings.llm_knowledge_pipeline.value != "off"
         )
 
-    selected_step_ids: set[str] = set()
-    for step_id, message, enabled_by_default, menu_help in step_prompts:
-        selection = menu_select(
-            message,
-            menu_help=menu_help,
-            default="yes" if enabled_by_default else "no",
-            choices=[
-                questionary.Choice("Yes", value="yes"),
-                questionary.Choice("No", value="no"),
-            ],
-        )
-        if selection in {None, back_action}:
-            return None
-        if selection == "yes":
-            selected_step_ids.add(step_id)
+    enabled_by_step = prompt_codex_surface_menu(
+        message="CodexFarm options for this run:",
+        step_rows=step_rows,
+        enabled_by_step=enabled_by_step,
+        back_action=back_action,
+    )
+    if enabled_by_step is None or enabled_by_step is back_action:
+        return None
+
+    selected_step_ids = {
+        step_id for step_id, enabled in enabled_by_step.items() if bool(enabled)
+    }
     resolved_recipe_pipeline = (
         _normalize_interactive_recipe_pipeline(selected_settings.llm_recipe_pipeline.value)
         or RECIPE_CODEX_FARM_EXECUTION_PIPELINES[0]
@@ -318,6 +476,23 @@ def _choose_interactive_codex_surfaces(
             "codex-farm-knowledge-v1" if "knowledge" in selected_step_ids else "off"
         ),
         atomic_block_splitter="atomic-v1",
+    )
+
+
+def choose_interactive_codex_surfaces(
+    *,
+    selected_settings: RunSettings,
+    back_action: Any,
+    surface_options: tuple[str, ...],
+    prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
+) -> RunSettings | None:
+    return _choose_interactive_codex_surfaces(
+        selected_settings=selected_settings,
+        prompt_codex_surface_menu=(
+            prompt_codex_surface_menu or _prompt_codex_surface_menu
+        ),
+        back_action=back_action,
+        surface_options=surface_options,
     )
 
 
@@ -495,6 +670,19 @@ def _choose_codex_ai_settings(
     )
 
 
+def choose_codex_ai_settings(
+    *,
+    selected_settings: RunSettings,
+    menu_select: MenuSelect,
+    back_action: Any,
+) -> RunSettings | None:
+    return _choose_codex_ai_settings(
+        selected_settings=selected_settings,
+        menu_select=menu_select,
+        back_action=back_action,
+    )
+
+
 def choose_run_settings(
     *,
     global_defaults: RunSettings,
@@ -502,6 +690,7 @@ def choose_run_settings(
     menu_select: MenuSelect,
     back_action: Any,
     prompt_confirm: PromptConfirm | None = None,
+    prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
     prompt_text: PromptText | None = None,
     prompt_codex_ai_settings: bool = False,
     prompt_recipe_pipeline_menu: bool = False,
@@ -557,16 +746,16 @@ def choose_run_settings(
             llm_recipe_pipeline=selected_recipe_pipeline,
         )
     if codex_surface_menu_options is not None and selected_profile == "codexfarm":
-        selected_settings = _choose_interactive_codex_surfaces(
+        selected_settings = choose_interactive_codex_surfaces(
             selected_settings=selected_settings,
-            menu_select=menu_select,
+            prompt_codex_surface_menu=prompt_codex_surface_menu,
             back_action=back_action,
             surface_options=codex_surface_menu_options,
         )
         if selected_settings is None:
             return None
     if _selected_settings_enable_any_codex(selected_settings) and prompt_codex_ai_settings:
-        selected_settings = _choose_codex_ai_settings(
+        selected_settings = choose_codex_ai_settings(
             selected_settings=selected_settings,
             menu_select=menu_select,
             back_action=back_action,

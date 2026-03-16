@@ -1,11 +1,18 @@
 Interactive run-settings UI helpers.
 
 - `run_settings_flow.py` asks `Workflow for this run?` for interactive Import/Benchmark flows.
-- Choices are still `off` and `codex-farm-single-correction-v1`, but the menu renders them as `Vanilla / deterministic only` and `CodexFarm`.
+- Choices are still `off` and `codex-farm-single-correction-v1`, but the workflow menu renders only the family labels `Vanilla / deterministic only` and `CodexFarm`.
 - Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available).
-- Interactive Codex-enabled flows now reuse one consolidated Codex yes/no submenu after the workflow choice when CodexFarm is selected:
-  - interactive `Import` asks explicit yes/no selects for recipe correction and knowledge harvest
-  - interactive benchmark modes ask explicit yes/no selects for recipe correction, block labelling, and knowledge harvest
+- Interactive Codex-enabled flows now reuse one consolidated Codex submenu after the workflow choice when CodexFarm is selected:
+  - one list shows every available step with aligned `[Yes]` / `[No]` columns beside it
+  - the concrete pipeline ids live on those step rows instead of the top workflow choice
+  - up/down moves between rows while staying in the same submenu
+  - left/right arrows set the current row to `[Yes]` or `[No]` in place and visibly move the active marker
+  - pressing Enter on a step row still flips that row's current state
+  - `Continue` accepts the whole list at once
+  - interactive `Import` shows recipe correction and knowledge harvest
+  - interactive benchmark modes show recipe correction, block labelling, and knowledge harvest
+  - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`

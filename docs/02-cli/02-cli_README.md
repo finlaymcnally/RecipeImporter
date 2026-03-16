@@ -127,11 +127,16 @@ Important split:
 
 Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
 - `Workflow for this run?`
-  - choices are `off` and `codex-farm-single-correction-v1` (rendered as `Vanilla / deterministic only` and `CodexFarm`),
+  - underlying values are still `off` and `codex-farm-single-correction-v1`, but the menu renders only the workflow families `Vanilla / deterministic only` and `CodexFarm`,
   - default is inferred from global `llm_recipe_pipeline`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
 - if interactive setup chooses CodexFarm, it then asks:
-  - one shared Codex submenu implemented as explicit yes/no select prompts for each available Codex-backed step
+  - one shared Codex submenu implemented as a single list with aligned `[Yes]` / `[No]` columns
+  - the concrete Codex-backed ids live on those step rows (for example recipe correction shows `codex-farm-single-correction-v1`)
+  - up/down moves between rows while keeping the submenu on one screen
+  - left/right arrows move the current row between `[Yes]` and `[No]` in place, and the active box is marked directly on that row
+  - pressing Enter on a step row still flips that row's current value
+  - `Continue` accepts the current per-row settings
 - for interactive `Import`, that submenu asks about:
   - recipe correction (`codex-farm-single-correction-v1`)
   - knowledge harvest (`codex-farm-knowledge-v1`)
@@ -142,6 +147,7 @@ Interactive `Import` and benchmark runs (single-offline + matched-sets) ask:
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=deterministic-v1` while keeping `atomic_block_splitter=atomic-v1`
   - unchecked knowledge harvest maps to `llm_knowledge_pipeline=off`
+- interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes CodexFarm now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Farm permutations?` prompt
 - this difference is intentional:
   - import reuses the submenu with recipe + knowledge only because stage call adapters do not carry `line_role_pipeline` or `atomic_block_splitter`
   - benchmark modes expose block labelling because benchmark call builders do carry those fields
@@ -381,8 +387,10 @@ Interactive benchmark now has a mode submenu before execution:
      - paired starter-pack generation also writes `single-offline-benchmark/<source_slug>/benchmark_summary.md` (flattened comparison + starter-pack summary)
      - also writes a dedicated 3-file upload folder: `single-offline-benchmark/<source_slug>/upload_bundle_v1/`:
        - `upload_bundle_overview.md`
-       - `upload_bundle_index.json`
-       - `upload_bundle_payload.jsonl`
+     - `upload_bundle_index.json`
+     - `upload_bundle_payload.jsonl`
+3. Matched-set picker path:
+   - matched-book selection rows reuse the same concise book label style as the single-offline gold picker instead of mixing source filename plus bracketed gold label text.
      - after that bundle is written, interactive single-offline mode automatically sends it to Oracle via the same path used by `cookimport bench oracle-upload`
    - when markdown writes are enabled, single-offline writes one consolidated top-level markdown file:
      - `single-offline-benchmark/<source_slug>/single_offline_summary.md`

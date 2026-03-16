@@ -596,6 +596,110 @@ def test_subprocess_runner_emits_progress_callback_from_progress_events(
     assert any("active [r0001.json]" in message for message in progress_messages)
 
 
+def test_subprocess_runner_emits_progress_callback_from_legacy_stderr_progress_lines(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    in_dir = tmp_path / "in"
+    out_dir = tmp_path / "out"
+    root_dir = tmp_path / "pack"
+    schema_path = root_dir / "schemas" / "line-role.canonical.v1.output.schema.json"
+    pipeline_path = root_dir / "pipelines" / "line-role.canonical.v1.json"
+    in_dir.mkdir(parents=True, exist_ok=True)
+    schema_path.parent.mkdir(parents=True, exist_ok=True)
+    pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+    (in_dir / "r0000.json").write_text("{}", encoding="utf-8")
+    schema_path.write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": False,
+                "required": [],
+                "properties": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pipeline_path.write_text(
+        json.dumps(
+            {
+                "pipeline_id": "line-role.canonical.v1",
+                "prompt_template_path": "prompts/line-role.canonical.v1.prompt.md",
+                "output_schema_path": "schemas/line-role.canonical.v1.output.schema.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _FakePopen:
+        def __init__(self, _command, **_kwargs):  # noqa: ANN001
+            self.returncode = 0
+            self.stdout = io.StringIO(
+                json.dumps(
+                    {
+                        "run_id": "run-legacy-progress-lines",
+                        "status": "done",
+                        "exit_code": 0,
+                        "output_schema_path": str(schema_path),
+                    }
+                )
+                + "\n"
+            )
+            self.stderr = io.StringIO(
+                "\n".join(
+                    [
+                        "run=aa286a7b52dd411888483a6c658643ce",
+                        "queued=1 running=0 done=0 error=0 canceled=0",
+                        "run=aa286a7b52dd411888483a6c658643ce queued=0 running=1 done=0 error=0 canceled=0",
+                        "run=aa286a7b52dd411888483a6c658643ce queued=0 running=0 done=1 error=0 canceled=0",
+                    ]
+                )
+                + "\n"
+            )
+
+        def wait(self):  # noqa: D401
+            return self.returncode
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        argv = list(command)
+        if argv[1:3] == ["run", "autotune"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-legacy-progress-lines",
+                        "pipeline_id": "line-role.canonical.v1",
+                        "flag_overrides": [],
+                        "command_preview": "",
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected command: {argv}")
+
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.Popen", _FakePopen)
+    monkeypatch.setattr("cookimport.llm.codex_farm_runner.subprocess.run", _fake_run)
+
+    progress_messages: list[str] = []
+    runner = SubprocessCodexFarmRunner(
+        cmd="codex-farm",
+        progress_callback=progress_messages.append,
+    )
+    run_result = runner.run_pipeline(
+        "line-role.canonical.v1",
+        in_dir,
+        out_dir,
+        {},
+        root_dir=root_dir,
+    )
+
+    assert run_result.run_id == "run-legacy-progress-lines"
+    assert any("task 0/1" in message for message in progress_messages)
+    assert any("task 1/1" in message for message in progress_messages)
+
+
 def test_subprocess_runner_retries_without_progress_events_when_flag_unsupported(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

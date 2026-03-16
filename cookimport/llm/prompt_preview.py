@@ -6,18 +6,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from cookimport.core.models import RecipeCandidate
 from cookimport.core.slug import slugify_name
 from cookimport.llm.canonical_line_role_prompt import build_canonical_line_role_prompt
 from cookimport.llm.codex_farm_contracts import (
-    MergedRecipeRepairInput,
     serialize_merged_recipe_repair_input,
+)
+from cookimport.llm.codex_farm_orchestrator import (
+    _RecipeState,
+    _build_recipe_correction_input,
 )
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
 from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
 )
-from cookimport.llm.recipe_tagging_guide import build_recipe_tagging_guide
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
@@ -279,7 +282,48 @@ def _build_recipe_preview_rows(
     full_blocks_by_index = {
         int(block["index"]): block for block in context.full_blocks if isinstance(block, dict)
     }
+    existing_input_dir = (
+        context.processed_run_dir
+        / "raw"
+        / "llm"
+        / context.workbook_slug
+        / "recipe_correction"
+        / "in"
+    )
     rows: list[dict[str, Any]] = []
+    if existing_input_dir.is_dir():
+        for existing_input_path in sorted(existing_input_dir.glob("*.json"), key=lambda path: path.name):
+            serialized_input = existing_input_path.read_text(encoding="utf-8")
+            input_payload = _read_json(existing_input_path)
+            input_path = in_dir / existing_input_path.name
+            input_path.write_text(serialized_input, encoding="utf-8")
+            recipe_id = str(
+                input_payload.get("recipe_id")
+                or input_payload.get("identifier")
+                or existing_input_path.stem
+            ).strip() or existing_input_path.stem
+            rows.append(
+                _prompt_row(
+                    call_id=input_path.stem,
+                    recipe_id=recipe_id,
+                    source_file=context.source_file,
+                    pipeline_assets=pipeline_assets,
+                    input_payload=input_payload,
+                    input_text=serialized_input,
+                    input_path=input_path,
+                    stage_key="recipe_llm_correct_and_link",
+                    stage_label="Recipe Correction",
+                    stage_order=1,
+                    stage_dir_name="recipe_llm_correct_and_link",
+                    stage_artifact_stem="recipe_correction",
+                    surface_pipeline=surface_pipeline,
+                    model_override=model_override,
+                    reasoning_effort_override=reasoning_effort_override,
+                )
+            )
+        if rows:
+            return rows
+
     for recipe_index, draft in enumerate(context.recipe_drafts):
         provenance = _coerce_dict(draft.get("recipeimport:provenance"))
         location = _coerce_dict(provenance.get("location"))
@@ -299,24 +343,17 @@ def _build_recipe_preview_rows(
             or draft.get("@id")
             or f"urn:recipe-preview:{context.workbook_slug}:{recipe_index}"
         ).strip()
-        input_payload = MergedRecipeRepairInput(
-            recipe_id=recipe_id,
+        input_payload = _build_recipe_correction_input(
+            state=_recipe_state_from_draft(
+                draft=draft,
+                recipe_id=recipe_id,
+                recipe_index=recipe_index,
+                start_block=start_block,
+                end_block=end_block,
+            ),
             workbook_slug=context.workbook_slug,
             source_hash=context.source_hash,
-            canonical_text="\n".join(
-                str(block.get("text") or "").strip() for block in included_blocks
-            ).strip(),
-            evidence_rows=[
-                (int(block["index"]), str(block.get("text") or "").strip())
-                for block in included_blocks
-            ],
-            recipe_candidate_hint=_recipe_candidate_hint_from_draft(draft),
-            tagging_guide=build_recipe_tagging_guide(),
-            authority_notes=[
-                "authoritative_source=recipe_span_blocks",
-                "correct_intermediate_recipe_candidate",
-                "emit_linkage_payload_for_deterministic_final_assembly",
-            ],
+            included_blocks=included_blocks,
         )
         serialized_input = serialize_merged_recipe_repair_input(input_payload)
         input_path = in_dir / f"r{recipe_index}.json"
@@ -362,6 +399,49 @@ def _build_knowledge_preview_rows(
     stage_dir = out_dir / "raw" / "llm" / context.workbook_slug / "extract_knowledge_optional"
     in_dir = stage_dir / "in"
     in_dir.mkdir(parents=True, exist_ok=True)
+    existing_input_dir = (
+        context.processed_run_dir
+        / "raw"
+        / "llm"
+        / context.workbook_slug
+        / "knowledge"
+        / "in"
+    )
+    if existing_input_dir.is_dir():
+        rows: list[dict[str, Any]] = []
+        for existing_input_path in sorted(existing_input_dir.glob("*.json"), key=lambda path: path.name):
+            serialized_input = existing_input_path.read_text(encoding="utf-8")
+            input_payload = _read_json(existing_input_path)
+            input_path = in_dir / existing_input_path.name
+            input_path.write_text(serialized_input, encoding="utf-8")
+            chunk_payload = _coerce_dict(input_payload.get("chunk"))
+            chunk_id = str(
+                chunk_payload.get("chunk_id")
+                or input_payload.get("chunk_id")
+                or existing_input_path.stem
+            ).strip() or existing_input_path.stem
+            rows.append(
+                _prompt_row(
+                    call_id=input_path.stem,
+                    recipe_id=chunk_id,
+                    source_file=context.source_file,
+                    pipeline_assets=pipeline_assets,
+                    input_payload=input_payload,
+                    input_text=serialized_input,
+                    input_path=input_path,
+                    stage_key="extract_knowledge_optional",
+                    stage_label="Knowledge Harvest",
+                    stage_order=4,
+                    stage_dir_name="extract_knowledge_optional",
+                    stage_artifact_stem="knowledge",
+                    surface_pipeline=surface_pipeline,
+                    model_override=model_override,
+                    reasoning_effort_override=reasoning_effort_override,
+                )
+            )
+        if rows:
+            return rows
+
     nonrecipe_stage_result = build_nonrecipe_stage_result(
         full_blocks=context.full_blocks,
         final_block_labels=context.block_labels,
@@ -625,6 +705,7 @@ def _prompt_row(
     source_file: str,
     pipeline_assets: dict[str, Any],
     input_payload: dict[str, Any],
+    input_text: str | None = None,
     input_path: Path,
     stage_key: str,
     stage_label: str,
@@ -635,10 +716,13 @@ def _prompt_row(
     model_override: str | None,
     reasoning_effort_override: str | None,
 ) -> dict[str, Any]:
+    serialized_input = input_text
+    if serialized_input is None:
+        serialized_input = json.dumps(input_payload, ensure_ascii=False, indent=2)
     template_text = str(pipeline_assets.get("prompt_template_text") or "")
     rendered_prompt = _render_prompt_text(
         template_text=template_text,
-        input_text=json.dumps(input_payload, ensure_ascii=False, indent=2),
+        input_text=serialized_input,
         input_path=input_path,
     )
     effective_pipeline_payload = _coerce_dict(pipeline_assets.get("pipeline_payload"))
@@ -677,7 +761,7 @@ def _prompt_row(
         },
         "template_vars": {
             "INPUT_PATH": str(input_path),
-            "INPUT_TEXT": json.dumps(input_payload, ensure_ascii=False, indent=2),
+            "INPUT_TEXT": serialized_input,
         },
         "request": {
             "messages": [{"role": "user", "content": rendered_prompt}],
@@ -891,18 +975,32 @@ def _discover_source_hash(
     return "unknown"
 
 
-def _recipe_candidate_hint_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
-    recipe_instructions = draft.get("recipeInstructions")
-    if not isinstance(recipe_instructions, list):
-        recipe_instructions = []
-    return {
-        "identifier": draft.get("identifier") or draft.get("@id"),
-        "name": draft.get("name"),
-        "recipeIngredient": list(draft.get("recipeIngredient") or []),
-        "recipeInstructions": list(recipe_instructions),
-        "description": draft.get("description"),
-        "recipeYield": draft.get("recipeYield"),
-    }
+def _recipe_state_from_draft(
+    *,
+    draft: dict[str, Any],
+    recipe_id: str,
+    recipe_index: int,
+    start_block: int,
+    end_block: int,
+) -> _RecipeState:
+    recipe = RecipeCandidate.model_validate(
+        {
+            "name": draft.get("name") or "Untitled Recipe",
+            "identifier": recipe_id,
+            "recipeIngredient": list(draft.get("recipeIngredient") or []),
+            "recipeInstructions": list(draft.get("recipeInstructions") or []),
+            "description": draft.get("description"),
+            "recipeYield": draft.get("recipeYield"),
+            "provenance": _coerce_dict(draft.get("recipeimport:provenance")),
+        }
+    )
+    return _RecipeState(
+        recipe=recipe,
+        recipe_id=recipe_id,
+        bundle_name=f"r{recipe_index}",
+        heuristic_start=start_block,
+        heuristic_end=end_block,
+    )
 
 
 def _normalize_authoritative_block_label(row: Mapping[str, Any]) -> AuthoritativeBlockLabel:

@@ -130,6 +130,7 @@ Prompt/debug artifacts:
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
 - `prediction-run/prompt_budget_summary.json` merges recipe/knowledge telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
+- when a processed run already has live CodexFarm input files under `raw/llm/<workbook_slug>/{recipe_correction,knowledge}/in/`, preview export reuses those exact payloads before falling back to local reconstruction
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
   - knowledge prompt inputs from the compact-only `codex_farm_knowledge_jobs`
@@ -170,7 +171,8 @@ Run-level observability note:
   - `autotune_report`
   - compact CSV `telemetry` slices
 - When callers provide progress callbacks, runner prefers `codex-farm process --progress-events --json` and retries once without that flag if the binary does not support it.
-- Current runners must emit structured progress events and JSON stdout when `--json` is requested; previous stderr-only progress lines and empty-stdout behavior are no longer supported.
+- Runner still recognizes the older stderr progress shape (`run=... queued=... running=... done=...`) and treats those lines as progress/control output instead of surfacing them as stderr noise in interactive benchmark/status flows.
+- Current runners must emit structured progress events and JSON stdout when `--json` is requested; previous stderr-only progress lines are only a compatibility fallback and should not be the target contract for new codex-farm builds.
 - Recoverable partial-output failures include `no last agent message` and `nonzero_exit_no_payload`.
 - In benchmark recipe mode, those recoverable failures can trigger selective retry of only missing recipe-correction bundles.
 - Recipe pass block extraction falls back to `full_text.lines` when cached payloads are missing `full_text.blocks`.

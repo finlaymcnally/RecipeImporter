@@ -662,6 +662,45 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
     assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
 
 
+def test_choose_run_settings_workflow_menu_uses_family_labels_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-farm-single-correction-v1"},
+        warn_context="test global defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    captured_titles: list[str] = []
+
+    def _menu_select(message, *_args, **kwargs):
+        if message == "Workflow for this run:":
+            captured_titles.extend(str(choice.title) for choice in kwargs.get("choices", []))
+            return "codex-farm-single-correction-v1"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": True,
+            "line_role": True,
+            "knowledge": True,
+        },
+        prompt_recipe_pipeline_menu=True,
+        prompt_benchmark_llm_surface_toggles=True,
+    )
+
+    assert selected is not None
+    assert captured_titles == ["Vanilla / deterministic only", "CodexFarm"]
+
+
 def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -675,23 +714,20 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
         "load_qualitysuite_winner_run_settings",
         lambda *_args, **_kwargs: None,
     )
-
-    def _menu_select(message, *_args, **_kwargs):
-        if message == "Workflow for this run:":
-            return "codex-farm-single-correction-v1"
-        if message == "Recipe correction for this run:":
-            return "yes"
-        if message == "Block labelling for this run:":
-            return "no"
-        if message == "Knowledge harvest for this run:":
-            return "no"
-        pytest.fail(f"unexpected menu prompt: {message}")
-
     selected = run_settings_flow.choose_run_settings(
         global_defaults=global_defaults,
         output_dir=tmp_path,
-        menu_select=_menu_select,
+        menu_select=lambda message, *_args, **_kwargs: (
+            "codex-farm-single-correction-v1"
+            if message == "Workflow for this run:"
+            else pytest.fail(f"unexpected menu prompt: {message}")
+        ),
         back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": True,
+            "line_role": False,
+            "knowledge": False,
+        },
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
     )
@@ -723,12 +759,6 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-farm-single-correction-v1"
-        if message == "Recipe correction for this run:":
-            return "no"
-        if message == "Block labelling for this run:":
-            return "yes"
-        if message == "Knowledge harvest for this run:":
-            return "no"
         if message == "Codex Farm model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
@@ -741,6 +771,11 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
         output_dir=tmp_path,
         menu_select=_menu_select,
         back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": False,
+            "line_role": True,
+            "knowledge": False,
+        },
         prompt_recipe_pipeline_menu=True,
         prompt_codex_ai_settings=True,
         prompt_benchmark_llm_surface_toggles=True,
@@ -771,10 +806,6 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-farm-single-correction-v1"
-        if message == "Recipe correction for this run:":
-            return "no"
-        if message == "Knowledge harvest for this run:":
-            return "yes"
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -782,6 +813,10 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
         output_dir=tmp_path,
         menu_select=_menu_select,
         back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": False,
+            "knowledge": True,
+        },
         prompt_recipe_pipeline_menu=True,
         interactive_codex_surface_options=("recipe", "knowledge"),
     )
@@ -791,6 +826,73 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     assert selected.llm_knowledge_pipeline.value == "codex-farm-knowledge-v1"
     assert selected.line_role_pipeline.value == "deterministic-v1"
     assert selected.atomic_block_splitter.value == "atomic-v1"
+
+
+def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_screen() -> None:
+    result: dict[str, dict[str, bool] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_surface_menu(
+                    message="CodexFarm steps for this run:",
+                    step_rows=[
+                        ("recipe", "Recipe correction (`codex-farm-single-correction-v1`)"),
+                        ("knowledge", "Knowledge harvest (`codex-farm-knowledge-v1`)"),
+                    ],
+                    enabled_by_step={"recipe": True, "knowledge": True},
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_bytes(b"\x1b[B")  # Down
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> No
+        pipe_input.send_bytes(b"\x1b[B")  # Down to Continue
+        pipe_input.send_bytes(b"\r")      # Enter
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
+    assert result["value"] == {"recipe": True, "knowledge": False}
+
+
+def test_prompt_codex_surface_menu_allows_left_and_right_to_move_current_choice() -> None:
+    result: dict[str, dict[str, bool] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_surface_menu(
+                    message="CodexFarm options for this run:",
+                    step_rows=[
+                        ("recipe", "Recipe correction (`codex-farm-single-correction-v1`)"),
+                        ("knowledge", "Knowledge harvest (`codex-farm-knowledge-v1`)"),
+                    ],
+                    enabled_by_step={"recipe": True, "knowledge": True},
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_bytes(b"\x1b[B")  # Down to knowledge
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> No
+        pipe_input.send_bytes(b"\x1b[D")  # Left -> Yes
+        pipe_input.send_bytes(b"\x1b[B")  # Down to Continue
+        pipe_input.send_bytes(b"\r")      # Enter
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
+    assert result["value"] == {"recipe": True, "knowledge": True}
 
 
 def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(

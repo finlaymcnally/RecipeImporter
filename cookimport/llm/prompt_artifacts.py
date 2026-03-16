@@ -4,6 +4,7 @@ import csv
 import datetime as dt
 import json
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence
@@ -128,6 +129,16 @@ def _safe_read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001
         return f"<<unreadable file: {exc}>>"
+
+
+def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:
+    cleaned = _clean_text(value)
+    if cleaned is None:
+        return None
+    path = Path(cleaned).expanduser()
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve(strict=False)
 
 
 def _parse_json_text(raw_text: str) -> Any | None:
@@ -402,7 +413,44 @@ def discover_codexfarm_prompt_run_descriptors(
     *,
     pred_run: Path,
 ) -> list[PromptRunDescriptor]:
-    raw_llm_dir = pred_run / "raw" / "llm"
+    discovery_root = pred_run
+    raw_llm_dir = discovery_root / "raw" / "llm"
+    if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
+        prediction_run_manifest = _load_json_dict(pred_run / "run_manifest.json")
+        prediction_artifacts = (
+            prediction_run_manifest.get("artifacts")
+            if isinstance(prediction_run_manifest, dict)
+            else None
+        )
+        if isinstance(prediction_artifacts, dict):
+            for artifact_key in ("stage_run_dir", "processed_output_run_dir"):
+                candidate_root = _resolve_artifact_path(
+                    pred_run,
+                    prediction_artifacts.get(artifact_key),
+                )
+                if candidate_root is None:
+                    continue
+                candidate_raw_llm_dir = candidate_root / "raw" / "llm"
+                if candidate_raw_llm_dir.exists() and candidate_raw_llm_dir.is_dir():
+                    discovery_root = candidate_root
+                    raw_llm_dir = candidate_raw_llm_dir
+                    break
+            else:
+                recipe_manifest_path = _resolve_artifact_path(
+                    pred_run,
+                    prediction_artifacts.get(RECIPE_MANIFEST_FILE_NAME)
+                    or prediction_artifacts.get("recipe_manifest_json"),
+                )
+                if recipe_manifest_path is not None:
+                    for ancestor in recipe_manifest_path.parents:
+                        candidate_raw_llm_dir = ancestor / "raw" / "llm"
+                        if (
+                            candidate_raw_llm_dir.exists()
+                            and candidate_raw_llm_dir.is_dir()
+                        ):
+                            discovery_root = ancestor
+                            raw_llm_dir = candidate_raw_llm_dir
+                            break
     if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
         return []
 
@@ -1090,6 +1138,474 @@ def build_codex_farm_prompt_type_samples_markdown(
     return output_path
 
 
+def _parse_prompt_index_from_name(name: str) -> int | None:
+    match = re.search(r"(\d+)", str(name or ""))
+    if match is None:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _load_prompt_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        text = raw_line.strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
+def _prompt_row_sort_key(row: dict[str, Any]) -> tuple[int, str, str]:
+    return (
+        _coerce_int(row.get("stage_order")) or 999,
+        str(row.get("stage_key") or ""),
+        str(row.get("call_id") or ""),
+    )
+
+
+def _upsert_text_section(
+    *,
+    path: Path,
+    start_marker: str,
+    end_marker: str,
+    body: str,
+) -> None:
+    text = path.read_text(encoding="utf-8") if path.exists() and path.is_file() else ""
+    start_index = text.find(start_marker)
+    end_index = text.find(end_marker)
+    section_text = (
+        f"{start_marker}\n"
+        f"{body.rstrip()}\n"
+        f"{end_marker}\n"
+    )
+    if start_index >= 0 and end_index >= 0 and end_index >= start_index:
+        end_index += len(end_marker)
+        if end_index < len(text) and text[end_index : end_index + 1] == "\n":
+            end_index += 1
+        updated = text[:start_index].rstrip()
+        if updated:
+            updated += "\n\n"
+        updated += section_text
+        suffix = text[end_index:].lstrip("\n")
+        if suffix:
+            updated += "\n" + suffix
+        path.write_text(updated.rstrip() + "\n", encoding="utf-8")
+        return
+
+    updated = text.rstrip()
+    if updated:
+        updated += "\n\n"
+    updated += section_text
+    path.write_text(updated.rstrip() + "\n", encoding="utf-8")
+
+
+def _resolve_stage_run_root_for_prompt_exports(*, pred_run: Path) -> Path | None:
+    candidate = pred_run.resolve(strict=False)
+    if candidate.is_dir() and (
+        (candidate / "raw" / "llm").is_dir() or (candidate / "line-role-pipeline").is_dir()
+    ):
+        return candidate
+
+    prediction_run_manifest = _load_json_dict(pred_run / "run_manifest.json")
+    prediction_artifacts = (
+        prediction_run_manifest.get("artifacts")
+        if isinstance(prediction_run_manifest, dict)
+        else None
+    )
+    if not isinstance(prediction_artifacts, dict):
+        return None
+
+    for artifact_key in ("stage_run_dir", "processed_output_run_dir"):
+        resolved = _resolve_artifact_path(pred_run, prediction_artifacts.get(artifact_key))
+        if resolved is None or not resolved.exists() or not resolved.is_dir():
+            continue
+        if (resolved / "raw" / "llm").is_dir() or (resolved / "line-role-pipeline").is_dir():
+            return resolved
+
+    return None
+
+
+def _copy_prompt_artifact_file(*, source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(source, target)
+    except Exception:  # noqa: BLE001
+        target.write_text(_safe_read_text(source), encoding="utf-8")
+
+
+def _build_line_role_prompt_rows(
+    *,
+    pred_run: Path,
+    eval_output_dir: Path,
+    repo_root: Path,
+) -> tuple[list[dict[str, Any]], str] | tuple[list[dict[str, Any]], None]:
+    stage_run_root = _resolve_stage_run_root_for_prompt_exports(pred_run=pred_run)
+    if stage_run_root is None:
+        return [], None
+
+    stage_prompt_dir = stage_run_root / "line-role-pipeline" / "prompts"
+    if not stage_prompt_dir.exists() or not stage_prompt_dir.is_dir():
+        return [], None
+
+    prompts_dir = eval_output_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    export_dir = prompts_dir / "line-role-pipeline"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    telemetry_summary_path = stage_run_root / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_summary = _load_json_dict(telemetry_summary_path) or {}
+    telemetry_batches = telemetry_summary.get("batches")
+    batches_by_prompt_index: dict[int, dict[str, Any]] = {}
+    if isinstance(telemetry_batches, list):
+        for batch in telemetry_batches:
+            if not isinstance(batch, dict):
+                continue
+            prompt_index = _coerce_int(batch.get("prompt_index"))
+            if prompt_index is not None:
+                batches_by_prompt_index[prompt_index] = batch
+    if telemetry_summary_path.exists() and telemetry_summary_path.is_file():
+        _copy_prompt_artifact_file(
+            source=telemetry_summary_path,
+            target=export_dir / "telemetry_summary.json",
+        )
+
+    for source_path in sorted(stage_prompt_dir.iterdir(), key=lambda path: path.name):
+        if source_path.is_file():
+            _copy_prompt_artifact_file(
+                source=source_path,
+                target=export_dir / source_path.name,
+            )
+
+    pred_run_manifest = _load_json_dict(pred_run / "run_manifest.json") or {}
+    pred_run_source = (
+        pred_run_manifest.get("source")
+        if isinstance(pred_run_manifest.get("source"), dict)
+        else {}
+    )
+    source_file = None
+    if isinstance(pred_run_source, dict):
+        source_file = _clean_text(pred_run_source.get("path"))
+
+    rows: list[dict[str, Any]] = []
+    detail_lines: list[str] = [
+        "=== CATEGORY line_role (line_role / Line Role Labeling) | stage_dir: line-role-pipeline ===",
+        f"source_dir: {stage_prompt_dir}",
+        "",
+    ]
+    for prompt_file in sorted(stage_prompt_dir.glob("prompt_*.txt"), key=lambda path: path.name):
+        prompt_index = _parse_prompt_index_from_name(prompt_file.name)
+        if prompt_index is None:
+            continue
+        response_file = stage_prompt_dir / f"response_{prompt_index:04d}.txt"
+        parsed_file = stage_prompt_dir / f"parsed_{prompt_index:04d}.json"
+        exported_prompt_file = export_dir / prompt_file.name
+        exported_response_file = export_dir / response_file.name
+        exported_parsed_file = export_dir / parsed_file.name
+
+        prompt_text = _safe_read_text(prompt_file)
+        response_text = _safe_read_text(response_file) if response_file.exists() else ""
+        parsed_response = _load_json_dict(parsed_file)
+        if parsed_response is None:
+            parsed_response = _parse_json_text(response_text)
+
+        detail_lines.append(f"INPUT line_role => {prompt_file.name}")
+        detail_lines.append("-" * 80)
+        detail_lines.append(prompt_text)
+        detail_lines.append("-" * 80)
+        detail_lines.append("")
+        if response_file.exists():
+            detail_lines.append(f"OUTPUT line_role => {response_file.name}")
+            detail_lines.append("-" * 80)
+            detail_lines.append(response_text)
+            detail_lines.append("-" * 80)
+            detail_lines.append("")
+        if parsed_file.exists():
+            detail_lines.append(f"PARSED line_role => {parsed_file.name}")
+            detail_lines.append("-" * 80)
+            detail_lines.append(_safe_read_text(parsed_file))
+            detail_lines.append("-" * 80)
+            detail_lines.append("")
+
+        batch_payload = batches_by_prompt_index.get(prompt_index, {})
+        attempts = batch_payload.get("attempts")
+        attempt_payload = attempts[0] if isinstance(attempts, list) and attempts else {}
+        process_run_payload = (
+            attempt_payload.get("process_run")
+            if isinstance(attempt_payload, dict)
+            else {}
+        )
+        if not isinstance(process_run_payload, dict):
+            process_run_payload = {}
+        process_payload = process_run_payload.get("process_payload")
+        if not isinstance(process_payload, dict):
+            process_payload = {}
+        autotune_report = process_run_payload.get("autotune_report")
+        if not isinstance(autotune_report, dict):
+            autotune_report = {}
+        telemetry_report = process_payload.get("telemetry_report")
+        if not isinstance(telemetry_report, dict):
+            telemetry_report = {}
+
+        pipeline_id = (
+            _clean_text(process_run_payload.get("pipeline_id"))
+            or _clean_text(process_payload.get("pipeline_id"))
+            or _clean_text(telemetry_summary.get("codex_farm_pipeline_id"))
+            or "line-role.canonical.v1"
+        )
+        model_value = _clean_text(process_payload.get("codex_model"))
+        reasoning_effort_value = _clean_text(process_payload.get("codex_reasoning_effort"))
+        output_schema_path = (
+            _clean_text(process_run_payload.get("output_schema_path"))
+            or _clean_text(process_payload.get("output_schema_path"))
+        )
+        response_format_payload: dict[str, Any] | None = None
+        if output_schema_path is not None:
+            output_schema_payload = _load_json_dict(Path(output_schema_path))
+            if isinstance(output_schema_payload, dict):
+                response_format_payload = {
+                    "type": "json_schema",
+                    "json_schema": output_schema_payload,
+                }
+
+        usage_payload = (
+            attempt_payload.get("usage")
+            if isinstance(attempt_payload, dict)
+            and isinstance(attempt_payload.get("usage"), dict)
+            else {}
+        )
+        if not isinstance(usage_payload, dict):
+            usage_payload = {}
+        process_run_id = _clean_text(process_payload.get("run_id"))
+        timestamp_utc = (
+            _clean_text(autotune_report.get("generated_at_utc"))
+            or _clean_text(telemetry_report.get("generated_at_utc"))
+            or _timestamp_utc_for_path(prompt_file)
+        )
+        call_id = f"line_role_prompt_{prompt_index:04d}"
+        request_messages = [{"role": "user", "content": prompt_text}]
+        row_payload = {
+            "run_id": eval_output_dir.name,
+            "schema_version": PROMPT_CALL_RECORD_SCHEMA_VERSION,
+            "call_id": call_id,
+            "timestamp_utc": timestamp_utc,
+            "recipe_id": f"line_role_batch_{prompt_index:04d}",
+            "source_file": source_file,
+            "pipeline_id": pipeline_id,
+            "stage_key": "line_role",
+            "stage_heading_key": "line_role",
+            "stage_label": "Line Role Labeling",
+            "stage_artifact_stem": "line_role",
+            "stage_dir_name": "line-role-pipeline",
+            "stage_order": 2,
+            "process_run_id": process_run_id,
+            "model": model_value,
+            "request_payload_source": "line_role_saved_prompt_text",
+            "request_messages": request_messages,
+            "system_prompt": None,
+            "developer_prompt": None,
+            "user_prompt": prompt_text,
+            "rendered_prompt_text": prompt_text,
+            "rendered_messages": request_messages,
+            "prompt_templates": {
+                "prompt_template_text": None,
+                "prompt_template_path": None,
+            },
+            "template_vars": {
+                "INPUT_PATH": str(exported_prompt_file),
+                "INPUT_TEXT": prompt_text,
+            },
+            "inserted_context_blocks": [],
+            "request": {
+                "messages": request_messages,
+                "tools": [],
+                "response_format": response_format_payload,
+                "model": model_value,
+                "reasoning_effort": reasoning_effort_value,
+                "temperature": None,
+                "top_p": None,
+                "max_output_tokens": None,
+                "seed": None,
+                "pipeline_id": pipeline_id,
+                "sandbox": None,
+                "ask_for_approval": None,
+                "web_search": None,
+                "output_schema_path": output_schema_path,
+            },
+            "request_input_payload": {"prompt": prompt_text},
+            "tools": [],
+            "response_format": response_format_payload,
+            "decoding_params": {
+                "temperature": None,
+                "top_p": None,
+                "max_output_tokens": None,
+                "seed": None,
+                "reasoning_effort": reasoning_effort_value,
+            },
+            "raw_response": {
+                "output_text": response_text or None,
+                "output_file": (
+                    str(exported_response_file)
+                    if response_file.exists()
+                    else None
+                ),
+            },
+            "parsed_response": parsed_response,
+            "request_input_file": str(exported_prompt_file),
+            "request_telemetry": {
+                "status": _clean_text(process_payload.get("status")),
+                "attempt_index": _coerce_int(attempt_payload.get("attempt_index")),
+                "duration_ms": _coerce_int(
+                    process_payload.get("telemetry_report", {})
+                    .get("summary", {})
+                    .get("duration_total_ms")
+                )
+                if isinstance(process_payload.get("telemetry_report"), dict)
+                else None,
+                "prompt_index": prompt_index,
+                "candidate_count": _coerce_int(batch_payload.get("candidate_count")),
+                "requested_atomic_indices": list(
+                    batch_payload.get("requested_atomic_indices") or []
+                ),
+                "parse_error": bool(batch_payload.get("parse_error")),
+                "codex_failure": _clean_text(batch_payload.get("codex_failure")),
+                "run_id": process_run_id,
+                "returncode": _coerce_int(attempt_payload.get("returncode")),
+                "response_present": _coerce_bool(attempt_payload.get("response_present")),
+                "turn_failed_message": _clean_text(
+                    attempt_payload.get("turn_failed_message")
+                ),
+                "tokens_input": _coerce_int(usage_payload.get("tokens_input")),
+                "tokens_cached_input": _coerce_int(
+                    usage_payload.get("tokens_cached_input")
+                ),
+                "tokens_output": _coerce_int(usage_payload.get("tokens_output")),
+                "tokens_reasoning": _coerce_int(usage_payload.get("tokens_reasoning")),
+                "tokens_total": _coerce_int(usage_payload.get("tokens_total")),
+                "trace_path": None,
+                "trace_resolved_path": None,
+                "trace_action_count": None,
+                "trace_action_types": [],
+                "trace_reasoning_count": None,
+                "trace_reasoning_types": [],
+            },
+            "thinking_trace": None,
+        }
+        if parsed_file.exists():
+            row_payload["parsed_response_file"] = str(exported_parsed_file)
+        rows.append(row_payload)
+
+    if not rows:
+        return [], None
+
+    category_path = prompts_dir / "prompt_line_role.txt"
+    category_path.write_text("\n".join(detail_lines).rstrip() + "\n", encoding="utf-8")
+    return rows, str(category_path)
+
+
+def _append_line_role_prompt_artifacts(
+    *,
+    pred_run: Path,
+    eval_output_dir: Path,
+    repo_root: Path,
+) -> Path | None:
+    prompts_dir = eval_output_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    prompt_response_log_path = prompts_dir / "prompt_request_response_log.txt"
+    full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
+    prompt_type_samples_path = prompts_dir / PROMPT_TYPE_SAMPLES_MD_NAME
+    category_manifest_path = prompts_dir / "prompt_category_logs_manifest.txt"
+
+    line_role_rows, category_path = _build_line_role_prompt_rows(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=repo_root,
+    )
+    if not line_role_rows:
+        return None
+
+    existing_rows = [
+        row
+        for row in _load_prompt_rows(full_prompt_log_path)
+        if str(row.get("stage_key") or "") != "line_role"
+    ]
+    merged_rows = sorted(existing_rows + line_role_rows, key=_prompt_row_sort_key)
+    full_prompt_log_path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False) + "\n" for row in merged_rows
+        ),
+        encoding="utf-8",
+    )
+
+    section_lines: list[str] = []
+    for row in line_role_rows:
+        call_id = str(row.get("call_id") or "")
+        request_input_file = _clean_text(row.get("request_input_file"))
+        raw_response = row.get("raw_response")
+        response_file = (
+            _clean_text(raw_response.get("output_file"))
+            if isinstance(raw_response, dict)
+            else None
+        )
+        rendered_prompt_text = str(row.get("rendered_prompt_text") or "")
+        response_text = (
+            str(raw_response.get("output_text") or "")
+            if isinstance(raw_response, dict)
+            else ""
+        )
+        section_lines.append(f"INPUT line_role => {call_id}")
+        if request_input_file is not None:
+            section_lines.append(f"path: {request_input_file}")
+        section_lines.append("-" * 80)
+        section_lines.append(rendered_prompt_text)
+        section_lines.append("-" * 80)
+        section_lines.append("")
+        if response_text:
+            section_lines.append(f"OUTPUT line_role => {call_id}")
+            if response_file is not None:
+                section_lines.append(f"path: {response_file}")
+            section_lines.append("-" * 80)
+            section_lines.append(response_text)
+            section_lines.append("-" * 80)
+            section_lines.append("")
+    _upsert_text_section(
+        path=prompt_response_log_path,
+        start_marker="=== LINE_ROLE INTERACTIONS :: BEGIN ===",
+        end_marker="=== LINE_ROLE INTERACTIONS :: END ===",
+        body="\n".join(section_lines).rstrip(),
+    )
+
+    manifest_lines: list[str] = []
+    if category_manifest_path.exists() and category_manifest_path.is_file():
+        manifest_lines = [
+            line.strip()
+            for line in category_manifest_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    if category_path is not None and category_path not in manifest_lines:
+        manifest_lines.append(category_path)
+        category_manifest_path.write_text(
+            "\n".join(manifest_lines).rstrip() + "\n",
+            encoding="utf-8",
+        )
+
+    build_codex_farm_prompt_type_samples_markdown(
+        full_prompt_log_path=full_prompt_log_path,
+        output_path=prompt_type_samples_path,
+        examples_per_pass=3,
+    )
+    return prompt_response_log_path
+
+
 def render_prompt_artifacts_from_descriptors(
     *,
     pred_run: Path,
@@ -1699,12 +2215,18 @@ def build_prompt_response_log(
         if run_descriptors is not None
         else discover_prompt_run_descriptors(pred_run=pred_run, discoverers=discoverers)
     )
-    return render_prompt_artifacts_from_descriptors(
+    prompt_log_path = render_prompt_artifacts_from_descriptors(
         pred_run=pred_run,
         eval_output_dir=eval_output_dir,
         repo_root=resolved_repo_root,
         run_descriptors=discovered,
     )
+    line_role_prompt_log_path = _append_line_role_prompt_artifacts(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=resolved_repo_root,
+    )
+    return prompt_log_path or line_role_prompt_log_path
 
 
 __all__ = [

@@ -297,6 +297,56 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
     return dict(payload) if isinstance(payload, dict) else None
 
 
+_LEGACY_PROGRESS_TOKEN_RE = re.compile(r"(?P<key>[a-z_]+)=(?P<value>\S+)")
+_LEGACY_PROGRESS_COUNT_KEYS = ("queued", "running", "done", "error", "canceled")
+
+
+def _parse_legacy_progress_line(stderr_line: str) -> dict[str, Any] | None:
+    line = str(stderr_line or "").strip()
+    if not line:
+        return None
+    pairs = {
+        str(match.group("key") or "").strip().lower(): str(match.group("value") or "").strip()
+        for match in _LEGACY_PROGRESS_TOKEN_RE.finditer(line)
+    }
+    if not pairs:
+        return None
+
+    run_id = _clean_text(pairs.get("run"))
+    counts: dict[str, int] = {}
+    for key in _LEGACY_PROGRESS_COUNT_KEYS:
+        raw_value = pairs.get(key)
+        if raw_value is None:
+            continue
+        try:
+            counts[key] = max(0, int(raw_value))
+        except ValueError:
+            return None
+
+    has_all_counts = all(key in counts for key in _LEGACY_PROGRESS_COUNT_KEYS)
+    if not has_all_counts:
+        if run_id:
+            return {"event": "run_started", "run_id": run_id}
+        return None
+
+    total = sum(counts[key] for key in _LEGACY_PROGRESS_COUNT_KEYS)
+    status = "done" if counts["running"] <= 0 and counts["queued"] <= 0 else "running"
+    payload: dict[str, Any] = {
+        "event": "run_progress",
+        "status": status,
+        "counts": {
+            **counts,
+            "total": total,
+        },
+        "progress": {
+            "completed": counts["done"] + counts["error"] + counts["canceled"],
+        },
+    }
+    if run_id:
+        payload["run_id"] = run_id
+    return payload
+
+
 _CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
     r"^Created run (?P<run_id>\S+) with (?P<total_tasks>-?\d+) tasks$"
 )
@@ -339,6 +389,8 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
         if not raw_line.strip():
             continue
         if _parse_progress_event(raw_line) is not None:
+            continue
+        if _parse_legacy_progress_line(raw_line) is not None:
             continue
         if _parse_created_run_line(raw_line) is not None:
             continue
@@ -1298,6 +1350,8 @@ class SubprocessCodexFarmRunner:
             def _handle_stderr_line(line: str) -> bool:
                 progress_payload = _parse_progress_event(line)
                 if progress_payload is None:
+                    progress_payload = _parse_legacy_progress_line(line)
+                if progress_payload is None:
                     created_payload = _parse_created_run_line(line)
                     if created_payload is not None:
                         _emit_progress(
@@ -1308,6 +1362,14 @@ class SubprocessCodexFarmRunner:
                         )
                         return True
                     return False
+                if progress_payload.get("event") == "run_started" and progress_payload.get("run_id"):
+                    _emit_progress(
+                        _format_created_run_progress_message(
+                            payload=progress_payload,
+                            pipeline_id=pipeline_id,
+                        )
+                    )
+                    return True
                 message = _format_progress_event_message(
                     progress_payload,
                     pipeline_id=pipeline_id,

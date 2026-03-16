@@ -1373,16 +1373,17 @@ def _build_preprocess_trace_failure_rows(
     if not wrong_rows:
         return [], "not_applicable"
 
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    if pred_run_dir is None:
-        return [], "missing_prediction_run"
-
-    extracted_archive_path = pred_run_dir / "extracted_archive.json"
-    if not extracted_archive_path.is_file():
-        return [], "missing_extracted_archive"
-
     if not full_prompt_rows:
         return [], "missing_full_prompt_log"
+
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    extracted_archive_path = _resolve_extracted_archive_path(
+        run_dir,
+        run_manifest,
+        pred_run_dir=pred_run_dir,
+    )
+    if extracted_archive_path is None:
+        return [], "missing_extracted_archive"
 
     archive_blocks = _load_extracted_archive_blocks(extracted_archive_path)
     prompt_rows_by_recipe, fallback_prompt_row = _select_prompt_rows_by_recipe(full_prompt_rows)
@@ -2249,6 +2250,7 @@ def _resolve_full_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -
 
     candidate_paths.extend(
         [
+            run_dir / "prompts" / FULL_PROMPT_LOG_FILE_NAME,
             run_dir / FULL_PROMPT_LOG_FILE_NAME,
             run_dir / "codexfarm" / FULL_PROMPT_LOG_FILE_NAME,
         ]
@@ -2354,44 +2356,111 @@ def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> 
     return None
 
 
-def _resolve_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    if pred_run_dir is None:
+def _resolve_processed_output_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    artifacts = run_manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
         return None
+    for key in ("processed_output_run_dir", "stage_run_dir"):
+        artifact_raw = artifacts.get(key)
+        if not isinstance(artifact_raw, str) or not artifact_raw.strip():
+            continue
+        candidate = Path(artifact_raw.strip())
+        candidate = candidate if candidate.is_absolute() else run_dir / candidate
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
 
+
+def _resolve_extracted_archive_path(
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    *,
+    pred_run_dir: Path | None = None,
+) -> Path | None:
     candidate_paths: list[Path] = []
-    pred_manifest_path = pred_run_dir / "manifest.json"
-    pred_manifest = (
-        _upload_bundle_load_json_object(pred_manifest_path)
-        if pred_manifest_path.is_file()
-        else {}
-    )
-    llm_payload = (
-        pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
-    )
-    llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
-    knowledge_payload = llm_payload.get("knowledge")
-    knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
-    knowledge_paths = (
-        knowledge_payload.get("paths") if isinstance(knowledge_payload.get("paths"), dict) else {}
-    )
-    manifest_path_raw = (
-        knowledge_paths.get("manifest_path")
-        or knowledge_payload.get("manifest_path")
-        or ""
-    )
-    if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
-        manifest_path = Path(manifest_path_raw.strip())
-        candidate_paths.append(
-            manifest_path if manifest_path.is_absolute() else pred_run_dir / manifest_path
-        )
-
-    raw_llm_dir = pred_run_dir / "raw" / "llm"
-    if raw_llm_dir.is_dir():
+    artifacts = run_manifest.get("artifacts")
+    if isinstance(artifacts, dict):
+        for key in ("evaluation_extracted_archive_json", "extracted_archive_json"):
+            artifact_raw = artifacts.get(key)
+            if not isinstance(artifact_raw, str) or not artifact_raw.strip():
+                continue
+            candidate = Path(artifact_raw.strip())
+            candidate_paths.append(candidate if candidate.is_absolute() else run_dir / candidate)
+    if pred_run_dir is not None:
         candidate_paths.extend(
-            sorted(raw_llm_dir.glob(f"*/{KNOWLEDGE_MANIFEST_FILE_NAME}"))
+            [
+                pred_run_dir / "extracted_archive.json",
+                pred_run_dir / "line-role-pipeline" / "extracted_archive.json",
+            ]
         )
-        candidate_paths.append(raw_llm_dir / KNOWLEDGE_MANIFEST_FILE_NAME)
+    candidate_paths.extend(
+        [
+            run_dir
+            / ".prediction-record-replay"
+            / "pipelined"
+            / "extracted_archive.from_records.json",
+            run_dir / "line-role-pipeline" / "extracted_archive.json",
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _resolve_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
+    candidate_paths: list[Path] = []
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    if pred_run_dir is not None:
+        pred_manifest_path = pred_run_dir / "manifest.json"
+        pred_manifest = (
+            _upload_bundle_load_json_object(pred_manifest_path)
+            if pred_manifest_path.is_file()
+            else {}
+        )
+        llm_payload = (
+            pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
+        )
+        llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
+        knowledge_payload = llm_payload.get("knowledge")
+        knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
+        knowledge_paths = (
+            knowledge_payload.get("paths")
+            if isinstance(knowledge_payload.get("paths"), dict)
+            else {}
+        )
+        manifest_path_raw = (
+            knowledge_paths.get("manifest_path")
+            or knowledge_payload.get("manifest_path")
+            or ""
+        )
+        if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
+            manifest_path = Path(manifest_path_raw.strip())
+            candidate_paths.append(
+                manifest_path if manifest_path.is_absolute() else pred_run_dir / manifest_path
+            )
+
+        raw_llm_dir = pred_run_dir / "raw" / "llm"
+        if raw_llm_dir.is_dir():
+            candidate_paths.extend(
+                sorted(raw_llm_dir.glob(f"*/{KNOWLEDGE_MANIFEST_FILE_NAME}"))
+            )
+            candidate_paths.append(raw_llm_dir / KNOWLEDGE_MANIFEST_FILE_NAME)
+
+    processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
+    if processed_output_dir is not None:
+        processed_raw_llm_dir = processed_output_dir / "raw" / "llm"
+        if processed_raw_llm_dir.is_dir():
+            candidate_paths.extend(
+                sorted(processed_raw_llm_dir.glob(f"*/{KNOWLEDGE_MANIFEST_FILE_NAME}"))
+            )
+            candidate_paths.append(processed_raw_llm_dir / KNOWLEDGE_MANIFEST_FILE_NAME)
 
     seen: set[Path] = set()
     for candidate in candidate_paths:
@@ -6333,17 +6402,20 @@ def _upload_bundle_payload_row_line_bytes(payload_row: dict[str, Any]) -> int:
 
 def _resolve_prompt_budget_summary_path(
     *,
-    pred_run_dir: Path,
+    run_dir: Path,
+    pred_run_dir: Path | None,
     pred_manifest: dict[str, Any],
 ) -> Path | None:
     candidates: list[Path] = []
     manifest_path = str(pred_manifest.get("prompt_budget_summary_path") or "").strip()
     if manifest_path:
         candidate = Path(manifest_path)
-        if not candidate.is_absolute():
+        if not candidate.is_absolute() and pred_run_dir is not None:
             candidate = pred_run_dir / candidate
         candidates.append(candidate)
-    candidates.append(pred_run_dir / "prompt_budget_summary.json")
+    candidates.append(run_dir / "prompt_budget_summary.json")
+    if pred_run_dir is not None:
+        candidates.append(pred_run_dir / "prompt_budget_summary.json")
     seen: set[Path] = set()
     for candidate in candidates:
         resolved = candidate.resolve(strict=False)
@@ -6599,13 +6671,10 @@ def _upload_bundle_select_high_level_artifact_paths(
             if pred_run_dir is not None
             else {}
         )
-        prompt_budget_summary_path = (
-            _resolve_prompt_budget_summary_path(
-                pred_run_dir=pred_run_dir,
-                pred_manifest=pred_manifest,
-            )
-            if pred_run_dir is not None
-            else None
+        prompt_budget_summary_path = _resolve_prompt_budget_summary_path(
+            run_dir=run_dir,
+            pred_run_dir=pred_run_dir,
+            pred_manifest=pred_manifest,
         )
         if prompt_budget_summary_path is not None:
             if _append_if_allowed(prompt_budget_summary_path, required=False):
@@ -6976,6 +7045,12 @@ def _upload_bundle_relative_path_within_root(
         return None
 
 
+def _upload_bundle_derived_run_artifact_path(*, output_subdir: str, file_name: str) -> str:
+    normalized_subdir = str(output_subdir or "").strip().strip("/")
+    normalized_subdir = normalized_subdir or "unknown_run"
+    return f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/runs/{normalized_subdir}/{file_name}"
+
+
 def _upload_bundle_build_knowledge_summary(
     *,
     source_root: Path,
@@ -7017,25 +7092,41 @@ def _upload_bundle_build_knowledge_summary(
             if pred_run_dir is not None
             else {}
         )
+        processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
+        knowledge_outputs_path = (
+            processed_output_dir / "09_knowledge_outputs.json"
+            if processed_output_dir is not None
+            else None
+        )
+        knowledge_outputs = (
+            _upload_bundle_load_json_object(knowledge_outputs_path)
+            if isinstance(knowledge_outputs_path, Path) and knowledge_outputs_path.is_file()
+            else {}
+        )
         llm_payload = (
             pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
         )
         llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
         knowledge_payload = llm_payload.get("knowledge")
         knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
-        knowledge_counts = (
+        manifest_knowledge_counts = (
             knowledge_payload.get("counts")
             if isinstance(knowledge_payload.get("counts"), dict)
             else {}
         )
+        outputs_knowledge_counts = (
+            knowledge_outputs.get("counts")
+            if isinstance(knowledge_outputs.get("counts"), dict)
+            else {}
+        )
+        knowledge_counts = (
+            manifest_knowledge_counts if manifest_knowledge_counts else outputs_knowledge_counts
+        )
 
-        prompt_budget_summary = (
-            _upload_bundle_load_prompt_budget_summary(
-                pred_run_dir=pred_run_dir,
-                pred_manifest=pred_manifest,
-            )
-            if pred_run_dir is not None
-            else None
+        prompt_budget_summary = _upload_bundle_load_prompt_budget_summary(
+            run_dir=run_dir,
+            pred_run_dir=pred_run_dir,
+            pred_manifest=pred_manifest,
         )
         prompt_budget_by_stage = (
             prompt_budget_summary.get("by_stage")
@@ -7056,16 +7147,27 @@ def _upload_bundle_build_knowledge_summary(
         prompt_samples_path = _resolve_prompt_type_samples_path(run_dir, run_manifest)
         knowledge_prompt_path = _resolve_knowledge_prompt_path(run_dir)
         knowledge_manifest_path = _resolve_knowledge_manifest_path(run_dir, run_manifest)
-        prompt_budget_path = (
-            _resolve_prompt_budget_summary_path(
-                pred_run_dir=pred_run_dir,
-                pred_manifest=pred_manifest,
-            )
-            if pred_run_dir is not None
-            else None
+        prompt_budget_path = _resolve_prompt_budget_summary_path(
+            run_dir=run_dir,
+            pred_run_dir=pred_run_dir,
+            pred_manifest=pred_manifest,
         )
+        knowledge_manifest_locator_path = _upload_bundle_relative_path_within_root(
+            source_root=source_root,
+            candidate=knowledge_manifest_path,
+        )
+        knowledge_manifest_source_path: Path | None = None
+        if knowledge_manifest_locator_path is None and isinstance(knowledge_manifest_path, Path):
+            knowledge_manifest_locator_path = _upload_bundle_derived_run_artifact_path(
+                output_subdir=output_subdir,
+                file_name=KNOWLEDGE_MANIFEST_FILE_NAME,
+            )
+            knowledge_manifest_source_path = knowledge_manifest_path
 
-        knowledge_enabled = bool(_coerce_bool(knowledge_payload.get("enabled")))
+        knowledge_enabled = bool(
+            _coerce_bool(knowledge_payload.get("enabled"))
+            or _coerce_bool(knowledge_outputs.get("enabled"))
+        )
         enabled = bool(
             knowledge_enabled
             or (knowledge_call_count is not None and knowledge_call_count > 0)
@@ -7127,14 +7229,12 @@ def _upload_bundle_build_knowledge_summary(
                     source_root=source_root,
                     candidate=knowledge_prompt_path,
                 ),
-                "knowledge_manifest_path": _upload_bundle_relative_path_within_root(
-                    source_root=source_root,
-                    candidate=knowledge_manifest_path,
-                ),
                 "prompt_budget_summary_path": _upload_bundle_relative_path_within_root(
                     source_root=source_root,
                     candidate=prompt_budget_path,
                 ),
+                "knowledge_manifest_path": knowledge_manifest_locator_path,
+                "knowledge_manifest_source_path": knowledge_manifest_source_path,
             }
         )
 
@@ -8396,20 +8496,18 @@ def _upload_bundle_token_share_fields(
 
 def _upload_bundle_load_prompt_budget_summary(
     *,
-    pred_run_dir: Path,
+    run_dir: Path,
+    pred_run_dir: Path | None,
     pred_manifest: dict[str, Any],
 ) -> dict[str, Any] | None:
-    candidates: list[Path] = []
-    manifest_path = str(pred_manifest.get("prompt_budget_summary_path") or "").strip()
-    if manifest_path:
-        candidate = Path(manifest_path)
-        if not candidate.is_absolute():
-            candidate = pred_run_dir / candidate
-        candidates.append(candidate)
-    candidates.append(pred_run_dir / "prompt_budget_summary.json")
-    for candidate in candidates:
+    candidate = _resolve_prompt_budget_summary_path(
+        run_dir=run_dir,
+        pred_run_dir=pred_run_dir,
+        pred_manifest=pred_manifest,
+    )
+    if isinstance(candidate, Path):
         if not candidate.is_file():
-            continue
+            return None
         payload = _upload_bundle_load_json_object(candidate)
         if isinstance(payload.get("by_stage"), dict):
             return payload
@@ -8432,13 +8530,14 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
             continue
         run_manifest = _upload_bundle_load_json_object(run_manifest_path)
         pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-        if pred_run_dir is None:
-            continue
-        pred_manifest_path = pred_run_dir / "manifest.json"
-        if not pred_manifest_path.is_file():
-            continue
-        pred_manifest = _upload_bundle_load_json_object(pred_manifest_path)
+        pred_manifest_path = pred_run_dir / "manifest.json" if pred_run_dir is not None else None
+        pred_manifest = (
+            _upload_bundle_load_json_object(pred_manifest_path)
+            if isinstance(pred_manifest_path, Path) and pred_manifest_path.is_file()
+            else {}
+        )
         prompt_budget_summary = _upload_bundle_load_prompt_budget_summary(
+            run_dir=run_dir,
             pred_run_dir=pred_run_dir,
             pred_manifest=pred_manifest,
         )
@@ -8473,6 +8572,8 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
                         bucket["tokens_total"] += max(int(tokens_total), 0)
                         bucket["tokens_known"] = True
                 continue
+        if pred_run_dir is None or not isinstance(pred_manifest_path, Path) or not pred_manifest_path.is_file():
+            continue
         llm_payload = (
             pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
         )
@@ -11582,6 +11683,23 @@ def _write_upload_bundle_three_files(
         source_root=source_root,
         discovered_run_dirs=run_dirs_for_analysis,
     )
+    for locator_hint in knowledge_locator_hints:
+        if not isinstance(locator_hint, dict):
+            continue
+        logical_path = str(locator_hint.get("knowledge_manifest_path") or "").strip()
+        source_path = locator_hint.get("knowledge_manifest_source_path")
+        if (
+            not logical_path
+            or not logical_path.startswith(f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/")
+            or not isinstance(source_path, Path)
+            or not source_path.is_file()
+        ):
+            continue
+        _append_virtual_payload_row(
+            path=logical_path,
+            content_type="json",
+            content_json=_upload_bundle_load_json_object(source_path),
+        )
     line_role_signal_summary = _upload_bundle_build_line_role_escalation_summary(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
@@ -12242,19 +12360,16 @@ def _write_upload_bundle_three_files(
                     for path in (str(item.get("prompt_samples_path") or ""),)
                     if path
                 ),
-                basenames=(PROMPT_TYPE_SAMPLES_FILE_NAME,),
             ),
             "prompt_knowledge_txt": _payload_locator(
                 paths=tuple(
                     path for path in (str(item.get("prompt_knowledge_path") or ""),) if path
                 ),
-                basenames=(KNOWLEDGE_PROMPT_FILE_NAME,),
             ),
             "knowledge_manifest_json": _payload_locator(
                 paths=tuple(
                     path for path in (str(item.get("knowledge_manifest_path") or ""),) if path
                 ),
-                basenames=(KNOWLEDGE_MANIFEST_FILE_NAME,),
             ),
             "prompt_budget_summary_json": _payload_locator(
                 paths=tuple(
@@ -12262,7 +12377,6 @@ def _write_upload_bundle_three_files(
                     for path in (str(item.get("prompt_budget_summary_path") or ""),)
                     if path
                 ),
-                basenames=("prompt_budget_summary.json",),
             ),
         }
         for item in knowledge_locator_hints

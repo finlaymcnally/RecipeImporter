@@ -317,6 +317,166 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
         variant.run_settings.atomic_block_splitter.value for variant in variants
     } == {"atomic-v1"}
 
+
+def test_build_all_method_variants_respects_selected_codex_surfaces() -> None:
+    base_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "llm_knowledge_pipeline": "off",
+            "line_role_pipeline": "deterministic-v1",
+            "atomic_block_splitter": "atomic-v1",
+        },
+        warn_context="test baseline codex surfaces",
+    )
+    selected_codex_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+            "llm_knowledge_pipeline": "off",
+            "line_role_pipeline": "deterministic-v1",
+            "atomic_block_splitter": "atomic-v1",
+        },
+        warn_context="test selected codex surfaces",
+    )
+
+    variants = cli._build_all_method_variants(
+        base_settings=base_settings,
+        source_file=Path("book.pdf"),
+        include_codex_farm=True,
+        codex_variant_settings=selected_codex_settings,
+    )
+
+    baseline_variants = [
+        variant
+        for variant in variants
+        if "__llm_recipe_codex_farm_single_correction_v1" not in variant.slug
+    ]
+    codex_variants = [
+        variant
+        for variant in variants
+        if "__llm_recipe_codex_farm_single_correction_v1" in variant.slug
+    ]
+
+    assert len(baseline_variants) == 1
+    assert len(codex_variants) == 1
+    assert codex_variants[0].run_settings.llm_recipe_pipeline.value == (
+        "codex-farm-single-correction-v1"
+    )
+    assert codex_variants[0].run_settings.line_role_pipeline.value == "deterministic-v1"
+    assert codex_variants[0].run_settings.llm_knowledge_pipeline.value == "off"
+    assert "__line_role_codex_line_role_v1" not in codex_variants[0].slug
+    assert "__llm_knowledge_codex_farm_knowledge_v1" not in codex_variants[0].slug
+
+
+def test_interactive_all_method_benchmark_uses_shared_codex_surface_menu(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "DinnerFor2CUTDOWN.epub"
+    source.write_text("dummy", encoding="utf-8")
+    gold_path = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    gold_path.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        cli,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (gold_path, source),
+    )
+    monkeypatch.setattr(cli, "_resolve_all_method_markdown_extractors_choice", lambda: False)
+    monkeypatch.setattr(cli, "_all_method_optional_module_available", lambda *_: True)
+    monkeypatch.setattr(cli, "_ensure_codex_farm_cmd_available", lambda *_args, **_kwargs: None)
+
+    menu_answers = iter(["single"])
+
+    def _fake_menu_select(prompt: str, *_args, **_kwargs):
+        if prompt == "Select all method benchmark scope:":
+            return next(menu_answers)
+        pytest.fail(f"Unexpected menu prompt: {prompt}")
+
+    monkeypatch.setattr(cli, "_menu_select", _fake_menu_select)
+
+    prompt_messages: list[str] = []
+
+    def _fake_prompt_confirm(message: str, *args, **kwargs):
+        prompt_messages.append(message)
+        if message.startswith("Try deterministic option sweeps too?"):
+            return False
+        if message.startswith("Proceed with "):
+            return False
+        if message == "Include Codex Farm permutations?":
+            pytest.fail("should use shared CodexFarm process menu")
+        pytest.fail(f"Unexpected confirm prompt: {message}")
+
+    monkeypatch.setattr(cli, "_prompt_confirm", _fake_prompt_confirm)
+
+    shared_surface_calls: list[tuple[str, ...]] = []
+
+    def _fake_choose_interactive_codex_surfaces(**kwargs):
+        shared_surface_calls.append(tuple(kwargs["surface_options"]))
+        return cli.RunSettings.from_dict(
+            {
+                **kwargs["selected_settings"].model_dump(
+                    mode="json", exclude_none=True
+                ),
+                "llm_recipe_pipeline": "codex-farm-single-correction-v1",
+                "llm_knowledge_pipeline": "off",
+                "line_role_pipeline": "deterministic-v1",
+                "atomic_block_splitter": "atomic-v1",
+            },
+            warn_context="test all-method shared codex menu",
+        )
+
+    ai_settings_calls: list[dict[str, object]] = []
+
+    def _fake_choose_codex_ai_settings(**kwargs):
+        ai_settings_calls.append(dict(kwargs))
+        return kwargs["selected_settings"]
+
+    monkeypatch.setattr(
+        cli,
+        "choose_interactive_codex_surfaces",
+        _fake_choose_interactive_codex_surfaces,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli,
+        "choose_codex_ai_settings",
+        _fake_choose_codex_ai_settings,
+        raising=False,
+    )
+
+    def _fake_build_all_method_target_variants(**kwargs):
+        target = kwargs["targets"][0]
+        assert kwargs["include_codex_farm"] is False or kwargs[
+            "codex_variant_settings"
+        ] is not None
+        return [
+            (
+                target,
+                [
+                    cli.AllMethodVariant(
+                        slug="variant",
+                        run_settings=_benchmark_test_run_settings(),
+                        dimensions={},
+                    )
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(cli, "_build_all_method_target_variants", _fake_build_all_method_target_variants)
+
+    cli._interactive_all_method_benchmark(
+        selected_benchmark_settings=_benchmark_test_run_settings(
+            {"llm_recipe_pipeline": "off"}
+        ),
+        benchmark_eval_output=tmp_path / "golden" / "2026-03-16_00.00.00",
+        processed_output_root=tmp_path / "processed",
+    )
+
+    assert shared_surface_calls == [("recipe", "line_role", "knowledge")]
+    assert len(ai_settings_calls) == 1
+    assert "Include Codex Farm permutations?" not in prompt_messages
+
 def test_resolve_all_method_markdown_extractors_requires_policy_unlock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -264,6 +264,87 @@ def test_prompt_preview_rebuilds_recipe_knowledge_and_line_role_prompts(
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
 
 
+def test_prompt_preview_prefers_existing_live_codex_inputs(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+    live_recipe_input = run_dir / "raw" / "llm" / workbook_slug / "recipe_correction" / "in" / "live_recipe.json"
+    live_recipe_payload = {
+        "bundle_version": "1",
+        "recipe_id": "urn:recipe:test:live",
+        "workbook_slug": workbook_slug,
+        "source_hash": "fixture-source-hash",
+        "canonical_text": "LIVE canonical text",
+        "evidence_rows": [[42, "LIVE canonical text"]],
+        "recipe_candidate_hint": {
+            "identifier": "urn:recipe:test:live",
+            "name": "Live Recipe Name",
+            "recipeIngredient": ["2 tbsp butter"],
+            "recipeInstructions": ["Melt the butter."],
+            "description": None,
+            "recipeYield": None,
+        },
+        "tagging_guide": {"version": "custom-live-guide"},
+        "authority_notes": ["live_artifact_reuse"],
+    }
+    _write_json(live_recipe_input, live_recipe_payload)
+
+    live_knowledge_input = run_dir / "raw" / "llm" / workbook_slug / "knowledge" / "in" / "live_knowledge.json"
+    live_knowledge_payload = {
+        "bundle_version": "1",
+        "chunk": {
+            "chunk_id": "fixturebook.c9999.nr",
+            "blocks": [{"block_index": 7, "text": "Live knowledge block."}],
+        },
+        "context": {"blocks_before": [], "blocks_after": []},
+        "guardrails": {"context_recipe_block_indices": []},
+        "heuristics": {"suggested_lane": "knowledge", "suggested_highlights": []},
+    }
+    _write_json(live_knowledge_input, live_knowledge_payload)
+
+    out_dir = tmp_path / "preview"
+    write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+    )
+
+    copied_recipe_input = (
+        out_dir
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "recipe_llm_correct_and_link"
+        / "in"
+        / "live_recipe.json"
+    )
+    copied_knowledge_input = (
+        out_dir
+        / "raw"
+        / "llm"
+        / workbook_slug
+        / "extract_knowledge_optional"
+        / "in"
+        / "live_knowledge.json"
+    )
+    assert copied_recipe_input.read_text(encoding="utf-8") == live_recipe_input.read_text(encoding="utf-8")
+    assert copied_knowledge_input.read_text(encoding="utf-8") == live_knowledge_input.read_text(encoding="utf-8")
+
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (out_dir / "prompts" / "full_prompt_log.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    recipe_row = next(row for row in full_prompt_rows if row["stage_key"] == "recipe_llm_correct_and_link")
+    knowledge_row = next(row for row in full_prompt_rows if row["stage_key"] == "extract_knowledge_optional")
+    assert "Live Recipe Name" in recipe_row["rendered_prompt_text"]
+    assert "custom-live-guide" in recipe_row["rendered_prompt_text"]
+    assert recipe_row["recipe_id"] == "urn:recipe:test:live"
+    assert "Live knowledge block." in knowledge_row["rendered_prompt_text"]
+    assert knowledge_row["recipe_id"] == "fixturebook.c9999.nr"
+
+
 def test_cf_debug_preview_prompts_resolves_processed_run_from_benchmark_manifest(
     tmp_path: Path,
 ) -> None:
