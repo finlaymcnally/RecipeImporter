@@ -77,7 +77,7 @@ The second view is canonical labeling. `cookimport/parsing/recipe_block_atomizer
 
 Phase 2 resolves that split. In this plan, “authoritative” means the artifact that later stages are required to consume as the single source of truth. A “segmented line” means one ordered Stage 1 unit that still points back to a stable source `block_id` and `block_index`; in practice this will be the existing atomizer output unless the Phase 1 implementation already provides an equivalent contract. A “final block label” means the one normalized Stage 2 label that Phase 2 exposes for one source block after line-level labeling is complete. A “recipe span” means a half-open block range plus optional atomic evidence fields that explain how the grouped range was formed. A “temporary adapter” means private code that converts label-first spans into the current `ConversionResult` shape only where unavoidable while the surrounding runtime is being cut over. It is not a rollback mechanism and must not keep candidate-first ownership alive as a parallel architecture.
 
-The plan assumes Phase 1 already gave the repo stage-aware reporting and artifact registration, not that it already implemented the full label-first evidence model. If the repo still lacks one inspectable segmented-line artifact when this phase begins, Phase 2 must introduce or formalize that artifact as part of the label-first backbone work. Keep the behavior concrete and repeatable by providing the interfaces named below even if the underlying file names differ.
+The plan assumes Phase 1 already gave the repo stage-aware reporting and artifact registration, not that it already implemented the full label-first evidence model. If the repo still lacks one inspectable segmented-line artifact when this phase begins, Phase 2 must introduce or formalize that artifact as part of the label-first runtime work. Keep the behavior concrete and repeatable by providing the interfaces named below even if the underlying file names differ.
 
 ## Milestones
 
@@ -223,7 +223,7 @@ Add focused tests:
 
 Then run one real end-to-end cutdown book, preferably `data/input/saltfatacidheatCUTDOWN.epub`. Confirm that the run root contains authoritative Stage 2 and Stage 3 artifacts, that recipe drafts and stage block predictions align with those artifacts, and that Label Studio prediction generation can consume the same run without adding a duplicate line-role pass.
 
-Update the short docs that future contributors will actually open first: `docs/01-architecture/01-architecture_README.md`, `docs/06-label-studio/06-label-studio_README.md`, and a short note in the nearest code folder such as `cookimport/parsing/README.md` or `cookimport/staging/README.md`, depending on where the authoritative orchestration lands. Keep that note short and explain only the new backbone boundary.
+Update the short docs that future contributors will actually open first: `docs/01-architecture/01-architecture_README.md`, `docs/06-label-studio/06-label-studio_README.md`, and a short note in the nearest code folder such as `cookimport/parsing/README.md` or `cookimport/staging/README.md`, depending on where the authoritative orchestration lands. Keep that note short and explain only the new runtime boundary.
 
 Acceptance for this milestone is a passing targeted test slice plus a real stage run where a human can trace a recipe span back to authoritative Stage 2 labels without consulting legacy candidate heuristics, and where the deleted candidate-first route cannot be selected because it no longer exists.
 

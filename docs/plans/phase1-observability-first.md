@@ -12,7 +12,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 This document must be maintained in accordance with `docs/PLANS.md`.
 
-This plan implements only `Phase 1 — Fix observability first` from `docs/reports/Refactor.md`. It is still pre-label-first and pre-recipe-architecture-change work, but it is not a compatibility-preserving migration. Phase 1 is the point where the repo stops speaking in pass-slot language. Delete the old observability paradigm outright. Do not preserve `pass1` through `pass5` naming, compatibility aliases, benchmark compatibility families, or historical fallback readers inside the new observability contract. There is no dual taxonomy period in this plan.
+This plan implements only `Phase 1 — Fix observability first` from `docs/reports/Refactor.md`. It is still pre-label-first and pre-recipe-architecture-change work, but it is not a compatibility-preserving migration. Phase 1 is the point where the repo stops speaking in pass-slot language. Delete the old observability paradigm outright. Do not preserve `pass1` through `pass5` naming, compatibility aliases, benchmark compatibility families, or historical fallback readers inside the new observability contract. There is no dual taxonomy period in this plan. This is a burn-the-boats phase.
 
 ## Purpose / Big Picture
 
@@ -57,7 +57,7 @@ For the rest of this phase series, treat the following semantic keys from `docs/
 ## Decision Log
 
 - Decision: Phase 1 is the destructive migration point for stage observability.
-  Rationale: preserving the old stage taxonomy during a major refactor would keep the repo mentally and structurally split across two paradigms. The point of this phase is to establish one truthful stage language, not two.
+  Rationale: preserving the old stage taxonomy during a major refactor would keep the repo mentally and structurally split across two paradigms. The point of this phase is to establish one truthful stage language, not two. This is the explicit burn-the-boats cutover for stage naming.
   Date/Author: 2026-03-15 / Codex
 
 - Decision: `stage_observability.json` is the only canonical run-level stage description for new runs.
@@ -358,5 +358,7 @@ In benchmark bundle code, read `stage_observability.json` and semantic stage-own
 2026-03-15_22.42.10 / Codex: harmonized the concrete commands with the repo's current CLI surface by using `cookimport stage --out ...` consistently. Reason: the later phase plans already use `--out`, and the observability plan should not teach a different flag while serving as the cross-phase reference.
 
 2026-03-15_22.52.33 / Codex: revised the plan to name the full cross-phase semantic-stage set explicitly. Reason: Phases 2 through 4 now agree on their handoff contracts, and Phase 1 should be the place that states once, clearly, that those stage keys become product truth only through `stage_observability.json`.
+
+2026-03-15_23.02.26 / Codex: added explicit “burn the boats” wording so the migration posture is impossible to misread when skimming the plan. Reason: the refactor philosophy should be obvious at the top of the document, not inferred from later decisions.
 
 2026-03-15_23.07.00 / Codex: rewrote the plan around a destructive migration philosophy after user clarification. Reason: the earlier draft preserved legacy pass-slot paths, compatibility aliases, and historical fallback readers, which contradicted the intended major-refactor posture of deleting old code and shipping only the new paradigm.

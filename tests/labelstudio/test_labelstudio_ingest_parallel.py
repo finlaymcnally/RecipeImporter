@@ -1666,6 +1666,8 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
     assert projected_stage_path is not None and projected_stage_path.exists()
     assert projected_archive_path is not None and projected_archive_path.exists()
     assert projected_spans_path is not None and projected_spans_path.exists()
+    assert result["stage_block_predictions_path"] == projected_stage_path
+    assert result["extracted_archive_path"] == projected_archive_path
 
     stage_payload = json.loads(projected_stage_path.read_text(encoding="utf-8"))
     projected_labels = set(stage_payload.get("block_labels", {}).values())

@@ -414,6 +414,10 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
                 "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
                 "run_config_hash": "cfg-hash",
                 "run_config_summary": "workers=1",
+                "stage_block_predictions_path": str(
+                    line_role_dir / "stage_block_predictions.json"
+                ),
+                "extracted_archive_path": str(line_role_dir / "extracted_archive.json"),
                 "line_role_pipeline_stage_block_predictions_path": str(
                     line_role_dir / "stage_block_predictions.json"
                 ),

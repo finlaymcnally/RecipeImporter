@@ -806,7 +806,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
             predictions_in=predictions_in,
         )
 
-def test_build_prediction_bundle_prefers_line_role_projection_when_enabled(
+def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_file = tmp_path / "book.epub"
@@ -858,7 +858,10 @@ def test_build_prediction_bundle_prefers_line_role_projection_when_enabled(
                 "source_file": str(source_file),
                 "source_hash": "hash-123",
                 "run_config": {"line_role_pipeline": "deterministic-v1"},
-                "stage_block_predictions_path": str(default_stage_predictions_path),
+                # New contract: manifest's stage/extracted pointers are the one
+                # canonical scoring surface regardless of diagnostics artifacts.
+                "stage_block_predictions_path": str(line_role_stage_predictions_path),
+                "extracted_archive_path": str(line_role_extracted_archive_path),
                 "line_role_pipeline_stage_block_predictions_path": str(
                     line_role_stage_predictions_path
                 ),

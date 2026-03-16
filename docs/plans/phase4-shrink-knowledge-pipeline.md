@@ -11,13 +11,15 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 This document must be maintained in accordance with `docs/PLANS.md`.
 
-This plan assumes the earlier migration work is already present in the working tree. In concrete terms, the runtime already has one authoritative segmented block stream, one normalized Stage 2 block-label view for every source block, one deterministic Stage 3 recipe-span artifact built from those labels, the recipe path from Stage 4 through Stage 6 no longer depends on legacy pre-label recipe-candidate residue, and `stage_observability.json` is already the canonical place where stage names and owned artifacts are recorded. If the concrete Phase 2 handoff type is named `LabelFirstCompatibilityResult`, this phase should consume its `block_labels` plus `recipe_spans` fields directly; if the code uses a different type name, add one small adapter at the boundary and keep the rest of Stage 7 typed in terms of the same normalized concepts.
+This plan assumes the earlier migration work is already present in the working tree. In concrete terms, the runtime already has one authoritative segmented block stream, one normalized Stage 2 block-label view for every source block, one deterministic Stage 3 recipe-span artifact built from those labels, the recipe path from Stage 4 through Stage 6 no longer depends on legacy pre-label recipe-candidate residue, and `stage_observability.json` is already the canonical place where stage names and owned artifacts are recorded. If the concrete Phase 2 handoff type is named `LabelFirstCompatibilityResult`, this phase may read that type at the boundary, but the work in this plan should delete compatibility-only carryovers rather than preserve them. Once Stage 7 exists, the repo should stop speaking in residue-first and pass4-first terms.
 
 ## Purpose / Big Picture
 
 After this change, the non-recipe lane will stop using broad residue mining as its main architecture. Stage 7 will deterministically classify every block outside recipe spans as either `knowledge` or `other` from the already-corrected Stage 2 labels, persist that result as a first-class artifact, and only then optionally run a lightweight LLM extraction step on the `knowledge` spans. The user-visible effect is simple: a staged run with `--llm-knowledge-pipeline off` still writes stable non-recipe classification artifacts and still produces correct `KNOWLEDGE` labels in benchmark evidence, while a run with `--llm-knowledge-pipeline codex-farm-knowledge-v1` produces snippets only from blocks already labeled `knowledge`. In the shared observability layer, the semantic stage keys should match the Refactor naming scheme: `classify_nonrecipe` for deterministic Stage 7 and `extract_knowledge_optional` for the optional extraction stage.
 
-The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` should show contiguous `knowledge` and `other` spans derived from Stage 2 labels. `knowledge/<workbook_slug>/block_classifications.jsonl` should exist even when the LLM is off, because it is now a deterministic compatibility artifact. When the LLM is on, `pass4_knowledge_manifest.json.counts.jobs_written` should reflect only `knowledge` spans or subspans, never every non-recipe residue sequence.
+This plan is a hard cut to the new model, not a soft migration. Delete `ConversionResult.non_recipe_blocks` as an authority boundary, delete pass4-driven relabeling, and delete compatibility-only readers or files when their replacements land. Do not keep old knowledge outputs alive as parallel product truth “just in case.”
+
+The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` should show contiguous `knowledge` and `other` spans derived from Stage 2 labels. `09_knowledge_outputs.json` should exist even when the LLM is off, because Stage 7 classification is now a first-class artifact rather than a compatibility side export. When the LLM is on, `pass4_knowledge_manifest.json.counts.jobs_written` should reflect only `knowledge` spans or subspans, never every non-recipe residue sequence.
 
 ## Progress
 
@@ -26,10 +28,11 @@ The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` s
 - [x] (2026-03-15_22.21.16) Inspected the live knowledge lane in `cookimport/staging/import_session.py`, `cookimport/llm/codex_farm_knowledge_orchestrator.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/staging/stage_block_predictions.py`, and `cookimport/labelstudio/canonical_line_projection.py`.
 - [x] (2026-03-15_22.21.16) Wrote the discovery summary to `docs/understandings/2026-03-15_22.21.16-phase4-knowledge-pipeline-current-seams.md`.
 - [x] (2026-03-15_22.21.16) Drafted this ExecPlan.
-- [ ] Add one deterministic Stage 7 in-memory contract for non-recipe spans and compatibility artifacts.
-- [ ] Rewire stage execution so Stage 7 is built from final labels plus recipe spans instead of from `ConversionResult.non_recipe_blocks`.
+- [x] (2026-03-15_23.02.26) Revised the ExecPlan to reflect the destructive-migration philosophy: Phase 4 now deletes residue-first and pass4-compatibility seams instead of preserving them.
+- [ ] Add one deterministic Stage 7 in-memory contract for non-recipe spans and canonical Stage 7 outputs.
+- [ ] Rewire stage execution so Stage 7 is built from final labels plus recipe spans and remove `ConversionResult.non_recipe_blocks` from the authoritative path.
 - [ ] Narrow pass4 so it only consumes Stage 7 `knowledge` spans and never acts as the primary classifier for `knowledge` versus `other`.
-- [ ] Update benchmark and Label Studio compatibility readers so they consume Stage 7 ownership, not pass4 relabeling.
+- [ ] Update benchmark and Label Studio readers so they consume Stage 7 ownership directly and delete pass4 relabeling/reporting seams.
 - [ ] Add focused tests plus domain regression runs, then update docs.
 
 ## Surprises & Discoveries
@@ -45,20 +48,20 @@ The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` s
 
 ## Decision Log
 
-- Decision: preserve `knowledge/<workbook_slug>/block_classifications.jsonl` as a compatibility file, but change its source of truth from pass4 output to deterministic Stage 7 classification.
-  Rationale: multiple downstream readers already know this path; keeping the path stable lets this phase shrink the pipeline without forcing simultaneous rewrites everywhere else.
+- Decision: remove compatibility-only knowledge classification files and make Stage 7 artifacts the only authoritative non-recipe surface for new runs.
+  Rationale: preserving old file contracts would keep the codebase split across two paradigms. Readers should be updated to consume Stage 7 outputs directly instead of teaching the repo to publish both old and new truths.
   Date/Author: 2026-03-15 / Codex
 
-- Decision: keep `ConversionResult.non_recipe_blocks` only as a compatibility/fallback field during the migration, not as the authoritative Stage 7 input.
-  Rationale: removing the field immediately would widen the refactor. Phase 4 only needs to stop reading it as the primary knowledge boundary.
+- Decision: delete `ConversionResult.non_recipe_blocks` from the authoritative path as part of this phase.
+  Rationale: as long as residue-first ownership stays in a live runtime object, later code will keep drifting back to it. The refactor only becomes real when Stage 7 is the only ownership boundary for non-recipe text.
   Date/Author: 2026-03-15 / Codex
 
 - Decision: Stage 7 should be allowed to write empty deterministic artifacts and skip pass4 cleanly when no `knowledge` spans exist.
   Rationale: “no knowledge spans” is a normal book outcome, not an error. The current orchestrator raises on missing `non_recipe_blocks`; Phase 4 must become no-op friendly.
   Date/Author: 2026-03-15 / Codex
 
-- Decision: benchmark and Label Studio compatibility artifacts may keep legacy filenames such as `pass4_merge_report.json`, but they must stop changing authoritative labels once Stage 2 labels are available.
-  Rationale: preserving old paths limits breakage, but preserving old behavior would violate the label-first architecture already assumed by this phase.
+- Decision: delete pass4-era relabeling reports and legacy knowledge-path fallbacks instead of preserving them as passive compatibility artifacts.
+  Rationale: if files such as `pass4_merge_report.json` survive in the new pipeline, they will continue to mislead readers about where authoritative knowledge labels come from. The new stage boundary should be explicit and singular.
   Date/Author: 2026-03-15 / Codex
 
 - Decision: Phase 4 stage naming must extend the shared `stage_observability.json` contract instead of teaching `classify_nonrecipe` and `extract_knowledge_optional` directly in each reporting surface.
@@ -67,7 +70,7 @@ The proof points are equally concrete. In a new run, `08_nonrecipe_spans.json` s
 
 ## Outcomes & Retrospective
 
-Initial planning outcome only: the live repo already has the extraction and rendering pieces needed for a smaller knowledge lane, but two compatibility seams still block the migration. First, pass4 job construction is still based on `non_recipe_blocks`. Second, stage/benchmark evidence still treats pass4 block classifications as authoritative. This plan is intentionally centered on those two seams so the implementation can shrink pass4 without reopening the recipe-path refactor.
+Initial planning outcome only: the live repo already has the extraction and rendering pieces needed for a smaller knowledge lane, but two old seams must be deleted to make the new topology real. First, pass4 job construction is still based on `non_recipe_blocks`. Second, stage and benchmark evidence still treat pass4 block classifications as authoritative. This plan is intentionally centered on deleting those seams, not wrapping them.
 
 ## Context and Orientation
 
@@ -107,7 +110,6 @@ Create a new module `cookimport/staging/nonrecipe_stage.py`. This module should 
         knowledge_spans: list[NonRecipeSpan]
         other_spans: list[NonRecipeSpan]
         block_category_by_index: dict[int, str]
-        compatibility_chunks: list[KnowledgeChunk]
 
 Also define one public constructor:
 
@@ -127,7 +129,7 @@ The function must treat recipe spans as authoritative exclusion zones. A block i
 
 Group contiguous outside-recipe blocks with the same Stage 7 category into one `NonRecipeSpan`. The span convention must stay half-open on indices so it matches `cookimport/llm/non_recipe_spans.py`.
 
-`compatibility_chunks` should exist only to keep current `chunks/` outputs alive while the rest of the repo is migrated. Build those chunks from `knowledge_spans` only. Do not create chunks from `other` spans. Reuse `chunks_from_non_recipe_blocks(...)` only within one `knowledge` span at a time so chunking becomes a shape-preserving refinement over already-labeled knowledge, not a classifier over all residue.
+If some downstream code still expects chunk-shaped knowledge inputs, rewrite that code in this phase rather than keeping a `compatibility_chunks` field alive. Reuse `chunks_from_non_recipe_blocks(...)` only as an internal helper within one `knowledge` span at a time if it remains the fastest implementation path, and rename that helper later if needed so it stops teaching residue-first architecture.
 
 At the end of this milestone, the repo has one deterministic Stage 7 object in memory that says, in one place, which outside-recipe blocks are knowledge and which are not.
 
@@ -146,17 +148,13 @@ Write `08_nonrecipe_spans.json` under the run root. The file must contain one sc
 
 For example, `nr.knowledge.120.136` means blocks `[120, 136)` are one Stage 7 knowledge span.
 
-Also update `cookimport/llm/codex_farm_knowledge_writer.py` so `knowledge/<workbook_slug>/block_classifications.jsonl` becomes a deterministic compatibility export generated from `NonRecipeStageResult.block_category_by_index`, not from pass4 output. Each line should include:
+Also write `09_knowledge_outputs.json` under the run root as the canonical Stage 7 companion artifact. When the LLM is off, the file should still exist and should record zero extraction outputs plus the deterministic fact that Stage 7 classification completed. When the LLM is on, the file should record the knowledge extraction inputs and outputs derived only from `knowledge` spans. New readers should consume this file and `08_nonrecipe_spans.json` directly rather than looking for `knowledge/<workbook_slug>/block_classifications.jsonl`.
 
-    {"block_index": 123, "category": "knowledge", "source": "stage2_label"}
+Keep `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md` only if they remain useful as stage-local extraction artifacts under the new stage taxonomy. They are not compatibility requirements.
 
-If Stage 7 category is `other`, emit that too. This is important because current readers need a full outside-recipe category file, not just positive knowledge hits.
+At the end of this milestone, a stage run has the two canonical non-recipe artifacts named in the refactor contract: `08_nonrecipe_spans.json` and `09_knowledge_outputs.json`.
 
-Keep `knowledge/<workbook_slug>/snippets.jsonl` and `knowledge.md` as optional LLM outputs. They should still be absent when the LLM is off unless the repo already expects empty placeholder files. `08_nonrecipe_spans.json` and deterministic `block_classifications.jsonl` must exist even when the LLM is off.
-
-At the end of this milestone, a stage run has one deterministic Stage 7 artifact plus one compatibility export that old readers can consume.
-
-When these artifacts are written, register them through the Phase 1 observability contract so `stage_observability.json` can show `classify_nonrecipe` as the owner of `08_nonrecipe_spans.json` and the deterministic block-classification export.
+When these artifacts are written, register them through the Phase 1 observability contract so `stage_observability.json` can show `classify_nonrecipe` as the owner of `08_nonrecipe_spans.json` and `extract_knowledge_optional` as the owner of `09_knowledge_outputs.json` when that optional stage runs.
 
 ### Milestone 3: Narrow pass4 to `knowledge` spans only
 
@@ -188,43 +186,43 @@ At the end of this milestone, pass4 is no longer a whole-residue mining pass. It
 
 Register this optional extraction stage through the shared observability layer under the semantic key `extract_knowledge_optional`. If no knowledge spans exist, the stage should still be representable as a successful no-op or skipped stage there instead of disappearing into local pass4 manifest semantics.
 
-### Milestone 4: Rewire stage execution and compatibility readers
+### Milestone 4: Rewire stage execution and delete pass4-era reader seams
 
 Update `cookimport/staging/import_session.py` so the order is:
 
 1. obtain final labels and recipe spans from the already-refactored earlier phases,
 2. build `NonRecipeStageResult`,
 3. write `08_nonrecipe_spans.json`,
-4. write deterministic `block_classifications.jsonl`,
-5. derive compatibility chunks from `knowledge_spans` only,
-6. optionally run pass4 on `knowledge_spans`,
+4. write `09_knowledge_outputs.json` for the deterministic-or-optional extraction stage,
+5. optionally run pass4 on `knowledge_spans`,
+6. write any stage-local extraction artifacts under semantic Stage 7 ownership only,
 7. write stage-block predictions.
 
-`result.chunks` may remain populated for now, but only from `stage_result.compatibility_chunks`. `result.non_recipe_blocks` may remain on the object for compatibility, but `import_session.py` must stop reading it as the source of truth.
+Delete `result.non_recipe_blocks` from the authoritative execution path. If some downstream code still depends on it, rewrite that code now rather than threading the field through another phase.
 
 Then update the evidence readers:
 
 - In `cookimport/staging/stage_block_predictions.py`, resolve `KNOWLEDGE` from Stage 7 deterministic categories first. Snippet provenance can still enrich notes, but it must never be the first classifier.
-- In `cookimport/labelstudio/canonical_line_projection.py`, stop using pass4 block classifications to upgrade or downgrade authoritative freeform labels. Keep compatibility artifact writing if needed, but change the report to note that Stage 7 already owns outside-recipe knowledge labels. The expected steady-state is `changed_line_count = 0` for new-format runs.
-- In `cookimport/labelstudio/ingest.py`, update any “resolve knowledge paths from llm report” logic so it can resolve deterministic Stage 7 paths first and fall back to legacy llm-report paths only when reading old runs.
+- In `cookimport/labelstudio/canonical_line_projection.py`, stop using pass4 block classifications to upgrade or downgrade authoritative freeform labels and delete `pass4_merge_report.json` from the new path.
+- In `cookimport/labelstudio/ingest.py`, resolve non-recipe knowledge evidence from Stage 7 paths only. Do not keep fallback logic for legacy llm-report paths in the new implementation.
 
-At the end of this milestone, pass4 can still provide snippets, but it no longer edits the canonical outside-recipe label story.
+At the end of this milestone, pass4 can still provide extraction output, but it no longer edits the canonical outside-recipe label story and no pass4-era reader seams remain in the main path.
 
-### Milestone 5: Tests, docs, and backward-compatibility checks
+### Milestone 5: Tests, docs, and removal checks
 
 Add a focused test file `tests/staging/test_nonrecipe_stage.py`. Cover at least these cases:
 
 - a block labeled `knowledge` inside a recipe span is excluded from Stage 7 output;
 - outside-recipe contiguous `knowledge` blocks form one `knowledge` span;
 - explicit noise labels normalize to Stage 7 `other`;
-- deterministic `block_classifications.jsonl` is written even when the LLM is off;
+- `08_nonrecipe_spans.json` and `09_knowledge_outputs.json` are written even when the LLM is off;
 - zero `knowledge` spans produces a successful pass4 no-op report instead of an exception.
 
 Update existing tests:
 
 - `tests/llm/test_codex_farm_knowledge_orchestrator.py` should assert `input_mode == "stage7_knowledge_spans"` and successful zero-job behavior.
 - `tests/staging/test_stage_block_predictions.py` should assert `KNOWLEDGE` comes from deterministic Stage 7 categories even when no snippets exist.
-- `tests/labelstudio/test_canonical_line_projection.py` should stop expecting pass4-driven label changes for new-format runs; any compatibility report should describe passive evidence attachment only.
+- `tests/labelstudio/test_canonical_line_projection.py` should stop expecting pass4-driven label changes for new-format runs and should assert that no pass4 merge report is written.
 
 After tests pass, update the short docs that define current behavior:
 
@@ -233,7 +231,7 @@ After tests pass, update the short docs that define current behavior:
 - `docs/05-staging/05-staging_readme.md`
 - `docs/06-label-studio/06-label-studio_README.md`
 
-The docs update must explicitly say that pass4 is now optional snippet extraction over Stage 7 `knowledge` spans and is no longer the primary classifier for outside-recipe labels.
+The docs update must explicitly say that pass4 is now optional snippet extraction over Stage 7 `knowledge` spans, is no longer the primary classifier for outside-recipe labels, and no longer owns any compatibility-only reader contract.
 
 ## Concrete Steps
 
@@ -279,7 +277,7 @@ Finally, run one manual stage check on any block-first source already present un
 Expected observations:
 
 - both runs write `08_nonrecipe_spans.json`;
-- both runs write `knowledge/<workbook_slug>/block_classifications.jsonl`;
+- both runs write `09_knowledge_outputs.json`;
 - only the second run writes pass4 raw IO plus `snippets.jsonl` and `knowledge.md`;
 - the second run writes fewer jobs than “all non-recipe residue blocks” because it only targets Stage 7 `knowledge` spans.
 
@@ -287,21 +285,21 @@ Expected observations:
 
 The implementation is accepted when all of the following are true.
 
-First, deterministic behavior is observable. A stage run with `--llm-knowledge-pipeline off` still writes one stable Stage 7 artifact plus deterministic compatibility block classifications. `.bench/<workbook_slug>/stage_block_predictions.json` marks outside-recipe `KNOWLEDGE` blocks correctly without any pass4 output being present.
+First, deterministic behavior is observable. A stage run with `--llm-knowledge-pipeline off` still writes one stable Stage 7 classification artifact plus `09_knowledge_outputs.json` with zero extraction outputs. `.bench/<workbook_slug>/stage_block_predictions.json` marks outside-recipe `KNOWLEDGE` blocks correctly without any pass4 output being present.
 
 Second, pass4 is visibly smaller. A stage run with `--llm-knowledge-pipeline codex-farm-knowledge-v1` writes `pass4_knowledge_manifest.json` whose `input_mode` is `stage7_knowledge_spans`, and every written job corresponds to a Stage 7 `knowledge` span or chunklet inside one. No `other` span generates a job.
 
-Third, benchmark compatibility no longer depends on pass4 relabeling. `cookimport/labelstudio/canonical_line_projection.py` may still emit compatibility reports, but new-format runs do not change authoritative labels from pass4 classifications.
+Third, benchmark and Label Studio readers no longer depend on pass4 relabeling. `cookimport/labelstudio/canonical_line_projection.py` does not write `pass4_merge_report.json`, and new-format runs do not change authoritative labels from pass4 classifications.
 
-Fourth, backward compatibility is preserved for readers that only know old paths. `knowledge/<workbook_slug>/block_classifications.jsonl` still exists at the same path, and the benchmark/staging readers continue to work without path rewrites.
+Fourth, the old path contract is gone. New-format runs do not publish `knowledge/<workbook_slug>/block_classifications.jsonl` as a compatibility crutch, do not keep `ConversionResult.non_recipe_blocks` alive as an ownership source, and do not expose legacy llm-report fallbacks.
 
 Fifth, the new topology is visible through the shared observability contract. `stage_observability.json` must show `classify_nonrecipe` for the deterministic Stage 7 artifact write, and when the LLM lane runs it must show `extract_knowledge_optional` as a separate optional stage rather than hiding that meaning only inside pass4-era manifests.
 
 ## Idempotence and Recovery
 
-The code changes in this plan are additive and safe to rerun. The new Stage 7 builder is deterministic over the same block, label, and recipe-span inputs. Re-running tests is safe. Re-running `cookimport stage` is also safe because each run writes to a fresh timestamped output directory.
+The new Stage 7 builder is deterministic over the same block, label, and recipe-span inputs. Re-running tests is safe. Re-running `cookimport stage` is also safe because each run writes to a fresh timestamped output directory.
 
-If the migration breaks one compatibility reader, keep the new deterministic Stage 7 builder in place and restore compatibility by adapting the reader, not by moving classification authority back into pass4. If a run hits zero `knowledge` spans and older code still expects pass4 files, write empty deterministic compatibility outputs rather than throwing an exception.
+This plan is intentionally destructive. If a reader breaks because it depended on a deleted compatibility path, rewrite the reader to the Stage 7 artifacts rather than reintroducing the old file. If a run hits zero `knowledge` spans, `09_knowledge_outputs.json` should record a successful no-op extraction state instead of recreating old compatibility files.
 
 ## Artifacts and Notes
 
@@ -324,11 +322,15 @@ The key new artifact should look like this:
       ]
     }
 
-The deterministic compatibility classification file should contain one record per outside-recipe block:
+The canonical knowledge-output artifact should look roughly like this when the LLM is off:
 
-    {"block_index": 120, "category": "knowledge", "source": "stage2_label"}
-    {"block_index": 121, "category": "knowledge", "source": "stage2_label"}
-    {"block_index": 122, "category": "other", "source": "stage2_label"}
+    {
+      "schema_version": "knowledge_outputs.v1",
+      "classification_source": "stage7",
+      "extraction_mode": "off",
+      "knowledge_span_count": 5,
+      "snippets": []
+    }
 
 The pass4 manifest should clearly advertise the new input boundary:
 
@@ -359,7 +361,6 @@ Define the new Stage 7 builder in `cookimport/staging/nonrecipe_stage.py`:
         knowledge_spans: list[NonRecipeSpan]
         other_spans: list[NonRecipeSpan]
         block_category_by_index: dict[int, str]
-        compatibility_chunks: list[KnowledgeChunk]
 
     def build_nonrecipe_stage_result(
         *,
@@ -372,7 +373,7 @@ Define the new Stage 7 builder in `cookimport/staging/nonrecipe_stage.py`:
 
 Update `cookimport/llm/codex_farm_knowledge_jobs.py` so its public builder takes `knowledge_spans` instead of `non_recipe_blocks`, and update `cookimport/llm/codex_farm_knowledge_orchestrator.py` so its public entrypoint receives `NonRecipeStageResult` and writes `input_mode = "stage7_knowledge_spans"` in the manifest. Keep existing codex-farm runner dependencies and schema resolution intact; this phase changes selection boundaries, not subprocess execution contracts.
 
-Change `cookimport/staging/stage_block_predictions.py` and `cookimport/labelstudio/canonical_line_projection.py` to treat Stage 7 deterministic categories as authoritative for outside-recipe `KNOWLEDGE` ownership. Snippets remain evidence, not classifiers.
+Change `cookimport/staging/stage_block_predictions.py` and `cookimport/labelstudio/canonical_line_projection.py` to treat Stage 7 deterministic categories as authoritative for outside-recipe `KNOWLEDGE` ownership. Snippets remain evidence, not classifiers. Delete pass4-era relabeling reports and legacy path fallbacks from those modules instead of leaving them dormant.
 
 Change note (2026-03-15_22.21.16): Initial ExecPlan created from the Phase 4 section in `docs/reports/Refactor.md` plus a code/doc survey of the current pass4, staging, and Label Studio seams. Reason: provide a self-contained implementation spec for the label-driven knowledge-pipeline shrink assuming earlier migration phases already landed.
 
@@ -383,3 +384,5 @@ Change note (2026-03-15_22.42.10): Revised to align the Stage 7 inputs with the 
 Change note (2026-03-15_22.52.33): Revised to make the upstream handoff and acceptance boundary more explicit. Reason: the surrounding plans now agree that Phase 4 should consume the Phase 2 bundle's normalized `block_labels` plus `recipe_spans` directly and should prove the resulting topology through `stage_observability.json`, not only through pass4 compatibility artifacts.
 
 Change note (2026-03-15_23.00.00): Revised stale cross-doc references from `docs/plans/Refactor.md` to `docs/reports/Refactor.md`. Reason: the phase-plan series should point at the real source document consistently.
+
+Change note (2026-03-15_23.02.26): Revised the plan around a destructive migration philosophy after user clarification. Reason: the earlier draft preserved compatibility exports, `ConversionResult.non_recipe_blocks`, and pass4-era reader seams, which contradicted the intended major-refactor posture of deleting old knowledge-pipeline contracts and shipping only the Stage 7 model.
