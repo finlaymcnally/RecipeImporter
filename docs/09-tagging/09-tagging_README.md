@@ -19,9 +19,13 @@ For tagging architecture/build/fix-attempt history and anti-loop context, use `d
   - standalone DB path: `cookimport tag-recipes apply ... --llm`
   - stage path: `cookimport stage ... --llm-tags-pipeline codex-farm-tags-v1 --tag-catalog-json <path>`
 - Stage observability already treats this optional work as the semantic `tags` stage. Historical `pass5` wording is now only background context for older plans/logs/tests and should not be reintroduced into new runtime/output names.
+- The live seam rename is intentionally narrow: surrounding config/CLI/raw-path names are now `tags`, but the actual CodexFarm pipeline id is still `recipe.tags.v1`.
 - Stage pass is gated:
   - if `llm_tags_pipeline=off`, stage does not run tagging pass and writes no `tags/` artifacts.
   - if enabled, stage requires `tag_catalog_json` to exist.
+- For enabled stage runs, the accepted tag set is also projected back into:
+  - `final drafts/<workbook_slug>/r{index}.json` as `recipe.tags`
+  - `intermediate drafts/<workbook_slug>/r{index}.jsonld` as `keywords`
 - Default remains no-LLM/off-by-default.
 
 ## Code Map
@@ -62,6 +66,7 @@ Naming note:
   - CLI option: `--codex-farm-pipeline-tags`
   - raw stage artifacts: `raw/llm/<workbook_slug>/tags/...`
 - if you still see `pass5_tags`, treat it as historical fixture/log language or a cleanup target, not the current contract
+- if a test or fixture still expects `pass5_tags_manifest.json` or `raw/llm/.../pass5_tags/`, update the fixture instead of teaching live code to emit both names
 
 ## CLI Surfaces
 
@@ -84,6 +89,12 @@ When LLM tagging is enabled (`llm_tags_pipeline=codex-farm-tags-v1`), stage writ
 - `raw/llm/<workbook_slug>/tags/in/*.json`
 - `raw/llm/<workbook_slug>/tags/out/*.json`
 - `raw/llm/<workbook_slug>/tags_manifest.json`
+
+The stage pass also treats those per-recipe accepted suggestions as the embedded-output source of truth:
+
+- `recipe.tags` in the final cookbook3 draft is set from the accepted suggestion list
+- `keywords` in the intermediate JSON-LD is set from the same ordered list
+- if a recipe ends up with zero accepted tags, embedded tag fields are removed rather than emitted as empty placeholders
 
 For ad-hoc `tag-recipes suggest --llm` / `apply --llm` paths, the tags pipeline can run in temporary dirs unless a raw stage directory is explicitly provided by caller.
 

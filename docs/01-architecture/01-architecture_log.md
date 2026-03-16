@@ -223,6 +223,8 @@ Durable decisions:
 - unreachable pass1/pass2/pass3 recipe orchestrator code is deleted; current runtime teaches one single-correction recipe path only
 - current docs/help/rendering should present `codex-farm-single-correction-v1` and the semantic recipe trio, not legacy 3-pass or merged-repair ids as live product truth
 - external-review benchmark surfaces now use semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as their primary recipe contract
+- new prompt exports and sampled artifacts now write semantic stage metadata and stage-named files instead of `task1` / `task4` / `task5` names
+- benchmark eval alias artifacts such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired for new runs
 - any remaining historical compatibility read should stay isolated to archived local artifacts and must not leak back into new reviewer-facing output
 
 Anti-loop note:
@@ -234,6 +236,7 @@ Problem captured:
 - once the live stage path was on the new architecture, the remaining drift was scattered across hidden knobs, helper tooling, fixtures, and analytics/history fallbacks rather than one obvious runtime module
 
 Durable decisions:
+- the biggest remaining old-world seam is tooling and hidden defaults, not the stage runtime core
 - the last easy deletions were mostly outside the runtime core:
   - hidden `pass1`/`pass2`/`pass3` and selective-retry CLI/run-setting knobs
   - prompt-artifact tests and benchmark helper fixtures that still hand-built `chunking/schemaorg/final` trees
@@ -249,6 +252,7 @@ Durable decisions:
   - collapse hidden defaults and scheduler knobs next
   - delete prompt/benchmark aliases after that
   - cut analytics/history fallbacks last with docs/tests in the same pass
+- analytics/history support was intentionally preserved as the one explicit historical exception during the purge; do not treat that exception as a reason to keep reviving other compatibility branches
 - historical logs, plans, and archived reports may still mention removed pipeline ids. Keep that material as history, but do not copy those names back into live docs, tests, or reviewer surfaces.
 - validation from this sweep was representative, not exhaustive. For maximum certainty, the full project test suite still needs to run after destructive cleanup passes.
 

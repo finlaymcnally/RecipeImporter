@@ -135,10 +135,10 @@ Major call sites:
 - Supports optional run-setting backends/normalizers:
   - `ingredient_parser_backend`: `ingredient_parser_nlp | quantulum3_regex | hybrid_nlp_then_quantulum3`
   - `ingredient_text_fix_backend`: `none | ftfy`
-  - `ingredient_pre_normalize_mode`: `legacy | aggressive_v1`
+  - `ingredient_pre_normalize_mode`: `aggressive_v1`
   - `ingredient_packaging_mode`: `off | regex_v1`
-  - `ingredient_unit_canonicalizer`: `legacy | pint`
-  - `ingredient_missing_unit_policy`: `null | each | legacy_medium`
+  - `ingredient_unit_canonicalizer`: `pint`
+  - `ingredient_missing_unit_policy`: `null | each | medium`
 - Returns normalized dict with `quantity_kind` in:
   - `exact`
   - `approximate`
@@ -356,7 +356,6 @@ This was added to stop false recipe splits where component headers like `For the
 
 ### Backends
 
-- `legacy`: importer-local behavior (existing text split path, EPUB/PDF no post-candidate split).
 - `off`: passthrough; no split attempt.
 - `rules_v1`: title-like boundary detection + section coverage thresholds + local recipe-signal guard.
 
@@ -490,6 +489,7 @@ Gates include:
 - Strong deterministic `RECIPE_TITLE` outcomes are held on the rule path without any score-based fallback pressure.
 - Outside-recipe-span score-based escalation is gone; codex escalation now remains inside-span-first and reason-driven.
 - This seam is now reason-only. Current runtime artifacts do not expose compatibility `confidence`, `trust_score`, or `escalation_score` aliases; grouping and Stage 7 ownership are label-driven plus explicit `escalation_reasons` only.
+- Reviewer/export surfaces should mirror that same contract. If a downstream bundle or debug packet still wants scalar uncertainty fields, that downstream surface is stale rather than the parsing contract being incomplete.
 - Codex mode now applies an explicit line-role guardrail mode after sanitization: `off`, `preview`, or `enforce`.
 - `preview` computes the same downgrade decisions as enforce mode but leaves accepted predictions unchanged; `enforce` applies partial downgrades or full-source fallback to deterministic baseline labels.
 - Guardrail diagnostics are written under `line-role-pipeline/`:

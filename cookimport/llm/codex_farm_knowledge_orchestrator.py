@@ -16,8 +16,6 @@ from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from .codex_farm_ids import sanitize_for_filename
 from .codex_farm_knowledge_ingest import read_knowledge_outputs
 from .codex_farm_knowledge_jobs import (
-    COMPACT_KNOWLEDGE_JOB_FORMAT,
-    LEGACY_KNOWLEDGE_JOB_FORMAT,
     build_knowledge_jobs,
 )
 from .codex_farm_knowledge_writer import KnowledgeWriteReport, write_knowledge_artifacts
@@ -162,7 +160,6 @@ def run_codex_farm_knowledge_harvest(
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
         overrides=overrides,
-        job_format=_resolve_knowledge_job_format(pipeline_id),
     )
 
     if build_report.jobs_written == 0:
@@ -262,12 +259,6 @@ def _write_json(payload: Any, path: Path) -> None:
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-
-
-def _resolve_knowledge_job_format(pipeline_id: str) -> str:
-    if str(pipeline_id).strip() == COMPACT_KNOWLEDGE_PIPELINE_ID:
-        return COMPACT_KNOWLEDGE_JOB_FORMAT
-    return LEGACY_KNOWLEDGE_JOB_FORMAT
 
 
 def _extract_full_blocks(result: ConversionResult) -> list[dict[str, Any]]:

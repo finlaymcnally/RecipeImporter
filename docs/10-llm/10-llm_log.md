@@ -33,6 +33,7 @@ Problem captured:
 Durable decisions:
 - prompt preview reconstruction composes existing recipe job builders, knowledge job builders, and canonical line-role prompt builders rather than inventing a second preview-only prompt stack
 - when `var/run_assets/<run_id>/` is absent, preview reconstruction should fall back to pipeline metadata from `llm_pipelines/`
+- `prompt_budget_summary.json` and adjacent prompt-review surfaces should publish semantic `by_stage` / `knowledge` naming, not old slot-group or `pass4` naming
 - prompt artifact rows/files should key off semantic stage metadata only:
   - `stage_key`
   - `stage_label`
@@ -41,6 +42,7 @@ Durable decisions:
 
 Evidence worth keeping:
 - audited preview run totals came out to about `663k` input tokens on an `~86k` token book
+- the first implemented cut bundle brought the same run down to about `461,865` live-like input tokens before the second cut bundle landed
 - the lowest-risk savings in that run were:
   - drop recipe `draft_hint` (`~92k`)
   - trim knowledge context blocks to `2` per side (`~121k`)
@@ -59,6 +61,7 @@ Durable decisions:
 - recipe prompt body cuts should land in the shared serializer for `MergedRecipeRepairInput`, not only in `prompt_preview.py`
 - knowledge prompt count cuts should land in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
 - if `build_knowledge_jobs(...)` returns no work, `run_codex_farm_knowledge_harvest(...)` must short-circuit before Codex invocation or empty-manifest writing
+- the first low-risk cut bundle was intentionally conservative (`knowledge` context width `12 -> 4`, skip only `noise`, keep `draft_hint` optional but omit it when empty); the second bundle then took the next cheap cuts (`4 -> 2`, drop recipe hint provenance, blank outside-recipe line-role neighbors)
 
 Anti-loop note:
 - if preview token counts drop but live runs do not, the optimization probably landed in a preview-only seam

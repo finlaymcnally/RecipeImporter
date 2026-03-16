@@ -86,6 +86,10 @@ Architecture priorities:
 ### Known current debt
 
 - historical benchmark/follow-up compatibility reads should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
+- the March 2026 burn-the-boats sweep already removed the biggest misleading write-time seams:
+  - new benchmark outputs no longer publish canonical eval alias files as if they were first-class artifacts
+  - prompt exports and external-review packets now write semantic stage metadata instead of `task1` / `task4` / `task5` style fields
+  - prelabel/template aliases and the all-method per-source legacy scheduler branch are no longer part of the live product path
 - the remaining burn-the-boats debt is concentrated in tooling and hidden surfaces, not the core runtime:
   - hidden legacy CLI/run-setting knobs
   - prompt/bundle helpers or fixtures that still model `pass1`/`pass2`/`pass3`

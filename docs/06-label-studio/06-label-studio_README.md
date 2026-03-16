@@ -48,7 +48,7 @@ Use `docs/06-label-studio/06-label-studio_log.md` only for compact historical co
 Active Label Studio runtime scope is `freeform-spans`.
 
 - Import writes `task_scope: freeform-spans` manifests.
-- Export rejects legacy-scoped (`pipeline`, `canonical-blocks`) projects/manifests/payloads.
+- Export accepts `freeform-spans` only and rejects any other project/manifest/payload scope.
 - Eval and benchmark flows are freeform-gold driven.
 
 ### 1.2 CLI commands

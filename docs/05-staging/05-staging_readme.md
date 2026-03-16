@@ -135,6 +135,11 @@ Code pointers (prefer these over line numbers, which drift often):
 - `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) and `cookimport/tagging/orchestrator.py` (`run_stage_tagging_pass`) add run-level index/summary/manifest artifacts.
 - `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
+Tags embedding note:
+- `final drafts/<workbook_slug>/r{index}.json` can now contain `recipe.tags` as a flat accepted tag list.
+- `intermediate drafts/<workbook_slug>/r{index}.jsonld` uses matching schema.org `keywords`.
+- When the optional tags stage runs, it writes sidecar `tags/` artifacts and then projects the accepted tag set back into those final/intermediate recipe files.
+
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now prefers deterministic Stage 7 `08_nonrecipe_spans.json` ownership when available.
 - Optional knowledge snippets can enrich notes, but they are no longer the primary `KNOWLEDGE` classifier.
@@ -158,6 +163,7 @@ Stage-block label resolution contract:
 - Ingredient section groupings are emitted in custom metadata:
   - `recipeimport:ingredientSections` with `name`, `key`, and grouped `recipeIngredient` lines.
 - Final cookbook3 (`draft_v1`) shape is unchanged; this richer structure is intermediate-only.
+- If `candidate.tags` exists, intermediate JSON-LD emits it as `keywords`.
 
 ## ID and Provenance Behavior in Staging
 
@@ -226,6 +232,7 @@ Code pointer:
 - Ingredient text fields are lowercased in final draft output:
   - `raw_text`, `raw_ingredient_text`, `raw_unit_text`, `preparation`, `note`
 - Variant extraction removes instruction lines that are variation headers/prefixes and stores them under `recipe.variants`.
+- Recipe tags now live structurally on `recipe.tags`; draft shaping no longer uses `recipe.notes` as the primary tag carrier.
 - If no instructions remain, fallback step is injected: `See original recipe for details.`
 - Unassigned ingredients create prep step at beginning: `Gather and prepare ingredients.`
 - Step time metadata from instruction parser is rolled up to `cook_time_seconds` when recipe cook time is missing.

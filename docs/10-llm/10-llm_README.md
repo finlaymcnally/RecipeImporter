@@ -121,6 +121,11 @@ Tags stage writes:
 - `data/output/<ts>/tags/<workbook_slug>/tagging_report.json`
 - `data/output/<ts>/tags/tags_index.json`
 
+For stage runs, the accepted tag set is also projected back into the staged recipe artifacts:
+
+- `data/output/<ts>/final drafts/<workbook_slug>/r{index}.json` as `recipe.tags`
+- `data/output/<ts>/intermediate drafts/<workbook_slug>/r{index}.jsonld` as `keywords`
+
 Line-role prediction artifacts live under:
 
 - `prediction-run/line-role-pipeline/telemetry_summary.json`
@@ -135,14 +140,16 @@ Prompt/debug artifacts:
 - `prompts/full_prompt_log.jsonl` is the stable per-call truth
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
-- `prediction-run/prompt_budget_summary.json` merges recipe/knowledge/tags telemetry with line-role telemetry when present
+- `prediction-run/prompt_budget_summary.json` merges recipe/knowledge/tags telemetry with line-role telemetry when present and now publishes semantic `by_stage` totals instead of an old pass-slot grouping container
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run or benchmark run root and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
-  - knowledge prompt inputs from `codex_farm_knowledge_jobs`
+  - knowledge prompt inputs from the compact-only `codex_farm_knowledge_jobs`
   - line-role prompt text from `build_canonical_line_role_prompt`
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
+- preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
 - prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_extract_knowledge_optional.txt`
+- active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Old slot labels belong only to archived local compatibility readers.
 
 Prompt cost notes worth keeping in mind:
 
@@ -182,7 +189,7 @@ Compact/default contract:
 
 - Default recipe correction pack id is `recipe.correction.compact.v1`
 - Knowledge pack remains `recipe.knowledge.compact.v1`
-- Canonical line-role prompt format defaults to `compact_v1` when `COOKIMPORT_LINE_ROLE_PROMPT_FORMAT` is unset.
+- Canonical line-role prompt format is `compact_v1`.
 
 Structured output contract:
 

@@ -83,6 +83,6 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 ## Guardrails
 
 1. `docs/11-reference/recipeDraftV1.schema.json` and `docs/11-reference/recipeDraftV1.ts` are reference mirrors; Python runtime does not import these files directly.
-2. These mirrors do not currently cover every runtime-emitted field. Current gaps include compatibility aliases (`name`, `ingredients`, `instructions`), `recipe.max_oven_temp_f`, step `temperature_items`, and optional `_p6_debug` before writer-sidecar extraction.
+2. These mirrors do not currently cover every runtime-emitted field. Current gaps include compatibility aliases (`name`, `ingredients`, `instructions`), `recipe.tags`, `recipe.max_oven_temp_f`, step `temperature_items`, and optional `_p6_debug` before writer-sidecar extraction.
 3. Python runtime model (`RecipeDraftV1`) currently allows extra fields (`extra="allow"`), while mirror schema/TS validators are strict (`additionalProperties: false` / `.strict()`).
 4. When changing draft output fields, update this folder and stage/LLM docs together (`docs/05-staging`, `docs/10-llm`) so contract docs remain in sync.

@@ -526,8 +526,6 @@ def recipe_candidate_to_draft_v1(
     notes_parts = []
     if candidate.source_url:
         notes_parts.append(f"Source: {candidate.source_url}")
-    if candidate.tags:
-        notes_parts.append(f"Tags: {', '.join(candidate.tags)}")
     recipe_notes = extract_recipe_specific_notes(candidate)
     if recipe_notes:
         notes_parts.extend(recipe_notes)
@@ -543,6 +541,8 @@ def recipe_candidate_to_draft_v1(
         "confidence": candidate.confidence,
         **yield_fields,
     }
+    if candidate.tags:
+        recipe_meta["tags"] = list(candidate.tags)
 
     # 2. Prepare Steps & Ingredients
     # Strategy: Assign ingredients to steps with deterministic matching.

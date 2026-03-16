@@ -10,6 +10,11 @@ The tags stage is an optional codex-farm pipeline that assigns recipe tags from 
 
 It is off by default and only runs when explicitly enabled.
 
+For stage runs, the accepted tag set is not just written to sidecar artifacts anymore. After the tags pass completes, the same accepted list is projected into:
+
+- `final drafts/<workbook_slug>/r{index}.json` as `recipe.tags`
+- `intermediate drafts/<workbook_slug>/r{index}.jsonld` as `keywords`
+
 ## How to run
 
 From repo root:
@@ -34,6 +39,9 @@ Per staged workbook (`<workbook_slug>`):
 - User-facing tag artifacts:
   - `data/output/<ts>/tags/<workbook_slug>/r{index}.tags.json`
   - `data/output/<ts>/tags/<workbook_slug>/tagging_report.json`
+- Embedded recipe outputs updated in-place:
+  - `data/output/<ts>/final drafts/<workbook_slug>/r{index}.json`
+  - `data/output/<ts>/intermediate drafts/<workbook_slug>/r{index}.jsonld`
 
 Run-level index:
 

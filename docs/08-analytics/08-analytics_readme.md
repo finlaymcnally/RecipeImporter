@@ -95,7 +95,6 @@ History-root rule:
 - Resolve the canonical path from the output root with `history_csv_for_output(output_root)`.
 - Repo-local outputs such as `data/output` write to `<repo>/.history/performance_history.csv`.
 - External output roots write to `<output_root parent>/.history/performance_history.csv`.
-- Collector compatibility still probes the older `<output_root>/.history/performance_history.csv` location when needed.
 - Collector also scans nested `<output_root>/**/.history/performance_history.csv` files for supplemental benchmark rows from nested benchmark layouts.
 
 Stage/import rows (`run_category=stage_import` or `labelstudio_import`) keep:

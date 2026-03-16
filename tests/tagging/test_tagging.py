@@ -434,3 +434,59 @@ class TestLlmTagPass:
         assert (run_root / "raw" / "llm" / "book-a" / "tags" / "in").exists()
         assert (run_root / "raw" / "llm" / "book-a" / "tags" / "out").exists()
         assert (run_root / "raw" / "llm" / "book-a" / "tags_manifest.json").exists()
+
+    def test_stage_tagging_pass_projects_tags_into_final_and_intermediate_outputs(
+        self, tmp_path: Path
+    ):
+        run_root = tmp_path / "2026-02-25_12.00.00"
+        final_dir = run_root / "final drafts" / "book-a"
+        intermediate_dir = run_root / "intermediate drafts" / "book-a"
+        final_dir.mkdir(parents=True, exist_ok=True)
+        intermediate_dir.mkdir(parents=True, exist_ok=True)
+        (final_dir / "r0.json").write_text(
+            json.dumps(
+                {
+                    "schema_v": 1,
+                    "source": "book-a.txt",
+                    "recipe": {"title": "Mystery Dish", "description": "", "notes": None},
+                    "steps": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (intermediate_dir / "r0.jsonld").write_text(
+            json.dumps(
+                {
+                    "@context": ["https://schema.org"],
+                    "@type": "Recipe",
+                    "name": "Mystery Dish",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        settings = RunSettings.from_dict(
+            {
+                "llm_tags_pipeline": "codex-farm-tags-v1",
+                "codex_farm_failure_mode": "fail",
+                "tag_catalog_json": str(CATALOG_PATH),
+            },
+            warn_context="test stage tags projection",
+        )
+        run_stage_tagging_pass(
+            run_root=run_root,
+            run_settings=settings,
+            llm_runner=FakeCodexFarmRunner(),
+        )
+
+        tags_payload = json.loads(
+            (run_root / "tags" / "book-a" / "r0.tags.json").read_text(encoding="utf-8")
+        )
+        expected_tags = [row["tag_key"] for row in tags_payload["suggestions"]]
+        final_payload = json.loads((final_dir / "r0.json").read_text(encoding="utf-8"))
+        intermediate_payload = json.loads(
+            (intermediate_dir / "r0.jsonld").read_text(encoding="utf-8")
+        )
+
+        assert final_payload["recipe"]["tags"] == expected_tags
+        assert intermediate_payload["keywords"] == ", ".join(expected_tags)

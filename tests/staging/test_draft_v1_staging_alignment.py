@@ -104,6 +104,20 @@ def test_draft_v1_falls_back_to_untitled_title_when_blank() -> None:
     assert draft["recipe"]["title"] == "Untitled Recipe"
 
 
+def test_draft_v1_serializes_candidate_tags_structurally() -> None:
+    candidate = RecipeCandidate(
+        name="Tagged Recipe",
+        ingredients=["salt"],
+        instructions=["Mix."],
+        tags=["weeknight", "quick"],
+    )
+
+    draft = recipe_candidate_to_draft_v1(candidate)
+
+    assert draft["recipe"]["tags"] == ["weeknight", "quick"]
+    assert draft["recipe"].get("notes") is None
+
+
 def test_draft_v1_honors_explicit_ingredient_step_mapping_override() -> None:
     candidate = RecipeCandidate(
         name="Mapping Override",

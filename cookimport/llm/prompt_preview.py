@@ -12,10 +12,7 @@ from cookimport.llm.codex_farm_contracts import (
     MergedRecipeRepairInput,
     serialize_merged_recipe_repair_input,
 )
-from cookimport.llm.codex_farm_knowledge_jobs import (
-    COMPACT_KNOWLEDGE_JOB_FORMAT,
-    build_knowledge_jobs,
-)
+from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
 from cookimport.llm.prompt_artifacts import (
     PROMPT_CALL_RECORD_SCHEMA_VERSION,
     build_codex_farm_prompt_type_samples_markdown,
@@ -376,7 +373,6 @@ def _build_knowledge_preview_rows(
         source_hash=context.source_hash,
         out_dir=in_dir,
         context_blocks=context_blocks,
-        job_format=COMPACT_KNOWLEDGE_JOB_FORMAT,
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):

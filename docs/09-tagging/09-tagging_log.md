@@ -51,6 +51,7 @@ Problem captured:
 
 What stuck:
 - treat this as a narrow rename, not a broader pipeline-architecture migration
+- stage observability already had the right semantic stage name; the stale seam was mostly config/CLI/raw-path naming plus a few tests/fixtures
 - current live names are:
   - `RunSettings.codex_farm_pipeline_tags`
   - `--codex-farm-pipeline-tags`
@@ -60,3 +61,18 @@ What stuck:
 Anti-loop notes:
 - if a future cleanup touches tagging, do not widen it into the whole old pass-slot architecture unless the actual code path still depends on that language
 - if tests/fixtures still say `pass5_tags`, prefer updating the fixture rather than teaching new runtime code to emit both names
+
+3. `2026-03-16_15.35.00` embed stage tags into recipe outputs
+
+Problem captured:
+- the optional stage tags pass wrote useful sidecar artifacts, but final cookbook3 drafts still hid prior tags in `recipe.notes` and did not project the accepted stage-tag results back into the recipe outputs themselves
+
+What stuck:
+- the stage tags pass is the source of truth for embedded output tags once it runs
+- final cookbook3 drafts should expose accepted tags in `recipe.tags`, not as a `Tags:` notes line
+- intermediate JSON-LD should mirror the same ordered list in `keywords`
+- sidecar tagging artifacts (`*.tags.json`, `tagging_report.json`, `tags_index.json`) remain part of the contract; embedding tags into drafts does not replace those artifacts
+
+Anti-loop notes:
+- if embedded recipe tags drift from sidecar tagging outputs, fix the projection step instead of inventing a second source of truth
+- keep this change on the recipeimport output side; it does not imply a cookbook-site schema migration

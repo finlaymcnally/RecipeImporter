@@ -6,11 +6,7 @@ from pathlib import Path
 import pytest
 
 from cookimport.core.models import ChunkLane, KnowledgeChunk
-from cookimport.llm.codex_farm_knowledge_jobs import (
-    COMPACT_KNOWLEDGE_JOB_FORMAT,
-    LEGACY_KNOWLEDGE_JOB_FORMAT,
-    build_knowledge_jobs,
-)
+from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
 
@@ -146,7 +142,7 @@ def test_build_knowledge_jobs_writes_only_stage7_knowledge_spans_and_is_idempote
     assert first_bytes == second_bytes
 
 
-def test_build_knowledge_jobs_compact_format_reduces_bundle_size(tmp_path: Path) -> None:
+def test_build_knowledge_jobs_writes_compact_bundle_shape(tmp_path: Path) -> None:
     full_blocks = [
         {"index": 0, "text": "Preface"},
         {"index": 1, "text": "Narrative intro."},
@@ -179,7 +175,6 @@ def test_build_knowledge_jobs_compact_format_reduces_bundle_size(tmp_path: Path)
             block_ids=["b4", "b5", "b6", "b7"],
         )
     ]
-    legacy_dir = tmp_path / "legacy"
     compact_dir = tmp_path / "compact"
 
     build_knowledge_jobs(
@@ -196,47 +191,17 @@ def test_build_knowledge_jobs_compact_format_reduces_bundle_size(tmp_path: Path)
         ],
         workbook_slug="book",
         source_hash="hash123",
-        out_dir=legacy_dir,
-        context_blocks=2,
-        job_format=LEGACY_KNOWLEDGE_JOB_FORMAT,
-    )
-    build_knowledge_jobs(
-        full_blocks=full_blocks,
-        knowledge_spans=knowledge_spans,
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=2,
-                end_block_index=4,
-                block_indices=[2, 3],
-                source_block_ids=["b2", "b3"],
-            )
-        ],
-        workbook_slug="book",
-        source_hash="hash123",
         out_dir=compact_dir,
         context_blocks=2,
-        job_format=COMPACT_KNOWLEDGE_JOB_FORMAT,
     )
 
-    legacy_payloads = _load_all_jobs(legacy_dir)
     compact_payloads = _load_all_jobs(compact_dir)
-    legacy_payload = next(
-        payload
-        for payload in legacy_payloads
-        if payload["chunk"]["block_start_index"] == 4
-    )
     compact_payload = next(
         payload
         for payload in compact_payloads
         if payload["chunk"]["block_start_index"] == 4
     )
 
-    legacy_bytes = len(json.dumps(legacy_payload, sort_keys=True).encode("utf-8"))
-    compact_bytes = len(json.dumps(compact_payload, sort_keys=True).encode("utf-8"))
-
-    assert compact_bytes < legacy_bytes * 0.75
-    assert "recipe_spans" in legacy_payload["guardrails"]
     assert "context_recipe_block_indices" in compact_payload["guardrails"]
     assert compact_payload["guardrails"]["context_recipe_block_indices"] == [2, 3]
     assert "block_id" not in compact_payload["chunk"]["blocks"][0]

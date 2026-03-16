@@ -361,12 +361,14 @@ Durable decisions:
 
 - canonical benchmark helpers must trust the one canonical pointer pair and rewire it explicitly to `line-role-pipeline/stage_block_predictions.json` plus `line-role-pipeline/extracted_archive.json` when that pair is the scored surface
 - authoritative Stage 2 reuse still has to serialize the scored artifact pair through the canonical projection builders, not by copying `label_first_result.archive_blocks` or source-block predictions directly
+- the fix stays local to prediction-run artifact selection; scorer logic and artifact formats do not need a separate benchmark-side fork
 
 Evidence worth keeping:
 
 - bad regression run symptom:
   - projection archive contained `1471` nonempty rows, but `eval_report.json` matched only `85` nonempty prediction blocks because the scorer was still reading the wrong manifest pointers
 - source-block serialization also collapsed the scored surface from `1768` atomic rows to `1471` source-block rows on `saltfatacidheatcutdown`
+- after the pointer and provenance fixes, `cookimport labelstudio-benchmark ... --eval-mode canonical-text --no-upload --atomic-block-splitter atomic-v1 --line-role-pipeline deterministic-v1 --llm-recipe-pipeline off --llm-knowledge-pipeline off` produced `strict_accuracy=0.5238744884038199` and `macro_f1_excluding_other=0.44441642590611175` under `data/golden/benchmark-vs-golden/2026-03-16_12.46.31/`
 
 Anti-loop note:
 

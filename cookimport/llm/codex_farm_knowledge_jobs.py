@@ -23,9 +23,9 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeHeuristicsPayloadV1,
     KnowledgeJobSourceV1,
     KnowledgeCompactJobInputV1,
+    KnowledgeTableHintV1,
     SpanV1,
 )
-COMPACT_KNOWLEDGE_JOB_FORMAT = "compact_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,56 +200,8 @@ def _build_job_payload(
     if suggested_lane in {ChunkLane.NOISE.value, ChunkLane.NARRATIVE.value}:
         suggested_skip_reason = f"lane={suggested_lane}"
 
-    if job_format == COMPACT_KNOWLEDGE_JOB_FORMAT:
-        chunk_blocks_payload = [
-            _to_knowledge_compact_chunk_block(
-                full_blocks_by_index.get(idx) or {},
-                fallback_index=idx,
-                table_hint=table_hints_by_index.get(idx),
-            )
-            for idx in absolute_indices
-        ]
-        blocks_before = [
-            _to_knowledge_compact_context_block(
-                full_blocks_by_index[idx],
-                fallback_index=idx,
-            )
-            for idx in before_indices
-            if idx in full_blocks_by_index
-        ]
-        blocks_after = [
-            _to_knowledge_compact_context_block(
-                full_blocks_by_index[idx],
-                fallback_index=idx,
-            )
-            for idx in after_indices
-            if idx in full_blocks_by_index
-        ]
-        return KnowledgeCompactJobInputV1(
-            source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
-            chunk=KnowledgeCompactChunkPayloadV1(
-                chunk_id=chunk_id,
-                block_start_index=int(block_start_index),
-                block_end_index=int(block_end_index),
-                blocks=chunk_blocks_payload,
-            ),
-            context=KnowledgeCompactContextPayloadV1(
-                blocks_before=blocks_before,
-                blocks_after=blocks_after,
-            ),
-            heuristics=KnowledgeHeuristicsPayloadV1(
-                suggested_lane=suggested_lane,
-                suggested_highlights=suggested_highlights[:6],
-                suggested_skip_reason=suggested_skip_reason,
-            ),
-            guardrails=KnowledgeCompactGuardrailsPayloadV1(
-                context_recipe_block_indices=context_recipe_block_indices,
-                must_use_evidence=True,
-            ),
-        )
-
-    blocks_payload = [
-        _to_knowledge_block(
+    chunk_blocks_payload = [
+        _to_knowledge_compact_chunk_block(
             full_blocks_by_index.get(idx) or {},
             fallback_index=idx,
             table_hint=table_hints_by_index.get(idx),
@@ -257,42 +209,40 @@ def _build_job_payload(
         for idx in absolute_indices
     ]
     blocks_before = [
-        _to_knowledge_block(
+        _to_knowledge_compact_context_block(
             full_blocks_by_index[idx],
             fallback_index=idx,
-            table_hint=table_hints_by_index.get(idx),
         )
         for idx in before_indices
         if idx in full_blocks_by_index
     ]
     blocks_after = [
-        _to_knowledge_block(
+        _to_knowledge_compact_context_block(
             full_blocks_by_index[idx],
             fallback_index=idx,
-            table_hint=table_hints_by_index.get(idx),
         )
         for idx in after_indices
         if idx in full_blocks_by_index
     ]
-    return KnowledgeJobInputV1(
+    return KnowledgeCompactJobInputV1(
         source=KnowledgeJobSourceV1(workbook_slug=workbook_slug, source_hash=source_hash),
-        chunk=KnowledgeChunkPayloadV1(
+        chunk=KnowledgeCompactChunkPayloadV1(
             chunk_id=chunk_id,
             block_start_index=int(block_start_index),
             block_end_index=int(block_end_index),
-            blocks=blocks_payload,
+            blocks=chunk_blocks_payload,
         ),
-        context=KnowledgeContextPayloadV1(
+        context=KnowledgeCompactContextPayloadV1(
             blocks_before=blocks_before,
             blocks_after=blocks_after,
         ),
         heuristics=KnowledgeHeuristicsPayloadV1(
             suggested_lane=suggested_lane,
-            suggested_highlights=suggested_highlights,
+            suggested_highlights=suggested_highlights[:6],
             suggested_skip_reason=suggested_skip_reason,
         ),
-        guardrails=KnowledgeGuardrailsPayloadV1(
-            recipe_spans=recipe_spans_payload,
+        guardrails=KnowledgeCompactGuardrailsPayloadV1(
+            context_recipe_block_indices=context_recipe_block_indices,
             must_use_evidence=True,
         ),
     )
@@ -323,38 +273,6 @@ def _absolute_indices_for_chunk(
 
 def _index_in_recipe_spans(index: int, recipe_spans_payload: Sequence[SpanV1]) -> bool:
     return any(int(span.start) <= index < int(span.end) for span in recipe_spans_payload)
-
-
-def _to_knowledge_block(
-    block: Mapping[str, Any],
-    *,
-    fallback_index: int,
-    table_hint: KnowledgeTableHintV1 | None = None,
-) -> KnowledgeBlockV1:
-    features = block.get("features")
-    if not isinstance(features, Mapping):
-        features = {}
-    index = _coerce_int(block.get("index"))
-    if index is None:
-        index = int(fallback_index)
-    block_id = block.get("block_id") or block.get("id")
-    if not isinstance(block_id, str) or not block_id.strip():
-        block_id = f"b{index}"
-    page = _coerce_int(block.get("page"))
-    spine_index = _coerce_int(block.get("spine_index"))
-    if spine_index is None:
-        spine_index = _coerce_int(features.get("spine_index"))
-    heading_level = _resolve_heading_level(block)
-    return KnowledgeBlockV1(
-        block_index=index,
-        block_id=str(block_id).strip(),
-        text=str(block.get("text") or ""),
-        page=page,
-        spine_index=spine_index,
-        heading_level=heading_level,
-        features_subset=_features_subset(features),
-        table_hint=table_hint,
-    )
 
 
 def _to_knowledge_compact_chunk_block(
@@ -404,15 +322,6 @@ def _resolve_heading_level(block: Mapping[str, Any]) -> int | None:
     if heading_level is None:
         heading_level = _coerce_int(features.get("heading_level"))
     return heading_level
-
-
-def _features_subset(features: Mapping[str, Any]) -> dict[str, Any]:
-    subset: dict[str, Any] = {}
-    for key in ("is_header_likely", "block_role", "table_id", "table_row_index"):
-        value = features.get(key)
-        if isinstance(value, (str, int, float, bool)):
-            subset[key] = value
-    return subset
 
 
 def _table_hints_by_index(

@@ -65,6 +65,78 @@ class StageTaggingPassResult:
     llm: dict[str, Any]
 
 
+def _accepted_tag_keys(suggestions: Sequence[TagSuggestion]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for suggestion in suggestions:
+        if suggestion.tag_key in seen:
+            continue
+        seen.add(suggestion.tag_key)
+        ordered.append(suggestion.tag_key)
+    return ordered
+
+
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _project_tags_into_final_draft(path: Path, tag_keys: Sequence[str]) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected object payload in final draft: {path}")
+    recipe_payload = payload.get("recipe")
+    if not isinstance(recipe_payload, dict):
+        recipe_payload = {}
+        payload["recipe"] = recipe_payload
+
+    tags_list = list(tag_keys)
+    existing = recipe_payload.get("tags")
+    if tags_list:
+        if existing == tags_list:
+            return
+        recipe_payload["tags"] = tags_list
+    else:
+        if "tags" not in recipe_payload:
+            return
+        recipe_payload.pop("tags", None)
+
+    _write_json_file(path, payload)
+
+
+def _project_tags_into_intermediate_draft(path: Path, tag_keys: Sequence[str]) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected object payload in intermediate draft: {path}")
+
+    keywords = ", ".join(tag_keys)
+    if keywords:
+        if payload.get("keywords") == keywords:
+            return
+        payload["keywords"] = keywords
+    else:
+        if "keywords" not in payload:
+            return
+        payload.pop("keywords", None)
+
+    _write_json_file(path, payload)
+
+
+def _project_stage_tagging_records(
+    *,
+    run_root: Path,
+    workbook_slug: str,
+    records: Sequence[DraftTaggingRecord],
+) -> None:
+    intermediate_root = run_root / "intermediate drafts" / workbook_slug
+    for record in records:
+        tag_keys = _accepted_tag_keys(record.suggestions)
+        _project_tags_into_final_draft(record.draft_path, tag_keys)
+
+        intermediate_path = intermediate_root / f"{record.draft_path.stem}.jsonld"
+        if intermediate_path.exists():
+            _project_tags_into_intermediate_draft(intermediate_path, tag_keys)
+
+
 def suggest_tags_for_draft_files(
     *,
     draft_files: Sequence[Path],
@@ -266,6 +338,11 @@ def run_stage_tagging_pass(
                 / workbook_slug
                 / stage_artifact_stem("tags")
             ),
+        )
+        _project_stage_tagging_records(
+            run_root=run_root,
+            workbook_slug=workbook_slug,
+            records=result.records,
         )
         workbook_reports[workbook_slug] = str(report_path.relative_to(run_root))
         llm_reports.append(result.llm_report)

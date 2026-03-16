@@ -64,6 +64,18 @@ def test_jsonld_uses_howto_sections_and_ingredient_section_metadata() -> None:
     assert ingredient_sections[1]["recipeIngredient"] == ["2 tbsp flour", "1 tsp salt"]
 
 
+def test_jsonld_serializes_candidate_tags_to_keywords() -> None:
+    candidate = RecipeCandidate(
+        name="Tagged JSONLD",
+        recipeIngredient=["1 lb chicken"],
+        recipeInstructions=["Cook the chicken."],
+        tags=["weeknight", "chicken"],
+    )
+
+    payload = recipe_candidate_to_jsonld(candidate)
+
+    assert payload["keywords"] == "weeknight, chicken"
+
 
 def test_write_section_outputs_writes_json_and_markdown(tmp_path: Path) -> None:
     write_section_outputs(tmp_path, "sectioned", [_candidate()])

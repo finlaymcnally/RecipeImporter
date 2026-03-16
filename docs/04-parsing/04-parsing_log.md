@@ -258,6 +258,7 @@ What stuck:
 - current line-role artifacts are reason-only:
   - keep labels, provenance, `decided_by`, `reason_tags`, and `escalation_reasons`
   - do not keep scalar `confidence`, `trust_score`, or `escalation_score`
+- stage, Label Studio, and reviewer/export surfaces are expected to consume the same reason-only contract; re-adding score fields downstream is a stale-consumer bug, not missing parser output
 
 Anti-loop note:
 

@@ -597,6 +597,7 @@ class RecipeDraftRecipeMeta(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     title: str
+    tags: list[str] | None = None
 
 
 class RecipeDraftV1(BaseModel):

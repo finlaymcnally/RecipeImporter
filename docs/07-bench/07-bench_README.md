@@ -185,20 +185,21 @@ Important diagnostics:
 Current rules:
 
 - prediction text is aligned against canonical gold text
-- canonical scoring keeps legacy global alignment semantics for safety
+- canonical scoring uses the enforced global SequenceMatcher alignment path for safety
 - the sequence matcher is fixed to `dmp`; non-`dmp` modes are not an active benchmark surface
 - canonical-text benchmark runs score the same canonical pointer pair used by all benchmark modes
 
 Current line-role and knowledge behavior:
 
 - `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
+- processed stage-backed artifacts still get written for the run; the regression fix was specifically to move the canonical scorer pointer pair to the projection artifacts instead of leaving scoring on the stage-backed pair
 - when authoritative Stage 2 labels are reused, the scored line-role artifact pair still has to stay in canonical atomic-span coordinates:
   - `stage_block_predictions.json` should be serialized from canonical line-role projections, not copied from source blocks
   - `extracted_archive.json` should carry the matching atomic line coordinates and `line_role_projection` metadata
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
 - `08_nonrecipe_spans.json` is the authoritative Stage 7 ownership artifact for the scored outside-span `KNOWLEDGE` vs `OTHER` seam
 - `09_knowledge_outputs.json` is the canonical run-level summary for optional knowledge extraction outputs
-- older roots can still fall back to `knowledge/<workbook_slug>/snippets.jsonl` or legacy knowledge manifests when auditing historical runs
+- prompt preview and live knowledge harvest both rebuild from the same compact `build_knowledge_jobs(...)` inputs
 - prediction-run and eval diagnostics can emit:
   - `knowledge_manifest.json`
   - knowledge-merge changed-row diagnostics
