@@ -89,6 +89,9 @@ Current contracts:
 - `slow` and `smoke` routing is controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - If you add or rename a test file, update `_FILE_MARKERS` and then decide whether the file also belongs in `_SLOW_FILES` or `_SMOKE_FILES`.
 - The `slow` slice is intentionally narrow and currently covers only the explicitly high-cost files in `tests/conftest.py`; do not widen it without measuring runtime first.
+- `tests/labelstudio/test_labelstudio_benchmark_helpers_single_offline_run.py` is part of `slow`; routine `labelstudio` domain runs should not pay for full single-offline comparison/bundle/dashboard helper coverage.
+- Routing-only interactive benchmark tests should stub `_interactive_single_offline_benchmark(...)` and assert the handoff arguments instead of re-exercising the helper internals from `test_labelstudio_benchmark_helpers_interactive.py`.
+- Several historically named “fast” integration files are intentionally slow-marked because measured runtime is too high for routine loops: `tests/analytics/test_stats_dashboard.py`, `tests/ingestion/test_performance_features.py`, `tests/cli/test_cli_output_structure_epub_fast.py`, `tests/cli/test_cli_output_structure_text_fast.py`, and `tests/parsing/test_canonical_line_roles.py`.
 - The benchmark smoke slice includes the real interactive single-offline benchmark path while stubbing `labelstudio_benchmark(...)` so smoke runs catch routing and artifact regressions without spending tokens.
 - Broad routine runs should go through `./scripts/test-suite.sh` or the equivalent `make test-*` targets. `scripts/test-suite.sh` exports `COOKIMPORT_TEST_SUITE=1` so pytest can tell wrapper-driven runs from ad hoc broad raw invocations.
 

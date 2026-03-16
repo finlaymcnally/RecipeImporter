@@ -29,12 +29,10 @@ The user-visible proof is a small cookbook import where the stage run writes Sta
 - [x] (2026-03-15_22.20.45) Inspected the current candidate-first seams in `cookimport/core/models.py`, `cookimport/plugins/epub.py`, `cookimport/plugins/text.py`, `cookimport/staging/import_session.py`, `cookimport/parsing/canonical_line_roles.py`, `cookimport/parsing/recipe_block_atomizer.py`, and `cookimport/labelstudio/ingest.py`.
 - [x] (2026-03-15_22.20.45) Recorded the implementation seam in `docs/understandings/2026-03-15_22.20.45-phase2-label-first-runtime-seam.md`.
 - [x] (2026-03-15_22.20.45) Wrote this ExecPlan.
-- [x] (2026-03-16_00.08.23) Added `cookimport/parsing/label_source_of_truth.py`, `cookimport/parsing/recipe_span_grouping.py`, and the thin `label_first_conversion.py` seam to make labeled lines, block labels, recipe spans, and the private `ConversionResult` adapter explicit.
-- [x] (2026-03-16_00.08.23) Switched `cookimport/staging/import_session.py` to build the authoritative label-first bundle before recipe drafting, write `label_det`, `label_llm_correct`, and `group_recipe_spans` artifacts into the stage run root, and feed stage block predictions from authoritative block labels.
-- [x] (2026-03-16_00.08.23) Switched `cookimport/labelstudio/ingest.py` to reuse the stage-produced label-first bundle instead of rerunning a second post-stage line-role pass for projection artifacts.
-- [x] (2026-03-16_00.08.23) Registered the new stage keys in stage observability and run manifests so stage and prediction runs report the same label-first artifact lanes.
-- [x] (2026-03-16_00.08.23) Added targeted tests for deterministic recipe-span grouping, label-first conversion, and the Label Studio authoritative-stage reuse seam.
-- [ ] Validate the new runtime on a real cutdown book and update any remaining docs touched by the new runtime.
+- [ ] Introduce the authoritative Stage 2/3 contracts and delete user-facing candidate-first ownership switches.
+- [ ] Switch stage/import and prediction generation to produce recipe ownership from authoritative labels.
+- [ ] Remove the extra post-stage diagnostic line-role pass and delete the duplicate candidate-first ownership path from entrypoints.
+- [ ] Validate the new runtime on a real cutdown book and update docs touched by the new runtime.
 
 ## Surprises & Discoveries
 
@@ -46,9 +44,6 @@ The user-visible proof is a small cookbook import where the stage run writes Sta
 
 - Observation: `ConversionResult` is still a real implementation seam even though candidate-first ownership should be removed.
   Evidence: `cookimport/staging/import_session.py` still expects a `ConversionResult`, and Phase 3 already owns the heavier rewrite of deterministic intermediate recipe building plus the LLM recipe correction contract. If Phase 2 needs an adapter, it should exist only as a narrow internal seam while the repo ships one label-first runtime.
-
-- Observation: the cleanest cutover seam was earlier than expected: stage import session, not the Label Studio benchmark layer.
-  Evidence: once `execute_stage_import_session_from_result(...)` built and persisted the label-first bundle up front, both stage block predictions and Label Studio projection artifacts could reuse the same in-memory object and the old diagnostic rerun path became dead code.
 
 ## Decision Log
 
@@ -70,7 +65,7 @@ The user-visible proof is a small cookbook import where the stage run writes Sta
 
 ## Outcomes & Retrospective
 
-Phase 2 is implemented for the runtime seam described in this plan. Stage runs now settle labeled-line truth once, normalize it into authoritative block labels plus grouped recipe spans, and write those artifacts before recipe drafting. Label Studio prediction runs reuse that same bundle instead of rerunning a second post-stage line-role classifier. The remaining planned follow-up is real-book validation and any Phase 3 work that can finally delete the temporary `ConversionResult` bridge once downstream draft building no longer needs it.
+This plan is not implemented yet. The intended outcome is a runtime where the answer to “is this recipe text, knowledge text, or other text?” is settled once in Stage 2 and reused everywhere else. The main residual risk is migration pressure around the current `ConversionResult` shape. If an adapter is required, it is a narrow implementation seam, not a product compatibility promise or a reason to keep the old candidate-first path alive.
 
 ## Context and Orientation
 

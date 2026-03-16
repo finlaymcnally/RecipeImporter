@@ -135,6 +135,10 @@ def test_stage_and_pred_run_manifests_share_source_identity_and_coords(tmp_path:
 
     stage_manifest = json.loads((stage_run / "run_manifest.json").read_text(encoding="utf-8"))
     pred_manifest = json.loads((pred_run / "run_manifest.json").read_text(encoding="utf-8"))
+    assert (stage_run / "stage_observability.json").exists()
+    assert (pred_run / "stage_observability.json").exists()
+    assert stage_manifest["artifacts"]["stage_observability_json"] == "stage_observability.json"
+    assert pred_manifest["artifacts"]["stage_observability_json"] == "stage_observability.json"
     assert stage_manifest["run_kind"] == "stage"
     assert pred_manifest["run_kind"] == "bench_pred_run"
     assert stage_manifest["source"]["source_hash"] == pred_manifest["source"]["source_hash"]

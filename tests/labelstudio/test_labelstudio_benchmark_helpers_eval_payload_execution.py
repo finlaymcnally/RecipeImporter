@@ -877,7 +877,6 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
 
     bundle = cli._build_prediction_bundle_from_import_result(
         import_result=import_result,
-        eval_output_dir=tmp_path / "eval-default",
         prediction_phase_seconds=1.0,
     )
     assert bundle.stage_predictions_path == line_role_stage_predictions_path

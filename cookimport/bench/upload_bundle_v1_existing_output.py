@@ -8,8 +8,6 @@ from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 
-LEGACY_PASS2_FAMILY_DISPLAY_NAME = "legacy-family:pass2_*"
-LEGACY_PASS3_FAMILY_DISPLAY_NAME = "legacy-family:pass3_*"
 MERGED_REPAIR_RECIPE_PIPELINE_ID = "codex-farm-2stage-repair-v1"
 MERGED_REPAIR_PASS3_EXECUTION_MODES = frozenset(
     {
@@ -48,7 +46,87 @@ def _is_merged_repair_recipe_pipeline(value: Any) -> bool:
     return str(value or "").strip() == MERGED_REPAIR_RECIPE_PIPELINE_ID
 
 
-def _build_recipe_pipeline_topology(
+def _standard_recipe_stages() -> list[dict[str, str]]:
+    return [
+        {"stage_key": "schemaorg", "stage_label": "Schema.org Extraction"},
+        {"stage_key": "final", "stage_label": "Final Draft"},
+    ]
+
+
+def _merged_repair_recipe_stages() -> list[dict[str, str]]:
+    return [{"stage_key": "merged_repair", "stage_label": "Merged Repair"}]
+
+
+def build_recipe_pipeline_topology_context(
+    *,
+    codex_recipe_pipelines: list[str] | set[str],
+    observed_execution_modes: list[str] | set[str],
+    observed_routing_reasons: list[str] | set[str],
+    observed_pass2_call_count: int,
+    observed_pass3_call_count: int,
+) -> dict[str, Any]:
+    normalized_pipelines = sorted(
+        {
+            str(pipeline or "").strip()
+            for pipeline in codex_recipe_pipelines
+            if str(pipeline or "").strip()
+        }
+    )
+    normalized_execution_modes = sorted(
+        {
+            str(mode or "").strip()
+            for mode in observed_execution_modes
+            if str(mode or "").strip()
+        }
+    )
+    normalized_routing_reasons = sorted(
+        {
+            str(reason or "").strip()
+            for reason in observed_routing_reasons
+            if str(reason or "").strip()
+        }
+    )
+    merged_repair_active = any(
+        _is_merged_repair_recipe_pipeline(pipeline)
+        for pipeline in normalized_pipelines
+    ) or any(
+        mode.lower() in MERGED_REPAIR_PASS3_EXECUTION_MODES
+        for mode in normalized_execution_modes
+    ) or (MERGED_REPAIR_PASS3_ROUTING_REASON in normalized_routing_reasons)
+    recipe_stages = (
+        _merged_repair_recipe_stages()
+        if merged_repair_active
+        else _standard_recipe_stages()
+    )
+    observed_recipe_stage_call_counts = (
+        {
+            "merged_repair": max(
+                int(observed_pass2_call_count),
+                int(observed_pass3_call_count),
+            )
+        }
+        if merged_repair_active
+        else {
+            "schemaorg": int(observed_pass2_call_count),
+            "final": int(observed_pass3_call_count),
+        }
+    )
+    return {
+        "schema_version": "upload_bundle_recipe_pipeline_context.v2",
+        "codex_recipe_pipelines": normalized_pipelines,
+        "merged_repair_active": merged_repair_active,
+        "recipe_topology_key": (
+            "merged_repair" if merged_repair_active else "schemaorg_final"
+        ),
+        "recipe_stages": recipe_stages,
+        "observed_recipe_stage_call_counts": observed_recipe_stage_call_counts,
+        "observed_recipe_execution_modes": normalized_execution_modes,
+        "observed_recipe_routing_reasons": normalized_routing_reasons,
+        "observed_recipe_pipelines": normalized_pipelines,
+    }
+
+
+def build_recipe_pipeline_topology(
     *,
     run_rows: list[dict[str, Any]],
     comparison_pairs: list[dict[str, Any]],
@@ -91,78 +169,13 @@ def _build_recipe_pipeline_topology(
         if routing_reason:
             observed_routing_reasons.add(routing_reason)
 
-    merged_repair_active = any(
-        _is_merged_repair_recipe_pipeline(pipeline)
-        for pipeline in codex_recipe_pipelines
-    ) or any(
-        str(mode or "").strip().lower() in MERGED_REPAIR_PASS3_EXECUTION_MODES
-        for mode in observed_execution_modes
-    ) or (MERGED_REPAIR_PASS3_ROUTING_REASON in observed_routing_reasons)
-
-    nonstandard_topology_active = merged_repair_active or (
-        bool(codex_recipe_pipelines)
-        and observed_pass2_call_count > 0
-        and observed_pass3_call_count == 0
-        and (bool(observed_execution_modes) or bool(observed_routing_reasons))
+    return build_recipe_pipeline_topology_context(
+        codex_recipe_pipelines=sorted(codex_recipe_pipelines),
+        observed_execution_modes=sorted(observed_execution_modes),
+        observed_routing_reasons=sorted(observed_routing_reasons),
+        observed_pass2_call_count=observed_pass2_call_count,
+        observed_pass3_call_count=observed_pass3_call_count,
     )
-    stage_label_mode = (
-        "nonstandard_topology_with_legacy_aliases"
-        if nonstandard_topology_active
-        else "standard_topology"
-    )
-    stage_display_names = {
-        "baseline_stage": "baseline",
-        "line_role_pipeline_stage": "line-role",
-        "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
-        "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
-        "final_or_fallback_stage": "final-fallback",
-    }
-    compatibility_note = ""
-    if nonstandard_topology_active:
-        details: list[str] = []
-        if codex_recipe_pipelines:
-            details.append(
-                "active recipe pipelines: "
-                + ", ".join(f"`{pipeline}`" for pipeline in sorted(codex_recipe_pipelines))
-            )
-        details.append(f"observed_pass2_call_count={observed_pass2_call_count}")
-        details.append(f"observed_pass3_call_count={observed_pass3_call_count}")
-        if observed_execution_modes:
-            details.append(
-                "observed_pass3_execution_modes="
-                + ",".join(sorted(observed_execution_modes))
-            )
-        if observed_routing_reasons:
-            details.append(
-                "observed_pass3_routing_reasons="
-                + ",".join(sorted(observed_routing_reasons))
-            )
-        compatibility_note = (
-            "Discovered recipe artifacts do not show a standard live pass2->pass3 call "
-            f"sequence. Primary reviewer labels use `{LEGACY_PASS2_FAMILY_DISPLAY_NAME}` / "
-            f"`{LEGACY_PASS3_FAMILY_DISPLAY_NAME}` while legacy field families `pass2_*` / "
-            "`pass3_*` remain compatibility aliases around the observed recipe-stage "
-            "topology. Observed details: "
-            + "; ".join(details)
-            + "."
-        )
-        if merged_repair_active:
-            compatibility_note += " Observed signals match the merged-repair topology."
-
-    return {
-        "schema_version": "upload_bundle_recipe_pipeline_context.v1",
-        "codex_recipe_pipelines": sorted(codex_recipe_pipelines),
-        "observed_pass2_call_count": observed_pass2_call_count,
-        "observed_pass3_call_count": observed_pass3_call_count,
-        "observed_pass3_execution_modes": sorted(observed_execution_modes),
-        "observed_pass3_routing_reasons": sorted(observed_routing_reasons),
-        "merged_repair_active": merged_repair_active,
-        "nonstandard_topology_active": nonstandard_topology_active,
-        "stage_label_mode": stage_label_mode,
-        "stage_display_names": stage_display_names,
-        "compatibility_note": compatibility_note,
-        "observed_recipe_pipelines": sorted(codex_recipe_pipelines),
-    }
 
 
 def build_upload_bundle_source_model_from_existing_root(
@@ -355,7 +368,7 @@ def build_upload_bundle_source_model_from_existing_root(
     advertised_changed_lines = helpers.coerce_int(
         comparison_summary_payload.get("changed_lines_total")
     )
-    topology = _build_recipe_pipeline_topology(
+    topology = build_recipe_pipeline_topology(
         run_rows=effective_run_rows,
         comparison_pairs=effective_pairs,
         recipe_triage_rows=effective_recipe_triage,
@@ -365,10 +378,6 @@ def build_upload_bundle_source_model_from_existing_root(
         "pass2_extraction": "pass2_*",
         "pass3_mapping": "pass3_*",
         "routing_or_fallback": "routing_or_fallback",
-    }
-    compatibility_aliases = {
-        "pass2_stage": "pass2_*",
-        "pass3_stage": "pass3_*",
     }
 
     return UploadBundleSourceModel(
@@ -397,7 +406,6 @@ def build_upload_bundle_source_model_from_existing_root(
         },
         topology=topology,
         diagnostic_families=diagnostic_families,
-        compatibility_aliases=compatibility_aliases,
         adapter_metadata={
             "uses_root_run_rows": bool(run_rows_from_root),
             "uses_root_pairs": bool(comparison_pairs_from_root),

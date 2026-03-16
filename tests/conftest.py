@@ -61,6 +61,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_ingredient_parser.py": ("parsing",),
     "test_instruction_parser.py": ("parsing",),
     "test_joblib_runtime.py": ("core",),
+    "test_label_first_conversion.py": ("parsing", "staging"),
     "test_yield_extraction.py": ("parsing",),
     "test_knowledge_job_bundles.py": ("llm",),
     "test_knowledge_output_ingest.py": ("llm",),
@@ -163,6 +164,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_quality_suite_runner.py": ("bench",),
     "test_recipe_sections.py": ("parsing",),
     "test_recipe_block_atomizer.py": ("parsing",),
+    "test_recipe_span_grouping.py": ("parsing",),
     "test_recipe_likeness_scoring.py": ("core",),
     "test_recipesage_importer.py": ("ingestion",),
     "test_run_manifest_parity.py": ("staging", "llm"),
@@ -198,8 +200,11 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
 
 _SLOW_FILES = {
     "test_cli_output_structure_slow.py",
+    "test_cli_output_structure_epub_fast.py",
+    "test_cli_output_structure_text_fast.py",
     "test_codex_farm_orchestrator.py",
     "test_codex_farm_orchestrator_runner_transport.py",
+    "test_canonical_line_roles.py",
     "test_labelstudio_benchmark_helpers_eval_payload_artifacts.py",
     "test_labelstudio_benchmark_helpers_eval_payload_compare.py",
     "test_labelstudio_benchmark_helpers_eval_payload_execution.py",
@@ -210,7 +215,10 @@ _SLOW_FILES = {
     "test_labelstudio_benchmark_helpers_scheduler_prediction_reuse.py",
     "test_labelstudio_benchmark_helpers_scheduler_run_reports.py",
     "test_labelstudio_benchmark_helpers_scheduler_targets.py",
+    "test_labelstudio_benchmark_helpers_single_offline_run.py",
+    "test_performance_features.py",
     "test_pdf_importer_ocr_slow.py",
+    "test_stats_dashboard.py",
     "test_stats_dashboard_slow.py",
 }
 

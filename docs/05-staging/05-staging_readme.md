@@ -92,9 +92,15 @@ Per workbook (slugified file stem):
 - `tags/tags_index.json` (if any pass5 tag artifacts were written in the run)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
   - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
-- `raw/llm/<workbook_slug>/pass5_tags/in/*.json` + `out/*.json` + `pass5_tags_manifest.json` (if pass5 tags pipeline is enabled)
+- `raw/llm/<workbook_slug>/chunking/{in,out}/*.json` (if recipe Codex chunking ran)
+- `raw/llm/<workbook_slug>/schemaorg/{in,out}/*.json` or `raw/llm/<workbook_slug>/merged_repair/{in,out}/*.json` (depending on recipe Codex topology)
+- `raw/llm/<workbook_slug>/final/{in,out}/*.json` (if the three-pass recipe Codex final stage ran)
+- `raw/llm/<workbook_slug>/recipe_manifest.json`
+- `raw/llm/<workbook_slug>/knowledge/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
+- `raw/llm/<workbook_slug>/tags/{in,out}/*.json` + `tags_manifest.json` (if pass5 tags pipeline is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
+- `stage_observability.json` at run root (canonical semantic stage index for the run)
 - `run_summary.json` at run root (machine-readable per-run digest: books, major settings, codex-farm mode, topline metrics)
 - `run_summary.md` at run root (human-readable quick digest; written only when `stage --write-markdown` is enabled)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)
@@ -112,6 +118,7 @@ Code pointers (prefer these over line numbers, which drift often):
 - `cookimport/cli_worker.py` (`stage_one_file`) and `cookimport/cli.py` (`_merge_split_jobs`) assemble per-run output dirs and invoke staging writers.
 - `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_tip_outputs`, `write_topic_candidate_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
 - `cookimport/cli.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) and `cookimport/tagging/orchestrator.py` (`run_stage_tagging_pass`) add run-level index/summary/manifest artifacts.
+- `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` prefers pass4 snippet evidence when available.

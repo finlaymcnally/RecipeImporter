@@ -5,9 +5,6 @@ from typing import Any, Callable
 
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 
-LEGACY_PASS2_FAMILY_DISPLAY_NAME = "legacy-family:pass2_*"
-LEGACY_PASS3_FAMILY_DISPLAY_NAME = "legacy-family:pass3_*"
-
 
 def _coerce_float(value: Any) -> float | None:
     try:
@@ -43,6 +40,100 @@ def _float_or_zero(value: Any) -> float:
     return float(parsed) if parsed is not None else 0.0
 
 
+def _default_recipe_stages() -> list[dict[str, str]]:
+    return [
+        {"stage_key": "schemaorg", "stage_label": "Schema.org Extraction"},
+        {"stage_key": "final", "stage_label": "Final Draft"},
+    ]
+
+
+def _recipe_stages_from_context(context_payload: dict[str, Any]) -> list[dict[str, str]]:
+    recipe_stages = context_payload.get("recipe_stages")
+    if not isinstance(recipe_stages, list):
+        return _default_recipe_stages()
+    rows: list[dict[str, str]] = []
+    for row in recipe_stages:
+        if not isinstance(row, dict):
+            continue
+        stage_key = str(row.get("stage_key") or "").strip()
+        stage_label = str(row.get("stage_label") or "").strip()
+        if not stage_key or not stage_label:
+            continue
+        rows.append({"stage_key": stage_key, "stage_label": stage_label})
+    return rows or _default_recipe_stages()
+
+
+def _recipe_stage_metric_key(stage_key: str, pass_stage_per_label_metrics: dict[str, Any]) -> str:
+    if stage_key == "schemaorg":
+        return "pass2"
+    if stage_key == "final":
+        return "pass3"
+    if stage_key == "merged_repair":
+        if isinstance(pass_stage_per_label_metrics.get("merged_repair"), dict):
+            return "merged_repair"
+        if isinstance(pass_stage_per_label_metrics.get("pass3"), dict):
+            return "pass3"
+        return "pass2"
+    return stage_key
+
+
+def _build_recipe_stage_row(
+    *,
+    recipe_stage: dict[str, str],
+    row: dict[str, Any],
+    pass3_fallback_reason: str,
+) -> dict[str, Any]:
+    stage_key = str(recipe_stage.get("stage_key") or "")
+    stage_label = str(recipe_stage.get("stage_label") or stage_key)
+    if stage_key == "schemaorg":
+        return {
+            "stage_key": stage_key,
+            "stage_label": stage_label,
+            "status": str(row.get("pass2_status") or ""),
+            "degradation_severity": str(row.get("pass2_degradation_severity") or ""),
+            "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
+            "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
+            "warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
+            "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
+            "extracted_instruction_count": int(
+                _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+            ),
+        }
+    if stage_key == "final":
+        return {
+            "stage_key": stage_key,
+            "stage_label": stage_label,
+            "status": str(row.get("pass3_status") or ""),
+            "execution_mode": str(row.get("pass3_execution_mode") or ""),
+            "routing_reason": str(row.get("pass3_routing_reason") or ""),
+            "empty_mapping": bool(row.get("pass3_empty_mapping")),
+            "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
+            "warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
+            "fallback_reason": pass3_fallback_reason,
+        }
+    merged_warning_buckets = _coerce_str_list(row.get("pass2_warning_buckets")) + _coerce_str_list(
+        row.get("pass3_warning_buckets")
+    )
+    deduped_warning_buckets = list(dict.fromkeys(merged_warning_buckets))
+    return {
+        "stage_key": stage_key,
+        "stage_label": stage_label,
+        "status": str(row.get("pass3_status") or row.get("pass2_status") or ""),
+        "execution_mode": str(row.get("pass3_execution_mode") or ""),
+        "routing_reason": str(row.get("pass3_routing_reason") or ""),
+        "empty_mapping": bool(row.get("pass3_empty_mapping")),
+        "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
+        "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0)
+        + int(_coerce_int(row.get("pass3_warning_count")) or 0),
+        "warning_buckets": deduped_warning_buckets,
+        "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
+        "extracted_instruction_count": int(
+            _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
+        ),
+        "fallback_reason": pass3_fallback_reason,
+    }
+
+
 def build_stage_separated_comparison(
     *,
     recipe_triage_rows: list[dict[str, Any]],
@@ -63,11 +154,22 @@ def build_stage_separated_comparison(
             continue
         line_role_pipeline_by_run_id[run_id] = str(codex_run.get("line_role_pipeline") or "off")
 
+    context_payload = recipe_pipeline_context if isinstance(recipe_pipeline_context, dict) else {}
+    recipe_stages = _recipe_stages_from_context(context_payload)
+
     per_recipe_rows: list[dict[str, Any]] = []
     for row in recipe_triage_rows:
         run_id = str(row.get("codex_run_id") or row.get("run_id") or "").strip()
         line_role_pipeline = line_role_pipeline_by_run_id.get(run_id, "unknown")
         pass3_fallback_reason = str(row.get("pass3_fallback_reason") or "").strip()
+        recipe_stage_rows = [
+            _build_recipe_stage_row(
+                recipe_stage=recipe_stage,
+                row=row,
+                pass3_fallback_reason=pass3_fallback_reason,
+            )
+            for recipe_stage in recipe_stages
+        ]
         per_recipe_rows.append(
             {
                 "source_key": str(row.get("source_key") or ""),
@@ -83,55 +185,41 @@ def build_stage_separated_comparison(
                     "line_accuracy": _coerce_float(row.get("codex_accuracy")),
                     "delta_vs_baseline": _coerce_float(row.get("delta_codex_minus_baseline")),
                 },
-                "pass2_stage": {
-                    "status": str(row.get("pass2_status") or ""),
-                    "degradation_severity": str(row.get("pass2_degradation_severity") or ""),
-                    "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
-                    "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0),
-                    "warning_buckets": _coerce_str_list(row.get("pass2_warning_buckets")),
-                    "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
-                    "extracted_instruction_count": int(
-                        _coerce_int(row.get("pass2_extracted_instruction_count")) or 0
-                    ),
-                },
-                "pass3_stage": {
-                    "status": str(row.get("pass3_status") or ""),
-                    "execution_mode": str(row.get("pass3_execution_mode") or ""),
-                    "routing_reason": str(row.get("pass3_routing_reason") or ""),
-                    "empty_mapping": bool(row.get("pass3_empty_mapping")),
-                    "warning_count": int(_coerce_int(row.get("pass3_warning_count")) or 0),
-                    "warning_buckets": _coerce_str_list(row.get("pass3_warning_buckets")),
-                    "fallback_reason": pass3_fallback_reason,
-                },
+                "recipe_stages": recipe_stage_rows,
                 "final_or_fallback_stage": {
                     "status": "fallback" if pass3_fallback_reason else "final",
                     "fallback_reason": pass3_fallback_reason or None,
-                    "pass1_status": str(row.get("pass1_status") or ""),
-                    "pass2_status": str(row.get("pass2_status") or ""),
-                    "pass3_status": str(row.get("pass3_status") or ""),
-                    "pass2_degradation_severity": str(row.get("pass2_degradation_severity") or ""),
-                    "pass2_promotion_policy": str(row.get("pass2_promotion_policy") or ""),
-                    "pass3_execution_mode": str(row.get("pass3_execution_mode") or ""),
-                    "pass3_routing_reason": str(row.get("pass3_routing_reason") or ""),
+                    "chunking_status": str(row.get("pass1_status") or ""),
+                    "recipe_stage_statuses": {
+                        str(stage_row.get("stage_key") or ""): str(stage_row.get("status") or "")
+                        for stage_row in recipe_stage_rows
+                    },
                 },
             }
         )
     per_recipe_rows.sort(
         key=lambda row: (
             _float_or_zero(((row.get("line_role_pipeline_stage") or {}).get("delta_vs_baseline"))),
-            -int(_coerce_int(((row.get("pass2_stage") or {}).get("warning_count"))) or 0),
+            -sum(
+                int(_coerce_int(stage_row.get("warning_count")) or 0)
+                for stage_row in (row.get("recipe_stages") or [])
+                if isinstance(stage_row, dict)
+            ),
             str(row.get("recipe_id") or ""),
         )
     )
 
-    def _build_pass_stage_row(stage_key: str, label: str) -> dict[str, Any]:
-        stage_payload = pass_stage_per_label_metrics.get(stage_key)
+    def _build_pass_stage_row(stage_key: str, stage_label: str, label: str) -> dict[str, Any]:
+        metric_key = _recipe_stage_metric_key(stage_key, pass_stage_per_label_metrics)
+        stage_payload = pass_stage_per_label_metrics.get(metric_key)
         stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
         stage_labels = stage_payload.get("labels")
         stage_labels = stage_labels if isinstance(stage_labels, dict) else {}
         label_row = stage_labels.get(label)
         if isinstance(label_row, dict):
             return {
+                "stage_key": stage_key,
+                "stage_label": stage_label,
                 "label_scored": True,
                 "precision_avg": _coerce_float(label_row.get("precision_avg")),
                 "recall_avg": _coerce_float(label_row.get("recall_avg")),
@@ -149,6 +237,8 @@ def build_stage_separated_comparison(
                 "benchmark codex artifacts"
             )
         return {
+            "stage_key": stage_key,
+            "stage_label": stage_label,
             "label_scored": False,
             "unavailable_reason": reason,
             "runs_scored": int(_coerce_int(stage_payload.get("runs_scored")) or 0),
@@ -170,8 +260,14 @@ def build_stage_separated_comparison(
                     "delta_recall_avg": _coerce_float(row.get("delta_recall_avg")),
                     "delta_f1_avg": _coerce_float(row.get("delta_f1_avg")),
                 },
-                "pass2_stage": _build_pass_stage_row("pass2", label),
-                "pass3_stage": _build_pass_stage_row("pass3", label),
+                "recipe_stages": [
+                    _build_pass_stage_row(
+                        str(recipe_stage.get("stage_key") or ""),
+                        str(recipe_stage.get("stage_label") or ""),
+                        label,
+                    )
+                    for recipe_stage in recipe_stages
+                ],
                 "final_or_fallback_stage": {
                     "confusion_delta_outbound_total": int(
                         _coerce_int(row.get("confusion_delta_outbound_total")) or 0
@@ -185,31 +281,13 @@ def build_stage_separated_comparison(
             }
         )
 
-    context_payload = recipe_pipeline_context if isinstance(recipe_pipeline_context, dict) else {}
     return {
-        "schema_version": "upload_bundle_stage_comparison.v1",
+        "schema_version": "upload_bundle_stage_comparison.v2",
         "pair_count": len(comparison_pairs),
-        "stage_label_mode": str(context_payload.get("stage_label_mode") or "standard_topology"),
-        "stage_display_names": (
-            context_payload.get("stage_display_names")
-            if isinstance(context_payload.get("stage_display_names"), dict)
-            else {
-                "baseline_stage": "baseline",
-                "line_role_pipeline_stage": "line-role",
-                "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
-                "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
-                "final_or_fallback_stage": "final-fallback",
-            }
+        "recipe_topology_key": str(
+            context_payload.get("recipe_topology_key") or "schemaorg_final"
         ),
-        "legacy_field_aliases": (
-            context_payload.get("legacy_field_aliases")
-            if isinstance(context_payload.get("legacy_field_aliases"), dict)
-            else {
-                "pass2_stage": "pass2_*",
-                "pass3_stage": "pass3_*",
-            }
-        ),
-        "compatibility_note": str(context_payload.get("compatibility_note") or ""),
+        "recipe_stages": recipe_stages,
         "per_recipe": per_recipe_rows,
         "per_label": per_label_rows,
     }
@@ -220,51 +298,33 @@ def build_recipe_pipeline_context_from_model(
     model: UploadBundleSourceModel,
 ) -> dict[str, Any]:
     topology = model.topology if isinstance(model.topology, dict) else {}
-    stage_display_names = topology.get("stage_display_names")
     return {
         "schema_version": str(
-            topology.get("schema_version") or "upload_bundle_recipe_pipeline_context.v1"
+            topology.get("schema_version") or "upload_bundle_recipe_pipeline_context.v2"
         ),
         "codex_recipe_pipelines": (
             list(topology.get("codex_recipe_pipelines"))
             if isinstance(topology.get("codex_recipe_pipelines"), list)
             else []
         ),
-        "observed_pass2_call_count": _coerce_int(topology.get("observed_pass2_call_count")) or 0,
-        "observed_pass3_call_count": _coerce_int(topology.get("observed_pass3_call_count")) or 0,
-        "observed_pass3_execution_modes": (
-            list(topology.get("observed_pass3_execution_modes"))
-            if isinstance(topology.get("observed_pass3_execution_modes"), list)
-            else []
-        ),
-        "observed_pass3_routing_reasons": (
-            list(topology.get("observed_pass3_routing_reasons"))
-            if isinstance(topology.get("observed_pass3_routing_reasons"), list)
-            else []
-        ),
         "merged_repair_active": bool(topology.get("merged_repair_active")),
-        "nonstandard_topology_active": bool(topology.get("nonstandard_topology_active")),
-        "stage_label_mode": str(topology.get("stage_label_mode") or "standard_topology"),
-        "stage_display_names": (
-            dict(stage_display_names)
-            if isinstance(stage_display_names, dict)
-            else {
-                "baseline_stage": "baseline",
-                "line_role_pipeline_stage": "line-role",
-                "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
-                "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
-                "final_or_fallback_stage": "final-fallback",
-            }
+        "recipe_topology_key": str(topology.get("recipe_topology_key") or "schemaorg_final"),
+        "recipe_stages": _recipe_stages_from_context(topology),
+        "observed_recipe_stage_call_counts": (
+            dict(topology.get("observed_recipe_stage_call_counts"))
+            if isinstance(topology.get("observed_recipe_stage_call_counts"), dict)
+            else {}
         ),
-        "legacy_field_aliases": (
-            dict(model.compatibility_aliases)
-            if isinstance(model.compatibility_aliases, dict)
-            else {
-                "pass2_stage": "pass2_*",
-                "pass3_stage": "pass3_*",
-            }
+        "observed_recipe_execution_modes": (
+            list(topology.get("observed_recipe_execution_modes"))
+            if isinstance(topology.get("observed_recipe_execution_modes"), list)
+            else []
         ),
-        "compatibility_note": str(topology.get("compatibility_note") or ""),
+        "observed_recipe_routing_reasons": (
+            list(topology.get("observed_recipe_routing_reasons"))
+            if isinstance(topology.get("observed_recipe_routing_reasons"), list)
+            else []
+        ),
     }
 
 

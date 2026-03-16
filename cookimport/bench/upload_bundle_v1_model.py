@@ -30,7 +30,6 @@ class UploadBundleSourceModel:
     advertised_counts: dict[str, int | None]
     topology: dict[str, Any] = field(default_factory=dict)
     diagnostic_families: dict[str, str] = field(default_factory=dict)
-    compatibility_aliases: dict[str, str] = field(default_factory=dict)
     adapter_metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_context_dict(self) -> dict[str, Any]:
@@ -57,6 +56,5 @@ class UploadBundleSourceModel:
             "advertised_counts": self.advertised_counts,
             "topology": self.topology,
             "diagnostic_families": self.diagnostic_families,
-            "compatibility_aliases": self.compatibility_aliases,
             "adapter_metadata": self.adapter_metadata,
         }

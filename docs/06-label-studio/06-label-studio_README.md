@@ -33,6 +33,12 @@ Nearby code used directly by Label Studio benchmark/eval flow:
 - `cookimport/bench/canonical_alignment_cache.py`
 - `cookimport/analytics/perf_report.py`
 
+Label-first runtime seam used by benchmark/import flows:
+
+- `cookimport/parsing/label_source_of_truth.py`
+- `cookimport/parsing/recipe_span_grouping.py`
+- `cookimport/staging/import_session.py`
+
 Use `docs/06-label-studio/06-label-studio_log.md` only for compact historical context when a fix starts looping.
 
 ## 1) Current Scope and Commands
@@ -217,6 +223,8 @@ values are inferred from prediction-run metadata.
 - compare action for benchmark runs (`labelstudio-benchmark compare`)
 - line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
 - benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
+- when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_det`, `label_llm_correct`, `group_recipe_spans`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
+- prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
 
 Execution modes:
 

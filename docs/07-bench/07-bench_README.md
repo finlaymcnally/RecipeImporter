@@ -214,7 +214,7 @@ When `--line-role-gated` is enabled, canonical-text runs also write:
 Replay contract:
 
 - `--predictions-out` writes `PredictionRecord` JSONL (`schema_kind=stage-block.v1`)
-- `--predictions-in` supports evaluate-only replay from those records or older run-pointer records
+- `--predictions-in` supports evaluate-only replay from those prediction records only; older run-pointer records are rejected
 
 Manifest contract:
 
@@ -240,7 +240,7 @@ Current generation seams:
 Current bundle rules:
 
 - reviewer-facing topology should be derived from the normalized model, not guessed from path layout
-- `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam
+- `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of `pass2_stage` / `pass3_stage` compatibility fields
 - pass4 must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
 

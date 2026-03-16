@@ -19,6 +19,7 @@ from cookimport.llm.codex_farm_runner import (
     ensure_codex_farm_pipelines_exist,
     resolve_codex_farm_output_schema_path,
 )
+from cookimport.runs import TAGS_MANIFEST_FILE_NAME
 from cookimport.tagging.catalog import TagCatalog
 from cookimport.tagging.engine import TagSuggestion
 from cookimport.tagging.signals import RecipeSignalPack
@@ -187,7 +188,7 @@ def run_codex_farm_tags_pass(
 
     in_dir = raw_pass_dir / "in"
     out_dir = raw_pass_dir / "out"
-    manifest_path = raw_pass_dir.parent / "pass5_tags_manifest.json"
+    manifest_path = raw_pass_dir.parent / TAGS_MANIFEST_FILE_NAME
     return _run_with_dirs(
         jobs=jobs,
         catalog=catalog,

@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from cookimport.core.models import ConversionReport, ConversionResult
+from cookimport.parsing.label_first_conversion import (
+    build_conversion_result_from_label_spans,
+)
+from cookimport.parsing.label_source_of_truth import (
+    AuthoritativeBlockLabel,
+    AuthoritativeLabeledLine,
+    RecipeSpan,
+)
+
+
+def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_blocks() -> None:
+    archive_blocks = [
+        {"index": 0, "block_id": "block:0", "text": "Pancakes", "location": {"block_index": 0}},
+        {"index": 1, "block_id": "block:1", "text": "1 cup flour", "location": {"block_index": 1}},
+        {"index": 2, "block_id": "block:2", "text": "Whisk batter", "location": {"block_index": 2}},
+        {"index": 3, "block_id": "block:3", "text": "Why batter rests matters", "location": {"block_index": 3}},
+    ]
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Pancakes",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="1 cup flour",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:2",
+            source_block_index=2,
+            atomic_index=2,
+            text="Whisk batter",
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:3",
+            source_block_index=3,
+            atomic_index=3,
+            text="Why batter rests matters",
+            deterministic_label="KNOWLEDGE",
+            final_label="KNOWLEDGE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:2",
+            source_block_index=2,
+            supporting_atomic_indices=[2],
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:3",
+            source_block_index=3,
+            supporting_atomic_indices=[3],
+            deterministic_label="KNOWLEDGE",
+            final_label="KNOWLEDGE",
+            confidence=0.9,
+            decided_by="rule",
+        ),
+    ]
+    recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=2,
+            block_indices=[0, 1, 2],
+            source_block_ids=["block:0", "block:1", "block:2"],
+            start_atomic_index=0,
+            end_atomic_index=2,
+            atomic_indices=[0, 1, 2],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+    original_result = ConversionResult(
+        recipes=[],
+        tips=[],
+        tip_candidates=[],
+        topic_candidates=[],
+        non_recipe_blocks=[{"index": 99, "text": "old leftover"}],
+        raw_artifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbook_path="/tmp/book.txt",
+    )
+
+    compatibility = build_conversion_result_from_label_spans(
+        source_file=Path("/tmp/book.txt"),
+        importer_name="text",
+        source_hash="hash-123",
+        original_result=original_result,
+        archive_blocks=archive_blocks,
+        labeled_lines=labeled_lines,
+        block_labels=block_labels,
+        recipe_spans=recipe_spans,
+    )
+
+    result = compatibility.conversion_result
+    assert len(result.recipes) == 1
+    assert result.recipes[0].name == "Pancakes"
+    assert result.recipes[0].ingredients == ["1 cup flour"]
+    assert result.recipes[0].instructions == ["Whisk batter"]
+    assert [row["index"] for row in result.non_recipe_blocks] == [3]
+    assert result.non_recipe_blocks[0]["text"] == "Why batter rests matters"
+    assert compatibility.non_recipe_lines[0].final_label == "KNOWLEDGE"

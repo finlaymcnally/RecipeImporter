@@ -51,6 +51,7 @@ Architecture priorities:
 - worker-side split execution lives in `cookimport/cli_worker.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - split merge helpers and recipe-ID reassignment logic live in `cookimport/staging/pdf_jobs.py`.
+- stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest.py` can:
@@ -60,7 +61,7 @@ Architecture priorities:
   - write run artifacts (`manifest.json`, tasks JSONL, coverage, extracted archive/text)
   - upload tasks when write consent is explicit
   - perform merge-time block-index rebasing across split jobs
-  - treat processed `stage_block_predictions.json` as the primary benchmark scoring input while keeping canonical line-role artifacts diagnostic-only
+  - treat processed `stage_block_predictions.json` as the primary benchmark scoring input, with freeform projection artifacts derived from the same authoritative label-first bundle instead of a second diagnostic rerun
 
 ## Docs Ownership Map
 
@@ -152,6 +153,9 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/run_manifest.json`
 
 Optional stage lanes:
+- `<out>/<timestamp>/label_det/<workbook_slug>/...` for deterministic authoritative labeled-line and block-label artifacts
+- `<out>/<timestamp>/label_llm_correct/<workbook_slug>/...` for final corrected authoritative labels plus label diffs when line-role correction is enabled
+- `<out>/<timestamp>/group_recipe_spans/<workbook_slug>/...` for deterministic recipe-span grouping and normalized authoritative block-label outputs
 - `<out>/<timestamp>/knowledge/<workbook_slug>/...` and `<out>/<timestamp>/knowledge/knowledge_index.json` when knowledge-pass artifacts exist
 - `<out>/<timestamp>/tags/<workbook_slug>/...` and `<out>/<timestamp>/tags/tags_index.json` when tags-pass artifacts exist
 

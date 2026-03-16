@@ -295,12 +295,12 @@ def _write_labelstudio_compare_source_row(
         and write_required_llm_debug
     ):
         llm_root = prediction_run_root / "llm"
-        pass1_in = llm_root / "pass1_chunking" / "in"
-        pass1_out = llm_root / "pass1_chunking" / "out"
-        pass2_in = llm_root / "pass2_schemaorg" / "in"
-        pass2_out = llm_root / "pass2_schemaorg" / "out"
-        pass3_in = llm_root / "pass3_final" / "in"
-        pass3_out = llm_root / "pass3_final" / "out"
+        pass1_in = llm_root / "chunking" / "in"
+        pass1_out = llm_root / "chunking" / "out"
+        pass2_in = llm_root / "schemaorg" / "in"
+        pass2_out = llm_root / "schemaorg" / "out"
+        pass3_in = llm_root / "final" / "in"
+        pass3_out = llm_root / "final" / "out"
         for folder in (pass1_in, pass1_out, pass2_in, pass2_out, pass3_in, pass3_out):
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "r0000.json").write_text("{}", encoding="utf-8")
@@ -314,12 +314,12 @@ def _write_labelstudio_compare_source_row(
                 "pass3_out": str(pass3_out),
             }
         }
-        llm_manifest_path = prediction_run_root / "llm_manifest.json"
+        llm_manifest_path = prediction_run_root / "recipe_manifest.json"
         llm_manifest_path.write_text(
             json.dumps(llm_manifest, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        prediction_run_manifest["artifacts"]["llm_manifest_json"] = str(llm_manifest_path)
+        prediction_run_manifest["artifacts"]["recipe_manifest_json"] = str(llm_manifest_path)
         if write_prompt_manifests:
             prompt_input_payloads = [
                 pass1_in / "prompt_request_0.json",

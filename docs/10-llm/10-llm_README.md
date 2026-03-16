@@ -92,10 +92,11 @@ Benchmark split:
 
 Recipe passes write under:
 
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass1_chunking/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass2_schemaorg/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass3_final/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/llm_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/chunking/{in,out}/`
+- `data/output/<ts>/raw/llm/<workbook_slug>/schemaorg/{in,out}/` for the three-pass recipe pipeline
+- `data/output/<ts>/raw/llm/<workbook_slug>/merged_repair/{in,out}/` for the merged-repair recipe pipeline
+- `data/output/<ts>/raw/llm/<workbook_slug>/final/{in,out}/` when the three-pass recipe pipeline executes the final LLM stage
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/transport_audit/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/evidence_normalization/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/guardrail_report.json` and `guardrail_rows.jsonl` when emitted
@@ -103,8 +104,8 @@ Recipe passes write under:
 
 Pass4 knowledge writes:
 
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass4_knowledge_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/{in,out}/`
+- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - `data/output/<ts>/knowledge/<workbook_slug>/block_classifications.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/snippets.jsonl`
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
@@ -114,8 +115,8 @@ Pass4 knowledge writes:
 
 Pass5 tags writes:
 
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass5_tags/{in,out}/`
-- `data/output/<ts>/raw/llm/<workbook_slug>/pass5_tags_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/tags/{in,out}/`
+- `data/output/<ts>/raw/llm/<workbook_slug>/tags_manifest.json`
 - `data/output/<ts>/tags/<workbook_slug>/r{index}.tags.json`
 - `data/output/<ts>/tags/<workbook_slug>/tagging_report.json`
 - `data/output/<ts>/tags/tags_index.json`
@@ -135,6 +136,9 @@ Prompt/debug artifacts:
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
 - `prediction-run/prompt_budget_summary.json` merges recipe/pass4/pass5 telemetry with line-role telemetry when present
+
+Run-level observability note:
+- `stage_observability.json` at the run root is the canonical stage index. The recipe/knowledge/tags manifests above are stage-local detail, not a second naming system.
 
 ## Runner and contract notes
 

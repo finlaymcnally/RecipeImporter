@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 from cookimport.core.slug import slugify_name
+from cookimport.runs import (
+    KNOWLEDGE_MANIFEST_FILE_NAME,
+    RECIPE_MANIFEST_FILE_NAME,
+    TAGS_MANIFEST_FILE_NAME,
+    stage_artifact_stem,
+)
 
 PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
@@ -16,11 +22,11 @@ PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
 PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
 
 _CODEXFARM_PASS_DIR_MAP: dict[str, str] = {
-    "pass1": "pass1_chunking",
-    "pass2": "pass2_schemaorg",
-    "pass3": "pass3_final",
-    "pass4": "pass4_knowledge",
-    "pass5": "pass5_tags",
+    "pass1": "chunking",
+    "pass2": "schemaorg",
+    "pass3": "final",
+    "pass4": "knowledge",
+    "pass5": "tags",
 }
 
 _CODEXFARM_PASS_TASK_MAP: dict[str, str] = {
@@ -48,42 +54,42 @@ _CODEXFARM_PASS_SORT_ORDER: dict[str, int] = {
 }
 
 _CODEXFARM_PASS_MANIFEST_NAME_MAP: dict[str, str] = {
-    "pass1": "llm_manifest.json",
-    "pass2": "llm_manifest.json",
-    "pass3": "llm_manifest.json",
-    "pass4": "pass4_knowledge_manifest.json",
-    "pass5": "pass5_tags_manifest.json",
+    "pass1": RECIPE_MANIFEST_FILE_NAME,
+    "pass2": RECIPE_MANIFEST_FILE_NAME,
+    "pass3": RECIPE_MANIFEST_FILE_NAME,
+    "pass4": KNOWLEDGE_MANIFEST_FILE_NAME,
+    "pass5": TAGS_MANIFEST_FILE_NAME,
 }
 
 _PROMPT_STAGE_SLOT_METADATA: dict[str, dict[str, Any]] = {
     "pass1": {
         "slot_index": 1,
         "default_label": "Chunking",
-        "default_artifact_stem": "pass1_chunking",
+        "default_artifact_stem": "chunking",
         "expected_stage_key": "chunking",
     },
     "pass2": {
         "slot_index": 2,
         "default_label": "Schema.org Extraction",
-        "default_artifact_stem": "pass2_schemaorg",
+        "default_artifact_stem": "schemaorg",
         "expected_stage_key": "schemaorg",
     },
     "pass3": {
         "slot_index": 3,
         "default_label": "Final Draft",
-        "default_artifact_stem": "pass3_final",
+        "default_artifact_stem": "final",
         "expected_stage_key": "final",
     },
     "pass4": {
         "slot_index": 4,
         "default_label": "Knowledge Harvest",
-        "default_artifact_stem": "pass4_knowledge",
+        "default_artifact_stem": "knowledge",
         "expected_stage_key": "knowledge",
     },
     "pass5": {
         "slot_index": 5,
         "default_label": "Tag Suggestions",
-        "default_artifact_stem": "pass5_tags",
+        "default_artifact_stem": "tags",
         "expected_stage_key": "tags",
     },
 }
@@ -309,7 +315,7 @@ def _build_prompt_stage_metadata(
         and path_slug
         and expected_stage_key in path_slug
     )
-    heading_key = pass_name if matches_legacy else stage_key
+    heading_key = stage_key
     artifact_stem = (
         path_slug
         if matches_legacy and path_slug
@@ -535,11 +541,14 @@ def discover_codexfarm_prompt_run_descriptors(
                     path_root=stage_dir_name,
                     pipeline_id=pipeline_id,
                 )
+                resolved_stage_dir_name = stage_artifact_stem(
+                    str(stage_metadata.get("stage_key") or legacy_pass)
+                )
                 input_dir, output_dir = _resolve_stage_in_out_dirs_for_legacy_pass(
                     legacy_pass=legacy_pass,
                     manifest_payload=manifest_payload,
                     run_dir=run_dir,
-                    stage_dir_name=stage_dir_name,
+                    stage_dir_name=resolved_stage_dir_name,
                 )
                 process_run_payload = _resolve_process_run_payload_for_legacy_pass(
                     legacy_pass=legacy_pass,
@@ -551,7 +560,7 @@ def discover_codexfarm_prompt_run_descriptors(
                         legacy_pass=legacy_pass,
                         task_name=_CODEXFARM_PASS_TASK_MAP.get(legacy_pass, legacy_pass),
                         slot_index=int(stage_metadata.get("slot_index") or 999),
-                        stage_dir_name=stage_dir_name,
+                        stage_dir_name=resolved_stage_dir_name,
                         stage_key=str(stage_metadata.get("stage_key") or legacy_pass),
                         stage_heading_key=str(
                             stage_metadata.get("heading_key")
@@ -573,7 +582,7 @@ def discover_codexfarm_prompt_run_descriptors(
                     )
                 )
 
-        primary_manifest = manifest_payload_by_name.get("llm_manifest.json", {})
+        primary_manifest = manifest_payload_by_name.get(RECIPE_MANIFEST_FILE_NAME, {})
         descriptors.append(
             PromptRunDescriptor(
                 schema_version=PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION,
@@ -1134,17 +1143,14 @@ def build_codex_farm_prompt_type_samples_markdown(
         stage_label = str(metadata.get("label") or "Prompt Stage")
         lines.append(f"## {stage_group_key} ({stage_label})")
         lines.append("")
-        legacy_pass = _clean_prompt_stage_text(metadata.get("pass_name"))
         pipeline_id = _clean_prompt_stage_text(metadata.get("pipeline_id"))
         if not bool(metadata.get("matches_legacy")):
-            if legacy_pass is not None:
-                lines.append(f"- legacy_slot: `{legacy_pass}`")
             if pipeline_id is not None:
                 lines.append(f"- pipeline_id: `{pipeline_id}`")
-            if legacy_pass is not None or pipeline_id is not None:
+            if pipeline_id is not None:
                 lines.append("")
         if not stage_samples:
-            lines.append("_No rows captured for this pass._")
+            lines.append("_No rows captured for this stage._")
             lines.append("")
             continue
         for index, sample in enumerate(stage_samples, start=1):
@@ -1232,7 +1238,7 @@ def render_prompt_artifacts_from_descriptors(
                 lines.append("manifests:")
                 for manifest_name in sorted(manifest_path_by_name):
                     lines.append(f"- {manifest_path_by_name[manifest_name]}")
-            primary_manifest = manifest_payload_by_name.get("llm_manifest.json", {})
+            primary_manifest = manifest_payload_by_name.get(RECIPE_MANIFEST_FILE_NAME, {})
             llm_enabled = primary_manifest.get("enabled")
             if llm_enabled is not None:
                 lines.append(f"enabled: {llm_enabled}")
@@ -1261,7 +1267,7 @@ def render_prompt_artifacts_from_descriptors(
             if process_run_stages:
                 lines.append("--- PROCESS RUN PAYLOAD SNIPPETS ---")
                 for stage in process_run_stages:
-                    lines.append(f"--- process_run[{stage.legacy_pass}] ({stage.manifest_name}) ---")
+                    lines.append(f"--- process_run[{stage.stage_key}] ({stage.manifest_name}) ---")
                     try:
                         lines.append(json.dumps(stage.process_run_payload, indent=2, sort_keys=True))
                     except Exception:
@@ -1269,7 +1275,7 @@ def render_prompt_artifacts_from_descriptors(
                 lines.append("")
 
             for stage in run_descriptor.stages:
-                category_key = stage.legacy_pass
+                category_key = stage.stage_key
                 category_lines.setdefault(category_key, [])
                 category_has_payload.setdefault(category_key, False)
 
@@ -1287,7 +1293,6 @@ def render_prompt_artifacts_from_descriptors(
                 )
 
                 stage_metadata = {
-                    "pass_name": stage.legacy_pass,
                     "slot_index": stage.slot_index,
                     "pipeline_id": stage.pipeline_id,
                     "stage_key": stage.stage_key,
@@ -1304,7 +1309,7 @@ def render_prompt_artifacts_from_descriptors(
                 category.append(
                     "=== CATEGORY "
                     f"{stage.task_name} ({stage.stage_heading_key} / {stage.stage_label}) "
-                    f"| legacy_slot: {stage.legacy_pass} | raw_dir: {stage.stage_dir_name} | run: {run_dir.name} ==="
+                    f"| stage_dir: {stage.stage_dir_name} | run: {run_dir.name} ==="
                 )
                 if stage.manifest_path is not None:
                     category.append(f"manifest: {stage.manifest_path}")
@@ -1313,13 +1318,13 @@ def render_prompt_artifacts_from_descriptors(
                 category.append("")
 
                 input_files = _files_in_dir(stage.input_dir)
-                lines.append(f"--- {stage.legacy_pass.upper()} INPUT FILES ---")
+                lines.append(f"--- {stage.stage_key.upper()} INPUT FILES ---")
                 lines.append(f"source_dir: {stage.input_dir}")
                 category.append(f"--- {stage.task_name.upper()} PROMPT INPUT FILES ---")
                 category.append(f"source_dir: {stage.input_dir}")
                 for prompt_file in input_files:
                     category_has_payload[category_key] = True
-                    lines.append(f"INPUT {stage.legacy_pass} => {prompt_file.name}")
+                    lines.append(f"INPUT {stage.stage_key} => {prompt_file.name}")
                     lines.append("-" * 80)
                     prompt_text = _safe_read_text(prompt_file)
                     lines.append(prompt_text)
@@ -1350,13 +1355,13 @@ def render_prompt_artifacts_from_descriptors(
                             category.append("")
 
                 output_files = _files_in_dir(stage.output_dir)
-                lines.append(f"--- {stage.legacy_pass.upper()} RESPONSE FILES ---")
+                lines.append(f"--- {stage.stage_key.upper()} RESPONSE FILES ---")
                 lines.append(f"source_dir: {stage.output_dir}")
                 category.append(f"--- {stage.task_name.upper()} PROMPT RESPONSE FILES ---")
                 category.append(f"source_dir: {stage.output_dir}")
                 for response_file in output_files:
                     category_has_payload[category_key] = True
-                    lines.append(f"OUTPUT {stage.legacy_pass} => {response_file.name}")
+                    lines.append(f"OUTPUT {stage.stage_key} => {response_file.name}")
                     lines.append("-" * 80)
                     response_text = _safe_read_text(response_file)
                     lines.append(response_text)
@@ -1654,8 +1659,6 @@ def render_prompt_artifacts_from_descriptors(
                     row_payload = {
                         "run_id": benchmark_run_id,
                         "schema_version": PROMPT_CALL_RECORD_SCHEMA_VERSION,
-                        "pass": stage.legacy_pass,
-                        "legacy_pass": stage.legacy_pass,
                         "call_id": call_stem,
                         "timestamp_utc": timestamp_utc,
                         "recipe_id": recipe_id,

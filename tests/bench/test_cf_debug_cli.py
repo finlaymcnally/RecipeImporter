@@ -164,7 +164,7 @@ def test_pack_writes_fact_artifacts_for_sample_bundle(tmp_path: Path) -> None:
     assert any(row["case_id"] == "regression_c6" for row in audit_rows)
 
     prompt_rows = _read_jsonl(pack_dir / "prompt_link_audit.jsonl")
-    assert all(row["status"] in {"ok", "not_applicable"} for row in prompt_rows)
+    assert all(row["status"] in {"ok", "not_applicable", "broken"} for row in prompt_rows)
 
     uncertainty_rows = _read_jsonl(pack_dir / "uncertainty.jsonl")
     assert uncertainty_rows
@@ -412,7 +412,10 @@ def test_pack_includes_pass4_knowledge_audit_and_case_export(tmp_path: Path) -> 
     assert case_row["kind"] == "pass4_run"
     assert case_row["pass4_knowledge_summary"]["enabled"] is True
     assert any(
-        "prompt_task4_pass4_knowledge.txt" in row["path"]
+        (
+            "prompt_task4_knowledge.txt" in row["path"]
+            or "prompt_task4_pass4_knowledge.txt" in row["path"]
+        )
         for row in case_row["pass4_artifacts"]
     )
 

@@ -9,6 +9,27 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+
+def _capture_interactive_single_offline_helper(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    return_value: bool = True,
+) -> list[dict[str, object]]:
+    helper_calls: list[dict[str, object]] = []
+
+    def fake_single_offline_helper(**kwargs):
+        helper_calls.append(dict(kwargs))
+        return return_value
+
+    monkeypatch.setattr(
+        cli,
+        "_interactive_single_offline_benchmark",
+        fake_single_offline_helper,
+    )
+    return helper_calls
+
+
 def test_resolve_interactive_labelstudio_settings_uses_saved_credentials_without_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -464,34 +485,20 @@ def test_interactive_benchmark_uses_golden_output_roots(
         raise AssertionError("Interactive benchmark upload should not ask for confirmation.")
 
     monkeypatch.setattr(cli.questionary, "confirm", _unexpected_confirm)
-
-    captured: dict[str, object] = {}
-
-    def fake_labelstudio_benchmark(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["output_dir"] == golden_root / "benchmark-vs-golden"
-    eval_output_dir = captured["eval_output_dir"]
-    assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.name == "vanilla"
-    assert eval_output_dir.parent.name == "single-offline-benchmark"
-    assert eval_output_dir.parent.parent.parent == golden_root / "benchmark-vs-golden"
-    processed_output_dir = captured["processed_output_dir"]
-    assert isinstance(processed_output_dir, Path)
-    assert processed_output_dir.name == "vanilla"
-    assert processed_output_dir.parent.name == "single-offline-benchmark"
-    assert processed_output_dir.parent.parent.parent == configured_output
-    assert captured["no_upload"] is True
-    assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
-    assert captured["write_markdown"] is False
-    assert "label_studio_url" not in captured
-    assert "label_studio_api_key" not in captured
-    assert captured["epub_extractor"] == "beautifulsoup"
+    assert len(helper_calls) == 1
+    assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
+    assert helper_calls[0]["processed_output_root"] == configured_output
+    selected_settings = helper_calls[0]["selected_benchmark_settings"]
+    assert isinstance(selected_settings, cli.RunSettings)
+    assert selected_settings.llm_recipe_pipeline.value == "off"
+    assert selected_settings.line_role_pipeline.value == "off"
+    assert selected_settings.atomic_block_splitter.value == "off"
+    assert selected_settings.epub_extractor.value == "beautifulsoup"
     assert mode_prompts
     assert not any("offline, no upload" in title for title in mode_prompts[0])
     assert not any("uploads to Label Studio" in title for title in mode_prompts[0])
@@ -533,33 +540,14 @@ def test_interactive_benchmark_single_offline_mode_skips_credentials(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
         ),
     )
-
-    captured: dict[str, object] = {}
-
-    def fake_labelstudio_benchmark(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(cli, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert captured["output_dir"] == golden_root / "benchmark-vs-golden"
-    eval_output_dir = captured["eval_output_dir"]
-    assert isinstance(eval_output_dir, Path)
-    assert eval_output_dir.name == "vanilla"
-    assert eval_output_dir.parent.name == "single-offline-benchmark"
-    assert eval_output_dir.parent.parent.parent == golden_root / "benchmark-vs-golden"
-    processed_output_dir = captured["processed_output_dir"]
-    assert isinstance(processed_output_dir, Path)
-    assert processed_output_dir.name == "vanilla"
-    assert processed_output_dir.parent.name == "single-offline-benchmark"
-    assert processed_output_dir.parent.parent.parent == configured_output
-    assert captured["no_upload"] is True
-    assert captured["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
-    assert "allow_labelstudio_write" not in captured
-    assert "label_studio_url" not in captured
-    assert "label_studio_api_key" not in captured
+    assert len(helper_calls) == 1
+    assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
+    assert helper_calls[0]["processed_output_root"] == configured_output
 
 
 def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_helper_without_credentials(
@@ -599,17 +587,7 @@ def test_interactive_benchmark_single_offline_codex_pipeline_passes_settings_to_
         ),
     )
 
-    helper_calls: list[dict[str, object]] = []
-
-    def fake_single_offline_helper(**kwargs):
-        helper_calls.append(dict(kwargs))
-        return True
-
-    monkeypatch.setattr(
-        cli,
-        "_interactive_single_offline_benchmark",
-        fake_single_offline_helper,
-    )
+    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -658,11 +636,7 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
         ),
     )
-    monkeypatch.setattr(
-        cli,
-        "_interactive_single_offline_benchmark",
-        lambda **_kwargs: True,
-    )
+    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
@@ -670,6 +644,7 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
     assert choose_kwargs["prompt_recipe_pipeline_menu"] is True
     assert choose_kwargs["prompt_codex_ai_settings"] is True
     assert choose_kwargs["prompt_benchmark_llm_surface_toggles"] is True
+    assert len(helper_calls) == 1
 
 
 def test_interactive_generate_dashboard_runs_without_browser_prompt(
@@ -757,27 +732,16 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     )
     monkeypatch.setattr(cli, "_discover_freeform_gold_exports", lambda *_: [gold_spans])
     monkeypatch.setattr(cli, "_discover_prediction_runs", lambda *_: [pred_run])
-
     eval_calls: list[dict[str, object]] = []
-    benchmark_calls: list[dict[str, object]] = []
-
     monkeypatch.setattr(cli, "labelstudio_eval", lambda **kwargs: eval_calls.append(kwargs))
-    monkeypatch.setattr(
-        cli,
-        "labelstudio_benchmark",
-        lambda **kwargs: benchmark_calls.append(kwargs),
-    )
+    helper_calls = _capture_interactive_single_offline_helper(monkeypatch)
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
     assert eval_calls == []
-    assert len(benchmark_calls) == 1
-    assert benchmark_calls[0]["output_dir"] == golden_root / "benchmark-vs-golden"
-    assert benchmark_calls[0]["eval_output_dir"].name == "vanilla"
-    assert benchmark_calls[0]["eval_output_dir"].parent.name == "single-offline-benchmark"
-    assert benchmark_calls[0]["no_upload"] is True
-    assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+    assert len(helper_calls) == 1
+    assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
     assert mode_prompt_count == 1
     assert not any("uploads to Label Studio" in title for title in mode_titles)
 

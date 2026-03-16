@@ -1,5 +1,6 @@
 Run manifests live here.
 
-`run_manifest.json` is a small cross-command record that links source identity, effective run settings, and key artifacts for each run folder.
-For `stage` runs, `run_manifest.json` now also indexes `run_summary.json` and `run_summary.md` when present.
-Eval/benchmark commands now use shared helpers in `eval_manifest.py` to build/write `run_manifest.json` consistently.
+`run_manifest.json` is the small cross-command index for a run folder.
+`stage_observability.json` is the paired stage-topology record for the same run root.
+For `stage` runs, `run_manifest.json` now indexes `stage_observability.json`, `run_summary.json`, and `run_summary.md`.
+Eval/benchmark commands use the shared helpers here to build/write these run-level records consistently.

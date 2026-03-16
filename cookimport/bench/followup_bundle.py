@@ -203,7 +203,7 @@ def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
 
 
 def _resolve_pass4_prompt_task_path(prompts_dir: Path) -> Path | None:
-    candidates: list[Path] = [prompts_dir / "prompt_task4_pass4_knowledge.txt"]
+    candidates: list[Path] = [prompts_dir / "prompt_task4_knowledge.txt"]
     for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
         name = candidate.name.lower()
         if name.startswith("prompt_task4_") and name.endswith(".txt"):
@@ -411,11 +411,11 @@ class RunContext:
         pattern = f"*_{source_key}_{suffix}.json"
         resolved: dict[str, str] = {}
         for label, relative in (
-            ("pass1_input", Path("pass1_chunking/in")),
-            ("pass1_output", Path("pass1_chunking/out")),
-            ("pass2_input", Path("pass2_schemaorg/in")),
-            ("pass2_output", Path("pass2_schemaorg/out")),
-            ("pass3_output", Path("pass3_final/out")),
+            ("pass1_input", Path("chunking/in")),
+            ("pass1_output", Path("chunking/out")),
+            ("pass2_input", Path("schemaorg/in")),
+            ("pass2_output", Path("schemaorg/out")),
+            ("pass3_output", Path("final/out")),
             ("evidence_normalization", Path("evidence_normalization")),
             ("transport_audit", Path("transport_audit")),
         ):
@@ -431,20 +431,27 @@ class RunContext:
         resolved: dict[str, str] = {}
         prompts_dir = self.run_dir / "prompts"
         pass4_prompt_task = _resolve_pass4_prompt_task_path(prompts_dir)
-        for label, path in (
-            ("prompt_samples_md", prompts_dir / "prompt_type_samples_from_full_prompt_log.md"),
-            ("prompt_task4_txt", pass4_prompt_task),
-            (
-                "prompt_budget_summary_json",
-                self.run_dir / "prompt_budget_summary.json",
-            ),
+        prompt_budget_candidates = [
+            self.run_dir / "prediction-run" / "prompt_budget_summary.json",
+            self.run_dir / "prompt_budget_summary.json",
+        ]
+        for label, candidates in (
+            ("prompt_samples_md", [prompts_dir / "prompt_type_samples_from_full_prompt_log.md"]),
+            ("prompt_task4_txt", [pass4_prompt_task] if isinstance(pass4_prompt_task, Path) else []),
+            ("prompt_budget_summary_json", prompt_budget_candidates),
         ):
-            if isinstance(path, Path) and path.is_file():
-                resolved[label] = str(path)
+            for path in candidates:
+                if isinstance(path, Path) and path.is_file():
+                    resolved[label] = str(path)
+                    break
         if self.raw_llm_dir is not None:
-            manifest_path = self.raw_llm_dir / "pass4_knowledge_manifest.json"
-            if manifest_path.is_file():
-                resolved["pass4_manifest_json"] = str(manifest_path)
+            for manifest_path in (
+                self.raw_llm_dir / "knowledge_manifest.json",
+                self.raw_llm_dir / "pass4_knowledge_manifest.json",
+            ):
+                if manifest_path.is_file():
+                    resolved["pass4_manifest_json"] = str(manifest_path)
+                    break
         return resolved
 
 
@@ -1791,7 +1798,11 @@ def _pass4_audit_row(
         "pass4_manifest_json": str(summary.get("pass4_manifest_status") or "").strip().lower(),
     }
     for kind, expected_status in expected_status_by_kind.items():
-        if expected_status == "written" and kind not in local_files:
+        if (
+            expected_status == "written"
+            and kind not in local_files
+            and kind not in payload_locators
+        ):
             issues.append(f"{kind}_missing_locally")
     if enabled and not payload_locators:
         issues.append("no_pass4_bundle_locators")

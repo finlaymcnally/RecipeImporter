@@ -197,10 +197,15 @@ from cookimport.plugins import (
     webschema,
 )  # noqa: F401
 from cookimport.runs import (
+    RECIPE_MANIFEST_FILE_NAME,
     RunManifest,
     RunSource,
+    build_stage_observability_report,
+    load_stage_observability_report,
+    stage_artifact_stem,
     write_eval_run_manifest,
     write_run_manifest,
+    write_stage_observability_report,
 )
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
 from cookimport.parsing.tables import ExtractedTable, extract_and_annotate_tables
@@ -3334,7 +3339,7 @@ def _find_single_offline_llm_manifest_path(
         if isinstance(prediction_artifacts, dict):
             candidate = _resolve_artifact_path(
                 prediction_run_dir,
-                prediction_artifacts.get("llm_manifest_json"),
+                prediction_artifacts.get("recipe_manifest_json"),
             )
             if candidate is not None and candidate.exists() and candidate.is_file():
                 return candidate
@@ -3345,7 +3350,7 @@ def _find_single_offline_llm_manifest_path(
     for run_dir in sorted(raw_llm_root.iterdir(), key=lambda path: path.name):
         if not run_dir.is_dir():
             continue
-        candidate = run_dir / "llm_manifest.json"
+        candidate = run_dir / RECIPE_MANIFEST_FILE_NAME
         if candidate.exists() and candidate.is_file():
             return candidate
     return None
@@ -5342,7 +5347,7 @@ def _has_llm_artifact_evidence(
         if any(
             bool(prediction_artifacts.get(key))
             for key in (
-                "llm_manifest_json",
+                "recipe_manifest_json",
                 "prompt_inputs_manifest_txt",
                 "prompt_outputs_manifest_txt",
             )
@@ -5351,10 +5356,18 @@ def _has_llm_artifact_evidence(
     llm_root = prediction_run_dir / "raw" / "llm"
     if not llm_root.exists() or not llm_root.is_dir():
         return False
-    return any(
-        (llm_root / subpath).exists()
-        for subpath in ("pass1_chunking", "pass2_schemaorg", "pass3_final")
-    )
+    recipe_stage_dirs = {
+        stage_artifact_stem("chunking"),
+        stage_artifact_stem("schemaorg"),
+        stage_artifact_stem("merged_repair"),
+        stage_artifact_stem("final"),
+    }
+    for workbook_dir in llm_root.iterdir():
+        if not workbook_dir.is_dir():
+            continue
+        if any((workbook_dir / stage_dir_name).exists() for stage_dir_name in recipe_stage_dirs):
+            return True
+    return False
 
 
 def _resolve_codex_farm_mode_and_pipeline(
@@ -11728,10 +11741,8 @@ def _copy_line_role_pass4_merge_artifacts_for_benchmark(
 def _build_prediction_bundle_from_import_result(
     *,
     import_result: dict[str, Any],
-    eval_output_dir: Path,
     prediction_phase_seconds: float,
 ) -> BenchmarkPredictionBundle:
-    _ = eval_output_dir
     pred_run = Path(import_result["run_root"]).expanduser()
     if not pred_run.exists() or not pred_run.is_dir():
         _fail(f"Prediction artifact directory not found: {pred_run}")
@@ -11837,7 +11848,6 @@ def _run_offline_benchmark_prediction_stage(
 
     prediction_bundle = _build_prediction_bundle_from_import_result(
         import_result=import_result,
-        eval_output_dir=eval_output_dir,
         prediction_phase_seconds=prediction_phase_seconds,
     )
     prediction_records = list(
@@ -22046,6 +22056,42 @@ def _path_for_manifest(run_root: Path, path_like: Path | str | None) -> str | No
         return str(candidate)
 
 
+def _write_stage_observability_best_effort(
+    *,
+    run_root: Path,
+    run_kind: str,
+    run_dt: dt.datetime,
+    run_config: dict[str, Any] | None,
+) -> Path | None:
+    try:
+        report = build_stage_observability_report(
+            run_root=run_root,
+            run_kind=run_kind,
+            created_at=run_dt.isoformat(timespec="seconds"),
+            run_config=run_config,
+        )
+        return write_stage_observability_report(run_root=run_root, report=report)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(
+            f"Warning: failed to write stage_observability.json in {run_root}: {exc}",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        logger.warning("Failed to write stage_observability.json in %s: %s", run_root, exc)
+        return None
+
+
+def _load_stage_observability_payload(run_root: Path) -> dict[str, Any]:
+    path = run_root / "stage_observability.json"
+    if not path.exists():
+        return {}
+    try:
+        report = load_stage_observability_report(path)
+    except Exception:  # noqa: BLE001
+        return {}
+    return report.model_dump(exclude_none=True)
+
+
 def _write_run_manifest_best_effort(run_root: Path, manifest: RunManifest) -> None:
     try:
         write_run_manifest(run_root, manifest)
@@ -22091,6 +22137,9 @@ def _write_stage_run_manifest(
     if report_paths:
         artifacts["reports"] = [path.name for path in report_paths]
     for path_key, artifact_key in (
+        ("label_det", "label_det_dir"),
+        ("label_llm_correct", "label_llm_correct_dir"),
+        ("group_recipe_spans", "group_recipe_spans_dir"),
         ("intermediate drafts", "intermediate_drafts_dir"),
         ("final drafts", "final_drafts_dir"),
         ("tips", "tips_dir"),
@@ -22122,6 +22171,11 @@ def _write_stage_run_manifest(
         artifacts["processing_timeseries_jsonl"] = str(
             processing_timeseries.relative_to(run_root)
         )
+    stage_observability_json = run_root / "stage_observability.json"
+    if stage_observability_json.exists():
+        artifacts["stage_observability_json"] = str(
+            stage_observability_json.relative_to(run_root)
+        )
     run_summary_json = run_root / "run_summary.json"
     if run_summary_json.exists():
         artifacts["run_summary_json"] = str(run_summary_json.relative_to(run_root))
@@ -22134,28 +22188,25 @@ def _write_stage_run_manifest(
             stage_worker_resolution.relative_to(run_root)
         )
     prompt_artifacts_dir = run_root / "prompts"
-    if not prompt_artifacts_dir.exists() or not prompt_artifacts_dir.is_dir():
-        # Backward compatibility for historical runs that wrote under `codexfarm/`.
-        prompt_artifacts_dir = run_root / "codexfarm"
     if prompt_artifacts_dir.exists() and prompt_artifacts_dir.is_dir():
-        artifacts["codexfarm_dir"] = str(prompt_artifacts_dir.relative_to(run_root))
+        artifacts["prompts_dir"] = str(prompt_artifacts_dir.relative_to(run_root))
         prompt_request_response_path = (
             prompt_artifacts_dir / "prompt_request_response_log.txt"
         )
         if prompt_request_response_path.exists() and prompt_request_response_path.is_file():
-            artifacts["codexfarm_prompt_request_response_txt"] = str(
+            artifacts["prompt_request_response_txt"] = str(
                 prompt_request_response_path.relative_to(run_root)
             )
         category_manifest_path = (
             prompt_artifacts_dir / "prompt_category_logs_manifest.txt"
         )
         if category_manifest_path.exists() and category_manifest_path.is_file():
-            artifacts["codexfarm_prompt_category_logs_manifest_txt"] = str(
+            artifacts["prompt_category_logs_manifest_txt"] = str(
                 category_manifest_path.relative_to(run_root)
             )
         full_prompt_log_path = prompt_artifacts_dir / "full_prompt_log.jsonl"
         if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
-            artifacts["codexfarm_full_prompt_log_jsonl"] = str(
+            artifacts["full_prompt_log_jsonl"] = str(
                 full_prompt_log_path.relative_to(run_root)
             )
         prompt_type_samples_path = (
@@ -22163,7 +22214,7 @@ def _write_stage_run_manifest(
             / llm_prompt_artifacts.PROMPT_TYPE_SAMPLES_MD_NAME
         )
         if prompt_type_samples_path.exists() and prompt_type_samples_path.is_file():
-            artifacts["codexfarm_prompt_type_samples_from_full_prompt_log_md"] = str(
+            artifacts["prompt_type_samples_from_full_prompt_log_md"] = str(
                 prompt_type_samples_path.relative_to(run_root)
             )
     history_csv = history_csv_for_output(output_root)
@@ -22585,6 +22636,11 @@ def _build_stage_run_summary_payload(
     errors: list[str],
 ) -> dict[str, Any]:
     reports = _collect_stage_run_report_payloads(run_root)
+    stage_observability_payload = _load_stage_observability_payload(run_root)
+    observed_stages_raw = stage_observability_payload.get("stages")
+    observed_stages = (
+        observed_stages_raw if isinstance(observed_stages_raw, list) else []
+    )
 
     totals: dict[str, int] = {
         "recipes": 0,
@@ -22675,6 +22731,7 @@ def _build_stage_run_summary_payload(
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "book_count": len(books),
         "error_count": len(errors),
+        "observed_stages": observed_stages,
         "books": books,
         "totals": {
             **totals,
@@ -22741,8 +22798,25 @@ def _write_stage_run_summary(
             f"Run: {payload.get('run_dir')}",
             f"Requested: {payload.get('requested_path')}",
             "",
-            "## Books",
+            "## Observed stages",
         ]
+        if payload.get("observed_stages"):
+            for stage in payload.get("observed_stages", []):
+                md_lines.append(
+                    "- {label} (`{key}`)".format(
+                        label=stage.get("stage_label") or stage.get("stage_key") or "Stage",
+                        key=stage.get("stage_key") or "stage",
+                    )
+                )
+        else:
+            md_lines.append("- none")
+
+        md_lines.extend(
+            [
+                "",
+            "## Books",
+            ]
+        )
         if payload.get("books"):
             for book in payload.get("books", []):
                 md_lines.append(
@@ -22823,6 +22897,14 @@ def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True
     totals = payload.get("totals", {})
     codex = payload.get("codex_farm", {})
     major_settings = payload.get("major_settings", {})
+    observed_stages = payload.get("observed_stages")
+    observed_stage_labels = []
+    if isinstance(observed_stages, list):
+        observed_stage_labels = [
+            str(stage.get("stage_label") or stage.get("stage_key") or "Stage")
+            for stage in observed_stages
+            if isinstance(stage, dict)
+        ]
     run_root = str(payload.get("run_root") or "").strip()
     run_summary_name = "run_summary.md" if write_markdown else "run_summary.json"
     run_summary_path = (
@@ -22833,6 +22915,10 @@ def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True
 
     typer.secho("\nQuick run summary:", fg=typer.colors.CYAN)
     typer.echo(f"  Books ({len(book_names)}): {', '.join(book_names) if book_names else 'none'}")
+    typer.echo(
+        "  Observed stages: "
+        + (", ".join(observed_stage_labels) if observed_stage_labels else "none")
+    )
     typer.echo(
         "  Codex-farm (recipe/knowledge/tags): {recipe}/{knowledge}/{tags}".format(
             recipe=codex.get("recipe_pipeline", "off"),
@@ -25291,6 +25377,13 @@ def stage(
                     fg=typer.colors.GREEN,
                 )
 
+    _write_stage_observability_best_effort(
+        run_root=out,
+        run_kind="stage",
+        run_dt=run_dt,
+        run_config=run_config,
+    )
+
     llm_prompt_artifacts.build_codex_farm_prompt_response_log(
         pred_run=out,
         eval_output_dir=out,
@@ -27237,7 +27330,7 @@ def labelstudio_eval(
         importer_name=None,
         run_config=eval_run_config,
         artifacts={
-            "pred_run_dir": _path_for_manifest(output_dir, pred_run),
+            "artifact_root_dir": _path_for_manifest(output_dir, pred_run),
             "gold_spans_jsonl": _path_for_manifest(output_dir, gold_spans),
             "eval_report_json": "eval_report.json",
             "eval_report_md": "eval_report.md",
@@ -29036,7 +29129,6 @@ def labelstudio_benchmark(
                         )
                         return _build_prediction_bundle_from_import_result(
                             import_result=stage_import_result,
-                            eval_output_dir=eval_output_dir,
                             prediction_phase_seconds=stage_prediction_seconds,
                         )
 

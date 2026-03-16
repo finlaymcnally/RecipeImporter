@@ -69,7 +69,12 @@ from cookimport.llm.prompt_budget import (
 )
 from cookimport.parsing.canonical_line_roles import (
     build_line_role_codex_execution_plan,
-    label_atomic_lines,
+)
+from cookimport.parsing.label_source_of_truth import (
+    LabelFirstCompatibilityResult,
+    authoritative_lines_to_canonical_predictions,
+    build_authoritative_stage_block_predictions,
+    build_label_first_compatibility_result,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
 from cookimport.parsing.tips import partition_tip_candidates
@@ -87,9 +92,7 @@ from cookimport.labelstudio.archive import (
     prepared_archive_text,
 )
 from cookimport.labelstudio.canonical_line_projection import (
-    apply_line_role_spans_to_recipes,
     project_line_roles_to_freeform_spans,
-    write_line_role_projection_artifacts,
 )
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
@@ -121,7 +124,15 @@ from cookimport.labelstudio.prelabel import (
     prelabel_freeform_task,
     resolve_codex_model,
 )
-from cookimport.runs import RunManifest, RunSource, write_run_manifest
+from cookimport.runs import (
+    RECIPE_MANIFEST_FILE_NAME,
+    RunManifest,
+    RunSource,
+    build_stage_observability_report,
+    stage_artifact_stem,
+    write_run_manifest,
+    write_stage_observability_report,
+)
 from cookimport.staging.import_session import execute_stage_import_session_from_result
 from cookimport.staging.writer import (
     OutputStats,
@@ -153,11 +164,6 @@ SINGLE_OFFLINE_SPLIT_CACHE_SCHEMA_VERSION = "single_offline_split_cache.v1"
 SINGLE_OFFLINE_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 SINGLE_OFFLINE_SPLIT_CACHE_WAIT_SECONDS = 120.0
 SINGLE_OFFLINE_SPLIT_CACHE_POLL_SECONDS = 0.25
-LINE_ROLE_CODEX_MAX_INFLIGHT_ENV = "COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT"
-LINE_ROLE_CODEX_MAX_INFLIGHT_SINGLE_JOB_DEFAULT = 8
-LINE_ROLE_CODEX_MAX_INFLIGHT_SPLIT_GATED_DEFAULT = 4
-
-
 def _normalize_single_offline_split_cache_mode(value: str | None) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {"", "off", "none", "disabled", "false", "0"}:
@@ -511,23 +517,6 @@ def _normalize_split_phase_slots(value: int | None) -> int | None:
     if normalized <= 0:
         return None
     return normalized
-
-
-def _line_role_codex_max_inflight_default(split_phase_slots: int | None) -> int:
-    normalized_slots = _normalize_split_phase_slots(split_phase_slots)
-    if normalized_slots is None:
-        return LINE_ROLE_CODEX_MAX_INFLIGHT_SINGLE_JOB_DEFAULT
-    return LINE_ROLE_CODEX_MAX_INFLIGHT_SPLIT_GATED_DEFAULT
-
-
-def _resolve_line_role_codex_max_inflight_override(
-    split_phase_slots: int | None,
-) -> int | None:
-    explicit_value = str(os.getenv(LINE_ROLE_CODEX_MAX_INFLIGHT_ENV) or "").strip()
-    if explicit_value:
-        # Preserve explicit environment overrides when the operator sets one.
-        return None
-    return _line_role_codex_max_inflight_default(split_phase_slots)
 
 
 def _try_acquire_file_lock_nonblocking(handle: Any) -> bool:
@@ -1165,48 +1154,98 @@ def _write_processed_outputs(
     return run_root
 
 
-def _resolve_knowledge_snippets_path(llm_report: dict[str, Any] | None) -> Path | None:
-    if not isinstance(llm_report, dict):
-        return None
-    knowledge_payload = llm_report.get("knowledge")
-    if not isinstance(knowledge_payload, dict):
-        return None
-    paths_payload = knowledge_payload.get("paths")
-    if not isinstance(paths_payload, dict):
-        return None
-    snippets_path = paths_payload.get("snippets_path")
-    if not snippets_path:
-        return None
-    try:
-        candidate = Path(str(snippets_path))
-    except Exception:
-        return None
-    if not candidate.exists() or not candidate.is_file():
-        return None
-    return candidate
+def _write_authoritative_line_role_artifacts(
+    *,
+    run_root: Path,
+    source_file: str,
+    source_hash: str,
+    workbook_slug: str,
+    label_first_result: LabelFirstCompatibilityResult,
+) -> tuple[dict[str, Path], dict[str, Any]]:
+    pipeline_dir = run_root / "line-role-pipeline"
+    pipeline_dir.mkdir(parents=True, exist_ok=True)
 
+    predictions = authoritative_lines_to_canonical_predictions(
+        label_first_result.labeled_lines,
+        label_first_result.recipe_spans,
+    )
+    projected_spans = project_line_roles_to_freeform_spans(predictions)
+    stage_payload = build_authoritative_stage_block_predictions(
+        block_labels=label_first_result.block_labels,
+        archive_blocks=label_first_result.archive_blocks,
+        source_file=source_file,
+        source_hash=source_hash,
+        workbook_slug=workbook_slug,
+        notes=["Prediction-run projection reused authoritative Stage 2 labels."],
+    )
+    archive_payload = [
+        {
+            "index": int(block.get("index", 0)),
+            "text": str(block.get("text") or ""),
+            "location": dict(block.get("location") or {}),
+            "source_kind": block.get("source_kind"),
+        }
+        for block in label_first_result.archive_blocks
+    ]
 
-def _resolve_knowledge_block_classifications_path(
-    llm_report: dict[str, Any] | None,
-) -> Path | None:
-    if not isinstance(llm_report, dict):
-        return None
-    knowledge_payload = llm_report.get("knowledge")
-    if not isinstance(knowledge_payload, dict):
-        return None
-    paths_payload = knowledge_payload.get("paths")
-    if not isinstance(paths_payload, dict):
-        return None
-    raw_path = paths_payload.get("block_classifications_path")
-    if not raw_path:
-        return None
-    try:
-        candidate = Path(str(raw_path))
-    except Exception:
-        return None
-    if not candidate.exists() or not candidate.is_file():
-        return None
-    return candidate
+    line_role_predictions_path = pipeline_dir / "line_role_predictions.jsonl"
+    projected_spans_path = pipeline_dir / "projected_spans.jsonl"
+    stage_predictions_path = pipeline_dir / "stage_block_predictions.json"
+    extracted_archive_path = pipeline_dir / "extracted_archive.json"
+    telemetry_summary_path = pipeline_dir / "telemetry_summary.json"
+
+    line_role_predictions_path.write_text(
+        "\n".join(
+            json.dumps(row.model_dump(mode="json"), sort_keys=True)
+            for row in predictions
+        )
+        + ("\n" if predictions else ""),
+        encoding="utf-8",
+    )
+    projected_spans_path.write_text(
+        "\n".join(
+            json.dumps(row.model_dump(mode="json"), sort_keys=True)
+            for row in projected_spans
+        )
+        + ("\n" if projected_spans else ""),
+        encoding="utf-8",
+    )
+    stage_predictions_path.write_text(
+        json.dumps(stage_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    extracted_archive_path.write_text(
+        json.dumps(archive_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    telemetry_summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "line_role_authoritative_reuse.v1",
+                "mode": "authoritative_reuse",
+                "labeled_line_count": len(label_first_result.labeled_lines),
+                "recipe_span_count": len(label_first_result.recipe_spans),
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return (
+        {
+            "line_role_predictions_path": line_role_predictions_path,
+            "projected_spans_path": projected_spans_path,
+            "stage_block_predictions_path": stage_predictions_path,
+            "extracted_archive_path": extracted_archive_path,
+            "telemetry_summary_path": telemetry_summary_path,
+        },
+        {
+            "recipes_applied": len(label_first_result.recipe_spans),
+            "span_count": len(projected_spans),
+            "authoritative_stage_outputs_mutated": False,
+            "mode": "authoritative_reuse",
+        },
+    )
 
 
 def _llm_selective_retry_run_config_summary(
@@ -2319,11 +2358,20 @@ def generate_pred_run_artifacts(
     )
     archive = list(prepared_archive.blocks)
     book_id = result.workbook or path.stem
+    authoritative_label_result: LabelFirstCompatibilityResult | None = None
+    if processed_output_root is None or codex_execution.plan_only:
+        authoritative_label_result = build_label_first_compatibility_result(
+            conversion_result=result,
+            source_file=path,
+            importer_name=importer.name,
+            run_settings=run_settings,
+            artifact_root=run_root,
+            live_llm_allowed=bool(allow_codex),
+            progress_callback=_notify,
+        )
+        result = authoritative_label_result.conversion_result
     line_role_artifacts: dict[str, Path] | None = None
     line_role_recipe_projection_summary: dict[str, Any] | None = None
-    line_role_codex_max_inflight = _resolve_line_role_codex_max_inflight_override(
-        split_phase_slots
-    )
     archive_payload_rows: list[dict[str, Any]] | None = None
     line_role_candidates: list[AtomicLineCandidate] = []
     if run_settings.line_role_pipeline.value != "off":
@@ -2558,6 +2606,7 @@ def generate_pred_run_artifacts(
             ),
         )
         result = stage_session.conversion_result
+        authoritative_label_result = stage_session.label_first_result
         llm_report = dict(stage_session.llm_report)
         result.report.llm_codex_farm = llm_report
         processed_report_path = stage_session.report_path
@@ -2571,48 +2620,18 @@ def generate_pred_run_artifacts(
         )
         _notify("Authoritative stage-backed outputs complete.")
 
-    if run_settings.line_role_pipeline.value != "off":
-        _notify("Running canonical line-role pipeline...")
-        if archive_payload_rows is None:
-            archive_payload_rows = prepared_archive_payload(prepared_archive)
-        line_role_candidates = _build_line_role_candidates_from_archive(
-            archive_payload=archive_payload_rows,
-            result=result,
-            atomic_block_splitter=run_settings.atomic_block_splitter.value,
+    if authoritative_label_result is not None:
+        _notify("Reusing authoritative line labels...")
+        (
+            line_role_artifacts,
+            line_role_recipe_projection_summary,
+        ) = _write_authoritative_line_role_artifacts(
+            run_root=run_root,
+            source_file=path.name,
+            source_hash=file_hash,
+            workbook_slug=path.stem,
+            label_first_result=authoritative_label_result,
         )
-        if line_role_candidates:
-            knowledge_block_classifications_path = (
-                _resolve_knowledge_block_classifications_path(llm_report)
-            )
-            knowledge_snippets_path = _resolve_knowledge_snippets_path(llm_report)
-            line_role_predictions = label_atomic_lines(
-                line_role_candidates,
-                run_settings,
-                artifact_root=run_root,
-                source_hash=file_hash,
-                live_llm_allowed=bool(allow_codex),
-                codex_max_inflight=line_role_codex_max_inflight,
-                progress_callback=_notify,
-            )
-            line_role_artifacts = write_line_role_projection_artifacts(
-                run_root=run_root,
-                source_file=path.name,
-                source_hash=file_hash,
-                workbook_slug=path.stem,
-                predictions=line_role_predictions,
-                knowledge_block_classifications_path=knowledge_block_classifications_path,
-                knowledge_snippets_path=knowledge_snippets_path,
-            )
-            if processed_output_root is not None:
-                line_role_spans = project_line_roles_to_freeform_spans(line_role_predictions)
-                line_role_recipe_projection_summary = {
-                    "recipes_applied": 0,
-                    "span_count": len(line_role_spans),
-                    "authoritative_stage_outputs_mutated": False,
-                    "mode": "diagnostics_only",
-                }
-        else:
-            _notify("Canonical line-role pipeline skipped (no atomic candidates).")
 
     run_config.update(_llm_selective_retry_run_config_summary(llm_report))
     run_config_hash = hashlib.sha256(
@@ -3174,7 +3193,7 @@ def generate_pred_run_artifacts(
     scored_extracted_archive_path = archive_path
     if (
         isinstance(line_role_artifacts, dict)
-        and run_settings.line_role_pipeline.value != "off"
+        and stage_block_predictions_source_path is None
     ):
         line_role_stage_path = line_role_artifacts.get("stage_block_predictions_path")
         line_role_archive_path = line_role_artifacts.get("extracted_archive_path")
@@ -3490,7 +3509,7 @@ def generate_pred_run_artifacts(
         )
     run_manifest_artifacts["timing"] = timing_payload
     llm_manifest_candidates = [
-        run_root / "raw" / "llm" / _slugify_name(path.stem) / "llm_manifest.json",
+        run_root / "raw" / "llm" / _slugify_name(path.stem) / RECIPE_MANIFEST_FILE_NAME,
     ]
     if processed_run_root is not None:
         llm_manifest_candidates.append(
@@ -3498,7 +3517,7 @@ def generate_pred_run_artifacts(
             / "raw"
             / "llm"
             / _slugify_name(path.stem)
-            / "llm_manifest.json"
+            / RECIPE_MANIFEST_FILE_NAME
         )
     llm_manifest_path = next(
         (candidate for candidate in llm_manifest_candidates if candidate.exists()),
@@ -3525,14 +3544,16 @@ def generate_pred_run_artifacts(
         prompt_inputs_manifest_path = run_root / "prompt_inputs_manifest.txt"
         prompt_outputs_manifest_path = run_root / "prompt_outputs_manifest.txt"
         prompt_input_dirs = (
-            llm_run_dir / "pass1_chunking" / "in",
-            llm_run_dir / "pass2_schemaorg" / "in",
-            llm_run_dir / "pass3_final" / "in",
+            llm_run_dir / stage_artifact_stem("chunking") / "in",
+            llm_run_dir / stage_artifact_stem("schemaorg") / "in",
+            llm_run_dir / stage_artifact_stem("merged_repair") / "in",
+            llm_run_dir / stage_artifact_stem("final") / "in",
         )
         prompt_output_dirs = (
-            llm_run_dir / "pass1_chunking" / "out",
-            llm_run_dir / "pass2_schemaorg" / "out",
-            llm_run_dir / "pass3_final" / "out",
+            llm_run_dir / stage_artifact_stem("chunking") / "out",
+            llm_run_dir / stage_artifact_stem("schemaorg") / "out",
+            llm_run_dir / stage_artifact_stem("merged_repair") / "out",
+            llm_run_dir / stage_artifact_stem("final") / "out",
         )
 
         def _build_prompt_manifest(
@@ -3565,10 +3586,25 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "prompt_outputs_manifest_txt"
             ] = prompt_outputs_manifest
-        run_manifest_artifacts["llm_manifest_json"] = _path_for_manifest(
+        run_manifest_artifacts["recipe_manifest_json"] = _path_for_manifest(
             run_root,
             llm_manifest_path,
         )
+
+    stage_observability_report = build_stage_observability_report(
+        run_root=run_root,
+        run_kind=run_manifest_kind,
+        created_at=run_dt.isoformat(timespec="seconds"),
+        run_config=run_config,
+    )
+    stage_observability_path = write_stage_observability_report(
+        run_root=run_root,
+        report=stage_observability_report,
+    )
+    run_manifest_artifacts["stage_observability_json"] = _path_for_manifest(
+        run_root,
+        stage_observability_path,
+    )
 
     run_manifest_run_config = dict(run_config)
     if single_offline_split_cache_summary is not None:

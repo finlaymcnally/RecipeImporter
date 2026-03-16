@@ -16,16 +16,16 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    pass1_in = run_dir / "pass1_chunking" / "in"
-    pass1_out = run_dir / "pass1_chunking" / "out"
-    pass2_in = run_dir / "pass2_schemaorg" / "in"
-    pass2_out = run_dir / "pass2_schemaorg" / "out"
-    pass3_in = run_dir / "pass3_final" / "in"
-    pass3_out = run_dir / "pass3_final" / "out"
-    pass4_in = run_dir / "pass4_knowledge" / "in"
-    pass4_out = run_dir / "pass4_knowledge" / "out"
-    pass5_in = run_dir / "pass5_tags" / "in"
-    pass5_out = run_dir / "pass5_tags" / "out"
+    pass1_in = run_dir / "chunking" / "in"
+    pass1_out = run_dir / "chunking" / "out"
+    pass2_in = run_dir / "schemaorg" / "in"
+    pass2_out = run_dir / "schemaorg" / "out"
+    pass3_in = run_dir / "final" / "in"
+    pass3_out = run_dir / "final" / "out"
+    pass4_in = run_dir / "knowledge" / "in"
+    pass4_out = run_dir / "knowledge" / "out"
+    pass5_in = run_dir / "tags" / "in"
+    pass5_out = run_dir / "tags" / "out"
     for folder in (
         pass1_in,
         pass1_out,
@@ -206,7 +206,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
             }
         )
 
-    (run_dir / "llm_manifest.json").write_text(
+    (run_dir / "recipe_manifest.json").write_text(
         json.dumps(
             {
                 "enabled": True,
@@ -241,7 +241,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         ),
         encoding="utf-8",
     )
-    (run_dir / "pass4_knowledge_manifest.json").write_text(
+    (run_dir / "knowledge_manifest.json").write_text(
         json.dumps(
             {
                 "pipeline_id": "recipe.knowledge.compact.v1",
@@ -259,7 +259,7 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         ),
         encoding="utf-8",
     )
-    (run_dir / "pass5_tags_manifest.json").write_text(
+    (run_dir / "tags_manifest.json").write_text(
         json.dumps(
             {
                 "llm_report": {
@@ -287,14 +287,14 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
     assert log_path is not None and log_path.exists()
     combined = log_path.read_text(encoding="utf-8")
-    assert "INPUT pass1 => r0000.json" in combined
-    assert "OUTPUT pass3 => r0000.json" in combined
+    assert "INPUT chunking => r0000.json" in combined
+    assert "OUTPUT final => r0000.json" in combined
 
-    task1_path = eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt"
-    task2_path = eval_output_dir / "prompts" / "prompt_task2_pass2_schemaorg.txt"
-    task3_path = eval_output_dir / "prompts" / "prompt_task3_pass3_final.txt"
-    task4_path = eval_output_dir / "prompts" / "prompt_task4_pass4_knowledge.txt"
-    task5_path = eval_output_dir / "prompts" / "prompt_task5_pass5_tags.txt"
+    task1_path = eval_output_dir / "prompts" / "prompt_task1_chunking.txt"
+    task2_path = eval_output_dir / "prompts" / "prompt_task2_schemaorg.txt"
+    task3_path = eval_output_dir / "prompts" / "prompt_task3_final.txt"
+    task4_path = eval_output_dir / "prompts" / "prompt_task4_knowledge.txt"
+    task5_path = eval_output_dir / "prompts" / "prompt_task5_tags.txt"
     for category_path in (task1_path, task2_path, task3_path, task4_path, task5_path):
         assert category_path.exists()
 
@@ -322,14 +322,16 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
         if line.strip()
     ]
     assert len(full_prompt_rows) == 5
-    assert {str(row.get("pass") or "") for row in full_prompt_rows} == {
-        "pass1",
-        "pass2",
-        "pass3",
-        "pass4",
-        "pass5",
+    assert {str(row.get("stage_key") or "") for row in full_prompt_rows} == {
+        "chunking",
+        "schemaorg",
+        "final",
+        "knowledge",
+        "tags",
     }
-    pass1_row = next(row for row in full_prompt_rows if row.get("pass") == "pass1")
+    pass1_row = next(
+        row for row in full_prompt_rows if row.get("stage_key") == "chunking"
+    )
     assert pass1_row["call_id"] == "r0000"
     assert pass1_row["request_messages"][0]["role"] == "user"
     assert pass1_row["request_payload_source"] == "telemetry_csv"
@@ -370,11 +372,11 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     )
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## pass1 (Chunking)" in prompt_samples
-    assert "## pass2 (Schema.org Extraction)" in prompt_samples
-    assert "## pass3 (Final Draft)" in prompt_samples
-    assert "## pass4 (Knowledge Harvest)" in prompt_samples
-    assert "## pass5 (Tag Suggestions)" in prompt_samples
+    assert "## chunking (Chunking)" in prompt_samples
+    assert "## schemaorg (Schema.org Extraction)" in prompt_samples
+    assert "## final (Final Draft)" in prompt_samples
+    assert "## knowledge (Knowledge Harvest)" in prompt_samples
+    assert "## tags (Tag Suggestions)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
     assert "Thinking Trace:" in prompt_samples
@@ -385,14 +387,14 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    pass1_in = run_dir / "pass1_chunking" / "in"
-    pass1_out = run_dir / "pass1_chunking" / "out"
+    pass1_in = run_dir / "chunking" / "in"
+    pass1_out = run_dir / "chunking" / "out"
     pass1_in.mkdir(parents=True, exist_ok=True)
     pass1_out.mkdir(parents=True, exist_ok=True)
     (pass1_in / "r0000.json").write_text(json.dumps({"prompt_text": "ok"}), encoding="utf-8")
     (pass1_out / "r0000.json").write_text(json.dumps({"result": "ok"}), encoding="utf-8")
 
-    (run_dir / "llm_manifest.json").write_text(
+    (run_dir / "recipe_manifest.json").write_text(
         json.dumps(
             {
                 "paths": {
@@ -413,11 +415,11 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         repo_root=tmp_path,
     )
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task2_pass2_schemaorg.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task3_pass3_final.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task4_pass4_knowledge.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_task5_pass5_tags.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_task1_chunking.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task2_schemaorg.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task3_final.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task4_knowledge.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task5_tags.txt").exists()
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
         json.loads(line)
@@ -425,7 +427,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         if line.strip()
     ]
     assert len(full_prompt_rows) == 1
-    assert full_prompt_rows[0]["pass"] == "pass1"
+    assert full_prompt_rows[0]["stage_key"] == "chunking"
     prompt_samples_path = (
         eval_output_dir
         / "prompts"
@@ -433,11 +435,11 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     )
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## pass1 (Chunking)" in prompt_samples
-    assert "## pass2 (Schema.org Extraction)" in prompt_samples
-    assert "## pass4 (Knowledge Harvest)" in prompt_samples
-    assert "## pass5 (Tag Suggestions)" in prompt_samples
-    assert "_No rows captured for this pass._" in prompt_samples
+    assert "## chunking (Chunking)" in prompt_samples
+    assert "## schemaorg (Schema.org Extraction)" in prompt_samples
+    assert "## knowledge (Knowledge Harvest)" in prompt_samples
+    assert "## tags (Tag Suggestions)" in prompt_samples
+    assert "_No rows captured for this stage._" in prompt_samples
 
 
 def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merged_repair(
@@ -445,10 +447,10 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
 ) -> None:
     pred_run = tmp_path / "prediction-run"
     run_dir = pred_run / "raw" / "llm" / "book"
-    pass1_in = run_dir / "pass1_chunking" / "in"
-    pass1_out = run_dir / "pass1_chunking" / "out"
-    pass2_in = run_dir / "pass2_schemaorg" / "in"
-    pass2_out = run_dir / "pass2_schemaorg" / "out"
+    pass1_in = run_dir / "chunking" / "in"
+    pass1_out = run_dir / "chunking" / "out"
+    pass2_in = run_dir / "merged_repair" / "in"
+    pass2_out = run_dir / "merged_repair" / "out"
     for folder in (pass1_in, pass1_out, pass2_in, pass2_out):
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -469,7 +471,7 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
         encoding="utf-8",
     )
 
-    (run_dir / "llm_manifest.json").write_text(
+    (run_dir / "recipe_manifest.json").write_text(
         json.dumps(
             {
                 "enabled": True,
@@ -505,12 +507,10 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
     )
 
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_task1_pass1_chunking.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_task1_chunking.txt").exists()
     merged_repair_path = eval_output_dir / "prompts" / "prompt_task2_merged_repair.txt"
     assert merged_repair_path.exists()
-    assert not (
-        eval_output_dir / "prompts" / "prompt_task2_pass2_schemaorg.txt"
-    ).exists()
+    assert not (eval_output_dir / "prompts" / "prompt_task2_schemaorg.txt").exists()
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
@@ -518,8 +518,9 @@ def test_build_codex_farm_prompt_response_log_uses_dynamic_stage_labels_for_merg
         for line in full_prompt_log_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    merged_repair_row = next(row for row in full_prompt_rows if row.get("pass") == "pass2")
-    assert merged_repair_row["legacy_pass"] == "pass2"
+    merged_repair_row = next(
+        row for row in full_prompt_rows if row.get("stage_key") == "merged_repair"
+    )
     assert merged_repair_row["stage_key"] == "merged_repair"
     assert merged_repair_row["stage_artifact_stem"] == "merged_repair"
     assert merged_repair_row["stage_label"] == "Merged Repair"
@@ -733,7 +734,7 @@ def test_prompt_artifact_builder_accepts_custom_descriptor_discoverer(
     ]
     assert len(full_prompt_rows) == 1
     assert full_prompt_rows[0]["stage_key"] == "linkage"
-    assert full_prompt_rows[0]["legacy_pass"] == "slot_linkage"
+    assert full_prompt_rows[0]["stage_key"] == "linkage"
 
 
 def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> None:
@@ -755,7 +756,7 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         encoding="utf-8",
     )
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
-        "prompt_task1_pass1_chunking.txt\n",
+        "prompt_task1_chunking.txt\n",
         encoding="utf-8",
     )
     (prompts_dir / "full_prompt_log.jsonl").write_text(
@@ -780,17 +781,17 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
     )
     artifacts = run_manifest_payload.get("artifacts")
     assert isinstance(artifacts, dict)
-    assert artifacts["codexfarm_dir"] == "prompts"
-    assert artifacts["codexfarm_prompt_request_response_txt"] == (
+    assert artifacts["prompts_dir"] == "prompts"
+    assert artifacts["prompt_request_response_txt"] == (
         "prompts/prompt_request_response_log.txt"
     )
-    assert artifacts["codexfarm_prompt_category_logs_manifest_txt"] == (
+    assert artifacts["prompt_category_logs_manifest_txt"] == (
         "prompts/prompt_category_logs_manifest.txt"
     )
-    assert artifacts["codexfarm_full_prompt_log_jsonl"] == (
+    assert artifacts["full_prompt_log_jsonl"] == (
         "prompts/full_prompt_log.jsonl"
     )
-    assert artifacts["codexfarm_prompt_type_samples_from_full_prompt_log_md"] == (
+    assert artifacts["prompt_type_samples_from_full_prompt_log_md"] == (
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
 

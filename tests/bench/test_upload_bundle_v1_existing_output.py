@@ -196,9 +196,11 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     assert model.adapter_metadata["discovered_run_count"] == 2
     assert model.topology["codex_recipe_pipelines"] == ["codex-farm-2stage-repair-v1"]
     assert model.topology["merged_repair_active"] is True
-    assert model.topology["observed_pass2_call_count"] == 0
-    assert model.topology["stage_label_mode"] == "nonstandard_topology_with_legacy_aliases"
-    assert model.compatibility_aliases["pass2_stage"] == "pass2_*"
+    assert model.topology["recipe_topology_key"] == "merged_repair"
+    assert model.topology["observed_recipe_stage_call_counts"] == {"merged_repair": 0}
+    assert model.topology["recipe_stages"] == [
+        {"stage_key": "merged_repair", "stage_label": "Merged Repair"}
+    ]
 
 
 def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
@@ -223,17 +225,12 @@ def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
         discovered_run_dirs=[],
         advertised_counts={},
         topology={
-            "stage_label_mode": "alternate_topology",
-            "compatibility_note": "synthetic topology for test",
-            "stage_display_names": {
-                "baseline_stage": "baseline",
-                "line_role_pipeline_stage": "line-role",
-                "pass2_stage": "observed:extract_family",
-                "pass3_stage": "observed:repair_family",
-                "final_or_fallback_stage": "observed:final_family",
-            },
+            "recipe_topology_key": "alternate_topology",
+            "recipe_stages": [
+                {"stage_key": "extract_family", "stage_label": "Observed Extract Family"},
+                {"stage_key": "repair_family", "stage_label": "Observed Repair Family"},
+            ],
         },
-        compatibility_aliases={"pass2_stage": "extract_*", "pass3_stage": "repair_*"},
     )
 
     recipe_pipeline_context = build_recipe_pipeline_context_from_model(model=model)
@@ -243,10 +240,8 @@ def test_stage_renderer_accepts_synthetic_alternate_topology_model() -> None:
         pass_stage_per_label_metrics={},
     )
 
-    assert recipe_pipeline_context["stage_label_mode"] == "alternate_topology"
-    assert recipe_pipeline_context["stage_display_names"]["pass2_stage"] == "observed:extract_family"
-    assert recipe_pipeline_context["legacy_field_aliases"]["pass2_stage"] == "extract_*"
+    assert recipe_pipeline_context["recipe_topology_key"] == "alternate_topology"
+    assert recipe_pipeline_context["recipe_stages"][0]["stage_key"] == "extract_family"
     assert rendered["pair_count"] == 0
-    assert rendered["stage_label_mode"] == "alternate_topology"
-    assert rendered["stage_display_names"]["pass2_stage"] == "observed:extract_family"
-    assert rendered["legacy_field_aliases"]["pass3_stage"] == "repair_*"
+    assert rendered["recipe_topology_key"] == "alternate_topology"
+    assert rendered["recipe_stages"][1]["stage_label"] == "Observed Repair Family"

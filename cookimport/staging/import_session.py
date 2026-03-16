@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +15,10 @@ from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_know
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.parsing.chunks import chunks_from_non_recipe_blocks, chunks_from_topic_candidates
+from cookimport.parsing.label_source_of_truth import (
+    LabelFirstCompatibilityResult,
+    build_label_first_compatibility_result,
+)
 from cookimport.parsing.tables import extract_and_annotate_tables
 from cookimport.staging.writer import (
     OutputStats,
@@ -45,6 +50,8 @@ class StageImportSessionResult:
     run_config_summary: str | None
     llm_report: dict[str, Any]
     timing: dict[str, Any]
+    label_first_result: LabelFirstCompatibilityResult | None = None
+    label_artifact_paths: dict[str, Path] | None = None
 
 
 def _notify(progress_callback: Callable[[str], None] | None, message: str) -> None:
@@ -61,6 +68,157 @@ def _resolve_source_hash(result: ConversionResult, source_file: Path) -> str:
         return compute_file_hash(source_file)
     except Exception:  # noqa: BLE001
         return "unknown"
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
+    path.write_text(
+        "\n".join(
+            json.dumps(row, sort_keys=True)
+            for row in rows
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_label_first_artifacts(
+    *,
+    run_root: Path,
+    workbook_slug: str,
+    label_first_result: LabelFirstCompatibilityResult,
+    line_role_pipeline: str,
+) -> dict[str, Path]:
+    det_lines_path = run_root / "label_det" / workbook_slug / "labeled_lines.jsonl"
+    det_blocks_path = run_root / "label_det" / workbook_slug / "block_labels.json"
+    final_lines_path = run_root / "label_llm_correct" / workbook_slug / "labeled_lines.jsonl"
+    final_blocks_path = run_root / "label_llm_correct" / workbook_slug / "block_labels.json"
+    final_diffs_path = run_root / "label_llm_correct" / workbook_slug / "label_diffs.jsonl"
+    span_path = run_root / "group_recipe_spans" / workbook_slug / "recipe_spans.json"
+    authoritative_blocks_path = (
+        run_root / "group_recipe_spans" / workbook_slug / "authoritative_block_labels.json"
+    )
+
+    det_line_rows = [
+        {
+            "source_block_id": row.source_block_id,
+            "source_block_index": row.source_block_index,
+            "atomic_index": row.atomic_index,
+            "text": row.text,
+            "label": row.deterministic_label,
+            "final_label": row.final_label,
+            "confidence": row.confidence,
+            "decided_by": row.decided_by,
+            "reason_tags": list(row.reason_tags),
+        }
+        for row in label_first_result.labeled_lines
+    ]
+    det_block_rows = {
+        "schema_version": "label_det.v1",
+        "workbook_slug": workbook_slug,
+        "block_labels": [
+            {
+                "source_block_id": row.source_block_id,
+                "source_block_index": row.source_block_index,
+                "supporting_atomic_indices": list(row.supporting_atomic_indices),
+                "label": row.deterministic_label,
+                "final_label": row.final_label,
+                "confidence": row.confidence,
+                "decided_by": row.decided_by,
+                "reason_tags": list(row.reason_tags),
+            }
+            for row in label_first_result.block_labels
+        ],
+    }
+    _write_jsonl(det_lines_path, det_line_rows)
+    _write_json(det_blocks_path, det_block_rows)
+
+    wrote_final_stage = str(line_role_pipeline or "off").strip().lower() != "off"
+    if wrote_final_stage:
+        final_line_rows = [
+            {
+                "source_block_id": row.source_block_id,
+                "source_block_index": row.source_block_index,
+                "atomic_index": row.atomic_index,
+                "text": row.text,
+                "deterministic_label": row.deterministic_label,
+                "label": row.final_label,
+                "confidence": row.confidence,
+                "decided_by": row.decided_by,
+                "reason_tags": list(row.reason_tags),
+            }
+            for row in label_first_result.labeled_lines
+        ]
+        final_block_rows = {
+            "schema_version": "label_llm_correct.v1",
+            "workbook_slug": workbook_slug,
+            "block_labels": [
+                row.model_dump(mode="json")
+                for row in label_first_result.block_labels
+            ],
+        }
+        diff_rows = [
+            {
+                "atomic_index": row.atomic_index,
+                "source_block_index": row.source_block_index,
+                "text": row.text,
+                "deterministic_label": row.deterministic_label,
+                "final_label": row.final_label,
+            }
+            for row in label_first_result.labeled_lines
+            if row.deterministic_label != row.final_label
+        ]
+        _write_jsonl(final_lines_path, final_line_rows)
+        _write_json(final_blocks_path, final_block_rows)
+        _write_jsonl(final_diffs_path, diff_rows)
+
+    _write_json(
+        span_path,
+        {
+            "schema_version": "group_recipe_spans.v1",
+            "workbook_slug": workbook_slug,
+            "recipe_spans": [
+                row.model_dump(mode="json") for row in label_first_result.recipe_spans
+            ],
+        },
+    )
+    _write_json(
+        authoritative_blocks_path,
+        {
+            "schema_version": "authoritative_block_labels.v1",
+            "workbook_slug": workbook_slug,
+            "block_labels": [
+                row.model_dump(mode="json") for row in label_first_result.block_labels
+            ],
+        },
+    )
+
+    paths = {
+        "label_det_lines_path": det_lines_path,
+        "label_det_blocks_path": det_blocks_path,
+        "recipe_spans_path": span_path,
+        "authoritative_block_labels_path": authoritative_blocks_path,
+    }
+    if wrote_final_stage:
+        paths.update(
+            {
+                "label_llm_lines_path": final_lines_path,
+                "label_llm_blocks_path": final_blocks_path,
+                "label_llm_diffs_path": final_diffs_path,
+            }
+        )
+    return paths
 
 
 def execute_stage_import_session_from_result(
@@ -94,6 +252,29 @@ def execute_stage_import_session_from_result(
     llm_schema_overrides: dict[str, dict[str, Any]] | None = None
     llm_draft_overrides: dict[str, dict[str, Any]] | None = None
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
+    label_first_result: LabelFirstCompatibilityResult | None = None
+    label_artifact_paths: dict[str, Path] | None = None
+    live_llm_allowed = bool((run_config or {}).get("codex_execution_live_llm_allowed"))
+
+    _notify(progress_callback, "Building authoritative labels...")
+    with measure(stats, "label_source_of_truth_seconds"):
+        label_first_result = build_label_first_compatibility_result(
+            conversion_result=result,
+            source_file=source_file,
+            importer_name=importer_name,
+            run_settings=run_settings,
+            artifact_root=run_root,
+            full_blocks=full_blocks,
+            live_llm_allowed=live_llm_allowed,
+            progress_callback=progress_callback,
+        )
+    result = label_first_result.conversion_result
+    label_artifact_paths = _write_label_first_artifacts(
+        run_root=run_root,
+        workbook_slug=workbook_slug,
+        label_first_result=label_first_result,
+        line_role_pipeline=str(getattr(run_settings.line_role_pipeline, "value", "off")),
+    )
 
     if run_settings.llm_recipe_pipeline.value != "off":
         _notify(progress_callback, "Running codex-farm recipe pipeline...")
@@ -274,6 +455,7 @@ def execute_stage_import_session_from_result(
                 knowledge_block_classifications_path=knowledge_root / "block_classifications.jsonl",
                 knowledge_snippets_path=knowledge_root / "snippets.jsonl",
                 output_stats=output_stats,
+                label_first_result=label_first_result,
             )
 
     if output_stats.file_counts:
@@ -294,4 +476,6 @@ def execute_stage_import_session_from_result(
         run_config_summary=run_config_summary,
         llm_report=llm_report,
         timing=stats.to_dict(),
+        label_first_result=label_first_result,
+        label_artifact_paths=label_artifact_paths,
     )

@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, ParsingOverrides
+from cookimport.runs import KNOWLEDGE_MANIFEST_FILE_NAME, stage_artifact_stem
 
 from .codex_farm_ids import sanitize_for_filename
 from .codex_farm_knowledge_ingest import read_pass4_knowledge_outputs
@@ -63,7 +64,7 @@ def run_codex_farm_knowledge_harvest(
 ) -> CodexFarmKnowledgeHarvestResult:
     """Optional pass4: harvest cooking knowledge from non-recipe blocks via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
-    manifest_path = llm_raw_dir / "pass4_knowledge_manifest.json"
+    manifest_path = llm_raw_dir / KNOWLEDGE_MANIFEST_FILE_NAME
 
     if run_settings.llm_knowledge_pipeline.value == "off":
         return CodexFarmKnowledgeHarvestResult(
@@ -72,8 +73,9 @@ def run_codex_farm_knowledge_harvest(
             manifest_path=manifest_path,
         )
 
-    pass4_in_dir = llm_raw_dir / "pass4_knowledge" / "in"
-    pass4_out_dir = llm_raw_dir / "pass4_knowledge" / "out"
+    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("knowledge")
+    pass4_in_dir = knowledge_stage_dir / "in"
+    pass4_out_dir = knowledge_stage_dir / "out"
     pass4_in_dir.mkdir(parents=True, exist_ok=True)
     pass4_out_dir.mkdir(parents=True, exist_ok=True)
 

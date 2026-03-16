@@ -24,6 +24,10 @@ from cookimport.core.models import (
     TipTags,
     TopicCandidate,
 )
+from cookimport.parsing.label_source_of_truth import (
+    LabelFirstCompatibilityResult,
+    build_authoritative_stage_block_predictions,
+)
 from cookimport.parsing.tables import ExtractedTable
 from cookimport.parsing.sections import extract_ingredient_sections, extract_instruction_sections
 from cookimport.parsing.step_segmentation import (
@@ -1197,17 +1201,27 @@ def write_stage_block_predictions(
     knowledge_block_classifications_path: Path | None = None,
     knowledge_snippets_path: Path | None = None,
     output_stats: OutputStats | None = None,
+    label_first_result: LabelFirstCompatibilityResult | None = None,
 ) -> Path:
     """Write deterministic block-level stage predictions for benchmark scoring."""
-    payload = build_stage_block_predictions(
-        results,
-        workbook_slug,
-        source_file=source_file,
-        source_hash=source_hash,
-        archive_blocks=archive_blocks,
-        knowledge_block_classifications_path=knowledge_block_classifications_path,
-        knowledge_snippets_path=knowledge_snippets_path,
-    )
+    if label_first_result is not None:
+        payload = build_authoritative_stage_block_predictions(
+            block_labels=label_first_result.block_labels,
+            archive_blocks=label_first_result.archive_blocks,
+            source_file=source_file or "",
+            source_hash=source_hash or label_first_result.source_hash or "unknown",
+            workbook_slug=workbook_slug,
+        )
+    else:
+        payload = build_stage_block_predictions(
+            results,
+            workbook_slug,
+            source_file=source_file,
+            source_hash=source_hash,
+            archive_blocks=archive_blocks,
+            knowledge_block_classifications_path=knowledge_block_classifications_path,
+            knowledge_snippets_path=knowledge_snippets_path,
+        )
     out_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
     _write_json_payload(
         payload,

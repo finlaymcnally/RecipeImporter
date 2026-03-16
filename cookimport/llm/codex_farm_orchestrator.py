@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionResult, RecipeCandidate, RecipeDraftV1
+from cookimport.runs import RECIPE_MANIFEST_FILE_NAME, stage_artifact_stem
 from cookimport.staging.draft_v1 import recipe_candidate_to_draft_v1
 
 from .codex_farm_contracts import (
@@ -510,12 +511,16 @@ def run_codex_farm_recipe_pipeline(
         )
 
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
-    pass1_in_dir = llm_raw_dir / "pass1_chunking" / "in"
-    pass1_out_dir = llm_raw_dir / "pass1_chunking" / "out"
-    pass2_in_dir = llm_raw_dir / "pass2_schemaorg" / "in"
-    pass2_out_dir = llm_raw_dir / "pass2_schemaorg" / "out"
-    pass3_in_dir = llm_raw_dir / "pass3_final" / "in"
-    pass3_out_dir = llm_raw_dir / "pass3_final" / "out"
+    pass1_stage_dir = llm_raw_dir / stage_artifact_stem("chunking")
+    pass2_stage_key = "merged_repair" if _uses_merged_recipe_pipeline(run_settings) else "schemaorg"
+    pass2_stage_dir = llm_raw_dir / stage_artifact_stem(pass2_stage_key)
+    pass3_stage_dir = llm_raw_dir / stage_artifact_stem("final")
+    pass1_in_dir = pass1_stage_dir / "in"
+    pass1_out_dir = pass1_stage_dir / "out"
+    pass2_in_dir = pass2_stage_dir / "in"
+    pass2_out_dir = pass2_stage_dir / "out"
+    pass3_in_dir = pass3_stage_dir / "in"
+    pass3_out_dir = pass3_stage_dir / "out"
     transport_audit_dir = llm_raw_dir / "transport_audit"
     evidence_normalization_dir = llm_raw_dir / "evidence_normalization"
     merged_repair_audit_dir = llm_raw_dir / "merged_repair_audit"
@@ -623,7 +628,7 @@ def run_codex_farm_recipe_pipeline(
                 pass2_out_dir=pass2_out_dir,
                 pass3_in_dir=pass3_in_dir,
                 pass3_out_dir=pass3_out_dir,
-                llm_manifest_path=llm_raw_dir / "llm_manifest.json",
+                llm_manifest_path=llm_raw_dir / RECIPE_MANIFEST_FILE_NAME,
                 transport_audit_dir=transport_audit_dir,
                 evidence_normalization_dir=evidence_normalization_dir,
                 merged_repair_audit_dir=merged_repair_audit_dir,
@@ -649,7 +654,7 @@ def run_codex_farm_recipe_pipeline(
                 "pass2_ok_min_canonical_chars": _PASS3_PASS2_OK_MIN_CANONICAL_CHARS,
             },
         }
-        _write_json(llm_manifest, llm_raw_dir / "llm_manifest.json")
+        _write_json(llm_manifest, llm_raw_dir / RECIPE_MANIFEST_FILE_NAME)
         return CodexFarmApplyResult(
             updated_conversion_result=conversion_result,
             intermediate_overrides_by_recipe_id={},
@@ -1362,7 +1367,7 @@ def run_codex_farm_recipe_pipeline(
             exclude_none=True,
         )
 
-    llm_manifest_path = llm_raw_dir / "llm_manifest.json"
+    llm_manifest_path = llm_raw_dir / RECIPE_MANIFEST_FILE_NAME
     recipe_guardrail_report, recipe_guardrail_rows = _build_recipe_guardrail_report(states)
     recipe_guardrail_report_path, recipe_guardrail_rows_path = _write_recipe_guardrail_artifacts(
         llm_raw_dir=llm_raw_dir,

@@ -178,6 +178,7 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
 
     def _capture_manifest(*_args, **kwargs) -> None:
         captured_manifest["run_config"] = kwargs.get("run_config")
+        captured_manifest["artifacts"] = kwargs.get("artifacts")
 
     monkeypatch.setattr(cli, "_write_eval_run_manifest", _capture_manifest)
 
@@ -195,3 +196,8 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
     assert run_config["llm_recipe_pipeline"] == "off"
     assert run_config["atomic_block_splitter"] == "off"
     assert run_config["line_role_pipeline"] == "off"
+
+    artifacts = captured_manifest.get("artifacts")
+    assert isinstance(artifacts, dict)
+    assert artifacts["artifact_root_dir"] == str(pred_run)
+    assert "pred_run_dir" not in artifacts

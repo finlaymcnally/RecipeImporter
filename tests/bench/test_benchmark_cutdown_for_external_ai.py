@@ -136,7 +136,9 @@ def _write_prediction_run(
             ],
         )
     if llm_manifest_recipes is not None:
-        llm_manifest_path = prediction_run / "raw" / "llm" / "fixture-slug" / "llm_manifest.json"
+        llm_manifest_path = (
+            prediction_run / "raw" / "llm" / "fixture-slug" / "recipe_manifest.json"
+        )
         _write_json(
             llm_manifest_path,
             {
@@ -155,7 +157,7 @@ def _write_prediction_run_stage_outputs(
     llm_run_dir = prediction_run / "raw" / "llm" / "fixture-slug"
     safe_recipe_name = recipe_id.replace(":", "_")
     _write_json(
-        llm_run_dir / "pass2_schemaorg" / "in" / f"{safe_recipe_name}.json",
+        llm_run_dir / "schemaorg" / "in" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "blocks": [
@@ -167,7 +169,7 @@ def _write_prediction_run_stage_outputs(
         },
     )
     _write_json(
-        llm_run_dir / "pass2_schemaorg" / "out" / f"{safe_recipe_name}.json",
+        llm_run_dir / "schemaorg" / "out" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "schemaorg_recipe": {
@@ -179,7 +181,7 @@ def _write_prediction_run_stage_outputs(
         },
     )
     _write_json(
-        llm_run_dir / "pass3_final" / "out" / f"{safe_recipe_name}.json",
+        llm_run_dir / "final" / "out" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "draft_v1": {
@@ -218,7 +220,7 @@ def _write_pass4_knowledge_artifacts(
         + "\n",
         encoding="utf-8",
     )
-    (prompts_dir / "prompt_task4_pass4_knowledge.txt").write_text(
+    (prompts_dir / "prompt_task4_knowledge.txt").write_text(
         "pass4 raw prompt body\n",
         encoding="utf-8",
     )
@@ -255,7 +257,7 @@ def _write_pass4_knowledge_artifacts(
                             / "raw"
                             / "llm"
                             / workbook_slug
-                            / "pass4_knowledge_manifest.json"
+                            / "knowledge_manifest.json"
                         )
                     },
                 }
@@ -268,7 +270,7 @@ def _write_pass4_knowledge_artifacts(
         / "raw"
         / "llm"
         / workbook_slug
-        / "pass4_knowledge_manifest.json",
+        / "knowledge_manifest.json",
         {
             "pipeline_id": "recipe.knowledge.compact.v1",
             "counts": {
@@ -288,7 +290,7 @@ def _write_prediction_run_pass4_stage_outputs(
 ) -> None:
     llm_run_dir = prediction_run / "raw" / "llm" / workbook_slug
     _write_json(
-        llm_run_dir / "pass4_knowledge" / "in" / "r0000.json",
+        llm_run_dir / "knowledge" / "in" / "r0000.json",
         {
             "chunk_id": chunk_id,
             "blocks": [
@@ -298,7 +300,7 @@ def _write_prediction_run_pass4_stage_outputs(
         },
     )
     _write_json(
-        llm_run_dir / "pass4_knowledge" / "out" / "r0000.json",
+        llm_run_dir / "knowledge" / "out" / "r0000.json",
         {
             "bundle_version": "1",
             "chunk_id": chunk_id,
@@ -1593,18 +1595,26 @@ def test_main_writes_starter_pack_v1_contract_files(tmp_path: Path) -> None:
     selected_packets = _read_jsonl(starter_dir / "06_selected_recipe_packets.jsonl")
     assert selected_packets
     first_packet = selected_packets[0]
-    assert first_packet["pass2_summary"]["degradation_reasons"] == [
+    recipe_stage_summaries = {
+        str(stage.get("stage_key") or ""): stage
+        for stage in first_packet["recipe_stages"]
+        if isinstance(stage, dict)
+    }
+    assert recipe_stage_summaries["schemaorg"]["degradation_reasons"] == [
         "missing_instructions",
         "page_or_layout_artifact",
     ]
-    assert first_packet["pass2_summary"]["degradation_severity"] == "hard"
-    assert first_packet["pass2_summary"]["promotion_policy"] == "hard_fallback"
-    assert first_packet["pass3_summary"]["execution_mode"] == "deterministic"
+    assert recipe_stage_summaries["schemaorg"]["degradation_severity"] == "hard"
+    assert recipe_stage_summaries["schemaorg"]["promotion_policy"] == "hard_fallback"
+    assert recipe_stage_summaries["final"]["execution_mode"] == "deterministic"
     assert (
-        first_packet["pass3_summary"]["routing_reason"]
+        recipe_stage_summaries["final"]["routing_reason"]
         == "pass2_hard_degradation_forced_fallback"
     )
-    assert first_packet["pass3_summary"]["fallback_reason"] == "pass3 output rejected as low quality"
+    assert (
+        recipe_stage_summaries["final"]["fallback_reason"]
+        == "pass3 output rejected as low quality"
+    )
     assert first_packet["transport_summary"]["mismatch"] is True
 
     starter_manifest = _read_json(starter_dir / "10_process_manifest.json")
@@ -1915,7 +1925,11 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert isinstance(config_meta.get("pair_comparability"), dict)
     recipe_pipeline_context = index_payload["analysis"].get("recipe_pipeline_context")
     assert isinstance(recipe_pipeline_context, dict)
-    assert recipe_pipeline_context.get("stage_label_mode") == "standard_topology"
+    assert recipe_pipeline_context.get("recipe_topology_key") == "schemaorg_final"
+    assert recipe_pipeline_context.get("recipe_stages") == [
+        {"stage_key": "schemaorg", "stage_label": "Schema.org Extraction"},
+        {"stage_key": "final", "stage_label": "Final Draft"},
+    ]
     run_settings_rows = config_meta.get("runs")
     assert isinstance(run_settings_rows, list)
     codex_settings = next(
@@ -2176,17 +2190,22 @@ def test_build_upload_bundle_stage_separated_comparison_scores_pass2_and_pass3(
     ingredient_row = next(
         row for row in per_label_rows if str(row.get("label") or "") == "INGREDIENT_LINE"
     )
-    pass2_stage = ingredient_row["pass2_stage"]
-    pass3_stage = ingredient_row["pass3_stage"]
+    recipe_stages = {
+        str(stage.get("stage_key") or ""): stage
+        for stage in ingredient_row["recipe_stages"]
+        if isinstance(stage, dict)
+    }
+    schemaorg_stage = recipe_stages["schemaorg"]
+    final_stage = recipe_stages["final"]
 
-    assert pass2_stage["label_scored"] is True
-    assert pass3_stage["label_scored"] is True
-    assert int(pass2_stage["runs_scored"]) == 1
-    assert int(pass3_stage["runs_scored"]) == 1
-    assert "unavailable_reason" not in pass2_stage
-    assert "unavailable_reason" not in pass3_stage
-    assert float(pass2_stage["f1_avg"]) > 0.0
-    assert float(pass3_stage["f1_avg"]) > 0.0
+    assert schemaorg_stage["label_scored"] is True
+    assert final_stage["label_scored"] is True
+    assert int(schemaorg_stage["runs_scored"]) == 1
+    assert int(final_stage["runs_scored"]) == 1
+    assert "unavailable_reason" not in schemaorg_stage
+    assert "unavailable_reason" not in final_stage
+    assert float(schemaorg_stage["f1_avg"]) > 0.0
+    assert float(final_stage["f1_avg"]) > 0.0
 
 
 def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
@@ -2246,22 +2265,19 @@ def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
     recipe_pipeline_context = index_payload["analysis"]["recipe_pipeline_context"]
     assert recipe_pipeline_context["merged_repair_active"] is True
-    assert recipe_pipeline_context["nonstandard_topology_active"] is True
-    assert recipe_pipeline_context["stage_label_mode"] == "nonstandard_topology_with_legacy_aliases"
+    assert recipe_pipeline_context["recipe_topology_key"] == "merged_repair"
     assert recipe_pipeline_context["codex_recipe_pipelines"] == [
         "codex-farm-2stage-repair-v1"
     ]
-    assert "standard live pass2->pass3 call sequence" in str(
-        recipe_pipeline_context["compatibility_note"]
-    )
+    assert recipe_pipeline_context["recipe_stages"] == [
+        {"stage_key": "merged_repair", "stage_label": "Merged Repair"}
+    ]
 
     stage_separated = index_payload["analysis"]["stage_separated_comparison"]
-    assert stage_separated["stage_display_names"]["pass2_stage"] == "legacy-family:pass2_*"
-    assert stage_separated["stage_display_names"]["pass3_stage"] == "legacy-family:pass3_*"
-    assert stage_separated["legacy_field_aliases"]["pass2_stage"] == "pass2_*"
-    assert stage_separated["legacy_field_aliases"]["pass3_stage"] == "pass3_*"
-    assert "observed recipe-stage topology" in str(stage_separated["compatibility_note"])
-    assert "merged-repair topology" in str(stage_separated["compatibility_note"])
+    assert stage_separated["recipe_topology_key"] == "merged_repair"
+    assert stage_separated["recipe_stages"] == [
+        {"stage_key": "merged_repair", "stage_label": "Merged Repair"}
+    ]
 
     blame_summary = index_payload["analysis"]["net_error_blame_summary"]
     bucket_definitions = blame_summary["bucket_definitions"]
@@ -2273,17 +2289,15 @@ def test_build_upload_bundle_marks_merged_repair_stage_labels_as_compatibility(
     )
     assert "## Recipe Pipeline Context" in overview_text
     assert "codex-farm-2stage-repair-v1" in overview_text
-    assert "legacy-family:pass2_*" in overview_text
-    assert "legacy-family:pass3_*" in overview_text
+    assert "Merged Repair" in overview_text
 
     payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
     casebook = payload_rows[
         f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/07_casebook.md"
     ]["content_text"]
     assert "recipe_pipeline_id: codex-farm-2stage-repair-v1" in str(casebook)
-    assert "recipe_stage_label_mode: nonstandard_topology_with_legacy_aliases" in str(casebook)
-    assert "- legacy-family:pass2_*:" in str(casebook)
-    assert "- legacy-family:pass3_*:" in str(casebook)
+    assert "recipe_stages: Merged Repair" in str(casebook)
+    assert "- Merged Repair:" in str(casebook)
 
 
 def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_prediction_manifest(
@@ -2481,10 +2495,10 @@ def test_build_upload_bundle_surfaces_pass4_knowledge_summary_and_locators(
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
     assert locator_row["prompt_task4_txt"]["path"].endswith(
-        "prompts/prompt_task4_pass4_knowledge.txt"
+        "prompts/prompt_task4_knowledge.txt"
     )
     assert locator_row["pass4_manifest_json"]["path"].endswith(
-        "prediction-run/raw/llm/fixture-slug/pass4_knowledge_manifest.json"
+        "prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
     )
     assert locator_row["prompt_budget_summary_json"]["path"].endswith(
         "prediction-run/prompt_budget_summary.json"
@@ -2604,10 +2618,10 @@ def test_build_upload_bundle_high_level_includes_lightweight_pass4_artifacts(
     }
     assert f"{run_id}/prompts/prompt_type_samples_from_full_prompt_log.md" in artifact_paths
     assert (
-        f"{run_id}/prediction-run/raw/llm/fixture-slug/pass4_knowledge_manifest.json"
+        f"{run_id}/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
         in artifact_paths
     )
-    assert f"{run_id}/prompts/prompt_task4_pass4_knowledge.txt" not in artifact_paths
+    assert f"{run_id}/prompts/prompt_task4_knowledge.txt" not in artifact_paths
 
     pass4_summary = index_payload["analysis"]["pass4_knowledge"]["rows"][0]
     assert pass4_summary["prompt_samples_in_bundle"] is True

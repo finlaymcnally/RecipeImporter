@@ -33,12 +33,12 @@ For the rest of this phase series, treat the following semantic keys from `docs/
 - [x] (2026-03-15_22.20.44) Recorded the discovery summary in `docs/understandings/2026-03-15_22.20.44-phase1-observability-surface-map.md`.
 - [x] (2026-03-15_22.20.44) Wrote this ExecPlan.
 - [x] (2026-03-15_23.07.00) Revised the ExecPlan to reflect the destructive-migration philosophy: Phase 1 now deletes legacy pass-slot naming and compatibility readers instead of preserving them.
-- [ ] Implement shared stage observability models and run-level writer under `cookimport/runs/`.
-- [ ] Rename raw stage-owned storage and run-level reporting so pass-slot names disappear from new outputs.
-- [ ] Remove compatibility fields and fallback readers from `run_summary`, `run_manifest`, prompt artifact export, and benchmark upload-bundle rendering.
-- [ ] Update or regenerate benchmark/test fixtures that still assert pass-slot compatibility output.
-- [ ] Add focused tests for deterministic, three-pass, merged-repair, and pass4 knowledge cases under the new semantic-only naming.
-- [ ] Update short folder notes and current docs so future reviewers can understand the new observability contract from checked-in documentation alone.
+- [x] (2026-03-15_23.40.19) Implemented shared stage observability models and run-level writer under `cookimport/runs/`.
+- [x] (2026-03-15_23.40.19) Renamed new raw stage-owned storage and run-level reporting so pass-slot names disappear from new stage and prompt outputs.
+- [x] (2026-03-16_00.25.40) Removed compatibility fields from benchmark upload-bundle rendering and starter-pack/casebook recipe-stage output; bundle analysis now emits semantic `recipe_stages` instead of `pass2_stage` / `pass3_stage`.
+- [x] (2026-03-16_00.25.40) Updated benchmark/follow-up tests and fixture helpers for semantic recipe stages, `recipe_manifest.json`, `knowledge_manifest.json`, and `prompt_task4_knowledge.txt`.
+- [x] (2026-03-15_23.40.19) Added focused tests for deterministic, three-pass, merged-repair, and pass4 knowledge cases under the new semantic-only naming.
+- [x] (2026-03-15_23.40.19) Updated short folder notes and current docs so future reviewers can understand the new observability contract from checked-in documentation alone.
 
 ## Surprises & Discoveries
 
@@ -53,6 +53,12 @@ For the rest of this phase series, treat the following semantic keys from `docs/
 
 - Observation: the old plan language still assumed historical-root support and additive fallback logic, which conflicts directly with the user’s refactor philosophy.
   Evidence: the prior revision explicitly preserved `pass2_stage` and historical reconstruction paths. That language has to be removed for the plan to match the intended “burn the boats” migration.
+
+- Observation: prompt sample headings still drifted back to `pass1` through `pass5` even after semantic stage directories and filenames were renamed.
+  Evidence: `prompt_type_samples_from_full_prompt_log.md` initially rendered headings like `## pass1 (Chunking)` until heading generation was switched to semantic `stage_key`.
+
+- Observation: follow-up tooling needed explicit local-path fallback coverage even after bundle analysis stopped using pass-slot stage names.
+  Evidence: `cf-debug audit-pass4-knowledge` only returned fully green against the checked-in pass4 sample bundle after `followup_bundle.py` was taught to accept both semantic local files (`knowledge_manifest.json`) and historical local files (`pass4_knowledge_manifest.json`, `prediction-run/prompt_budget_summary.json`).
 
 ## Decision Log
 
@@ -84,13 +90,19 @@ For the rest of this phase series, treat the following semantic keys from `docs/
 
 Planning outcome only so far: the highest-leverage seam is still a shared stage description written once per run and consumed everywhere else, but the plan is no longer additive. The key implementation risk is now broader churn: renaming raw stage storage, deleting compatibility renderings, and refreshing fixtures in one sweep. That is acceptable because the user’s stated goal is a hard cut to the new paradigm rather than a reversible migration.
 
+Implementation update: the shared run-level stage contract is now live in `cookimport/runs/stage_observability.py`, stage and prediction manifests/summaries write it, semantic raw stage directories are in place, prompt artifact export follows the new names, and upload-bundle/starter-pack recipe topology now renders through semantic `recipe_stages` instead of compatibility aliases. A deterministic smoke run at `/tmp/phase1-observability-smoke/2026-03-15_23.58.49` produced `stage_observability.json` with only `write_outputs` and no pass-slot directories, and the bench regression slice now passes against the semantic bundle contract.
+
+Change note (2026-03-15_23.40.19): updated the plan after implementing the shared stage model, semantic raw-stage path rename, prompt export cutover, targeted tests, and docs so the checked-in plan matches the runtime contract at that point.
+
+Change note (2026-03-16_00.25.40): finished the remaining benchmark bundle/follow-up deletion pass by replacing `pass2_stage` / `pass3_stage` bundle analysis with semantic `recipe_stages`, switching starter-pack casebook/selected packets to semantic stage output, updating benchmark helpers to `recipe_manifest.json` and `knowledge_manifest.json`, and refreshing the affected bench/cf-debug tests.
+
 ## Context and Orientation
 
 In the current repository, the main single-file stage flow runs through `cookimport/staging/import_session.py::execute_stage_import_session_from_result(...)`. That function applies the optional recipe Codex pipeline, then deterministic table and chunk work, then optional knowledge harvest, then the writers in `cookimport/staging/writer.py`, then stage-block prediction writing, and finally the report. This is the most truthful place to think about “what stages actually happened.”
 
 After the per-book work finishes, `cookimport/cli.py` writes run-level artifacts such as `run_summary.json`, `run_summary.md`, and `run_manifest.json`. Those files are stable and widely reused, but right now they do not expose one ordered source of truth for observed stages.
 
-The LLM side adds another layer. `cookimport/llm/codex_farm_orchestrator.py` writes recipe raw data and `llm_manifest.json`. `cookimport/llm/codex_farm_knowledge_orchestrator.py` writes knowledge raw data and `pass4_knowledge_manifest.json`. `cookimport/llm/prompt_artifacts.py` already contains a semantic rendering seam, but it still lives beside other naming systems instead of owning the repo-wide truth.
+The LLM side adds another layer. `cookimport/llm/codex_farm_orchestrator.py` now writes recipe raw data and `recipe_manifest.json`. `cookimport/llm/codex_farm_knowledge_orchestrator.py` writes knowledge raw data and `knowledge_manifest.json`. `cookimport/llm/prompt_artifacts.py` already contains a semantic rendering seam, but it still lives beside other naming systems instead of owning the repo-wide truth.
 
 Benchmarking adds a fourth surface. `cookimport/bench/upload_bundle_v1_render.py` currently contains independent stage-normalization logic. In the new plan, that duplication is not tolerated. It must read the same shared stage truth as every other reporting surface.
 

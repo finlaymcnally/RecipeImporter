@@ -42,6 +42,8 @@ from cookimport.bench.codex_bridge_projection_policy import (
 )
 from cookimport.bench.upload_bundle_v1_existing_output import (
     ExistingOutputAdapterHelpers,
+    build_recipe_pipeline_topology,
+    build_recipe_pipeline_topology_context,
     build_upload_bundle_source_model_from_existing_root,
 )
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
@@ -243,8 +245,8 @@ AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
 PROMPT_TYPE_SAMPLES_FILE_NAME = "prompt_type_samples_from_full_prompt_log.md"
-PASS4_PROMPT_TASK_FILE_NAME = "prompt_task4_pass4_knowledge.txt"
-PASS4_KNOWLEDGE_MANIFEST_FILE_NAME = "pass4_knowledge_manifest.json"
+PASS4_PROMPT_TASK_FILE_NAME = "prompt_task4_knowledge.txt"
+PASS4_KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
 PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
 CHANGED_LINES_FILE_NAME = "changed_lines.codex_vs_vanilla.jsonl"
@@ -254,13 +256,13 @@ LABEL_POLICY_NOTES_FILE_NAME = "label_policy_adjudication_notes.md"
 WRONG_LABEL_FULL_CONTEXT_FILE_NAME = "wrong_label_lines.with_context.full.jsonl.gz"
 PREPROCESS_TRACE_FAILURES_FILE_NAME = "preprocess_trace_failures.jsonl.gz"
 PROMPT_REQUEST_RESPONSE_LOG_NAME = "prompt_request_response_log.txt"
-PROMPT_LOG_MANIFEST_ARTIFACT_KEY = "codexfarm_prompt_request_response_txt"
+PROMPT_LOG_MANIFEST_ARTIFACT_KEY = "prompt_request_response_txt"
 FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS = (
     "full_prompt_log_path",
-    "codexfarm_full_prompt_log_jsonl",
+    "full_prompt_log_jsonl",
 )
 PROMPT_TYPE_SAMPLES_MANIFEST_ARTIFACT_KEYS = (
-    "codexfarm_prompt_type_samples_from_full_prompt_log_md",
+    "prompt_type_samples_from_full_prompt_log_md",
 )
 PROMPT_LOG_SEPARATOR = "--------------------------------------------------------------------------------"
 PROMPT_SECTION_HEADER_RE = re.compile(
@@ -269,10 +271,10 @@ PROMPT_SECTION_HEADER_RE = re.compile(
 PROMPT_ENTRY_RE = re.compile(r"^(INPUT|OUTPUT)\s+([0-9A-Za-z_-]+)\s*=>\s*(.+)$")
 PROMPT_CATEGORY_SORT_RE = re.compile(r"^([a-z]+)(\d+)(.*)$")
 PASS_DIR_MAP = {
-    "pass1": "pass1_chunking",
-    "pass2": "pass2_schemaorg",
-    "pass3": "pass3_final",
-    "pass4": "pass4_knowledge",
+    "pass1": "chunking",
+    "pass2": "schemaorg",
+    "pass3": "final",
+    "pass4": "knowledge",
 }
 PASS_PIPELINE_MAP = {
     "pass1": "recipe.chunking.v1",
@@ -305,18 +307,6 @@ ALIGNMENT_SAMPLED_JSONL_INPUTS = (
     ("aligned_prediction_blocks.jsonl", "aligned_prediction_blocks.sample.jsonl"),
     ("alignment_gaps.jsonl", "alignment_gaps.sample.jsonl"),
 )
-
-MERGED_REPAIR_RECIPE_PIPELINE_ID = "codex-farm-2stage-repair-v1"
-MERGED_REPAIR_PASS3_EXECUTION_MODES = frozenset(
-    {
-        "llm_merged_repair",
-        "llm_merged_repair_then_deterministic_fallback",
-    }
-)
-MERGED_REPAIR_PASS3_ROUTING_REASON = "merged_repair_stage"
-LEGACY_PASS2_FAMILY_DISPLAY_NAME = "legacy-family:pass2_*"
-LEGACY_PASS3_FAMILY_DISPLAY_NAME = "legacy-family:pass3_*"
-
 
 @dataclass
 class RunRecord:
@@ -366,216 +356,23 @@ class PairDiagnostics:
     outside_span_trace_rows: list[dict[str, Any]]
 
 
-def _upload_bundle_is_merged_repair_recipe_pipeline(value: Any) -> bool:
-    return str(value or "").strip() == MERGED_REPAIR_RECIPE_PIPELINE_ID
-
-
-def _upload_bundle_has_nonstandard_recipe_stage_topology(
+def _upload_bundle_recipe_stages_for_row(
     *,
     recipe_pipeline_id: Any,
     pass2_call_id: Any,
     pass3_call_id: Any,
     pass3_execution_mode: Any,
     pass3_routing_reason: Any,
-) -> bool:
-    execution_mode = str(pass3_execution_mode or "").strip().lower()
-    routing_reason = str(pass3_routing_reason or "").strip()
-    if (
-        _upload_bundle_is_merged_repair_recipe_pipeline(recipe_pipeline_id)
-        or execution_mode in MERGED_REPAIR_PASS3_EXECUTION_MODES
-        or routing_reason == MERGED_REPAIR_PASS3_ROUTING_REASON
-    ):
-        return True
-    pass2_call_present = bool(str(pass2_call_id or "").strip())
-    pass3_call_present = bool(str(pass3_call_id or "").strip())
-    if pass3_call_present or not pass2_call_present:
-        return False
-    if execution_mode or routing_reason:
-        return True
-    return False
-
-
-def _upload_bundle_recipe_stage_label_mode(
-    *,
-    recipe_pipeline_id: Any,
-    pass2_call_id: Any,
-    pass3_call_id: Any,
-    pass3_execution_mode: Any,
-    pass3_routing_reason: Any,
-) -> str:
-    if _upload_bundle_has_nonstandard_recipe_stage_topology(
-        recipe_pipeline_id=recipe_pipeline_id,
-        pass2_call_id=pass2_call_id,
-        pass3_call_id=pass3_call_id,
-        pass3_execution_mode=pass3_execution_mode,
-        pass3_routing_reason=pass3_routing_reason,
-    ):
-        return "nonstandard_topology_with_legacy_aliases"
-    return "standard_topology"
-
-
-def _upload_bundle_recipe_stage_compatibility_note(
-    *,
-    recipe_pipeline_id: Any,
-    pass2_call_id: Any,
-    pass3_call_id: Any,
-    pass3_execution_mode: Any,
-    pass3_routing_reason: Any,
-) -> str:
-    if not _upload_bundle_has_nonstandard_recipe_stage_topology(
-        recipe_pipeline_id=recipe_pipeline_id,
-        pass2_call_id=pass2_call_id,
-        pass3_call_id=pass3_call_id,
-        pass3_execution_mode=pass3_execution_mode,
-        pass3_routing_reason=pass3_routing_reason,
-    ):
-        return ""
-    details: list[str] = []
-    pipeline_text = str(recipe_pipeline_id or "").strip()
-    execution_mode = str(pass3_execution_mode or "").strip()
-    routing_reason = str(pass3_routing_reason or "").strip()
-    if pipeline_text:
-        details.append(f"active recipe pipeline: `{pipeline_text}`")
-    if execution_mode:
-        details.append(f"`pass3_execution_mode={execution_mode}`")
-    if routing_reason:
-        details.append(f"`pass3_routing_reason={routing_reason}`")
-    merged_hint = (
-        " Observed signals match the merged-repair topology."
-        if _upload_bundle_is_merged_repair_recipe_pipeline(recipe_pipeline_id)
-        or execution_mode.lower() in MERGED_REPAIR_PASS3_EXECUTION_MODES
-        or routing_reason == MERGED_REPAIR_PASS3_ROUTING_REASON
-        else ""
+) -> list[dict[str, str]]:
+    topology = build_recipe_pipeline_topology_context(
+        codex_recipe_pipelines=[str(recipe_pipeline_id or "").strip()],
+        observed_execution_modes=[str(pass3_execution_mode or "").strip()],
+        observed_routing_reasons=[str(pass3_routing_reason or "").strip()],
+        observed_pass2_call_count=1 if str(pass2_call_id or "").strip() else 0,
+        observed_pass3_call_count=1 if str(pass3_call_id or "").strip() else 0,
     )
-    detail_suffix = f" Observed details: {', '.join(details)}." if details else ""
-    return (
-        "Discovered recipe artifacts do not show a standard live pass2->pass3 call sequence. "
-        f"Primary reviewer labels use `{LEGACY_PASS2_FAMILY_DISPLAY_NAME}` / "
-        f"`{LEGACY_PASS3_FAMILY_DISPLAY_NAME}`. Legacy field families `pass2_*` / `pass3_*` "
-        "remain compatibility aliases around the observed recipe-stage topology."
-        f"{detail_suffix}{merged_hint}"
-    )
-
-
-def _upload_bundle_build_recipe_pipeline_context(
-    *,
-    run_rows: list[dict[str, Any]],
-    comparison_pairs: list[dict[str, Any]],
-    recipe_triage_rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    codex_recipe_pipelines: set[str] = set()
-    observed_execution_modes: set[str] = set()
-    observed_routing_reasons: set[str] = set()
-    observed_pass2_call_count = 0
-    observed_pass3_call_count = 0
-
-    for row in run_rows:
-        if not isinstance(row, dict):
-            continue
-        pipeline = str(row.get("llm_recipe_pipeline") or "").strip()
-        if pipeline and _upload_bundle_is_codex_pipeline_enabled(pipeline):
-            codex_recipe_pipelines.add(pipeline)
-
-    for pair in comparison_pairs:
-        if not isinstance(pair, dict):
-            continue
-        codex_run = pair.get("codex_run")
-        if not isinstance(codex_run, dict):
-            continue
-        pipeline = str(codex_run.get("llm_recipe_pipeline") or "").strip()
-        if pipeline and _upload_bundle_is_codex_pipeline_enabled(pipeline):
-            codex_recipe_pipelines.add(pipeline)
-
-    for row in recipe_triage_rows:
-        if not isinstance(row, dict):
-            continue
-        if str(row.get("pass2_call_id") or "").strip():
-            observed_pass2_call_count += 1
-        if str(row.get("pass3_call_id") or "").strip():
-            observed_pass3_call_count += 1
-        execution_mode = str(row.get("pass3_execution_mode") or "").strip()
-        routing_reason = str(row.get("pass3_routing_reason") or "").strip()
-        if execution_mode:
-            observed_execution_modes.add(execution_mode)
-        if routing_reason:
-            observed_routing_reasons.add(routing_reason)
-
-    merged_repair_active = any(
-        _upload_bundle_is_merged_repair_recipe_pipeline(pipeline)
-        for pipeline in codex_recipe_pipelines
-    ) or any(
-        str(mode or "").strip().lower() in MERGED_REPAIR_PASS3_EXECUTION_MODES
-        for mode in observed_execution_modes
-    ) or (MERGED_REPAIR_PASS3_ROUTING_REASON in observed_routing_reasons)
-
-    nonstandard_topology_active = merged_repair_active or (
-        bool(codex_recipe_pipelines)
-        and observed_pass2_call_count > 0
-        and observed_pass3_call_count == 0
-        and (bool(observed_execution_modes) or bool(observed_routing_reasons))
-    )
-    stage_label_mode = (
-        "nonstandard_topology_with_legacy_aliases"
-        if nonstandard_topology_active
-        else "standard_topology"
-    )
-    stage_display_names = {
-        "baseline_stage": "baseline",
-        "line_role_pipeline_stage": "line-role",
-        "pass2_stage": LEGACY_PASS2_FAMILY_DISPLAY_NAME,
-        "pass3_stage": LEGACY_PASS3_FAMILY_DISPLAY_NAME,
-        "final_or_fallback_stage": "final-fallback",
-    }
-    legacy_field_aliases = {
-        "pass2_stage": "pass2_*",
-        "pass3_stage": "pass3_*",
-    }
-    compatibility_note = ""
-    if nonstandard_topology_active:
-        details: list[str] = []
-        if codex_recipe_pipelines:
-            details.append(
-                "active recipe pipelines: "
-                + ", ".join(f"`{pipeline}`" for pipeline in sorted(codex_recipe_pipelines))
-            )
-        details.append(f"observed_pass2_call_count={observed_pass2_call_count}")
-        details.append(f"observed_pass3_call_count={observed_pass3_call_count}")
-        if observed_execution_modes:
-            details.append(
-                "observed_pass3_execution_modes="
-                + ",".join(sorted(observed_execution_modes))
-            )
-        if observed_routing_reasons:
-            details.append(
-                "observed_pass3_routing_reasons="
-                + ",".join(sorted(observed_routing_reasons))
-            )
-        compatibility_note = (
-            "Discovered recipe artifacts do not show a standard live pass2->pass3 call "
-            f"sequence. Primary reviewer labels use `{LEGACY_PASS2_FAMILY_DISPLAY_NAME}` / "
-            f"`{LEGACY_PASS3_FAMILY_DISPLAY_NAME}` while legacy field families `pass2_*` / "
-            "`pass3_*` remain compatibility aliases around the observed recipe-stage "
-            "topology. Observed details: "
-            + "; ".join(details)
-            + "."
-        )
-        if merged_repair_active:
-            compatibility_note += " Observed signals match the merged-repair topology."
-
-    return {
-        "schema_version": "upload_bundle_recipe_pipeline_context.v1",
-        "codex_recipe_pipelines": sorted(codex_recipe_pipelines),
-        "observed_pass2_call_count": observed_pass2_call_count,
-        "observed_pass3_call_count": observed_pass3_call_count,
-        "observed_pass3_execution_modes": sorted(observed_execution_modes),
-        "observed_pass3_routing_reasons": sorted(observed_routing_reasons),
-        "merged_repair_active": merged_repair_active,
-        "nonstandard_topology_active": nonstandard_topology_active,
-        "stage_label_mode": stage_label_mode,
-        "stage_display_names": stage_display_names,
-        "legacy_field_aliases": legacy_field_aliases,
-        "compatibility_note": compatibility_note,
-    }
+    recipe_stages = topology.get("recipe_stages")
+    return list(recipe_stages) if isinstance(recipe_stages, list) else []
 
 
 def _parse_args() -> argparse.Namespace:
@@ -2626,13 +2423,10 @@ def _load_llm_manifest_recipe_diagnostics(
     candidate_paths: list[Path] = []
     raw_llm_dir = pred_run_dir / "raw" / "llm"
     if raw_llm_dir.is_dir():
-        candidate_paths.extend(sorted(raw_llm_dir.glob("*/llm_manifest.json")))
-        direct_raw_llm_manifest = raw_llm_dir / "llm_manifest.json"
+        candidate_paths.extend(sorted(raw_llm_dir.glob("*/recipe_manifest.json")))
+        direct_raw_llm_manifest = raw_llm_dir / "recipe_manifest.json"
         if direct_raw_llm_manifest.is_file():
             candidate_paths.append(direct_raw_llm_manifest)
-    direct_pred_manifest = pred_run_dir / "llm_manifest.json"
-    if direct_pred_manifest.is_file():
-        candidate_paths.append(direct_pred_manifest)
 
     diagnostics_by_recipe: dict[str, dict[str, Any]] = {}
     seen_paths: set[Path] = set()
@@ -4357,14 +4151,7 @@ def _build_pair_diagnostics(
             manifest_diagnostics.get("pass3_routing_reason") or ""
         ).strip()
         recipe_pipeline_id = str(codex_run.llm_recipe_pipeline or "").strip()
-        recipe_stage_label_mode = _upload_bundle_recipe_stage_label_mode(
-            recipe_pipeline_id=recipe_pipeline_id,
-            pass2_call_id=str(pass2_row.get("call_id") or "") if isinstance(pass2_row, dict) else "",
-            pass3_call_id=str(pass3_row.get("call_id") or "") if isinstance(pass3_row, dict) else "",
-            pass3_execution_mode=pass3_execution_mode,
-            pass3_routing_reason=pass3_routing_reason,
-        )
-        recipe_stage_compatibility_note = _upload_bundle_recipe_stage_compatibility_note(
+        recipe_stages = _upload_bundle_recipe_stages_for_row(
             recipe_pipeline_id=recipe_pipeline_id,
             pass2_call_id=str(pass2_row.get("call_id") or "") if isinstance(pass2_row, dict) else "",
             pass3_call_id=str(pass3_row.get("call_id") or "") if isinstance(pass3_row, dict) else "",
@@ -4402,8 +4189,7 @@ def _build_pair_diagnostics(
                 "codex_run_id": codex_run.run_id,
                 "baseline_run_id": baseline_run.run_id,
                 "recipe_pipeline_id": recipe_pipeline_id,
-                "recipe_stage_label_mode": recipe_stage_label_mode,
-                "recipe_stage_compatibility_note": recipe_stage_compatibility_note,
+                "recipe_stages": recipe_stages,
                 "selection_hint_preprocess_status": preprocess_status,
                 "recipe_id": recipe_id,
                 "short_title": short_title,
@@ -5269,6 +5055,55 @@ def _build_selected_recipe_packets(
                 _coerce_int(row.get("evidence_folded_page_markers")) or 0
             ),
         }
+        recipe_stages = row.get("recipe_stages")
+        recipe_stages = recipe_stages if isinstance(recipe_stages, list) else []
+        recipe_stage_summaries: list[dict[str, Any]] = []
+        for recipe_stage in recipe_stages:
+            if not isinstance(recipe_stage, dict):
+                continue
+            stage_key = str(recipe_stage.get("stage_key") or "").strip()
+            stage_label = str(recipe_stage.get("stage_label") or stage_key).strip()
+            if stage_key == "schemaorg":
+                recipe_stage_summaries.append(
+                    {
+                        "stage_key": stage_key,
+                        "stage_label": stage_label,
+                        **pass2_summary,
+                    }
+                )
+                continue
+            if stage_key == "final":
+                recipe_stage_summaries.append(
+                    {
+                        "stage_key": stage_key,
+                        "stage_label": stage_label,
+                        **pass3_summary,
+                    }
+                )
+                continue
+            merged_repair_summary = {
+                "stage_key": stage_key,
+                "stage_label": stage_label,
+                "call_id": str(row.get("pass2_call_id") or row.get("pass3_call_id") or ""),
+                "status": str(row.get("pass3_status") or row.get("pass2_status") or ""),
+                "input_block_count": int(_coerce_int(row.get("pass2_input_block_count")) or 0),
+                "mapping_count": int(_coerce_int(row.get("pass3_mapping_count")) or 0),
+                "empty_mapping": bool(row.get("pass3_empty_mapping")),
+                "warning_count": int(_coerce_int(row.get("pass2_warning_count")) or 0)
+                + int(_coerce_int(row.get("pass3_warning_count")) or 0),
+                "warning_buckets": list(
+                    dict.fromkeys(
+                        _coerce_str_list(row.get("pass2_warning_buckets"))
+                        + _coerce_str_list(row.get("pass3_warning_buckets"))
+                    )
+                ),
+                "degradation_reasons": _coerce_str_list(row.get("pass2_degradation_reasons")),
+                "promotion_policy": str(row.get("pass2_promotion_policy") or ""),
+                "execution_mode": str(row.get("pass3_execution_mode") or ""),
+                "routing_reason": str(row.get("pass3_routing_reason") or ""),
+                "fallback_reason": str(row.get("pass3_fallback_reason") or ""),
+            }
+            recipe_stage_summaries.append(merged_repair_summary)
 
         packets.append(
             {
@@ -5277,10 +5112,7 @@ def _build_selected_recipe_packets(
                 "codex_run_id": str(row.get("codex_run_id") or row.get("run_id") or ""),
                 "baseline_run_id": str(row.get("baseline_run_id") or ""),
                 "recipe_pipeline_id": str(row.get("recipe_pipeline_id") or ""),
-                "recipe_stage_label_mode": str(row.get("recipe_stage_label_mode") or ""),
-                "recipe_stage_compatibility_note": str(
-                    row.get("recipe_stage_compatibility_note") or ""
-                ),
+                "recipe_stages": recipe_stage_summaries,
                 "recipe_id": str(row.get("recipe_id") or ""),
                 "short_title": str(row.get("short_title") or ""),
                 "delta_codex_minus_baseline": _coerce_float(
@@ -5291,9 +5123,7 @@ def _build_selected_recipe_packets(
                 ),
                 "bridge_anomaly_summary": _bridge_anomaly_summary(row),
                 "warning_summary": _warning_summary_for_recipe(row),
-                "pass1_summary": pass1_summary,
-                "pass2_summary": pass2_summary,
-                "pass3_summary": pass3_summary,
+                "chunking_summary": pass1_summary,
                 "transport_summary": transport_summary,
                 "evidence_normalization_summary": evidence_normalization_summary,
                 "changed_line_examples": changed_examples,
@@ -5317,12 +5147,13 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
 
     for index, packet in enumerate(packets, start=1):
         recipe_pipeline_id = str(packet.get("recipe_pipeline_id") or "").strip()
-        recipe_stage_label_mode = str(packet.get("recipe_stage_label_mode") or "").strip()
-        recipe_stage_compatibility_note = str(
-            packet.get("recipe_stage_compatibility_note") or ""
-        ).strip()
-        pass2_label = LEGACY_PASS2_FAMILY_DISPLAY_NAME
-        pass3_label = LEGACY_PASS3_FAMILY_DISPLAY_NAME
+        recipe_stages = packet.get("recipe_stages")
+        recipe_stages = recipe_stages if isinstance(recipe_stages, list) else []
+        recipe_stage_labels = [
+            str(stage.get("stage_label") or stage.get("stage_key") or "").strip()
+            for stage in recipe_stages
+            if isinstance(stage, dict)
+        ]
         lines.extend(
             [
                 f"## Case {index}: {packet.get('recipe_id')}",
@@ -5340,45 +5171,18 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                     else []
                 ),
                 *(
-                    [f"- recipe_stage_label_mode: {recipe_stage_label_mode}"]
-                    if recipe_stage_label_mode
-                    else []
-                ),
-                *(
-                    [f"- recipe_stage_note: {recipe_stage_compatibility_note}"]
-                    if recipe_stage_compatibility_note
+                    [f"- recipe_stages: {', '.join(recipe_stage_labels)}"]
+                    if recipe_stage_labels
                     else []
                 ),
                 "",
-                "### Pass Excerpts",
+                "### Stage Excerpts",
                 (
-                    "- pass1: "
-                    f"call_id={packet.get('pass1_summary', {}).get('call_id')} "
-                    f"status={packet.get('pass1_summary', {}).get('status')} "
-                    f"selected_block_count={packet.get('pass1_summary', {}).get('selected_block_count')} "
-                    f"clamped_block_loss={packet.get('pass1_summary', {}).get('clamped_block_loss_count')}"
-                ),
-                (
-                    f"- {pass2_label}: "
-                    f"call_id={packet.get('pass2_summary', {}).get('call_id')} "
-                    f"status={packet.get('pass2_summary', {}).get('status')} "
-                    f"input_block_count={packet.get('pass2_summary', {}).get('input_block_count')} "
-                    f"warning_count={packet.get('pass2_summary', {}).get('warning_count')} "
-                    f"severity={packet.get('pass2_summary', {}).get('degradation_severity')} "
-                    f"policy={packet.get('pass2_summary', {}).get('promotion_policy')} "
-                    "degradation_reasons="
-                    f"{_serialize_pipe_list(packet.get('pass2_summary', {}).get('degradation_reasons') or []) or 'none'}"
-                ),
-                (
-                    f"- {pass3_label}: "
-                    f"call_id={packet.get('pass3_summary', {}).get('call_id')} "
-                    f"status={packet.get('pass3_summary', {}).get('status')} "
-                    f"mode={packet.get('pass3_summary', {}).get('execution_mode')} "
-                    f"route={packet.get('pass3_summary', {}).get('routing_reason')} "
-                    f"mapping_count={packet.get('pass3_summary', {}).get('mapping_count')} "
-                    f"empty_mapping={packet.get('pass3_summary', {}).get('empty_mapping')} "
-                    "fallback="
-                    f"{'yes' if str(packet.get('pass3_summary', {}).get('fallback_reason') or '').strip() else 'no'}"
+                    "- chunking: "
+                    f"call_id={packet.get('chunking_summary', {}).get('call_id')} "
+                    f"status={packet.get('chunking_summary', {}).get('status')} "
+                    f"selected_block_count={packet.get('chunking_summary', {}).get('selected_block_count')} "
+                    f"clamped_block_loss={packet.get('chunking_summary', {}).get('clamped_block_loss_count')}"
                 ),
                 (
                     "- transport: "
@@ -5391,6 +5195,44 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                 "",
             ]
         )
+        for recipe_stage in recipe_stages:
+            if not isinstance(recipe_stage, dict):
+                continue
+            stage_label = str(recipe_stage.get("stage_label") or recipe_stage.get("stage_key") or "")
+            stage_key = str(recipe_stage.get("stage_key") or "")
+            if stage_key == "schemaorg":
+                lines.extend(
+                    [
+                        (
+                            f"- {stage_label}: "
+                            f"call_id={recipe_stage.get('call_id')} "
+                            f"status={recipe_stage.get('status')} "
+                            f"input_block_count={recipe_stage.get('input_block_count')} "
+                            f"warning_count={recipe_stage.get('warning_count')} "
+                            f"severity={recipe_stage.get('degradation_severity')} "
+                            f"policy={recipe_stage.get('promotion_policy')} "
+                            "degradation_reasons="
+                            f"{_serialize_pipe_list(recipe_stage.get('degradation_reasons') or []) or 'none'}"
+                        ),
+                    ]
+                )
+                continue
+            lines.extend(
+                [
+                    (
+                        f"- {stage_label}: "
+                        f"call_id={recipe_stage.get('call_id')} "
+                        f"status={recipe_stage.get('status')} "
+                        f"mode={recipe_stage.get('execution_mode')} "
+                        f"route={recipe_stage.get('routing_reason')} "
+                        f"mapping_count={recipe_stage.get('mapping_count')} "
+                        f"empty_mapping={recipe_stage.get('empty_mapping')} "
+                        "fallback="
+                        f"{'yes' if str(recipe_stage.get('fallback_reason') or '').strip() else 'no'}"
+                    ),
+                ]
+            )
+        lines.append("")
         raw_excerpt = str(packet.get("raw_block_window_excerpt") or "").strip()
         if raw_excerpt:
             lines.extend(
@@ -5834,7 +5676,7 @@ def _write_starter_pack_v1(
         output_dir=output_dir,
         run_rows=starter_pack_run_rows,
     )
-    recipe_pipeline_context = _upload_bundle_build_recipe_pipeline_context(
+    recipe_pipeline_context = build_recipe_pipeline_topology(
         run_rows=starter_pack_run_rows,
         comparison_pairs=comparison_pairs,
         recipe_triage_rows=sorted_recipe_triage_rows,
@@ -6342,7 +6184,7 @@ def _upload_bundle_high_level_trim_priority(path: str) -> tuple[int, str] | None
                 WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
                 PREPROCESS_TRACE_FAILURES_FILE_NAME,
                 PROMPT_REQUEST_RESPONSE_LOG_NAME,
-                "llm_manifest.json",
+                "recipe_manifest.json",
             ),
             0,
         ),
@@ -7611,9 +7453,9 @@ def _upload_bundle_collect_stage_pass_reports_for_run(
     pass2_outputs: dict[str, dict[str, Any]] = {}
     pass3_outputs: dict[str, dict[str, Any]] = {}
     for llm_run_dir in llm_run_dirs:
-        pass2_in_dir = llm_run_dir / "pass2_schemaorg" / "in"
-        pass2_out_dir = llm_run_dir / "pass2_schemaorg" / "out"
-        pass3_out_dir = llm_run_dir / "pass3_final" / "out"
+        pass2_in_dir = llm_run_dir / PASS_DIR_MAP["pass2"] / "in"
+        pass2_out_dir = llm_run_dir / PASS_DIR_MAP["pass2"] / "out"
+        pass3_out_dir = llm_run_dir / PASS_DIR_MAP["pass3"] / "out"
 
         for path in sorted(pass2_in_dir.glob("*.json")):
             payload = _upload_bundle_load_json_object(path)
@@ -12110,7 +11952,7 @@ def _write_upload_bundle_three_files(
     heavy_markers = (
         "full_prompt_log.jsonl",
         "prompt_request_response_log.txt",
-        "llm_manifest.json",
+        "recipe_manifest.json",
         ".split-cache",
         "codex_exec_activity.csv",
         "wrong_label_lines.with_context.full.jsonl.gz",
@@ -12770,13 +12612,17 @@ def _write_upload_bundle_three_files(
             "",
         ]
     )
-    stage_display_names = (
-        recipe_pipeline_context.get("stage_display_names")
-        if isinstance(recipe_pipeline_context.get("stage_display_names"), dict)
-        else {}
+    recipe_stage_rows = (
+        recipe_pipeline_context.get("recipe_stages")
+        if isinstance(recipe_pipeline_context.get("recipe_stages"), list)
+        else []
     )
-    pass2_stage_display = str(stage_display_names.get("pass2_stage") or "pass2")
-    pass3_stage_display = str(stage_display_names.get("pass3_stage") or "pass3")
+    recipe_stage_labels = [
+        str(stage.get("stage_label") or stage.get("stage_key") or "").strip()
+        for stage in recipe_stage_rows
+        if isinstance(stage, dict)
+    ]
+    recipe_stage_display = " / ".join(recipe_stage_labels) if recipe_stage_labels else "recipe-stages"
     overview_lines.extend(
         [
             "## Recipe Pipeline Context",
@@ -12794,12 +12640,12 @@ def _write_upload_bundle_three_files(
                 )
             ),
             (
-                "- stage_label_mode: "
-                f"{str(recipe_pipeline_context.get('stage_label_mode') or 'standard_topology')}"
+                "- recipe_topology_key: "
+                f"{str(recipe_pipeline_context.get('recipe_topology_key') or 'schemaorg_final')}"
             ),
             (
-                "- compatibility_note: "
-                f"{str(recipe_pipeline_context.get('compatibility_note') or 'none')}"
+                "- recipe_stages: "
+                f"{', '.join(recipe_stage_labels) if recipe_stage_labels else 'none'}"
             ),
             "",
         ]
@@ -12893,15 +12739,15 @@ def _write_upload_bundle_three_files(
         "- triage packet (JSONL-first row navigation; CSV remains legacy-compatible)",
         (
             "- net-error blame summary "
-            f"(line-role / {pass2_stage_display} / {pass3_stage_display} / routing-fallback buckets)"
+            f"(line-role / {recipe_stage_display} / routing-fallback buckets)"
         ),
         "- config/version parity metadata",
-        "- recipe pipeline context (active recipe pipeline ids + neutral stage labels + legacy alias note)",
+        "- recipe pipeline context (active recipe pipeline ids + semantic recipe-stage labels)",
         "- per-label metrics + confusion deltas",
         "- per-recipe breakdown",
         (
             "- stage-separated comparison "
-            f"(baseline / line-role / {pass2_stage_display} / {pass3_stage_display} / final-fallback)"
+            f"(baseline / line-role / {recipe_stage_display} / final-fallback)"
         ),
         "- failure ledger (recipe x pass rows)",
         "- compact regression casebook",

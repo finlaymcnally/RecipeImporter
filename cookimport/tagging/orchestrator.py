@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.runs import TAGS_MANIFEST_FILE_NAME, stage_artifact_stem
 from cookimport.llm.codex_farm_runner import CodexFarmRunner
 from cookimport.tagging.catalog import (
     TagCatalog,
@@ -258,7 +259,13 @@ def run_stage_tagging_pass(
             per_recipe_out_dir=workbook_tags_dir,
             report_path=report_path,
             llm_config=llm_config,
-            llm_raw_pass_dir=run_root / "raw" / "llm" / workbook_slug / "pass5_tags",
+            llm_raw_pass_dir=(
+                run_root
+                / "raw"
+                / "llm"
+                / workbook_slug
+                / stage_artifact_stem("tags")
+            ),
         )
         workbook_reports[workbook_slug] = str(report_path.relative_to(run_root))
         llm_reports.append(result.llm_report)
@@ -293,6 +300,28 @@ def run_stage_tagging_pass(
         json.dumps(tags_index_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    tags_manifest_path = run_root / "raw" / "llm"
+    for workbook_slug in workbook_reports:
+        workbook_manifest_dir = tags_manifest_path / workbook_slug
+        workbook_manifest_dir.mkdir(parents=True, exist_ok=True)
+        (workbook_manifest_dir / TAGS_MANIFEST_FILE_NAME).write_text(
+            json.dumps(
+                {
+                    "enabled": True,
+                    "pipeline": run_settings.llm_tags_pipeline.value,
+                    "pipeline_id": run_settings.codex_farm_pipeline_pass5_tags,
+                    "paths": {
+                        "stage_dir": str(
+                            workbook_manifest_dir / stage_artifact_stem("tags")
+                        ),
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
     return StageTaggingPassResult(
         enabled=True,

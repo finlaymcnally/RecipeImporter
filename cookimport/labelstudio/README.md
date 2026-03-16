@@ -8,4 +8,4 @@ Durable import/export/prelabel rules live in `cookimport/labelstudio/CONVENTIONS
 - `prelabel.py` runs optional CodexFarm-backed prelabeling for freeform tasks.
 - `export.py` exports freeform annotations only (`freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`) and rejects legacy project scopes; default export roots are source-aware so repeated pulls overwrite one folder.
 - `eval_freeform.py` evaluates predicted freeform labels against exported freeform gold.
-- `labelstudio-benchmark` now treats the stage run as the authoritative benchmark source. `prediction-run/` remains as a compatibility shell for tasks/manifests/diagnostics, while canonical line-role artifacts stay diagnostic-only and do not replace the primary stage-backed score inputs.
+- `labelstudio-benchmark` now treats the prediction-run manifest's canonical scorer pointer pair as the authoritative benchmark source. `prediction-run/` remains the home for tasks/manifests/diagnostics, and those scorer pointers may target canonical line-role projection artifacts when that run enables them.

@@ -217,7 +217,7 @@ class _CodexPromptRetryResult:
     attempts: tuple[dict[str, Any], ...]
 
 
-def label_atomic_lines(
+def _label_atomic_lines_internal(
     candidates: Sequence[AtomicLineCandidate],
     settings: RunSettings,
     *,
@@ -460,11 +460,77 @@ def label_atomic_lines(
             telemetry_batches=telemetry_batches,
         )
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
+    sanitized_baseline = [
+        sanitized_baseline_by_index[candidate.atomic_index] for candidate in ordered
+    ]
     _write_cached_predictions(
         cache_path=cache_path,
         predictions=sanitized,
     )
-    return sanitized
+    return sanitized, sanitized_baseline
+
+
+def label_atomic_lines(
+    candidates: Sequence[AtomicLineCandidate],
+    settings: RunSettings,
+    *,
+    artifact_root: Path | None = None,
+    source_hash: str | None = None,
+    live_llm_allowed: bool = False,
+    cache_root: Path | None = None,
+    codex_timeout_seconds: int = 600,
+    codex_batch_size: int = 40,
+    codex_max_inflight: int | None = None,
+    codex_cmd: str | None = None,
+    codex_runner: CodexFarmRunner | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+) -> list[CanonicalLineRolePrediction]:
+    predictions, _baseline = _label_atomic_lines_internal(
+        candidates,
+        settings,
+        artifact_root=artifact_root,
+        source_hash=source_hash,
+        live_llm_allowed=live_llm_allowed,
+        cache_root=cache_root,
+        codex_timeout_seconds=codex_timeout_seconds,
+        codex_batch_size=codex_batch_size,
+        codex_max_inflight=codex_max_inflight,
+        codex_cmd=codex_cmd,
+        codex_runner=codex_runner,
+        progress_callback=progress_callback,
+    )
+    return predictions
+
+
+def label_atomic_lines_with_baseline(
+    candidates: Sequence[AtomicLineCandidate],
+    settings: RunSettings,
+    *,
+    artifact_root: Path | None = None,
+    source_hash: str | None = None,
+    live_llm_allowed: bool = False,
+    cache_root: Path | None = None,
+    codex_timeout_seconds: int = 600,
+    codex_batch_size: int = 40,
+    codex_max_inflight: int | None = None,
+    codex_cmd: str | None = None,
+    codex_runner: CodexFarmRunner | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+) -> tuple[list[CanonicalLineRolePrediction], list[CanonicalLineRolePrediction]]:
+    return _label_atomic_lines_internal(
+        candidates,
+        settings,
+        artifact_root=artifact_root,
+        source_hash=source_hash,
+        live_llm_allowed=live_llm_allowed,
+        cache_root=cache_root,
+        codex_timeout_seconds=codex_timeout_seconds,
+        codex_batch_size=codex_batch_size,
+        codex_max_inflight=codex_max_inflight,
+        codex_cmd=codex_cmd,
+        codex_runner=codex_runner,
+        progress_callback=progress_callback,
+    )
 
 
 def build_line_role_codex_execution_plan(

@@ -30,9 +30,198 @@ from cookimport.labelstudio.ingest import (
     run_labelstudio_import,
 )
 from cookimport.labelstudio.models import ArchiveBlock
+from cookimport.parsing.label_source_of_truth import (
+    AuthoritativeBlockLabel,
+    AuthoritativeLabeledLine,
+    LabelFirstCompatibilityResult,
+    RecipeSpan,
+)
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.import_session import StageImportSessionResult
+
+
+def _make_label_first_result(
+    *,
+    source: Path,
+    raw_artifacts: list[RawArtifact],
+) -> LabelFirstCompatibilityResult:
+    return LabelFirstCompatibilityResult(
+        labeled_lines=[
+            AuthoritativeLabeledLine(
+                source_block_id="block:0",
+                source_block_index=0,
+                atomic_index=0,
+                text="Pancakes",
+                deterministic_label="RECIPE_TITLE",
+                final_label="RECIPE_TITLE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeLabeledLine(
+                source_block_id="block:1",
+                source_block_index=1,
+                atomic_index=1,
+                text="SERVES 2",
+                deterministic_label="YIELD_LINE",
+                final_label="YIELD_LINE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeLabeledLine(
+                source_block_id="block:2",
+                source_block_index=2,
+                atomic_index=2,
+                text="1 cup flour",
+                deterministic_label="INGREDIENT_LINE",
+                final_label="INGREDIENT_LINE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeLabeledLine(
+                source_block_id="block:3",
+                source_block_index=3,
+                atomic_index=3,
+                text="Whisk batter",
+                deterministic_label="INSTRUCTION_LINE",
+                final_label="INSTRUCTION_LINE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeLabeledLine(
+                source_block_id="block:4",
+                source_block_index=4,
+                atomic_index=4,
+                text="NOTE: Keep warm",
+                deterministic_label="RECIPE_NOTES",
+                final_label="RECIPE_NOTES",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+        ],
+        block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id="block:0",
+                source_block_index=0,
+                supporting_atomic_indices=[0],
+                deterministic_label="RECIPE_TITLE",
+                final_label="RECIPE_TITLE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeBlockLabel(
+                source_block_id="block:1",
+                source_block_index=1,
+                supporting_atomic_indices=[1],
+                deterministic_label="YIELD_LINE",
+                final_label="YIELD_LINE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeBlockLabel(
+                source_block_id="block:2",
+                source_block_index=2,
+                supporting_atomic_indices=[2],
+                deterministic_label="INGREDIENT_LINE",
+                final_label="INGREDIENT_LINE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeBlockLabel(
+                source_block_id="block:3",
+                source_block_index=3,
+                supporting_atomic_indices=[3],
+                deterministic_label="INSTRUCTION_LINE",
+                final_label="INSTRUCTION_LINE",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+            AuthoritativeBlockLabel(
+                source_block_id="block:4",
+                source_block_index=4,
+                supporting_atomic_indices=[4],
+                deterministic_label="RECIPE_NOTES",
+                final_label="RECIPE_NOTES",
+                confidence=0.95,
+                decided_by="rule",
+            ),
+        ],
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe_span_0",
+                start_block_index=0,
+                end_block_index=4,
+                block_indices=[0, 1, 2, 3, 4],
+                source_block_ids=[
+                    "block:0",
+                    "block:1",
+                    "block:2",
+                    "block:3",
+                    "block:4",
+                ],
+                start_atomic_index=0,
+                end_atomic_index=4,
+                atomic_indices=[0, 1, 2, 3, 4],
+                title_block_index=0,
+                title_atomic_index=0,
+            )
+        ],
+        non_recipe_lines=[],
+        conversion_result=ConversionResult(
+            recipes=[
+                RecipeCandidate(
+                    name="Pancakes",
+                    identifier="recipe-1",
+                    recipeIngredient=["1 cup flour"],
+                    recipeInstructions=["Whisk batter"],
+                    comment=[{"text": "NOTE: Keep warm"}],
+                    recipeYield="SERVES 2",
+                    provenance={"location": {"start_block": 0, "end_block": 4}},
+                )
+            ],
+            tips=[],
+            tip_candidates=[],
+            topic_candidates=[],
+            non_recipe_blocks=[],
+            raw_artifacts=raw_artifacts,
+            report=ConversionReport(),
+            workbook="book",
+            workbook_path=str(source),
+        ),
+        archive_blocks=[
+            {
+                "index": 0,
+                "block_id": "block:0",
+                "text": "Pancakes",
+                "location": {"block_index": 0},
+            },
+            {
+                "index": 1,
+                "block_id": "block:1",
+                "text": "SERVES 2",
+                "location": {"block_index": 1},
+            },
+            {
+                "index": 2,
+                "block_id": "block:2",
+                "text": "1 cup flour",
+                "location": {"block_index": 2},
+            },
+            {
+                "index": 3,
+                "block_id": "block:3",
+                "text": "Whisk batter",
+                "location": {"block_index": 3},
+            },
+            {
+                "index": 4,
+                "block_id": "block:4",
+                "text": "NOTE: Keep warm",
+                "location": {"block_index": 4},
+            },
+        ],
+        source_hash="hash-123",
+    )
 
 
 def test_llm_recipe_pipeline_normalizer_accepts_codex_farm() -> None:
@@ -1505,21 +1694,36 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
     processed_root = tmp_path / "processed"
 
     fake_result = ConversionResult(
-        recipes=[
-            RecipeCandidate(
-                name="Original name",
-                identifier="recipe-1",
-                provenance={"location": {"start_block": 0, "end_block": 0}},
-            )
-        ],
+        recipes=[],
         tips=[],
         tip_candidates=[],
         topic_candidates=[],
         non_recipe_blocks=[],
-        raw_artifacts=[],
+        raw_artifacts=[
+            RawArtifact(
+                importer="fake",
+                sourceHash="hash-123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Pancakes"},
+                        {"index": 1, "text": "SERVES 2"},
+                        {"index": 2, "text": "1 cup flour"},
+                        {"index": 3, "text": "Whisk batter"},
+                        {"index": 4, "text": "NOTE: Keep warm"},
+                    ]
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
         report=ConversionReport(),
         workbook="book",
         workbook_path=str(source),
+    )
+    label_first_result = _make_label_first_result(
+        source=source,
+        raw_artifacts=fake_result.raw_artifacts,
     )
 
     class FakeImporter:
@@ -1529,41 +1733,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
             if progress_callback is not None:
                 progress_callback("fake convert complete")
             return fake_result
-
-    observed_codex_max_inflight: list[int | None] = []
-
-    def _fake_label_atomic_lines(candidates, _settings, **_kwargs):
-        observed_codex_max_inflight.append(_kwargs.get("codex_max_inflight"))
-        output: list[CanonicalLineRolePrediction] = []
-        for candidate in candidates:
-            text = str(candidate.text)
-            normalized = text.lower()
-            if normalized.startswith("pancakes"):
-                label = "RECIPE_TITLE"
-            elif normalized.startswith("serves"):
-                label = "YIELD_LINE"
-            elif "flour" in normalized:
-                label = "INGREDIENT_LINE"
-            elif normalized.startswith("whisk"):
-                label = "INSTRUCTION_LINE"
-            elif normalized.startswith("note:"):
-                label = "RECIPE_NOTES"
-            else:
-                label = "OTHER"
-            output.append(
-                CanonicalLineRolePrediction(
-                    recipe_id=candidate.recipe_id,
-                    block_id=candidate.block_id,
-                    block_index=candidate.block_index,
-                    atomic_index=candidate.atomic_index,
-                    text=text,
-                    label=label,
-                    confidence=0.95,
-                    decided_by="rule",
-                    reason_tags=["test_label"],
-                )
-            )
-        return output
 
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest.registry.get_importer",
@@ -1601,53 +1770,12 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
         lambda tasks, **_kwargs: tasks,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest._build_line_role_candidates_from_archive",
-        lambda **_kwargs: [
-            AtomicLineCandidate(
-                recipe_id="recipe:0",
-                block_id="block:0",
-                block_index=0,
-                atomic_index=0,
-                text="Pancakes",
-                within_recipe_span=True,
-            ),
-            AtomicLineCandidate(
-                recipe_id="recipe:0",
-                block_id="block:0",
-                block_index=0,
-                atomic_index=1,
-                text="SERVES 2",
-                within_recipe_span=True,
-            ),
-            AtomicLineCandidate(
-                recipe_id="recipe:0",
-                block_id="block:0",
-                block_index=0,
-                atomic_index=2,
-                text="1 cup flour",
-                within_recipe_span=True,
-            ),
-            AtomicLineCandidate(
-                recipe_id="recipe:0",
-                block_id="block:0",
-                block_index=0,
-                atomic_index=3,
-                text="Whisk batter",
-                within_recipe_span=True,
-            ),
-            AtomicLineCandidate(
-                recipe_id="recipe:0",
-                block_id="block:0",
-                block_index=0,
-                atomic_index=4,
-                text="NOTE: Keep warm",
-                within_recipe_span=True,
-            ),
-        ],
+        "cookimport.labelstudio.ingest.build_label_first_compatibility_result",
+        lambda **_kwargs: label_first_result,
     )
     monkeypatch.setattr(
-        "cookimport.labelstudio.ingest.label_atomic_lines",
-        _fake_label_atomic_lines,
+        "cookimport.staging.import_session.build_label_first_compatibility_result",
+        lambda **_kwargs: label_first_result,
     )
 
     result = generate_pred_run_artifacts(
@@ -1666,18 +1794,23 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
     projected_archive_path = projected_spans_path.parent / "extracted_archive.json"
     assert projected_stage_path.exists()
     assert projected_archive_path.exists()
-    assert result["stage_block_predictions_path"] == projected_stage_path
-    assert result["extracted_archive_path"] == projected_archive_path
+    processed_run_root = Path(result["processed_run_root"])
+    processed_stage_path = (
+        processed_run_root / ".bench" / "book" / "stage_block_predictions.json"
+    )
+    mirrored_stage_path = Path(result["stage_block_predictions_path"])
+    assert mirrored_stage_path.name == "stage_block_predictions.json"
+    assert mirrored_stage_path.read_text(encoding="utf-8") == processed_stage_path.read_text(
+        encoding="utf-8"
+    )
+    assert result["extracted_archive_path"].name == "extracted_archive.json"
 
-    stage_payload = json.loads(projected_stage_path.read_text(encoding="utf-8"))
-    projected_labels = set(stage_payload.get("block_labels", {}).values())
-    assert {
-        "RECIPE_TITLE",
-        "YIELD_LINE",
-        "INGREDIENT_LINE",
-        "INSTRUCTION_LINE",
-        "RECIPE_NOTES",
-    } <= projected_labels
+    stage_payload = json.loads(mirrored_stage_path.read_text(encoding="utf-8"))
+    assert stage_payload["block_labels"]["0"] == "RECIPE_TITLE"
+    assert stage_payload["block_labels"]["1"] == "YIELD_LINE"
+    assert stage_payload["block_labels"]["2"] == "INGREDIENT_LINE"
+    assert stage_payload["block_labels"]["3"] == "INSTRUCTION_LINE"
+    assert stage_payload["block_labels"]["4"] == "RECIPE_NOTES"
 
     projected_rows = [
         json.loads(line)
@@ -1694,7 +1827,6 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
         row["text"] for row in projected_rows if row.get("label") == "RECIPE_NOTES"
     ]
 
-    processed_run_root = Path(result["processed_run_root"])
     processed_draft = json.loads(
         (
             processed_run_root
@@ -1703,17 +1835,18 @@ def test_generate_pred_run_artifacts_line_role_projection_keeps_stage_outputs_au
             / "r0.json"
         ).read_text(encoding="utf-8")
     )
-    assert processed_draft["name"] == "Original name"
-    assert processed_draft["ingredients"] != predicted_ingredients
-    assert processed_draft["instructions"] != predicted_instructions
-    assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 0
+    assert processed_draft["name"] == "Pancakes"
+    assert processed_draft["ingredients"] == predicted_ingredients
+    assert processed_draft["instructions"][0] == "Gather and prepare ingredients."
+    assert processed_draft["instructions"][1:] == predicted_instructions
+    assert predicted_notes == ["NOTE: Keep warm"]
+    assert result["line_role_pipeline_recipe_projection"]["recipes_applied"] == 1
     assert (
         result["line_role_pipeline_recipe_projection"][
             "authoritative_stage_outputs_mutated"
         ]
         is False
     )
-    assert observed_codex_max_inflight == [8]
 
 
 def test_generate_pred_run_artifacts_line_role_uses_split_gated_inflight_default(
