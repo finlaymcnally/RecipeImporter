@@ -20,18 +20,11 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeCompactContextPayloadV1,
     KnowledgeCompactGuardrailsPayloadV1,
     KnowledgeCompactTableHintV1,
-    KnowledgeBlockV1,
-    KnowledgeContextPayloadV1,
-    KnowledgeGuardrailsPayloadV1,
     KnowledgeHeuristicsPayloadV1,
     KnowledgeJobSourceV1,
-    KnowledgeChunkPayloadV1,
-    KnowledgeTableHintV1,
     KnowledgeCompactJobInputV1,
-    KnowledgeJobInputV1,
     SpanV1,
 )
-LEGACY_KNOWLEDGE_JOB_FORMAT = "legacy"
 COMPACT_KNOWLEDGE_JOB_FORMAT = "compact_v1"
 
 
@@ -54,7 +47,6 @@ def build_knowledge_jobs(
     out_dir: Path,
     context_blocks: int = 2,
     overrides: ParsingOverrides | None = None,
-    job_format: str = COMPACT_KNOWLEDGE_JOB_FORMAT,
     skip_suggested_lanes: Sequence[str] = ("noise",),
 ) -> KnowledgeJobBuildReport:
     """Write knowledge-stage job bundles to out_dir and return a build report.
@@ -120,13 +112,16 @@ def build_knowledge_jobs(
                 table_hints_by_index=table_hints_by_index,
                 recipe_spans_payload=recipe_spans_payload,
                 context_blocks=context_blocks,
-                job_format=job_format,
             )
-            payload_kwargs: dict[str, Any] = {"mode": "json", "by_alias": True}
-            if job_format == COMPACT_KNOWLEDGE_JOB_FORMAT:
-                payload_kwargs["exclude_defaults"] = True
-                payload_kwargs["exclude_none"] = True
-            _write_json(payload.model_dump(**payload_kwargs), out_dir / f"{chunk_id}.json")
+            _write_json(
+                payload.model_dump(
+                    mode="json",
+                    by_alias=True,
+                    exclude_defaults=True,
+                    exclude_none=True,
+                ),
+                out_dir / f"{chunk_id}.json",
+            )
             chunk_ids.append(chunk_id)
             chunk_lane_by_id[chunk_id] = (
                 str(chunk.lane.value) if isinstance(chunk.lane, ChunkLane) else suggested_lane
@@ -173,8 +168,7 @@ def _build_job_payload(
     table_hints_by_index: Mapping[int, KnowledgeTableHintV1],
     recipe_spans_payload: list[SpanV1],
     context_blocks: int,
-    job_format: str,
-) -> KnowledgeJobInputV1 | KnowledgeCompactJobInputV1:
+) -> KnowledgeCompactJobInputV1:
     if not chunk.block_ids:
         raise ValueError(f"Chunk {chunk_id} has no block_ids; cannot build job bundle.")
 
